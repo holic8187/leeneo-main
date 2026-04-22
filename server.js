@@ -1,3 +1,7 @@
+app.get('/', (req, res) => {
+  res.send('일해라 이네오 서버 정상 작동중 🚀');
+});
+
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
