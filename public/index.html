@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>일해라 이네오!! - 통합 문서1</title> <!-- 엑셀 파일명처럼 -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div id="login-screen">
+        <!-- 로그인 폼 (엑셀 스타일로 꾸미기) -->
+        <div class="excel-sheet" style="width: 300px; padding: 20px;">
+            <h3>사원 로그인</h3>
+            <input type="text" id="username" placeholder="사번(ID)">
+            <input type="password" id="password" placeholder="비밀번호">
+            <button id="loginBtn">출근하기</button>
+        </div>
+    </div>
+
+    <div id="setup-screen" class="hidden">
+        <!-- 근무 시간 설정 화면 -->
+        <div class="excel-sheet" style="width: 400px; padding: 20px;">
+             <h3>현실 근무 시간 설정</h3>
+             <p>설정된 시간에만 접속 가능합니다.</p>
+             출근: <input type="number" id="startHour" min="0" max="23"> 시 ~ 
+             퇴근: <input type="number" id="endHour" min="0" max="23"> 시
+             <button id="setHourBtn">설정 완료</button>
+        </div>
+    </div>
+
+    <div id="game-screen" class="hidden excel-sheet">
+        <!-- 6. 상부 재화 인터페이스 -->
+        <div class="status-bar">
+             <div>잔고: ₩<span id="money">0</span></div>
+             <div>월급: <span id="salaryRate">0</span>/분</div>
+             <div>행동력: <span id="stamina">10</span>/10</div>
+             <div>스트레스: <span id="stress">0</span>%</div>
+        </div>
+        <div class="status-bar" style="border-top: none;">
+             <div>Lv.<span id="level">1</span></div>
+             <div style="flex-grow: 1;">
+                 경험치: <progress id="expBar" value="0" max="1000"></progress> 
+                 (<span id="expText">0/1000</span>)
+             </div>
+        </div>
+
+        <table>
+            <!-- 엑셀 헤더 (장식용) -->
+            <tr>
+                <th class="sheet-header"></th>
+                <th class="sheet-header">A</th>
+                <th class="sheet-header">B</th>
+                <th class="sheet-header">C</th>
+                <!-- ... -->
+            </tr>
+            <!-- 4. 중앙 애니메이션 영역 -->
+            <tr>
+                <td class="sheet-header">1</td>
+                <td colspan="10" class="animation-cell" id="anim-display">
+                    (업무 중...)
+                </td>
+            </tr>
+            <!-- 7. 하부 메뉴 영역 -->
+            <tr>
+                <td class="sheet-header">2</td>
+                <td colspan="10" style="padding: 0;">
+                    <div class="menu-tabs">
+                        <button class="active" onclick="showTab('work')">열일하기</button>
+                        <button onclick="showTab('special')">특수 행동</button>
+                        <button onclick="showTab('inventory')">가방</button>
+                        <button onclick="showTab('shop')">인터넷쇼핑</button>
+                        <button onclick="showTab('stats')">능력치</button>
+                    </div>
+                    <div id="tab-work" class="menu-content">
+                        <button id="clickWorkBtn" style="width: 100%; height: 100px; font-size: 1.2em;">
+                            🔥 폭풍 서류 작업 (클릭!) 🔥
+                        </button>
+                    </div>
+                    <div id="tab-special" class="menu-content hidden">
+                        <button id="lupinBtn">월급루팡 (행동력 2 소모)</button>
+                        <p>2시간 동안 스트레스 無, 경험치 1.5배</p>
+                    </div>
+                    <div id="tab-shop" class="menu-content hidden">
+                        <table>
+                            <tr>
+                                <td>모나미 볼펜</td>
+                                <td>100,000원</td>
+                                <td>월급 +0.05%</td>
+                                <td><button id="buyPenBtn">구매</button></td>
+                            </tr>
+                        </table>
+                    </div>
+                    <!-- 다른 탭 컨텐츠들 ... -->
+                </td>
+            </tr>
+        </table>
+    </div>
+
+    <script src="client.js"></script>
+</body>
+</html>

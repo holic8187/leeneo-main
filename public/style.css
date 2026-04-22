@@ -1,0 +1,102 @@
+:root {
+    --excel-bg: #ffffff;
+    --excel-header-bg: #f3f3f3;
+    --excel-border: 1px solid #d4d4d4;
+    --excel-select-bg: #e8f0fe;
+    --excel-text: #000000;
+    --warning-red: #ff0000;
+}
+
+body {
+    font-family: 'Calibri', 'Arial', sans-serif; /* 엑셀 기본 폰트 느낌 */
+    background-color: #f0f0f0;
+    margin: 0;
+    padding: 20px;
+    font-size: 14px;
+}
+
+/* 엑셀 시트 컨테이너 */
+.excel-sheet {
+    background-color: var(--excel-bg);
+    border: var(--excel-border);
+    width: 100%;
+    max-width: 1000px;
+    margin: 0 auto;
+    box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
+}
+
+/* 테이블 스타일 */
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th, td {
+    border: var(--excel-border);
+    padding: 4px 8px;
+    text-align: left;
+    font-weight: normal;
+}
+
+/* 헤더 스타일 (A, B, C... / 1, 2, 3...) */
+.sheet-header {
+    background-color: var(--excel-header-bg);
+    text-align: center;
+    font-weight: bold;
+    color: #666;
+    width: 30px; /* 행 번호 열 너비 */
+}
+
+/* 셀 선택 효과 */
+td:hover {
+    border: 2px solid green; /* 엑셀 선택 느낌 */
+    cursor: default;
+}
+
+/* 상단 재화 정보 영역 */
+.status-bar {
+    background-color: #f9f9f9;
+    padding: 5px;
+    border-bottom: var(--excel-border);
+    display: flex;
+    gap: 20px;
+}
+
+/* 중앙 애니메이션 영역 */
+.animation-cell {
+    height: 200px;
+    text-align: center;
+    vertical-align: middle;
+    font-family: monospace; /* 아스키 아트를 위해 */
+    white-space: pre;
+    background-color: #fafafa;
+}
+
+/* 하단 메뉴 탭 스타일 */
+.menu-tabs button {
+    background-color: var(--excel-header-bg);
+    border: var(--excel-border);
+    border-bottom: none;
+    padding: 5px 15px;
+    cursor: pointer;
+    margin-right: -1px;
+}
+
+.menu-tabs button.active {
+    background-color: var(--excel-bg);
+    border-bottom: 1px solid var(--excel-bg); /* 테두리 가리기 */
+    font-weight: bold;
+}
+
+.menu-content {
+    border-top: var(--excel-border);
+    padding: 10px;
+    min-height: 150px;
+}
+
+/* 스트레스 경고 */
+.stress-warning {
+    box-shadow: inset 0 0 10px var(--warning-red);
+}
+
+.hidden { display: none; }
