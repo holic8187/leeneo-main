@@ -1,6 +1,3 @@
-app.get('/', (req, res) => {
-  res.send('일해라 이네오 서버 정상 작동중 🚀');
-});
 
 require('dotenv').config();
 const express = require('express');
@@ -13,6 +10,11 @@ const User = require('./models/User');
 const app = express();
 app.use(express.json());
 app.use(cors());
+
+app.get('/', (req, res) => {
+  res.send('일해라 이네오 서버 정상 작동중 🚀');
+});
+
 
 // MongoDB 연결
 mongoose.connect(process.env.MONGO_URI)

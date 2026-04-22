@@ -1,3 +1,6 @@
+"scripts": {
+  "start": "node server.js"
+}
 {
   "name": "working-ineo-server",
   "version": "1.0.0",
