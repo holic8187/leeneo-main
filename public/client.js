@@ -1,84 +1,70 @@
-console.log("🚀 client.js 파일이 로드되어 실행을 시작합니다!"); // <-- 이 줄 추가
-
 // ========================
-// 서버 URL 설정
+// 환경 설정 및 전역 변수
 // ========================
-// 로컬 테스트 시 아래 주석을 해제하고 사용하세요.
+// 로컬 테스트 시 아래 주석을 해제하세요.
 const API_URL = "http://localhost:5000";
-
-// 배포된 서버 URL (로컬 테스트 시에는 주석 처리하는 것이 좋습니다)
+// 배포 서버 URL (로컬 테스트 시 주석 처리)
 // const API_URL = "https://leeneo-main.onrender.com";
 
+console.log("🚀 client.js 파일이 로드되었습니다. API URL:", API_URL);
 
 // ========================
-// 초기화 (페이지 로드 후 실행)
+// 초기화 (페이지 로드 완료 후 실행)
 // ========================
-// 이 부분이 가장 중요합니다! 페이지가 다 로드된 후 실행되도록 감쌉니다.
-window.addEventListener("load", () => {
-    console.log("============ 페이지 로드 완료 ============");
+// DOMContentLoaded 이벤트는 HTML 구조가 다 읽혔을 때 발생합니다.
+document.addEventListener("DOMContentLoaded", () => {
+    console.log("✅ DOMContentLoaded 이벤트 발생: HTML이 모두 로드되었습니다.");
     initGame();
 });
 
 function initGame() {
+    console.log("🎮 게임 초기화 시작...");
+
     // 1. 로그인 버튼 연결
     const loginBtn = document.getElementById("loginBtn");
     if (loginBtn) {
-        // 기존에 혹시 연결되었을 리스너 제거 (중복 방지)
-        loginBtn.removeEventListener("click", login);
-        // 새 리스너 연결
-        loginBtn.addEventListener("click", login);
-        console.log("✅ 로그인 버튼 이벤트 리스너 연결 성공");
+        // 중복 연결 방지를 위해 기존 리스너 제거 후 추가
+        loginBtn.removeEventListener("click", handleLoginClick);
+        loginBtn.addEventListener("click", handleLoginClick);
+        console.log("👍 '출근하기' 버튼(loginBtn)을 찾아 클릭 이벤트를 연결했습니다.");
     } else {
-        console.error("❌ 오류: 'loginBtn' 아이디를 가진 버튼을 찾을 수 없습니다. index.html을 확인해주세요.");
+        console.error("❌ 오류: 'loginBtn'이라는 ID를 가진 버튼을 찾을 수 없습니다. HTML을 확인해주세요.");
+        alert("치명적 오류: 로그인 버튼을 찾을 수 없어 게임을 시작할 수 없습니다.");
     }
 
     // 2. 자동 로그인 시도
-    console.log("자동 로그인 시도 중...");
-    const userStr = localStorage.getItem("user");
-    const token = localStorage.getItem("token");
-
-    if (userStr && token) {
-        try {
-            const user = JSON.parse(userStr);
-            console.log("NOTE: 저장된 유저 정보 발견. 자동 로그인 진행.");
-            // 실제로는 토큰 유효성 검사를 서버에 요청해야 하지만, 프로토타입에서는 바로 진입합니다.
-            showGame(user);
-        } catch (e) {
-            console.error("저장된 유저 정보 파싱 실패:", e);
-            // 잘못된 정보는 삭제
-            localStorage.removeItem("user");
-            localStorage.removeItem("token");
-        }
-    } else {
-        console.log("NOTE: 저장된 로그인 정보 없음. 로그인 필요.");
-    }
+    tryAutoLogin();
 }
 
-
 // ========================
-// 로그인 함수
+// 로그인 처리 함수
 // ========================
-async function login(event) {
-    // 폼 제출 기본 동작 막기 (혹시 모를 새로고침 방지)
+async function handleLoginClick(event) {
+    // 폼 제출로 인한 페이지 새로고침 방지
     if (event) event.preventDefault();
 
-    console.log("▶ 로그인 함수 시작 - 버튼 클릭됨");
+    console.log("🖱️ '출근하기' 버튼 클릭됨! 로그인 절차를 시작합니다.");
 
     const usernameInput = document.getElementById("username");
     const passwordInput = document.getElementById("password");
 
-    const username = usernameInput.value;
-    const password = passwordInput.value;
-
-    console.log(`입력 정보 -> 아이디: ${username}, 비밀번호: ${password ? "입력됨" : "비어있음"}`);
-
-    if (!username || !password) {
-        alert("아이디와 비밀번호를 입력하세요");
-        console.warn("로그인 실패: 아이디 또는 비밀번호 미입력");
+    if (!usernameInput || !passwordInput) {
+        console.error("❌ 오류: 아이디 또는 비밀번호 입력 필드를 찾을 수 없습니다.");
         return;
     }
 
-    console.log(`🚀 서버로 요청 보냄: POST ${API_URL}/api/login`);
+    const username = usernameInput.value.trim(); // 공백 제거
+    const password = passwordInput.value;
+
+    console.log(`입력된 정보 - ID: '${username}', PW: ${password ? '입력됨' : '비어있음'}`);
+
+    if (!username || !password) {
+        alert("아이디와 비밀번호를 모두 입력해주세요.");
+        console.warn("⚠️ 로그인 실패: 아이디 또는 비밀번호 미입력");
+        return;
+    }
+
+    console.log(`📤 서버로 로그인 요청 전송 중... (POST ${API_URL}/api/login)`);
 
     try {
         const res = await fetch(`${API_URL}/api/login`, {
@@ -89,119 +75,73 @@ async function login(event) {
             body: JSON.stringify({ username, password })
         });
 
-        console.log("📩 서버 응답 받음. 상태 코드:", res.status);
+        console.log("📩 서버로부터 응답을 받았습니다. 상태 코드:", res.status);
 
         const data = await res.json();
         console.log("서버 응답 데이터:", data);
 
         if (!res.ok) {
-            // 서버에서 에러 메시지를 보낸 경우
-            alert(data.msg || "로그인 실패");
-            console.error("로그인 실패 (서버 거부):", data.msg);
-            return;
+            // 로그인 실패 (비밀번호 틀림, 근무 시간 아님 등)
+            throw new Error(data.msg || `로그인 실패 (코드: ${res.status})`);
         }
 
-        // ✅ 토큰 및 유저 정보 저장
-        localStorage.setItem("token", data.token);
-        localStorage.setItem("user", JSON.stringify(data.user));
-
-        console.log("✅ 로그인 성공! 게임 화면으로 전환합니다.");
-        alert(`${data.user.username}님 환영합니다!`);
-
-        // ✅ 화면 전환
-        showGame(data.user);
+        // 로그인 성공 처리
+        console.log("🎉 로그인 성공!");
+        processLoginSuccess(data);
 
     } catch (err) {
-        console.error("🔥 로그인 처리 중 치명적 에러 발생:", err);
-        alert(`서버 연결 실패!\n\n서버가 켜져 있는지 확인해주세요.\n에러 내용: ${err.message}`);
-    }
-}
-
-// ========================
-// 게임 화면 표시
-// ========================
-function showGame(user) {
-    const loginScreen = document.getElementById("login-screen");
-    const gameScreen = document.getElementById("game-screen");
-
-    if (loginScreen && gameScreen) {
-        loginScreen.classList.add("hidden");
-        gameScreen.classList.remove("hidden");
-        updateUI(user.gameState);
-        startAnimation();
-    } else {
-        console.error("화면 전환 오류: login-screen 또는 game-screen 요소를 찾을 수 없습니다.");
-    }
-}
-
-// ========================
-// UI 업데이트
-// ========================
-function updateUI(state) {
-    // 요소가 존재하는지 안전하게 확인 후 값 업데이트
-    const safeUpdate = (id, value) => {
-        const el = document.getElementById(id);
-        if (el) el.textContent = value;
-    };
-
-    safeUpdate("money", state.money.toLocaleString());
-    safeUpdate("level", state.level);
-    // 필요한 다른 UI 요소들도 여기에 추가
-}
-
-// ========================
-// 애니메이션
-// ========================
-const animations = [
-    [
-        "  O   \n /|\\  [PC]\n / \\ ",
-        " \\O   \n  |\\  [PC]\n / \\ "
-    ],
-    [
-        "  O   \n /|\\  [서류]\n / \\ ",
-        "  O   \n /|\\  ...\n / \\ "
-    ]
-];
-
-let animationInterval;
-
-function startAnimation() {
-    const animEl = document.getElementById("anim-display");
-    if (!animEl) return;
-
-    // 기존 인터벌이 있다면 제거해서 중복 실행 방지
-    if (animationInterval) clearInterval(animationInterval);
-
-    let currentAnim = animations[Math.floor(Math.random() * animations.length)];
-    let frame = 0;
-
-    animationInterval = setInterval(() => {
-        animEl.textContent = currentAnim[frame];
-        frame = (frame + 1) % currentAnim.length;
-    }, 500);
-}
-
-
-// ========================
-// 탭 전환 함수 (전역 스코프)
-// ========================
-window.showTab = function (tabName) {
-    // 모든 탭 컨텐츠 숨기기
-    document.querySelectorAll('.menu-content').forEach(el => el.classList.add('hidden'));
-    // 모든 탭 버튼 비활성화 표시 제거
-    document.querySelectorAll('.menu-tabs button').forEach(el => el.classList.remove('active'));
-
-    // 선택된 탭 컨텐츠 보이기
-    const selectedContent = document.getElementById(`tab-${tabName}`);
-    if (selectedContent) selectedContent.classList.remove('hidden');
-
-    // 클릭된 버튼 활성화 표시 (이벤트 위임 방식이 아니므로 간단히 처리)
-    // 실제 구현 시에는 event.target을 활용하는 것이 더 좋습니다.
-    const buttons = document.querySelectorAll('.menu-tabs button');
-    for (const btn of buttons) {
-        if (btn.getAttribute('onclick').includes(tabName)) {
-            btn.classList.add('active');
-            break;
+        console.error("🔥 로그인 처리 중 에러 발생:", err);
+        alert(`로그인에 실패했습니다.\n\n이유: ${err.message}`);
+        
+        // 특수 에러 코드 처리 (예: 근무 시간 미설정)
+        if (err.code === 'NOT_WORKING_HOUR') {
+            console.log("근무 시간이 아님. 초기 화면 유지.");
         }
     }
 }
+
+// 로그인 성공 시 후속 처리
+function processLoginSuccess(data) {
+    // 토큰 및 유저 정보 저장
+    localStorage.setItem("token", data.token);
+    localStorage.setItem("user", JSON.stringify(data.user));
+    console.log("🔑 토큰 및 유저 정보가 로컬 스토리지에 저장되었습니다.");
+
+    alert(`${data.user.username} 사원님, 오늘도 힘내세요!`);
+
+    // 화면 전환
+    showGameScreen(data.user);
+}
+
+
+// ========================
+// 자동 로그인 기능
+// ========================
+function tryAutoLogin() {
+    console.log("🔄 자동 로그인 시도 중...");
+    const userStr = localStorage.getItem("user");
+    const token = localStorage.getItem("token");
+
+    if (userStr && token) {
+        try {
+            const user = JSON.parse(userStr);
+            console.log(`✅ 저장된 정보 발견. ${user.username} 계정으로 자동 로그인합니다.`);
+            // TODO: 실제 서비스에서는 토큰 유효성 검증 API 호출 필요
+            showGameScreen(user);
+        } catch (e) {
+            console.error("❌ 저장된 유저 정보가 손상되었습니다:", e);
+            localStorage.removeItem("user");
+            localStorage.removeItem("token");
+        }
+    } else {
+        console.log("ℹ️ 저장된 로그인 정보가 없습니다. 수동 로그인이 필요합니다.");
+    }
+}
+
+
+// ========================
+// 화면 전환 및 UI 업데이트
+// ========================
+function showGameScreen(user) {
+    console.log("🖥️ 게임 화면으로 전환합니다.");
+    const loginScreen = document.getElementById("log
