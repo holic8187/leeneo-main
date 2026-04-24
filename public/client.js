@@ -2,9 +2,9 @@
 // 환경 설정 및 전역 변수
 // ========================
 // 로컬 테스트 시 아래 주석을 해제하세요.
-const API_URL = "http://localhost:5000";
+//const API_URL = "http://localhost:5000";
 // 배포 서버 URL (로컬 테스트 시 주석 처리)
-// const API_URL = "https://leeneo-main.onrender.com";
+const API_URL = "https://leeneo-main.onrender.com";
 
 console.log("🚀 client.js 파일이 로드되었습니다. API URL:", API_URL);
 
