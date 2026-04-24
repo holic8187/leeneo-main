@@ -1,192 +1,131 @@
 // ========================
 // 환경 설정
 // ========================
-// 로컬 테스트 시 주석 해제, 배포 시 주석 처리
-const API_URL = "http://localhost:5000";
-// const API_URL = "https://leeneo-main.onrender.com";
+// const API_URL = "http://localhost:5000";
+const API_URL = "https://leeneo-main.onrender.com";
 
 console.log("🚀 client.js 로드됨. API URL:", API_URL);
 
+// 아이템 데이터 (나중에는 서버에서 받아와야 함)
+const ITEM_DATA = {
+    'pen_monami': { name: '모나미 볼펜', desc: '월급 +0.05%' },
+    'coffee_mix': { name: '맥심 커피믹스', desc: '스트레스 감소율 +2%' }
+};
+
 
 // ========================
-// 초기화 (페이지 로드 완료 후 실행)
+// 초기화
 // ========================
 document.addEventListener("DOMContentLoaded", () => {
-    console.log("✅ DOMContentLoaded 이벤트 발생: HTML이 모두 로드되었습니다.");
     initGame();
 });
 
 function initGame() {
     console.log("🎮 게임 초기화...");
-
-    // 1. 이벤트 리스너 연결 (버튼 클릭 등)
     setupEventListeners();
-
-    // 2. 자동 로그인 시도
     tryAutoLogin();
 }
 
 function setupEventListeners() {
-    // 로그인 버튼 (출근하기)
     const loginBtn = document.getElementById("loginBtn");
     if (loginBtn) {
-        console.log("👍 '출근하기' 버튼 연결됨");
         loginBtn.removeEventListener("click", handleLoginClick);
         loginBtn.addEventListener("click", handleLoginClick);
-    } else {
-        console.error("❌ 'loginBtn' 버튼을 찾을 수 없습니다. HTML을 확인해주세요.");
     }
-
-    // [추가됨] 로그아웃 버튼 (퇴근하기)
     const logoutBtn = document.getElementById("logoutBtn");
     if (logoutBtn) {
-        console.log("👍 '퇴근하기' 버튼 연결됨");
         logoutBtn.removeEventListener("click", handleLogoutClick);
         logoutBtn.addEventListener("click", handleLogoutClick);
-    } else {
-        console.error("❌ 'logoutBtn' 버튼을 찾을 수 없습니다. HTML을 확인해주세요.");
     }
-
-    // [추가됨] '열일하기' 버튼 (폭풍 서류 작업)
     const clickWorkBtn = document.getElementById("clickWorkBtn");
     if (clickWorkBtn) {
-        console.log("👍 '열일하기' 버튼 연결됨");
         clickWorkBtn.removeEventListener("click", handleClickWork);
         clickWorkBtn.addEventListener("click", handleClickWork);
-    } else {
-        console.error("❌ 'clickWorkBtn' 버튼을 찾을 수 없습니다.");
     }
-
-    // 탭 전환 버튼들은 window.showTab 함수가 처리합니다.
 }
 
 
 // ========================
-// 로그인 관련 함수
+// 로그인/로그아웃 함수
 // ========================
 async function handleLoginClick(event) {
-    // 폼 제출 기본 동작 막기
     if (event) event.preventDefault();
-
-    console.log("🖱️ '출근하기' 클릭! 로그인 시도...");
-
     const usernameInput = document.getElementById("username");
     const passwordInput = document.getElementById("password");
-    const username = usernameInput.value.trim(); // 공백 제거
+    const username = usernameInput.value.trim();
     const password = passwordInput.value;
 
     if (!username || !password) {
-        alert("아이디와 비밀번호를 모두 입력해주세요.");
+        alert("아이디와 비밀번호를 입력해주세요.");
         return;
     }
 
     try {
-        // 서버에 로그인 요청 전송
         const res = await fetch(`${API_URL}/api/login`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ username, password })
         });
-        
         const data = await res.json();
 
-        if (!res.ok) {
-            throw new Error(data.msg || `로그인 실패 (코드: ${res.status})`);
-        }
+        if (!res.ok) throw new Error(data.msg || `로그인 실패 (코드: ${res.status})`);
 
         // 로그인 성공 처리
-        console.log("🎉 로그인 성공!");
         processLoginSuccess(data);
 
     } catch (err) {
-        console.error("🔥 로그인 에러:", err);
+        console.error("로그인 에러:", err);
         alert(`로그인 실패: ${err.message}`);
     }
 }
 
 function processLoginSuccess(data) {
-    // 토큰 및 유저 정보 저장
     localStorage.setItem("token", data.token);
     localStorage.setItem("user", JSON.stringify(data.user));
-    console.log("🔑 로그인 정보 저장 완료.");
-
-    // 알림 및 화면 전환
-    alert(`${data.user.username} 사원님, 환영합니다! (초기자금 10만원 지급됨)`);
+    alert(`${data.user.username} 사원님, 환영합니다!`);
     showGameScreen(data.user);
 }
 
 function tryAutoLogin() {
-    console.log("🔄 자동 로그인 시도 중...");
     const userStr = localStorage.getItem("user");
     const token = localStorage.getItem("token");
-
     if (userStr && token) {
         try {
             const user = JSON.parse(userStr);
-            console.log(`✅ 자동 로그인: ${user.username}`);
-            // TODO: 실제 서비스에서는 토큰 유효성 검증 API 호출 필요
             showGameScreen(user);
         } catch (e) {
-            console.error("❌ 로그인 정보 손상됨:", e);
             localStorage.removeItem("user");
             localStorage.removeItem("token");
         }
-    } else {
-        console.log("ℹ️ 저장된 로그인 정보 없음.");
     }
 }
 
-
-// ========================
-// [추가됨] 로그아웃 처리 함수 ('퇴근하기' 클릭)
-// ========================
 function handleLogoutClick() {
-    console.log("👋 '퇴근하기' 클릭! 로그아웃 절차를 시작합니다.");
-
-    // 1. 로컬 스토리지에서 로그인 정보 삭제
     localStorage.removeItem("token");
     localStorage.removeItem("user");
-    console.log("✅ 로컬 스토리지의 로그인 정보가 삭제되었습니다.");
-
-    // 2. 화면 전환 (게임 화면 숨기기, 로그인 화면 보이기)
-    const loginScreen = document.getElementById("login-screen");
-    const gameScreen = document.getElementById("game-screen");
-
-    if (loginScreen && gameScreen) {
-        gameScreen.classList.add("hidden");
-        loginScreen.classList.remove("hidden");
-        
-        // 3. 로그인 폼 초기화 (아이디/비번 입력창 비우기)
-        document.getElementById("username").value = "";
-        document.getElementById("password").value = "";
-
-        // 4. 애니메이션 정지
-        if (animationInterval) clearInterval(animationInterval);
-
-        console.log("🖥️ 초기 로그인 화면으로 돌아왔습니다.");
-        alert("정상적으로 퇴근(로그아웃) 처리되었습니다. 수고하셨습니다!");
-    } else {
-        console.error("❌ 화면 전환 실패: 필요한 HTML 요소를 찾을 수 없습니다.");
-    }
+    document.getElementById("game-screen").classList.add("hidden");
+    document.getElementById("login-screen").classList.remove("hidden");
+    document.getElementById("username").value = "";
+    document.getElementById("password").value = "";
+    if (animationInterval) clearInterval(animationInterval);
+    alert("로그아웃되었습니다.");
 }
 
 
 // ========================
-// [추가됨] 액션 처리 함수 ('열일하기' 클릭)
+// 액션 처리 함수 ('열일하기')
 // ========================
 async function handleClickWork() {
     const userStr = localStorage.getItem("user");
-    if (!userStr) {
-        alert("로그인이 필요합니다.");
-        handleLogoutClick(); // 로그인 화면으로 돌려보냄
+    if (!userStr) return handleLogoutClick();
+    const user = JSON.parse(userStr);
+
+    // [추가됨] 행동력 체크 (클라이언트 측 선검사)
+    if (user.gameState.stamina < 1) {
+        alert("행동력이 부족합니다! 내일 다시 시도하거나 휴식을 취하세요.");
         return;
     }
-    const user = JSON.parse(userStr);
-    const userId = user._id;
 
-    console.log("🔥 '폭풍 서류 작업' 클릭! 서버에 요청 보냄...");
-
-    // 버튼 임시 비활성화 (중복 클릭 방지)
     const btn = document.getElementById("clickWorkBtn");
     btn.disabled = true;
     btn.textContent = "🔥 처리중... 🔥";
@@ -194,31 +133,28 @@ async function handleClickWork() {
     try {
         const res = await fetch(`${API_URL}/api/action/work`, {
             method: "POST",
-            headers: { 
-                "Content-Type": "application/json"
-                // 추후에는 여기에 "Authorization": `Bearer ${localStorage.getItem("token")}` 추가 필요
-            },
-            body: JSON.stringify({ userId: userId })
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId: user._id })
         });
 
-        const updatedGameState = await res.json();
+        const data = await res.json();
 
-        if (!res.ok) throw new Error(updatedGameState.msg || "작업 실패");
+        if (!res.ok) throw new Error(data.msg || "작업 실패");
 
-        console.log("✅ 작업 성공! 경험치 획득.", updatedGameState);
-
-        // 로컬 스토리지의 유저 정보도 최신 상태로 업데이트
-        user.gameState = updatedGameState;
+        // 유저 정보 업데이트
+        user.gameState = data.gameState;
+        user.itemStats = data.itemStats;
         localStorage.setItem("user", JSON.stringify(user));
 
-        // UI 즉시 업데이트
-        updateUI(updatedGameState);
+        // UI 업데이트
+        updateUI(user.gameState, user.itemStats);
+        // [추가됨] 스트레스 경고 효과
+        updateStressEffect(user.gameState.stress);
 
     } catch (err) {
         console.error("작업 요청 실패:", err);
-        // alert(`작업 실패: ${err.message}`); // 너무 자주 뜨면 귀찮으니 콘솔에만 표시
+        alert(err.message);
     } finally {
-        // 버튼 다시 활성화 (약간의 딜레이를 줌)
         setTimeout(() => {
             btn.disabled = false;
             btn.textContent = "🔥 폭풍 서류 작업 (클릭!) 🔥";
@@ -228,63 +164,108 @@ async function handleClickWork() {
 
 
 // ========================
-// 화면 전환 및 UI 업데이트
+// 화면 및 UI 업데이트
 // ========================
 function showGameScreen(user) {
-    const loginScreen = document.getElementById("login-screen");
-    const gameScreen = document.getElementById("game-screen");
-
-    if (loginScreen && gameScreen) {
-        loginScreen.classList.add("hidden");
-        gameScreen.classList.remove("hidden");
-        updateUI(user.gameState);
-        startAnimation();
-    } else {
-        console.error("❌ 화면 전환 실패: 필요한 HTML 요소를 찾을 수 없습니다.");
-    }
+    document.getElementById("login-screen").classList.add("hidden");
+    document.getElementById("game-screen").classList.remove("hidden");
+    updateUI(user.gameState, user.itemStats);
+    updateInventoryUI(user.inventory); // [추가됨] 인벤토리 UI 업데이트
+    updateStressEffect(user.gameState.stress); // [추가됨] 스트레스 효과 업데이트
+    startAnimation();
 }
 
-function updateUI(state) {
+function updateUI(state, itemStats) {
     if (!state) return;
 
     const setText = (id, value) => {
         const el = document.getElementById(id);
         if (el) el.textContent = value;
-        else console.warn(`⚠️ UI 업데이트 실패: 요소 #${id}를 찾을 수 없습니다.`);
     };
 
-    // 돈 업데이트 (콤마 표시)
-    setText("money", state.money ? state.money.toLocaleString() : 0);
-    
-    // 레벨 업데이트
-    setText("level", state.level || 1);
-    
-    // 경험치 업데이트 (텍스트 및 프로그레스 바)
-    const maxExp = 1000; // TODO: 레벨별 필요 경험치 공식 적용 필요
-    setText("expText", `${state.exp || 0}/${maxExp}`);
+    // 기본 정보 업데이트
+    setText("money", state.money.toLocaleString());
+    setText("level", state.level);
+    setText("stamina", `${state.stamina}/${state.maxStamina}`); // [추가됨] 행동력 표시
+    setText("stress", state.stress.toFixed(1)); // [추가됨] 스트레스 표시 (소수점 1자리)
+
+    // 경험치바 업데이트
+    const maxExp = 1000; // TODO: 공식 적용 필요
+    setText("expText", `${state.exp}/${maxExp}`);
     const expBar = document.getElementById("expBar");
     if (expBar) {
         expBar.max = maxExp;
-        expBar.value = state.exp || 0;
+        expBar.value = state.exp;
     }
 
-    // 분당 예상 월급 표시 (기획 수치 기반 계산)
-    const baseSalaryPerMin = (2000000 / 24 / 60); // 약 1388.88...
-    const levelFactor = Math.pow(1.05, (state.level || 1) - 1);
-    const currentSalaryRate = Math.floor(baseSalaryPerMin * levelFactor);
+    // 월급 계산 (아이템 보너스 적용)
+    const baseSalaryPerMin = (2000000 / 24 / 60);
+    const levelFactor = Math.pow(1.05, (state.level - 1));
+    // [추가됨] 아이템 보너스 적용
+    const itemBonus = 1 + (itemStats ? (itemStats.moneyBonus || 0) / 100 : 0);
+    const currentSalaryRate = Math.floor(baseSalaryPerMin * levelFactor * itemBonus);
     setText("salaryRate", currentSalaryRate.toLocaleString());
 
-    // 기타 정보 (추후 구현)
-    // setText("stamina", state.stamina);
-    // setText("stress", state.stress);
+    // [추가됨] 능력치 탭 업데이트
+    updateStatsTab(state, itemStats, currentSalaryRate);
+}
+
+// [추가됨] 인벤토리 UI 업데이트 함수
+function updateInventoryUI(inventory) {
+    const inventoryList = document.getElementById("inventory-list");
+    if (!inventoryList) return;
+
+    inventoryList.innerHTML = ''; // 기존 목록 초기화
+
+    if (!inventory || inventory.length === 0) {
+        inventoryList.innerHTML = '<tr><td colspan="3">가방이 비어있습니다.</td></tr>';
+        return;
+    }
+
+    inventory.forEach(item => {
+        const itemInfo = ITEM_DATA[item.itemId];
+        if (itemInfo) {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${itemInfo.name}</td>
+                <td>${item.quantity}개</td>
+                <td>${itemInfo.desc}</td>
+            `;
+            inventoryList.appendChild(row);
+        }
+    });
+}
+
+// [추가됨] 능력치 탭 UI 업데이트 함수
+function updateStatsTab(state, itemStats, salaryRate) {
+    const statsList = document.getElementById("stats-list");
+    if (!statsList) return;
+
+    statsList.innerHTML = `
+        <tr><td>레벨</td><td>${state.level}</td></tr>
+        <tr><td>보유 자산</td><td>₩${state.money.toLocaleString()}</td></tr>
+        <tr><td>분당 월급</td><td>₩${salaryRate.toLocaleString()} (기본 + 아이템 보너스)</td></tr>
+        <tr><td>스트레스</td><td>${state.stress.toFixed(1)}% (100% 시 경험치 획득량 절반)</td></tr>
+        <tr><td>경험치 보너스</td><td>+${itemStats ? (itemStats.expBonus || 0).toFixed(2) : 0}%</td></tr>
+        <tr><td>스트레스 감소율</td><td>+${itemStats ? (itemStats.stressReduction || 0).toFixed(2) : 0}%</td></tr>
+    `;
+}
+
+// [추가됨] 스트레스 경고 효과 함수
+function updateStressEffect(stress) {
+    const gameScreen = document.getElementById("game-screen");
+    if (stress >= 90) {
+        gameScreen.classList.add("stress-warning");
+    } else {
+        gameScreen.classList.remove("stress-warning");
+    }
 }
 
 
 // ========================
-// 애니메이션 및 탭 기능
+// 기타 유틸리티
 // ========================
 let animationInterval;
-// 백틱(`)을 사용하여 여러 줄 문자열을 안전하게 정의합니다.
 const animations = [
     [`  O   \n /|\\  [PC]\n / \\ `, ` \\O   \n  |\\  [PC]\n / \\ `],
     [`  O   \n /|\\  [서류]\n / \\ `, `  O   \n /|\\  ...\n / \\ `]
@@ -293,28 +274,20 @@ const animations = [
 function startAnimation() {
     const animEl = document.getElementById("anim-display");
     if (!animEl) return;
-
     if (animationInterval) clearInterval(animationInterval);
-
     let currentAnim = animations[Math.floor(Math.random() * animations.length)];
     let frame = 0;
-
-    console.log("🎬 업무 애니메이션 시작");
     animationInterval = setInterval(() => {
         animEl.textContent = currentAnim[frame];
         frame = (frame + 1) % currentAnim.length;
     }, 500);
 }
 
-// 탭 전환 함수 (전역 스코프에 노출)
 window.showTab = function(tabName) {
     document.querySelectorAll('.menu-content').forEach(el => el.classList.add('hidden'));
     document.querySelectorAll('.menu-tabs button').forEach(el => el.classList.remove('active'));
-
     const selectedContent = document.getElementById(`tab-${tabName}`);
     if (selectedContent) selectedContent.classList.remove('hidden');
-
-    // 클릭된 버튼 활성화 처리 (간단한 방식)
     const btns = document.getElementsByTagName('button');
     for (let btn of btns) {
         if (btn.getAttribute('onclick') === `showTab('${tabName}')`) {
