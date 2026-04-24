@@ -30,11 +30,15 @@
 
     <div id="game-screen" class="hidden excel-sheet">
         <!-- 6. 상부 재화 인터페이스 -->
-        <div class="status-bar">
-             <div>잔고: ₩<span id="money">0</span></div>
-             <div>월급: <span id="salaryRate">0</span>/분</div>
-             <div>행동력: <span id="stamina">10</span>/10</div>
-             <div>스트레스: <span id="stress">0</span>%</div>
+        <div class="status-bar" style="justify-content: space-between; align-items: center;"> <!-- 스타일 수정 -->
+             <div style="display: flex; gap: 20px;"> <!-- 기존 정보들을 감싸는 div 추가 -->
+                 <div>잔고: ₩<span id="money">0</span></div>
+                 <div>월급: ₩<span id="salaryRate">0</span>/분</div>
+                 <div>행동력: <span id="stamina">10</span>/10</div>
+                 <div>스트레스: <span id="stress">0</span>%</div>
+             </div>
+             <!-- [추가됨] 로그아웃 버튼 -->
+             <button id="logoutBtn" style="padding: 5px 10px; font-size: 0.9em;">퇴근하기 (로그아웃)</button>
         </div>
         <div class="status-bar" style="border-top: none;">
              <div>Lv.<span id="level">1</span></div>
@@ -98,6 +102,6 @@
 
     
 </body>
-<!-- index.html 맨 아래쪽 -->
-<script src="client.js"></script>
+<!-- 브라우저 캐시 방지를 위해 버전 정보 추가 -->
+<script src="client.js?v=2"></script>
 </html>
