@@ -1,16 +1,21 @@
 // ========================
-// 환경 설정
+// 환경 설정 및 데이터
 // ========================
 // const API_URL = "http://localhost:5000";
 const API_URL = "https://leeneo-main.onrender.com";
 
 console.log("🚀 client.js 로드됨. API URL:", API_URL);
 
-// 아이템 데이터 (나중에는 서버에서 받아와야 함)
 const ITEM_DATA = {
-    'pen_monami': { name: '모나미 볼펜', desc: '월급 +0.05%' },
-    'coffee_mix': { name: '맥심 커피믹스', desc: '스트레스 감소율 +2%' }
+    'pen_monami': { name: '모나미 볼펜', price: 100000, desc: '월급 +0.05%' },
+    'coffee_mix': { name: '맥심 커피믹스', price: 50000, desc: '스트레스 감소율 +2%' }
 };
+
+const BUFF_DATA = {
+    'lupin_buff': { name: '월급루팡 중', desc: '스트레스가 오르지 않고, 경험치 획득량이 1.5배 증가합니다.' }
+};
+
+let updateInterval;
 
 
 // ========================
@@ -37,16 +42,32 @@ function setupEventListeners() {
         logoutBtn.removeEventListener("click", handleLogoutClick);
         logoutBtn.addEventListener("click", handleLogoutClick);
     }
+    const setNicknameBtn = document.getElementById("setNicknameBtn");
+    if (setNicknameBtn) {
+        setNicknameBtn.removeEventListener("click", handleSetNicknameClick);
+        setNicknameBtn.addEventListener("click", handleSetNicknameClick);
+    }
     const clickWorkBtn = document.getElementById("clickWorkBtn");
     if (clickWorkBtn) {
         clickWorkBtn.removeEventListener("click", handleClickWork);
         clickWorkBtn.addEventListener("click", handleClickWork);
     }
+    const lupinBtn = document.getElementById("lupinBtn");
+    if (lupinBtn) {
+        lupinBtn.removeEventListener("click", handleLupinClick);
+        lupinBtn.addEventListener("click", handleLupinClick);
+    }
+    // [추가됨] 낮잠자기 버튼
+    const napBtn = document.getElementById("napBtn");
+    if (napBtn) {
+        napBtn.removeEventListener("click", handleNapClick);
+        napBtn.addEventListener("click", handleNapClick);
+    }
 }
 
 
 // ========================
-// 로그인/로그아웃 함수
+// 로그인/로그아웃/닉네임 함수
 // ========================
 async function handleLoginClick(event) {
     if (event) event.preventDefault();
@@ -70,7 +91,6 @@ async function handleLoginClick(event) {
 
         if (!res.ok) throw new Error(data.msg || `로그인 실패 (코드: ${res.status})`);
 
-        // 로그인 성공 처리
         processLoginSuccess(data);
 
     } catch (err) {
@@ -82,8 +102,49 @@ async function handleLoginClick(event) {
 function processLoginSuccess(data) {
     localStorage.setItem("token", data.token);
     localStorage.setItem("user", JSON.stringify(data.user));
-    alert(`${data.user.username} 사원님, 환영합니다!`);
-    showGameScreen(data.user);
+
+    if (data.isNewUser || !data.user.nickname) {
+        alert("환영합니다! 게임에서 사용할 닉네임을 설정해주세요.");
+        document.getElementById("login-screen").classList.add("hidden");
+        document.getElementById("nickname-screen").classList.remove("hidden");
+    } else {
+        alert(`${data.user.nickname} 사원님, 환영합니다!`);
+        showGameScreen(data.user);
+    }
+}
+
+async function handleSetNicknameClick() {
+    const nicknameInput = document.getElementById("nicknameInput");
+    const nickname = nicknameInput.value.trim();
+    if (!nickname) {
+        alert("닉네임을 입력해주세요.");
+        return;
+    }
+
+    const userStr = localStorage.getItem("user");
+    if (!userStr) return handleLogoutClick();
+    const user = JSON.parse(userStr);
+
+    try {
+        const res = await fetch(`${API_URL}/api/set-nickname`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId: user._id, nickname: nickname })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.msg || "닉네임 설정 실패");
+
+        user.nickname = data.nickname;
+        localStorage.setItem("user", JSON.stringify(user));
+        
+        alert("닉네임이 설정되었습니다.");
+        document.getElementById("nickname-screen").classList.add("hidden");
+        showGameScreen(user);
+
+    } catch (err) {
+        console.error("닉네임 설정 에러:", err);
+        alert(err.message);
+    }
 }
 
 function tryAutoLogin() {
@@ -92,6 +153,9 @@ function tryAutoLogin() {
     if (userStr && token) {
         try {
             const user = JSON.parse(userStr);
+            if (!user.nickname) {
+                throw new Error("닉네임 미설정");
+            }
             showGameScreen(user);
         } catch (e) {
             localStorage.removeItem("user");
@@ -103,28 +167,28 @@ function tryAutoLogin() {
 function handleLogoutClick() {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
+    
     document.getElementById("game-screen").classList.add("hidden");
+    document.getElementById("nickname-screen").classList.add("hidden");
     document.getElementById("login-screen").classList.remove("hidden");
+    
     document.getElementById("username").value = "";
     document.getElementById("password").value = "";
+    
     if (animationInterval) clearInterval(animationInterval);
+    if (updateInterval) clearInterval(updateInterval);
+
     alert("로그아웃되었습니다.");
 }
 
 
 // ========================
-// 액션 처리 함수 ('열일하기')
+// 액션 처리 함수 ('열일하기', '월급루팡', '낮잠자기', '구매')
 // ========================
 async function handleClickWork() {
     const userStr = localStorage.getItem("user");
     if (!userStr) return handleLogoutClick();
     const user = JSON.parse(userStr);
-
-    // [추가됨] 행동력 체크 (클라이언트 측 선검사)
-    if (user.gameState.stamina < 1) {
-        alert("행동력이 부족합니다! 내일 다시 시도하거나 휴식을 취하세요.");
-        return;
-    }
 
     const btn = document.getElementById("clickWorkBtn");
     btn.disabled = true;
@@ -136,29 +200,130 @@ async function handleClickWork() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ userId: user._id })
         });
-
         const data = await res.json();
-
         if (!res.ok) throw new Error(data.msg || "작업 실패");
 
-        // 유저 정보 업데이트
         user.gameState = data.gameState;
+        user.buffs = data.buffs;
         user.itemStats = data.itemStats;
         localStorage.setItem("user", JSON.stringify(user));
 
-        // UI 업데이트
-        updateUI(user.gameState, user.itemStats);
-        // [추가됨] 스트레스 경고 효과
-        updateStressEffect(user.gameState.stress);
+        updateGameUI(user);
 
     } catch (err) {
         console.error("작업 요청 실패:", err);
-        alert(err.message);
     } finally {
         setTimeout(() => {
             btn.disabled = false;
-            btn.textContent = "🔥 폭풍 서류 작업 (클릭!) 🔥";
+            btn.textContent = "🔥 폭풍 서류 작업 (클릭! 스트레스 약간 증가) 🔥";
         }, 100);
+    }
+}
+
+async function handleLupinClick() {
+    const userStr = localStorage.getItem("user");
+    if (!userStr) return handleLogoutClick();
+    const user = JSON.parse(userStr);
+
+    if (user.gameState.stamina < 2) {
+        alert("행동력이 부족합니다! (필요: 2)");
+        return;
+    }
+
+    const btn = document.getElementById("lupinBtn");
+    btn.disabled = true;
+
+    try {
+        const res = await fetch(`${API_URL}/api/action/lupin`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId: user._id })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.msg || "월급루팡 실패");
+
+        user.gameState = data.gameState;
+        user.buffs = data.buffs;
+        user.itemStats = data.itemStats;
+        localStorage.setItem("user", JSON.stringify(user));
+
+        updateGameUI(user);
+        alert("월급루팡 시작! (2시간 동안 지속)");
+
+    } catch (err) {
+        console.error("월급루팡 요청 실패:", err);
+        alert(err.message);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+// [추가됨] 낮잠자기 액션 처리
+async function handleNapClick() {
+    const userStr = localStorage.getItem("user");
+    if (!userStr) return handleLogoutClick();
+    const user = JSON.parse(userStr);
+
+    if (user.gameState.stamina < 3) {
+        alert("행동력이 부족합니다! (필요: 3)");
+        return;
+    }
+
+    const btn = document.getElementById("napBtn");
+    btn.disabled = true;
+
+    try {
+        const res = await fetch(`${API_URL}/api/action/nap`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId: user._id })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.msg || "낮잠자기 실패");
+
+        user.gameState = data.gameState;
+        user.buffs = data.buffs;
+        user.itemStats = data.itemStats;
+        localStorage.setItem("user", JSON.stringify(user));
+
+        updateGameUI(user);
+        alert("낮잠을 자고 나니 스트레스가 줄었습니다. (스트레스 -30)");
+
+    } catch (err) {
+        console.error("낮잠자기 요청 실패:", err);
+        alert(err.message);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function handleBuyClick(itemId) {
+    const userStr = localStorage.getItem("user");
+    if (!userStr) return handleLogoutClick();
+    const user = JSON.parse(userStr);
+
+    if (!confirm(`${ITEM_DATA[itemId].name}을(를) 구매하시겠습니까?`)) return;
+
+    try {
+        const res = await fetch(`${API_URL}/api/shop/buy`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId: user._id, itemId: itemId })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.msg || "구매 실패");
+
+        user.gameState = data.gameState;
+        user.inventory = data.inventory;
+        user.itemStats = data.itemStats;
+        localStorage.setItem("user", JSON.stringify(user));
+
+        updateGameUI(user);
+        alert("구매 완료!");
+
+    } catch (err) {
+        console.error("구매 요청 실패:", err);
+        alert(err.message);
     }
 }
 
@@ -168,79 +333,156 @@ async function handleClickWork() {
 // ========================
 function showGameScreen(user) {
     document.getElementById("login-screen").classList.add("hidden");
+    document.getElementById("nickname-screen").classList.add("hidden");
     document.getElementById("game-screen").classList.remove("hidden");
-    updateUI(user.gameState, user.itemStats);
-    updateInventoryUI(user.inventory); // [추가됨] 인벤토리 UI 업데이트
-    updateStressEffect(user.gameState.stress); // [추가됨] 스트레스 효과 업데이트
+    
+    updateGameUI(user);
     startAnimation();
+    startPeriodicUpdates();
 }
 
-function updateUI(state, itemStats) {
-    if (!state) return;
+function updateGameUI(user) {
+    updateUI(user.gameState, user.itemStats, user.nickname);
+    updateBuffUI(user.buffs, user.gameState.stress); // 스트레스 정보 전달
+    updateInventoryUI(user.inventory);
+    updateShopUI();
+    updateStressEffect(user.gameState.stress);
+}
 
+function updateUI(state, itemStats, nickname) {
+    if (!state) return;
     const setText = (id, value) => {
         const el = document.getElementById(id);
         if (el) el.textContent = value;
     };
 
-    // 기본 정보 업데이트
+    setText("userNickname", nickname);
     setText("money", state.money.toLocaleString());
     setText("level", state.level);
-    setText("stamina", `${state.stamina}/${state.maxStamina}`); // [추가됨] 행동력 표시
-    setText("stress", state.stress.toFixed(1)); // [추가됨] 스트레스 표시 (소수점 1자리)
-
-    // 경험치바 업데이트
-    const maxExp = 1000; // TODO: 공식 적용 필요
-    setText("expText", `${state.exp}/${maxExp}`);
-    const expBar = document.getElementById("expBar");
-    if (expBar) {
-        expBar.max = maxExp;
-        expBar.value = state.exp;
+    setText("stamina", `${state.stamina}/${state.maxStamina}`);
+    
+    // [수정됨] 스트레스 100일 때 빨간색 표시
+    const stressEl = document.getElementById("stress");
+    stressEl.textContent = state.stress.toFixed(1);
+    if (state.stress >= 100) {
+        stressEl.style.color = "red";
+        stressEl.style.fontWeight = "bold";
+    } else {
+        stressEl.style.color = "inherit";
+        stressEl.style.fontWeight = "normal";
     }
 
-    // 월급 계산 (아이템 보너스 적용)
+    const maxExp = 1000;
+    setText("expText", `${state.exp}/${maxExp}`);
+    const expBar = document.getElementById("expBar");
+    if (expBar) { expBar.max = maxExp; expBar.value = state.exp; }
+
     const baseSalaryPerMin = (2000000 / 24 / 60);
     const levelFactor = Math.pow(1.05, (state.level - 1));
-    // [추가됨] 아이템 보너스 적용
     const itemBonus = 1 + (itemStats ? (itemStats.moneyBonus || 0) / 100 : 0);
     const currentSalaryRate = Math.floor(baseSalaryPerMin * levelFactor * itemBonus);
     setText("salaryRate", currentSalaryRate.toLocaleString());
 
-    // [추가됨] 능력치 탭 업데이트
     updateStatsTab(state, itemStats, currentSalaryRate);
 }
 
-// [추가됨] 인벤토리 UI 업데이트 함수
+// [수정됨] 버프/디버프 UI 업데이트
+function updateBuffUI(buffs, stress) {
+    const buffListEl = document.getElementById("buff-list");
+    if (!buffListEl) return;
+    buffListEl.innerHTML = '';
+
+    const now = new Date();
+    let hasBuffs = false;
+
+    // 버프 표시
+    if (buffs) {
+        buffs.forEach(buff => {
+            const buffInfo = BUFF_DATA[buff.buffId];
+            const expiresAt = new Date(buff.expiresAt);
+            
+            if (expiresAt <= now) return;
+
+            hasBuffs = true;
+            const remainingMs = expiresAt - now;
+            const remainingMin = Math.floor(remainingMs / 60000);
+            const remainingSec = Math.floor((remainingMs % 60000) / 1000);
+            const remainingText = `${remainingMin}분 ${remainingSec}초 남음`;
+
+            if (buffInfo) {
+                const buffItem = document.createElement('div');
+                buffItem.className = 'buff-item';
+                buffItem.innerHTML = `
+                    ${buffInfo.name}
+                    <span class="buff-tooltip">
+                        <strong>${buffInfo.name}</strong><br>
+                        ${buffInfo.desc}<br><br>
+                        (${remainingText})
+                    </span>
+                `;
+                buffListEl.appendChild(buffItem);
+            }
+        });
+    }
+
+    // [추가됨] 스트레스 디버프 표시
+    if (stress >= 100) {
+        hasBuffs = true;
+        const debuffItem = document.createElement('div');
+        debuffItem.className = 'debuff-item';
+        debuffItem.innerHTML = `
+            스트레스 과다
+            <span class="buff-tooltip">
+                <strong>스트레스 과다 (100%)</strong><br>
+                경험치 획득량이 50% 감소합니다.<br>
+                휴식이 필요합니다.
+            </span>
+        `;
+        buffListEl.appendChild(debuffItem);
+    }
+
+    if (!hasBuffs) {
+        buffListEl.textContent = '(없음)';
+    }
+}
+
 function updateInventoryUI(inventory) {
     const inventoryList = document.getElementById("inventory-list");
     if (!inventoryList) return;
-
-    inventoryList.innerHTML = ''; // 기존 목록 초기화
-
+    inventoryList.innerHTML = '';
     if (!inventory || inventory.length === 0) {
         inventoryList.innerHTML = '<tr><td colspan="3">가방이 비어있습니다.</td></tr>';
         return;
     }
-
     inventory.forEach(item => {
         const itemInfo = ITEM_DATA[item.itemId];
         if (itemInfo) {
-            const row = document.createElement('tr');
-            row.innerHTML = `
-                <td>${itemInfo.name}</td>
-                <td>${item.quantity}개</td>
-                <td>${itemInfo.desc}</td>
+            inventoryList.innerHTML += `
+                <tr><td>${itemInfo.name}</td><td>${item.quantity}개</td><td>${itemInfo.desc}</td></tr>
             `;
-            inventoryList.appendChild(row);
         }
     });
 }
 
-// [추가됨] 능력치 탭 UI 업데이트 함수
+function updateShopUI() {
+    const shopList = document.getElementById("shop-list");
+    if (!shopList) return;
+    shopList.innerHTML = '';
+    for (const [itemId, itemInfo] of Object.entries(ITEM_DATA)) {
+        shopList.innerHTML += `
+            <tr>
+                <td>${itemInfo.name}</td>
+                <td>₩${itemInfo.price.toLocaleString()}</td>
+                <td>${itemInfo.desc}</td>
+                <td><button onclick="handleBuyClick('${itemId}')">구매</button></td>
+            </tr>
+        `;
+    }
+}
+
 function updateStatsTab(state, itemStats, salaryRate) {
     const statsList = document.getElementById("stats-list");
     if (!statsList) return;
-
     statsList.innerHTML = `
         <tr><td>레벨</td><td>${state.level}</td></tr>
         <tr><td>보유 자산</td><td>₩${state.money.toLocaleString()}</td></tr>
@@ -251,7 +493,6 @@ function updateStatsTab(state, itemStats, salaryRate) {
     `;
 }
 
-// [추가됨] 스트레스 경고 효과 함수
 function updateStressEffect(stress) {
     const gameScreen = document.getElementById("game-screen");
     if (stress >= 90) {
@@ -259,6 +500,49 @@ function updateStressEffect(stress) {
     } else {
         gameScreen.classList.remove("stress-warning");
     }
+}
+
+async function updateRankingUI() {
+    const rankingListBody = document.getElementById("ranking-list-body");
+    if (!rankingListBody) return;
+
+    try {
+        const res = await fetch(`${API_URL}/api/ranking`);
+        const rankingData = await res.json();
+
+        rankingListBody.innerHTML = '';
+        if (rankingData.length === 0) {
+            rankingListBody.innerHTML = '<tr><td colspan="3" style="text-align: center;">랭킹 정보가 없습니다.</td></tr>';
+            return;
+        }
+
+        rankingData.forEach((user, index) => {
+            rankingListBody.innerHTML += `
+                <tr>
+                    <td style="text-align: center;">${index + 1}</td>
+                    <td>${user.nickname}</td>
+                    <td style="text-align: center;">${user.gameState.level}</td>
+                </tr>
+            `;
+        });
+
+    } catch (err) {
+        console.error("랭킹 업데이트 실패:", err);
+        rankingListBody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: red;">랭킹 로딩 실패</td></tr>';
+    }
+}
+
+function startPeriodicUpdates() {
+    if (updateInterval) clearInterval(updateInterval);
+    updateInterval = setInterval(() => {
+        const userStr = localStorage.getItem("user");
+        if (userStr) {
+            const user = JSON.parse(userStr);
+            // [수정됨] 스트레스 정보도 함께 전달
+            updateBuffUI(user.buffs, user.gameState.stress);
+        }
+        updateRankingUI();
+    }, 1000);
 }
 
 
@@ -296,3 +580,4 @@ window.showTab = function(tabName) {
         }
     }
 };
+window.handleBuyClick = handleBuyClick;

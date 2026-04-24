@@ -5,31 +5,33 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const path = require('path');
-// [수정됨] 아이템 정의 파일 임포트 (나중에 items.js 파일을 만들어야 함)
-// const items = require('./items'); // 일단 주석 처리
 
 const app = express();
 
-// 미들웨어 설정
 app.use(express.json());
 app.use(cors());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// 기본 경로 접속 시 index.html 전송
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// MongoDB 연결
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('✅ MongoDB Connected'))
   .catch(err => console.error('❌ MongoDB Connection Error:', err));
 
 
-// --- [수정됨] 유저 모델 스키마 정의 ---
+// --- 아이템 데이터 정의 ---
+const ITEM_DATA = {
+    'pen_monami': { name: '모나미 볼펜', price: 100000, desc: '월급 +0.05%', stats: { moneyBonus: 0.05 } },
+    'coffee_mix': { name: '맥심 커피믹스', price: 50000, desc: '스트레스 감소율 +2%', stats: { stressReduction: 2 } }
+};
+
+// --- 유저 모델 스키마 정의 ---
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   password: { type: String, required: true },
+  nickname: { type: String, default: null },
   workHours: {
     start: { type: Number, default: 9 },
     end: { type: Number, default: 18 },
@@ -39,16 +41,19 @@ const userSchema = new mongoose.Schema({
     money: { type: Number, default: 100000 },
     level: { type: Number, default: 1 },
     exp: { type: Number, default: 0 },
-    stamina: { type: Number, default: 10 }, // 현재 행동력
-    maxStamina: { type: Number, default: 10 }, // 최대 행동력
-    stress: { type: Number, default: 0 }, // 현재 스트레스
+    stamina: { type: Number, default: 10 },
+    maxStamina: { type: Number, default: 10 },
+    stress: { type: Number, default: 0 },
     lastActionTime: { type: Date, default: Date.now },
-    lastStaminaResetTime: { type: Date, default: Date.now } // 마지막 행동력 충전 시간
+    lastStaminaResetTime: { type: Date, default: Date.now }
   },
-  // [추가됨] 인벤토리 (아이템 ID와 수량 저장)
   inventory: [{
       itemId: { type: String, required: true },
       quantity: { type: Number, default: 1 }
+  }],
+  buffs: [{
+      buffId: { type: String, required: true },
+      expiresAt: { type: Date, required: true }
   }]
 });
 
@@ -57,7 +62,6 @@ const User = mongoose.model('User', userSchema);
 
 // --- 헬퍼 함수들 ---
 
-// 현재 시간이 근무 시간인지 확인
 function isWorkingHour(start, end) {
   const now = new Date();
   const kstNow = new Date(now.getTime() + (9 * 60 * 60 * 1000));
@@ -70,7 +74,7 @@ function isWorkingHour(start, end) {
   }
 }
 
-// [수정됨] 오프라인 보상 및 상태 업데이트 계산
+// 오프라인 보상 및 상태 업데이트 계산
 function calculateOfflineGains(user) {
   const now = new Date();
   if (!user.gameState.lastActionTime) user.gameState.lastActionTime = now;
@@ -79,25 +83,30 @@ function calculateOfflineGains(user) {
   let elapsedSeconds = (now - lastTime) / 1000;
   if (elapsedSeconds < 0) elapsedSeconds = 0;
 
-  // --- 1. 행동력 충전 (매일 자정 기준) ---
+  // --- 0. 버프 만료 처리 ---
+  user.buffs = user.buffs.filter(buff => new Date(buff.expiresAt) > now);
+
+  // --- 1. 행동력 충전 ---
   const lastReset = new Date(user.gameState.lastStaminaResetTime);
-  // KST 기준 날짜 비교
   const kstNowDate = new Date(now.getTime() + (9 * 60 * 60 * 1000)).getDate();
   const kstLastResetDate = new Date(lastReset.getTime() + (9 * 60 * 60 * 1000)).getDate();
 
   if (kstNowDate !== kstLastResetDate) {
       user.gameState.stamina = user.gameState.maxStamina;
       user.gameState.lastStaminaResetTime = now;
-      console.log(`[행동력 충전] ${user.username}: 행동력이 ${user.gameState.maxStamina}로 초기화되었습니다.`);
   }
 
-  // --- 2. 스트레스 자연 증가 (근무 시간 중에만) ---
-  // TODO: 근무 시간 체크 로직과 연동 필요. 일단 10분당 1씩 증가로 구현
-  const STRESS_INC_PER_SEC = 1 / 600; // 10분(600초)에 1
-  const gainedStress = Math.floor(STRESS_INC_PER_SEC * elapsedSeconds);
-  user.gameState.stress = Math.min(100, user.gameState.stress + gainedStress); // 최대 100 제한
+  // --- 2. 스트레스 자연 증가 ---
+  const hasLupinBuff = user.buffs.some(b => b.buffId === 'lupin_buff');
+  let gainedStress = 0;
+  if (!hasLupinBuff) {
+      const STRESS_INC_PER_SEC = 1 / 600;
+      gainedStress = Math.floor(STRESS_INC_PER_SEC * elapsedSeconds);
+      // [수정됨] 최대 100으로 제한
+      user.gameState.stress = Math.min(100, user.gameState.stress + gainedStress);
+  }
 
-  // --- 3. 돈과 경험치 획득 (기존 로직) ---
+  // --- 3. 돈과 경험치 획득 ---
   const BASE_MONEY_PER_SEC = 23.148;
   const BASE_EXP_PER_SEC = 0.002315;
   const levelFactorMoney = Math.pow(1.05, user.gameState.level - 1);
@@ -115,39 +124,23 @@ function calculateOfflineGains(user) {
 
   user.gameState.money += gainedMoney;
   user.gameState.exp += gainedExp;
-  
-  // 마지막 행동 시간 갱신
   user.gameState.lastActionTime = now;
   
   if (gainedMoney > 0 || gainedExp > 0 || gainedStress > 0) {
-      console.log(`[오프라인 계산] ${user.username}: +${gainedMoney.toLocaleString()}원, +${gainedExp}EXP, +${gainedStress}스트레스 (${Math.floor(elapsedSeconds)}초 경과)`);
+      console.log(`[오프라인 계산] ${user.username}: +${gainedMoney}원, +${gainedExp}EXP, +${gainedStress}스트레스`);
   }
 }
 
-// [추가됨] 아이템 능력치 합산 함수 (임시 구현)
 function calculateItemStats(inventory) {
-    let totalStats = {
-        moneyBonus: 0, // 월급 증가율 (%)
-        expBonus: 0,   // 경험치 증가율 (%)
-        stressReduction: 0 // 스트레스 감소율 (%)
-    };
-
-    // TODO: 나중에 DB에서 아이템 정보를 가져와서 계산해야 함.
-    // 지금은 하드코딩된 아이템 정보로 계산
-    const itemData = {
-        'pen_monami': { name: '모나미 볼펜', stats: { moneyBonus: 0.05 } },
-        'coffee_mix': { name: '맥심 커피믹스', stats: { stressReduction: 2 } }
-    };
-
+    let totalStats = { moneyBonus: 0, expBonus: 0, stressReduction: 0 };
     inventory.forEach(item => {
-        const data = itemData[item.itemId];
+        const data = ITEM_DATA[item.itemId];
         if (data && data.stats) {
             if (data.stats.moneyBonus) totalStats.moneyBonus += data.stats.moneyBonus * item.quantity;
             if (data.stats.expBonus) totalStats.expBonus += data.stats.expBonus * item.quantity;
             if (data.stats.stressReduction) totalStats.stressReduction += data.stats.stressReduction * item.quantity;
         }
     });
-
     return totalStats;
 }
 
@@ -159,6 +152,7 @@ app.post('/api/login', async (req, res) => {
   try {
       const { username, password } = req.body;
       let user = await User.findOne({ username });
+      let isNewUser = false;
 
       if (!user) {
         console.log("신규 유저 회원가입:", username);
@@ -166,11 +160,11 @@ app.post('/api/login', async (req, res) => {
         user = new User({ 
             username, 
             password: hashedPassword,
-            // gameState 초기값은 스키마 default 사용
         });
-        // [테스트용] 초기 아이템 지급
-        user.inventory.push({ itemId: 'pen_monami', quantity: 5 });
+        // [테스트용] 초기 아이템 지급 (나중엔 삭제)
+        user.inventory.push({ itemId: 'pen_monami', quantity: 1 });
         await user.save();
+        isNewUser = true;
       } else {
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) return res.status(400).json({ msg: '비밀번호가 틀렸습니다.' });
@@ -185,20 +179,22 @@ app.post('/api/login', async (req, res) => {
       calculateOfflineGains(user);
       await user.save();
 
-      // [추가됨] 아이템 능력치 계산
       const itemStats = calculateItemStats(user.inventory);
-
       const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET || 'secret', { expiresIn: '1d' });
+
       res.json({ 
           token, 
           user: { 
               _id: user._id,
-              username: user.username, 
+              username: user.username,
+              nickname: user.nickname,
               workHours: user.workHours, 
               gameState: user.gameState,
-              inventory: user.inventory, // 인벤토리 정보 전송
-              itemStats: itemStats // 합산 능력치 전송
-          } 
+              inventory: user.inventory,
+              buffs: user.buffs,
+              itemStats: itemStats
+          },
+          isNewUser: isNewUser
       });
   } catch (err) {
       console.error("서버 에러:", err);
@@ -206,7 +202,29 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// [수정됨] "열일하기" 클릭 액션 API
+// 닉네임 설정 API
+app.post('/api/set-nickname', async (req, res) => {
+    const { userId, nickname } = req.body;
+    if (!userId || !nickname) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+
+    try {
+        const user = await User.findById(userId);
+        if (!user) return res.status(404).json({ msg: '유저를 찾을 수 없습니다.' });
+        if (user.nickname) return res.status(400).json({ msg: '이미 닉네임이 설정되어 있습니다.' });
+
+        const existingUser = await User.findOne({ nickname: nickname });
+        if (existingUser) return res.status(400).json({ msg: '이미 사용 중인 닉네임입니다.' });
+
+        user.nickname = nickname;
+        await user.save();
+        res.json({ success: true, nickname: user.nickname });
+    } catch (err) {
+        console.error("닉네임 설정 에러:", err);
+        res.status(500).json({ msg: '서버 오류 발생' });
+    }
+});
+
+// "열일하기" 클릭 액션 API
 app.post('/api/action/work', async (req, res) => {
     const { userId } = req.body;
     if (!userId) return res.status(400).json({ msg: '유저 ID가 필요합니다.' });
@@ -214,29 +232,28 @@ app.post('/api/action/work', async (req, res) => {
     try {
         const user = await User.findById(userId);
         if (!user) return res.status(404).json({ msg: '유저를 찾을 수 없습니다.' });
+
+        user.buffs = user.buffs.filter(buff => new Date(buff.expiresAt) > new Date());
         
-        // [추가됨] 행동력 체크
-        const STAMINA_COST = 1;
-        if (user.gameState.stamina < STAMINA_COST) {
-            return res.status(400).json({ msg: '행동력이 부족합니다.' });
+        // [수정됨] 스트레스 증가 (최대 100 제한)
+        const hasLupinBuff = user.buffs.some(b => b.buffId === 'lupin_buff');
+        let stressGain = 0;
+        if (!hasLupinBuff) {
+            const itemStats = calculateItemStats(user.inventory);
+            stressGain = 0.5 * (1 - (itemStats.stressReduction || 0) / 100);
+            user.gameState.stress = Math.min(100, user.gameState.stress + stressGain);
         }
 
-        // 행동력 소모
-        user.gameState.stamina -= STAMINA_COST;
-
-        // [추가됨] 스트레스 증가 (클릭당 0.5씩 증가, 아이템 효과 적용)
-        const itemStats = calculateItemStats(user.inventory);
-        let stressGain = 0.5 * (1 - (itemStats.stressReduction || 0) / 100);
-        user.gameState.stress = Math.min(100, user.gameState.stress + stressGain);
-
-        // 경험치 계산 (스트레스 페널티 적용)
+        // 경험치 계산
         let baseExpGain = 5;
         if (user.gameState.stress >= 100) baseExpGain = Math.floor(baseExpGain / 2);
 
         const levelFactor = Math.pow(1.05, user.gameState.level - 1);
-        // [추가됨] 아이템 경험치 보너스 적용
+        const itemStats = calculateItemStats(user.inventory);
         const itemExpBonus = 1 + (itemStats.expBonus || 0) / 100;
-        let finalExpGain = Math.floor(baseExpGain * levelFactor * itemExpBonus);
+        const lupinExpBonus = hasLupinBuff ? 1.5 : 1.0;
+
+        let finalExpGain = Math.floor(baseExpGain * levelFactor * itemExpBonus * lupinExpBonus);
 
         user.gameState.exp += finalExpGain;
         user.gameState.lastActionTime = new Date();
@@ -244,16 +261,155 @@ app.post('/api/action/work', async (req, res) => {
         // TODO: 레벨업 체크 로직 필요
 
         await user.save();
-        console.log(`[열일하기] ${user.username}: +${finalExpGain} EXP, -${STAMINA_COST} 행동력, +${stressGain.toFixed(1)} 스트레스`);
+        console.log(`[열일하기] ${user.username}: +${finalExpGain} EXP, +${stressGain.toFixed(1)} 스트레스`);
         
-        // 업데이트된 상태와 능력치 반환
         res.json({
             gameState: user.gameState,
+            buffs: user.buffs,
             itemStats: itemStats
         });
 
     } catch (err) {
         console.error("액션 처리 중 에러:", err);
+        res.status(500).json({ msg: '서버 오류 발생' });
+    }
+});
+
+// "월급루팡" 특수 행동 API
+app.post('/api/action/lupin', async (req, res) => {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ msg: '유저 ID가 필요합니다.' });
+
+    try {
+        const user = await User.findById(userId);
+        if (!user) return res.status(404).json({ msg: '유저를 찾을 수 없습니다.' });
+
+        const STAMINA_COST = 2;
+        if (user.gameState.stamina < STAMINA_COST) {
+            return res.status(400).json({ msg: '행동력이 부족합니다.' });
+        }
+
+        user.buffs = user.buffs.filter(buff => new Date(buff.expiresAt) > new Date());
+        if (user.buffs.some(b => b.buffId === 'lupin_buff')) {
+             return res.status(400).json({ msg: '이미 월급루팡 중입니다!' });
+        }
+
+        user.gameState.stamina -= STAMINA_COST;
+
+        const expiresAt = new Date(new Date().getTime() + 2 * 60 * 60 * 1000);
+        user.buffs.push({
+            buffId: 'lupin_buff',
+            expiresAt: expiresAt
+        });
+
+        user.gameState.lastActionTime = new Date();
+        await user.save();
+
+        console.log(`[월급루팡] ${user.username}: 행동력 -${STAMINA_COST}, 버프 적용 완료`);
+        
+        res.json({
+            gameState: user.gameState,
+            buffs: user.buffs,
+            itemStats: calculateItemStats(user.inventory)
+        });
+
+    } catch (err) {
+        console.error("액션 처리 중 에러:", err);
+        res.status(500).json({ msg: '서버 오류 발생' });
+    }
+});
+
+// [추가됨] "낮잠자기" 특수 행동 API
+app.post('/api/action/nap', async (req, res) => {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ msg: '유저 ID가 필요합니다.' });
+
+    try {
+        const user = await User.findById(userId);
+        if (!user) return res.status(404).json({ msg: '유저를 찾을 수 없습니다.' });
+
+        // 행동력 체크 (3 소모)
+        const STAMINA_COST = 3;
+        if (user.gameState.stamina < STAMINA_COST) {
+            return res.status(400).json({ msg: '행동력이 부족합니다. (필요: 3)' });
+        }
+
+        // 행동력 소모
+        user.gameState.stamina -= STAMINA_COST;
+
+        // 스트레스 감소 (30 감소, 최소 0)
+        user.gameState.stress = Math.max(0, user.gameState.stress - 30);
+
+        user.gameState.lastActionTime = new Date();
+        await user.save();
+
+        console.log(`[낮잠자기] ${user.username}: 행동력 -${STAMINA_COST}, 스트레스 -30`);
+        
+        res.json({
+            gameState: user.gameState,
+            buffs: user.buffs,
+            itemStats: calculateItemStats(user.inventory)
+        });
+
+    } catch (err) {
+        console.error("액션 처리 중 에러:", err);
+        res.status(500).json({ msg: '서버 오류 발생' });
+    }
+});
+
+// 상점 구매 API
+app.post('/api/shop/buy', async (req, res) => {
+    const { userId, itemId } = req.body;
+    if (!userId || !itemId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+
+    const itemInfo = ITEM_DATA[itemId];
+    if (!itemInfo) return res.status(400).json({ msg: '존재하지 않는 아이템입니다.' });
+
+    try {
+        const user = await User.findById(userId);
+        if (!user) return res.status(404).json({ msg: '유저를 찾을 수 없습니다.' });
+
+        if (user.gameState.money < itemInfo.price) {
+            return res.status(400).json({ msg: '잔고가 부족합니다.' });
+        }
+
+        user.gameState.money -= itemInfo.price;
+        
+        const existingItem = user.inventory.find(item => item.itemId === itemId);
+        if (existingItem) {
+            existingItem.quantity += 1;
+        } else {
+            user.inventory.push({ itemId: itemId, quantity: 1 });
+        }
+
+        user.gameState.lastActionTime = new Date();
+        await user.save();
+
+        console.log(`[상점 구매] ${user.username}: ${itemInfo.name} 구매 완료`);
+        
+        res.json({
+            gameState: user.gameState,
+            inventory: user.inventory,
+            itemStats: calculateItemStats(user.inventory)
+        });
+
+    } catch (err) {
+        console.error("구매 처리 중 에러:", err);
+        res.status(500).json({ msg: '서버 오류 발생' });
+    }
+});
+
+// 실시간 랭킹 API
+app.get('/api/ranking', async (req, res) => {
+    try {
+        const ranking = await User.find({ nickname: { $ne: null } })
+            .sort({ 'gameState.level': -1, 'gameState.exp': -1 })
+            .limit(20)
+            .select('nickname gameState.level');
+
+        res.json(ranking);
+    } catch (err) {
+        console.error("랭킹 조회 에러:", err);
         res.status(500).json({ msg: '서버 오류 발생' });
     }
 });
