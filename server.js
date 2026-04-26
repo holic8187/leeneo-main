@@ -74,6 +74,31 @@ function isWorkingHour(start, end) {
   }
 }
 
+// [신규] 레벨업 필요한 경험치 계산 공식: 1000 * (1.1 ^ (레벨-1))
+function getRequiredExp(level) {
+    return Math.floor(1000 * Math.pow(1.1, level - 1));
+}
+
+// [신규] 레벨업 체크 함수
+function checkLevelUp(user) {
+    let requiredExp = getRequiredExp(user.gameState.level);
+    let leveledUp = false;
+
+    // 경험치가 필요 경험치보다 많으면 레벨업 (혹시 몰라 반복문으로 처리)
+    while (user.gameState.exp >= requiredExp) {
+        user.gameState.exp -= requiredExp; // 초과분만 남김
+        user.gameState.level++;
+        leveledUp = true;
+        // 레벨업 했으니 다음 레벨 필요 경험치 재계산
+        requiredExp = getRequiredExp(user.gameState.level);
+        console.log(`[레벨업] ${user.username}님이 ${user.gameState.level}레벨이 되었습니다!`);
+    }
+    // 프론트엔드에 다음 레벨 필요 경험치를 알려주기 위해 임시 필드 추가 (DB엔 저장 안 함)
+    user.gameState.nextLevelExp =HZ requiredExp; 
+    return leveledUp;
+}
+
+
 // 오프라인 보상 및 상태 업데이트 계산
 function calculateOfflineGains(user) {
   const now = new Date();
@@ -100,34 +125,47 @@ function calculateOfflineGains(user) {
   const hasLupinBuff = user.buffs.some(b => b.buffId === 'lupin_buff');
   let gainedStress = 0;
   if (!hasLupinBuff) {
+      // 10분에 1 증가 = 600초에 1 증가
       const STRESS_INC_PER_SEC = 1 / 600;
-      gainedStress = Math.floor(STRESS_INC_PER_SEC * elapsedSeconds);
-      // [수정됨] 최대 100으로 제한
+      gainedStress = STRESS_INC_PER_SEC * elapsedSeconds; // 소수점 계산 유지
       user.gameState.stress = Math.min(100, user.gameState.stress + gainedStress);
   }
 
   // --- 3. 돈과 경험치 획득 ---
-  const BASE_MONEY_PER_SEC = 23.148;
+  // [수정] 하루 30만원 기준 초당 획득량 (300000 / 24시간 / 60분 / 60초 = 약 3.4722)
+  const BASE_MONEY_PER_SEC = 3.47222;
+  // 하루 경험치 200 기준 초당 획득량 (200 / 24 / 60 / 60 = 약 0.002315)
   const BASE_EXP_PER_SEC = 0.002315;
+  
   const levelFactorMoney = Math.pow(1.05, user.gameState.level - 1);
+  // 일일 자동 획득 경험치량은 +1 레벨마다 8% 증가
   const levelFactorExp = Math.pow(1.08, user.gameState.level - 1);
 
   const moneyPerSec = BASE_MONEY_PER_SEC * levelFactorMoney;
   const expPerSec = BASE_EXP_PER_SEC * levelFactorExp;
 
-  const gainedMoney = Math.floor(moneyPerSec * elapsedSeconds);
+  // 소수점 단위로 계산하여 누적
+  const gainedMoney = moneyPerSec * elapsedSeconds;
   let gainedExp = 0;
-  if (elapsedSeconds >= 60) {
-      gainedExp = Math.floor(expPerSec * elapsedSeconds);
-      if (gainedExp === 0 && elapsedSeconds > 600) gainedExp = 1; 
+  
+  // 경험치는 스트레스 100이면 절반
+  let currentExpPerSec = expPerSec;
+  if (user.gameState.stress >= 100) {
+      currentExpPerSec = expPerSec / 2;
   }
+  gainedExp = currentExpPerSec * elapsedSeconds;
 
-  user.gameState.money += gainedMoney;
-  user.gameState.exp += gainedExp;
+  // DB 저장을 위해 정수로 변환 (돈은 소수점 버림, 경험치는 반올림 등 정책 결정 필요. 여기선 버림)
+  user.gameState.money += Math.floor(gainedMoney);
+  user.gameState.exp += Math.floor(gainedExp);
+  
+  // [신규] 레벨업 체크
+  checkLevelUp(user);
+
   user.gameState.lastActionTime = now;
   
-  if (gainedMoney > 0 || gainedExp > 0 || gainedStress > 0) {
-      console.log(`[오프라인 계산] ${user.username}: +${gainedMoney}원, +${gainedExp}EXP, +${gainedStress}스트레스`);
+  if (gainedMoney > 1 || gainedExp > 1 || gainedStress > 0.1) {
+      console.log(`[오프라인 계산] ${user.username}: +${Math.floor(gainedMoney)}원, +${Math.floor(gainedExp)}EXP, +${gainedStress.toFixed(2)}스트레스`);
   }
 }
 
@@ -177,21 +215,27 @@ app.post('/api/login', async (req, res) => {
       }
 
       calculateOfflineGains(user);
+      // 로그인 시에도 레벨업 체크 후 저장
+      checkLevelUp(user);
       await user.save();
 
       const itemStats = calculateItemStats(user.inventory);
       const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET || 'secret', { expiresIn: '1d' });
 
+      // nextLevelExp 정보도 함께 전송
+      const userResponse = user.toObject();
+      userResponse.gameState.nextLevelExp = getRequiredExp(user.gameState.level);
+
       res.json({ 
           token, 
           user: { 
-              _id: user._id,
-              username: user.username,
-              nickname: user.nickname,
-              workHours: user.workHours, 
-              gameState: user.gameState,
-              inventory: user.inventory,
-              buffs: user.buffs,
+              _id: userResponse._id,
+              username: userResponse.username,
+              nickname: userResponse.nickname,
+              workHours: userResponse.workHours, 
+              gameState: userResponse.gameState,
+              inventory: userResponse.inventory,
+              buffs: userResponse.buffs,
               itemStats: itemStats
           },
           isNewUser: isNewUser
@@ -235,37 +279,47 @@ app.post('/api/action/work', async (req, res) => {
 
         user.buffs = user.buffs.filter(buff => new Date(buff.expiresAt) > new Date());
         
-        // [수정됨] 스트레스 증가 (최대 100 제한)
+        // 스트레스 증가 (최대 100 제한)
         const hasLupinBuff = user.buffs.some(b => b.buffId === 'lupin_buff');
         let stressGain = 0;
         if (!hasLupinBuff) {
             const itemStats = calculateItemStats(user.inventory);
+            // 클릭당 스트레스 0.5 증가
             stressGain = 0.5 * (1 - (itemStats.stressReduction || 0) / 100);
             user.gameState.stress = Math.min(100, user.gameState.stress + stressGain);
         }
 
-        // 경험치 계산
+        // 경험치 계산: 기본 5, 레벨당 5% 증가
         let baseExpGain = 5;
+        
+        // "열일하기" 클릭당 경험치는 5%씩 증가함
+        const clickLevelFactor = Math.pow(1.05, user.gameState.level - 1);
+        baseExpGain = Math.floor(baseExpGain * clickLevelFactor);
+
         if (user.gameState.stress >= 100) baseExpGain = Math.floor(baseExpGain / 2);
 
-        const levelFactor = Math.pow(1.05, user.gameState.level - 1);
         const itemStats = calculateItemStats(user.inventory);
         const itemExpBonus = 1 + (itemStats.expBonus || 0) / 100;
         const lupinExpBonus = hasLupinBuff ? 1.5 : 1.0;
 
-        let finalExpGain = Math.floor(baseExpGain * levelFactor * itemExpBonus * lupinExpBonus);
+        let finalExpGain = Math.floor(baseExpGain * itemExpBonus * lupinExpBonus);
 
         user.gameState.exp += finalExpGain;
         user.gameState.lastActionTime = new Date();
 
-        // TODO: 레벨업 체크 로직 필요
+        // [신규] 레벨업 체크
+        checkLevelUp(user);
 
         await user.save();
         console.log(`[열일하기] ${user.username}: +${finalExpGain} EXP, +${stressGain.toFixed(1)} 스트레스`);
         
+        // 응답에 nextLevelExp 포함
+        const userResponse = user.toObject();
+        userResponse.gameState.nextLevelExp = getRequiredExp(user.gameState.level);
+
         res.json({
-            gameState: user.gameState,
-            buffs: user.buffs,
+            gameState: userResponse.gameState,
+            buffs: userResponse.buffs,
             itemStats: itemStats
         });
 
@@ -303,13 +357,19 @@ app.post('/api/action/lupin', async (req, res) => {
         });
 
         user.gameState.lastActionTime = new Date();
+        
+        // 액션 후에도 레벨업 체크 (자동 획득분 반영을 위해)
+        checkLevelUp(user);
         await user.save();
 
         console.log(`[월급루팡] ${user.username}: 행동력 -${STAMINA_COST}, 버프 적용 완료`);
         
+        const userResponse = user.toObject();
+        userResponse.gameState.nextLevelExp = getRequiredExp(user.gameState.level);
+
         res.json({
-            gameState: user.gameState,
-            buffs: user.buffs,
+            gameState: userResponse.gameState,
+            buffs: userResponse.buffs,
             itemStats: calculateItemStats(user.inventory)
         });
 
@@ -319,7 +379,7 @@ app.post('/api/action/lupin', async (req, res) => {
     }
 });
 
-// [추가됨] "낮잠자기" 특수 행동 API
+// "낮잠자기" 특수 행동 API
 app.post('/api/action/nap', async (req, res) => {
     const { userId } = req.body;
     if (!userId) return res.status(400).json({ msg: '유저 ID가 필요합니다.' });
@@ -341,13 +401,19 @@ app.post('/api/action/nap', async (req, res) => {
         user.gameState.stress = Math.max(0, user.gameState.stress - 30);
 
         user.gameState.lastActionTime = new Date();
+        
+        // 액션 후에도 레벨업 체크
+        checkLevelUp(user);
         await user.save();
 
         console.log(`[낮잠자기] ${user.username}: 행동력 -${STAMINA_COST}, 스트레스 -30`);
         
+        const userResponse = user.toObject();
+        userResponse.gameState.nextLevelExp = getRequiredExp(user.gameState.level);
+
         res.json({
-            gameState: user.gameState,
-            buffs: user.buffs,
+            gameState: userResponse.gameState,
+            buffs: userResponse.buffs,
             itemStats: calculateItemStats(user.inventory)
         });
 
@@ -383,13 +449,19 @@ app.post('/api/shop/buy', async (req, res) => {
         }
 
         user.gameState.lastActionTime = new Date();
+        
+        // 구매 후에도 레벨업 체크
+        checkLevelUp(user);
         await user.save();
 
         console.log(`[상점 구매] ${user.username}: ${itemInfo.name} 구매 완료`);
+
+        const userResponse = user.toObject();
+        userResponse.gameState.nextLevelExp = getRequiredExp(user.gameState.level);
         
         res.json({
-            gameState: user.gameState,
-            inventory: user.inventory,
+            gameState: userResponse.gameState,
+            inventory: userResponse.inventory,
             itemStats: calculateItemStats(user.inventory)
         });
 
@@ -402,6 +474,7 @@ app.post('/api/shop/buy', async (req, res) => {
 // 실시간 랭킹 API
 app.get('/api/ranking', async (req, res) => {
     try {
+        // 레벨 높은순, 경험치 높은순 정렬 (이미 구현되어 있음)
         const ranking = await User.find({ nickname: { $ne: null } })
             .sort({ 'gameState.level': -1, 'gameState.exp': -1 })
             .limit(20)

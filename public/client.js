@@ -16,6 +16,7 @@ const BUFF_DATA = {
 };
 
 let updateInterval;
+let animationInterval;
 
 
 // ========================
@@ -57,7 +58,6 @@ function setupEventListeners() {
         lupinBtn.removeEventListener("click", handleLupinClick);
         lupinBtn.addEventListener("click", handleLupinClick);
     }
-    // [추가됨] 낮잠자기 버튼
     const napBtn = document.getElementById("napBtn");
     if (napBtn) {
         napBtn.removeEventListener("click", handleNapClick);
@@ -183,7 +183,7 @@ function handleLogoutClick() {
 
 
 // ========================
-// 액션 처리 함수 ('열일하기', '월급루팡', '낮잠자기', '구매')
+// 액션 처리 함수
 // ========================
 async function handleClickWork() {
     const userStr = localStorage.getItem("user");
@@ -203,12 +203,7 @@ async function handleClickWork() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.msg || "작업 실패");
 
-        user.gameState = data.gameState;
-        user.buffs = data.buffs;
-        user.itemStats = data.itemStats;
-        localStorage.setItem("user", JSON.stringify(user));
-
-        updateGameUI(user);
+        updateLocalUserState(user, data);
 
     } catch (err) {
         console.error("작업 요청 실패:", err);
@@ -242,12 +237,7 @@ async function handleLupinClick() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.msg || "월급루팡 실패");
 
-        user.gameState = data.gameState;
-        user.buffs = data.buffs;
-        user.itemStats = data.itemStats;
-        localStorage.setItem("user", JSON.stringify(user));
-
-        updateGameUI(user);
+        updateLocalUserState(user, data);
         alert("월급루팡 시작! (2시간 동안 지속)");
 
     } catch (err) {
@@ -258,7 +248,6 @@ async function handleLupinClick() {
     }
 }
 
-// [추가됨] 낮잠자기 액션 처리
 async function handleNapClick() {
     const userStr = localStorage.getItem("user");
     if (!userStr) return handleLogoutClick();
@@ -281,12 +270,7 @@ async function handleNapClick() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.msg || "낮잠자기 실패");
 
-        user.gameState = data.gameState;
-        user.buffs = data.buffs;
-        user.itemStats = data.itemStats;
-        localStorage.setItem("user", JSON.stringify(user));
-
-        updateGameUI(user);
+        updateLocalUserState(user, data);
         alert("낮잠을 자고 나니 스트레스가 줄었습니다. (스트레스 -30)");
 
     } catch (err) {
@@ -313,18 +297,23 @@ async function handleBuyClick(itemId) {
         const data = await res.json();
         if (!res.ok) throw new Error(data.msg || "구매 실패");
 
-        user.gameState = data.gameState;
-        user.inventory = data.inventory;
-        user.itemStats = data.itemStats;
-        localStorage.setItem("user", JSON.stringify(user));
-
-        updateGameUI(user);
+        updateLocalUserState(user, data);
         alert("구매 완료!");
 
     } catch (err) {
         console.error("구매 요청 실패:", err);
         alert(err.message);
     }
+}
+
+// 서버 응답으로 로컬 상태 업데이트하는 헬퍼 함수
+function updateLocalUserState(user, data) {
+    user.gameState = data.gameState;
+    if (data.buffs) user.buffs = data.buffs;
+    if (data.inventory) user.inventory = data.inventory;
+    user.itemStats = data.itemStats;
+    localStorage.setItem("user", JSON.stringify(user));
+    updateGameUI(user);
 }
 
 
@@ -343,7 +332,7 @@ function showGameScreen(user) {
 
 function updateGameUI(user) {
     updateUI(user.gameState, user.itemStats, user.nickname);
-    updateBuffUI(user.buffs, user.gameState.stress); // 스트레스 정보 전달
+    updateBuffUI(user.buffs, user.gameState.stress);
     updateInventoryUI(user.inventory);
     updateShopUI();
     updateStressEffect(user.gameState.stress);
@@ -357,11 +346,10 @@ function updateUI(state, itemStats, nickname) {
     };
 
     setText("userNickname", nickname);
-    setText("money", state.money.toLocaleString());
+    setText("money", Math.floor(state.money).toLocaleString()); // 소수점 버림 표시
     setText("level", state.level);
     setText("stamina", `${state.stamina}/${state.maxStamina}`);
     
-    // [수정됨] 스트레스 100일 때 빨간색 표시
     const stressEl = document.getElementById("stress");
     stressEl.textContent = state.stress.toFixed(1);
     if (state.stress >= 100) {
@@ -372,12 +360,14 @@ function updateUI(state, itemStats, nickname) {
         stressEl.style.fontWeight = "normal";
     }
 
-    const maxExp = 1000;
+    // [수정] 서버에서 계산된 다음 레벨 필요 경험치 사용 (없으면 클라이언트에서 계산)
+    const maxExp = state.nextLevelExp || Math.floor(1000 * Math.pow(1.1, state.level - 1));
     setText("expText", `${state.exp}/${maxExp}`);
     const expBar = document.getElementById("expBar");
     if (expBar) { expBar.max = maxExp; expBar.value = state.exp; }
 
-    const baseSalaryPerMin = (2000000 / 24 / 60);
+    // [수정] 월급 계산식 수정 (하루 30만원 기준)
+    const baseSalaryPerMin = (300000 / 24 / 60); 
     const levelFactor = Math.pow(1.05, (state.level - 1));
     const itemBonus = 1 + (itemStats ? (itemStats.moneyBonus || 0) / 100 : 0);
     const currentSalaryRate = Math.floor(baseSalaryPerMin * levelFactor * itemBonus);
@@ -386,7 +376,6 @@ function updateUI(state, itemStats, nickname) {
     updateStatsTab(state, itemStats, currentSalaryRate);
 }
 
-// [수정됨] 버프/디버프 UI 업데이트
 function updateBuffUI(buffs, stress) {
     const buffListEl = document.getElementById("buff-list");
     if (!buffListEl) return;
@@ -395,7 +384,6 @@ function updateBuffUI(buffs, stress) {
     const now = new Date();
     let hasBuffs = false;
 
-    // 버프 표시
     if (buffs) {
         buffs.forEach(buff => {
             const buffInfo = BUFF_DATA[buff.buffId];
@@ -425,7 +413,6 @@ function updateBuffUI(buffs, stress) {
         });
     }
 
-    // [추가됨] 스트레스 디버프 표시
     if (stress >= 100) {
         hasBuffs = true;
         const debuffItem = document.createElement('div');
@@ -485,7 +472,7 @@ function updateStatsTab(state, itemStats, salaryRate) {
     if (!statsList) return;
     statsList.innerHTML = `
         <tr><td>레벨</td><td>${state.level}</td></tr>
-        <tr><td>보유 자산</td><td>₩${state.money.toLocaleString()}</td></tr>
+        <tr><td>보유 자산</td><td>₩${Math.floor(state.money).toLocaleString()}</td></tr>
         <tr><td>분당 월급</td><td>₩${salaryRate.toLocaleString()} (기본 + 아이템 보너스)</td></tr>
         <tr><td>스트레스</td><td>${state.stress.toFixed(1)}% (100% 시 경험치 획득량 절반)</td></tr>
         <tr><td>경험치 보너스</td><td>+${itemStats ? (itemStats.expBonus || 0).toFixed(2) : 0}%</td></tr>
@@ -517,8 +504,14 @@ async function updateRankingUI() {
         }
 
         rankingData.forEach((user, index) => {
+            // [신규] 랭킹 스타일 클래스 추가
+            let rankClass = '';
+            if (index === 0) rankClass = 'rank-1';
+            else if (index === 1) rankClass = 'rank-2';
+            else if (index === 2) rankClass = 'rank-3';
+
             rankingListBody.innerHTML += `
-                <tr>
+                <tr class="${rankClass}">
                     <td style="text-align: center;">${index + 1}</td>
                     <td>${user.nickname}</td>
                     <td style="text-align: center;">${user.gameState.level}</td>
@@ -538,7 +531,8 @@ function startPeriodicUpdates() {
         const userStr = localStorage.getItem("user");
         if (userStr) {
             const user = JSON.parse(userStr);
-            // [수정됨] 스트레스 정보도 함께 전달
+            // 로컬 상태 기반으로 UI 업데이트 (실제 데이터 동기화는 액션 시 발생)
+            // 여기서는 버프 타이머/스트레스 표시 갱신 목적이 큼
             updateBuffUI(user.buffs, user.gameState.stress);
         }
         updateRankingUI();
@@ -549,10 +543,10 @@ function startPeriodicUpdates() {
 // ========================
 // 기타 유틸리티
 // ========================
-let animationInterval;
 const animations = [
     [`  O   \n /|\\  [PC]\n / \\ `, ` \\O   \n  |\\  [PC]\n / \\ `],
-    [`  O   \n /|\\  [서류]\n / \\ `, `  O   \n /|\\  ...\n / \\ `]
+    [`  O   \n /|\\  [서류]\n / \\ `, `  O   \n /|\\  ...\n / \\ `],
+    [`  O   \n /|\\  (커피)\n / \\ `, `  O \n /|\\  (호록)\n / \\ `]
 ];
 
 function startAnimation() {
