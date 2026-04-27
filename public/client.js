@@ -4,7 +4,7 @@
 // 로컬/배포 환경 자동 인식
 // - 서버를 통해 접속하면 현재 주소를 API 주소로 사용
 // - index.html을 파일로 직접 열었을 때만 localhost:5000으로 요청
-const API_URL = window.location.protocol === "file:" ? "http://localhost:5000" : window.location.origin;
+const API_URL = window.location.protocol === "file:" ? "https://holic8187.github.io/leeneo/" : window.location.origin;
 
 console.log("🚀 client.js 로드됨. API URL:", API_URL);
 
