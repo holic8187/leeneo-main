@@ -227,8 +227,8 @@ async function handleLupinClick() {
     if (!userStr) return handleLogoutClick();
     const user = JSON.parse(userStr);
 
-    if (user.gameState.stamina < 2) {
-        alert("행동력이 부족합니다! (필요: 2)");
+    if (user.gameState.stamina < 6) {
+        alert("행동력이 부족합니다! (필요: 6)");
         return;
     }
 
@@ -245,7 +245,7 @@ async function handleLupinClick() {
         if (!res.ok) throw new Error(data.msg || "월급루팡 실패");
 
         updateLocalUserState(user, data);
-        alert("월급루팡 시작! (2시간 동안 지속)");
+        alert("월급루팡 시작! (1시간 동안 지속)");
 
     } catch (err) {
         console.error("월급루팡 요청 실패:", err);
@@ -428,7 +428,7 @@ function updateBuffUI(buffs, stress) {
             스트레스 과다
             <span class="buff-tooltip">
                 <strong>스트레스 과다 (100%)</strong><br>
-                경험치 획득량이 50% 감소합니다.<br>
+                열일하기 클릭으로 경험치를 획득할 수 없습니다.<br>
                 휴식이 필요합니다.
             </span>
         `;
@@ -481,7 +481,7 @@ function updateStatsTab(state, itemStats, salaryRate) {
         <tr><td>레벨</td><td>${state.level}</td></tr>
         <tr><td>보유 자산</td><td>₩${Math.floor(state.money).toLocaleString()}</td></tr>
         <tr><td>분당 월급</td><td>₩${salaryRate.toLocaleString()} (기본 + 아이템 보너스)</td></tr>
-        <tr><td>스트레스</td><td>${state.stress.toFixed(1)}% (100% 시 경험치 획득량 절반)</td></tr>
+        <tr><td>스트레스</td><td>${state.stress.toFixed(1)}% (100% 시 열일하기 경험치 획득 불가)</td></tr>
         <tr><td>경험치 보너스</td><td>+${itemStats ? (itemStats.expBonus || 0).toFixed(2) : 0}%</td></tr>
         <tr><td>스트레스 감소율</td><td>+${itemStats ? (itemStats.stressReduction || 0).toFixed(2) : 0}%</td></tr>
     `;

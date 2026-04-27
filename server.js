@@ -320,13 +320,15 @@ app.post('/api/action/work', async (req, res) => {
         const clickLevelFactor = Math.pow(1.05, user.gameState.level - 1);
         baseExpGain = Math.floor(baseExpGain * clickLevelFactor);
 
-        if (user.gameState.stress >= 100) baseExpGain = Math.floor(baseExpGain / 2);
-
         const itemStats = calculateItemStats(user.inventory);
         const itemExpBonus = 1 + (itemStats.expBonus || 0) / 100;
         const lupinExpBonus = hasLupinBuff ? 1.5 : 1.0;
 
-        let finalExpGain = Math.floor(baseExpGain * itemExpBonus * lupinExpBonus);
+        // 스트레스가 100%이면 '열일하기' 클릭으로는 경험치를 획득하지 못함
+        let finalExpGain = 0;
+        if (user.gameState.stress < 100) {
+            finalExpGain = Math.floor(baseExpGain * itemExpBonus * lupinExpBonus);
+        }
 
         user.gameState.exp += finalExpGain;
         user.gameState.lastActionTime = new Date();
@@ -364,9 +366,9 @@ app.post('/api/action/lupin', async (req, res) => {
 
         calculateOfflineGains(user);
 
-        const STAMINA_COST = 2;
+        const STAMINA_COST = 6;
         if (user.gameState.stamina < STAMINA_COST) {
-            return res.status(400).json({ msg: '행동력이 부족합니다.' });
+            return res.status(400).json({ msg: '행동력이 부족합니다. (필요: 6)' });
         }
 
         user.buffs = user.buffs.filter(buff => new Date(buff.expiresAt) > new Date());
@@ -376,7 +378,7 @@ app.post('/api/action/lupin', async (req, res) => {
 
         user.gameState.stamina -= STAMINA_COST;
 
-        const expiresAt = new Date(new Date().getTime() + 2 * 60 * 60 * 1000);
+        const expiresAt = new Date(new Date().getTime() + 1 * 60 * 60 * 1000);
         user.buffs.push({
             buffId: 'lupin_buff',
             expiresAt: expiresAt
