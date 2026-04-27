@@ -94,7 +94,7 @@ function checkLevelUp(user) {
         console.log(`[레벨업] ${user.username}님이 ${user.gameState.level}레벨이 되었습니다!`);
     }
     // 프론트엔드에 다음 레벨 필요 경험치를 알려주기 위해 임시 필드 추가 (DB엔 저장 안 함)
-    user.gameState.nextLevelExp =HZ requiredExp; 
+    user.gameState.nextLevelExp = requiredExp; 
     return leveledUp;
 }
 
