@@ -1,8 +1,10 @@
 // ========================
 // 환경 설정 및 데이터
 // ========================
-// const API_URL = "http://localhost:5000";
-const API_URL = "https://leeneo-main.onrender.com";
+// 로컬/배포 환경 자동 인식
+// - 서버를 통해 접속하면 현재 주소를 API 주소로 사용
+// - index.html을 파일로 직접 열었을 때만 localhost:5000으로 요청
+const API_URL = window.location.protocol === "file:" ? "http://localhost:5000" : window.location.origin;
 
 console.log("🚀 client.js 로드됨. API URL:", API_URL);
 
@@ -16,6 +18,8 @@ const BUFF_DATA = {
 };
 
 let updateInterval;
+let rankingInterval;
+let syncInterval;
 let animationInterval;
 
 
@@ -177,6 +181,8 @@ function handleLogoutClick() {
     
     if (animationInterval) clearInterval(animationInterval);
     if (updateInterval) clearInterval(updateInterval);
+    if (rankingInterval) clearInterval(rankingInterval);
+    if (syncInterval) clearInterval(syncInterval);
 
     alert("로그아웃되었습니다.");
 }
@@ -207,6 +213,7 @@ async function handleClickWork() {
 
     } catch (err) {
         console.error("작업 요청 실패:", err);
+        alert(err.message || "작업 요청 중 오류가 발생했습니다.");
     } finally {
         setTimeout(() => {
             btn.disabled = false;
@@ -489,6 +496,27 @@ function updateStressEffect(stress) {
     }
 }
 
+
+async function syncUserState() {
+    const userStr = localStorage.getItem("user");
+    if (!userStr) return;
+
+    const user = JSON.parse(userStr);
+    try {
+        const res = await fetch(`${API_URL}/api/sync`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId: user._id })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.msg || "상태 동기화 실패");
+
+        updateLocalUserState(user, data);
+    } catch (err) {
+        console.error("상태 동기화 실패:", err);
+    }
+}
+
 async function updateRankingUI() {
     const rankingListBody = document.getElementById("ranking-list-body");
     if (!rankingListBody) return;
@@ -527,16 +555,25 @@ async function updateRankingUI() {
 
 function startPeriodicUpdates() {
     if (updateInterval) clearInterval(updateInterval);
+    if (rankingInterval) clearInterval(rankingInterval);
+    if (syncInterval) clearInterval(syncInterval);
+
+    // 버프 남은 시간 표시는 1초마다 갱신
     updateInterval = setInterval(() => {
         const userStr = localStorage.getItem("user");
         if (userStr) {
             const user = JSON.parse(userStr);
-            // 로컬 상태 기반으로 UI 업데이트 (실제 데이터 동기화는 액션 시 발생)
-            // 여기서는 버프 타이머/스트레스 표시 갱신 목적이 큼
             updateBuffUI(user.buffs, user.gameState.stress);
         }
-        updateRankingUI();
     }, 1000);
+
+    // 랭킹은 5초마다 갱신
+    updateRankingUI();
+    rankingInterval = setInterval(updateRankingUI, 5000);
+
+    // 서버 상태 동기화는 10초마다 실행
+    syncUserState();
+    syncInterval = setInterval(syncUserState, 10000);
 }
 
 

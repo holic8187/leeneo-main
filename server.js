@@ -8,6 +8,18 @@ const path = require('path');
 
 const app = express();
 
+const MONGO_URI = process.env.MONGO_URI;
+const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
+
+if (!MONGO_URI) {
+  console.error('❌ MONGO_URI가 .env에 설정되어 있지 않습니다.');
+  process.exit(1);
+}
+
+if (!process.env.JWT_SECRET) {
+  console.warn('⚠️ JWT_SECRET이 없어 개발용 기본값을 사용합니다. 배포 환경에서는 반드시 설정하세요.');
+}
+
 app.use(express.json());
 app.use(cors());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -16,7 +28,11 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-mongoose.connect(process.env.MONGO_URI)
+app.get('/api/health', (req, res) => {
+  res.json({ ok: true, message: 'server is running' });
+});
+
+mongoose.connect(MONGO_URI)
   .then(() => console.log('✅ MongoDB Connected'))
   .catch(err => console.error('❌ MongoDB Connection Error:', err));
 
@@ -121,13 +137,16 @@ function calculateOfflineGains(user) {
       user.gameState.lastStaminaResetTime = now;
   }
 
+  const itemStats = calculateItemStats(user.inventory);
+
   // --- 2. 스트레스 자연 증가 ---
   const hasLupinBuff = user.buffs.some(b => b.buffId === 'lupin_buff');
   let gainedStress = 0;
   if (!hasLupinBuff) {
       // 10분에 1 증가 = 600초에 1 증가
       const STRESS_INC_PER_SEC = 1 / 600;
-      gainedStress = STRESS_INC_PER_SEC * elapsedSeconds; // 소수점 계산 유지
+      const stressReductionRate = Math.max(0, 1 - ((itemStats.stressReduction || 0) / 100));
+      gainedStress = STRESS_INC_PER_SEC * elapsedSeconds * stressReductionRate;
       user.gameState.stress = Math.min(100, user.gameState.stress + gainedStress);
   }
 
@@ -141,8 +160,11 @@ function calculateOfflineGains(user) {
   // 일일 자동 획득 경험치량은 +1 레벨마다 8% 증가
   const levelFactorExp = Math.pow(1.08, user.gameState.level - 1);
 
-  const moneyPerSec = BASE_MONEY_PER_SEC * levelFactorMoney;
-  const expPerSec = BASE_EXP_PER_SEC * levelFactorExp;
+  const moneyBonusRate = 1 + ((itemStats.moneyBonus || 0) / 100);
+  const expBonusRate = 1 + ((itemStats.expBonus || 0) / 100);
+
+  const moneyPerSec = BASE_MONEY_PER_SEC * levelFactorMoney * moneyBonusRate;
+  const expPerSec = BASE_EXP_PER_SEC * levelFactorExp * expBonusRate;
 
   // 소수점 단위로 계산하여 누적
   const gainedMoney = moneyPerSec * elapsedSeconds;
@@ -220,7 +242,7 @@ app.post('/api/login', async (req, res) => {
       await user.save();
 
       const itemStats = calculateItemStats(user.inventory);
-      const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET || 'secret', { expiresIn: '1d' });
+      const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '1d' });
 
       // nextLevelExp 정보도 함께 전송
       const userResponse = user.toObject();
@@ -276,6 +298,8 @@ app.post('/api/action/work', async (req, res) => {
     try {
         const user = await User.findById(userId);
         if (!user) return res.status(404).json({ msg: '유저를 찾을 수 없습니다.' });
+
+        calculateOfflineGains(user);
 
         user.buffs = user.buffs.filter(buff => new Date(buff.expiresAt) > new Date());
         
@@ -338,6 +362,8 @@ app.post('/api/action/lupin', async (req, res) => {
         const user = await User.findById(userId);
         if (!user) return res.status(404).json({ msg: '유저를 찾을 수 없습니다.' });
 
+        calculateOfflineGains(user);
+
         const STAMINA_COST = 2;
         if (user.gameState.stamina < STAMINA_COST) {
             return res.status(400).json({ msg: '행동력이 부족합니다.' });
@@ -388,6 +414,8 @@ app.post('/api/action/nap', async (req, res) => {
         const user = await User.findById(userId);
         if (!user) return res.status(404).json({ msg: '유저를 찾을 수 없습니다.' });
 
+        calculateOfflineGains(user);
+
         // 행동력 체크 (3 소모)
         const STAMINA_COST = 3;
         if (user.gameState.stamina < STAMINA_COST) {
@@ -435,6 +463,8 @@ app.post('/api/shop/buy', async (req, res) => {
         const user = await User.findById(userId);
         if (!user) return res.status(404).json({ msg: '유저를 찾을 수 없습니다.' });
 
+        calculateOfflineGains(user);
+
         if (user.gameState.money < itemInfo.price) {
             return res.status(400).json({ msg: '잔고가 부족합니다.' });
         }
@@ -467,6 +497,34 @@ app.post('/api/shop/buy', async (req, res) => {
 
     } catch (err) {
         console.error("구매 처리 중 에러:", err);
+        res.status(500).json({ msg: '서버 오류 발생' });
+    }
+});
+
+
+// 현재 상태 동기화 API: 접속 중에도 자동 급여/경험치/스트레스 흐름을 반영
+app.post('/api/sync', async (req, res) => {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ msg: '유저 ID가 필요합니다.' });
+
+    try {
+        const user = await User.findById(userId);
+        if (!user) return res.status(404).json({ msg: '유저를 찾을 수 없습니다.' });
+
+        calculateOfflineGains(user);
+        await user.save();
+
+        const userResponse = user.toObject();
+        userResponse.gameState.nextLevelExp = getRequiredExp(user.gameState.level);
+
+        res.json({
+            gameState: userResponse.gameState,
+            inventory: userResponse.inventory,
+            buffs: userResponse.buffs,
+            itemStats: calculateItemStats(user.inventory)
+        });
+    } catch (err) {
+        console.error("상태 동기화 에러:", err);
         res.status(500).json({ msg: '서버 오류 발생' });
     }
 });
