@@ -26,7 +26,11 @@ const ITEM_DATA = {
 const BUFF_DATA = {
   lupin_stress_buff: { name: '월급루팡' },
   lupin_exp_buff: { name: '월급루팡 집중' },
-  hot6_buff: { name: '핫식스 버프', className: 'title-buff' }
+  hot6_buff: {
+    name: '핫식스 버프',
+    desc: '서류작업 클릭 시 스트레스를 0.1 낮춥니다.',
+    className: 'buff-item title-buff'
+  }
 };
 
 const animations = [
@@ -491,7 +495,7 @@ function updateBuffUI(user) {
       'beforeend',
       `
         <div class="buff-item title-buff">
-          ${escapeHtml(equippedTitle.name)}
+          칭호 버프: ${escapeHtml(equippedTitle.name)}
           <span class="buff-tooltip">
             <strong>${escapeHtml(equippedTitle.name)}</strong><br>
             ${escapeHtml(equippedTitle.desc)}
@@ -521,6 +525,7 @@ function updateBuffUI(user) {
           ${escapeHtml(info.name)}
           <span class="buff-tooltip">
             <strong>${escapeHtml(info.name)}</strong><br>
+            ${escapeHtml(info.desc || '')}${info.desc ? '<br><br>' : ''}
             (${remainingMin}분 ${remainingSec}초 남음)
           </span>
         </div>
