@@ -24,6 +24,38 @@
     </div>
   </div>
 
+  <div id="admin-screen" class="hidden">
+    <div class="excel-sheet admin-panel">
+      <div class="status-bar status-top">
+        <div class="status-user">운영자 선물 관리</div>
+        <button id="adminLogoutBtn" class="mini-btn">관리자 로그아웃</button>
+      </div>
+
+      <div class="admin-body">
+        <div class="admin-card">
+          <h3>선물 보내기</h3>
+          <label for="giftTargetSelect">대상 유저</label>
+          <select id="giftTargetSelect"></select>
+
+          <label for="giftTypeSelect">선물 종류</label>
+          <select id="giftTypeSelect">
+            <option value="item">아이템</option>
+            <option value="buff">버프</option>
+          </select>
+
+          <label for="giftIdSelect">선물 항목</label>
+          <select id="giftIdSelect"></select>
+
+          <label for="giftQuantity">수량</label>
+          <input type="number" id="giftQuantity" min="1" step="1" value="1">
+
+          <button id="adminGiftBtn" class="menu-action-btn">선물 발송</button>
+          <p id="adminStatus" class="menu-note">운영자 선물 대상을 불러오는 중입니다.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="game-screen" class="hidden excel-sheet">
     <div class="status-bar status-top">
       <div class="status-group">
@@ -100,13 +132,13 @@
                 </div>
 
                 <div class="special-card stock-card">
-                  <h4>주식 투자 (행동력 1)</h4>
-                  <p>얼마를 투자하시겠습니까?</p>
+                  <h4>주식 투자 (하루 1회)</h4>
+                  <p>주식 투자는 행동력을 소모하지 않으며, 다음 로그인 시 결과를 확인합니다.</p>
                   <div class="stock-controls">
                     <input type="number" id="stockAmount" min="1" step="1" placeholder="투자 금액">
                     <button id="stockInvestBtn" class="menu-action-btn">투자하기</button>
                   </div>
-                  <p id="stock-status" class="menu-note">정산 대기 중인 주식 투자가 없습니다.</p>
+                  <p id="stock-status" class="menu-note">하루 1회 투자할 수 있으며, 다음 로그인 시 결과를 확인합니다.</p>
                 </div>
               </div>
 
@@ -187,6 +219,6 @@
     </div>
   </div>
 
-  <script src="client.js?v=8"></script>
+  <script src="client.js?v=9"></script>
 </body>
 </html>

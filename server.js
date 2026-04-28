@@ -11,14 +11,22 @@ const app = express();
 const MONGO_URI = process.env.MONGO_URI;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
 
+const ADMIN_USERNAME = 'dinguree';
+const ADMIN_PASSWORD = 'dinguree';
+
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const BASE_DAILY_SALARY = 300000;
 const BASE_DAILY_PASSIVE_EXP = 400;
 const BASE_CLICK_EXP = 5;
-const BASE_STRESS_PER_SECOND = 1 / 600;
+const IDLE_STRESS_PER_SECOND = 1 / 1800;
+const CLICK_STRESS_GAIN = 0.25;
 const LUPIN_STRESS_DURATION_MS = 60 * 60 * 1000;
 const LUPIN_EXP_DURATION_MS = 2 * 60 * 60 * 1000;
 const HOT6_DURATION_MS = 10 * 60 * 1000;
+const SHOPPING_ADDICT_THRESHOLD = 1500000;
+const SHOPPING_ADDICT_LOSE_AFTER_DAYS = 3;
+const RICH_THRESHOLD = 5000000;
+const BEAST_HEART_UNLOCK_THRESHOLD = 2000000;
 
 const ITEM_DATA = {
   pen_monami: {
@@ -42,26 +50,75 @@ const ITEM_DATA = {
     price: 100000,
     type: 'consumable',
     desc: '사용 시 행동력 +1',
-    hoverDesc: '가방에서 사용하면 행동력을 1 회복합니다.',
-    useDesc: '행동력 +1'
+    hoverDesc: '가방에서 사용하면 행동력을 1 회복합니다.'
   },
   hot6: {
     name: '핫식스',
     price: 100000,
     type: 'consumable',
     desc: '사용 시 스트레스 -10, 10분 버프',
-    hoverDesc: '사용 즉시 스트레스를 10 낮추고, 10분 동안 서류작업 클릭마다 스트레스를 0.1 낮춥니다.',
-    useDesc: '스트레스 -10, 10분 동안 서류작업 클릭 시 스트레스 -0.1'
+    hoverDesc: '사용 즉시 스트레스를 10 낮추고, 10분 동안 서류작업 클릭마다 스트레스를 0.1 낮춥니다.'
   }
 };
 
+const BUFF_DATA = {
+  lupin_stress_buff: { name: '월급루팡', durationMs: LUPIN_STRESS_DURATION_MS },
+  lupin_exp_buff: { name: '월급루팡 집중', durationMs: LUPIN_EXP_DURATION_MS },
+  hot6_buff: { name: '핫식스 버프', durationMs: HOT6_DURATION_MS }
+};
+
 const TITLE_DATA = {
+  newcomer: {
+    name: '신입직원',
+    unlockDesc: '1회 이상 로그인 시 획득',
+    baseDesc: '장착 시 매 60분마다 스트레스 -8',
+    effects: { hourlyStressRelief: 8 }
+  },
+  mental_master: {
+    name: '멘탈甲',
+    unlockDesc: '스트레스 감소율이 30%를 초과하면 획득',
+    baseDesc: '장착 시 매 60분마다 스트레스 -15, 월급 +5%',
+    effects: { hourlyStressRelief: 15, moneyBonus: 5 }
+  },
+  high_salary: {
+    name: '고액연봉자',
+    unlockDesc: '1분당 획득 월급이 2000원 이상이면 획득',
+    baseDesc: '장착 시 스트레스 감소율 +30%',
+    effects: { titleStressMultiplier: 0.7 }
+  },
+  shopping_addict: {
+    name: '쇼핑중독자',
+    unlockDesc: '하루 동안 인터넷 쇼핑에 누적 150만원 이상 사용 시 획득',
+    baseDesc: '장착 시 쇼핑 구매마다 스트레스 -10, 월급 +3%',
+    effects: { moneyBonus: 3, shopStressRelief: 10 },
+    removable: true
+  },
+  rich: {
+    name: '대부호',
+    unlockDesc: '보유 자산이 500만원 이상일 때 획득',
+    baseDesc: '장착 시 월급 +10%, 스트레스 감소율 +10%',
+    effects: { moneyBonus: 10, titleStressMultiplier: 0.9 },
+    removable: true
+  },
   beast_heart: {
     name: '야수의 심장',
-    desc: '월급 5% 증가',
-    unlockDesc: '현재 잔고 50만원 이상일 때 잔고의 90% 이상을 주식 투자',
-    stats: { moneyBonus: 5 }
+    unlockDesc: '보유 자산이 200만원 이상일 때 현재 보유 자산의 90% 이상을 주식 투자하면 획득',
+    baseDesc: '장착 시 매 60분마다 스트레스 -10, 월급 +10%',
+    effects: { hourlyStressRelief: 10, moneyBonus: 10 }
   }
+};
+
+const ADMIN_GIFT_CATALOG = {
+  items: Object.entries(ITEM_DATA).map(([id, item]) => ({
+    id,
+    name: item.name,
+    type: item.type
+  })),
+  buffs: Object.entries(BUFF_DATA).map(([id, buff]) => ({
+    id,
+    name: buff.name,
+    durationMs: buff.durationMs
+  }))
 };
 
 if (!MONGO_URI) {
@@ -126,6 +183,15 @@ const userSchema = new mongoose.Schema({
     amount: { type: Number, default: 0 },
     investedOn: { type: String, default: null }
   },
+  shopState: {
+    dayKey: { type: String, default: null },
+    dailySpend: { type: Number, default: 0 },
+    lastShoppingAddictQualifiedDayKey: { type: String, default: null }
+  },
+  meta: {
+    loginCount: { type: Number, default: 0 },
+    lastLoginAt: { type: Date, default: null }
+  },
   pendingNotifications: [{
     type: { type: String, default: 'info' },
     text: { type: String, required: true }
@@ -140,6 +206,18 @@ function getKSTDateKey(date = new Date()) {
   const month = String(kst.getUTCMonth() + 1).padStart(2, '0');
   const day = String(kst.getUTCDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function dateKeyToUtcMillis(dateKey) {
+  if (!dateKey) return null;
+  return Date.parse(`${dateKey}T00:00:00Z`);
+}
+
+function getDateKeyDiff(a, b) {
+  const aMs = dateKeyToUtcMillis(a);
+  const bMs = dateKeyToUtcMillis(b);
+  if (aMs === null || bMs === null) return 0;
+  return Math.floor((aMs - bMs) / (24 * 60 * 60 * 1000));
 }
 
 function isWorkingHour(start, end) {
@@ -170,6 +248,7 @@ function ensureUserDefaults(user) {
 
   if (!Array.isArray(user.inventory)) user.inventory = [];
   if (!Array.isArray(user.buffs)) user.buffs = [];
+  if (!Array.isArray(user.pendingNotifications)) user.pendingNotifications = [];
 
   if (!user.titles) {
     user.titles = { unlocked: [], equipped: null };
@@ -179,13 +258,28 @@ function ensureUserDefaults(user) {
     user.titles.equipped = null;
   }
 
-  if (!Array.isArray(user.pendingNotifications)) user.pendingNotifications = [];
-
   if (!user.pendingStockInvestment || typeof user.pendingStockInvestment !== 'object') {
     user.pendingStockInvestment = { amount: 0, investedOn: null };
   }
   user.pendingStockInvestment.amount = Number(user.pendingStockInvestment.amount ?? 0);
   user.pendingStockInvestment.investedOn = user.pendingStockInvestment.investedOn || null;
+
+  if (!user.shopState) {
+    user.shopState = {
+      dayKey: null,
+      dailySpend: 0,
+      lastShoppingAddictQualifiedDayKey: null
+    };
+  }
+  user.shopState.dayKey = user.shopState.dayKey || null;
+  user.shopState.dailySpend = Number(user.shopState.dailySpend ?? 0);
+  user.shopState.lastShoppingAddictQualifiedDayKey = user.shopState.lastShoppingAddictQualifiedDayKey || null;
+
+  if (!user.meta) {
+    user.meta = { loginCount: 0, lastLoginAt: null };
+  }
+  user.meta.loginCount = Number(user.meta.loginCount ?? 0);
+  user.meta.lastLoginAt = user.meta.lastLoginAt || null;
 
   migrateLegacyBuffs(user);
 }
@@ -266,8 +360,7 @@ function getItemPrice(user, itemId) {
   const itemInfo = ITEM_DATA[itemId];
   if (!itemInfo) return 0;
   if (itemId === 'pen_monami') {
-    const ownedCount = getInventoryQuantity(user, itemId);
-    return Math.round(itemInfo.price * getMonamiPriceMultiplier(ownedCount));
+    return Math.round(itemInfo.price * getMonamiPriceMultiplier(getInventoryQuantity(user, itemId)));
   }
   return itemInfo.price;
 }
@@ -280,13 +373,13 @@ function getShopPricesForUser(user) {
   return prices;
 }
 
-function getTitleInfo(user) {
+function getEquippedTitleDefinition(user) {
   if (!user.titles?.equipped) return null;
   return TITLE_DATA[user.titles.equipped] || null;
 }
 
 function buildDisplayName(user) {
-  const titleInfo = getTitleInfo(user);
+  const titleInfo = getEquippedTitleDefinition(user);
   if (!user.nickname) return user.username;
   if (!titleInfo) return user.nickname;
   return `<${titleInfo.name}> ${user.nickname}`;
@@ -298,6 +391,38 @@ function unlockTitle(user, titleId) {
   user.titles.unlocked.push(titleId);
   queueNotification(user, 'title_unlock', `<${TITLE_DATA[titleId].name}> 칭호를 획득하였습니다!`);
   return true;
+}
+
+function removeTitle(user, titleId) {
+  if (!user.titles.unlocked.includes(titleId)) return false;
+  user.titles.unlocked = user.titles.unlocked.filter((id) => id !== titleId);
+  if (user.titles.equipped === titleId) {
+    user.titles.equipped = null;
+  }
+  return true;
+}
+
+function syncDailyShopState(user, now = new Date()) {
+  const todayKey = getKSTDateKey(now);
+  if (user.shopState.dayKey !== todayKey) {
+    user.shopState.dayKey = todayKey;
+    user.shopState.dailySpend = 0;
+  }
+}
+
+function getShoppingDaysWithoutBigSpend(user, now = new Date()) {
+  const lastKey = user.shopState.lastShoppingAddictQualifiedDayKey;
+  if (!lastKey) return 0;
+  return Math.max(0, getDateKeyDiff(getKSTDateKey(now), lastKey));
+}
+
+function recordShopSpend(user, amount, now = new Date()) {
+  syncDailyShopState(user, now);
+  user.shopState.dailySpend += amount;
+  if (user.shopState.dailySpend >= SHOPPING_ADDICT_THRESHOLD) {
+    user.shopState.lastShoppingAddictQualifiedDayKey = user.shopState.dayKey;
+    unlockTitle(user, 'shopping_addict');
+  }
 }
 
 function calculateItemStats(inventory = []) {
@@ -318,7 +443,9 @@ function calculateItemStats(inventory = []) {
     if (data.stats.stressMultiplier) {
       stats.stressMultiplier *= Math.pow(data.stats.stressMultiplier, item.quantity);
     }
-    if (data.stats.clickStressRelief) stats.clickStressRelief += data.stats.clickStressRelief * item.quantity;
+    if (data.stats.clickStressRelief) {
+      stats.clickStressRelief += data.stats.clickStressRelief * item.quantity;
+    }
   });
 
   stats.stressMultiplier = Number(stats.stressMultiplier.toFixed(6));
@@ -333,18 +460,25 @@ function calculateDerivedStats(user, now = new Date()) {
   cleanupExpiredBuffs(user, now);
 
   const itemStats = calculateItemStats(user.inventory);
-  const titleInfo = getTitleInfo(user);
-  const titleMoneyBonus = titleInfo?.stats?.moneyBonus || 0;
+  const titleDef = getEquippedTitleDefinition(user);
+  const titleEffects = titleDef?.effects || {};
+
+  const moneyBonusPercent = itemStats.moneyBonus + (titleEffects.moneyBonus || 0);
+  const titleStressMultiplier = titleEffects.titleStressMultiplier || 1;
   const hot6ClickStressRelief = hasBuff(user, 'hot6_buff', now) ? 0.1 : 0;
 
+  const finalStressMultiplier = Number((itemStats.stressMultiplier * titleStressMultiplier).toFixed(6));
+
   return {
-    moneyBonusPercent: Number((itemStats.moneyBonus + titleMoneyBonus).toFixed(2)),
+    moneyBonusPercent: Number(moneyBonusPercent.toFixed(2)),
     itemMoneyBonusPercent: itemStats.moneyBonus,
-    titleMoneyBonusPercent: Number(titleMoneyBonus.toFixed(2)),
+    titleMoneyBonusPercent: Number((titleEffects.moneyBonus || 0).toFixed(2)),
     expBonusPercent: itemStats.expBonus,
-    stressMultiplier: itemStats.stressMultiplier,
-    stressReductionPercent: itemStats.stressReduction,
-    clickStressRelief: Number((itemStats.clickStressRelief + hot6ClickStressRelief).toFixed(2))
+    stressMultiplier: finalStressMultiplier,
+    stressReductionPercent: Number(((1 - finalStressMultiplier) * 100).toFixed(2)),
+    clickStressRelief: Number((itemStats.clickStressRelief + hot6ClickStressRelief).toFixed(2)),
+    hourlyStressRelief: Number((titleEffects.hourlyStressRelief || 0).toFixed(2)),
+    shopStressRelief: Number((titleEffects.shopStressRelief || 0).toFixed(2))
   };
 }
 
@@ -405,6 +539,34 @@ function resetDailyStaminaIfNeeded(user, now = new Date()) {
   }
 }
 
+function reconcileTitles(user, now = new Date()) {
+  if (user.meta.loginCount > 0) {
+    unlockTitle(user, 'newcomer');
+  }
+
+  const currentStats = calculateDerivedStats(user, now);
+  const currentSalaryPerMinute = getSalaryPerMinute(user.gameState.level, currentStats.moneyBonusPercent);
+
+  if (currentStats.stressReductionPercent > 30) {
+    unlockTitle(user, 'mental_master');
+  }
+
+  if (currentSalaryPerMinute >= 2000) {
+    unlockTitle(user, 'high_salary');
+  }
+
+  if (user.gameState.money >= RICH_THRESHOLD) {
+    unlockTitle(user, 'rich');
+  } else {
+    removeTitle(user, 'rich');
+  }
+
+  const shoppingDaysWithoutBigSpend = getShoppingDaysWithoutBigSpend(user, now);
+  if (shoppingDaysWithoutBigSpend > SHOPPING_ADDICT_LOSE_AFTER_DAYS) {
+    removeTitle(user, 'shopping_addict');
+  }
+}
+
 function checkLevelUp(user) {
   const requiredExp = getRequiredExp(user.gameState.level);
   if (user.gameState.exp < requiredExp) return false;
@@ -419,9 +581,11 @@ function checkLevelUp(user) {
 
 function calculateOfflineGains(user, now = new Date()) {
   ensureUserDefaults(user);
+  syncDailyShopState(user, now);
   settlePendingStockInvestment(user, now);
   cleanupExpiredBuffs(user, now);
   resetDailyStaminaIfNeeded(user, now);
+  reconcileTitles(user, now);
 
   const lastActionTime = new Date(user.gameState.lastActionTime || now);
   let elapsedSeconds = (now.getTime() - lastActionTime.getTime()) / 1000;
@@ -435,17 +599,28 @@ function calculateOfflineGains(user, now = new Date()) {
   const derivedStats = calculateDerivedStats(user, now);
 
   if (!hasBuff(user, 'lupin_stress_buff', now)) {
-    const gainedStress = elapsedSeconds * BASE_STRESS_PER_SECOND * derivedStats.stressMultiplier;
+    const gainedStress = elapsedSeconds * IDLE_STRESS_PER_SECOND * derivedStats.stressMultiplier;
     user.gameState.stress = Number(Math.min(100, user.gameState.stress + gainedStress).toFixed(2));
   }
 
-  const rawMoneyGain = getSalaryPerSecond(user.gameState.level, derivedStats.moneyBonusPercent) * elapsedSeconds + user.gameState.moneyCarry;
+  if (derivedStats.hourlyStressRelief > 0) {
+    const stressRelief = (derivedStats.hourlyStressRelief / 3600) * elapsedSeconds;
+    user.gameState.stress = Number(Math.max(0, user.gameState.stress - stressRelief).toFixed(2));
+  }
+
+  const rawMoneyGain =
+    getSalaryPerSecond(user.gameState.level, derivedStats.moneyBonusPercent) * elapsedSeconds +
+    user.gameState.moneyCarry;
   const gainedMoney = Math.floor(rawMoneyGain);
   user.gameState.moneyCarry = Number((rawMoneyGain - gainedMoney).toFixed(6));
   user.gameState.money += gainedMoney;
 
-  const passiveExpMultiplier = (1 + derivedStats.expBonusPercent / 100) * (hasBuff(user, 'lupin_exp_buff', now) ? 1.5 : 1);
-  let rawExpGain = getPassiveExpPerSecond(user.gameState.level) * passiveExpMultiplier * elapsedSeconds + user.gameState.passiveExpCarry;
+  const passiveExpMultiplier =
+    (1 + derivedStats.expBonusPercent / 100) *
+    (hasBuff(user, 'lupin_exp_buff', now) ? 1.5 : 1);
+  let rawExpGain =
+    getPassiveExpPerSecond(user.gameState.level) * passiveExpMultiplier * elapsedSeconds +
+    user.gameState.passiveExpCarry;
 
   if (user.gameState.stress >= 100) {
     rawExpGain /= 2;
@@ -456,11 +631,44 @@ function calculateOfflineGains(user, now = new Date()) {
   user.gameState.exp += gainedExp;
 
   checkLevelUp(user);
+  reconcileTitles(user, now);
   user.gameState.lastActionTime = now;
 }
 
-function buildGameStateResponse(user) {
-  const derivedStats = calculateDerivedStats(user, new Date());
+function buildTitleDetails(user, now = new Date()) {
+  const shoppingDaysWithoutBigSpend = getShoppingDaysWithoutBigSpend(user, now);
+
+  return user.titles.unlocked
+    .filter((titleId) => TITLE_DATA[titleId])
+    .map((titleId) => {
+      const title = TITLE_DATA[titleId];
+      let desc = title.baseDesc;
+
+      if (titleId === 'shopping_addict') {
+        desc += ` / 현재 누적 ${shoppingDaysWithoutBigSpend}일동안 쇼핑을 하지 않았습니다!`;
+        desc += ' / 3일을 초과해 하루 150만원 쇼핑을 달성하지 못하면 사라집니다.';
+      }
+
+      if (titleId === 'rich') {
+        desc += ' / 보유 자산이 500만원 미만으로 내려가면 사라집니다.';
+      }
+
+      if (titleId === 'beast_heart') {
+        desc += ' / 보유 자산 200만원 이상에서 자산의 90% 이상을 주식 투자하면 획득합니다.';
+      }
+
+      return {
+        id: titleId,
+        name: title.name,
+        desc,
+        unlockDesc: title.unlockDesc,
+        equipped: user.titles.equipped === titleId
+      };
+    });
+}
+
+function buildGameStateResponse(user, now = new Date()) {
+  const derivedStats = calculateDerivedStats(user, now);
   const gameState = user.gameState.toObject ? user.gameState.toObject() : { ...user.gameState };
   gameState.nextLevelExp = getRequiredExp(gameState.level);
   gameState.passiveDailyExp = Number(getPassiveDailyExp(gameState.level).toFixed(2));
@@ -469,6 +677,7 @@ function buildGameStateResponse(user) {
 
   return {
     _id: user._id,
+    isAdmin: false,
     username: user.username,
     nickname: user.nickname,
     displayName: buildDisplayName(user),
@@ -477,7 +686,12 @@ function buildGameStateResponse(user) {
     inventory: user.inventory,
     buffs: user.buffs,
     titles: user.titles,
+    titleDetails: buildTitleDetails(user, now),
     pendingStockInvestment: user.pendingStockInvestment,
+    shopState: user.shopState,
+    meta: {
+      loginCount: user.meta.loginCount
+    },
     itemStats: {
       moneyBonus: derivedStats.moneyBonusPercent,
       itemMoneyBonus: derivedStats.itemMoneyBonusPercent,
@@ -485,24 +699,67 @@ function buildGameStateResponse(user) {
       expBonus: derivedStats.expBonusPercent,
       stressMultiplier: derivedStats.stressMultiplier,
       stressReduction: derivedStats.stressReductionPercent,
-      clickStressRelief: derivedStats.clickStressRelief
+      clickStressRelief: derivedStats.clickStressRelief,
+      hourlyStressRelief: derivedStats.hourlyStressRelief,
+      shopStressRelief: derivedStats.shopStressRelief
     },
     shopPrices: getShopPricesForUser(user)
   };
 }
 
-function buildUserResponse(user) {
+function buildUserResponse(user, now = new Date()) {
   return {
-    user: buildGameStateResponse(user),
+    user: buildGameStateResponse(user, now),
     notifications: consumeNotifications(user)
   };
+}
+
+function getBearerToken(req) {
+  const header = req.headers.authorization || '';
+  return header.startsWith('Bearer ') ? header.slice(7) : null;
+}
+
+function requireAdmin(req, res) {
+  try {
+    const token = getBearerToken(req);
+    if (!token) {
+      res.status(401).json({ msg: '관리자 인증이 필요합니다.' });
+      return null;
+    }
+
+    const payload = jwt.verify(token, JWT_SECRET);
+    if (!payload?.admin) {
+      res.status(403).json({ msg: '관리자 권한이 없습니다.' });
+      return null;
+    }
+
+    return payload;
+  } catch (err) {
+    res.status(401).json({ msg: '관리자 인증이 유효하지 않습니다.' });
+    return null;
+  }
 }
 
 app.post('/api/login', async (req, res) => {
   try {
     const { username, password } = req.body;
+
+    if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+      const token = jwt.sign({ admin: true, username: ADMIN_USERNAME }, JWT_SECRET, { expiresIn: '1d' });
+      return res.json({
+        token,
+        isAdmin: true,
+        admin: {
+          username: ADMIN_USERNAME,
+          displayName: '운영자'
+        },
+        giftCatalog: ADMIN_GIFT_CATALOG
+      });
+    }
+
     let user = await User.findOne({ username });
     let isNewUser = false;
+    const now = new Date();
 
     if (!user) {
       const hashedPassword = await bcrypt.hash(password, 10);
@@ -513,24 +770,30 @@ app.post('/api/login', async (req, res) => {
       isNewUser = true;
     } else {
       const isMatch = await bcrypt.compare(password, user.password);
-      if (!isMatch) return res.status(400).json({ msg: '비밀번호가 올바르지 않습니다.' });
+      if (!isMatch) {
+        return res.status(400).json({ msg: '비밀번호가 올바르지 않습니다.' });
+      }
     }
 
     ensureUserDefaults(user);
+    user.meta.loginCount += 1;
+    user.meta.lastLoginAt = now;
 
     if (user.workHours?.isSet && !isWorkingHour(user.workHours.start, user.workHours.end)) {
       return res.status(403).json({ msg: '아직 근무 시간이 아닙니다.', code: 'NOT_WORKING_HOUR' });
     }
 
-    calculateOfflineGains(user);
+    calculateOfflineGains(user, now);
+    reconcileTitles(user, now);
 
     const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '1d' });
-    const response = buildUserResponse(user);
+    const response = buildUserResponse(user, now);
     await user.save();
 
     res.json({
       token,
       isNewUser,
+      isAdmin: false,
       ...response
     });
   } catch (err) {
@@ -571,15 +834,15 @@ app.post('/api/action/work', async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
 
-    calculateOfflineGains(user);
     const now = new Date();
+    calculateOfflineGains(user, now);
     cleanupExpiredBuffs(user, now);
 
     const derivedStats = calculateDerivedStats(user, now);
     const hadTooMuchStress = user.gameState.stress >= 100;
 
     if (!hasBuff(user, 'lupin_stress_buff', now)) {
-      const clickStressGain = 0.5 * derivedStats.stressMultiplier;
+      const clickStressGain = CLICK_STRESS_GAIN * derivedStats.stressMultiplier;
       user.gameState.stress = Number(Math.min(100, user.gameState.stress + clickStressGain).toFixed(2));
     }
 
@@ -593,9 +856,10 @@ app.post('/api/action/work', async (req, res) => {
     }
 
     checkLevelUp(user);
+    reconcileTitles(user, now);
     user.gameState.lastActionTime = now;
 
-    const response = buildUserResponse(user);
+    const response = buildUserResponse(user, now);
     await user.save();
     res.json(response);
   } catch (err) {
@@ -612,8 +876,8 @@ app.post('/api/action/lupin', async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
 
-    calculateOfflineGains(user);
     const now = new Date();
+    calculateOfflineGains(user, now);
     cleanupExpiredBuffs(user, now);
 
     if (user.gameState.stamina < 6) {
@@ -629,7 +893,7 @@ app.post('/api/action/lupin', async (req, res) => {
     setOrRefreshBuff(user, 'lupin_exp_buff', LUPIN_EXP_DURATION_MS);
     user.gameState.lastActionTime = now;
 
-    const response = buildUserResponse(user);
+    const response = buildUserResponse(user, now);
     await user.save();
     res.json(response);
   } catch (err) {
@@ -646,8 +910,8 @@ app.post('/api/action/nap', async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
 
-    calculateOfflineGains(user);
     const now = new Date();
+    calculateOfflineGains(user, now);
 
     if (user.gameState.stamina < 3) {
       return res.status(400).json({ msg: '행동력이 부족합니다. (필요: 3)' });
@@ -657,7 +921,7 @@ app.post('/api/action/nap', async (req, res) => {
     user.gameState.stress = Number(Math.max(0, user.gameState.stress - 30).toFixed(2));
     user.gameState.lastActionTime = now;
 
-    const response = buildUserResponse(user);
+    const response = buildUserResponse(user, now);
     await user.save();
     res.json(response);
   } catch (err) {
@@ -679,15 +943,11 @@ app.post('/api/action/stock', async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
 
-    calculateOfflineGains(user);
     const now = new Date();
+    calculateOfflineGains(user, now);
 
     if (user.pendingStockInvestment?.amount > 0) {
-      return res.status(400).json({ msg: '이미 정산 대기 중인 주식 투자가 있습니다.' });
-    }
-
-    if (user.gameState.stamina < 1) {
-      return res.status(400).json({ msg: '행동력이 부족합니다. (필요: 1)' });
+      return res.status(400).json({ msg: '이미 오늘 주식 투자를 완료했습니다. 다음 결과 확인 후 다시 투자할 수 있습니다.' });
     }
 
     if (investAmount > user.gameState.money) {
@@ -696,15 +956,18 @@ app.post('/api/action/stock', async (req, res) => {
 
     const moneyBeforeInvestment = user.gameState.money;
     user.gameState.money -= investAmount;
-    user.gameState.stamina -= 1;
-    user.pendingStockInvestment = { amount: investAmount, investedOn: getKSTDateKey(now) };
+    user.pendingStockInvestment = {
+      amount: investAmount,
+      investedOn: getKSTDateKey(now)
+    };
     user.gameState.lastActionTime = now;
 
-    if (moneyBeforeInvestment >= 500000 && investAmount >= moneyBeforeInvestment * 0.9) {
+    if (moneyBeforeInvestment >= BEAST_HEART_UNLOCK_THRESHOLD && investAmount >= moneyBeforeInvestment * 0.9) {
       unlockTitle(user, 'beast_heart');
     }
 
-    const response = buildUserResponse(user);
+    reconcileTitles(user, now);
+    const response = buildUserResponse(user, now);
     await user.save();
     res.json(response);
   } catch (err) {
@@ -724,8 +987,8 @@ app.post('/api/shop/buy', async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
 
-    calculateOfflineGains(user);
     const now = new Date();
+    calculateOfflineGains(user, now);
     const price = getItemPrice(user, itemId);
 
     if (user.gameState.money < price) {
@@ -734,9 +997,17 @@ app.post('/api/shop/buy', async (req, res) => {
 
     user.gameState.money -= price;
     addItemToInventory(user, itemId, 1);
+    recordShopSpend(user, price, now);
+
+    const derivedStats = calculateDerivedStats(user, now);
+    if (derivedStats.shopStressRelief > 0) {
+      user.gameState.stress = Number(Math.max(0, user.gameState.stress - derivedStats.shopStressRelief).toFixed(2));
+    }
+
+    reconcileTitles(user, now);
     user.gameState.lastActionTime = now;
 
-    const response = buildUserResponse(user);
+    const response = buildUserResponse(user, now);
     await user.save();
     res.json(response);
   } catch (err) {
@@ -758,8 +1029,8 @@ app.post('/api/inventory/use', async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
 
-    calculateOfflineGains(user);
     const now = new Date();
+    calculateOfflineGains(user, now);
 
     if (!removeItemFromInventory(user, itemId, 1)) {
       return res.status(400).json({ msg: '해당 아이템이 부족합니다.' });
@@ -774,8 +1045,10 @@ app.post('/api/inventory/use', async (req, res) => {
       queueNotification(user, 'item_use', '핫식스를 사용했습니다. 스트레스가 10 감소하고 10분 버프가 적용되었습니다.');
     }
 
+    reconcileTitles(user, now);
     user.gameState.lastActionTime = now;
-    const response = buildUserResponse(user);
+
+    const response = buildUserResponse(user, now);
     await user.save();
     res.json(response);
   } catch (err) {
@@ -793,15 +1066,16 @@ app.post('/api/title/toggle', async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
 
-    calculateOfflineGains(user);
-    ensureUserDefaults(user);
+    const now = new Date();
+    calculateOfflineGains(user, now);
+    reconcileTitles(user, now);
 
     if (!user.titles.unlocked.includes(titleId)) {
       return res.status(400).json({ msg: '아직 해금하지 않은 칭호입니다.' });
     }
 
     user.titles.equipped = user.titles.equipped === titleId ? null : titleId;
-    const response = buildUserResponse(user);
+    const response = buildUserResponse(user, now);
     await user.save();
     res.json(response);
   } catch (err) {
@@ -818,8 +1092,11 @@ app.post('/api/sync', async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
 
-    calculateOfflineGains(user);
-    const response = buildUserResponse(user);
+    const now = new Date();
+    calculateOfflineGains(user, now);
+    reconcileTitles(user, now);
+
+    const response = buildUserResponse(user, now);
     await user.save();
     res.json(response);
   } catch (err) {
@@ -833,7 +1110,7 @@ app.get('/api/ranking', async (req, res) => {
     const rankingUsers = await User.find({ nickname: { $ne: null } })
       .sort({ 'gameState.level': -1, 'gameState.exp': -1 })
       .limit(20)
-      .select('nickname gameState.level gameState.exp titles');
+      .select('nickname username gameState.level gameState.exp titles');
 
     const ranking = rankingUsers.map((user) => ({
       nickname: user.nickname,
@@ -847,6 +1124,88 @@ app.get('/api/ranking', async (req, res) => {
     res.json(ranking);
   } catch (err) {
     console.error('Ranking error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.get('/api/admin/users', async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+
+  try {
+    const users = await User.find({})
+      .sort({ nickname: 1, username: 1 })
+      .select('username nickname');
+
+    res.json({
+      users: users.map((user) => ({
+        id: String(user._id),
+        username: user.username,
+        nickname: user.nickname,
+        label: user.nickname ? `${user.nickname} (${user.username})` : user.username
+      })),
+      giftCatalog: ADMIN_GIFT_CATALOG
+    });
+  } catch (err) {
+    console.error('Admin user list error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/admin/gift', async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+
+  const { targetMode, targetUserId, giftType, giftId, quantity } = req.body;
+  const giftQuantity = Math.max(1, Math.floor(Number(quantity) || 1));
+
+  if (!['all', 'single'].includes(targetMode)) {
+    return res.status(400).json({ msg: '대상 지정 방식이 올바르지 않습니다.' });
+  }
+
+  if (!['item', 'buff'].includes(giftType)) {
+    return res.status(400).json({ msg: '선물 종류가 올바르지 않습니다.' });
+  }
+
+  if (giftType === 'item' && !ITEM_DATA[giftId]) {
+    return res.status(400).json({ msg: '존재하지 않는 아이템입니다.' });
+  }
+
+  if (giftType === 'buff' && !BUFF_DATA[giftId]) {
+    return res.status(400).json({ msg: '존재하지 않는 버프입니다.' });
+  }
+
+  try {
+    const users = targetMode === 'all'
+      ? await User.find({})
+      : await User.find({ _id: targetUserId });
+
+    if (!users.length) {
+      return res.status(404).json({ msg: '선물할 사용자를 찾을 수 없습니다.' });
+    }
+
+    const now = new Date();
+
+    for (const user of users) {
+      ensureUserDefaults(user);
+      calculateOfflineGains(user, now);
+
+      if (giftType === 'item') {
+        addItemToInventory(user, giftId, giftQuantity);
+        queueNotification(user, 'admin_gift', `운영자로부터 선물이 도착했습니다! <${ITEM_DATA[giftId].name} ${giftQuantity}개>`);
+      } else {
+        setOrRefreshBuff(user, giftId, BUFF_DATA[giftId].durationMs);
+        queueNotification(user, 'admin_gift', `운영자로부터 선물이 도착했습니다! <${BUFF_DATA[giftId].name}>`);
+      }
+
+      reconcileTitles(user, now);
+      await user.save();
+    }
+
+    res.json({
+      success: true,
+      deliveredCount: users.length
+    });
+  } catch (err) {
+    console.error('Admin gift error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
   }
 });

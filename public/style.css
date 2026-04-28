@@ -1,103 +1,4 @@
 :root {
-    --excel-bg: #ffffff;
-    --excel-header-bg: #f3f3f3;
-    --excel-border: 1px solid #d4d4d4;
-    --excel-select-bg: #e8f0fe;
-    --excel-text: #000000;
-    --warning-red: #ff0000;
-}
-
-body {
-    font-family: 'Calibri', 'Arial', sans-serif;
-    background-color: #f0f0f0;
-    margin: 0;
-    padding: 20px;
-    font-size: 14px;
-}
-
-.excel-sheet {
-    background-color: var(--excel-bg);
-    border: var(--excel-border);
-    width: 100%;
-    max-width: 1000px;
-    margin: 0 auto;
-    box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
-}
-
-table {
-    width: 100%;
-    border-collapse: collapse;
-}
-
-th, td {
-    border: var(--excel-border);
-    padding: 4px 8px;
-    text-align: left;
-    font-weight: normal;
-}
-
-.sheet-header {
-    background-color: var(--excel-header-bg);
-    text-align: center;
-    font-weight: bold;
-    color: #666;
-    width: 30px;
-}
-
-td:hover {
-    border: 2px solid green;
-    cursor: default;
-}
-
-.status-bar {
-    background-color: #f9f9f9;
-    padding: 5px;
-    border-bottom: var(--excel-border);
-    display: flex;
-    gap: 20px;
-}
-
-.animation-cell {
-    height: 200px;
-    text-align: center;
-    vertical-align: middle;
-    font-family: monospace;
-    white-space: pre;
-    background-color: #fafafa;
-}
-
-.menu-tabs button {
-    background-color: var(--excel-header-bg);
-    border: var(--excel-border);
-    border-bottom: none;
-    padding: 5px 15px;
-    cursor: pointer;
-    margin-right: -1px;
-}
-
-.menu-tabs button.active {
-    background-color: var(--excel-bg);
-    border-bottom: 1px solid var(--excel-bg);
-    font-weight: bold;
-}
-
-.menu-content {
-    border-top: var(--excel-border);
-    padding: 10px;
-    min-height: 150px;
-}
-
-.stress-warning {
-    box-shadow: inset 0 0 10px var(--warning-red);
-}
-
-.hidden { display: none; }
-
-/* 랭킹 스타일 추가 */
-.rank-1 { background-color: #FFD700; color: black; font-weight: bold; } /* 금 */
-.rank-2 { background-color: #C0C0C0; color: black; font-weight: bold; } /* 은 */
-.rank-3 { background-color: #CD7F32; color: black; font-weight: bold; } /* 동 */
-:root {
   --excel-bg: #ffffff;
   --excel-header-bg: #f3f3f3;
   --excel-border: 1px solid #d4d4d4;
@@ -125,21 +26,55 @@ body {
   box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.08);
 }
 
+.login-panel,
+.admin-panel {
+  margin-top: 60px;
+}
+
 .login-panel {
   width: 320px;
   padding: 20px;
-  margin-top: 60px;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
+.admin-panel {
+  max-width: 760px;
+}
+
+.admin-body {
+  padding: 20px;
+}
+
+.admin-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: var(--excel-border);
+  background: #fbfbfb;
+}
+
+.admin-card h3,
+.special-card h4,
+.section-gap,
+.menu-content h4 {
+  margin: 0 0 8px;
+}
+
+input,
+select,
+button {
+  font: inherit;
+}
+
 .login-panel input,
-.stock-controls input {
+.stock-controls input,
+.admin-card input,
+.admin-card select {
   padding: 8px 10px;
   border: var(--excel-border);
-  font-size: 14px;
-  font-family: inherit;
 }
 
 .login-panel button,
@@ -150,7 +85,6 @@ body {
   border: var(--excel-border);
   background: var(--excel-header-bg);
   cursor: pointer;
-  font-family: inherit;
 }
 
 .login-panel button:hover,
@@ -159,6 +93,13 @@ body {
 .work-button:hover,
 .menu-tabs button:hover {
   background: #e9f3ec;
+}
+
+.menu-action-btn:disabled,
+.mini-btn:disabled,
+.work-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 table {
@@ -265,8 +206,7 @@ progress {
   white-space: pre;
   font-family: Consolas, monospace;
   font-size: 20px;
-  background:
-    linear-gradient(180deg, #fcfcfc 0%, #f6f6f6 100%);
+  background: linear-gradient(180deg, #fcfcfc 0%, #f6f6f6 100%);
 }
 
 .buff-cell {
@@ -309,13 +249,13 @@ progress {
 
 .buff-tooltip {
   visibility: hidden;
-  width: 220px;
+  width: 240px;
   opacity: 0;
   position: absolute;
   z-index: 2;
   bottom: 125%;
   left: 50%;
-  margin-left: -110px;
+  margin-left: -120px;
   padding: 8px;
   border-radius: 6px;
   background: rgba(40, 40, 40, 0.95);
@@ -347,7 +287,6 @@ progress {
   border-bottom: none;
   background: var(--excel-header-bg);
   cursor: pointer;
-  font-family: inherit;
 }
 
 .menu-tabs button.active {
@@ -368,6 +307,10 @@ progress {
   font-size: 13px;
 }
 
+.error-text {
+  color: #b71c1c;
+}
+
 .work-button {
   width: 100%;
   height: 96px;
@@ -384,10 +327,6 @@ progress {
   padding: 12px;
   border: var(--excel-border);
   background: #fbfbfb;
-}
-
-.special-card h4 {
-  margin: 0 0 8px;
 }
 
 .stock-card {

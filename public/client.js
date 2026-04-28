@@ -3,52 +3,30 @@ const API_URL = window.location.origin;
 const ITEM_DATA = {
   pen_monami: {
     name: '모나미 볼펜',
-    type: 'passive',
     desc: '월급 획득량 +0.05%',
     hoverDesc: '보유량 1개마다 월급 획득량이 0.05% 증가합니다.'
   },
   coffee_mix: {
     name: '맥심 커피믹스',
-    type: 'passive',
     desc: '스트레스 증가량 2% 감소',
     hoverDesc: '보유량마다 현재 스트레스 증가량의 98%만 받습니다.'
   },
   bacchus: {
     name: '박카스',
-    type: 'consumable',
     desc: '행동력 +1',
     hoverDesc: '가방에서 사용하면 행동력을 1 회복합니다.'
   },
   hot6: {
     name: '핫식스',
-    type: 'consumable',
     desc: '스트레스 -10, 10분 버프',
     hoverDesc: '사용 즉시 스트레스를 10 낮추고, 10분 동안 서류작업 클릭마다 스트레스를 0.1 낮춥니다.'
   }
 };
 
 const BUFF_DATA = {
-  lupin_stress_buff: {
-    name: '월급루팡',
-    desc: '1시간 동안 스트레스를 받지 않습니다.'
-  },
-  lupin_exp_buff: {
-    name: '월급루팡 집중',
-    desc: '2시간 동안 자동 및 클릭 경험치 획득량이 1.5배가 됩니다.'
-  },
-  hot6_buff: {
-    name: '핫식스 버프',
-    desc: '서류작업 클릭 시 스트레스를 0.1 낮춥니다.',
-    className: 'title-buff'
-  }
-};
-
-const TITLE_DATA = {
-  beast_heart: {
-    name: '야수의 심장',
-    desc: '월급 5% 증가',
-    unlockDesc: '현재 잔고 50만원 이상일 때 잔고의 90% 이상을 주식 투자'
-  }
+  lupin_stress_buff: { name: '월급루팡' },
+  lupin_exp_buff: { name: '월급루팡 집중' },
+  hot6_buff: { name: '핫식스 버프', className: 'title-buff' }
 };
 
 const animations = [
@@ -75,10 +53,10 @@ let syncInterval;
 let animationInterval;
 
 document.addEventListener('DOMContentLoaded', () => {
-  initGame();
+  initApp();
 });
 
-function initGame() {
+function initApp() {
   setupEventListeners();
   tryAutoLogin();
 }
@@ -91,6 +69,14 @@ function setupEventListeners() {
   bindClick('lupinBtn', handleLupinClick);
   bindClick('napBtn', handleNapClick);
   bindClick('stockInvestBtn', handleStockInvest);
+  bindClick('adminLogoutBtn', handleLogoutClick);
+  bindClick('adminGiftBtn', handleAdminGift);
+
+  const giftType = document.getElementById('giftTypeSelect');
+  if (giftType) {
+    giftType.removeEventListener('change', renderAdminGiftOptions);
+    giftType.addEventListener('change', renderAdminGiftOptions);
+  }
 }
 
 function bindClick(id, handler) {
@@ -101,12 +87,21 @@ function bindClick(id, handler) {
 }
 
 function getStoredUser() {
-  const userStr = localStorage.getItem('user');
-  return userStr ? JSON.parse(userStr) : null;
+  const value = localStorage.getItem('user');
+  return value ? JSON.parse(value) : null;
 }
 
 function saveStoredUser(user) {
   localStorage.setItem('user', JSON.stringify(user));
+}
+
+function getStoredAdmin() {
+  const value = localStorage.getItem('adminSession');
+  return value ? JSON.parse(value) : null;
+}
+
+function saveStoredAdmin(adminSession) {
+  localStorage.setItem('adminSession', JSON.stringify(adminSession));
 }
 
 function clearIntervals() {
@@ -114,6 +109,12 @@ function clearIntervals() {
   if (updateInterval) clearInterval(updateInterval);
   if (rankingInterval) clearInterval(rankingInterval);
   if (syncInterval) clearInterval(syncInterval);
+}
+
+function clearSessions() {
+  localStorage.removeItem('token');
+  localStorage.removeItem('user');
+  localStorage.removeItem('adminSession');
 }
 
 function formatNumber(value, decimals = 0) {
@@ -132,21 +133,28 @@ function escapeHtml(value) {
     .replaceAll("'", '&#39;');
 }
 
-function getDisplayName(user) {
-  if (user.displayName) return user.displayName;
-  const equipped = user.titles?.equipped;
-  if (equipped && TITLE_DATA[equipped]) {
-    return `<${TITLE_DATA[equipped].name}> ${user.nickname}`;
-  }
-  return user.nickname || user.username || '사원';
+function setText(id, value) {
+  const element = document.getElementById(id);
+  if (element) element.textContent = value;
 }
 
-async function postJson(url, body) {
+function getUserToken() {
+  return localStorage.getItem('token');
+}
+
+async function postJson(url, body, headers = {}) {
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(body)
   });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.msg || '요청 처리에 실패했습니다.');
+  return data;
+}
+
+async function getJson(url, headers = {}) {
+  const res = await fetch(url, { headers });
   const data = await res.json();
   if (!res.ok) throw new Error(data.msg || '요청 처리에 실패했습니다.');
   return data;
@@ -156,6 +164,13 @@ function showNotifications(notifications = []) {
   notifications.forEach((notification) => {
     if (notification?.text) alert(notification.text);
   });
+}
+
+function hideAllScreens() {
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('nickname-screen').classList.add('hidden');
+  document.getElementById('game-screen').classList.add('hidden');
+  document.getElementById('admin-screen').classList.add('hidden');
 }
 
 async function handleLoginClick(event) {
@@ -178,11 +193,23 @@ async function handleLoginClick(event) {
 }
 
 function processLoginSuccess(data) {
+  clearSessions();
   localStorage.setItem('token', data.token);
+
+  if (data.isAdmin) {
+    saveStoredAdmin({
+      token: data.token,
+      admin: data.admin,
+      giftCatalog: data.giftCatalog
+    });
+    showAdminScreen();
+    return;
+  }
+
   saveStoredUser(data.user);
 
   if (data.isNewUser || !data.user.nickname) {
-    document.getElementById('login-screen').classList.add('hidden');
+    hideAllScreens();
     document.getElementById('nickname-screen').classList.remove('hidden');
     alert('환영합니다. 게임에서 사용할 닉네임을 설정해주세요.');
     return;
@@ -215,7 +242,6 @@ async function handleSetNicknameClick() {
     user.nickname = data.nickname;
     user.displayName = data.nickname;
     saveStoredUser(user);
-    document.getElementById('nickname-screen').classList.add('hidden');
     showGameScreen(user);
     alert('닉네임이 설정되었습니다.');
   } catch (err) {
@@ -224,29 +250,36 @@ async function handleSetNicknameClick() {
 }
 
 function tryAutoLogin() {
+  const adminSession = getStoredAdmin();
+  if (adminSession?.token) {
+    showAdminScreen();
+    return;
+  }
+
   const user = getStoredUser();
-  const token = localStorage.getItem('token');
+  const token = getUserToken();
   if (!user || !token) return;
 
   try {
     if (!user.nickname) throw new Error('nickname missing');
     showGameScreen(user);
   } catch {
-    localStorage.removeItem('user');
-    localStorage.removeItem('token');
+    clearSessions();
   }
 }
 
 function handleLogoutClick() {
-  localStorage.removeItem('token');
-  localStorage.removeItem('user');
   clearIntervals();
+  clearSessions();
+  hideAllScreens();
 
-  document.getElementById('game-screen').classList.add('hidden');
-  document.getElementById('nickname-screen').classList.add('hidden');
   document.getElementById('login-screen').classList.remove('hidden');
   document.getElementById('username').value = '';
   document.getElementById('password').value = '';
+}
+
+function getEquippedTitleDetail(user) {
+  return (user.titleDetails || []).find((title) => title.equipped) || null;
 }
 
 async function handleClickWork() {
@@ -306,6 +339,11 @@ async function handleStockInvest() {
   const user = getStoredUser();
   if (!user?._id) return handleLogoutClick();
 
+  if (user.pendingStockInvestment?.amount > 0) {
+    alert('이미 오늘 주식 투자를 완료했습니다. 결과 확인 후 다시 투자할 수 있습니다.');
+    return;
+  }
+
   const input = document.getElementById('stockAmount');
   const rawValue = input.value.replaceAll(',', '').trim();
   const amount = Math.floor(Number(rawValue));
@@ -315,6 +353,8 @@ async function handleStockInvest() {
     return;
   }
 
+  if (!confirm('정말 투자하시겠습니까?')) return;
+
   const btn = document.getElementById('stockInvestBtn');
   btn.disabled = true;
 
@@ -323,11 +363,9 @@ async function handleStockInvest() {
       userId: user._id,
       amount
     });
-    input.value = '';
     updateLocalUserState(data);
   } catch (err) {
     alert(err.message);
-  } finally {
     btn.disabled = false;
   }
 }
@@ -389,8 +427,8 @@ function updateLocalUserState(data) {
 }
 
 function showGameScreen(user) {
-  document.getElementById('login-screen').classList.add('hidden');
-  document.getElementById('nickname-screen').classList.add('hidden');
+  clearIntervals();
+  hideAllScreens();
   document.getElementById('game-screen').classList.remove('hidden');
   updateGameUI(user);
   startAnimation();
@@ -398,7 +436,7 @@ function showGameScreen(user) {
 }
 
 function updateGameUI(user) {
-  updateUI(user);
+  updateStatusUI(user);
   updateBuffUI(user);
   updateInventoryUI(user);
   updateShopUI(user);
@@ -407,12 +445,12 @@ function updateGameUI(user) {
   updateStressEffect(user.gameState?.stress || 0);
 }
 
-function updateUI(user) {
+function updateStatusUI(user) {
   const state = user.gameState;
   const itemStats = user.itemStats || {};
   if (!state) return;
 
-  setText('userNickname', getDisplayName(user));
+  setText('userNickname', user.displayName || user.nickname || user.username || '사원');
   setText('money', formatNumber(Math.floor(state.money)));
   setText('salaryRate', formatNumber(state.salaryPerMinute ?? 0, 2));
   setText('level', state.level);
@@ -431,15 +469,11 @@ function updateUI(user) {
     expBar.value = state.exp;
   }
 
-  setText('currentTitleText', user.titles?.equipped ? TITLE_DATA[user.titles.equipped]?.name || '장착 중' : '없음');
+  const equippedTitle = getEquippedTitleDetail(user);
+  setText('currentTitleText', equippedTitle ? equippedTitle.name : '없음');
   setText('passiveExpPreview', formatNumber(state.passiveDailyExp ?? 0, 2));
   setText('clickExpPreview', formatNumber(state.clickExp ?? 0));
   setText('stressReductionPreview', `${formatNumber(itemStats.stressReduction ?? 0, 2)}%`);
-}
-
-function setText(id, value) {
-  const element = document.getElementById(id);
-  if (element) element.textContent = value;
 }
 
 function updateBuffUI(user) {
@@ -450,17 +484,17 @@ function updateBuffUI(user) {
   let hasAnyBuff = false;
   const now = new Date();
 
-  if (user.titles?.equipped && TITLE_DATA[user.titles.equipped]) {
-    const titleInfo = TITLE_DATA[user.titles.equipped];
+  const equippedTitle = getEquippedTitleDetail(user);
+  if (equippedTitle) {
     hasAnyBuff = true;
     buffListEl.insertAdjacentHTML(
       'beforeend',
       `
         <div class="buff-item title-buff">
-          ${escapeHtml(titleInfo.name)}
+          ${escapeHtml(equippedTitle.name)}
           <span class="buff-tooltip">
-            <strong>${escapeHtml(titleInfo.name)}</strong><br>
-            ${escapeHtml(titleInfo.desc)}
+            <strong>${escapeHtml(equippedTitle.name)}</strong><br>
+            ${escapeHtml(equippedTitle.desc)}
           </span>
         </div>
       `
@@ -487,7 +521,6 @@ function updateBuffUI(user) {
           ${escapeHtml(info.name)}
           <span class="buff-tooltip">
             <strong>${escapeHtml(info.name)}</strong><br>
-            ${escapeHtml(info.desc)}<br><br>
             (${remainingMin}분 ${remainingSec}초 남음)
           </span>
         </div>
@@ -529,10 +562,11 @@ function updateInventoryUI(user) {
     inventoryList.innerHTML = '<tr><td colspan="4">가방이 비어 있습니다.</td></tr>';
   } else {
     inventory.forEach((item) => {
-      const itemInfo = ITEM_DATA[item.itemId];
-      if (!itemInfo) return;
-      const tooltip = escapeHtml(itemInfo.hoverDesc || itemInfo.desc);
-      const actionButton = itemInfo.type === 'consumable'
+      const tooltipSource = ITEM_DATA[item.itemId];
+      const title = tooltipSource?.name || item.itemId;
+      const desc = tooltipSource?.hoverDesc || '';
+      const shortDesc = tooltipSource?.desc || '';
+      const actionButton = tooltipSource && ['bacchus', 'hot6'].includes(item.itemId)
         ? `<button class="mini-btn" onclick="handleUseItem('${item.itemId}')">사용</button>`
         : '<span class="muted-text">상시 적용</span>';
 
@@ -540,9 +574,9 @@ function updateInventoryUI(user) {
         'beforeend',
         `
           <tr>
-            <td title="${tooltip}">${escapeHtml(itemInfo.name)}</td>
+            <td title="${escapeHtml(desc)}">${escapeHtml(title)}</td>
             <td>${formatNumber(item.quantity)}</td>
-            <td title="${tooltip}">${escapeHtml(itemInfo.desc)}</td>
+            <td title="${escapeHtml(desc)}">${escapeHtml(shortDesc)}</td>
             <td>${actionButton}</td>
           </tr>
         `
@@ -551,26 +585,21 @@ function updateInventoryUI(user) {
   }
 
   titleList.innerHTML = '';
-  const unlockedTitles = user.titles?.unlocked || [];
-  if (unlockedTitles.length === 0) {
+  const titleDetails = user.titleDetails || [];
+
+  if (titleDetails.length === 0) {
     titleList.innerHTML = '<tr><td colspan="3">아직 해금한 칭호가 없습니다.</td></tr>';
     return;
   }
 
-  unlockedTitles.forEach((titleId) => {
-    const titleInfo = TITLE_DATA[titleId];
-    if (!titleInfo) return;
-
-    const equipped = user.titles?.equipped === titleId;
+  titleDetails.forEach((title) => {
     titleList.insertAdjacentHTML(
       'beforeend',
       `
-        <tr class="${equipped ? 'equipped-title-row' : ''}">
-          <td title="${escapeHtml(titleInfo.unlockDesc)}">${escapeHtml(titleInfo.name)}</td>
-          <td title="${escapeHtml(titleInfo.desc)}">${escapeHtml(titleInfo.desc)}</td>
-          <td>
-            <button class="mini-btn" onclick="handleToggleTitle('${titleId}')">${equipped ? '해제' : '장착'}</button>
-          </td>
+        <tr class="${title.equipped ? 'equipped-title-row' : ''}">
+          <td title="${escapeHtml(title.unlockDesc || '')}">${escapeHtml(title.name)}</td>
+          <td title="${escapeHtml(title.unlockDesc || '')}">${escapeHtml(title.desc)}</td>
+          <td><button class="mini-btn" onclick="handleToggleTitle('${title.id}')">${title.equipped ? '해제' : '장착'}</button></td>
         </tr>
       `
     );
@@ -584,8 +613,6 @@ function updateShopUI(user) {
   shopList.innerHTML = '';
   Object.entries(ITEM_DATA).forEach(([itemId, itemInfo]) => {
     const price = user.shopPrices?.[itemId] ?? 0;
-    const tooltip = escapeHtml(itemInfo.hoverDesc || itemInfo.desc);
-    const typeLabel = itemInfo.type === 'consumable' ? '소모품' : '상시효과';
 
     shopList.insertAdjacentHTML(
       'beforeend',
@@ -593,10 +620,7 @@ function updateShopUI(user) {
         <tr>
           <td>${escapeHtml(itemInfo.name)}</td>
           <td>${formatNumber(price)}원</td>
-          <td title="${tooltip}">
-            <div>${escapeHtml(itemInfo.desc)}</div>
-            <div class="muted-text">${typeLabel}</div>
-          </td>
+          <td>${escapeHtml(itemInfo.desc || '')}</td>
           <td><button class="mini-btn" onclick="handleBuyClick('${itemId}')">구매</button></td>
         </tr>
       `
@@ -610,9 +634,9 @@ function updateStatsTab(user) {
 
   const state = user.gameState || {};
   const itemStats = user.itemStats || {};
-  const titleName = user.titles?.equipped ? TITLE_DATA[user.titles.equipped]?.name || user.titles.equipped : '없음';
+  const equippedTitle = getEquippedTitleDetail(user);
   const pendingStock = user.pendingStockInvestment?.amount > 0
-    ? `${formatNumber(user.pendingStockInvestment.amount)}원 투자 대기`
+    ? `${formatNumber(user.pendingStockInvestment.amount)}원 투자 완료`
     : '없음';
 
   statsList.innerHTML = `
@@ -625,22 +649,33 @@ function updateStatsTab(user) {
     <tr><td>스트레스 적용률</td><td>${formatNumber((itemStats.stressMultiplier || 1) * 100, 2)}%</td></tr>
     <tr><td>스트레스 감소율</td><td>${formatNumber(itemStats.stressReduction || 0, 2)}%</td></tr>
     <tr><td>월급 보너스</td><td>+${formatNumber(itemStats.moneyBonus || 0, 2)}%</td></tr>
+    <tr><td>시간당 스트레스 회복</td><td>${formatNumber(itemStats.hourlyStressRelief || 0, 2)}</td></tr>
     <tr><td>행동력</td><td>${formatNumber(state.stamina || 0)} / ${formatNumber(state.maxStamina || 0)}</td></tr>
-    <tr><td>서류 작업 스트레스 완화</td><td>${formatNumber(itemStats.clickStressRelief || 0, 2)}</td></tr>
-    <tr><td>장착 칭호</td><td>${escapeHtml(titleName)}</td></tr>
+    <tr><td>장착 칭호</td><td>${escapeHtml(equippedTitle?.name || '없음')}</td></tr>
     <tr><td>주식 투자 현황</td><td>${escapeHtml(pendingStock)}</td></tr>
+    <tr><td>오늘 쇼핑 누적</td><td>${formatNumber(user.shopState?.dailySpend || 0)}원</td></tr>
   `;
 }
 
 function updateStockStatus(user) {
   const stockStatus = document.getElementById('stock-status');
-  if (!stockStatus) return;
+  const stockInput = document.getElementById('stockAmount');
+  const stockButton = document.getElementById('stockInvestBtn');
+  if (!stockStatus || !stockInput || !stockButton) return;
 
   const pendingAmount = user.pendingStockInvestment?.amount || 0;
-  if (pendingAmount > 0) {
-    stockStatus.textContent = `현재 ${formatNumber(pendingAmount)}원이 투자 중이며, 다음 접속 시 결과를 확인합니다.`;
+  const isLocked = pendingAmount > 0;
+
+  stockInput.disabled = isLocked;
+  stockButton.disabled = isLocked;
+
+  if (isLocked) {
+    stockInput.value = '';
+    stockInput.placeholder = `${formatNumber(pendingAmount)}원을 투자했습니다.`;
+    stockStatus.textContent = `현재 ${formatNumber(pendingAmount)}원이 투자 중이며, 다음 로그인 때 결과를 확인합니다.`;
   } else {
-    stockStatus.textContent = '정산 대기 중인 주식 투자가 없습니다.';
+    stockInput.placeholder = '투자 금액';
+    stockStatus.textContent = '하루 1회 투자할 수 있으며, 다음 로그인 시 결과를 확인합니다.';
   }
 }
 
@@ -648,11 +683,8 @@ function updateStressEffect(stress) {
   const gameScreen = document.getElementById('game-screen');
   if (!gameScreen) return;
 
-  if (stress >= 90) {
-    gameScreen.classList.add('stress-warning');
-  } else {
-    gameScreen.classList.remove('stress-warning');
-  }
+  if (stress >= 90) gameScreen.classList.add('stress-warning');
+  else gameScreen.classList.remove('stress-warning');
 }
 
 async function syncUserState() {
@@ -672,14 +704,11 @@ async function updateRankingUI() {
   if (!rankingListBody) return;
 
   try {
-    const res = await fetch(`${API_URL}/api/ranking`);
-    const rankingData = await res.json();
-    if (!res.ok) throw new Error(rankingData.msg || '랭킹을 불러오지 못했습니다.');
-
+    const rankingData = await getJson(`${API_URL}/api/ranking`);
     rankingListBody.innerHTML = '';
 
     if (rankingData.length === 0) {
-      rankingListBody.innerHTML = '<tr><td colspan="3" style="text-align:center;">랭킹 정보가 없습니다.</td></tr>';
+      rankingListBody.innerHTML = '<tr><td colspan="3" class="center-text">랭킹 정보가 없습니다.</td></tr>';
       return;
     }
 
@@ -693,15 +722,15 @@ async function updateRankingUI() {
         'beforeend',
         `
           <tr class="${rankClass}" title="현재 경험치 ${formatNumber(entry.gameState.exp)}">
-            <td style="text-align:center;">${index + 1}</td>
+            <td class="center-text">${index + 1}</td>
             <td>${escapeHtml(entry.displayName || entry.nickname)}</td>
-            <td style="text-align:center;">${formatNumber(entry.gameState.level)}</td>
+            <td class="center-text">${formatNumber(entry.gameState.level)}</td>
           </tr>
         `
       );
     });
-  } catch (err) {
-    rankingListBody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:red;">랭킹 로딩 실패</td></tr>';
+  } catch {
+    rankingListBody.innerHTML = '<tr><td colspan="3" class="center-text error-text">랭킹 로딩 실패</td></tr>';
   }
 }
 
@@ -724,7 +753,7 @@ function startAnimation() {
   const animEl = document.getElementById('anim-display');
   if (!animEl) return;
 
-  clearInterval(animationInterval);
+  if (animationInterval) clearInterval(animationInterval);
   const currentAnimation = animations[Math.floor(Math.random() * animations.length)];
   let frame = 0;
 
@@ -733,6 +762,107 @@ function startAnimation() {
     animEl.textContent = currentAnimation[frame];
     frame = (frame + 1) % currentAnimation.length;
   }, 450);
+}
+
+function showAdminScreen() {
+  clearIntervals();
+  hideAllScreens();
+  document.getElementById('admin-screen').classList.remove('hidden');
+  loadAdminUsers();
+}
+
+function getAdminAuthHeaders() {
+  const session = getStoredAdmin();
+  return session?.token ? { Authorization: `Bearer ${session.token}` } : {};
+}
+
+async function loadAdminUsers() {
+  const session = getStoredAdmin();
+  if (!session?.token) return handleLogoutClick();
+
+  try {
+    const data = await getJson(`${API_URL}/api/admin/users`, getAdminAuthHeaders());
+    saveStoredAdmin({
+      ...session,
+      giftCatalog: data.giftCatalog
+    });
+    renderAdminUsers(data.users);
+    renderAdminGiftOptions();
+    setText('adminStatus', `대상 유저 ${data.users.length}명을 불러왔습니다.`);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+function renderAdminUsers(users) {
+  const select = document.getElementById('giftTargetSelect');
+  if (!select) return;
+
+  select.innerHTML = '<option value="ALL_USERS">전체 유저</option>';
+  users.forEach((user) => {
+    select.insertAdjacentHTML(
+      'beforeend',
+      `<option value="${escapeHtml(user.id)}">${escapeHtml(user.label)}</option>`
+    );
+  });
+}
+
+function renderAdminGiftOptions() {
+  const session = getStoredAdmin();
+  const giftType = document.getElementById('giftTypeSelect');
+  const giftSelect = document.getElementById('giftIdSelect');
+  const quantityInput = document.getElementById('giftQuantity');
+  if (!session?.giftCatalog || !giftType || !giftSelect || !quantityInput) return;
+
+  const selectedType = giftType.value;
+  const entries = selectedType === 'buff' ? session.giftCatalog.buffs : session.giftCatalog.items;
+
+  giftSelect.innerHTML = '';
+  entries.forEach((entry) => {
+    giftSelect.insertAdjacentHTML(
+      'beforeend',
+      `<option value="${escapeHtml(entry.id)}">${escapeHtml(entry.name)}</option>`
+    );
+  });
+
+  quantityInput.disabled = selectedType === 'buff';
+  if (selectedType === 'buff') quantityInput.value = '1';
+}
+
+async function handleAdminGift() {
+  const session = getStoredAdmin();
+  if (!session?.token) return handleLogoutClick();
+
+  const targetValue = document.getElementById('giftTargetSelect').value;
+  const giftType = document.getElementById('giftTypeSelect').value;
+  const giftId = document.getElementById('giftIdSelect').value;
+  const quantity = Math.max(1, Math.floor(Number(document.getElementById('giftQuantity').value) || 1));
+
+  if (!giftId) {
+    alert('선물할 아이템 또는 버프를 선택해주세요.');
+    return;
+  }
+
+  const targetMode = targetValue === 'ALL_USERS' ? 'all' : 'single';
+
+  try {
+    const data = await postJson(
+      `${API_URL}/api/admin/gift`,
+      {
+        targetMode,
+        targetUserId: targetMode === 'single' ? targetValue : null,
+        giftType,
+        giftId,
+        quantity
+      },
+      getAdminAuthHeaders()
+    );
+
+    setText('adminStatus', `선물을 ${data.deliveredCount}명에게 발송했습니다.`);
+    alert(`운영자 선물이 ${data.deliveredCount}명에게 발송되었습니다.`);
+  } catch (err) {
+    alert(err.message);
+  }
 }
 
 window.showTab = function showTab(tabName) {
