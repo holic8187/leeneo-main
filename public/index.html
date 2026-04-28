@@ -51,8 +51,19 @@
             opacity: 1;
         }
     </style>
+  <meta charset="UTF-8">
+  <title>일해라 이네오!! - 통합 문서1</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <div id="login-screen">
+    <div class="excel-sheet login-panel">
+      <h3>사원 로그인</h3>
+      <input type="text" id="username" placeholder="사번(ID)">
+      <input type="password" id="password" placeholder="비밀번호">
+      <button id="loginBtn">출근하기</button>
+    </div>
+  </div>
 
     <!-- 로그인 화면 -->
     <div id="login-screen">
@@ -62,6 +73,33 @@
             <input type="password" id="password" placeholder="비밀번호">
             <button id="loginBtn">출근하기</button>
         </div>
+  <div id="nickname-screen" class="hidden">
+    <div class="excel-sheet login-panel">
+      <h3>닉네임 설정</h3>
+      <p>게임에서 사용할 닉네임을 입력해주세요.</p>
+      <input type="text" id="nicknameInput" placeholder="닉네임">
+      <button id="setNicknameBtn">설정 완료</button>
+    </div>
+  </div>
+
+  <div id="game-screen" class="hidden excel-sheet">
+    <div class="status-bar status-top">
+      <div class="status-group">
+        <div>통장 잔고: <strong><span id="money">0</span>원</strong></div>
+        <div>월급: <strong><span id="salaryRate">0</span>원/분</strong></div>
+        <div>행동력: <strong><span id="stamina">10/10</span></strong></div>
+        <div>스트레스: <strong><span id="stress">0.00</span></strong></div>
+      </div>
+      <button id="logoutBtn" class="mini-btn">퇴근하기</button>
+    </div>
+
+    <div class="status-bar">
+      <div class="status-user">Lv.<span id="level">1</span> <span id="userNickname">사원</span></div>
+      <div class="exp-wrap">
+        <span>경험치</span>
+        <progress id="expBar" value="0" max="1000"></progress>
+        <span id="expText">0/1000</span>
+      </div>
     </div>
 
     <!-- 닉네임 설정 화면 -->
@@ -72,6 +110,11 @@
             <input type="text" id="nicknameInput" placeholder="닉네임">
             <button id="setNicknameBtn">설정 완료</button>
         </div>
+    <div class="status-bar sub-status">
+      <div>장착 칭호: <strong><span id="currentTitleText">없음</span></strong></div>
+      <div>하루 자동 경험치: <strong><span id="passiveExpPreview">0</span></strong></div>
+      <div>서류 작업 경험치: <strong><span id="clickExpPreview">0</span></strong></div>
+      <div>스트레스 감소율: <strong><span id="stressReductionPreview">0%</span></strong></div>
     </div>
 
     <!-- 인게임 화면 -->
@@ -93,26 +136,110 @@
                  (<span id="expText">0/1000</span>)
              </div>
         </div>
+    <div class="workspace-layout">
+      <div class="workspace-main">
+        <table>
+          <tr>
+            <th class="sheet-header"></th>
+            <th class="sheet-header">A</th>
+            <th class="sheet-header">B</th>
+            <th class="sheet-header">C</th>
+          </tr>
+          <tr>
+            <td class="sheet-header">1</td>
+            <td colspan="10" class="animation-cell" id="anim-display">(업무 중...)</td>
+          </tr>
+          <tr>
+            <td class="sheet-header">2</td>
+            <td colspan="10" class="buff-cell">
+              <strong>적용 중인 버프 / 디버프</strong>
+              <div id="buff-list" class="buff-list"></div>
+            </td>
+          </tr>
+          <tr>
+            <td class="sheet-header">3</td>
+            <td colspan="10" class="menu-host">
+              <div class="menu-tabs">
+                <button class="active" data-tab="work" onclick="showTab('work')">열일하기</button>
+                <button data-tab="special" onclick="showTab('special')">특수 행동</button>
+                <button data-tab="inventory" onclick="showTab('inventory')">가방</button>
+                <button data-tab="shop" onclick="showTab('shop')">인터넷쇼핑</button>
+                <button data-tab="stats" onclick="showTab('stats')">능력치</button>
+              </div>
+
+              <div id="tab-work" class="menu-content">
+                <button id="clickWorkBtn" class="work-button">서류 작업하기 (클릭 경험치 획득)</button>
+                <p class="menu-note">스트레스가 100이 되면 서류 작업 클릭으로 경험치를 얻을 수 없습니다.</p>
+              </div>
+
+              <div id="tab-special" class="menu-content hidden">
+                <div class="special-grid">
+                  <div class="special-card">
+                    <button id="lupinBtn" class="menu-action-btn">월급루팡 (행동력 6)</button>
+                    <p>1시간 동안 스트레스를 받지 않고, 2시간 동안 경험치 획득량이 1.5배가 됩니다.</p>
+                  </div>
+                  <div class="special-card">
+                    <button id="napBtn" class="menu-action-btn">낮잠자기 (행동력 3)</button>
+                    <p>즉시 스트레스를 30 낮춥니다.</p>
+                  </div>
+                </div>
 
         <!-- 메인 테이블 -->
         <div style="display: flex;">
             <!-- 왼쪽: 게임 메인 영역 -->
             <div style="flex-grow: 1;">
                 <table>
+                <div class="special-card stock-card">
+                  <h4>주식 투자 (행동력 1)</h4>
+                  <p>얼마를 투자하시겠습니까?</p>
+                  <div class="stock-controls">
+                    <input type="number" id="stockAmount" min="1" step="1" placeholder="투자 금액">
+                    <button id="stockInvestBtn" class="menu-action-btn">투자하기</button>
+                  </div>
+                  <p id="stock-status" class="menu-note">정산 대기 중인 주식 투자가 없습니다.</p>
+                </div>
+              </div>
+
+              <div id="tab-inventory" class="menu-content hidden">
+                <h4>소지품</h4>
+                <table class="inner-table">
+                  <thead>
                     <tr>
                         <th class="sheet-header"></th>
                         <th class="sheet-header">A</th>
                         <th class="sheet-header">B</th>
                         <th class="sheet-header">C</th>
+                      <th>아이템명</th>
+                      <th>수량</th>
+                      <th>효과</th>
+                      <th>사용</th>
                     </tr>
                     <!-- 애니메이션 영역 -->
+                  </thead>
+                  <tbody id="inventory-list"></tbody>
+                </table>
+
+                <h4 class="section-gap">칭호</h4>
+                <table class="inner-table">
+                  <thead>
                     <tr>
                         <td class="sheet-header">1</td>
                         <td colspan="10" class="animation-cell" id="anim-display">
                             (업무 중...)
                         </td>
+                      <th>칭호명</th>
+                      <th>효과</th>
+                      <th>장착</th>
                     </tr>
                     <!-- 버프 목록 영역 -->
+                  </thead>
+                  <tbody id="title-list"></tbody>
+                </table>
+              </div>
+
+              <div id="tab-shop" class="menu-content hidden">
+                <table class="inner-table">
+                  <thead>
                     <tr>
                         <td class="sheet-header">2</td>
                         <td colspan="10" style="padding: 10px;">
@@ -121,6 +248,10 @@
                                 <!-- 자바스크립트로 버프/디버프가 추가됨 -->
                             </div>
                         </td>
+                      <th>아이템명</th>
+                      <th>가격</th>
+                      <th>효과</th>
+                      <th>구매</th>
                     </tr>
                     <!-- 하단 메뉴 영역 -->
                     <tr>
@@ -185,6 +316,10 @@
                                     </tbody>
                                 </table>
                             </div>
+                  </thead>
+                  <tbody id="shop-list"></tbody>
+                </table>
+              </div>
 
                             <div id="tab-stats" class="menu-content hidden">
                                 <table style="width: 100%;">
@@ -199,7 +334,15 @@
                                 </table>
                             </div>
                         </td>
+              <div id="tab-stats" class="menu-content hidden">
+                <table class="inner-table">
+                  <thead>
+                    <tr>
+                      <th>항목</th>
+                      <th>값</th>
                     </tr>
+                  </thead>
+                  <tbody id="stats-list"></tbody>
                 </table>
             </div>
             
@@ -221,9 +364,35 @@
                     </table>
                 </div>
             </div>
+              </div>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <div class="workspace-side">
+        <div class="status-bar ranking-title">실시간 랭킹</div>
+        <div class="ranking-list">
+          <table class="inner-table">
+            <thead>
+              <tr>
+                <th class="rank-col">순위</th>
+                <th>닉네임</th>
+                <th class="level-col">레벨</th>
+              </tr>
+            </thead>
+            <tbody id="ranking-list-body">
+              <tr><td colspan="3" class="center-text">랭킹 로딩 중...</td></tr>
+            </tbody>
+          </table>
         </div>
+      </div>
     </div>
     
+  </div>
+
+  <script src="client.js?v=7"></script>
 </body>
 <script src="client.js?v=6"></script> <!-- 버전 5로 변경 -->
+</html>
 </html>
