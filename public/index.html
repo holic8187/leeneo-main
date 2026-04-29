@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>일해라 이네오!! - 통합 문서1</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=10">
 </head>
 <body>
   <div id="login-screen">
@@ -21,6 +21,17 @@
       <p>게임에서 사용할 닉네임을 입력해주세요.</p>
       <input type="text" id="nicknameInput" placeholder="닉네임">
       <button id="setNicknameBtn">설정 완료</button>
+    </div>
+  </div>
+
+  <div id="faction-screen" class="hidden">
+    <div class="excel-sheet login-panel faction-panel">
+      <h3>진영 선택</h3>
+      <p>당신의 진영을 선택하세요. 한번 진영을 선택하면 되돌릴 수 없습니다!</p>
+      <div class="faction-choice-grid">
+        <button type="button" class="faction-choice-btn" data-faction-choice="네오방">네오방</button>
+        <button type="button" class="faction-choice-btn" data-faction-choice="월기방">월기방</button>
+      </div>
     </div>
   </div>
 
@@ -63,12 +74,13 @@
         <div>월급: <strong><span id="salaryRate">0</span>원/분</strong></div>
         <div>행동력: <strong><span id="stamina">10/10</span></strong></div>
         <div>스트레스: <strong><span id="stress">0.00</span></strong></div>
+        <div class="faction-score-line"><strong id="factionScoresText">&lt;월기방&gt;0 vs &lt;네오방&gt;0</strong></div>
       </div>
       <button id="logoutBtn" class="mini-btn">퇴근하기</button>
     </div>
 
     <div class="status-bar">
-      <div class="status-user">Lv.<span id="level">1</span> <span id="userNickname">사원</span></div>
+      <div class="status-user">Lv.<span id="level">1</span> <span id="userNickname">사원</span> <span class="faction-badge" id="userFaction">미선택</span></div>
       <div class="exp-wrap">
         <span>경험치</span>
         <progress id="expBar" value="0" max="1000"></progress>
@@ -128,6 +140,10 @@
                   <div class="special-card">
                     <button id="napBtn" class="menu-action-btn">낮잠자기 (행동력 3)</button>
                     <p>즉시 스트레스를 30 낮춥니다.</p>
+                  </div>
+                  <div class="special-card">
+                    <button id="fieldWorkBtn" class="menu-action-btn">외근 (행동력 6)</button>
+                    <p>12시간 동안 서류작업 클릭 경험치는 절반으로 감소하지만, 자동 획득 경험치는 3배로 적용됩니다.</p>
                   </div>
                 </div>
 
@@ -219,6 +235,6 @@
     </div>
   </div>
 
-  <script src="client.js?v=9"></script>
+  <script src="client.js?v=10"></script>
 </body>
 </html>

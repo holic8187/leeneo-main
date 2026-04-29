@@ -26,6 +26,10 @@ const ITEM_DATA = {
 const BUFF_DATA = {
   lupin_stress_buff: { name: '월급루팡' },
   lupin_exp_buff: { name: '월급루팡 집중' },
+  field_work_buff: {
+    name: '외근 버프',
+    desc: '12시간 동안 자동 획득 경험치가 3배가 되고, 서류작업 클릭 경험치는 절반이 됩니다.'
+  },
   hot6_buff: {
     name: '핫식스 버프',
     desc: '서류작업 클릭 시 스트레스를 0.1 낮춥니다.',
@@ -72,9 +76,15 @@ function setupEventListeners() {
   bindClick('clickWorkBtn', handleClickWork);
   bindClick('lupinBtn', handleLupinClick);
   bindClick('napBtn', handleNapClick);
+  bindClick('fieldWorkBtn', handleFieldWorkClick);
   bindClick('stockInvestBtn', handleStockInvest);
   bindClick('adminLogoutBtn', handleLogoutClick);
   bindClick('adminGiftBtn', handleAdminGift);
+
+  document.querySelectorAll('[data-faction-choice]').forEach((button) => {
+    button.removeEventListener('click', handleFactionChoice);
+    button.addEventListener('click', handleFactionChoice);
+  });
 
   const giftType = document.getElementById('giftTypeSelect');
   if (giftType) {
@@ -212,6 +222,11 @@ function processLoginSuccess(data) {
 
   saveStoredUser(data.user);
 
+  if (!data.user.faction) {
+    showFactionScreen();
+    return;
+  }
+
   if (data.isNewUser || !data.user.nickname) {
     hideAllScreens();
     document.getElementById('nickname-screen').classList.remove('hidden');
@@ -265,6 +280,10 @@ function tryAutoLogin() {
   if (!user || !token) return;
 
   try {
+    if (!user.faction) {
+      showFactionScreen();
+      return;
+    }
     if (!user.nickname) throw new Error('nickname missing');
     showGameScreen(user);
   } catch {
@@ -284,6 +303,16 @@ function handleLogoutClick() {
 
 function getEquippedTitleDetail(user) {
   return (user.titleDetails || []).find((title) => title.equipped) || null;
+}
+
+function getMainName(user) {
+  const equippedTitle = getEquippedTitleDetail(user);
+  const titlePrefix = equippedTitle ? `<${equippedTitle.name}>` : '';
+  return `${titlePrefix}${user.nickname || user.username || '사원'}`;
+}
+
+function formatFactionScores(scores = {}) {
+  return `<월기방>${formatNumber(scores['월기방'] || 0)} vs <네오방>${formatNumber(scores['네오방'] || 0)}`;
 }
 
 async function handleClickWork() {
@@ -331,6 +360,23 @@ async function handleNapClick() {
 
   try {
     const data = await postJson(`${API_URL}/api/action/nap`, { userId: user._id });
+    updateLocalUserState(data);
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function handleFieldWorkClick() {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+
+  const btn = document.getElementById('fieldWorkBtn');
+  btn.disabled = true;
+
+  try {
+    const data = await postJson(`${API_URL}/api/action/field-work`, { userId: user._id });
     updateLocalUserState(data);
   } catch (err) {
     alert(err.message);
@@ -430,6 +476,41 @@ function updateLocalUserState(data) {
   showNotifications(data.notifications);
 }
 
+function showFactionScreen() {
+  hideAllScreens();
+  document.getElementById('faction-screen').classList.remove('hidden');
+}
+
+async function handleFactionChoice(event) {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+
+  const faction = event.currentTarget.getAttribute('data-faction-choice');
+  if (!faction) return;
+
+  if (!confirm(`정말 ${faction}을(를) 선택하시겠습니까? 한번 선택하면 되돌릴 수 없습니다.`)) {
+    return;
+  }
+
+  try {
+    const data = await postJson(`${API_URL}/api/set-faction`, {
+      userId: user._id,
+      faction
+    });
+
+    saveStoredUser(data.user);
+    if (!data.user.nickname) {
+      hideAllScreens();
+      document.getElementById('nickname-screen').classList.remove('hidden');
+    } else {
+      showGameScreen(data.user);
+    }
+    showNotifications(data.notifications);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
 function showGameScreen(user) {
   clearIntervals();
   hideAllScreens();
@@ -454,11 +535,13 @@ function updateStatusUI(user) {
   const itemStats = user.itemStats || {};
   if (!state) return;
 
-  setText('userNickname', user.displayName || user.nickname || user.username || '사원');
+  setText('userFaction', user.faction || '미선택');
+  setText('userNickname', getMainName(user));
   setText('money', formatNumber(Math.floor(state.money)));
   setText('salaryRate', formatNumber(state.salaryPerMinute ?? 0, 2));
   setText('level', state.level);
   setText('stamina', `${state.stamina}/${state.maxStamina}`);
+  setText('factionScoresText', formatFactionScores(user.factionScores));
 
   const stressEl = document.getElementById('stress');
   stressEl.textContent = formatNumber(state.stress ?? 0, 2);

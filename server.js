@@ -23,10 +23,13 @@ const CLICK_STRESS_GAIN = 0.25;
 const LUPIN_STRESS_DURATION_MS = 60 * 60 * 1000;
 const LUPIN_EXP_DURATION_MS = 2 * 60 * 60 * 1000;
 const HOT6_DURATION_MS = 10 * 60 * 1000;
+const FIELD_WORK_DURATION_MS = 12 * 60 * 60 * 1000;
 const SHOPPING_ADDICT_THRESHOLD = 1500000;
 const SHOPPING_ADDICT_LOSE_AFTER_DAYS = 3;
 const RICH_THRESHOLD = 5000000;
 const BEAST_HEART_UNLOCK_THRESHOLD = 2000000;
+
+const FACTIONS = ['네오방', '월기방'];
 
 const ITEM_DATA = {
   pen_monami: {
@@ -64,47 +67,48 @@ const ITEM_DATA = {
 const BUFF_DATA = {
   lupin_stress_buff: { name: '월급루팡', durationMs: LUPIN_STRESS_DURATION_MS },
   lupin_exp_buff: { name: '월급루팡 집중', durationMs: LUPIN_EXP_DURATION_MS },
-  hot6_buff: { name: '핫식스 버프', durationMs: HOT6_DURATION_MS }
+  hot6_buff: { name: '핫식스 버프', durationMs: HOT6_DURATION_MS },
+  field_work_buff: { name: '외근 버프', durationMs: FIELD_WORK_DURATION_MS }
 };
 
 const TITLE_DATA = {
   newcomer: {
     name: '신입직원',
     unlockDesc: '1회 이상 로그인 시 획득',
-    baseDesc: '장착 시 매 60분마다 스트레스 -8',
-    effects: { hourlyStressRelief: 8 }
+    baseDesc: '장착 시 매 60분마다 스트레스 -5',
+    effects: { hourlyStressRelief: 5 }
   },
   mental_master: {
     name: '멘탈甲',
     unlockDesc: '스트레스 감소율이 30%를 초과하면 획득',
-    baseDesc: '장착 시 매 60분마다 스트레스 -15, 월급 +5%',
-    effects: { hourlyStressRelief: 15, moneyBonus: 5 }
+    baseDesc: '장착 시 매 60분마다 스트레스 -6, 월급 +3.5%',
+    effects: { hourlyStressRelief: 6, moneyBonus: 3.5 }
   },
   high_salary: {
     name: '고액연봉자',
     unlockDesc: '1분당 획득 월급이 2000원 이상이면 획득',
-    baseDesc: '장착 시 스트레스 감소율 +30%',
-    effects: { titleStressMultiplier: 0.7 }
+    baseDesc: '장착 시 스트레스 감소율 +10%, 월급 +5%',
+    effects: { titleStressMultiplier: 0.9, moneyBonus: 5 }
   },
   shopping_addict: {
     name: '쇼핑중독자',
     unlockDesc: '하루 동안 인터넷 쇼핑에 누적 150만원 이상 사용 시 획득',
-    baseDesc: '장착 시 쇼핑 구매마다 스트레스 -10, 월급 +3%',
-    effects: { moneyBonus: 3, shopStressRelief: 10 },
+    baseDesc: '장착 시 쇼핑 구매마다 스트레스 -10, 월급 +3.5%',
+    effects: { moneyBonus: 3.5, shopStressRelief: 10 },
     removable: true
   },
   rich: {
     name: '대부호',
     unlockDesc: '보유 자산이 500만원 이상일 때 획득',
-    baseDesc: '장착 시 월급 +10%, 스트레스 감소율 +10%',
-    effects: { moneyBonus: 10, titleStressMultiplier: 0.9 },
+    baseDesc: '장착 시 월급 +6%, 스트레스 감소율 +15%',
+    effects: { moneyBonus: 6, titleStressMultiplier: 0.85 },
     removable: true
   },
   beast_heart: {
     name: '야수의 심장',
     unlockDesc: '보유 자산이 200만원 이상일 때 현재 보유 자산의 90% 이상을 주식 투자하면 획득',
-    baseDesc: '장착 시 매 60분마다 스트레스 -10, 월급 +10%',
-    effects: { hourlyStressRelief: 10, moneyBonus: 10 }
+    baseDesc: '장착 시 매 60분마다 스트레스 -8, 월급 +5%',
+    effects: { hourlyStressRelief: 8, moneyBonus: 5 }
   }
 };
 
@@ -150,6 +154,7 @@ const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   password: { type: String, required: true },
   nickname: { type: String, default: null },
+  faction: { type: String, default: null },
   workHours: {
     start: { type: Number, default: 9 },
     end: { type: Number, default: 18 },
@@ -233,6 +238,7 @@ function isWorkingHour(start, end) {
 
 function ensureUserDefaults(user) {
   if (!user.nickname) user.nickname = null;
+  if (!FACTIONS.includes(user.faction)) user.faction = null;
   if (!user.gameState) user.gameState = {};
 
   user.gameState.money = Number(user.gameState.money ?? 100000);
@@ -380,9 +386,29 @@ function getEquippedTitleDefinition(user) {
 
 function buildDisplayName(user) {
   const titleInfo = getEquippedTitleDefinition(user);
-  if (!user.nickname) return user.username;
-  if (!titleInfo) return user.nickname;
-  return `<${titleInfo.name}> ${user.nickname}`;
+  const baseName = user.nickname || user.username;
+  const factionPrefix = user.faction ? `<${user.faction}>` : '';
+  const titlePrefix = titleInfo ? `<${titleInfo.name}>` : '';
+  return `${factionPrefix}${titlePrefix}${baseName}`;
+}
+
+function getFactionContribution(level) {
+  let score = 0;
+  for (let currentLevel = 1; currentLevel <= Math.max(0, level); currentLevel += 1) {
+    score += Math.floor(currentLevel / 10) + 1;
+  }
+  return score;
+}
+
+async function getFactionScores() {
+  const users = await User.find({ faction: { $in: FACTIONS } }).select('faction gameState.level');
+  const scores = Object.fromEntries(FACTIONS.map((faction) => [faction, 0]));
+
+  users.forEach((user) => {
+    scores[user.faction] += getFactionContribution(user.gameState?.level || 0);
+  });
+
+  return scores;
 }
 
 function unlockTitle(user, titleId) {
@@ -466,6 +492,8 @@ function calculateDerivedStats(user, now = new Date()) {
   const moneyBonusPercent = itemStats.moneyBonus + (titleEffects.moneyBonus || 0);
   const titleStressMultiplier = titleEffects.titleStressMultiplier || 1;
   const hot6ClickStressRelief = hasBuff(user, 'hot6_buff', now) ? 0.1 : 0;
+  const passiveExpMultiplier = hasBuff(user, 'field_work_buff', now) ? 3 : 1;
+  const clickExpMultiplier = hasBuff(user, 'field_work_buff', now) ? 0.5 : 1;
 
   const finalStressMultiplier = Number((itemStats.stressMultiplier * titleStressMultiplier).toFixed(6));
 
@@ -478,7 +506,9 @@ function calculateDerivedStats(user, now = new Date()) {
     stressReductionPercent: Number(((1 - finalStressMultiplier) * 100).toFixed(2)),
     clickStressRelief: Number((itemStats.clickStressRelief + hot6ClickStressRelief).toFixed(2)),
     hourlyStressRelief: Number((titleEffects.hourlyStressRelief || 0).toFixed(2)),
-    shopStressRelief: Number((titleEffects.shopStressRelief || 0).toFixed(2))
+    shopStressRelief: Number((titleEffects.shopStressRelief || 0).toFixed(2)),
+    passiveExpMultiplier,
+    clickExpMultiplier
   };
 }
 
@@ -617,7 +647,8 @@ function calculateOfflineGains(user, now = new Date()) {
 
   const passiveExpMultiplier =
     (1 + derivedStats.expBonusPercent / 100) *
-    (hasBuff(user, 'lupin_exp_buff', now) ? 1.5 : 1);
+    (hasBuff(user, 'lupin_exp_buff', now) ? 1.5 : 1) *
+    derivedStats.passiveExpMultiplier;
   let rawExpGain =
     getPassiveExpPerSecond(user.gameState.level) * passiveExpMultiplier * elapsedSeconds +
     user.gameState.passiveExpCarry;
@@ -680,6 +711,7 @@ function buildGameStateResponse(user, now = new Date()) {
     isAdmin: false,
     username: user.username,
     nickname: user.nickname,
+    faction: user.faction,
     displayName: buildDisplayName(user),
     workHours: user.workHours,
     gameState,
@@ -701,7 +733,9 @@ function buildGameStateResponse(user, now = new Date()) {
       stressReduction: derivedStats.stressReductionPercent,
       clickStressRelief: derivedStats.clickStressRelief,
       hourlyStressRelief: derivedStats.hourlyStressRelief,
-      shopStressRelief: derivedStats.shopStressRelief
+      shopStressRelief: derivedStats.shopStressRelief,
+      passiveExpMultiplier: derivedStats.passiveExpMultiplier,
+      clickExpMultiplier: derivedStats.clickExpMultiplier
     },
     shopPrices: getShopPricesForUser(user)
   };
@@ -712,6 +746,12 @@ function buildUserResponse(user, now = new Date()) {
     user: buildGameStateResponse(user, now),
     notifications: consumeNotifications(user)
   };
+}
+
+async function buildUserResponseWithGlobals(user, now = new Date()) {
+  const response = buildUserResponse(user, now);
+  response.user.factionScores = await getFactionScores();
+  return response;
 }
 
 function getBearerToken(req) {
@@ -787,7 +827,7 @@ app.post('/api/login', async (req, res) => {
     reconcileTitles(user, now);
 
     const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '1d' });
-    const response = buildUserResponse(user, now);
+    const response = await buildUserResponseWithGlobals(user, now);
     await user.save();
 
     res.json({
@@ -826,6 +866,31 @@ app.post('/api/set-nickname', async (req, res) => {
   }
 });
 
+app.post('/api/set-faction', async (req, res) => {
+  const { userId, faction } = req.body;
+  if (!userId || !faction) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+  if (!FACTIONS.includes(faction)) return res.status(400).json({ msg: '존재하지 않는 진영입니다.' });
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+
+    ensureUserDefaults(user);
+    if (user.faction) {
+      return res.status(400).json({ msg: '이미 진영을 선택했습니다.' });
+    }
+
+    user.faction = faction;
+    const now = new Date();
+    const response = await buildUserResponseWithGlobals(user, now);
+    await user.save();
+    res.json(response);
+  } catch (err) {
+    console.error('Set faction error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
 app.post('/api/action/work', async (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
@@ -852,18 +917,51 @@ app.post('/api/action/work', async (req, res) => {
 
     if (!hadTooMuchStress) {
       const expMultiplier = (1 + derivedStats.expBonusPercent / 100) * (hasBuff(user, 'lupin_exp_buff', now) ? 1.5 : 1);
-      user.gameState.exp += Math.floor(getClickExp(user.gameState.level) * expMultiplier);
+      user.gameState.exp += Math.floor(getClickExp(user.gameState.level) * expMultiplier * derivedStats.clickExpMultiplier);
     }
 
     checkLevelUp(user);
     reconcileTitles(user, now);
     user.gameState.lastActionTime = now;
 
-    const response = buildUserResponse(user, now);
+    const response = await buildUserResponseWithGlobals(user, now);
     await user.save();
     res.json(response);
   } catch (err) {
     console.error('Work action error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/action/field-work', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+
+    const now = new Date();
+    calculateOfflineGains(user, now);
+    cleanupExpiredBuffs(user, now);
+
+    if (user.gameState.stamina < 6) {
+      return res.status(400).json({ msg: '행동력이 부족합니다. (필요: 6)' });
+    }
+
+    if (hasBuff(user, 'field_work_buff', now)) {
+      return res.status(400).json({ msg: '이미 외근 중입니다.' });
+    }
+
+    user.gameState.stamina -= 6;
+    setOrRefreshBuff(user, 'field_work_buff', FIELD_WORK_DURATION_MS);
+    user.gameState.lastActionTime = now;
+
+    const response = await buildUserResponseWithGlobals(user, now);
+    await user.save();
+    res.json(response);
+  } catch (err) {
+    console.error('Field work action error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
   }
 });
@@ -893,7 +991,7 @@ app.post('/api/action/lupin', async (req, res) => {
     setOrRefreshBuff(user, 'lupin_exp_buff', LUPIN_EXP_DURATION_MS);
     user.gameState.lastActionTime = now;
 
-    const response = buildUserResponse(user, now);
+    const response = await buildUserResponseWithGlobals(user, now);
     await user.save();
     res.json(response);
   } catch (err) {
@@ -921,7 +1019,7 @@ app.post('/api/action/nap', async (req, res) => {
     user.gameState.stress = Number(Math.max(0, user.gameState.stress - 30).toFixed(2));
     user.gameState.lastActionTime = now;
 
-    const response = buildUserResponse(user, now);
+    const response = await buildUserResponseWithGlobals(user, now);
     await user.save();
     res.json(response);
   } catch (err) {
@@ -967,7 +1065,7 @@ app.post('/api/action/stock', async (req, res) => {
     }
 
     reconcileTitles(user, now);
-    const response = buildUserResponse(user, now);
+    const response = await buildUserResponseWithGlobals(user, now);
     await user.save();
     res.json(response);
   } catch (err) {
@@ -1007,7 +1105,7 @@ app.post('/api/shop/buy', async (req, res) => {
     reconcileTitles(user, now);
     user.gameState.lastActionTime = now;
 
-    const response = buildUserResponse(user, now);
+    const response = await buildUserResponseWithGlobals(user, now);
     await user.save();
     res.json(response);
   } catch (err) {
@@ -1048,7 +1146,7 @@ app.post('/api/inventory/use', async (req, res) => {
     reconcileTitles(user, now);
     user.gameState.lastActionTime = now;
 
-    const response = buildUserResponse(user, now);
+    const response = await buildUserResponseWithGlobals(user, now);
     await user.save();
     res.json(response);
   } catch (err) {
@@ -1075,7 +1173,7 @@ app.post('/api/title/toggle', async (req, res) => {
     }
 
     user.titles.equipped = user.titles.equipped === titleId ? null : titleId;
-    const response = buildUserResponse(user, now);
+    const response = await buildUserResponseWithGlobals(user, now);
     await user.save();
     res.json(response);
   } catch (err) {
@@ -1096,7 +1194,7 @@ app.post('/api/sync', async (req, res) => {
     calculateOfflineGains(user, now);
     reconcileTitles(user, now);
 
-    const response = buildUserResponse(user, now);
+    const response = await buildUserResponseWithGlobals(user, now);
     await user.save();
     res.json(response);
   } catch (err) {
@@ -1110,7 +1208,7 @@ app.get('/api/ranking', async (req, res) => {
     const rankingUsers = await User.find({ nickname: { $ne: null } })
       .sort({ 'gameState.level': -1, 'gameState.exp': -1 })
       .limit(20)
-      .select('nickname username gameState.level gameState.exp titles');
+      .select('nickname username faction gameState.level gameState.exp titles');
 
     const ranking = rankingUsers.map((user) => ({
       nickname: user.nickname,
