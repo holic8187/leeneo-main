@@ -80,11 +80,7 @@ function setupEventListeners() {
   bindClick('stockInvestBtn', handleStockInvest);
   bindClick('adminLogoutBtn', handleLogoutClick);
   bindClick('adminGiftBtn', handleAdminGift);
-
-  document.querySelectorAll('[data-faction-choice]').forEach((button) => {
-    button.removeEventListener('click', handleFactionChoice);
-    button.addEventListener('click', handleFactionChoice);
-  });
+  bindClick('adminDeleteUserBtn', handleAdminDeleteUser);
 
   const giftType = document.getElementById('giftTypeSelect');
   if (giftType) {
@@ -222,11 +218,6 @@ function processLoginSuccess(data) {
 
   saveStoredUser(data.user);
 
-  if (!data.user.faction) {
-    showFactionScreen();
-    return;
-  }
-
   if (data.isNewUser || !data.user.nickname) {
     hideAllScreens();
     document.getElementById('nickname-screen').classList.remove('hidden');
@@ -280,10 +271,6 @@ function tryAutoLogin() {
   if (!user || !token) return;
 
   try {
-    if (!user.faction) {
-      showFactionScreen();
-      return;
-    }
     if (!user.nickname) throw new Error('nickname missing');
     showGameScreen(user);
   } catch {
@@ -312,7 +299,7 @@ function getMainName(user) {
 }
 
 function formatFactionScores(scores = {}) {
-  return `<월기방>${formatNumber(scores['월기방'] || 0)} vs <네오방>${formatNumber(scores['네오방'] || 0)}`;
+  return `<천사>${formatNumber(scores['천사'] || 0)} vs <악마>${formatNumber(scores['악마'] || 0)}`;
 }
 
 async function handleClickWork() {
@@ -474,41 +461,6 @@ function updateLocalUserState(data) {
   saveStoredUser(data.user);
   updateGameUI(data.user);
   showNotifications(data.notifications);
-}
-
-function showFactionScreen() {
-  hideAllScreens();
-  document.getElementById('faction-screen').classList.remove('hidden');
-}
-
-async function handleFactionChoice(event) {
-  const user = getStoredUser();
-  if (!user?._id) return handleLogoutClick();
-
-  const faction = event.currentTarget.getAttribute('data-faction-choice');
-  if (!faction) return;
-
-  if (!confirm(`정말 ${faction}을(를) 선택하시겠습니까? 한번 선택하면 되돌릴 수 없습니다.`)) {
-    return;
-  }
-
-  try {
-    const data = await postJson(`${API_URL}/api/set-faction`, {
-      userId: user._id,
-      faction
-    });
-
-    saveStoredUser(data.user);
-    if (!data.user.nickname) {
-      hideAllScreens();
-      document.getElementById('nickname-screen').classList.remove('hidden');
-    } else {
-      showGameScreen(data.user);
-    }
-    showNotifications(data.notifications);
-  } catch (err) {
-    alert(err.message);
-  }
 }
 
 function showGameScreen(user) {
@@ -872,6 +824,7 @@ async function loadAdminUsers() {
     const data = await getJson(`${API_URL}/api/admin/users`, getAdminAuthHeaders());
     saveStoredAdmin({
       ...session,
+      factions: data.factions,
       giftCatalog: data.giftCatalog
     });
     renderAdminUsers(data.users);
@@ -883,14 +836,28 @@ async function loadAdminUsers() {
 }
 
 function renderAdminUsers(users) {
-  const select = document.getElementById('giftTargetSelect');
-  if (!select) return;
+  const session = getStoredAdmin();
+  const giftSelect = document.getElementById('giftTargetSelect');
+  const deleteSelect = document.getElementById('deleteTargetSelect');
+  if (!giftSelect || !deleteSelect) return;
 
-  select.innerHTML = '<option value="ALL_USERS">전체 유저</option>';
-  users.forEach((user) => {
-    select.insertAdjacentHTML(
+  giftSelect.innerHTML = '<option value="ALL_USERS">전체 유저</option>';
+  (session?.factions || []).forEach((faction) => {
+    giftSelect.insertAdjacentHTML(
       'beforeend',
-      `<option value="${escapeHtml(user.id)}">${escapeHtml(user.label)}</option>`
+      `<option value="FACTION:${escapeHtml(faction)}">${escapeHtml(`<${faction}> 전체 진영`)}</option>`
+    );
+  });
+
+  deleteSelect.innerHTML = '<option value="">삭제할 유저 선택</option>';
+  users.forEach((user) => {
+    giftSelect.insertAdjacentHTML(
+      'beforeend',
+      `<option value="${escapeHtml(user.id)}">${escapeHtml(user.faction ? `<${user.faction}> ` : '')}${escapeHtml(user.label)}</option>`
+    );
+    deleteSelect.insertAdjacentHTML(
+      'beforeend',
+      `<option value="${escapeHtml(user.id)}">${escapeHtml(user.faction ? `<${user.faction}> ` : '')}${escapeHtml(user.label)}</option>`
     );
   });
 }
@@ -931,7 +898,12 @@ async function handleAdminGift() {
     return;
   }
 
-  const targetMode = targetValue === 'ALL_USERS' ? 'all' : 'single';
+  const targetMode = targetValue === 'ALL_USERS'
+    ? 'all'
+    : targetValue.startsWith('FACTION:')
+      ? 'faction'
+      : 'single';
+  const targetFaction = targetMode === 'faction' ? targetValue.slice('FACTION:'.length) : null;
 
   try {
     const data = await postJson(
@@ -939,6 +911,7 @@ async function handleAdminGift() {
       {
         targetMode,
         targetUserId: targetMode === 'single' ? targetValue : null,
+        targetFaction,
         giftType,
         giftId,
         quantity
@@ -948,6 +921,36 @@ async function handleAdminGift() {
 
     setText('adminStatus', `선물을 ${data.deliveredCount}명에게 발송했습니다.`);
     alert(`운영자 선물이 ${data.deliveredCount}명에게 발송되었습니다.`);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleAdminDeleteUser() {
+  const session = getStoredAdmin();
+  if (!session?.token) return handleLogoutClick();
+
+  const select = document.getElementById('deleteTargetSelect');
+  if (!select?.value) {
+    alert('삭제할 유저를 선택해주세요.');
+    return;
+  }
+
+  const selectedLabel = select.options[select.selectedIndex]?.textContent || '선택한 유저';
+  if (!confirm(`정말 ${selectedLabel} 계정을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) {
+    return;
+  }
+
+  try {
+    const data = await postJson(
+      `${API_URL}/api/admin/delete-user`,
+      { targetUserId: select.value },
+      getAdminAuthHeaders()
+    );
+
+    await loadAdminUsers();
+    setText('adminStatus', `${data.deletedLabel} 계정을 삭제했습니다.`);
+    alert(`${data.deletedLabel} 계정을 삭제했습니다.`);
   } catch (err) {
     alert(err.message);
   }

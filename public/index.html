@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>일해라 이네오!! - 통합 문서1</title>
-  <link rel="stylesheet" href="style.css?v=10">
+  <link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
   <div id="login-screen">
@@ -24,17 +24,6 @@
     </div>
   </div>
 
-  <div id="faction-screen" class="hidden">
-    <div class="excel-sheet login-panel faction-panel">
-      <h3>진영 선택</h3>
-      <p>당신의 진영을 선택하세요. 한번 진영을 선택하면 되돌릴 수 없습니다!</p>
-      <div class="faction-choice-grid">
-        <button type="button" class="faction-choice-btn" data-faction-choice="네오방">네오방</button>
-        <button type="button" class="faction-choice-btn" data-faction-choice="월기방">월기방</button>
-      </div>
-    </div>
-  </div>
-
   <div id="admin-screen" class="hidden">
     <div class="excel-sheet admin-panel">
       <div class="status-bar status-top">
@@ -42,10 +31,10 @@
         <button id="adminLogoutBtn" class="mini-btn">관리자 로그아웃</button>
       </div>
 
-      <div class="admin-body">
+      <div class="admin-body admin-grid">
         <div class="admin-card">
           <h3>선물 보내기</h3>
-          <label for="giftTargetSelect">대상 유저</label>
+          <label for="giftTargetSelect">대상 유저 / 진영</label>
           <select id="giftTargetSelect"></select>
 
           <label for="giftTypeSelect">선물 종류</label>
@@ -63,6 +52,14 @@
           <button id="adminGiftBtn" class="menu-action-btn">선물 발송</button>
           <p id="adminStatus" class="menu-note">운영자 선물 대상을 불러오는 중입니다.</p>
         </div>
+
+        <div class="admin-card">
+          <h3>유저 삭제</h3>
+          <label for="deleteTargetSelect">삭제할 닉네임</label>
+          <select id="deleteTargetSelect"></select>
+          <button id="adminDeleteUserBtn" class="menu-action-btn">선택 유저 삭제</button>
+          <p class="menu-note">삭제 즉시 계정 데이터가 제거되며 복구할 수 없습니다.</p>
+        </div>
       </div>
     </div>
   </div>
@@ -74,13 +71,13 @@
         <div>월급: <strong><span id="salaryRate">0</span>원/분</strong></div>
         <div>행동력: <strong><span id="stamina">10/10</span></strong></div>
         <div>스트레스: <strong><span id="stress">0.00</span></strong></div>
-        <div class="faction-score-line"><strong id="factionScoresText">&lt;월기방&gt;0 vs &lt;네오방&gt;0</strong></div>
+        <div class="faction-score-line"><strong id="factionScoresText">&lt;천사&gt;0 vs &lt;악마&gt;0</strong></div>
       </div>
       <button id="logoutBtn" class="mini-btn">퇴근하기</button>
     </div>
 
     <div class="status-bar">
-      <div class="status-user">Lv.<span id="level">1</span> <span id="userNickname">사원</span> <span class="faction-badge" id="userFaction">미선택</span></div>
+      <div class="status-user">Lv.<span id="level">1</span> <span id="userNickname">사원</span> <span class="faction-badge" id="userFaction">배정 대기</span></div>
       <div class="exp-wrap">
         <span>경험치</span>
         <progress id="expBar" value="0" max="1000"></progress>
@@ -235,6 +232,6 @@
     </div>
   </div>
 
-  <script src="client.js?v=10"></script>
+  <script src="client.js?v=11"></script>
 </body>
 </html>

@@ -29,7 +29,7 @@ const SHOPPING_ADDICT_LOSE_AFTER_DAYS = 3;
 const RICH_THRESHOLD = 5000000;
 const BEAST_HEART_UNLOCK_THRESHOLD = 2000000;
 
-const FACTIONS = ['네오방', '월기방'];
+const FACTIONS = ['천사', '악마'];
 
 const ITEM_DATA = {
   pen_monami: {
@@ -147,7 +147,10 @@ app.get('/api/health', (req, res) => {
 });
 
 mongoose.connect(MONGO_URI)
-  .then(() => console.log('MongoDB connected'))
+  .then(async () => {
+    console.log('MongoDB connected');
+    await assignFactionsToExistingUsers();
+  })
   .catch((err) => console.error('MongoDB connection error:', err));
 
 const userSchema = new mongoose.Schema({
@@ -205,6 +208,27 @@ const userSchema = new mongoose.Schema({
 
 const User = mongoose.model('User', userSchema);
 
+async function assignFactionsToExistingUsers() {
+  try {
+    const users = await User.find({});
+    let updatedCount = 0;
+
+    for (const user of users) {
+      if (!FACTIONS.includes(user.faction)) {
+        user.faction = getRandomFaction();
+        await user.save();
+        updatedCount += 1;
+      }
+    }
+
+    if (updatedCount > 0) {
+      console.log(`[진영 자동 배정] 기존 유저 ${updatedCount}명에게 진영을 배정했습니다.`);
+    }
+  } catch (err) {
+    console.error('Faction assignment migration error:', err);
+  }
+}
+
 function getKSTDateKey(date = new Date()) {
   const kst = new Date(date.getTime() + KST_OFFSET_MS);
   const year = kst.getUTCFullYear();
@@ -236,9 +260,13 @@ function isWorkingHour(start, end) {
   return currentHour >= start || currentHour < end;
 }
 
+function getRandomFaction() {
+  return FACTIONS[Math.floor(Math.random() * FACTIONS.length)];
+}
+
 function ensureUserDefaults(user) {
   if (!user.nickname) user.nickname = null;
-  if (!FACTIONS.includes(user.faction)) user.faction = null;
+  if (!FACTIONS.includes(user.faction)) user.faction = getRandomFaction();
   if (!user.gameState) user.gameState = {};
 
   user.gameState.money = Number(user.gameState.money ?? 100000);
@@ -803,7 +831,7 @@ app.post('/api/login', async (req, res) => {
 
     if (!user) {
       const hashedPassword = await bcrypt.hash(password, 10);
-      user = new User({ username, password: hashedPassword });
+      user = new User({ username, password: hashedPassword, faction: getRandomFaction() });
       ensureUserDefaults(user);
       addItemToInventory(user, 'pen_monami', 1);
       await user.save();
@@ -862,31 +890,6 @@ app.post('/api/set-nickname', async (req, res) => {
     res.json({ success: true, nickname: user.nickname });
   } catch (err) {
     console.error('Set nickname error:', err);
-    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
-  }
-});
-
-app.post('/api/set-faction', async (req, res) => {
-  const { userId, faction } = req.body;
-  if (!userId || !faction) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
-  if (!FACTIONS.includes(faction)) return res.status(400).json({ msg: '존재하지 않는 진영입니다.' });
-
-  try {
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
-
-    ensureUserDefaults(user);
-    if (user.faction) {
-      return res.status(400).json({ msg: '이미 진영을 선택했습니다.' });
-    }
-
-    user.faction = faction;
-    const now = new Date();
-    const response = await buildUserResponseWithGlobals(user, now);
-    await user.save();
-    res.json(response);
-  } catch (err) {
-    console.error('Set faction error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
   }
 });
@@ -1232,15 +1235,17 @@ app.get('/api/admin/users', async (req, res) => {
   try {
     const users = await User.find({})
       .sort({ nickname: 1, username: 1 })
-      .select('username nickname');
+      .select('username nickname faction');
 
     res.json({
       users: users.map((user) => ({
         id: String(user._id),
         username: user.username,
         nickname: user.nickname,
+        faction: user.faction,
         label: user.nickname ? `${user.nickname} (${user.username})` : user.username
       })),
+      factions: FACTIONS,
       giftCatalog: ADMIN_GIFT_CATALOG
     });
   } catch (err) {
@@ -1252,11 +1257,15 @@ app.get('/api/admin/users', async (req, res) => {
 app.post('/api/admin/gift', async (req, res) => {
   if (!requireAdmin(req, res)) return;
 
-  const { targetMode, targetUserId, giftType, giftId, quantity } = req.body;
+  const { targetMode, targetUserId, targetFaction, giftType, giftId, quantity } = req.body;
   const giftQuantity = Math.max(1, Math.floor(Number(quantity) || 1));
 
-  if (!['all', 'single'].includes(targetMode)) {
+  if (!['all', 'single', 'faction'].includes(targetMode)) {
     return res.status(400).json({ msg: '대상 지정 방식이 올바르지 않습니다.' });
+  }
+
+  if (targetMode === 'faction' && !FACTIONS.includes(targetFaction)) {
+    return res.status(400).json({ msg: '존재하지 않는 진영입니다.' });
   }
 
   if (!['item', 'buff'].includes(giftType)) {
@@ -1274,7 +1283,9 @@ app.post('/api/admin/gift', async (req, res) => {
   try {
     const users = targetMode === 'all'
       ? await User.find({})
-      : await User.find({ _id: targetUserId });
+      : targetMode === 'faction'
+        ? await User.find({ faction: targetFaction })
+        : await User.find({ _id: targetUserId });
 
     if (!users.length) {
       return res.status(404).json({ msg: '선물할 사용자를 찾을 수 없습니다.' });
@@ -1304,6 +1315,33 @@ app.post('/api/admin/gift', async (req, res) => {
     });
   } catch (err) {
     console.error('Admin gift error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/admin/delete-user', async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+
+  const { targetUserId } = req.body;
+  if (!targetUserId) {
+    return res.status(400).json({ msg: '삭제할 사용자 ID가 필요합니다.' });
+  }
+
+  try {
+    const user = await User.findById(targetUserId).select('username nickname');
+    if (!user) {
+      return res.status(404).json({ msg: '삭제할 사용자를 찾을 수 없습니다.' });
+    }
+
+    const deletedLabel = user.nickname ? `${user.nickname} (${user.username})` : user.username;
+    await User.deleteOne({ _id: targetUserId });
+
+    res.json({
+      success: true,
+      deletedLabel
+    });
+  } catch (err) {
+    console.error('Admin delete user error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
   }
 });
