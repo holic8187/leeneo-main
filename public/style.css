@@ -39,16 +39,6 @@ body {
   gap: 10px;
 }
 
-.faction-panel {
-  width: 420px;
-}
-
-.faction-choice-grid {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
 .admin-panel {
   max-width: 760px;
 }
@@ -101,12 +91,6 @@ button {
   border: var(--excel-border);
   background: var(--excel-header-bg);
   cursor: pointer;
-}
-
-.faction-choice-btn {
-  min-height: 72px;
-  font-size: 18px;
-  font-weight: bold;
 }
 
 .login-panel button:hover,
@@ -168,21 +152,6 @@ td {
 .status-user {
   min-width: 210px;
   font-weight: bold;
-}
-
-.faction-badge {
-  display: inline-block;
-  margin-left: 8px;
-  padding: 2px 8px;
-  border: 1px solid #9eb6ce;
-  background: #eaf2fb;
-  color: #244a74;
-  font-size: 12px;
-  vertical-align: middle;
-}
-
-.faction-score-line {
-  color: #425466;
 }
 
 .sub-status {
@@ -448,9 +417,5 @@ progress {
 
   .status-group {
     gap: 10px;
-  }
-
-  .faction-choice-grid {
-    grid-template-columns: 1fr;
   }
 }

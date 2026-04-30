@@ -29,8 +29,6 @@ const SHOPPING_ADDICT_LOSE_AFTER_DAYS = 3;
 const RICH_THRESHOLD = 5000000;
 const BEAST_HEART_UNLOCK_THRESHOLD = 2000000;
 
-const FACTIONS = ['천사', '악마'];
-
 const ITEM_DATA = {
   pen_monami: {
     name: '모나미 볼펜',
@@ -147,17 +145,13 @@ app.get('/api/health', (req, res) => {
 });
 
 mongoose.connect(MONGO_URI)
-  .then(async () => {
-    console.log('MongoDB connected');
-    await assignFactionsToExistingUsers();
-  })
+  .then(() => console.log('MongoDB connected'))
   .catch((err) => console.error('MongoDB connection error:', err));
 
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   password: { type: String, required: true },
   nickname: { type: String, default: null },
-  faction: { type: String, default: null },
   workHours: {
     start: { type: Number, default: 9 },
     end: { type: Number, default: 18 },
@@ -208,27 +202,6 @@ const userSchema = new mongoose.Schema({
 
 const User = mongoose.model('User', userSchema);
 
-async function assignFactionsToExistingUsers() {
-  try {
-    const users = await User.find({});
-    let updatedCount = 0;
-
-    for (const user of users) {
-      if (!FACTIONS.includes(user.faction)) {
-        user.faction = getRandomFaction();
-        await user.save();
-        updatedCount += 1;
-      }
-    }
-
-    if (updatedCount > 0) {
-      console.log(`[진영 자동 배정] 기존 유저 ${updatedCount}명에게 진영을 배정했습니다.`);
-    }
-  } catch (err) {
-    console.error('Faction assignment migration error:', err);
-  }
-}
-
 function getKSTDateKey(date = new Date()) {
   const kst = new Date(date.getTime() + KST_OFFSET_MS);
   const year = kst.getUTCFullYear();
@@ -260,13 +233,8 @@ function isWorkingHour(start, end) {
   return currentHour >= start || currentHour < end;
 }
 
-function getRandomFaction() {
-  return FACTIONS[Math.floor(Math.random() * FACTIONS.length)];
-}
-
 function ensureUserDefaults(user) {
   if (!user.nickname) user.nickname = null;
-  if (!FACTIONS.includes(user.faction)) user.faction = getRandomFaction();
   if (!user.gameState) user.gameState = {};
 
   user.gameState.money = Number(user.gameState.money ?? 100000);
@@ -415,28 +383,8 @@ function getEquippedTitleDefinition(user) {
 function buildDisplayName(user) {
   const titleInfo = getEquippedTitleDefinition(user);
   const baseName = user.nickname || user.username;
-  const factionPrefix = user.faction ? `<${user.faction}>` : '';
   const titlePrefix = titleInfo ? `<${titleInfo.name}>` : '';
-  return `${factionPrefix}${titlePrefix}${baseName}`;
-}
-
-function getFactionContribution(level) {
-  let score = 0;
-  for (let currentLevel = 1; currentLevel <= Math.max(0, level); currentLevel += 1) {
-    score += Math.floor(currentLevel / 10) + 1;
-  }
-  return score;
-}
-
-async function getFactionScores() {
-  const users = await User.find({ faction: { $in: FACTIONS } }).select('faction gameState.level');
-  const scores = Object.fromEntries(FACTIONS.map((faction) => [faction, 0]));
-
-  users.forEach((user) => {
-    scores[user.faction] += getFactionContribution(user.gameState?.level || 0);
-  });
-
-  return scores;
+  return `${titlePrefix}${baseName}`;
 }
 
 function unlockTitle(user, titleId) {
@@ -520,7 +468,7 @@ function calculateDerivedStats(user, now = new Date()) {
   const moneyBonusPercent = itemStats.moneyBonus + (titleEffects.moneyBonus || 0);
   const titleStressMultiplier = titleEffects.titleStressMultiplier || 1;
   const hot6ClickStressRelief = hasBuff(user, 'hot6_buff', now) ? 0.1 : 0;
-  const passiveExpMultiplier = hasBuff(user, 'field_work_buff', now) ? 3 : 1;
+  const passiveExpMultiplier = hasBuff(user, 'field_work_buff', now) ? 5 : 1;
   const clickExpMultiplier = hasBuff(user, 'field_work_buff', now) ? 0.5 : 1;
 
   const finalStressMultiplier = Number((itemStats.stressMultiplier * titleStressMultiplier).toFixed(6));
@@ -739,7 +687,6 @@ function buildGameStateResponse(user, now = new Date()) {
     isAdmin: false,
     username: user.username,
     nickname: user.nickname,
-    faction: user.faction,
     displayName: buildDisplayName(user),
     workHours: user.workHours,
     gameState,
@@ -777,9 +724,7 @@ function buildUserResponse(user, now = new Date()) {
 }
 
 async function buildUserResponseWithGlobals(user, now = new Date()) {
-  const response = buildUserResponse(user, now);
-  response.user.factionScores = await getFactionScores();
-  return response;
+  return buildUserResponse(user, now);
 }
 
 function getBearerToken(req) {
@@ -831,7 +776,7 @@ app.post('/api/login', async (req, res) => {
 
     if (!user) {
       const hashedPassword = await bcrypt.hash(password, 10);
-      user = new User({ username, password: hashedPassword, faction: getRandomFaction() });
+      user = new User({ username, password: hashedPassword });
       ensureUserDefaults(user);
       addItemToInventory(user, 'pen_monami', 1);
       await user.save();
@@ -1211,7 +1156,7 @@ app.get('/api/ranking', async (req, res) => {
     const rankingUsers = await User.find({ nickname: { $ne: null } })
       .sort({ 'gameState.level': -1, 'gameState.exp': -1 })
       .limit(20)
-      .select('nickname username faction gameState.level gameState.exp titles');
+      .select('nickname username gameState.level gameState.exp titles');
 
     const ranking = rankingUsers.map((user) => ({
       nickname: user.nickname,
@@ -1235,17 +1180,15 @@ app.get('/api/admin/users', async (req, res) => {
   try {
     const users = await User.find({})
       .sort({ nickname: 1, username: 1 })
-      .select('username nickname faction');
+      .select('username nickname');
 
     res.json({
       users: users.map((user) => ({
         id: String(user._id),
         username: user.username,
         nickname: user.nickname,
-        faction: user.faction,
         label: user.nickname ? `${user.nickname} (${user.username})` : user.username
       })),
-      factions: FACTIONS,
       giftCatalog: ADMIN_GIFT_CATALOG
     });
   } catch (err) {
@@ -1257,15 +1200,11 @@ app.get('/api/admin/users', async (req, res) => {
 app.post('/api/admin/gift', async (req, res) => {
   if (!requireAdmin(req, res)) return;
 
-  const { targetMode, targetUserId, targetFaction, giftType, giftId, quantity } = req.body;
+  const { targetMode, targetUserId, giftType, giftId, quantity } = req.body;
   const giftQuantity = Math.max(1, Math.floor(Number(quantity) || 1));
 
-  if (!['all', 'single', 'faction'].includes(targetMode)) {
+  if (!['all', 'single'].includes(targetMode)) {
     return res.status(400).json({ msg: '대상 지정 방식이 올바르지 않습니다.' });
-  }
-
-  if (targetMode === 'faction' && !FACTIONS.includes(targetFaction)) {
-    return res.status(400).json({ msg: '존재하지 않는 진영입니다.' });
   }
 
   if (!['item', 'buff'].includes(giftType)) {
@@ -1283,9 +1222,7 @@ app.post('/api/admin/gift', async (req, res) => {
   try {
     const users = targetMode === 'all'
       ? await User.find({})
-      : targetMode === 'faction'
-        ? await User.find({ faction: targetFaction })
-        : await User.find({ _id: targetUserId });
+      : await User.find({ _id: targetUserId });
 
     if (!users.length) {
       return res.status(404).json({ msg: '선물할 사용자를 찾을 수 없습니다.' });

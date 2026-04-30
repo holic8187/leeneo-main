@@ -28,7 +28,7 @@ const BUFF_DATA = {
   lupin_exp_buff: { name: '월급루팡 집중' },
   field_work_buff: {
     name: '외근 버프',
-    desc: '12시간 동안 자동 획득 경험치가 3배가 되고, 서류작업 클릭 경험치는 절반이 됩니다.'
+    desc: '12시간 동안 자동 획득 경험치가 5배가 되고, 서류작업 클릭 경험치는 절반이 됩니다.'
   },
   hot6_buff: {
     name: '핫식스 버프',
@@ -298,10 +298,6 @@ function getMainName(user) {
   return `${titlePrefix}${user.nickname || user.username || '사원'}`;
 }
 
-function formatFactionScores(scores = {}) {
-  return `<천사>${formatNumber(scores['천사'] || 0)} vs <악마>${formatNumber(scores['악마'] || 0)}`;
-}
-
 async function handleClickWork() {
   const user = getStoredUser();
   if (!user?._id) return handleLogoutClick();
@@ -487,13 +483,11 @@ function updateStatusUI(user) {
   const itemStats = user.itemStats || {};
   if (!state) return;
 
-  setText('userFaction', user.faction || '미선택');
   setText('userNickname', getMainName(user));
   setText('money', formatNumber(Math.floor(state.money)));
   setText('salaryRate', formatNumber(state.salaryPerMinute ?? 0, 2));
   setText('level', state.level);
   setText('stamina', `${state.stamina}/${state.maxStamina}`);
-  setText('factionScoresText', formatFactionScores(user.factionScores));
 
   const stressEl = document.getElementById('stress');
   stressEl.textContent = formatNumber(state.stress ?? 0, 2);
@@ -824,7 +818,6 @@ async function loadAdminUsers() {
     const data = await getJson(`${API_URL}/api/admin/users`, getAdminAuthHeaders());
     saveStoredAdmin({
       ...session,
-      factions: data.factions,
       giftCatalog: data.giftCatalog
     });
     renderAdminUsers(data.users);
@@ -836,28 +829,20 @@ async function loadAdminUsers() {
 }
 
 function renderAdminUsers(users) {
-  const session = getStoredAdmin();
   const giftSelect = document.getElementById('giftTargetSelect');
   const deleteSelect = document.getElementById('deleteTargetSelect');
   if (!giftSelect || !deleteSelect) return;
 
   giftSelect.innerHTML = '<option value="ALL_USERS">전체 유저</option>';
-  (session?.factions || []).forEach((faction) => {
-    giftSelect.insertAdjacentHTML(
-      'beforeend',
-      `<option value="FACTION:${escapeHtml(faction)}">${escapeHtml(`<${faction}> 전체 진영`)}</option>`
-    );
-  });
-
   deleteSelect.innerHTML = '<option value="">삭제할 유저 선택</option>';
   users.forEach((user) => {
     giftSelect.insertAdjacentHTML(
       'beforeend',
-      `<option value="${escapeHtml(user.id)}">${escapeHtml(user.faction ? `<${user.faction}> ` : '')}${escapeHtml(user.label)}</option>`
+      `<option value="${escapeHtml(user.id)}">${escapeHtml(user.label)}</option>`
     );
     deleteSelect.insertAdjacentHTML(
       'beforeend',
-      `<option value="${escapeHtml(user.id)}">${escapeHtml(user.faction ? `<${user.faction}> ` : '')}${escapeHtml(user.label)}</option>`
+      `<option value="${escapeHtml(user.id)}">${escapeHtml(user.label)}</option>`
     );
   });
 }
@@ -898,12 +883,7 @@ async function handleAdminGift() {
     return;
   }
 
-  const targetMode = targetValue === 'ALL_USERS'
-    ? 'all'
-    : targetValue.startsWith('FACTION:')
-      ? 'faction'
-      : 'single';
-  const targetFaction = targetMode === 'faction' ? targetValue.slice('FACTION:'.length) : null;
+  const targetMode = targetValue === 'ALL_USERS' ? 'all' : 'single';
 
   try {
     const data = await postJson(
@@ -911,7 +891,6 @@ async function handleAdminGift() {
       {
         targetMode,
         targetUserId: targetMode === 'single' ? targetValue : null,
-        targetFaction,
         giftType,
         giftId,
         quantity

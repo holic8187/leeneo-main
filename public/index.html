@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>일해라 이네오!! - 통합 문서1</title>
-  <link rel="stylesheet" href="style.css?v=11">
+  <link rel="stylesheet" href="style.css?v=12">
 </head>
 <body>
   <div id="login-screen">
@@ -34,7 +34,7 @@
       <div class="admin-body admin-grid">
         <div class="admin-card">
           <h3>선물 보내기</h3>
-          <label for="giftTargetSelect">대상 유저 / 진영</label>
+          <label for="giftTargetSelect">대상 유저</label>
           <select id="giftTargetSelect"></select>
 
           <label for="giftTypeSelect">선물 종류</label>
@@ -71,13 +71,12 @@
         <div>월급: <strong><span id="salaryRate">0</span>원/분</strong></div>
         <div>행동력: <strong><span id="stamina">10/10</span></strong></div>
         <div>스트레스: <strong><span id="stress">0.00</span></strong></div>
-        <div class="faction-score-line"><strong id="factionScoresText">&lt;천사&gt;0 vs &lt;악마&gt;0</strong></div>
       </div>
       <button id="logoutBtn" class="mini-btn">퇴근하기</button>
     </div>
 
     <div class="status-bar">
-      <div class="status-user">Lv.<span id="level">1</span> <span id="userNickname">사원</span> <span class="faction-badge" id="userFaction">배정 대기</span></div>
+      <div class="status-user">Lv.<span id="level">1</span> <span id="userNickname">사원</span></div>
       <div class="exp-wrap">
         <span>경험치</span>
         <progress id="expBar" value="0" max="1000"></progress>
@@ -232,6 +231,6 @@
     </div>
   </div>
 
-  <script src="client.js?v=11"></script>
+  <script src="client.js?v=12"></script>
 </body>
 </html>
