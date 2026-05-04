@@ -549,7 +549,7 @@ const ADVENTURE_EVENT_DEFINITIONS = [
     location: '사무실',
     actor: '박 대리님',
     message: '박 대리님이 서랍 깊은 곳에서 작은 참치캔을 꺼냈다. "지난번에 고양이 좋아하던데, 이거 하나 가져가."',
-    reward: { type: 'item', itemId: 'cat_tuna_can', quantity: 1 }
+    reward: { type: 'item', itemId: 'hot6', quantity: 1 }
   },
   {
     id: 'office_park_exp',
@@ -1688,6 +1688,7 @@ app.post('/api/action/adventure/resolve', async (req, res) => {
 
     const eventTitle = `${user.pendingAdventure.location} / ${user.pendingAdventure.actor}`;
     let rewardText = '아무 일도 일어나지 않았습니다.';
+    const hasCatButlerTitle = user.titles?.unlocked?.includes('cat_butler');
 
     if (choice === 'yes') {
       if (getInventoryQuantity(user, 'cat_tuna_can') > 0) {
@@ -1700,11 +1701,30 @@ app.post('/api/action/adventure/resolve', async (req, res) => {
           setOrRefreshBuff(user, 'cat_gratitude_buff', CAT_GRATITUDE_DURATION_MS);
           rewardText += ' 고양이의 보은 버프를 획득했습니다.';
         }
+
+        if (hasCatButlerTitle || user.meta.catFoodGivenCount >= 10) {
+          setOrRefreshBuff(user, 'cat_gratitude_buff', CAT_GRATITUDE_DURATION_MS);
+          addItemToInventory(user, 'bacchus', 1);
+
+          const extraItemPool = ['hot6', 'cat_tuna_can', 'pen_monami'];
+          const extraItemId = extraItemPool[Math.floor(Math.random() * extraItemPool.length)];
+          addItemToInventory(user, extraItemId, 1);
+
+          rewardText += ` 고양이가 보답으로 박카스 1개와 ${ITEM_DATA[extraItemId].name} 1개를 남겨두고 갔습니다.`;
+        }
       } else {
         rewardText = '참치캔이 없어 고양이에게 아무것도 줄 수 없었습니다.';
+        if (hasCatButlerTitle) {
+          setOrRefreshBuff(user, 'cat_gratitude_buff', CAT_GRATITUDE_DURATION_MS);
+          rewardText += ' 그래도 고양이는 당신을 기억하고 있어 고양이의 보은 버프를 남겨줬습니다.';
+        }
       }
     } else {
       rewardText = '고양이를 한 번 쓰다듬고 지나쳤습니다. 아무것도 획득하지 못했습니다.';
+      if (hasCatButlerTitle) {
+        setOrRefreshBuff(user, 'cat_gratitude_buff', CAT_GRATITUDE_DURATION_MS);
+        rewardText += ' 그래도 고양이는 당신을 기억하고 있어 고양이의 보은 버프를 남겨줬습니다.';
+      }
     }
 
     setAdventureLog(user, `${eventTitle} - ${rewardText}`);
