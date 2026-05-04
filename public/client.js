@@ -20,6 +20,11 @@ const ITEM_DATA = {
     name: '핫식스',
     desc: '스트레스 -10, 10분 버프',
     hoverDesc: '사용 즉시 스트레스를 10 낮추고, 10분 동안 서류작업 클릭마다 스트레스를 0.1 낮춥니다.'
+  },
+  cat_tuna_can: {
+    name: '고양이 참치캔',
+    desc: '고양이에게 줄 수 있음',
+    hoverDesc: '모험 중 회사 밖에서 고양이를 만났을 때 건네줄 수 있습니다.'
   }
 };
 
@@ -29,6 +34,20 @@ const BUFF_DATA = {
   field_work_buff: {
     name: '외근 버프',
     desc: '12시간 동안 자동 획득 경험치가 5배가 되고, 서류작업 클릭 경험치는 절반이 됩니다.'
+  },
+  confidence_buff: {
+    name: '자신감',
+    desc: '1시간 동안 모든 경험치 획득량이 1.8배가 됩니다.'
+  },
+  fatigue_debuff: {
+    name: '피로감',
+    desc: '4시간 동안 모든 경험치 획득량이 절반으로 감소합니다.',
+    className: 'debuff-item'
+  },
+  cat_gratitude_buff: {
+    name: '고양이의 보은',
+    desc: '1시간 동안 모든 경험치 획득량이 2배가 됩니다.',
+    className: 'buff-item title-buff'
   },
   hot6_buff: {
     name: '핫식스 버프',
@@ -59,6 +78,7 @@ let updateInterval;
 let rankingInterval;
 let syncInterval;
 let animationInterval;
+let modalResolver = null;
 
 document.addEventListener('DOMContentLoaded', () => {
   initApp();
@@ -74,6 +94,7 @@ function setupEventListeners() {
   bindClick('logoutBtn', handleLogoutClick);
   bindClick('setNicknameBtn', handleSetNicknameClick);
   bindClick('clickWorkBtn', handleClickWork);
+  bindClick('adventureBtn', handleAdventureClick);
   bindClick('lupinBtn', handleLupinClick);
   bindClick('napBtn', handleNapClick);
   bindClick('fieldWorkBtn', handleFieldWorkClick);
@@ -146,6 +167,52 @@ function escapeHtml(value) {
 function setText(id, value) {
   const element = document.getElementById(id);
   if (element) element.textContent = value;
+}
+
+function setHtml(id, value) {
+  const element = document.getElementById(id);
+  if (element) element.innerHTML = value;
+}
+
+function closeDecisionModal(result = null) {
+  const overlay = document.getElementById('decisionModal');
+  if (overlay) overlay.classList.add('hidden');
+
+  const resolver = modalResolver;
+  modalResolver = null;
+  if (resolver) resolver(result);
+}
+
+function openDecisionModal({ title, message, details = '', buttons = [] }) {
+  const overlay = document.getElementById('decisionModal');
+  const titleEl = document.getElementById('decisionModalTitle');
+  const messageEl = document.getElementById('decisionModalMessage');
+  const detailsEl = document.getElementById('decisionModalDetails');
+  const buttonsEl = document.getElementById('decisionModalButtons');
+
+  if (!overlay || !titleEl || !messageEl || !detailsEl || !buttonsEl) {
+    return Promise.resolve(null);
+  }
+
+  titleEl.textContent = title || '확인';
+  messageEl.textContent = message || '';
+  detailsEl.innerHTML = details || '';
+  buttonsEl.innerHTML = '';
+
+  overlay.classList.remove('hidden');
+
+  return new Promise((resolve) => {
+    modalResolver = resolve;
+
+    buttons.forEach((button) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `mini-btn ${button.className || ''}`.trim();
+      btn.textContent = button.label;
+      btn.addEventListener('click', () => closeDecisionModal(button.value));
+      buttonsEl.appendChild(btn);
+    });
+  });
 }
 
 function getUserToken() {
@@ -280,6 +347,7 @@ function tryAutoLogin() {
 
 function handleLogoutClick() {
   clearIntervals();
+  closeDecisionModal();
   clearSessions();
   hideAllScreens();
 
@@ -368,6 +436,24 @@ async function handleFieldWorkClick() {
   }
 }
 
+async function handleAdventureClick() {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+
+  const btn = document.getElementById('adventureBtn');
+  if (btn) btn.disabled = true;
+
+  try {
+    const data = await postJson(`${API_URL}/api/action/adventure`, { userId: user._id });
+    updateLocalUserState(data);
+    await processAdventureResult(data.adventureResult);
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 async function handleStockInvest() {
   const user = getStoredUser();
   if (!user?._id) return handleLogoutClick();
@@ -441,6 +527,32 @@ async function handleToggleTitle(titleId) {
   const user = getStoredUser();
   if (!user?._id) return handleLogoutClick();
 
+  const titleDetails = user.titleDetails || [];
+  const currentTitle = titleDetails.find((title) => title.equipped) || null;
+  const targetTitle = titleDetails.find((title) => title.id === titleId) || null;
+  if (!targetTitle) {
+    alert('칭호 정보를 찾을 수 없습니다.');
+    return;
+  }
+
+  const targetAfterChange = currentTitle?.id === titleId ? null : targetTitle;
+  const details = `
+    <div class="modal-compare-block"><strong>현재 칭호</strong><br>${escapeHtml(currentTitle?.name || '없음')}<br>${escapeHtml(currentTitle?.desc || '효과 없음')}</div>
+    <div class="modal-compare-block"><strong>변경 후 칭호</strong><br>${escapeHtml(targetAfterChange?.name || '없음')}<br>${escapeHtml(targetAfterChange?.desc || '효과 없음')}</div>
+  `;
+
+  const choice = await openDecisionModal({
+    title: '칭호 변경 확인',
+    message: '내일까지 칭호를 변경할 수 없습니다. 정말 변경하시겠습니까?',
+    details,
+    buttons: [
+      { value: 'confirm', label: '변경하기' },
+      { value: 'cancel', label: '취소' }
+    ]
+  });
+
+  if (choice !== 'confirm') return;
+
   try {
     const data = await postJson(`${API_URL}/api/title/toggle`, {
       userId: user._id,
@@ -459,6 +571,45 @@ function updateLocalUserState(data) {
   showNotifications(data.notifications);
 }
 
+async function processAdventureResult(result) {
+  if (!result) return;
+
+  setText('adventureLog', result.message || '아무 일도 일어나지 않았습니다.');
+
+  if (result.requiresChoice) {
+    const choice = await openDecisionModal({
+      title: result.title || '모험',
+      message: result.message || '',
+      details: `<div class="modal-note">${escapeHtml(result.prompt || '')}</div>`,
+      buttons: (result.buttons || []).map((button) => ({
+        value: button.value,
+        label: button.label
+      }))
+    });
+
+    if (!choice) return;
+
+    const user = getStoredUser();
+    if (!user?._id) return handleLogoutClick();
+
+    try {
+      const data = await postJson(`${API_URL}/api/action/adventure/resolve`, {
+        userId: user._id,
+        choice
+      });
+      updateLocalUserState(data);
+      await processAdventureResult(data.adventureResult);
+    } catch (err) {
+      alert(err.message);
+    }
+    return;
+  }
+
+  if (result.rewardText) {
+    alert(result.rewardText);
+  }
+}
+
 function showGameScreen(user) {
   clearIntervals();
   hideAllScreens();
@@ -466,6 +617,19 @@ function showGameScreen(user) {
   updateGameUI(user);
   startAnimation();
   startPeriodicUpdates();
+
+  if (user.pendingAdventure?.eventId && !modalResolver) {
+    processAdventureResult({
+      requiresChoice: true,
+      title: `${user.pendingAdventure.location} / ${user.pendingAdventure.actor}`,
+      message: user.pendingAdventure.message,
+      prompt: '참치캔을 주겠습니까?',
+      buttons: [
+        { value: 'yes', label: '예' },
+        { value: 'no', label: '아니오' }
+      ]
+    });
+  }
 }
 
 function updateGameUI(user) {
@@ -476,6 +640,7 @@ function updateGameUI(user) {
   updateStatsTab(user);
   updateStockStatus(user);
   updateStressEffect(user.gameState?.stress || 0);
+  setText('adventureLog', user.meta?.lastAdventureLog || '모험에서 어떤 일이 벌어질지 모릅니다.');
 }
 
 function updateStatusUI(user) {
@@ -487,7 +652,7 @@ function updateStatusUI(user) {
   setText('money', formatNumber(Math.floor(state.money)));
   setText('salaryRate', formatNumber(state.salaryPerMinute ?? 0, 2));
   setText('level', state.level);
-  setText('stamina', `${state.stamina}/${state.maxStamina}`);
+  setText('stamina', `${formatNumber(state.stamina ?? 0, 1)}/${formatNumber(state.maxStamina ?? 0, 1)}`);
 
   const stressEl = document.getElementById('stress');
   stressEl.textContent = formatNumber(state.stress ?? 0, 2);
@@ -646,6 +811,7 @@ function updateShopUI(user) {
 
   shopList.innerHTML = '';
   Object.entries(ITEM_DATA).forEach(([itemId, itemInfo]) => {
+    if (itemId === 'cat_tuna_can') return;
     const price = user.shopPrices?.[itemId] ?? 0;
 
     shopList.insertAdjacentHTML(
@@ -672,6 +838,10 @@ function updateStatsTab(user) {
   const pendingStock = user.pendingStockInvestment?.amount > 0
     ? `${formatNumber(user.pendingStockInvestment.amount)}원 투자 완료`
     : '없음';
+  const now = new Date();
+  const kstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  const todayKey = `${kstNow.getUTCFullYear()}-${String(kstNow.getUTCMonth() + 1).padStart(2, '0')}-${String(kstNow.getUTCDate()).padStart(2, '0')}`;
+  const titleChangeStatus = user.meta?.lastTitleChangeDayKey === todayKey ? '오늘 이미 변경함' : '오늘 변경 가능';
 
   statsList.innerHTML = `
     <tr><td>레벨</td><td>${formatNumber(state.level)}</td></tr>
@@ -684,8 +854,11 @@ function updateStatsTab(user) {
     <tr><td>스트레스 감소율</td><td>${formatNumber(itemStats.stressReduction || 0, 2)}%</td></tr>
     <tr><td>월급 보너스</td><td>+${formatNumber(itemStats.moneyBonus || 0, 2)}%</td></tr>
     <tr><td>시간당 스트레스 회복</td><td>${formatNumber(itemStats.hourlyStressRelief || 0, 2)}</td></tr>
-    <tr><td>행동력</td><td>${formatNumber(state.stamina || 0)} / ${formatNumber(state.maxStamina || 0)}</td></tr>
+    <tr><td>행동력</td><td>${formatNumber(state.stamina || 0, 1)} / ${formatNumber(state.maxStamina || 0, 1)}</td></tr>
+    <tr><td>모험 행동력 소모</td><td>${formatNumber(itemStats.adventureStaminaMultiplier || 1, 1)}</td></tr>
     <tr><td>장착 칭호</td><td>${escapeHtml(equippedTitle?.name || '없음')}</td></tr>
+    <tr><td>칭호 변경 가능 여부</td><td>${escapeHtml(titleChangeStatus)}</td></tr>
+    <tr><td>고양이 참치캔 누적 지급</td><td>${formatNumber(user.meta?.catFoodGivenCount || 0)}회</td></tr>
     <tr><td>주식 투자 현황</td><td>${escapeHtml(pendingStock)}</td></tr>
     <tr><td>오늘 쇼핑 누적</td><td>${formatNumber(user.shopState?.dailySpend || 0)}원</td></tr>
   `;

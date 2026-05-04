@@ -339,6 +339,46 @@ progress {
   margin-top: 12px;
 }
 
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.28);
+  z-index: 20;
+}
+
+.modal-panel {
+  width: min(560px, 100%);
+  padding: 20px;
+}
+
+.modal-panel h3,
+.modal-panel p {
+  margin-top: 0;
+}
+
+.modal-details {
+  margin: 12px 0;
+  line-height: 1.5;
+}
+
+.modal-compare-block,
+.modal-note {
+  padding: 10px 12px;
+  border: var(--excel-border);
+  background: #fafafa;
+  margin-bottom: 10px;
+}
+
+.modal-buttons {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
 .stock-controls {
   display: flex;
   gap: 10px;

@@ -24,10 +24,14 @@ const LUPIN_STRESS_DURATION_MS = 60 * 60 * 1000;
 const LUPIN_EXP_DURATION_MS = 2 * 60 * 60 * 1000;
 const HOT6_DURATION_MS = 10 * 60 * 1000;
 const FIELD_WORK_DURATION_MS = 12 * 60 * 60 * 1000;
+const CONFIDENCE_DURATION_MS = 60 * 60 * 1000;
+const FATIGUE_DURATION_MS = 4 * 60 * 60 * 1000;
+const CAT_GRATITUDE_DURATION_MS = 60 * 60 * 1000;
 const SHOPPING_ADDICT_THRESHOLD = 1500000;
 const SHOPPING_ADDICT_LOSE_AFTER_DAYS = 3;
 const RICH_THRESHOLD = 5000000;
 const BEAST_HEART_UNLOCK_THRESHOLD = 2000000;
+const TITLE_CHANGE_LIMIT_DAYS = 1;
 
 const ITEM_DATA = {
   pen_monami: {
@@ -59,14 +63,59 @@ const ITEM_DATA = {
     type: 'consumable',
     desc: '사용 시 스트레스 -10, 10분 버프',
     hoverDesc: '사용 즉시 스트레스를 10 낮추고, 10분 동안 서류작업 클릭마다 스트레스를 0.1 낮춥니다.'
+  },
+  cat_tuna_can: {
+    name: '고양이 참치캔',
+    price: 0,
+    type: 'special',
+    desc: '모험 중 고양이에게 줄 수 있음',
+    hoverDesc: '회사 밖에서 고양이를 만났을 때 건네줄 수 있습니다. 가방에서는 직접 사용할 수 없습니다.'
   }
 };
 
 const BUFF_DATA = {
-  lupin_stress_buff: { name: '월급루팡', durationMs: LUPIN_STRESS_DURATION_MS },
-  lupin_exp_buff: { name: '월급루팡 집중', durationMs: LUPIN_EXP_DURATION_MS },
-  hot6_buff: { name: '핫식스 버프', durationMs: HOT6_DURATION_MS },
-  field_work_buff: { name: '외근 버프', durationMs: FIELD_WORK_DURATION_MS }
+  lupin_stress_buff: {
+    name: '월급루팡',
+    durationMs: LUPIN_STRESS_DURATION_MS,
+    desc: '스트레스를 받지 않습니다.',
+    effects: { noStress: true }
+  },
+  lupin_exp_buff: {
+    name: '월급루팡 집중',
+    durationMs: LUPIN_EXP_DURATION_MS,
+    desc: '모든 경험치 획득량이 1.5배가 됩니다.',
+    effects: { expBonusAdd: 0.5 }
+  },
+  hot6_buff: {
+    name: '핫식스 버프',
+    durationMs: HOT6_DURATION_MS,
+    desc: '서류작업 클릭 시 스트레스를 0.1 낮춥니다.',
+    effects: { clickStressRelief: 0.1 }
+  },
+  field_work_buff: {
+    name: '외근 버프',
+    durationMs: FIELD_WORK_DURATION_MS,
+    desc: '자동 획득 경험치가 5배가 되고, 서류작업 클릭 경험치는 절반이 됩니다.',
+    effects: { passiveExpBonusAdd: 4, clickExpBonusAdd: -0.5 }
+  },
+  confidence_buff: {
+    name: '자신감',
+    durationMs: CONFIDENCE_DURATION_MS,
+    desc: '1시간 동안 모든 경험치 획득량이 1.8배가 됩니다.',
+    effects: { expBonusAdd: 0.8 }
+  },
+  fatigue_debuff: {
+    name: '피로감',
+    durationMs: FATIGUE_DURATION_MS,
+    desc: '4시간 동안 모든 경험치 획득량이 절반으로 감소합니다.',
+    effects: { expBonusAdd: -0.5 }
+  },
+  cat_gratitude_buff: {
+    name: '고양이의 보은',
+    durationMs: CAT_GRATITUDE_DURATION_MS,
+    desc: '1시간 동안 모든 경험치 획득량이 2배가 됩니다.',
+    effects: { expBonusAdd: 1 }
+  }
 };
 
 const TITLE_DATA = {
@@ -107,8 +156,213 @@ const TITLE_DATA = {
     unlockDesc: '보유 자산이 200만원 이상일 때 현재 보유 자산의 90% 이상을 주식 투자하면 획득',
     baseDesc: '장착 시 매 60분마다 스트레스 -8, 월급 +5%',
     effects: { hourlyStressRelief: 8, moneyBonus: 5 }
+  },
+  cat_butler: {
+    name: '고양이집사',
+    unlockDesc: '고양이에게 참치캔을 총 10번 건네주면 획득',
+    baseDesc: '장착 시 매일 행동력 +2, 월급 +6%, 모험 시 행동력 소모 절반',
+    effects: { staminaBonus: 2, moneyBonus: 6, adventureStaminaMultiplier: 0.5 }
   }
 };
+
+const ADVENTURE_EVENT_DEFINITIONS = [
+  {
+    id: 'supply_empty',
+    location: '비품창고',
+    actor: '아무도 없음',
+    message: '비품창고를 발견했다! 하지만 아무도 없었고, 딱히 특별한건 없어보인다..',
+    reward: { type: 'none' }
+  },
+  {
+    id: 'supply_tuna',
+    location: '비품창고',
+    actor: '김 주임',
+    message: '비품창고에서 김 주임이 몰래 숨겨둔 고양이 간식을 발견했다. "이건 길냥이들 챙기려고 둔 건데 하나는 가져가도 돼요."',
+    reward: { type: 'item', itemId: 'cat_tuna_can', quantity: 1 }
+  },
+  {
+    id: 'rooftop_confidence',
+    location: '옥상',
+    actor: '신 팀장님',
+    message: '옥상에서 신 팀장님이 캔커피를 건네며 말했다. "오늘 페이스 괜찮은데? 자신감 있게 밀어!"',
+    reward: { type: 'buff', buffId: 'confidence_buff' }
+  },
+  {
+    id: 'parking_guard',
+    location: '주차장',
+    actor: '경비아저씨',
+    message: '주차장에서 경비아저씨가 미소를 지으며 불렀다. "지난번 도와줘서 고마웠어요. 이건 소소한 간식값이오."',
+    reward: { type: 'money', amount: 50000 }
+  },
+  {
+    id: 'restroom_bujang',
+    location: '화장실',
+    actor: '최 부장님',
+    message: '화장실 앞에서 최 부장님과 마주쳤다. "회의 자료 오타 봤나? 다시 뽑아와." 괜히 등줄기가 서늘해진다.',
+    reward: { type: 'bundle', rewards: [{ type: 'stress', amount: 10 }, { type: 'money', amount: -50000 }] }
+  },
+  {
+    id: 'other_team_hint',
+    location: '다른 팀 사무실',
+    actor: '김 주임',
+    message: '다른 팀 사무실에서 김 주임이 작업 꿀팁을 슬쩍 알려줬다. 문서 정리 감각이 한층 좋아진 느낌이다.',
+    reward: { type: 'exp_fraction', divisor: 3 }
+  },
+  {
+    id: 'elevator_bonus',
+    location: '엘레베이터',
+    actor: '대표님',
+    message: '엘레베이터에서 대표님과 단둘이 탔다. 오늘 보고가 마음에 들었는지 격려금 봉투를 쥐여 주셨다.',
+    reward: { type: 'money', amount: 200000 }
+  },
+  {
+    id: 'park_cat',
+    location: '근처 공원',
+    actor: '고양이',
+    message: '근처 공원에서 낯익은 고양이가 발치에 몸을 비볐다. 참치캔을 줄까?',
+    reward: { type: 'cat_choice' }
+  },
+  {
+    id: 'store_cat',
+    location: '근처 편의점',
+    actor: '고양이',
+    message: '근처 편의점 뒷골목에서 고양이가 야옹거리며 따라온다. 참치캔을 줄까?',
+    reward: { type: 'cat_choice' }
+  },
+  {
+    id: 'office_bacchus',
+    location: '사무실',
+    actor: '박 대리님',
+    message: '사무실 자리로 돌아오니 박 대리님이 박카스를 책상에 툭 올려놨다. "오늘 표정이 죽었더라. 하나는 지금, 하나는 나중에."',
+    reward: { type: 'item', itemId: 'bacchus', quantity: 2 }
+  },
+  {
+    id: 'hallway_hot6',
+    location: '복도',
+    actor: '신 팀장님',
+    message: '복도에서 신 팀장님이 자판기 앞에 서 있었다. "정신 차리라고 이거 마셔." 하고 핫식스를 건넸다.',
+    reward: { type: 'item', itemId: 'hot6', quantity: 1 }
+  },
+  {
+    id: 'rooftop_pigeon',
+    location: '옥상',
+    actor: '비둘기',
+    message: '옥상에서 바람을 쐬는데 비둘기 떼가 어지럽게 날아갔다. 덕분에 머리가 조금 식었다.',
+    reward: { type: 'stress', amount: -10 }
+  },
+  {
+    id: 'park_breath',
+    location: '근처 공원',
+    actor: '아무도 없음',
+    message: '근처 공원을 한 바퀴 천천히 돌았다. 큰 일은 없었지만 머릿속이 조금 정리됐다.',
+    reward: { type: 'stress', amount: -5 }
+  },
+  {
+    id: 'store_impulse',
+    location: '근처 편의점',
+    actor: '아무도 없음',
+    message: '편의점 신상품 코너를 기웃거리다 정신 차려보니 계산대 앞이다. 쓸데없는 지출을 해버렸다.',
+    reward: { type: 'money', amount: -100000 }
+  },
+  {
+    id: 'office_bujang_half',
+    location: '사무실',
+    actor: '최 부장님',
+    message: '최 부장님이 갑자기 불러 세우더니 자료를 절반이나 직접 수정하게 만들었다. 대신 손에 남는 건 확실히 있었다.',
+    reward: { type: 'exp_fraction', divisor: 2 }
+  },
+  {
+    id: 'elevator_rare_level',
+    location: '엘레베이터',
+    actor: '사장님',
+    message: '엘레베이터 문이 닫히기 직전 사장님이 보고서를 훑어봤다. "자네, 승급감이네." 심장이 철렁 내려앉는다.',
+    reward: { type: 'rare_level', chance: 0.08, fallback: { type: 'exp_fraction', divisor: 4 } }
+  },
+  {
+    id: 'restroom_fatigue',
+    location: '화장실',
+    actor: '아무도 없음',
+    message: '세면대 거울을 보니 생각보다 상태가 심각하다. 어깨가 무겁고 눈이 침침해진다.',
+    reward: { type: 'buff', buffId: 'fatigue_debuff' }
+  },
+  {
+    id: 'parking_accident',
+    location: '주차장',
+    actor: '사장님',
+    message: '주차장에서 사장님 차 옆을 지나가다 커피를 흘렸다. 급히 세차값을 보태게 됐다.',
+    reward: { type: 'money', amount: -150000 }
+  },
+  {
+    id: 'hallway_bacchus',
+    location: '복도',
+    actor: '김 주임',
+    message: '복도에서 김 주임이 서류철을 건네며 속삭였다. "오늘 버티려면 이 정도는 있어야죠."',
+    reward: { type: 'item', itemId: 'bacchus', quantity: 1 }
+  },
+  {
+    id: 'other_team_hot6',
+    location: '다른 팀 사무실',
+    actor: '박 대리님',
+    message: '다른 팀 사무실에 심부름을 갔다가 박 대리님이 에너지 드링크를 두 병 챙겨줬다.',
+    reward: { type: 'item', itemId: 'hot6', quantity: 2 }
+  },
+  {
+    id: 'office_bonus_150',
+    location: '사무실',
+    actor: '대표님',
+    message: '대표님이 지나가다 책상 위 메모를 보고 고개를 끄덕였다. 잠시 후 소액 포상금이 들어왔다.',
+    reward: { type: 'money', amount: 150000 }
+  },
+  {
+    id: 'corridor_stress_plus',
+    location: '복도',
+    actor: '최 부장님',
+    message: '복도에서 붙잡혀 갑작스러운 업무 지시를 한가득 들었다. 기분이 훅 가라앉는다.',
+    reward: { type: 'stress', amount: 20 }
+  },
+  {
+    id: 'store_cash_100',
+    location: '근처 편의점',
+    actor: '경비아저씨',
+    message: '편의점 앞에서 경비아저씨가 지난번 잔돈을 이제야 돌려줬다. 생각보다 두둑하다.',
+    reward: { type: 'money', amount: 100000 }
+  },
+  {
+    id: 'park_focus_quarter',
+    location: '근처 공원',
+    actor: '비둘기',
+    message: '비둘기 떼를 피하며 멍하니 걷다 보니 묘하게 머리가 맑아졌다. 일 처리 감각이 돌아오는 느낌이다.',
+    reward: { type: 'exp_fraction', divisor: 4 }
+  },
+  {
+    id: 'restroom_relief',
+    location: '화장실',
+    actor: '신 팀장님',
+    message: '화장실 앞에서 신 팀장님이 "힘들지? 너무 몰아붙이지 마." 하고 조용히 다독여 줬다.',
+    reward: { type: 'stress', amount: -15 }
+  },
+  {
+    id: 'office_cash_loss',
+    location: '사무실',
+    actor: '아무도 없음',
+    message: '급하게 간식값 정산을 하다 보니 생각보다 많이 빠져나갔다.',
+    reward: { type: 'money', amount: -50000 }
+  },
+  {
+    id: 'rooftop_nothing',
+    location: '옥상',
+    actor: '아무도 없음',
+    message: '옥상 문을 열고 나갔지만 아무도 없었다. 바람만 조금 세다.',
+    reward: { type: 'none' }
+  },
+  {
+    id: 'parking_stress_plus',
+    location: '주차장',
+    actor: '대표님',
+    message: '주차장에서 대표님에게 붙잡혀 갑작스러운 질의를 받았다. 식은땀이 흐른다.',
+    reward: { type: 'stress', amount: 5 }
+  }
+];
 
 const ADMIN_GIFT_CATALOG = {
   items: Object.entries(ITEM_DATA).map(([id, item]) => ({
@@ -192,7 +446,17 @@ const userSchema = new mongoose.Schema({
   },
   meta: {
     loginCount: { type: Number, default: 0 },
-    lastLoginAt: { type: Date, default: null }
+    lastLoginAt: { type: Date, default: null },
+    catFoodGivenCount: { type: Number, default: 0 },
+    lastTitleChangeDayKey: { type: String, default: null },
+    lastAdventureLog: { type: String, default: '' }
+  },
+  pendingAdventure: {
+    eventId: { type: String, default: null },
+    location: { type: String, default: null },
+    actor: { type: String, default: null },
+    message: { type: String, default: null },
+    createdAt: { type: Date, default: null }
   },
   pendingNotifications: [{
     type: { type: String, default: 'info' },
@@ -278,10 +542,28 @@ function ensureUserDefaults(user) {
   user.shopState.lastShoppingAddictQualifiedDayKey = user.shopState.lastShoppingAddictQualifiedDayKey || null;
 
   if (!user.meta) {
-    user.meta = { loginCount: 0, lastLoginAt: null };
+    user.meta = { loginCount: 0, lastLoginAt: null, catFoodGivenCount: 0, lastTitleChangeDayKey: null, lastAdventureLog: '' };
   }
   user.meta.loginCount = Number(user.meta.loginCount ?? 0);
   user.meta.lastLoginAt = user.meta.lastLoginAt || null;
+  user.meta.catFoodGivenCount = Number(user.meta.catFoodGivenCount ?? 0);
+  user.meta.lastTitleChangeDayKey = user.meta.lastTitleChangeDayKey || null;
+  user.meta.lastAdventureLog = user.meta.lastAdventureLog || '';
+
+  if (!user.pendingAdventure || typeof user.pendingAdventure !== 'object') {
+    user.pendingAdventure = {
+      eventId: null,
+      location: null,
+      actor: null,
+      message: null,
+      createdAt: null
+    };
+  }
+  user.pendingAdventure.eventId = user.pendingAdventure.eventId || null;
+  user.pendingAdventure.location = user.pendingAdventure.location || null;
+  user.pendingAdventure.actor = user.pendingAdventure.actor || null;
+  user.pendingAdventure.message = user.pendingAdventure.message || null;
+  user.pendingAdventure.createdAt = user.pendingAdventure.createdAt || null;
 
   migrateLegacyBuffs(user);
 }
@@ -370,6 +652,7 @@ function getItemPrice(user, itemId) {
 function getShopPricesForUser(user) {
   const prices = {};
   for (const itemId of Object.keys(ITEM_DATA)) {
+    if (ITEM_DATA[itemId].type === 'special') continue;
     prices[itemId] = getItemPrice(user, itemId);
   }
   return prices;
@@ -458,18 +741,47 @@ function calculateItemStats(inventory = []) {
   return stats;
 }
 
+function getActiveBuffEffects(user, now = new Date()) {
+  const effects = {
+    expBonusAdd: 0,
+    passiveExpBonusAdd: 0,
+    clickExpBonusAdd: 0,
+    clickStressRelief: 0,
+    noStress: false
+  };
+
+  (user.buffs || []).forEach((buff) => {
+    if (new Date(buff.expiresAt) <= now) return;
+
+    const buffEffects = BUFF_DATA[buff.buffId]?.effects;
+    if (!buffEffects) return;
+
+    effects.expBonusAdd += Number(buffEffects.expBonusAdd || 0);
+    effects.passiveExpBonusAdd += Number(buffEffects.passiveExpBonusAdd || 0);
+    effects.clickExpBonusAdd += Number(buffEffects.clickExpBonusAdd || 0);
+    effects.clickStressRelief += Number(buffEffects.clickStressRelief || 0);
+    if (buffEffects.noStress) effects.noStress = true;
+  });
+
+  effects.expBonusAdd = Number(effects.expBonusAdd.toFixed(4));
+  effects.passiveExpBonusAdd = Number(effects.passiveExpBonusAdd.toFixed(4));
+  effects.clickExpBonusAdd = Number(effects.clickExpBonusAdd.toFixed(4));
+  effects.clickStressRelief = Number(effects.clickStressRelief.toFixed(2));
+  return effects;
+}
+
 function calculateDerivedStats(user, now = new Date()) {
   cleanupExpiredBuffs(user, now);
 
   const itemStats = calculateItemStats(user.inventory);
   const titleDef = getEquippedTitleDefinition(user);
   const titleEffects = titleDef?.effects || {};
+  const activeBuffEffects = getActiveBuffEffects(user, now);
 
   const moneyBonusPercent = itemStats.moneyBonus + (titleEffects.moneyBonus || 0);
   const titleStressMultiplier = titleEffects.titleStressMultiplier || 1;
-  const hot6ClickStressRelief = hasBuff(user, 'hot6_buff', now) ? 0.1 : 0;
-  const passiveExpMultiplier = hasBuff(user, 'field_work_buff', now) ? 5 : 1;
-  const clickExpMultiplier = hasBuff(user, 'field_work_buff', now) ? 0.5 : 1;
+  const passiveExpMultiplier = Math.max(0, 1 + activeBuffEffects.expBonusAdd + activeBuffEffects.passiveExpBonusAdd);
+  const clickExpMultiplier = Math.max(0, 1 + activeBuffEffects.expBonusAdd + activeBuffEffects.clickExpBonusAdd);
 
   const finalStressMultiplier = Number((itemStats.stressMultiplier * titleStressMultiplier).toFixed(6));
 
@@ -480,11 +792,14 @@ function calculateDerivedStats(user, now = new Date()) {
     expBonusPercent: itemStats.expBonus,
     stressMultiplier: finalStressMultiplier,
     stressReductionPercent: Number(((1 - finalStressMultiplier) * 100).toFixed(2)),
-    clickStressRelief: Number((itemStats.clickStressRelief + hot6ClickStressRelief).toFixed(2)),
+    clickStressRelief: Number((itemStats.clickStressRelief + activeBuffEffects.clickStressRelief).toFixed(2)),
     hourlyStressRelief: Number((titleEffects.hourlyStressRelief || 0).toFixed(2)),
     shopStressRelief: Number((titleEffects.shopStressRelief || 0).toFixed(2)),
     passiveExpMultiplier,
-    clickExpMultiplier
+    clickExpMultiplier,
+    noStress: activeBuffEffects.noStress,
+    maxStaminaBonus: Number(titleEffects.staminaBonus || 0),
+    adventureStaminaMultiplier: Number(titleEffects.adventureStaminaMultiplier || 1)
   };
 }
 
@@ -513,6 +828,16 @@ function getClickExp(level) {
   return Math.floor(BASE_CLICK_EXP * Math.pow(1.05, level - 1));
 }
 
+function getEffectiveMaxStamina(user, now = new Date()) {
+  const derivedStats = calculateDerivedStats(user, now);
+  return Number((user.gameState.maxStamina + derivedStats.maxStaminaBonus).toFixed(2));
+}
+
+function getAdventureStaminaCost(user, now = new Date()) {
+  const derivedStats = calculateDerivedStats(user, now);
+  return Number((1 * derivedStats.adventureStaminaMultiplier).toFixed(2));
+}
+
 function settlePendingStockInvestment(user, now = new Date()) {
   const investment = user.pendingStockInvestment;
   if (!investment?.amount || !investment.investedOn) return;
@@ -535,12 +860,12 @@ function settlePendingStockInvestment(user, now = new Date()) {
   );
 }
 
-function resetDailyStaminaIfNeeded(user, now = new Date()) {
+function resetDailyStaminaIfNeeded(user, now = new Date(), effectiveMaxStamina = user.gameState.maxStamina) {
   const currentKey = getKSTDateKey(now);
   const lastResetKey = getKSTDateKey(new Date(user.gameState.lastStaminaResetTime));
 
   if (currentKey !== lastResetKey) {
-    user.gameState.stamina = user.gameState.maxStamina;
+    user.gameState.stamina = effectiveMaxStamina;
     user.gameState.lastStaminaResetTime = now;
   }
 }
@@ -548,6 +873,10 @@ function resetDailyStaminaIfNeeded(user, now = new Date()) {
 function reconcileTitles(user, now = new Date()) {
   if (user.meta.loginCount > 0) {
     unlockTitle(user, 'newcomer');
+  }
+
+  if (user.meta.catFoodGivenCount >= 10) {
+    unlockTitle(user, 'cat_butler');
   }
 
   const currentStats = calculateDerivedStats(user, now);
@@ -590,8 +919,8 @@ function calculateOfflineGains(user, now = new Date()) {
   syncDailyShopState(user, now);
   settlePendingStockInvestment(user, now);
   cleanupExpiredBuffs(user, now);
-  resetDailyStaminaIfNeeded(user, now);
   reconcileTitles(user, now);
+  resetDailyStaminaIfNeeded(user, now, getEffectiveMaxStamina(user, now));
 
   const lastActionTime = new Date(user.gameState.lastActionTime || now);
   let elapsedSeconds = (now.getTime() - lastActionTime.getTime()) / 1000;
@@ -604,7 +933,7 @@ function calculateOfflineGains(user, now = new Date()) {
 
   const derivedStats = calculateDerivedStats(user, now);
 
-  if (!hasBuff(user, 'lupin_stress_buff', now)) {
+  if (!derivedStats.noStress) {
     const gainedStress = elapsedSeconds * IDLE_STRESS_PER_SECOND * derivedStats.stressMultiplier;
     user.gameState.stress = Number(Math.min(100, user.gameState.stress + gainedStress).toFixed(2));
   }
@@ -622,9 +951,7 @@ function calculateOfflineGains(user, now = new Date()) {
   user.gameState.money += gainedMoney;
 
   const passiveExpMultiplier =
-    (1 + derivedStats.expBonusPercent / 100) *
-    (hasBuff(user, 'lupin_exp_buff', now) ? 1.5 : 1) *
-    derivedStats.passiveExpMultiplier;
+    (1 + derivedStats.expBonusPercent / 100) * derivedStats.passiveExpMultiplier;
   let rawExpGain =
     getPassiveExpPerSecond(user.gameState.level) * passiveExpMultiplier * elapsedSeconds +
     user.gameState.passiveExpCarry;
@@ -664,6 +991,10 @@ function buildTitleDetails(user, now = new Date()) {
         desc += ' / 보유 자산 200만원 이상에서 자산의 90% 이상을 주식 투자하면 획득합니다.';
       }
 
+      if (titleId === 'cat_butler') {
+        desc += ` / 현재까지 고양이에게 참치캔을 ${user.meta.catFoodGivenCount}번 건넸습니다.`;
+      }
+
       return {
         id: titleId,
         name: title.name,
@@ -677,6 +1008,8 @@ function buildTitleDetails(user, now = new Date()) {
 function buildGameStateResponse(user, now = new Date()) {
   const derivedStats = calculateDerivedStats(user, now);
   const gameState = user.gameState.toObject ? user.gameState.toObject() : { ...user.gameState };
+  gameState.maxStamina = getEffectiveMaxStamina(user, now);
+  gameState.stamina = Math.min(gameState.stamina, gameState.maxStamina);
   gameState.nextLevelExp = getRequiredExp(gameState.level);
   gameState.passiveDailyExp = Number(getPassiveDailyExp(gameState.level).toFixed(2));
   gameState.salaryPerMinute = Number(getSalaryPerMinute(gameState.level, derivedStats.moneyBonusPercent).toFixed(2));
@@ -695,9 +1028,13 @@ function buildGameStateResponse(user, now = new Date()) {
     titles: user.titles,
     titleDetails: buildTitleDetails(user, now),
     pendingStockInvestment: user.pendingStockInvestment,
+    pendingAdventure: user.pendingAdventure,
     shopState: user.shopState,
     meta: {
-      loginCount: user.meta.loginCount
+      loginCount: user.meta.loginCount,
+      catFoodGivenCount: user.meta.catFoodGivenCount,
+      lastTitleChangeDayKey: user.meta.lastTitleChangeDayKey,
+      lastAdventureLog: user.meta.lastAdventureLog
     },
     itemStats: {
       moneyBonus: derivedStats.moneyBonusPercent,
@@ -710,7 +1047,9 @@ function buildGameStateResponse(user, now = new Date()) {
       hourlyStressRelief: derivedStats.hourlyStressRelief,
       shopStressRelief: derivedStats.shopStressRelief,
       passiveExpMultiplier: derivedStats.passiveExpMultiplier,
-      clickExpMultiplier: derivedStats.clickExpMultiplier
+      clickExpMultiplier: derivedStats.clickExpMultiplier,
+      maxStaminaBonus: derivedStats.maxStaminaBonus,
+      adventureStaminaMultiplier: derivedStats.adventureStaminaMultiplier
     },
     shopPrices: getShopPricesForUser(user)
   };
@@ -751,6 +1090,115 @@ function requireAdmin(req, res) {
     res.status(401).json({ msg: '관리자 인증이 유효하지 않습니다.' });
     return null;
   }
+}
+
+function clearPendingAdventure(user) {
+  user.pendingAdventure = {
+    eventId: null,
+    location: null,
+    actor: null,
+    message: null,
+    createdAt: null
+  };
+}
+
+function setAdventureLog(user, text) {
+  user.meta.lastAdventureLog = text || '';
+}
+
+function getRemainingExpToNextLevel(user) {
+  return Math.max(0, getRequiredExp(user.gameState.level) - user.gameState.exp);
+}
+
+function applyAdventureReward(user, reward, now = new Date()) {
+  if (!reward) {
+    return '아무것도 획득하지 못했습니다.';
+  }
+
+  if (reward.type === 'bundle') {
+    const summaries = reward.rewards
+      .map((entry) => applyAdventureReward(user, entry, now))
+      .filter(Boolean);
+    return summaries.length ? summaries.join(' / ') : '아무것도 획득하지 못했습니다.';
+  }
+
+  if (reward.type === 'none') {
+    return '아무것도 획득하지 못했습니다.';
+  }
+
+  if (reward.type === 'money') {
+    const beforeMoney = user.gameState.money;
+    user.gameState.money = Math.max(0, user.gameState.money + reward.amount);
+    const actualDelta = user.gameState.money - beforeMoney;
+    if (actualDelta === 0) return '잔고는 변하지 않았습니다.';
+    return actualDelta > 0
+      ? `${actualDelta.toLocaleString()}원을 획득했습니다.`
+      : `${Math.abs(actualDelta).toLocaleString()}원을 잃었습니다.`;
+  }
+
+  if (reward.type === 'stress') {
+    const beforeStress = user.gameState.stress;
+    user.gameState.stress = Number(Math.min(100, Math.max(0, user.gameState.stress + reward.amount)).toFixed(2));
+    const actualDelta = Number((user.gameState.stress - beforeStress).toFixed(2));
+    if (actualDelta === 0) return '스트레스는 변하지 않았습니다.';
+    return actualDelta > 0
+      ? `스트레스가 ${actualDelta} 증가했습니다.`
+      : `스트레스가 ${Math.abs(actualDelta)} 감소했습니다.`;
+  }
+
+  if (reward.type === 'item') {
+    addItemToInventory(user, reward.itemId, reward.quantity || 1);
+    const itemName = ITEM_DATA[reward.itemId]?.name || reward.itemId;
+    return `${itemName} ${reward.quantity || 1}개를 획득했습니다.`;
+  }
+
+  if (reward.type === 'buff') {
+    const durationMs = BUFF_DATA[reward.buffId]?.durationMs;
+    if (!durationMs) return '아무 일도 일어나지 않았습니다.';
+    setOrRefreshBuff(user, reward.buffId, durationMs);
+    return `${BUFF_DATA[reward.buffId].name} 효과를 획득했습니다.`;
+  }
+
+  if (reward.type === 'exp_fraction') {
+    const remainingExp = getRemainingExpToNextLevel(user);
+    const gainedExp = Math.max(1, Math.floor(remainingExp / reward.divisor));
+    user.gameState.exp += gainedExp;
+    const leveledUp = checkLevelUp(user);
+    return leveledUp
+      ? `${gainedExp.toLocaleString()} 경험치를 얻었고 즉시 레벨업했습니다.`
+      : `${gainedExp.toLocaleString()} 경험치를 획득했습니다.`;
+  }
+
+  if (reward.type === 'rare_level') {
+    if (Math.random() < reward.chance) {
+      user.gameState.exp = getRequiredExp(user.gameState.level);
+      checkLevelUp(user);
+      return '기적처럼 즉시 레벨업했습니다!';
+    }
+    const fallbackText = applyAdventureReward(user, reward.fallback, now);
+    return `즉시 레벨업에는 실패했습니다. 대신 ${fallbackText}`;
+  }
+
+  return '아무것도 획득하지 못했습니다.';
+}
+
+function rollAdventureEvent() {
+  return ADVENTURE_EVENT_DEFINITIONS[Math.floor(Math.random() * ADVENTURE_EVENT_DEFINITIONS.length)];
+}
+
+async function buildAdventureChoiceResponse(user, now = new Date()) {
+  const response = await buildUserResponseWithGlobals(user, now);
+  response.adventureResult = {
+    requiresChoice: true,
+    title: `${user.pendingAdventure.location} / ${user.pendingAdventure.actor}`,
+    message: user.pendingAdventure.message,
+    prompt: '참치캔을 주겠습니까?',
+    buttons: [
+      { value: 'yes', label: '예' },
+      { value: 'no', label: '아니오' }
+    ]
+  };
+  return response;
 }
 
 app.post('/api/login', async (req, res) => {
@@ -854,7 +1302,7 @@ app.post('/api/action/work', async (req, res) => {
     const derivedStats = calculateDerivedStats(user, now);
     const hadTooMuchStress = user.gameState.stress >= 100;
 
-    if (!hasBuff(user, 'lupin_stress_buff', now)) {
+    if (!derivedStats.noStress) {
       const clickStressGain = CLICK_STRESS_GAIN * derivedStats.stressMultiplier;
       user.gameState.stress = Number(Math.min(100, user.gameState.stress + clickStressGain).toFixed(2));
     }
@@ -864,7 +1312,7 @@ app.post('/api/action/work', async (req, res) => {
     }
 
     if (!hadTooMuchStress) {
-      const expMultiplier = (1 + derivedStats.expBonusPercent / 100) * (hasBuff(user, 'lupin_exp_buff', now) ? 1.5 : 1);
+      const expMultiplier = (1 + derivedStats.expBonusPercent / 100);
       user.gameState.exp += Math.floor(getClickExp(user.gameState.level) * expMultiplier * derivedStats.clickExpMultiplier);
     }
 
@@ -910,6 +1358,126 @@ app.post('/api/action/field-work', async (req, res) => {
     res.json(response);
   } catch (err) {
     console.error('Field work action error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/action/adventure', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+
+    const now = new Date();
+    calculateOfflineGains(user, now);
+    cleanupExpiredBuffs(user, now);
+
+    if (user.pendingAdventure?.eventId) {
+      return res.status(400).json({ msg: '진행 중인 모험 선택지가 남아 있습니다. 먼저 결과를 선택해주세요.' });
+    }
+
+    const staminaCost = getAdventureStaminaCost(user, now);
+    if (user.gameState.stamina < staminaCost) {
+      return res.status(400).json({ msg: `행동력이 부족합니다. (필요: ${staminaCost})` });
+    }
+
+    user.gameState.stamina = Number((user.gameState.stamina - staminaCost).toFixed(2));
+    user.gameState.lastActionTime = now;
+
+    const event = rollAdventureEvent();
+    const eventTitle = `${event.location} / ${event.actor}`;
+    setAdventureLog(user, `${eventTitle} - ${event.message}`);
+
+    if (event.reward?.type === 'cat_choice') {
+      user.pendingAdventure = {
+        eventId: event.id,
+        location: event.location,
+        actor: event.actor,
+        message: event.message,
+        createdAt: now
+      };
+
+      const response = await buildAdventureChoiceResponse(user, now);
+      await user.save();
+      return res.json(response);
+    }
+
+    const rewardText = applyAdventureReward(user, event.reward, now);
+    setAdventureLog(user, `${eventTitle} - ${event.message} / ${rewardText}`);
+    clearPendingAdventure(user);
+    reconcileTitles(user, now);
+
+    const response = await buildUserResponseWithGlobals(user, now);
+    response.adventureResult = {
+      requiresChoice: false,
+      title: eventTitle,
+      message: event.message,
+      rewardText
+    };
+
+    await user.save();
+    res.json(response);
+  } catch (err) {
+    console.error('Adventure action error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/action/adventure/resolve', async (req, res) => {
+  const { userId, choice } = req.body;
+  if (!userId || !choice) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+  if (!['yes', 'no'].includes(choice)) return res.status(400).json({ msg: '올바르지 않은 선택입니다.' });
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+
+    const now = new Date();
+    calculateOfflineGains(user, now);
+
+    if (!user.pendingAdventure?.eventId) {
+      return res.status(400).json({ msg: '진행 중인 모험 선택지가 없습니다.' });
+    }
+
+    const eventTitle = `${user.pendingAdventure.location} / ${user.pendingAdventure.actor}`;
+    let rewardText = '아무 일도 일어나지 않았습니다.';
+
+    if (choice === 'yes') {
+      if (getInventoryQuantity(user, 'cat_tuna_can') > 0) {
+        removeItemFromInventory(user, 'cat_tuna_can', 1);
+        user.meta.catFoodGivenCount += 1;
+        rewardText = `고양이에게 참치캔을 건넸습니다. 현재 총 ${user.meta.catFoodGivenCount}번 건네줬습니다.`;
+
+        if (user.meta.catFoodGivenCount >= 10) {
+          unlockTitle(user, 'cat_butler');
+          setOrRefreshBuff(user, 'cat_gratitude_buff', CAT_GRATITUDE_DURATION_MS);
+          rewardText += ' 고양이의 보은 버프를 획득했습니다.';
+        }
+      } else {
+        rewardText = '참치캔이 없어 고양이에게 아무것도 줄 수 없었습니다.';
+      }
+    } else {
+      rewardText = '고양이를 한 번 쓰다듬고 지나쳤습니다. 아무것도 획득하지 못했습니다.';
+    }
+
+    setAdventureLog(user, `${eventTitle} - ${rewardText}`);
+    clearPendingAdventure(user);
+    reconcileTitles(user, now);
+
+    const response = await buildUserResponseWithGlobals(user, now);
+    response.adventureResult = {
+      requiresChoice: false,
+      title: eventTitle,
+      message: '고양이가 잠시 당신을 바라보다가 천천히 발걸음을 옮겼다.',
+      rewardText
+    };
+
+    await user.save();
+    res.json(response);
+  } catch (err) {
+    console.error('Adventure resolve error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
   }
 });
@@ -1028,6 +1596,7 @@ app.post('/api/shop/buy', async (req, res) => {
 
   const itemInfo = ITEM_DATA[itemId];
   if (!itemInfo) return res.status(400).json({ msg: '존재하지 않는 아이템입니다.' });
+  if (itemInfo.type === 'special') return res.status(400).json({ msg: '해당 아이템은 상점에서 구매할 수 없습니다.' });
 
   try {
     const user = await User.findById(userId);
@@ -1083,7 +1652,7 @@ app.post('/api/inventory/use', async (req, res) => {
     }
 
     if (itemId === 'bacchus') {
-      user.gameState.stamina = Math.min(user.gameState.maxStamina, user.gameState.stamina + 1);
+      user.gameState.stamina = Math.min(getEffectiveMaxStamina(user, now), user.gameState.stamina + 1);
       queueNotification(user, 'item_use', '박카스를 마셨습니다. 행동력이 1 회복되었습니다.');
     } else if (itemId === 'hot6') {
       user.gameState.stress = Number(Math.max(0, user.gameState.stress - 10).toFixed(2));
@@ -1120,7 +1689,14 @@ app.post('/api/title/toggle', async (req, res) => {
       return res.status(400).json({ msg: '아직 해금하지 않은 칭호입니다.' });
     }
 
+    const todayKey = getKSTDateKey(now);
+    if (user.meta.lastTitleChangeDayKey === todayKey) {
+      return res.status(400).json({ msg: '오늘은 이미 칭호를 변경했습니다. 내일 다시 변경할 수 있습니다.' });
+    }
+
     user.titles.equipped = user.titles.equipped === titleId ? null : titleId;
+    user.meta.lastTitleChangeDayKey = todayKey;
+    user.gameState.stamina = Math.min(user.gameState.stamina, getEffectiveMaxStamina(user, now));
     const response = await buildUserResponseWithGlobals(user, now);
     await user.save();
     res.json(response);

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>일해라 이네오!! - 통합 문서1</title>
-  <link rel="stylesheet" href="style.css?v=12">
+  <link rel="stylesheet" href="style.css?v=13">
 </head>
 <body>
   <div id="login-screen">
@@ -130,6 +130,11 @@
               <div id="tab-special" class="menu-content hidden">
                 <div class="special-grid">
                   <div class="special-card">
+                    <button id="adventureBtn" class="menu-action-btn">모험하기 (행동력 1)</button>
+                    <p>사무실 안팎을 돌아다니며 랜덤 이벤트를 만납니다. 상황에 따라 돈, 경험치, 아이템, 버프, 디버프를 획득할 수 있습니다.</p>
+                    <p id="adventureLog" class="menu-note">모험에서 어떤 일이 벌어질지 모릅니다.</p>
+                  </div>
+                  <div class="special-card">
                     <button id="lupinBtn" class="menu-action-btn">월급루팡 (행동력 6)</button>
                     <p>1시간 동안 스트레스를 받지 않고, 2시간 동안 경험치 획득량이 1.5배가 됩니다.</p>
                   </div>
@@ -139,7 +144,7 @@
                   </div>
                   <div class="special-card">
                     <button id="fieldWorkBtn" class="menu-action-btn">외근 (행동력 6)</button>
-                    <p>12시간 동안 서류작업 클릭 경험치는 절반으로 감소하지만, 자동 획득 경험치는 3배로 적용됩니다.</p>
+                    <p>12시간 동안 서류작업 클릭 경험치는 절반으로 감소하지만, 자동 획득 경험치는 5배로 적용됩니다.</p>
                   </div>
                 </div>
 
@@ -231,6 +236,15 @@
     </div>
   </div>
 
-  <script src="client.js?v=12"></script>
+  <div id="decisionModal" class="modal-overlay hidden">
+    <div class="excel-sheet modal-panel">
+      <h3 id="decisionModalTitle">확인</h3>
+      <p id="decisionModalMessage"></p>
+      <div id="decisionModalDetails" class="modal-details"></div>
+      <div id="decisionModalButtons" class="modal-buttons"></div>
+    </div>
+  </div>
+
+  <script src="client.js?v=13"></script>
 </body>
 </html>
