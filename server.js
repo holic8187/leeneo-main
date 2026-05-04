@@ -606,6 +606,104 @@ const ADVENTURE_EVENT_DEFINITIONS = [
     actor: '박 대리님',
     message: '박 대리님이 서류 전달 심부름값이라며 지갑에서 현금을 꺼내 손에 쥐여줬다.',
     reward: { type: 'money', amount: 50000 }
+  },
+  {
+    id: 'supply_empty_dust',
+    location: '비품창고',
+    actor: '아무도 없음',
+    message: '비품창고 구석을 뒤지다 먼지만 한가득 뒤집어썼다. 코끝이 간질거리고 짜증이 밀려온다.',
+    reward: { type: 'stress', amount: 5 }
+  },
+  {
+    id: 'supply_bujang_scold',
+    location: '비품창고',
+    actor: '최 부장님',
+    message: '비품창고에서 최 부장님과 눈이 마주쳤다. "딴짓하지 말고 필요한 것만 챙겨!" 한마디에 어깨가 움츠러든다.',
+    reward: { type: 'stress', amount: 10 }
+  },
+  {
+    id: 'rooftop_ceo_cold',
+    location: '옥상',
+    actor: '대표님',
+    message: '옥상 문을 열자 대표님이 통화 중이었다. 눈빛만으로도 왜 올라왔냐는 압박이 느껴진다.',
+    reward: { type: 'stress', amount: 10 }
+  },
+  {
+    id: 'rooftop_pigeon_mess',
+    location: '옥상',
+    actor: '비둘기',
+    message: '비둘기를 피해 몸을 숙였지만 결국 셔츠에 얼룩이 묻었다. 세탁비가 머리를 스친다.',
+    reward: { type: 'money', amount: -50000 }
+  },
+  {
+    id: 'parking_manager_urgent',
+    location: '주차장',
+    actor: '신 팀장님',
+    message: '주차장에서 신 팀장님에게 붙잡혀 급한 심부름을 떠안았다. 엘리베이터로 돌아가는 발걸음이 무겁다.',
+    reward: { type: 'stress', amount: 5 }
+  },
+  {
+    id: 'parking_president_repair',
+    location: '주차장',
+    actor: '사장님',
+    message: '사장님 차 근처에서 커피를 쏟아 닦느라 진땀을 뺐다. 결국 소소한 수리비 명목으로 돈이 빠져나갔다.',
+    reward: { type: 'money', amount: -100000 }
+  },
+  {
+    id: 'restroom_fatigue_variant',
+    location: '화장실',
+    actor: '아무도 없음',
+    message: '거울 속 얼굴이 유난히 창백해 보인다. 잠깐 쉬려 했는데 오히려 더 피곤함만 자각하게 됐다.',
+    reward: { type: 'buff', buffId: 'fatigue_debuff' }
+  },
+  {
+    id: 'restroom_kim_badnews',
+    location: '화장실',
+    actor: '김 주임',
+    message: '김 주임이 지나가며 수정 요청 메일이 또 왔다고 귀띔했다. 머리가 지끈거린다.',
+    reward: { type: 'stress', amount: 10 }
+  },
+  {
+    id: 'other_team_bujang_rework',
+    location: '다른 팀 사무실',
+    actor: '최 부장님',
+    message: '다른 팀 사무실 앞에서 최 부장님이 붙잡더니 방금 올린 문서를 통째로 다시 보라 했다.',
+    reward: { type: 'stress', amount: 20 }
+  },
+  {
+    id: 'other_team_empty_loss',
+    location: '다른 팀 사무실',
+    actor: '아무도 없음',
+    message: '전달하러 온 자료를 잘못 가져와 헛걸음만 했다. 복사비와 시간만 날아간 느낌이다.',
+    reward: { type: 'money', amount: -50000 }
+  },
+  {
+    id: 'elevator_bujang_pressure',
+    location: '엘레베이터',
+    actor: '최 부장님',
+    message: '엘리베이터 안 정적 속에서 최 부장님의 한숨 소리만 들렸다. 이유는 몰라도 괜히 압박감이 커진다.',
+    reward: { type: 'stress', amount: 5 }
+  },
+  {
+    id: 'store_empty_impulse_variant',
+    location: '근처 편의점',
+    actor: '아무도 없음',
+    message: '편의점 할인 문구에 홀려 필요도 없는 걸 집었다. 계산하고 나오니 허탈함만 남는다.',
+    reward: { type: 'money', amount: -50000 }
+  },
+  {
+    id: 'hallway_president_call',
+    location: '복도',
+    actor: '사장님',
+    message: '복도에서 사장님에게 불려 즉석 보고를 했다. 말은 끝났는데 진이 다 빠졌다.',
+    reward: { type: 'stress', amount: 10 }
+  },
+  {
+    id: 'office_empty_spill',
+    location: '사무실',
+    actor: '아무도 없음',
+    message: '책상 위 컵을 잘못 건드려 메모지를 버렸다. 다시 출력할 생각을 하니 한숨이 나온다.',
+    reward: { type: 'money', amount: -50000 }
   }
 ];
 
