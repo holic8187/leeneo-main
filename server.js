@@ -377,6 +377,13 @@ const ADVENTURE_EVENT_DEFINITIONS = [
     reward: { type: 'money', amount: 50000 }
   },
   {
+    id: 'supply_kim_tuna_bonus',
+    location: '비품창고',
+    actor: '김 주임',
+    message: '김 주임이 박스를 정리하다 말고 작은 캔 하나를 건넸다. "밖에 애들 주려고 챙겨둔 건데, 하나 더 가져가도 돼요."',
+    reward: { type: 'item', itemId: 'cat_tuna_can', quantity: 1 }
+  },
+  {
     id: 'supply_kim_exp',
     location: '비품창고',
     actor: '김 주임',
@@ -489,6 +496,13 @@ const ADVENTURE_EVENT_DEFINITIONS = [
     reward: { type: 'item', itemId: 'hot6', quantity: 1 }
   },
   {
+    id: 'store_guard_tuna',
+    location: '근처 편의점',
+    actor: '경비아저씨',
+    message: '경비아저씨가 편의점 봉투를 뒤적이다가 작은 참치캔을 꺼냈다. "길고양이 챙기려던 건데 자네가 더 잘 쓰겠구만."',
+    reward: { type: 'item', itemId: 'cat_tuna_can', quantity: 1 }
+  },
+  {
     id: 'store_guard_cash_50',
     location: '근처 편의점',
     actor: '경비아저씨',
@@ -529,6 +543,13 @@ const ADVENTURE_EVENT_DEFINITIONS = [
     actor: '박 대리님',
     message: '박 대리님이 모니터를 힐끗 보더니 "이 타이밍엔 각성제보다 박카스가 낫지." 하고 한 병을 더 놔줬다.',
     reward: { type: 'item', itemId: 'bacchus', quantity: 1 }
+  },
+  {
+    id: 'office_park_tuna',
+    location: '사무실',
+    actor: '박 대리님',
+    message: '박 대리님이 서랍 깊은 곳에서 작은 참치캔을 꺼냈다. "지난번에 고양이 좋아하던데, 이거 하나 가져가."',
+    reward: { type: 'item', itemId: 'cat_tuna_can', quantity: 1 }
   },
   {
     id: 'office_park_exp',
