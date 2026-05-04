@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>일해라 이네오!! - 통합 문서1</title>
-  <link rel="stylesheet" href="style.css?v=13">
+  <link rel="stylesheet" href="style.css?v=14">
 </head>
 <body>
   <div id="login-screen">
@@ -65,6 +65,9 @@
   </div>
 
   <div id="game-screen" class="hidden excel-sheet">
+    <div id="shoutBanner" class="shout-banner hidden">
+      <div id="shoutBannerText" class="shout-banner-text"></div>
+    </div>
     <div class="status-bar status-top">
       <div class="status-group">
         <div>통장 잔고: <strong><span id="money">0</span>원</strong></div>
@@ -129,6 +132,13 @@
 
               <div id="tab-special" class="menu-content hidden">
                 <div class="special-grid">
+                  <div class="special-card">
+                    <button id="shoutBtn" class="menu-action-btn">전체 외치기</button>
+                    <p>10분마다 한 번, 익명으로 전체 메시지를 보낼 수 있습니다.</p>
+                    <div class="stock-controls">
+                      <input type="text" id="shoutInput" maxlength="120" placeholder="모든 유저에게 보일 메시지">
+                    </div>
+                  </div>
                   <div class="special-card">
                     <button id="adventureBtn" class="menu-action-btn">모험하기 (행동력 1)</button>
                     <p>사무실 안팎을 돌아다니며 랜덤 이벤트를 만납니다. 상황에 따라 돈, 경험치, 아이템, 버프, 디버프를 획득할 수 있습니다.</p>
@@ -245,6 +255,6 @@
     </div>
   </div>
 
-  <script src="client.js?v=13"></script>
+  <script src="client.js?v=14"></script>
 </body>
 </html>

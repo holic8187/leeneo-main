@@ -27,6 +27,9 @@ const FIELD_WORK_DURATION_MS = 12 * 60 * 60 * 1000;
 const CONFIDENCE_DURATION_MS = 60 * 60 * 1000;
 const FATIGUE_DURATION_MS = 4 * 60 * 60 * 1000;
 const CAT_GRATITUDE_DURATION_MS = 60 * 60 * 1000;
+const SHOUT_COOLDOWN_MS = 10 * 60 * 1000;
+const SHOUT_VISIBLE_DURATION_MS = 36 * 1000;
+const ONLINE_THRESHOLD_MS = 25 * 1000;
 const SHOPPING_ADDICT_THRESHOLD = 1500000;
 const SHOPPING_ADDICT_LOSE_AFTER_DAYS = 3;
 const RICH_THRESHOLD = 5000000;
@@ -720,6 +723,8 @@ const ADMIN_GIFT_CATALOG = {
   }))
 };
 
+let activeShouts = [];
+
 if (!MONGO_URI) {
   console.error('MONGO_URI is not configured in .env.');
   process.exit(1);
@@ -790,6 +795,8 @@ const userSchema = new mongoose.Schema({
   meta: {
     loginCount: { type: Number, default: 0 },
     lastLoginAt: { type: Date, default: null },
+    lastSeenAt: { type: Date, default: null },
+    lastShoutAt: { type: Date, default: null },
     catFoodGivenCount: { type: Number, default: 0 },
     lastTitleChangeDayKey: { type: String, default: null },
     lastAdventureLog: { type: String, default: '' }
@@ -885,10 +892,20 @@ function ensureUserDefaults(user) {
   user.shopState.lastShoppingAddictQualifiedDayKey = user.shopState.lastShoppingAddictQualifiedDayKey || null;
 
   if (!user.meta) {
-    user.meta = { loginCount: 0, lastLoginAt: null, catFoodGivenCount: 0, lastTitleChangeDayKey: null, lastAdventureLog: '' };
+    user.meta = {
+      loginCount: 0,
+      lastLoginAt: null,
+      lastSeenAt: null,
+      lastShoutAt: null,
+      catFoodGivenCount: 0,
+      lastTitleChangeDayKey: null,
+      lastAdventureLog: ''
+    };
   }
   user.meta.loginCount = Number(user.meta.loginCount ?? 0);
   user.meta.lastLoginAt = user.meta.lastLoginAt || null;
+  user.meta.lastSeenAt = user.meta.lastSeenAt || null;
+  user.meta.lastShoutAt = user.meta.lastShoutAt || null;
   user.meta.catFoodGivenCount = Number(user.meta.catFoodGivenCount ?? 0);
   user.meta.lastTitleChangeDayKey = user.meta.lastTitleChangeDayKey || null;
   user.meta.lastAdventureLog = user.meta.lastAdventureLog || '';
@@ -924,6 +941,10 @@ function migrateLegacyBuffs(user) {
 
 function queueNotification(user, type, text) {
   user.pendingNotifications.push({ type, text });
+}
+
+function markUserSeen(user, now = new Date()) {
+  user.meta.lastSeenAt = now;
 }
 
 function consumeNotifications(user) {
@@ -969,9 +990,15 @@ function removeItemFromInventory(user, itemId, amount = 1) {
   return true;
 }
 
-function setOrRefreshBuff(user, buffId, durationMs) {
-  const expiresAt = new Date(Date.now() + durationMs);
+function setOrRefreshBuff(user, buffId, durationMs, options = {}) {
+  const now = options.now || new Date();
   const existingBuff = user.buffs.find((buff) => buff.buffId === buffId);
+  const shouldStack = Boolean(options.stackDuration);
+  const baseTime = existingBuff && new Date(existingBuff.expiresAt) > now
+    ? new Date(existingBuff.expiresAt)
+    : now;
+  const expiresAt = new Date((shouldStack ? baseTime.getTime() : now.getTime()) + durationMs);
+
   if (existingBuff) {
     existingBuff.expiresAt = expiresAt;
   } else {
@@ -999,6 +1026,23 @@ function getShopPricesForUser(user) {
     prices[itemId] = getItemPrice(user, itemId);
   }
   return prices;
+}
+
+function getTotalBuyPrice(user, itemId, quantity) {
+  if (quantity <= 0) return 0;
+  const itemInfo = ITEM_DATA[itemId];
+  if (!itemInfo) return 0;
+
+  if (itemId !== 'pen_monami') {
+    return getItemPrice(user, itemId) * quantity;
+  }
+
+  const currentOwned = getInventoryQuantity(user, itemId);
+  let total = 0;
+  for (let offset = 0; offset < quantity; offset += 1) {
+    total += Math.round(itemInfo.price * getMonamiPriceMultiplier(currentOwned + offset));
+  }
+  return total;
 }
 
 function getEquippedTitleDefinition(user) {
@@ -1259,6 +1303,7 @@ function checkLevelUp(user) {
 
 function calculateOfflineGains(user, now = new Date()) {
   ensureUserDefaults(user);
+  markUserSeen(user, now);
   syncDailyShopState(user, now);
   settlePendingStockInvestment(user, now);
   cleanupExpiredBuffs(user, now);
@@ -1406,7 +1451,9 @@ function buildUserResponse(user, now = new Date()) {
 }
 
 async function buildUserResponseWithGlobals(user, now = new Date()) {
-  return buildUserResponse(user, now);
+  const response = buildUserResponse(user, now);
+  response.global = getGlobalState(now);
+  return response;
 }
 
 function getBearerToken(req) {
@@ -1447,6 +1494,27 @@ function clearPendingAdventure(user) {
 
 function setAdventureLog(user, text) {
   user.meta.lastAdventureLog = text || '';
+}
+
+function cleanupActiveShouts(now = new Date()) {
+  activeShouts = activeShouts.filter((entry) => entry.expiresAt > now);
+}
+
+function pushShoutMessage(text, now = new Date()) {
+  cleanupActiveShouts(now);
+  activeShouts.push({
+    id: `${now.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
+    text,
+    expiresAt: new Date(now.getTime() + SHOUT_VISIBLE_DURATION_MS)
+  });
+}
+
+function getGlobalState(now = new Date()) {
+  cleanupActiveShouts(now);
+  return {
+    activeShoutText: activeShouts.map((entry) => entry.text).join(' // '),
+    activeShoutKey: activeShouts.map((entry) => entry.id).join('|')
+  };
 }
 
 function getRemainingExpToNextLevel(user) {
@@ -1954,8 +2022,9 @@ app.post('/api/action/stock', async (req, res) => {
 });
 
 app.post('/api/shop/buy', async (req, res) => {
-  const { userId, itemId } = req.body;
+  const { userId, itemId, quantity } = req.body;
   if (!userId || !itemId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+  const buyQuantity = Math.max(1, Math.floor(Number(quantity) || 1));
 
   const itemInfo = ITEM_DATA[itemId];
   if (!itemInfo) return res.status(400).json({ msg: '존재하지 않는 아이템입니다.' });
@@ -1967,15 +2036,15 @@ app.post('/api/shop/buy', async (req, res) => {
 
     const now = new Date();
     calculateOfflineGains(user, now);
-    const price = getItemPrice(user, itemId);
+    const totalPrice = getTotalBuyPrice(user, itemId, buyQuantity);
 
-    if (user.gameState.money < price) {
+    if (user.gameState.money < totalPrice) {
       return res.status(400).json({ msg: '잔고가 부족합니다.' });
     }
 
-    user.gameState.money -= price;
-    addItemToInventory(user, itemId, 1);
-    recordShopSpend(user, price, now);
+    user.gameState.money -= totalPrice;
+    addItemToInventory(user, itemId, buyQuantity);
+    recordShopSpend(user, totalPrice, now);
 
     const derivedStats = calculateDerivedStats(user, now);
     if (derivedStats.shopStressRelief > 0) {
@@ -1995,8 +2064,9 @@ app.post('/api/shop/buy', async (req, res) => {
 });
 
 app.post('/api/inventory/use', async (req, res) => {
-  const { userId, itemId } = req.body;
+  const { userId, itemId, quantity } = req.body;
   if (!userId || !itemId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+  const useQuantity = Math.max(1, Math.floor(Number(quantity) || 1));
 
   const itemInfo = ITEM_DATA[itemId];
   if (!itemInfo || itemInfo.type !== 'consumable') {
@@ -2010,17 +2080,17 @@ app.post('/api/inventory/use', async (req, res) => {
     const now = new Date();
     calculateOfflineGains(user, now);
 
-    if (!removeItemFromInventory(user, itemId, 1)) {
+    if (!removeItemFromInventory(user, itemId, useQuantity)) {
       return res.status(400).json({ msg: '해당 아이템이 부족합니다.' });
     }
 
     if (itemId === 'bacchus') {
-      user.gameState.stamina = Math.min(getEffectiveMaxStamina(user, now), user.gameState.stamina + 1);
-      queueNotification(user, 'item_use', '박카스를 마셨습니다. 행동력이 1 회복되었습니다.');
+      user.gameState.stamina = Math.min(getEffectiveMaxStamina(user, now), user.gameState.stamina + useQuantity);
+      queueNotification(user, 'item_use', `박카스를 ${useQuantity}병 마셨습니다. 행동력이 ${useQuantity} 회복되었습니다.`);
     } else if (itemId === 'hot6') {
-      user.gameState.stress = Number(Math.max(0, user.gameState.stress - 10).toFixed(2));
-      setOrRefreshBuff(user, 'hot6_buff', HOT6_DURATION_MS);
-      queueNotification(user, 'item_use', '핫식스를 사용했습니다. 스트레스가 10 감소하고 10분 버프가 적용되었습니다.');
+      user.gameState.stress = Number(Math.max(0, user.gameState.stress - (10 * useQuantity)).toFixed(2));
+      setOrRefreshBuff(user, 'hot6_buff', HOT6_DURATION_MS * useQuantity, { now, stackDuration: true });
+      queueNotification(user, 'item_use', `핫식스를 ${useQuantity}병 사용했습니다. 스트레스가 ${10 * useQuantity} 감소하고 버프 시간이 누적되었습니다.`);
     }
 
     reconcileTitles(user, now);
@@ -2069,6 +2139,36 @@ app.post('/api/title/toggle', async (req, res) => {
   }
 });
 
+app.post('/api/action/shout', async (req, res) => {
+  const { userId, message } = req.body;
+  if (!userId || !message) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+
+  const shoutMessage = String(message).replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (!shoutMessage) return res.status(400).json({ msg: '외칠 내용을 입력해주세요.' });
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+
+    const now = new Date();
+    calculateOfflineGains(user, now);
+
+    if (user.meta.lastShoutAt && now.getTime() - new Date(user.meta.lastShoutAt).getTime() < SHOUT_COOLDOWN_MS) {
+      return res.status(400).json({ msg: '외치기는 10분마다 한 번만 사용할 수 있습니다.' });
+    }
+
+    user.meta.lastShoutAt = now;
+    pushShoutMessage(shoutMessage, now);
+
+    const response = await buildUserResponseWithGlobals(user, now);
+    await user.save();
+    res.json(response);
+  } catch (err) {
+    console.error('Shout action error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
 app.post('/api/sync', async (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
@@ -2092,10 +2192,11 @@ app.post('/api/sync', async (req, res) => {
 
 app.get('/api/ranking', async (req, res) => {
   try {
+    const now = new Date();
     const rankingUsers = await User.find({ nickname: { $ne: null } })
       .sort({ 'gameState.level': -1, 'gameState.exp': -1 })
       .limit(20)
-      .select('nickname username gameState.level gameState.exp titles');
+      .select('nickname username gameState.level gameState.exp titles meta.lastSeenAt');
 
     const ranking = rankingUsers.map((user) => ({
       nickname: user.nickname,
@@ -2103,7 +2204,8 @@ app.get('/api/ranking', async (req, res) => {
       gameState: {
         level: user.gameState.level,
         exp: user.gameState.exp
-      }
+      },
+      isOnline: Boolean(user.meta?.lastSeenAt && now.getTime() - new Date(user.meta.lastSeenAt).getTime() <= ONLINE_THRESHOLD_MS)
     }));
 
     res.json(ranking);

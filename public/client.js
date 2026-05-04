@@ -79,6 +79,8 @@ let rankingInterval;
 let syncInterval;
 let animationInterval;
 let modalResolver = null;
+let latestGlobalState = { activeShoutText: '', activeShoutKey: '' };
+let lastRenderedShoutKey = '';
 
 document.addEventListener('DOMContentLoaded', () => {
   initApp();
@@ -95,6 +97,7 @@ function setupEventListeners() {
   bindClick('setNicknameBtn', handleSetNicknameClick);
   bindClick('clickWorkBtn', handleClickWork);
   bindClick('adventureBtn', handleAdventureClick);
+  bindClick('shoutBtn', handleShoutClick);
   bindClick('lupinBtn', handleLupinClick);
   bindClick('napBtn', handleNapClick);
   bindClick('fieldWorkBtn', handleFieldWorkClick);
@@ -181,6 +184,39 @@ function closeDecisionModal(result = null) {
   const resolver = modalResolver;
   modalResolver = null;
   if (resolver) resolver(result);
+}
+
+function applyGlobalState(globalState = {}) {
+  latestGlobalState = {
+    activeShoutText: globalState.activeShoutText || '',
+    activeShoutKey: globalState.activeShoutKey || ''
+  };
+  updateShoutBanner(latestGlobalState);
+}
+
+function updateShoutBanner(globalState = latestGlobalState) {
+  const banner = document.getElementById('shoutBanner');
+  const textEl = document.getElementById('shoutBannerText');
+  if (!banner || !textEl) return;
+
+  const shoutText = globalState.activeShoutText || '';
+  const shoutKey = globalState.activeShoutKey || '';
+
+  if (!shoutText) {
+    banner.classList.add('hidden');
+    textEl.textContent = '';
+    lastRenderedShoutKey = '';
+    return;
+  }
+
+  banner.classList.remove('hidden');
+  if (lastRenderedShoutKey === shoutKey) return;
+
+  textEl.classList.remove('shout-banner-text');
+  void textEl.offsetWidth;
+  textEl.textContent = shoutText;
+  textEl.classList.add('shout-banner-text');
+  lastRenderedShoutKey = shoutKey;
 }
 
 function openDecisionModal({ title, message, details = '', buttons = [] }) {
@@ -284,6 +320,7 @@ function processLoginSuccess(data) {
   }
 
   saveStoredUser(data.user);
+  applyGlobalState(data.global);
 
   if (data.isNewUser || !data.user.nickname) {
     hideAllScreens();
@@ -454,6 +491,35 @@ async function handleAdventureClick() {
   }
 }
 
+async function handleShoutClick() {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+
+  const input = document.getElementById('shoutInput');
+  const btn = document.getElementById('shoutBtn');
+  const message = input?.value.trim() || '';
+
+  if (!message) {
+    alert('외칠 내용을 입력해주세요.');
+    return;
+  }
+
+  if (btn) btn.disabled = true;
+
+  try {
+    const data = await postJson(`${API_URL}/api/action/shout`, {
+      userId: user._id,
+      message
+    });
+    updateLocalUserState(data);
+    if (input) input.value = '';
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 async function handleStockInvest() {
   const user = getStoredUser();
   if (!user?._id) return handleLogoutClick();
@@ -489,18 +555,26 @@ async function handleStockInvest() {
   }
 }
 
-async function handleBuyClick(itemId) {
+function getRequestedQuantity(inputId) {
+  const input = document.getElementById(inputId);
+  const value = Math.floor(Number(input?.value || 1));
+  return Number.isFinite(value) && value > 0 ? value : 1;
+}
+
+async function handleBuyClick(itemId, inputId) {
   const user = getStoredUser();
   if (!user?._id) return handleLogoutClick();
 
+  const quantity = getRequestedQuantity(inputId);
   const price = user.shopPrices?.[itemId] ?? 0;
   const itemName = ITEM_DATA[itemId]?.name || '아이템';
-  if (!confirm(`${itemName}을(를) ${formatNumber(price)}원에 구매하시겠습니까?`)) return;
+  if (!confirm(`${itemName} ${formatNumber(quantity)}개를 구매하시겠습니까?`)) return;
 
   try {
     const data = await postJson(`${API_URL}/api/shop/buy`, {
       userId: user._id,
-      itemId
+      itemId,
+      quantity
     });
     updateLocalUserState(data);
   } catch (err) {
@@ -508,14 +582,16 @@ async function handleBuyClick(itemId) {
   }
 }
 
-async function handleUseItem(itemId) {
+async function handleUseItem(itemId, inputId) {
   const user = getStoredUser();
   if (!user?._id) return handleLogoutClick();
+  const quantity = getRequestedQuantity(inputId);
 
   try {
     const data = await postJson(`${API_URL}/api/inventory/use`, {
       userId: user._id,
-      itemId
+      itemId,
+      quantity
     });
     updateLocalUserState(data);
   } catch (err) {
@@ -567,6 +643,7 @@ async function handleToggleTitle(titleId) {
 function updateLocalUserState(data) {
   if (!data?.user) return;
   saveStoredUser(data.user);
+  applyGlobalState(data.global);
   updateGameUI(data.user);
   showNotifications(data.notifications);
 }
@@ -614,6 +691,7 @@ function showGameScreen(user) {
   clearIntervals();
   hideAllScreens();
   document.getElementById('game-screen').classList.remove('hidden');
+  updateShoutBanner(latestGlobalState);
   updateGameUI(user);
   startAnimation();
   startPeriodicUpdates();
@@ -765,8 +843,9 @@ function updateInventoryUI(user) {
       const title = tooltipSource?.name || item.itemId;
       const desc = tooltipSource?.hoverDesc || '';
       const shortDesc = tooltipSource?.desc || '';
+      const qtyInputId = `use-qty-${item.itemId}`;
       const actionButton = tooltipSource && ['bacchus', 'hot6'].includes(item.itemId)
-        ? `<button class="mini-btn" onclick="handleUseItem('${item.itemId}')">사용</button>`
+        ? `<div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" max="${item.quantity}" step="1" value="1"><button class="mini-btn" onclick="handleUseItem('${item.itemId}', '${qtyInputId}')">사용</button></div>`
         : '<span class="muted-text">상시 적용</span>';
 
       inventoryList.insertAdjacentHTML(
@@ -813,6 +892,7 @@ function updateShopUI(user) {
   Object.entries(ITEM_DATA).forEach(([itemId, itemInfo]) => {
     if (itemId === 'cat_tuna_can') return;
     const price = user.shopPrices?.[itemId] ?? 0;
+    const qtyInputId = `buy-qty-${itemId}`;
 
     shopList.insertAdjacentHTML(
       'beforeend',
@@ -821,7 +901,7 @@ function updateShopUI(user) {
           <td>${escapeHtml(itemInfo.name)}</td>
           <td>${formatNumber(price)}원</td>
           <td>${escapeHtml(itemInfo.desc || '')}</td>
-          <td><button class="mini-btn" onclick="handleBuyClick('${itemId}')">구매</button></td>
+          <td><div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" step="1" value="1"><button class="mini-btn" onclick="handleBuyClick('${itemId}', '${qtyInputId}')">구매</button></div></td>
         </tr>
       `
     );
@@ -930,7 +1010,7 @@ async function updateRankingUI() {
         `
           <tr class="${rankClass}" title="현재 경험치 ${formatNumber(entry.gameState.exp)}">
             <td class="center-text">${index + 1}</td>
-            <td>${escapeHtml(entry.displayName || entry.nickname)}</td>
+            <td><span class="online-dot ${entry.isOnline ? 'online' : 'offline'}"></span>${escapeHtml(entry.displayName || entry.nickname)}</td>
             <td class="center-text">${formatNumber(entry.gameState.level)}</td>
           </tr>
         `
@@ -953,7 +1033,7 @@ function startPeriodicUpdates() {
   rankingInterval = setInterval(updateRankingUI, 5000);
 
   syncUserState();
-  syncInterval = setInterval(syncUserState, 10000);
+  syncInterval = setInterval(syncUserState, 5000);
 }
 
 function startAnimation() {

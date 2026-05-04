@@ -143,6 +143,34 @@ td {
   justify-content: space-between;
 }
 
+.shout-banner {
+  position: relative;
+  overflow: hidden;
+  height: 36px;
+  border-bottom: var(--excel-border);
+  background: #1f7a39;
+}
+
+.shout-banner-text {
+  position: absolute;
+  top: 50%;
+  left: 100%;
+  white-space: nowrap;
+  color: #ffe56b;
+  font-weight: bold;
+  transform: translateY(-50%);
+  animation: shout-slide 12s linear 3;
+}
+
+@keyframes shout-slide {
+  from {
+    left: 100%;
+  }
+  to {
+    left: -100%;
+  }
+}
+
 .status-group {
   display: flex;
   flex-wrap: wrap;
@@ -388,6 +416,35 @@ progress {
 
 .stock-controls input {
   flex: 1;
+}
+
+.qty-action-wrap {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.qty-input {
+  width: 64px;
+  padding: 6px 8px;
+  border: var(--excel-border);
+}
+
+.online-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+
+.online-dot.online {
+  background: #24b14d;
+}
+
+.online-dot.offline {
+  background: #a9b0b5;
 }
 
 .inner-table th {
