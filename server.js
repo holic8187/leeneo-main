@@ -67,6 +67,13 @@ const ITEM_DATA = {
     desc: '사용 시 스트레스 -10, 10분 버프',
     hoverDesc: '사용 즉시 스트레스를 10 낮추고, 10분 동안 서류작업 클릭마다 스트레스를 0.1 낮춥니다.'
   },
+  tylenol: {
+    name: '타이레놀',
+    price: 200000,
+    type: 'consumable',
+    desc: '현재 걸린 모든 디버프 제거',
+    hoverDesc: '사용 시 현재 걸려 있는 모든 디버프를 제거합니다.'
+  },
   cat_tuna_can: {
     name: '고양이 참치캔',
     price: 0,
@@ -111,7 +118,8 @@ const BUFF_DATA = {
     name: '피로감',
     durationMs: FATIGUE_DURATION_MS,
     desc: '4시간 동안 모든 경험치 획득량이 절반으로 감소합니다.',
-    effects: { expBonusAdd: -0.5 }
+    effects: { expBonusAdd: -0.5 },
+    category: 'debuff'
   },
   cat_gratitude_buff: {
     name: '고양이의 보은',
@@ -957,6 +965,10 @@ function cleanupExpiredBuffs(user, now = new Date()) {
   user.buffs = user.buffs.filter((buff) => new Date(buff.expiresAt) > now);
 }
 
+function removeAllDebuffs(user) {
+  user.buffs = user.buffs.filter((buff) => BUFF_DATA[buff.buffId]?.category !== 'debuff');
+}
+
 function hasBuff(user, buffId, now = new Date()) {
   return user.buffs.some((buff) => buff.buffId === buffId && new Date(buff.expiresAt) > now);
 }
@@ -1420,6 +1432,7 @@ function buildGameStateResponse(user, now = new Date()) {
     shopState: user.shopState,
     meta: {
       loginCount: user.meta.loginCount,
+      lastShoutAt: user.meta.lastShoutAt,
       catFoodGivenCount: user.meta.catFoodGivenCount,
       lastTitleChangeDayKey: user.meta.lastTitleChangeDayKey,
       lastAdventureLog: user.meta.lastAdventureLog
@@ -2091,6 +2104,9 @@ app.post('/api/inventory/use', async (req, res) => {
       user.gameState.stress = Number(Math.max(0, user.gameState.stress - (10 * useQuantity)).toFixed(2));
       setOrRefreshBuff(user, 'hot6_buff', HOT6_DURATION_MS * useQuantity, { now, stackDuration: true });
       queueNotification(user, 'item_use', `핫식스를 ${useQuantity}병 사용했습니다. 스트레스가 ${10 * useQuantity} 감소하고 버프 시간이 누적되었습니다.`);
+    } else if (itemId === 'tylenol') {
+      removeAllDebuffs(user);
+      queueNotification(user, 'item_use', `타이레놀을 ${useQuantity}정 사용했습니다. 현재 걸려 있는 모든 디버프를 제거했습니다.`);
     }
 
     reconcileTitles(user, now);

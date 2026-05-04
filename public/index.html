@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>일해라 이네오!! - 통합 문서1</title>
-  <link rel="stylesheet" href="style.css?v=14">
+  <link rel="stylesheet" href="style.css?v=15">
 </head>
 <body>
   <div id="login-screen">
@@ -65,7 +65,7 @@
   </div>
 
   <div id="game-screen" class="hidden excel-sheet">
-    <div id="shoutBanner" class="shout-banner hidden">
+    <div id="shoutBanner" class="shout-banner shout-banner-empty">
       <div id="shoutBannerText" class="shout-banner-text"></div>
     </div>
     <div class="status-bar status-top">
@@ -138,6 +138,7 @@
                     <div class="stock-controls">
                       <input type="text" id="shoutInput" maxlength="120" placeholder="모든 유저에게 보일 메시지">
                     </div>
+                    <p id="shoutStatus" class="menu-note">외치기를 지금 사용할 수 있습니다.</p>
                   </div>
                   <div class="special-card">
                     <button id="adventureBtn" class="menu-action-btn">모험하기 (행동력 1)</button>
@@ -255,6 +256,6 @@
     </div>
   </div>
 
-  <script src="client.js?v=14"></script>
+  <script src="client.js?v=15"></script>
 </body>
 </html>

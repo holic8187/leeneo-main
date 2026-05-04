@@ -151,6 +151,10 @@ td {
   background: #1f7a39;
 }
 
+.shout-banner-empty {
+  background: #edf5ee;
+}
+
 .shout-banner-text {
   position: absolute;
   top: 50%;

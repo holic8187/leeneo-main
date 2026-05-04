@@ -21,6 +21,11 @@ const ITEM_DATA = {
     desc: '스트레스 -10, 10분 버프',
     hoverDesc: '사용 즉시 스트레스를 10 낮추고, 10분 동안 서류작업 클릭마다 스트레스를 0.1 낮춥니다.'
   },
+  tylenol: {
+    name: '타이레놀',
+    desc: '현재 걸린 모든 디버프 제거',
+    hoverDesc: '사용 시 현재 걸려 있는 모든 디버프를 제거합니다.'
+  },
   cat_tuna_can: {
     name: '고양이 참치캔',
     desc: '고양이에게 줄 수 있음',
@@ -203,13 +208,14 @@ function updateShoutBanner(globalState = latestGlobalState) {
   const shoutKey = globalState.activeShoutKey || '';
 
   if (!shoutText) {
-    banner.classList.add('hidden');
+    banner.classList.add('shout-banner-empty');
+    textEl.classList.remove('shout-banner-text');
     textEl.textContent = '';
     lastRenderedShoutKey = '';
     return;
   }
 
-  banner.classList.remove('hidden');
+  banner.classList.remove('shout-banner-empty');
   if (lastRenderedShoutKey === shoutKey) return;
 
   textEl.classList.remove('shout-banner-text');
@@ -217,6 +223,28 @@ function updateShoutBanner(globalState = latestGlobalState) {
   textEl.textContent = shoutText;
   textEl.classList.add('shout-banner-text');
   lastRenderedShoutKey = shoutKey;
+}
+
+function updateShoutStatus(user) {
+  const statusEl = document.getElementById('shoutStatus');
+  const shoutBtn = document.getElementById('shoutBtn');
+  if (!statusEl || !shoutBtn) return;
+
+  const lastShoutAt = user?.meta?.lastShoutAt ? new Date(user.meta.lastShoutAt) : null;
+  const remainMs = lastShoutAt
+    ? Math.max(0, (10 * 60 * 1000) - (Date.now() - lastShoutAt.getTime()))
+    : 0;
+
+  if (remainMs <= 0) {
+    statusEl.textContent = '외치기를 지금 사용할 수 있습니다.';
+    shoutBtn.disabled = false;
+    return;
+  }
+
+  const remainMinutes = Math.floor(remainMs / 60000);
+  const remainSeconds = Math.floor((remainMs % 60000) / 1000);
+  statusEl.textContent = `다음 외치기까지 ${remainMinutes}분 ${String(remainSeconds).padStart(2, '0')}초 남았습니다.`;
+  shoutBtn.disabled = true;
 }
 
 function openDecisionModal({ title, message, details = '', buttons = [] }) {
@@ -487,7 +515,12 @@ async function handleAdventureClick() {
   } catch (err) {
     alert(err.message);
   } finally {
-    if (btn) btn.disabled = false;
+    const latestUser = getStoredUser();
+    if (latestUser) {
+      updateShoutStatus(latestUser);
+    } else if (btn) {
+      btn.disabled = false;
+    }
   }
 }
 
@@ -713,6 +746,7 @@ function showGameScreen(user) {
 function updateGameUI(user) {
   updateStatusUI(user);
   updateBuffUI(user);
+  updateShoutStatus(user);
   updateInventoryUI(user);
   updateShopUI(user);
   updateStatsTab(user);
@@ -844,7 +878,7 @@ function updateInventoryUI(user) {
       const desc = tooltipSource?.hoverDesc || '';
       const shortDesc = tooltipSource?.desc || '';
       const qtyInputId = `use-qty-${item.itemId}`;
-      const actionButton = tooltipSource && ['bacchus', 'hot6'].includes(item.itemId)
+      const actionButton = tooltipSource && ['bacchus', 'hot6', 'tylenol'].includes(item.itemId)
         ? `<div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" max="${item.quantity}" step="1" value="1"><button class="mini-btn" onclick="handleUseItem('${item.itemId}', '${qtyInputId}')">사용</button></div>`
         : '<span class="muted-text">상시 적용</span>';
 
@@ -1026,7 +1060,10 @@ function startPeriodicUpdates() {
 
   updateInterval = setInterval(() => {
     const user = getStoredUser();
-    if (user) updateBuffUI(user);
+    if (user) {
+      updateBuffUI(user);
+      updateShoutStatus(user);
+    }
   }, 1000);
 
   updateRankingUI();
