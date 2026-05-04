@@ -361,6 +361,230 @@ const ADVENTURE_EVENT_DEFINITIONS = [
     actor: '대표님',
     message: '주차장에서 대표님에게 붙잡혀 갑작스러운 질의를 받았다. 식은땀이 흐른다.',
     reward: { type: 'stress', amount: 5 }
+  },
+  {
+    id: 'supply_empty_note',
+    location: '비품창고',
+    actor: '아무도 없음',
+    message: '비품창고 깊숙한 곳에서 오래된 메모를 발견했다. 실속은 없지만 괜히 분위기만 으스스하다.',
+    reward: { type: 'none' }
+  },
+  {
+    id: 'supply_kim_cash',
+    location: '비품창고',
+    actor: '김 주임',
+    message: '김 주임이 비품 정리를 하다 남는 간식 예산이 있다며 슬쩍 용돈을 쥐여줬다.',
+    reward: { type: 'money', amount: 50000 }
+  },
+  {
+    id: 'supply_kim_exp',
+    location: '비품창고',
+    actor: '김 주임',
+    message: '김 주임이 재고 정리 요령을 알려줬다. 의외로 업무 동선이 한 번에 머릿속에 들어온다.',
+    reward: { type: 'exp_fraction', divisor: 4 }
+  },
+  {
+    id: 'rooftop_teamlead_stress',
+    location: '옥상',
+    actor: '신 팀장님',
+    message: '옥상에서 신 팀장님이 "숨 한번 크게 쉬고 들어가." 하고 등을 툭 쳐줬다.',
+    reward: { type: 'stress', amount: -10 }
+  },
+  {
+    id: 'rooftop_teamlead_hot6',
+    location: '옥상',
+    actor: '신 팀장님',
+    message: '옥상 난간에 기대 있던 신 팀장님이 자판기에서 뽑은 핫식스를 건넸다. "눈빛이 풀렸어."',
+    reward: { type: 'item', itemId: 'hot6', quantity: 1 }
+  },
+  {
+    id: 'parking_guard_bacchus',
+    location: '주차장',
+    actor: '경비아저씨',
+    message: '경비아저씨가 "오늘은 얼굴이 많이 안 좋네." 하며 박카스를 건네줬다.',
+    reward: { type: 'item', itemId: 'bacchus', quantity: 1 }
+  },
+  {
+    id: 'parking_guard_relief',
+    location: '주차장',
+    actor: '경비아저씨',
+    message: '주차장 바람을 맞으며 경비아저씨와 잠깐 수다를 떨었다. 묘하게 마음이 가벼워진다.',
+    reward: { type: 'stress', amount: -5 }
+  },
+  {
+    id: 'restroom_bujang_loss_big',
+    location: '화장실',
+    actor: '최 부장님',
+    message: '최 부장님이 세면대 앞에서 오늘 실수를 길게 짚었다. 점심값도 아까울 만큼 기운이 빠진다.',
+    reward: { type: 'bundle', rewards: [{ type: 'stress', amount: 20 }, { type: 'money', amount: -100000 }] }
+  },
+  {
+    id: 'restroom_bujang_exp',
+    location: '화장실',
+    actor: '최 부장님',
+    message: '최 부장님이 잔소리 끝에 핵심 포인트 하나를 던졌다. 얄밉지만 확실히 도움이 된다.',
+    reward: { type: 'exp_fraction', divisor: 4 }
+  },
+  {
+    id: 'other_team_kim_bacchus',
+    location: '다른 팀 사무실',
+    actor: '김 주임',
+    message: '김 주임이 다른 팀 사무실 한켠에서 몰래 박카스를 건네며 "들키지 말고 버텨요." 하고 웃었다.',
+    reward: { type: 'item', itemId: 'bacchus', quantity: 1 }
+  },
+  {
+    id: 'other_team_kim_confidence',
+    location: '다른 팀 사무실',
+    actor: '김 주임',
+    message: '김 주임이 "그 정도면 충분히 잘하고 있어요."라고 말해줬다. 괜히 손끝에 힘이 돌아온다.',
+    reward: { type: 'buff', buffId: 'confidence_buff' }
+  },
+  {
+    id: 'elevator_ceo_cash_100',
+    location: '엘레베이터',
+    actor: '대표님',
+    message: '엘레베이터 문이 닫히기 직전 대표님이 어제 아이디어 괜찮았다고 짧게 칭찬했다. 얼마 뒤 소정의 격려금이 찍혔다.',
+    reward: { type: 'money', amount: 100000 }
+  },
+  {
+    id: 'elevator_ceo_half',
+    location: '엘레베이터',
+    actor: '대표님',
+    message: '대표님이 짧은 질문 하나를 던졌고, 대답을 마치자 머릿속이 번쩍 열렸다.',
+    reward: { type: 'exp_fraction', divisor: 2 }
+  },
+  {
+    id: 'park_cat_variant',
+    location: '근처 공원',
+    actor: '고양이',
+    message: '벤치 밑에 있던 고양이가 조심스럽게 다가와 앞발로 신발끈을 건드렸다. 참치캔을 줄까?',
+    reward: { type: 'cat_choice' }
+  },
+  {
+    id: 'store_cat_variant',
+    location: '근처 편의점',
+    actor: '고양이',
+    message: '편의점 냉장고 소리 사이로 야옹 소리가 들렸다. 작은 고양이가 당신만 바라보고 있다. 참치캔을 줄까?',
+    reward: { type: 'cat_choice' }
+  },
+  {
+    id: 'park_pigeon_cash_loss',
+    location: '근처 공원',
+    actor: '비둘기',
+    message: '비둘기를 피하다가 들고 있던 동전지갑을 떨어뜨렸다. 주워보니 몇 장이 사라졌다.',
+    reward: { type: 'money', amount: -50000 }
+  },
+  {
+    id: 'park_pigeon_relief',
+    location: '근처 공원',
+    actor: '비둘기',
+    message: '비둘기들이 한꺼번에 날아오르는 걸 보며 멍하니 서 있었다. 이상하게 답답함이 조금 풀린다.',
+    reward: { type: 'stress', amount: -10 }
+  },
+  {
+    id: 'store_guard_hot6',
+    location: '근처 편의점',
+    actor: '경비아저씨',
+    message: '편의점 앞에서 마주친 경비아저씨가 "이 시간엔 당 떨어져." 하며 핫식스를 손에 쥐여줬다.',
+    reward: { type: 'item', itemId: 'hot6', quantity: 1 }
+  },
+  {
+    id: 'store_guard_cash_50',
+    location: '근처 편의점',
+    actor: '경비아저씨',
+    message: '경비아저씨가 부탁했던 심부름값을 깜빡했다며 지금이라도 챙겨줬다.',
+    reward: { type: 'money', amount: 50000 }
+  },
+  {
+    id: 'hallway_manager_exp',
+    location: '복도',
+    actor: '신 팀장님',
+    message: '복도에서 신 팀장님이 보고서 핵심 문장을 딱 한 줄로 정리해줬다. 머리가 환하게 트인다.',
+    reward: { type: 'exp_fraction', divisor: 3 }
+  },
+  {
+    id: 'hallway_manager_stress_down',
+    location: '복도',
+    actor: '신 팀장님',
+    message: '신 팀장님이 말없이 엄지를 들어 보였다. 별 것 아닌데도 긴장이 조금 풀린다.',
+    reward: { type: 'stress', amount: -5 }
+  },
+  {
+    id: 'hallway_bujang_cash_loss',
+    location: '복도',
+    actor: '최 부장님',
+    message: '복도에서 최 부장님에게 붙잡혀 급한 외주 처리 비용을 떠안게 됐다.',
+    reward: { type: 'money', amount: -150000 }
+  },
+  {
+    id: 'hallway_kim_tuna',
+    location: '복도',
+    actor: '김 주임',
+    message: '김 주임이 복도 끝에서 몰래 손짓했다. "밖에서 애들 챙기실 거면 이거 가져가요."',
+    reward: { type: 'item', itemId: 'cat_tuna_can', quantity: 1 }
+  },
+  {
+    id: 'office_park_bacchus',
+    location: '사무실',
+    actor: '박 대리님',
+    message: '박 대리님이 모니터를 힐끗 보더니 "이 타이밍엔 각성제보다 박카스가 낫지." 하고 한 병을 더 놔줬다.',
+    reward: { type: 'item', itemId: 'bacchus', quantity: 1 }
+  },
+  {
+    id: 'office_park_exp',
+    location: '사무실',
+    actor: '박 대리님',
+    message: '박 대리님이 엑셀 단축키 하나를 알려줬다. 당장 체감될 정도로 손이 빨라진다.',
+    reward: { type: 'exp_fraction', divisor: 4 }
+  },
+  {
+    id: 'office_ceo_rare',
+    location: '사무실',
+    actor: '대표님',
+    message: '대표님이 잠깐 멈춰 서서 당신의 화면을 본 뒤 조용히 미소를 지었다. 왠지 큰일이 일어날 것 같은 분위기다.',
+    reward: { type: 'rare_level', chance: 0.06, fallback: { type: 'money', amount: 100000 } }
+  },
+  {
+    id: 'office_empty_stress_down',
+    location: '사무실',
+    actor: '아무도 없음',
+    message: '아무도 없는 짧은 순간, 의자에 기대 숨을 골랐다. 그 몇 초가 의외로 컸다.',
+    reward: { type: 'stress', amount: -5 }
+  },
+  {
+    id: 'office_empty_confidence',
+    location: '사무실',
+    actor: '아무도 없음',
+    message: '지나간 메일들을 훑다가 예전에 칭찬받았던 내용을 발견했다. 괜히 마음이 단단해진다.',
+    reward: { type: 'buff', buffId: 'confidence_buff' }
+  },
+  {
+    id: 'rooftop_pigeon_hot6',
+    location: '옥상',
+    actor: '비둘기',
+    message: '비둘기 떼를 피하다 보니 구석에 누가 두고 간 핫식스가 굴러다니고 있었다. 아직 멀쩡해 보인다.',
+    reward: { type: 'item', itemId: 'hot6', quantity: 1 }
+  },
+  {
+    id: 'parking_ceo_cash_150',
+    location: '주차장',
+    actor: '대표님',
+    message: '주차장으로 급히 뛰어가던 대표님이 서류 전달을 부탁했고, 끝나자 고생비를 챙겨줬다.',
+    reward: { type: 'money', amount: 150000 }
+  },
+  {
+    id: 'restroom_manager_bacchus',
+    location: '화장실',
+    actor: '신 팀장님',
+    message: '화장실 앞 자판기에서 신 팀장님이 박카스를 뽑아 건넸다. "오늘은 진짜 이거 필요해 보여."',
+    reward: { type: 'item', itemId: 'bacchus', quantity: 1 }
+  },
+  {
+    id: 'other_team_park_cash',
+    location: '다른 팀 사무실',
+    actor: '박 대리님',
+    message: '박 대리님이 서류 전달 심부름값이라며 지갑에서 현금을 꺼내 손에 쥐여줬다.',
+    reward: { type: 'money', amount: 50000 }
   }
 ];
 
