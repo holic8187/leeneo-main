@@ -478,6 +478,12 @@ progress {
   align-items: start;
 }
 
+.raid-boss-area.active-turn {
+  padding: 10px;
+  border: 2px solid #c62828;
+  background: #fff5f5;
+}
+
 .raid-boss-portrait {
   display: flex;
   align-items: center;
@@ -505,6 +511,44 @@ progress {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 8px;
+}
+
+.raid-turn-banner {
+  margin-bottom: 10px;
+  padding: 12px 14px;
+  border: var(--excel-border);
+  background: #dbeafe;
+}
+
+.raid-turn-banner.party-turn {
+  background: linear-gradient(180deg, #d8ebff 0%, #bddbff 100%);
+  border-color: #2f6db3;
+}
+
+.raid-turn-banner.boss-turn {
+  background: linear-gradient(180deg, #ffd7d7 0%, #ffb5b5 100%);
+  border-color: #b71c1c;
+}
+
+.raid-turn-label {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1f1f1f;
+}
+
+.raid-turn-actor {
+  margin-top: 4px;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.raid-turn-banner.party-turn .raid-turn-actor {
+  color: #0d47a1;
+}
+
+.raid-turn-banner.boss-turn .raid-turn-actor {
+  color: #b71c1c;
 }
 
 .raid-boss-bar {
@@ -540,6 +584,12 @@ progress {
   border: var(--excel-border);
   background: #fbfbfb;
   padding: 12px;
+}
+
+.raid-participant-card.active-turn {
+  border: 2px solid #c62828;
+  background: #fff5f5;
+  box-shadow: 0 0 0 2px rgba(198, 40, 40, 0.12);
 }
 
 .raid-participant-header {

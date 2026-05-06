@@ -937,10 +937,33 @@ function updateRaidLobbyUI(raidState, user) {
 function renderRaidBattle(raidState, user) {
   const battle = raidState?.activeBattle;
   if (!battle) return;
+  const participantCount = battle.participants?.length || 0;
+  const currentTurnIndex = Number(battle.currentTurnIndex || 0);
+  const isBossTurn = currentTurnIndex >= participantCount;
 
   setText('raidScreenBossName', battle.bossName);
   setText('raidBossTitle', battle.bossName);
   setText('raidBossHpText', `${formatNumber(battle.bossHp)} / ${formatNumber(battle.bossMaxHp)}`);
+
+  const turnBanner = document.getElementById('raidTurnBanner');
+  const turnLabel = document.getElementById('raidTurnLabel');
+  const turnActor = document.getElementById('raidTurnActor');
+  if (turnBanner && turnLabel && turnActor) {
+    const turnNumber = Math.max(1, Number(battle.bossPatternIndex || 0) + 1);
+    const actingParticipant = !isBossTurn ? battle.participants?.[currentTurnIndex] : null;
+
+    turnLabel.textContent = `현재 턴 ${formatNumber(turnNumber)}`;
+    turnActor.textContent = isBossTurn
+      ? '보스 행동'
+      : `우리팀 행동${actingParticipant?.displayName ? ` - ${actingParticipant.displayName}` : ''}`;
+    turnBanner.classList.toggle('party-turn', !isBossTurn);
+    turnBanner.classList.toggle('boss-turn', isBossTurn);
+  }
+
+  const bossArea = document.getElementById('raidBossArea');
+  if (bossArea) {
+    bossArea.classList.toggle('active-turn', isBossTurn);
+  }
 
   const bossHpFill = document.getElementById('raidBossHpFill');
   if (bossHpFill) {
@@ -964,10 +987,11 @@ function renderRaidBattle(raidState, user) {
     const ownControls = participant.isSelf
       ? buildRaidSkillControls(participant, battle.participants)
       : '';
+    const isActiveParticipant = !isBossTurn && Number(participant.turnOrder) === currentTurnIndex;
     participantList.insertAdjacentHTML(
       'beforeend',
       `
-        <div class="raid-participant-card">
+        <div class="raid-participant-card ${isActiveParticipant ? 'active-turn' : ''}">
           <div class="raid-participant-header">
             <div>
               <strong>${escapeHtml(participant.displayName)}</strong>
@@ -1313,7 +1337,7 @@ function updateInventoryUI(user) {
         <tr>
           <td>${escapeHtml(card.name)}</td>
           <td><span class="grade-badge" style="background:${escapeHtml(card.color)}">${escapeHtml(card.grade)}</span></td>
-          <td>${formatNumber(card.quantity)}/3장 보유</td>
+          <td>${formatNumber(card.quantity)}장 보유</td>
           <td title="${escapeHtml(card.skillDesc)}">${escapeHtml(card.skillName)} (쿨 ${formatNumber(card.cooldown)}턴)</td>
           <td><button class="mini-btn" onclick="handleToggleCardEquip('${card.id}')">${actionText}</button></td>
         </tr>

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>일해라 이네오!! - 통합 문서1</title>
-  <link rel="stylesheet" href="style.css?v=16">
+  <link rel="stylesheet" href="style.css?v=17">
 </head>
 <body>
   <div id="login-screen">
@@ -332,7 +332,7 @@
       <div class="menu-note">레이드 중에도 메인 화면으로 돌아가 다른 행동을 할 수 있습니다.</div>
     </div>
     <div class="raid-screen-body">
-      <div class="raid-boss-area">
+      <div id="raidBossArea" class="raid-boss-area">
         <div class="raid-boss-portrait">
           <div class="raid-boss-avatar">트름녀</div>
         </div>
@@ -340,6 +340,10 @@
           <div class="raid-boss-name-row">
             <strong id="raidBossTitle">트름녀</strong>
             <span id="raidBossHpText">50,000 / 50,000</span>
+          </div>
+          <div id="raidTurnBanner" class="raid-turn-banner party-turn">
+            <div id="raidTurnLabel" class="raid-turn-label">현재 턴 1</div>
+            <div id="raidTurnActor" class="raid-turn-actor">우리팀 행동</div>
           </div>
           <div class="raid-boss-bar">
             <div id="raidBossHpFill" class="raid-boss-bar-fill"></div>

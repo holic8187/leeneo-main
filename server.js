@@ -3101,6 +3101,9 @@ app.post('/api/raid/start', async (req, res) => {
     }
 
     const participantIds = raidState.slots.filter(Boolean);
+    if (participantIds.length < 2) {
+      return res.status(400).json({ msg: '회의는 혼자 할 수 없습니다!' });
+    }
     const users = await User.find({ _id: { $in: participantIds } });
     const userMap = new Map(users.map((user) => [String(user._id), user]));
     const participants = [];
