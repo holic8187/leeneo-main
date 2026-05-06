@@ -32,6 +32,12 @@ const ITEM_DATA = {
     hoverDesc: '사용 시 오늘 보스 레이드 추가 입장 가능 횟수가 1회 증가합니다.',
     shopHidden: true
   },
+  hagendaz: {
+    name: '하겐다즈',
+    desc: '사용 즉시 1레벨 상승',
+    hoverDesc: '사용 시 즉시 1레벨 상승하며 현재 경험치는 0으로 초기화됩니다.',
+    shopHidden: true
+  },
   business_card: {
     name: '명함',
     desc: '카드 뽑기에 사용하는 재화',
@@ -1252,7 +1258,7 @@ function updateInventoryUI(user) {
       const desc = tooltipSource?.hoverDesc || '';
       const shortDesc = tooltipSource?.desc || '';
       const qtyInputId = `use-qty-${item.itemId}`;
-      const actionButton = tooltipSource && ['bacchus', 'hot6', 'tylenol', 'raid_entry_ticket'].includes(item.itemId)
+      const actionButton = tooltipSource && ['bacchus', 'hot6', 'tylenol', 'raid_entry_ticket', 'hagendaz'].includes(item.itemId)
         ? `<div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" max="${item.quantity}" step="1" value="1"><button class="mini-btn" onclick="handleUseItem('${item.itemId}', '${qtyInputId}')">사용</button></div>`
         : '<span class="muted-text">상시 적용</span>';
 

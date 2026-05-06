@@ -89,6 +89,14 @@ const ITEM_DATA = {
     desc: '오늘 보스 레이드 입장 횟수 +1',
     hoverDesc: '사용 시 오늘 보스 레이드 추가 입장 횟수를 1회 늘립니다.'
   },
+  hagendaz: {
+    name: '하겐다즈',
+    price: 0,
+    type: 'consumable',
+    shopHidden: true,
+    desc: '사용 즉시 1레벨 상승',
+    hoverDesc: '사용 시 즉시 1레벨 상승하며 현재 경험치는 0으로 초기화됩니다.'
+  },
   business_card: {
     name: '명함',
     price: 0,
@@ -2894,6 +2902,11 @@ app.post('/api/inventory/use', async (req, res) => {
       syncRaidEntryState(user, now);
       user.meta.raidEntryBonusCount += useQuantity;
       queueNotification(user, 'item_use', `회의 추가 입장권 ${useQuantity}장을 사용했습니다. 오늘 보스 레이드 입장 가능 횟수가 ${useQuantity}회 증가했습니다.`);
+    } else if (itemId === 'hagendaz') {
+      user.gameState.level += useQuantity;
+      user.gameState.exp = 0;
+      user.gameState.passiveExpCarry = 0;
+      queueNotification(user, 'item_use', `하겐다즈 ${useQuantity}개를 사용해 즉시 ${useQuantity}레벨 상승했습니다.`);
     }
 
     reconcileTitles(user, now);
