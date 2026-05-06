@@ -26,11 +26,30 @@ const ITEM_DATA = {
     desc: '현재 걸린 모든 디버프 제거',
     hoverDesc: '사용 시 현재 걸려 있는 모든 디버프를 제거합니다.'
   },
+  business_card: {
+    name: '명함',
+    desc: '카드 뽑기에 사용하는 재화',
+    hoverDesc: '카드 뽑기 전용 재화입니다.'
+  },
   cat_tuna_can: {
     name: '고양이 참치캔',
     desc: '고양이에게 줄 수 있음',
     hoverDesc: '모험 중 회사 밖에서 고양이를 만났을 때 건네줄 수 있습니다.'
   }
+};
+
+const CARD_DATA = {
+  ineo_diet: { name: '이네오의 다이어트 선언', grade: 'S', color: '#c62828', skillName: '다이어트 선언', skillDesc: '돌아오는 턴에 기본 공격을 총 10회 합니다. 각 공격마다 크리티컬이 적용될 수 있습니다.', cooldown: 3, targetType: null },
+  strawberry_latte: { name: '딸기라떼', grade: 'A', color: '#f9a825', skillName: '딸기라떼', skillDesc: '다음 턴까지 지속되는 보호막 40을 파티원 전원에게 제공합니다.', cooldown: 2, targetType: null },
+  rebuttal: { name: '반박', grade: 'A', color: '#f9a825', skillName: '반박', skillDesc: '파티원 전체의 HP를 20 회복합니다.', cooldown: 2, targetType: null },
+  parking_master: { name: '멍프의 주차', grade: 'A', color: '#f9a825', skillName: '멍프의 주차', skillDesc: '돌아오는 턴에 기본 공격을 총 4회 합니다. 각 공격마다 크리티컬이 적용될 수 있습니다.', cooldown: 2, targetType: null },
+  sherlock: { name: '셜록몬드의 추리', grade: 'B', color: '#1565c0', skillName: '셜록몬드의 추리', skillDesc: '다다음 턴까지 파티원 전원의 크리티컬 확률을 50% 증가시킵니다.', cooldown: 5, targetType: null },
+  blind_date: { name: '심심이의 소개팅', grade: 'B', color: '#1565c0', skillName: '심심이의 소개팅', skillDesc: '랜덤 파티원 1명의 HP를 30 감소시키지만 다음 공격 피해를 2배로 증가시킵니다.', cooldown: 3, targetType: null },
+  fantasy: { name: '라연이의 망상', grade: 'B', color: '#1565c0', skillName: '라연이의 망상', skillDesc: '파티원 전원의 해로운 효과를 제거합니다.', cooldown: 4, targetType: null },
+  broken_leg: { name: '감자의 부러진 다리', grade: 'B', color: '#1565c0', skillName: '감자의 부러진 다리', skillDesc: '선택한 파티원 1명의 HP를 30 회복시킵니다.', cooldown: 2, targetType: 'ally' },
+  wig: { name: '김부장의 가발', grade: 'C', color: '#2e7d32', skillName: '김부장의 가발', skillDesc: '돌아오는 턴에 자신의 기본 공격을 총 3회 합니다.', cooldown: 3, targetType: null },
+  chatgpt: { name: '모래의 챗지피티', grade: 'C', color: '#2e7d32', skillName: '모래의 챗지피티', skillDesc: '돌아오는 턴에 기본공격에 더해 자신의 레벨 x 10 추가 피해를 입힙니다.', cooldown: 2, targetType: null },
+  pho: { name: '닐닐이의 쌀국수', grade: 'C', color: '#2e7d32', skillName: '닐닐이의 쌀국수', skillDesc: '랜덤 파티원 3명에게 각각 50의 보호막을 제공합니다.', cooldown: 3, targetType: null }
 };
 
 const BUFF_DATA = {
@@ -83,9 +102,12 @@ let updateInterval;
 let rankingInterval;
 let syncInterval;
 let animationInterval;
+let raidPollInterval;
 let modalResolver = null;
 let latestGlobalState = { activeShoutText: '', activeShoutKey: '' };
 let lastRenderedShoutKey = '';
+let latestRaidState = null;
+let raidCountdownVisible = false;
 
 document.addEventListener('DOMContentLoaded', () => {
   initApp();
@@ -106,6 +128,11 @@ function setupEventListeners() {
   bindClick('lupinBtn', handleLupinClick);
   bindClick('napBtn', handleNapClick);
   bindClick('fieldWorkBtn', handleFieldWorkClick);
+  bindClick('raidLobbyBtn', openRaidLobby);
+  bindClick('raidLobbyCloseBtn', closeRaidLobby);
+  bindClick('raidStartBtn', handleRaidStartClick);
+  bindClick('raidBackBtn', handleRaidBackClick);
+  bindClick('cardDrawBtn', handleCardDraw);
   bindClick('stockInvestBtn', handleStockInvest);
   bindClick('adminLogoutBtn', handleLogoutClick);
   bindClick('adminGiftBtn', handleAdminGift);
@@ -148,6 +175,7 @@ function clearIntervals() {
   if (updateInterval) clearInterval(updateInterval);
   if (rankingInterval) clearInterval(rankingInterval);
   if (syncInterval) clearInterval(syncInterval);
+  if (raidPollInterval) clearInterval(raidPollInterval);
 }
 
 function clearSessions() {
@@ -180,6 +208,24 @@ function setText(id, value) {
 function setHtml(id, value) {
   const element = document.getElementById(id);
   if (element) element.innerHTML = value;
+}
+
+function getBusinessCardCount(user) {
+  return (user.inventory || []).find((item) => item.itemId === 'business_card')?.quantity || 0;
+}
+
+function getEquippedCardDetail(user) {
+  return (user.cardDetails || []).find((card) => card.equipped) || null;
+}
+
+function hideModal(id) {
+  const element = document.getElementById(id);
+  if (element) element.classList.add('hidden');
+}
+
+function showModal(id) {
+  const element = document.getElementById(id);
+  if (element) element.classList.remove('hidden');
 }
 
 function closeDecisionModal(result = null) {
@@ -312,6 +358,8 @@ function hideAllScreens() {
   document.getElementById('nickname-screen').classList.add('hidden');
   document.getElementById('game-screen').classList.add('hidden');
   document.getElementById('admin-screen').classList.add('hidden');
+  const raidScreen = document.getElementById('raid-screen');
+  if (raidScreen) raidScreen.classList.add('hidden');
 }
 
 async function handleLoginClick(event) {
@@ -413,6 +461,8 @@ function tryAutoLogin() {
 function handleLogoutClick() {
   clearIntervals();
   closeDecisionModal();
+  hideModal('raidLobbyModal');
+  hideModal('raidCountdownOverlay');
   clearSessions();
   hideAllScreens();
 
@@ -632,6 +682,47 @@ async function handleUseItem(itemId, inputId) {
   }
 }
 
+async function handleCardDraw() {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+
+  const quantity = Math.max(1, Math.floor(Number(document.getElementById('cardDrawCount')?.value) || 1));
+  const businessCards = getBusinessCardCount(user);
+  if (businessCards < quantity) {
+    alert('명함이 부족합니다.');
+    return;
+  }
+
+  try {
+    const data = await postJson(`${API_URL}/api/cards/draw`, {
+      userId: user._id,
+      quantity
+    });
+    updateLocalUserState(data);
+    const results = (data.drawResults || [])
+      .map((card) => `[${card.grade}] ${card.name}`)
+      .join(', ');
+    setText('cardDrawStatus', results ? `이번 뽑기 결과: ${results}` : '뽑기 결과가 없습니다.');
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleToggleCardEquip(cardId) {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+
+  try {
+    const data = await postJson(`${API_URL}/api/cards/equip`, {
+      userId: user._id,
+      cardId
+    });
+    updateLocalUserState(data);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
 async function handleToggleTitle(titleId) {
   const user = getStoredUser();
   if (!user?._id) return handleLogoutClick();
@@ -678,6 +769,7 @@ function updateLocalUserState(data) {
   saveStoredUser(data.user);
   applyGlobalState(data.global);
   updateGameUI(data.user);
+  updateRaidButton(data.user, latestRaidState);
   showNotifications(data.notifications);
 }
 
@@ -724,6 +816,7 @@ function showGameScreen(user) {
   clearIntervals();
   hideAllScreens();
   document.getElementById('game-screen').classList.remove('hidden');
+  document.getElementById('raid-screen').classList.add('hidden');
   updateShoutBanner(latestGlobalState);
   updateGameUI(user);
   startAnimation();
@@ -740,6 +833,275 @@ function showGameScreen(user) {
         { value: 'no', label: '아니오' }
       ]
     });
+  }
+}
+
+function openRaidLobby() {
+  showModal('raidLobbyModal');
+  updateRaidLobbyUI(latestRaidState, getStoredUser());
+  pollRaidState();
+}
+
+function closeRaidLobby() {
+  hideModal('raidLobbyModal');
+}
+
+function handleRaidBackClick() {
+  document.getElementById('raid-screen').classList.add('hidden');
+  document.getElementById('game-screen').classList.remove('hidden');
+}
+
+function showRaidScreen() {
+  document.getElementById('game-screen').classList.add('hidden');
+  document.getElementById('raid-screen').classList.remove('hidden');
+}
+
+function updateRaidButton(user, raidState) {
+  const button = document.getElementById('raidLobbyBtn');
+  const hint = document.getElementById('raidEntryHint');
+  if (!button || !hint || !user) return;
+
+  const todayUsed = Boolean(raidState?.todayUsed);
+  const minLevelMet = Boolean(raidState?.minLevelMet);
+  const queued = Number.isInteger(raidState?.queuedSlotIndex) && raidState.queuedSlotIndex >= 0;
+
+  button.classList.toggle('waiting', queued);
+  button.textContent = queued ? '회의 참석 대기중' : '회의 참석';
+
+  if (todayUsed) {
+    button.disabled = true;
+    hint.textContent = '오늘은 이미 보스 레이드에 입장했습니다.';
+  } else if (!minLevelMet) {
+    button.disabled = true;
+    hint.textContent = '보스 레이드는 10레벨부터 입장할 수 있습니다.';
+  } else {
+    button.disabled = false;
+    hint.textContent = queued ? `현재 ${raidState.queuedSlotIndex + 1}번 슬롯에서 대기 중입니다.` : '보스 레이드 대기열에 참가할 수 있습니다.';
+  }
+}
+
+function updateRaidLobbyUI(raidState, user) {
+  const slotGrid = document.getElementById('raidSlotGrid');
+  const rewardList = document.getElementById('raidRewardList');
+  const bossName = document.getElementById('raidBossName');
+  const bossDesc = document.getElementById('raidBossDesc');
+  const startBtn = document.getElementById('raidStartBtn');
+  if (!slotGrid || !rewardList || !bossName || !bossDesc || !startBtn) return;
+
+  const lobby = raidState?.lobby;
+  bossName.textContent = lobby ? `오늘의 보스 정보: ${lobby.bossName}` : '오늘의 보스 정보';
+  bossDesc.textContent = lobby ? `${lobby.bossName} / 보스 HP 50,000 / 최소 레벨 ${lobby.minLevel}` : '';
+
+  rewardList.innerHTML = '';
+  (lobby?.rewardsText || []).forEach((rewardText) => {
+    rewardList.insertAdjacentHTML('beforeend', `<li>${escapeHtml(rewardText)}</li>`);
+  });
+
+  slotGrid.innerHTML = '';
+  const slots = raidState?.slots || Array(5).fill(null);
+  slots.forEach((slot, index) => {
+    const isSelf = slot?.userId && user && String(slot.userId) === String(user._id);
+    slotGrid.insertAdjacentHTML(
+      'beforeend',
+      `
+        <button class="raid-slot ${slot ? '' : 'empty'} ${isSelf ? 'self' : ''}" onclick="handleRaidSlotClick(${index})">
+          ${slot
+            ? `<div class="raid-slot-name">${escapeHtml(slot.displayName)}</div>
+               <div>Lv.${formatNumber(slot.level)}</div>
+               <div class="raid-slot-card">${escapeHtml(slot.equippedCardName || '장착 카드 없음')}</div>`
+            : `<div class="raid-slot-name">${index + 1}번 슬롯</div><div>클릭해 참가 대기</div>`}
+        </button>
+      `
+    );
+  });
+
+  startBtn.disabled = !raidState?.canStart;
+}
+
+function renderRaidBattle(raidState, user) {
+  const battle = raidState?.activeBattle;
+  if (!battle) return;
+
+  setText('raidScreenBossName', battle.bossName);
+  setText('raidBossTitle', battle.bossName);
+  setText('raidBossHpText', `${formatNumber(battle.bossHp)} / ${formatNumber(battle.bossMaxHp)}`);
+
+  const bossHpFill = document.getElementById('raidBossHpFill');
+  if (bossHpFill) {
+    const ratio = battle.bossMaxHp > 0 ? (battle.bossHp / battle.bossMaxHp) * 100 : 0;
+    bossHpFill.style.width = `${Math.max(0, ratio)}%`;
+  }
+
+  const battleLog = document.getElementById('raidBattleLog');
+  if (battleLog) {
+    battleLog.innerHTML = (battle.recentLogs || [])
+      .map((line) => `<div class="raid-log-line">${escapeHtml(line)}</div>`)
+      .join('');
+  }
+
+  const participantList = document.getElementById('raidParticipantList');
+  if (!participantList) return;
+  participantList.innerHTML = '';
+
+  (battle.participants || []).forEach((participant) => {
+    const hpRatio = participant.maxHp > 0 ? (participant.hp / participant.maxHp) * 100 : 0;
+    const ownControls = participant.isSelf
+      ? buildRaidSkillControls(participant, battle.participants)
+      : '';
+    participantList.insertAdjacentHTML(
+      'beforeend',
+      `
+        <div class="raid-participant-card">
+          <div class="raid-participant-header">
+            <div>
+              <strong>${escapeHtml(participant.displayName)}</strong>
+              <span class="menu-note">Lv.${formatNumber(participant.level)}</span>
+            </div>
+            <div>${escapeHtml(participant.equippedCardName || '장착 카드 없음')}</div>
+          </div>
+          <div class="raid-hp-bar"><div class="raid-hp-fill" style="width:${Math.max(0, hpRatio)}%"></div></div>
+          <div class="raid-status-text">HP ${formatNumber(participant.hp)} / ${formatNumber(participant.maxHp)}${participant.silenceTurns > 0 ? ' / 침묵' : ''}</div>
+          <div class="raid-shield-text">보호막 ${formatNumber(participant.shield || 0)}</div>
+          ${ownControls}
+        </div>
+      `
+    );
+  });
+}
+
+function buildRaidSkillControls(participant, participants) {
+  if (!participant.equippedCardId) {
+    return '<div class="raid-skill-row"><span class="muted-text">장착한 카드가 없어 기본 공격만 사용합니다.</span></div>';
+  }
+
+  const disabled = participant.hp <= 0 || participant.skillCooldown > 0;
+  const targetOptions = participant.targetType === 'ally'
+    ? participants
+      .filter((entry) => entry.hp > 0)
+      .map((entry) => `<option value="${escapeHtml(entry.userId)}" ${entry.userId === participant.plannedTargetUserId ? 'selected' : ''}>${escapeHtml(entry.displayName)}</option>`)
+      .join('')
+    : '';
+
+  return `
+    <div class="raid-skill-row">
+      <button
+        class="mini-btn"
+        ${disabled ? 'disabled' : ''}
+        title="${escapeHtml(participant.skillDesc || '')}"
+        onclick="handleRaidSkillToggle('${participant.userId}', ${participant.plannedSkill ? 'false' : 'true'})"
+      >
+        ${participant.plannedSkill ? '다음 턴 스킬 사용 예정' : '다음 턴 스킬 사용'}
+      </button>
+      <span class="menu-note">쿨다운 ${formatNumber(participant.skillCooldown)}턴</span>
+      ${participant.targetType === 'ally'
+        ? `<select id="raidTargetSelect-${escapeHtml(participant.userId)}">${targetOptions}</select>`
+        : ''}
+    </div>
+  `;
+}
+
+function updateRaidCountdown(raidState, user) {
+  const overlay = document.getElementById('raidCountdownOverlay');
+  const numberEl = document.getElementById('raidCountdownNumber');
+  if (!overlay || !numberEl) return;
+
+  const countdown = raidState?.countdown;
+  const battle = raidState?.activeBattle;
+  const isParticipant = Boolean(battle?.isParticipant);
+
+  if (countdown?.active && isParticipant && countdown.endsAt) {
+    const remainingMs = new Date(countdown.endsAt).getTime() - Date.now();
+    const remaining = Math.max(0, Math.ceil(remainingMs / 1000));
+    numberEl.textContent = String(Math.max(1, remaining));
+    showModal('raidCountdownOverlay');
+    raidCountdownVisible = true;
+    return;
+  }
+
+  if (battle?.phase === 'active' && isParticipant) {
+    hideModal('raidCountdownOverlay');
+    raidCountdownVisible = false;
+    hideModal('raidLobbyModal');
+    showRaidScreen();
+    renderRaidBattle(raidState, user);
+    return;
+  }
+
+  if (raidCountdownVisible) {
+    hideModal('raidCountdownOverlay');
+    raidCountdownVisible = false;
+  }
+}
+
+async function pollRaidState() {
+  const user = getStoredUser();
+  if (!user?._id) return;
+
+  try {
+    const data = await postJson(`${API_URL}/api/raid/state`, { userId: user._id });
+    latestRaidState = data.raid;
+    updateRaidButton(user, latestRaidState);
+    updateRaidLobbyUI(latestRaidState, user);
+    updateRaidCountdown(latestRaidState, user);
+
+    if (latestRaidState?.activeBattle?.phase === 'active' && latestRaidState.activeBattle.isParticipant) {
+      renderRaidBattle(latestRaidState, user);
+    } else if (!latestRaidState?.activeBattle && !document.getElementById('raid-screen').classList.contains('hidden')) {
+      handleRaidBackClick();
+    }
+  } catch (err) {
+    console.error('Raid state poll failed:', err);
+  }
+}
+
+async function handleRaidSlotClick(slotIndex) {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+
+  try {
+    const data = await postJson(`${API_URL}/api/raid/toggle-slot`, {
+      userId: user._id,
+      slotIndex
+    });
+    latestRaidState = data.raid;
+    updateRaidButton(user, latestRaidState);
+    updateRaidLobbyUI(latestRaidState, user);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleRaidStartClick() {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+
+  try {
+    const data = await postJson(`${API_URL}/api/raid/start`, { userId: user._id });
+    latestRaidState = data.raid;
+    updateRaidLobbyUI(latestRaidState, user);
+    updateRaidCountdown(latestRaidState, user);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleRaidSkillToggle(userId, useSkill) {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+  const targetSelect = document.getElementById(`raidTargetSelect-${userId}`);
+
+  try {
+    const data = await postJson(`${API_URL}/api/raid/plan-skill`, {
+      userId: user._id,
+      useSkill,
+      targetUserId: targetSelect?.value || null
+    });
+    if (latestRaidState) {
+      latestRaidState.activeBattle = data.raid;
+    }
+    renderRaidBattle(latestRaidState, user);
+  } catch (err) {
+    alert(err.message);
   }
 }
 
@@ -765,6 +1127,7 @@ function updateStatusUI(user) {
   setText('salaryRate', formatNumber(state.salaryPerMinute ?? 0, 2));
   setText('level', state.level);
   setText('stamina', `${formatNumber(state.stamina ?? 0, 1)}/${formatNumber(state.maxStamina ?? 0, 1)}`);
+  setText('businessCardCount', formatNumber(getBusinessCardCount(user)));
 
   const stressEl = document.getElementById('stress');
   stressEl.textContent = formatNumber(state.stress ?? 0, 2);
@@ -864,7 +1227,8 @@ function updateBuffUI(user) {
 function updateInventoryUI(user) {
   const inventoryList = document.getElementById('inventory-list');
   const titleList = document.getElementById('title-list');
-  if (!inventoryList || !titleList) return;
+  const cardList = document.getElementById('card-list');
+  if (!inventoryList || !titleList || !cardList) return;
 
   inventoryList.innerHTML = '';
   const inventory = user.inventory || [];
@@ -916,6 +1280,30 @@ function updateInventoryUI(user) {
       `
     );
   });
+
+  cardList.innerHTML = '';
+  const cardDetails = user.cardDetails || [];
+  const ownedCards = cardDetails.filter((card) => card.quantity > 0);
+  if (ownedCards.length === 0) {
+    cardList.innerHTML = '<tr><td colspan="5">아직 보유한 카드가 없습니다.</td></tr>';
+    return;
+  }
+
+  ownedCards.forEach((card) => {
+    const actionText = card.equipped ? '해제' : '장착';
+    cardList.insertAdjacentHTML(
+      'beforeend',
+      `
+        <tr>
+          <td>${escapeHtml(card.name)}</td>
+          <td><span class="grade-badge" style="background:${escapeHtml(card.color)}">${escapeHtml(card.grade)}</span></td>
+          <td>${formatNumber(card.quantity)}/3장 보유</td>
+          <td title="${escapeHtml(card.skillDesc)}">${escapeHtml(card.skillName)} (쿨 ${formatNumber(card.cooldown)}턴)</td>
+          <td><button class="mini-btn" onclick="handleToggleCardEquip('${card.id}')">${actionText}</button></td>
+        </tr>
+      `
+    );
+  });
 }
 
 function updateShopUI(user) {
@@ -924,7 +1312,7 @@ function updateShopUI(user) {
 
   shopList.innerHTML = '';
   Object.entries(ITEM_DATA).forEach(([itemId, itemInfo]) => {
-    if (itemId === 'cat_tuna_can') return;
+    if (['cat_tuna_can', 'business_card'].includes(itemId)) return;
     const price = user.shopPrices?.[itemId] ?? 0;
     const qtyInputId = `buy-qty-${itemId}`;
 
@@ -949,6 +1337,7 @@ function updateStatsTab(user) {
   const state = user.gameState || {};
   const itemStats = user.itemStats || {};
   const equippedTitle = getEquippedTitleDetail(user);
+  const equippedCard = getEquippedCardDetail(user);
   const pendingStock = user.pendingStockInvestment?.amount > 0
     ? `${formatNumber(user.pendingStockInvestment.amount)}원 투자 완료`
     : '없음';
@@ -971,6 +1360,8 @@ function updateStatsTab(user) {
     <tr><td>행동력</td><td>${formatNumber(state.stamina || 0, 1)} / ${formatNumber(state.maxStamina || 0, 1)}</td></tr>
     <tr><td>모험 행동력 소모</td><td>${formatNumber(itemStats.adventureStaminaMultiplier || 1, 1)}</td></tr>
     <tr><td>장착 칭호</td><td>${escapeHtml(equippedTitle?.name || '없음')}</td></tr>
+    <tr><td>장착 카드</td><td>${escapeHtml(equippedCard?.name || '없음')}</td></tr>
+    <tr><td>보유 명함</td><td>${formatNumber(getBusinessCardCount(user))}장</td></tr>
     <tr><td>칭호 변경 가능 여부</td><td>${escapeHtml(titleChangeStatus)}</td></tr>
     <tr><td>고양이 참치캔 누적 지급</td><td>${formatNumber(user.meta?.catFoodGivenCount || 0)}회</td></tr>
     <tr><td>주식 투자 현황</td><td>${escapeHtml(pendingStock)}</td></tr>
@@ -1071,6 +1462,9 @@ function startPeriodicUpdates() {
 
   syncUserState();
   syncInterval = setInterval(syncUserState, 5000);
+
+  pollRaidState();
+  raidPollInterval = setInterval(pollRaidState, 2000);
 }
 
 function startAnimation() {
@@ -1244,3 +1638,6 @@ window.showTab = function showTab(tabName) {
 window.handleBuyClick = handleBuyClick;
 window.handleUseItem = handleUseItem;
 window.handleToggleTitle = handleToggleTitle;
+window.handleToggleCardEquip = handleToggleCardEquip;
+window.handleRaidSlotClick = handleRaidSlotClick;
+window.handleRaidSkillToggle = handleRaidSkillToggle;

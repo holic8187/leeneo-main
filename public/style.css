@@ -247,6 +247,45 @@ progress {
   background: linear-gradient(180deg, #fcfcfc 0%, #f6f6f6 100%);
 }
 
+.animation-host {
+  position: relative;
+}
+
+.anim-display-text {
+  white-space: pre;
+  font-family: Consolas, monospace;
+  font-size: 20px;
+  line-height: 1.35;
+}
+
+.raid-entry-btn {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  padding: 8px 12px;
+  border: 1px solid #0f5e2f;
+  background: #1f7a39;
+  color: #ffe56b;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.raid-entry-btn.waiting {
+  background: #b71c1c;
+  border-color: #7f1010;
+}
+
+.raid-entry-hint {
+  position: absolute;
+  top: 48px;
+  left: 12px;
+  max-width: 180px;
+  font-size: 12px;
+  color: #666666;
+  text-align: left;
+  white-space: normal;
+}
+
 .buff-cell {
   padding: 10px;
 }
@@ -343,6 +382,199 @@ progress {
 .muted-text {
   color: var(--muted-text);
   font-size: 13px;
+}
+
+.grade-badge {
+  display: inline-block;
+  min-width: 24px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: #ffffff;
+  font-weight: bold;
+  text-align: center;
+}
+
+.raid-modal-panel {
+  width: min(900px, calc(100vw - 40px));
+}
+
+.raid-lobby-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.raid-reward-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.raid-slot-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.raid-slot {
+  min-height: 112px;
+  padding: 10px;
+  border: var(--excel-border);
+  background: #f9fbf9;
+  text-align: left;
+  cursor: pointer;
+}
+
+.raid-slot.empty {
+  color: #888888;
+}
+
+.raid-slot.self {
+  border-color: #c62828;
+  background: #fff3f3;
+}
+
+.raid-slot-name {
+  font-weight: bold;
+  margin-bottom: 6px;
+}
+
+.raid-slot-card {
+  font-size: 12px;
+  color: #555555;
+}
+
+.raid-modal-actions {
+  margin-top: 18px;
+  justify-content: flex-end;
+}
+
+.raid-countdown-number {
+  margin-top: 12px;
+  font-size: 42px;
+  font-weight: bold;
+  text-align: center;
+}
+
+.raid-screen {
+  margin-top: 16px;
+}
+
+.raid-screen-body {
+  padding: 16px;
+  display: grid;
+  gap: 18px;
+}
+
+.raid-boss-area {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+.raid-boss-portrait {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 240px;
+  border: var(--excel-border);
+  background: linear-gradient(180deg, #fff6dd 0%, #f6e2b7 100%);
+}
+
+.raid-boss-avatar {
+  width: 180px;
+  height: 180px;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 30% 30%, #ffd7a8 0%, #ffb07c 40%, #d85a3b 100%);
+  color: #5d1600;
+  font-size: 28px;
+  font-weight: bold;
+}
+
+.raid-boss-name-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.raid-boss-bar {
+  height: 18px;
+  border: var(--excel-border);
+  background: #f0d5d5;
+  overflow: hidden;
+}
+
+.raid-boss-bar-fill {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #ff6b6b 0%, #c62828 100%);
+}
+
+.raid-battle-log {
+  margin-top: 12px;
+  min-height: 180px;
+  max-height: 220px;
+  overflow-y: auto;
+  border: var(--excel-border);
+  padding: 10px;
+  background: #fafafa;
+  white-space: pre-line;
+}
+
+.raid-participant-list {
+  display: grid;
+  gap: 12px;
+}
+
+.raid-participant-card {
+  border: var(--excel-border);
+  background: #fbfbfb;
+  padding: 12px;
+}
+
+.raid-participant-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.raid-hp-bar {
+  margin-top: 8px;
+  height: 14px;
+  border: var(--excel-border);
+  background: #e4e4e4;
+  overflow: hidden;
+}
+
+.raid-hp-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #7cc56b 0%, #2e7d32 100%);
+}
+
+.raid-shield-text,
+.raid-status-text {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #555555;
+}
+
+.raid-skill-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.raid-log-line {
+  margin-bottom: 6px;
 }
 
 .error-text {

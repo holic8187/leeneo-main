@@ -35,6 +35,13 @@ const SHOPPING_ADDICT_LOSE_AFTER_DAYS = 3;
 const RICH_THRESHOLD = 5000000;
 const BEAST_HEART_UNLOCK_THRESHOLD = 2000000;
 const TITLE_CHANGE_LIMIT_DAYS = 1;
+const RAID_MIN_LEVEL = 10;
+const RAID_PARTY_SIZE = 5;
+const RAID_ACTION_DELAY_MS = 2000;
+const RAID_COUNTDOWN_SECONDS = 3;
+const RAID_DAILY_LIMIT = 1;
+const RAID_BOSS_ID = 'burp_queen';
+const RAID_POLL_VERSION_EMPTY = 0;
 
 const ITEM_DATA = {
   pen_monami: {
@@ -73,6 +80,13 @@ const ITEM_DATA = {
     type: 'consumable',
     desc: '현재 걸린 모든 디버프 제거',
     hoverDesc: '사용 시 현재 걸려 있는 모든 디버프를 제거합니다.'
+  },
+  business_card: {
+    name: '명함',
+    price: 0,
+    type: 'special',
+    desc: '카드 뽑기에 사용하는 재화',
+    hoverDesc: '카드 뽑기에서 사용하는 재화입니다.'
   },
   cat_tuna_can: {
     name: '고양이 참치캔',
@@ -173,6 +187,157 @@ const TITLE_DATA = {
     unlockDesc: '고양이에게 참치캔을 총 10번 건네주면 획득',
     baseDesc: '장착 시 매일 행동력 +2, 월급 +6%, 모험 시 행동력 소모 절반',
     effects: { staminaBonus: 2, moneyBonus: 6, adventureStaminaMultiplier: 0.5 }
+  }
+};
+
+const CARD_DATA = {
+  ineo_diet: {
+    id: 'ineo_diet',
+    name: '이네오의 다이어트 선언',
+    grade: 'S',
+    rate: 0.001,
+    skillName: '다이어트 선언',
+    skillDesc: '돌아오는 턴에 기본 공격을 총 10회 합니다. 각 공격마다 크리티컬이 적용될 수 있습니다.',
+    cooldown: 3,
+    effectType: 'self_multi_hit',
+    hits: 10
+  },
+  strawberry_latte: {
+    id: 'strawberry_latte',
+    name: '딸기라떼',
+    grade: 'A',
+    rate: 0.0096666667,
+    skillName: '딸기라떼',
+    skillDesc: '다음 턴까지 지속되는 보호막 40을 파티원 전원에게 제공합니다.',
+    cooldown: 2,
+    effectType: 'party_shield',
+    shield: 40
+  },
+  rebuttal: {
+    id: 'rebuttal',
+    name: '반박',
+    grade: 'A',
+    rate: 0.0096666667,
+    skillName: '반박',
+    skillDesc: '파티원 전체의 HP를 20 회복합니다.',
+    cooldown: 2,
+    effectType: 'party_heal',
+    heal: 20
+  },
+  parking_master: {
+    id: 'parking_master',
+    name: '멍프의 주차',
+    grade: 'A',
+    rate: 0.0096666667,
+    skillName: '멍프의 주차',
+    skillDesc: '돌아오는 턴에 기본 공격을 총 4회 합니다. 각 공격마다 크리티컬이 적용될 수 있습니다.',
+    cooldown: 2,
+    effectType: 'self_multi_hit',
+    hits: 4
+  },
+  sherlock: {
+    id: 'sherlock',
+    name: '셜록몬드의 추리',
+    grade: 'B',
+    rate: 0.075,
+    skillName: '셜록몬드의 추리',
+    skillDesc: '다다음 턴까지 파티원 전원의 크리티컬 확률을 50% 증가시킵니다.',
+    cooldown: 5,
+    effectType: 'party_crit_bonus',
+    critBonus: 0.5,
+    turns: 2
+  },
+  blind_date: {
+    id: 'blind_date',
+    name: '심심이의 소개팅',
+    grade: 'B',
+    rate: 0.075,
+    skillName: '심심이의 소개팅',
+    skillDesc: '랜덤 파티원 1명의 HP를 30 감소시키지만, 다음 턴까지 해당 파티원이 입히는 데미지가 2배로 증가합니다.',
+    cooldown: 3,
+    effectType: 'random_ally_sacrifice_buff',
+    damageMultiplier: 2,
+    selfDamage: 30
+  },
+  fantasy: {
+    id: 'fantasy',
+    name: '라연이의 망상',
+    grade: 'B',
+    rate: 0.075,
+    skillName: '라연이의 망상',
+    skillDesc: '파티원 전원의 해로운 효과를 제거합니다.',
+    cooldown: 4,
+    effectType: 'party_cleanse'
+  },
+  broken_leg: {
+    id: 'broken_leg',
+    name: '감자의 부러진 다리',
+    grade: 'B',
+    rate: 0.075,
+    skillName: '감자의 부러진 다리',
+    skillDesc: '선택한 파티원 1명의 HP를 30 회복시킵니다.',
+    cooldown: 2,
+    effectType: 'target_heal',
+    heal: 30,
+    targetType: 'ally'
+  },
+  wig: {
+    id: 'wig',
+    name: '김부장의 가발',
+    grade: 'C',
+    rate: 0.2233333333,
+    skillName: '김부장의 가발',
+    skillDesc: '돌아오는 턴에 자신의 기본 공격을 총 3회 합니다.',
+    cooldown: 3,
+    effectType: 'self_multi_hit',
+    hits: 3
+  },
+  chatgpt: {
+    id: 'chatgpt',
+    name: '모래의 챗지피티',
+    grade: 'C',
+    rate: 0.2233333333,
+    skillName: '모래의 챗지피티',
+    skillDesc: '돌아오는 턴에 기본 공격에 더해 자신의 레벨 x 10의 추가 데미지를 입힙니다.',
+    cooldown: 2,
+    effectType: 'self_bonus_damage',
+    bonusPerLevel: 10
+  },
+  pho: {
+    id: 'pho',
+    name: '닐닐이의 쌀국수',
+    grade: 'C',
+    rate: 0.2233333333,
+    skillName: '닐닐이의 쌀국수',
+    skillDesc: '랜덤 파티원 3명에게 각각 50의 보호막을 제공합니다.',
+    cooldown: 3,
+    effectType: 'random_shield',
+    shield: 50,
+    targets: 3
+  }
+};
+
+const CARD_GRADE_COLORS = {
+  S: '#c62828',
+  A: '#f9a825',
+  B: '#1565c0',
+  C: '#2e7d32'
+};
+
+const RAID_BOSS_DATA = {
+  [RAID_BOSS_ID]: {
+    id: RAID_BOSS_ID,
+    name: '트름녀',
+    maxHp: 50000,
+    imageLabel: '트름녀',
+    patternOrder: ['burp', 'ice', 'smack'],
+    rewardsText: [
+      '경험치: 10레벨 기준 현재 레벨 경험치통의 100%, 이후 레벨당 2% 감소, 50레벨 이상은 20% 고정',
+      '명함 0~2장',
+      '박카스 3~5개',
+      '모나미 볼펜 0~1개',
+      '재화 100,000원~300,000원'
+    ]
   }
 };
 
@@ -716,6 +881,63 @@ const ADVENTURE_EVENT_DEFINITIONS = [
     message: '책상 위 컵을 잘못 건드려 메모지를 버렸다. 다시 출력할 생각을 하니 한숨이 나온다.',
     reward: { type: 'money', amount: -50000 }
   }
+  ,
+  {
+    id: 'hallway_business_card',
+    location: '복도',
+    actor: '김 주임',
+    message: '복도에서 김 주임이 거래처 홍보용 명함 뭉치를 하나 건네줬다. "이거 남는 거니까 챙겨요."',
+    reward: { type: 'item', itemId: 'business_card', quantity: 1 }
+  },
+  {
+    id: 'office_business_card',
+    location: '사무실',
+    actor: '박 대리님',
+    message: '박 대리님이 명함 정리함을 털어보다가 멀쩡한 여분 명함을 몇 장 챙겨줬다.',
+    reward: { type: 'item', itemId: 'business_card', quantity: 2 }
+  },
+  {
+    id: 'elevator_business_card',
+    location: '엘레베이터',
+    actor: '대표님',
+    message: '엘레베이터 앞에서 대표님이 행사 홍보용 명함을 정리하다가 한 줌을 쥐여줬다.',
+    reward: { type: 'item', itemId: 'business_card', quantity: 1 }
+  },
+  {
+    id: 'park_business_card',
+    location: '근처 공원',
+    actor: '아무도 없음',
+    message: '벤치 밑에 떨어진 행사 명함 봉투를 발견했다. 아직 쓸 만한 카드가 남아 있다.',
+    reward: { type: 'item', itemId: 'business_card', quantity: 2 }
+  },
+  {
+    id: 'store_business_card',
+    location: '근처 편의점',
+    actor: '경비아저씨',
+    message: '경비아저씨가 근처 행사에서 남은 명함을 모아뒀다가 슬쩍 건네줬다.',
+    reward: { type: 'item', itemId: 'business_card', quantity: 1 }
+  },
+  {
+    id: 'supply_business_card',
+    location: '비품창고',
+    actor: '아무도 없음',
+    message: '비품창고 구석 박스 안에서 쓰지 않은 명함 꾸러미를 발견했다.',
+    reward: { type: 'item', itemId: 'business_card', quantity: 2 }
+  },
+  {
+    id: 'other_team_business_card',
+    location: '다른 팀 사무실',
+    actor: '신 팀장님',
+    message: '다른 팀 사무실에서 행사 준비 중이던 신 팀장님이 여유 명함을 챙겨줬다.',
+    reward: { type: 'item', itemId: 'business_card', quantity: 1 }
+  },
+  {
+    id: 'rooftop_business_card',
+    location: '옥상',
+    actor: '비둘기',
+    message: '옥상 난간에 흩날리던 행사 명함 몇 장을 주워 담았다. 이상하게 멀쩡하다.',
+    reward: { type: 'item', itemId: 'business_card', quantity: 2 }
+  }
 ];
 
 const ADMIN_GIFT_CATALOG = {
@@ -732,6 +954,12 @@ const ADMIN_GIFT_CATALOG = {
 };
 
 let activeShouts = [];
+let raidState = {
+  version: RAID_POLL_VERSION_EMPTY,
+  slots: Array(RAID_PARTY_SIZE).fill(null),
+  countdown: null,
+  activeBattle: null
+};
 
 if (!MONGO_URI) {
   console.error('MONGO_URI is not configured in .env.');
@@ -783,6 +1011,11 @@ const userSchema = new mongoose.Schema({
     itemId: { type: String, required: true },
     quantity: { type: Number, default: 1 }
   }],
+  cards: [{
+    cardId: { type: String, required: true },
+    quantity: { type: Number, default: 1 }
+  }],
+  equippedCardId: { type: String, default: null },
   buffs: [{
     buffId: { type: String, required: true },
     expiresAt: { type: Date, required: true }
@@ -805,6 +1038,7 @@ const userSchema = new mongoose.Schema({
     lastLoginAt: { type: Date, default: null },
     lastSeenAt: { type: Date, default: null },
     lastShoutAt: { type: Date, default: null },
+    lastRaidDayKey: { type: String, default: null },
     catFoodGivenCount: { type: Number, default: 0 },
     lastTitleChangeDayKey: { type: String, default: null },
     lastAdventureLog: { type: String, default: '' }
@@ -871,6 +1105,8 @@ function ensureUserDefaults(user) {
   user.gameState.lastStaminaResetTime = user.gameState.lastStaminaResetTime || new Date();
 
   if (!Array.isArray(user.inventory)) user.inventory = [];
+  if (!Array.isArray(user.cards)) user.cards = [];
+  if (!CARD_DATA[user.equippedCardId]) user.equippedCardId = null;
   if (!Array.isArray(user.buffs)) user.buffs = [];
   if (!Array.isArray(user.pendingNotifications)) user.pendingNotifications = [];
 
@@ -905,6 +1141,7 @@ function ensureUserDefaults(user) {
       lastLoginAt: null,
       lastSeenAt: null,
       lastShoutAt: null,
+      lastRaidDayKey: null,
       catFoodGivenCount: 0,
       lastTitleChangeDayKey: null,
       lastAdventureLog: ''
@@ -914,6 +1151,7 @@ function ensureUserDefaults(user) {
   user.meta.lastLoginAt = user.meta.lastLoginAt || null;
   user.meta.lastSeenAt = user.meta.lastSeenAt || null;
   user.meta.lastShoutAt = user.meta.lastShoutAt || null;
+  user.meta.lastRaidDayKey = user.meta.lastRaidDayKey || null;
   user.meta.catFoodGivenCount = Number(user.meta.catFoodGivenCount ?? 0);
   user.meta.lastTitleChangeDayKey = user.meta.lastTitleChangeDayKey || null;
   user.meta.lastAdventureLog = user.meta.lastAdventureLog || '';
@@ -977,8 +1215,16 @@ function getInventoryItem(user, itemId) {
   return user.inventory.find((item) => item.itemId === itemId);
 }
 
+function getCardEntry(user, cardId) {
+  return user.cards.find((card) => card.cardId === cardId);
+}
+
 function getInventoryQuantity(user, itemId) {
   return getInventoryItem(user, itemId)?.quantity || 0;
+}
+
+function getCardQuantity(user, cardId) {
+  return getCardEntry(user, cardId)?.quantity || 0;
 }
 
 function addItemToInventory(user, itemId, amount = 1) {
@@ -991,6 +1237,35 @@ function addItemToInventory(user, itemId, amount = 1) {
   }
 }
 
+function addCardToCollection(user, cardId, amount = 1) {
+  if (amount <= 0 || !CARD_DATA[cardId]) return;
+  const entry = getCardEntry(user, cardId);
+  if (entry) {
+    entry.quantity += amount;
+  } else {
+    user.cards.push({ cardId, quantity: amount });
+  }
+}
+
+function getEquippedCardInfo(user) {
+  return CARD_DATA[user.equippedCardId] || null;
+}
+
+function buildCardDetails(user) {
+  return Object.values(CARD_DATA).map((card) => ({
+    id: card.id,
+    name: card.name,
+    grade: card.grade,
+    color: CARD_GRADE_COLORS[card.grade] || '#666666',
+    quantity: getCardQuantity(user, card.id),
+    equipped: user.equippedCardId === card.id,
+    skillName: card.skillName,
+    skillDesc: card.skillDesc,
+    cooldown: card.cooldown,
+    targetType: card.targetType || null
+  }));
+}
+
 function removeItemFromInventory(user, itemId, amount = 1) {
   const item = getInventoryItem(user, itemId);
   if (!item || item.quantity < amount) return false;
@@ -1000,6 +1275,65 @@ function removeItemFromInventory(user, itemId, amount = 1) {
     user.inventory = user.inventory.filter((entry) => entry.itemId !== itemId);
   }
   return true;
+}
+
+function bumpRaidVersion() {
+  raidState.version += 1;
+}
+
+function findQueuedRaidSlotIndex(userId) {
+  return raidState.slots.findIndex((slotUserId) => String(slotUserId) === String(userId));
+}
+
+function clearQueuedRaidUser(userId) {
+  const slotIndex = findQueuedRaidSlotIndex(userId);
+  if (slotIndex >= 0) {
+    raidState.slots[slotIndex] = null;
+    bumpRaidVersion();
+  }
+}
+
+function isRaidAlreadyUsedToday(user, now = new Date()) {
+  return user.meta.lastRaidDayKey === getKSTDateKey(now);
+}
+
+function getRaidBossRewardRatio(level) {
+  if (level >= 50) return 0.2;
+  if (level <= 10) return 1;
+  return Math.max(0.2, 1 - ((level - 10) * 0.02));
+}
+
+function buildQueuedSlotSnapshot(user) {
+  const equippedCard = getEquippedCardInfo(user);
+  return {
+    userId: String(user._id),
+    displayName: buildDisplayName(user),
+    level: user.gameState.level,
+    equippedCardName: equippedCard?.name || '장착 카드 없음',
+    equippedCardGrade: equippedCard?.grade || null
+  };
+}
+
+function createRaidParticipantFromUser(user) {
+  return {
+    userId: String(user._id),
+    displayName: buildDisplayName(user),
+    nickname: user.nickname || user.username,
+    level: user.gameState.level,
+    maxHp: 100,
+    hp: 100,
+    shield: 0,
+    silenceTurns: 0,
+    plannedSkill: false,
+    plannedTargetUserId: null,
+    skillCooldown: 0,
+    equippedCardId: user.equippedCardId || null,
+    extraHits: 0,
+    extraDamage: 0,
+    damageMultiplierTurns: 0,
+    damageMultiplierValue: 1,
+    critBonusTurns: 0
+  };
 }
 
 function setOrRefreshBuff(user, buffId, durationMs, options = {}) {
@@ -1067,6 +1401,396 @@ function buildDisplayName(user) {
   const baseName = user.nickname || user.username;
   const titlePrefix = titleInfo ? `<${titleInfo.name}>` : '';
   return `${titlePrefix}${baseName}`;
+}
+
+function rollCardDraw() {
+  const roll = Math.random();
+  let cumulative = 0;
+  for (const card of Object.values(CARD_DATA)) {
+    cumulative += card.rate;
+    if (roll <= cumulative) return card;
+  }
+  return Object.values(CARD_DATA)[Object.values(CARD_DATA).length - 1];
+}
+
+function getRaidLobbySummary() {
+  const boss = RAID_BOSS_DATA[RAID_BOSS_ID];
+  return {
+    bossId: boss.id,
+    bossName: boss.name,
+    minLevel: RAID_MIN_LEVEL,
+    rewardsText: boss.rewardsText
+  };
+}
+
+function isRaidUserParticipant(activeBattle, userId) {
+  return Boolean(activeBattle?.participants?.some((participant) => participant.userId === String(userId)));
+}
+
+function getAliveRaidParticipants(activeBattle) {
+  return (activeBattle?.participants || []).filter((participant) => participant.hp > 0);
+}
+
+function getRaidParticipant(activeBattle, userId) {
+  return activeBattle?.participants?.find((participant) => participant.userId === String(userId)) || null;
+}
+
+function getParticipantCard(participant) {
+  return participant?.equippedCardId ? CARD_DATA[participant.equippedCardId] || null : null;
+}
+
+function applyRaidDamage(target, damage) {
+  let remainingDamage = damage;
+  if (target.shield > 0) {
+    const blocked = Math.min(target.shield, remainingDamage);
+    target.shield -= blocked;
+    remainingDamage -= blocked;
+  }
+  target.hp = Math.max(0, target.hp - remainingDamage);
+  return remainingDamage;
+}
+
+function healRaidTarget(target, amount) {
+  target.hp = Math.min(target.maxHp, target.hp + amount);
+}
+
+function cleanseRaidTarget(target) {
+  target.silenceTurns = 0;
+}
+
+function getRaidCriticalChance(participant) {
+  const baseChance = 0.1;
+  const bonus = participant.critBonusTurns > 0 ? 0.5 : 0;
+  return Math.min(1, baseChance + bonus);
+}
+
+function performRaidBasicAttack(participant, battle) {
+  const baseDamage = participant.level * 20;
+  const hitCount = Math.max(1, 1 + participant.extraHits);
+  let totalDamage = 0;
+  let critCount = 0;
+
+  for (let hit = 0; hit < hitCount; hit += 1) {
+    const isCritical = Math.random() < getRaidCriticalChance(participant);
+    const hitDamage = Math.floor(baseDamage * (isCritical ? 1.5 : 1));
+    totalDamage += hitDamage;
+    if (isCritical) critCount += 1;
+  }
+
+  totalDamage += participant.extraDamage;
+  if (participant.damageMultiplierTurns > 0) {
+    totalDamage = Math.floor(totalDamage * participant.damageMultiplierValue);
+  }
+
+  battle.bossHp = Math.max(0, battle.bossHp - totalDamage);
+  const criticalText = critCount > 0 ? ` (치명타 ${critCount}회)` : '';
+  return `${participant.displayName}의 기본 공격이 ${totalDamage.toLocaleString()} 피해를 입혔습니다.${criticalText}`;
+}
+
+function getSelectableRaidTargets(battle) {
+  return battle.participants.filter((participant) => participant.hp > 0).map((participant) => participant.userId);
+}
+
+function useRaidCardSkill(participant, battle) {
+  const card = getParticipantCard(participant);
+  if (!card) return null;
+
+  if (participant.silenceTurns > 0) {
+    participant.silenceTurns = Math.max(0, participant.silenceTurns - 1);
+    return `${participant.displayName}은(는) 침묵 상태라 스킬을 사용할 수 없습니다.`;
+  }
+
+  if (!participant.plannedSkill || participant.skillCooldown > 0) {
+    if (participant.silenceTurns > 0) {
+      participant.silenceTurns = Math.max(0, participant.silenceTurns - 1);
+    }
+    return null;
+  }
+
+  participant.skillCooldown = card.cooldown + 1;
+  participant.plannedSkill = false;
+  let logText = `${participant.displayName}이(가) ${card.name} 스킬을 사용했습니다.`;
+
+  if (card.effectType === 'self_multi_hit') {
+    participant.extraHits = Math.max(participant.extraHits, card.hits - 1);
+  } else if (card.effectType === 'party_shield') {
+    battle.participants.forEach((ally) => {
+      if (ally.hp > 0) ally.shield += card.shield;
+    });
+    logText = `${participant.displayName}이(가) ${card.name}로 파티 전원에게 보호막 ${card.shield}을 부여했습니다.`;
+  } else if (card.effectType === 'party_heal') {
+    battle.participants.forEach((ally) => {
+      if (ally.hp > 0) healRaidTarget(ally, card.heal);
+    });
+    logText = `${participant.displayName}이(가) ${card.name}로 파티 전원의 HP를 ${card.heal} 회복시켰습니다.`;
+  } else if (card.effectType === 'party_crit_bonus') {
+    battle.participants.forEach((ally) => {
+      if (ally.hp > 0) ally.critBonusTurns = Math.max(ally.critBonusTurns, card.turns);
+    });
+    logText = `${participant.displayName}이(가) ${card.name}로 파티 전원의 크리티컬 확률을 높였습니다.`;
+  } else if (card.effectType === 'random_ally_sacrifice_buff') {
+    const aliveAllies = getAliveRaidParticipants(battle);
+    if (aliveAllies.length > 0) {
+      const target = aliveAllies[Math.floor(Math.random() * aliveAllies.length)];
+      applyRaidDamage(target, card.selfDamage);
+      target.damageMultiplierTurns = 1;
+      target.damageMultiplierValue = card.damageMultiplier;
+      logText = `${participant.displayName}이(가) ${card.name}로 ${target.displayName}의 HP를 ${card.selfDamage} 줄이고 다음 공격 피해를 ${card.damageMultiplier}배로 높였습니다.`;
+    }
+  } else if (card.effectType === 'party_cleanse') {
+    battle.participants.forEach((ally) => cleanseRaidTarget(ally));
+    logText = `${participant.displayName}이(가) ${card.name}로 파티의 해로운 효과를 제거했습니다.`;
+  } else if (card.effectType === 'target_heal') {
+    const selectedTargetId = participant.plannedTargetUserId;
+    const target = getRaidParticipant(battle, selectedTargetId) || getAliveRaidParticipants(battle)[0] || participant;
+    healRaidTarget(target, card.heal);
+    logText = `${participant.displayName}이(가) ${card.name}로 ${target.displayName}의 HP를 ${card.heal} 회복시켰습니다.`;
+  } else if (card.effectType === 'self_bonus_damage') {
+    participant.extraDamage = participant.level * card.bonusPerLevel;
+  } else if (card.effectType === 'random_shield') {
+    const aliveAllies = getAliveRaidParticipants(battle);
+    const shuffled = [...aliveAllies].sort(() => Math.random() - 0.5).slice(0, Math.min(card.targets, aliveAllies.length));
+    shuffled.forEach((target) => {
+      target.shield += card.shield;
+    });
+    logText = `${participant.displayName}이(가) ${card.name}로 ${shuffled.length}명에게 보호막 ${card.shield}을 부여했습니다.`;
+  }
+
+  participant.plannedTargetUserId = null;
+  return logText;
+}
+
+function tickRaidParticipantEndOfTurn(participant) {
+  if (participant.skillCooldown > 0) participant.skillCooldown -= 1;
+  if (participant.silenceTurns > 0) participant.silenceTurns -= 1;
+  if (participant.critBonusTurns > 0) participant.critBonusTurns -= 1;
+  if (participant.damageMultiplierTurns > 0) {
+    participant.damageMultiplierTurns -= 1;
+    if (participant.damageMultiplierTurns <= 0) {
+      participant.damageMultiplierValue = 1;
+    }
+  }
+  participant.extraHits = 0;
+  participant.extraDamage = 0;
+}
+
+function performRaidBossAction(battle) {
+  const pattern = RAID_BOSS_DATA[battle.bossId].patternOrder[battle.bossPatternIndex % RAID_BOSS_DATA[battle.bossId].patternOrder.length];
+  battle.bossPatternIndex += 1;
+  const aliveParticipants = getAliveRaidParticipants(battle);
+  if (aliveParticipants.length === 0) return '트름녀가 승리의 포즈를 취했습니다.';
+
+  if (pattern === 'burp') {
+    aliveParticipants.forEach((participant) => {
+      applyRaidDamage(participant, 30);
+    });
+    return '트름녀의 트름하기! 파티 전체가 30 피해를 받았습니다.';
+  }
+
+  if (pattern === 'smack') {
+    const targetNames = [];
+    for (let count = 0; count < 4; count += 1) {
+      const currentAlive = getAliveRaidParticipants(battle);
+      if (currentAlive.length === 0) break;
+      const target = currentAlive[Math.floor(Math.random() * currentAlive.length)];
+      applyRaidDamage(target, 20);
+      targetNames.push(target.displayName);
+    }
+    return `트름녀의 쩝쩝거리기! ${targetNames.join(', ')}에게 연속 공격이 날아갔습니다.`;
+  }
+
+  if (pattern === 'ice') {
+    const targets = [...aliveParticipants]
+      .sort(() => Math.random() - 0.5)
+      .slice(0, Math.min(2, aliveParticipants.length));
+    targets.forEach((participant) => {
+      participant.silenceTurns = Math.max(participant.silenceTurns, 1);
+    });
+    return `트름녀의 얼음씹기! ${targets.map((participant) => participant.displayName).join(', ')} 이(가) 1턴 침묵에 걸렸습니다.`;
+  }
+
+  return '트름녀가 잠시 숨을 골랐습니다.';
+}
+
+function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
+  if (!activeBattle) return null;
+  return {
+    battleId: activeBattle.battleId,
+    bossId: activeBattle.bossId,
+    bossName: RAID_BOSS_DATA[activeBattle.bossId].name,
+    bossHp: activeBattle.bossHp,
+    bossMaxHp: activeBattle.bossMaxHp,
+    phase: activeBattle.phase,
+    currentTurnIndex: activeBattle.turnIndex,
+    bossPatternIndex: activeBattle.bossPatternIndex,
+    nextActionAt: activeBattle.nextActionAt,
+    countdownEndsAt: activeBattle.countdownEndsAt || null,
+    isParticipant: viewerUserId ? isRaidUserParticipant(activeBattle, viewerUserId) : false,
+    participants: activeBattle.participants.map((participant) => {
+      const card = getParticipantCard(participant);
+      return {
+        userId: participant.userId,
+        displayName: participant.displayName,
+        level: participant.level,
+        hp: participant.hp,
+        maxHp: participant.maxHp,
+        shield: participant.shield,
+        silenceTurns: participant.silenceTurns,
+        skillCooldown: participant.skillCooldown,
+        plannedSkill: participant.plannedSkill,
+        plannedTargetUserId: participant.plannedTargetUserId || null,
+        equippedCardId: participant.equippedCardId || null,
+        equippedCardName: card?.name || '장착 카드 없음',
+        equippedCardGrade: card?.grade || null,
+        skillName: card?.skillName || '',
+        skillDesc: card?.skillDesc || '',
+        targetType: card?.targetType || null,
+        isSelf: viewerUserId ? participant.userId === String(viewerUserId) : false
+      };
+    }),
+    recentLogs: activeBattle.logs.slice(-8)
+  };
+}
+
+async function buildRaidStateResponse(user, now = new Date()) {
+  await advanceRaidState(now);
+
+  const queuedUserIds = raidState.slots.filter(Boolean);
+  const queuedUsers = queuedUserIds.length
+    ? await User.find({ _id: { $in: queuedUserIds } }).select('nickname username gameState.level equippedCardId titles')
+    : [];
+  const queuedMap = new Map(queuedUsers.map((queuedUser) => [String(queuedUser._id), queuedUser]));
+
+  const slots = raidState.slots.map((slotUserId) => {
+    if (!slotUserId) return null;
+    const queuedUser = queuedMap.get(String(slotUserId));
+    if (!queuedUser) return null;
+    ensureUserDefaults(queuedUser);
+    return buildQueuedSlotSnapshot(queuedUser);
+  });
+
+  const slotIndex = findQueuedRaidSlotIndex(user._id);
+  return {
+    version: raidState.version,
+    lobby: getRaidLobbySummary(),
+    slots,
+    queuedSlotIndex: slotIndex,
+    todayUsed: isRaidAlreadyUsedToday(user, now),
+    minLevelMet: user.gameState.level >= RAID_MIN_LEVEL,
+    canStart: slotIndex === slots.findIndex(Boolean) && slotIndex !== -1 && !raidState.activeBattle,
+    countdown: raidState.activeBattle?.phase === 'countdown'
+      ? {
+          active: true,
+          endsAt: raidState.activeBattle.countdownEndsAt,
+          participantIds: raidState.activeBattle.participants.map((participant) => participant.userId)
+        }
+      : null,
+    activeBattle: buildRaidBattleSnapshot(raidState.activeBattle, user._id)
+  };
+}
+
+async function finalizeRaidBattle(activeBattle, now = new Date()) {
+  const participantIds = activeBattle.participants.map((participant) => participant.userId);
+  const users = await User.find({ _id: { $in: participantIds } });
+  const userMap = new Map(users.map((entry) => [String(entry._id), entry]));
+
+  for (const participant of activeBattle.participants) {
+    const user = userMap.get(participant.userId);
+    if (!user) continue;
+    ensureUserDefaults(user);
+    calculateOfflineGains(user, now);
+
+    if (activeBattle.winner === 'players') {
+      const rewardRatio = getRaidBossRewardRatio(participant.level);
+      const expReward = Math.floor(getRequiredExp(participant.level) * rewardRatio);
+      const businessCards = Math.floor(Math.random() * 3);
+      const bacchus = 3 + Math.floor(Math.random() * 3);
+      const monami = Math.floor(Math.random() * 2);
+      const moneyReward = 100000 + Math.floor(Math.random() * 200001);
+      user.gameState.exp += expReward;
+      checkLevelUp(user);
+      addItemToInventory(user, 'business_card', businessCards);
+      addItemToInventory(user, 'bacchus', bacchus);
+      addItemToInventory(user, 'pen_monami', monami);
+      user.gameState.money += moneyReward;
+      queueNotification(
+        user,
+        'raid_reward',
+        `보스 레이드 승리! 경험치 ${expReward.toLocaleString()}, 명함 ${businessCards}장, 박카스 ${bacchus}개, 모나미 볼펜 ${monami}개, ${moneyReward.toLocaleString()}원을 획득했습니다.`
+      );
+    } else {
+      queueNotification(user, 'raid_fail', '보스 레이드에서 패배했습니다. 이번에는 보상을 획득하지 못했습니다.');
+    }
+
+    reconcileTitles(user, now);
+    await user.save();
+  }
+
+  raidState.activeBattle = null;
+  bumpRaidVersion();
+}
+
+async function advanceRaidState(now = new Date()) {
+  const activeBattle = raidState.activeBattle;
+  if (!activeBattle) return;
+
+  let safety = 0;
+  while (raidState.activeBattle && safety < 20) {
+    safety += 1;
+
+    if (activeBattle.phase === 'countdown') {
+      if (now.getTime() < new Date(activeBattle.countdownEndsAt).getTime()) return;
+      activeBattle.phase = 'active';
+      activeBattle.nextActionAt = new Date(now.getTime() + RAID_ACTION_DELAY_MS);
+      activeBattle.logs.push('레이드가 시작되었습니다.');
+      bumpRaidVersion();
+      continue;
+    }
+
+    if (now.getTime() < new Date(activeBattle.nextActionAt).getTime()) return;
+
+    const aliveParticipants = getAliveRaidParticipants(activeBattle);
+    if (activeBattle.bossHp <= 0) {
+      activeBattle.winner = 'players';
+      break;
+    }
+    if (aliveParticipants.length === 0) {
+      activeBattle.winner = 'boss';
+      break;
+    }
+
+    if (activeBattle.turnIndex < activeBattle.participants.length) {
+      const participant = activeBattle.participants[activeBattle.turnIndex];
+      if (participant.hp > 0) {
+        const skillLog = useRaidCardSkill(participant, activeBattle);
+        if (skillLog) activeBattle.logs.push(skillLog);
+        activeBattle.logs.push(performRaidBasicAttack(participant, activeBattle));
+        tickRaidParticipantEndOfTurn(participant);
+      } else {
+        activeBattle.logs.push(`${participant.displayName}은(는) 전투 불능 상태입니다.`);
+      }
+      activeBattle.turnIndex += 1;
+    } else {
+      activeBattle.logs.push(performRaidBossAction(activeBattle));
+      activeBattle.turnIndex = 0;
+    }
+
+    if (activeBattle.bossHp <= 0) {
+      activeBattle.winner = 'players';
+      break;
+    }
+    if (getAliveRaidParticipants(activeBattle).length === 0) {
+      activeBattle.winner = 'boss';
+      break;
+    }
+
+    activeBattle.nextActionAt = new Date(new Date(activeBattle.nextActionAt).getTime() + RAID_ACTION_DELAY_MS);
+    bumpRaidVersion();
+  }
+
+  if (raidState.activeBattle?.winner) {
+    await finalizeRaidBattle(raidState.activeBattle, now);
+  }
 }
 
 function unlockTitle(user, titleId) {
@@ -1424,6 +2148,9 @@ function buildGameStateResponse(user, now = new Date()) {
     workHours: user.workHours,
     gameState,
     inventory: user.inventory,
+    cards: user.cards,
+    equippedCardId: user.equippedCardId,
+    cardDetails: buildCardDetails(user),
     buffs: user.buffs,
     titles: user.titles,
     titleDetails: buildTitleDetails(user, now),
@@ -1433,6 +2160,7 @@ function buildGameStateResponse(user, now = new Date()) {
     meta: {
       loginCount: user.meta.loginCount,
       lastShoutAt: user.meta.lastShoutAt,
+      lastRaidDayKey: user.meta.lastRaidDayKey,
       catFoodGivenCount: user.meta.catFoodGivenCount,
       lastTitleChangeDayKey: user.meta.lastTitleChangeDayKey,
       lastAdventureLog: user.meta.lastAdventureLog
@@ -2012,15 +2740,18 @@ app.post('/api/action/stock', async (req, res) => {
       return res.status(400).json({ msg: '보유 자산보다 많은 금액은 투자할 수 없습니다.' });
     }
 
+    const actualInvestAmount = investAmount >= Math.max(0, Math.floor(user.gameState.money) - 1000)
+      ? user.gameState.money
+      : investAmount;
     const moneyBeforeInvestment = user.gameState.money;
-    user.gameState.money -= investAmount;
+    user.gameState.money -= actualInvestAmount;
     user.pendingStockInvestment = {
-      amount: investAmount,
+      amount: actualInvestAmount,
       investedOn: getKSTDateKey(now)
     };
     user.gameState.lastActionTime = now;
 
-    if (moneyBeforeInvestment >= BEAST_HEART_UNLOCK_THRESHOLD && investAmount >= moneyBeforeInvestment * 0.9) {
+    if (moneyBeforeInvestment >= BEAST_HEART_UNLOCK_THRESHOLD && actualInvestAmount >= moneyBeforeInvestment * 0.9) {
       unlockTitle(user, 'beast_heart');
     }
 
@@ -2151,6 +2882,238 @@ app.post('/api/title/toggle', async (req, res) => {
     res.json(response);
   } catch (err) {
     console.error('Title toggle error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/cards/draw', async (req, res) => {
+  const { userId, quantity } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+  const drawCount = Math.max(1, Math.floor(Number(quantity) || 1));
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+
+    const now = new Date();
+    calculateOfflineGains(user, now);
+
+    if (!removeItemFromInventory(user, 'business_card', drawCount)) {
+      return res.status(400).json({ msg: '명함이 부족합니다.' });
+    }
+
+    const results = [];
+    for (let drawIndex = 0; drawIndex < drawCount; drawIndex += 1) {
+      const card = rollCardDraw();
+      addCardToCollection(user, card.id, 1);
+      results.push({
+        id: card.id,
+        name: card.name,
+        grade: card.grade,
+        color: CARD_GRADE_COLORS[card.grade]
+      });
+    }
+
+    user.gameState.lastActionTime = now;
+    const response = await buildUserResponseWithGlobals(user, now);
+    response.drawResults = results;
+    await user.save();
+    res.json(response);
+  } catch (err) {
+    console.error('Card draw error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/cards/equip', async (req, res) => {
+  const { userId, cardId } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+
+    const now = new Date();
+    calculateOfflineGains(user, now);
+
+    if (cardId && getCardQuantity(user, cardId) <= 0) {
+      return res.status(400).json({ msg: '보유하지 않은 카드입니다.' });
+    }
+
+    user.equippedCardId = user.equippedCardId === cardId ? null : (cardId || null);
+    const response = await buildUserResponseWithGlobals(user, now);
+    await user.save();
+    res.json(response);
+  } catch (err) {
+    console.error('Card equip error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/raid/state', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    ensureUserDefaults(user);
+    const raid = await buildRaidStateResponse(user, new Date());
+    res.json({ raid });
+  } catch (err) {
+    console.error('Raid state error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/raid/toggle-slot', async (req, res) => {
+  const { userId, slotIndex } = req.body;
+  const targetSlot = Math.max(0, Math.min(RAID_PARTY_SIZE - 1, Math.floor(Number(slotIndex))));
+  if (!userId || Number.isNaN(targetSlot)) {
+    return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+  }
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    const now = new Date();
+    calculateOfflineGains(user, now);
+
+    if (raidState.activeBattle) {
+      return res.status(400).json({ msg: '이미 레이드가 진행 중입니다.' });
+    }
+    if (user.gameState.level < RAID_MIN_LEVEL) {
+      return res.status(400).json({ msg: `레이드는 ${RAID_MIN_LEVEL}레벨부터 입장할 수 있습니다.` });
+    }
+    if (isRaidAlreadyUsedToday(user, now)) {
+      return res.status(400).json({ msg: '오늘은 이미 레이드에 입장했습니다. 내일 다시 시도해주세요.' });
+    }
+
+    const existingSlot = findQueuedRaidSlotIndex(user._id);
+    if (existingSlot === targetSlot) {
+      raidState.slots[targetSlot] = null;
+      bumpRaidVersion();
+    } else {
+      if (raidState.slots[targetSlot] && String(raidState.slots[targetSlot]) !== String(user._id)) {
+        return res.status(400).json({ msg: '이미 다른 플레이어가 대기 중인 슬롯입니다.' });
+      }
+      if (existingSlot >= 0) {
+        raidState.slots[existingSlot] = null;
+      }
+      raidState.slots[targetSlot] = String(user._id);
+      bumpRaidVersion();
+    }
+
+    const raid = await buildRaidStateResponse(user, now);
+    res.json({ raid });
+  } catch (err) {
+    console.error('Raid slot toggle error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/raid/start', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+
+  try {
+    const starter = await User.findById(userId);
+    if (!starter) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    const now = new Date();
+    calculateOfflineGains(starter, now);
+
+    if (raidState.activeBattle) {
+      return res.status(400).json({ msg: '이미 레이드가 진행 중입니다.' });
+    }
+
+    const leftMostIndex = raidState.slots.findIndex(Boolean);
+    if (leftMostIndex === -1 || String(raidState.slots[leftMostIndex]) !== String(userId)) {
+      return res.status(403).json({ msg: '가장 왼쪽 슬롯의 플레이어만 입장 버튼을 누를 수 있습니다.' });
+    }
+
+    const participantIds = raidState.slots.filter(Boolean);
+    const users = await User.find({ _id: { $in: participantIds } });
+    const userMap = new Map(users.map((user) => [String(user._id), user]));
+    const participants = [];
+
+    for (const participantId of participantIds) {
+      const user = userMap.get(String(participantId));
+      if (!user) continue;
+      ensureUserDefaults(user);
+      calculateOfflineGains(user, now);
+      if (user.gameState.level < RAID_MIN_LEVEL) {
+        return res.status(400).json({ msg: `${user.nickname || user.username} 님의 레벨이 부족합니다.` });
+      }
+      if (isRaidAlreadyUsedToday(user, now)) {
+        return res.status(400).json({ msg: `${user.nickname || user.username} 님은 오늘 이미 레이드에 참여했습니다.` });
+      }
+      user.meta.lastRaidDayKey = getKSTDateKey(now);
+      participants.push(createRaidParticipantFromUser(user));
+      await user.save();
+    }
+
+    starter.meta.lastRaidDayKey = getKSTDateKey(now);
+
+    raidState.activeBattle = {
+      battleId: `raid-${Date.now()}`,
+      bossId: RAID_BOSS_ID,
+      bossHp: RAID_BOSS_DATA[RAID_BOSS_ID].maxHp,
+      bossMaxHp: RAID_BOSS_DATA[RAID_BOSS_ID].maxHp,
+      participants,
+      phase: 'countdown',
+      countdownEndsAt: new Date(now.getTime() + (RAID_COUNTDOWN_SECONDS * 1000)),
+      nextActionAt: new Date(now.getTime() + (RAID_COUNTDOWN_SECONDS * 1000)),
+      turnIndex: 0,
+      bossPatternIndex: 0,
+      logs: ['레이드가 곧 시작됩니다. 3, 2, 1'],
+      winner: null
+    };
+    raidState.slots = Array(RAID_PARTY_SIZE).fill(null);
+    bumpRaidVersion();
+
+    const raid = await buildRaidStateResponse(starter, now);
+    res.json({ raid });
+  } catch (err) {
+    console.error('Raid start error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/raid/plan-skill', async (req, res) => {
+  const { userId, useSkill, targetUserId } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+
+  try {
+    await advanceRaidState(new Date());
+    if (!raidState.activeBattle || raidState.activeBattle.phase === 'finished') {
+      return res.status(400).json({ msg: '진행 중인 레이드가 없습니다.' });
+    }
+
+    const participant = getRaidParticipant(raidState.activeBattle, userId);
+    if (!participant) {
+      return res.status(403).json({ msg: '현재 레이드 참가자가 아닙니다.' });
+    }
+
+    const card = getParticipantCard(participant);
+    if (!card) {
+      return res.status(400).json({ msg: '장착한 카드가 없습니다.' });
+    }
+
+    if (card.targetType === 'ally' && targetUserId) {
+      const selectableTargets = getSelectableRaidTargets(raidState.activeBattle);
+      if (!selectableTargets.includes(String(targetUserId))) {
+        return res.status(400).json({ msg: '선택할 수 없는 대상입니다.' });
+      }
+      participant.plannedTargetUserId = String(targetUserId);
+    } else if (!useSkill) {
+      participant.plannedTargetUserId = null;
+    }
+
+    participant.plannedSkill = Boolean(useSkill);
+    bumpRaidVersion();
+    res.json({ raid: buildRaidBattleSnapshot(raidState.activeBattle, userId) });
+  } catch (err) {
+    console.error('Raid skill plan error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
   }
 });
