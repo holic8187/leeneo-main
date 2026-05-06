@@ -26,6 +26,12 @@ const ITEM_DATA = {
     desc: '현재 걸린 모든 디버프 제거',
     hoverDesc: '사용 시 현재 걸려 있는 모든 디버프를 제거합니다.'
   },
+  raid_entry_ticket: {
+    name: '회의 추가 입장권',
+    desc: '오늘 보스 레이드 입장 횟수 +1',
+    hoverDesc: '사용 시 오늘 보스 레이드 추가 입장 가능 횟수가 1회 증가합니다.',
+    shopHidden: true
+  },
   business_card: {
     name: '명함',
     desc: '카드 뽑기에 사용하는 재화',
@@ -83,8 +89,8 @@ const BUFF_DATA = {
 const animations = [
   [
     '   O\n  /|\\\\   [PC]\n  / \\\\',
-    '  \\O\n   |\\\\   [PC]\n  / \\\\',
-    '   O/\n  /|    [PC]\n  / \\\\'
+    '   O\n  /|>   [PC]\n  / \\\\',
+    '   O\n  <|\\\\   [PC]\n  / \\\\'
   ],
   [
     '   O\n  /|\\\\   [서류]\n  / \\\\',
@@ -137,6 +143,7 @@ function setupEventListeners() {
   bindClick('adminLogoutBtn', handleLogoutClick);
   bindClick('adminGiftBtn', handleAdminGift);
   bindClick('adminDeleteUserBtn', handleAdminDeleteUser);
+  bindClick('adminSetLevelBtn', handleAdminSetLevel);
 
   const giftType = document.getElementById('giftTypeSelect');
   if (giftType) {
@@ -864,6 +871,7 @@ function updateRaidButton(user, raidState) {
   const todayUsed = Boolean(raidState?.todayUsed);
   const minLevelMet = Boolean(raidState?.minLevelMet);
   const queued = Number.isInteger(raidState?.queuedSlotIndex) && raidState.queuedSlotIndex >= 0;
+  const remainingEntries = Number(raidState?.remainingEntries ?? 0);
 
   button.classList.toggle('waiting', queued);
   button.textContent = queued ? '회의 참석 대기중' : '회의 참석';
@@ -876,7 +884,9 @@ function updateRaidButton(user, raidState) {
     hint.textContent = '보스 레이드는 10레벨부터 입장할 수 있습니다.';
   } else {
     button.disabled = false;
-    hint.textContent = queued ? `현재 ${raidState.queuedSlotIndex + 1}번 슬롯에서 대기 중입니다.` : '보스 레이드 대기열에 참가할 수 있습니다.';
+    hint.textContent = queued
+      ? `현재 ${raidState.queuedSlotIndex + 1}번 슬롯에서 대기 중입니다. 오늘 남은 입장 가능 횟수 ${remainingEntries}회`
+      : `보스 레이드 대기열에 참가할 수 있습니다. 오늘 남은 입장 가능 횟수 ${remainingEntries}회`;
   }
 }
 
@@ -1242,7 +1252,7 @@ function updateInventoryUI(user) {
       const desc = tooltipSource?.hoverDesc || '';
       const shortDesc = tooltipSource?.desc || '';
       const qtyInputId = `use-qty-${item.itemId}`;
-      const actionButton = tooltipSource && ['bacchus', 'hot6', 'tylenol'].includes(item.itemId)
+      const actionButton = tooltipSource && ['bacchus', 'hot6', 'tylenol', 'raid_entry_ticket'].includes(item.itemId)
         ? `<div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" max="${item.quantity}" step="1" value="1"><button class="mini-btn" onclick="handleUseItem('${item.itemId}', '${qtyInputId}')">사용</button></div>`
         : '<span class="muted-text">상시 적용</span>';
 
@@ -1312,7 +1322,7 @@ function updateShopUI(user) {
 
   shopList.innerHTML = '';
   Object.entries(ITEM_DATA).forEach(([itemId, itemInfo]) => {
-    if (['cat_tuna_can', 'business_card'].includes(itemId)) return;
+    if (['cat_tuna_can', 'business_card'].includes(itemId) || itemInfo.shopHidden) return;
     const price = user.shopPrices?.[itemId] ?? 0;
     const qtyInputId = `buy-qty-${itemId}`;
 
@@ -1515,16 +1525,22 @@ async function loadAdminUsers() {
 function renderAdminUsers(users) {
   const giftSelect = document.getElementById('giftTargetSelect');
   const deleteSelect = document.getElementById('deleteTargetSelect');
-  if (!giftSelect || !deleteSelect) return;
+  const levelSelect = document.getElementById('levelTargetSelect');
+  if (!giftSelect || !deleteSelect || !levelSelect) return;
 
   giftSelect.innerHTML = '<option value="ALL_USERS">전체 유저</option>';
   deleteSelect.innerHTML = '<option value="">삭제할 유저 선택</option>';
+  levelSelect.innerHTML = '<option value="">레벨 조정할 유저 선택</option>';
   users.forEach((user) => {
     giftSelect.insertAdjacentHTML(
       'beforeend',
       `<option value="${escapeHtml(user.id)}">${escapeHtml(user.label)}</option>`
     );
     deleteSelect.insertAdjacentHTML(
+      'beforeend',
+      `<option value="${escapeHtml(user.id)}">${escapeHtml(user.label)}</option>`
+    );
+    levelSelect.insertAdjacentHTML(
       'beforeend',
       `<option value="${escapeHtml(user.id)}">${escapeHtml(user.label)}</option>`
     );
@@ -1614,6 +1630,40 @@ async function handleAdminDeleteUser() {
     await loadAdminUsers();
     setText('adminStatus', `${data.deletedLabel} 계정을 삭제했습니다.`);
     alert(`${data.deletedLabel} 계정을 삭제했습니다.`);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleAdminSetLevel() {
+  const session = getStoredAdmin();
+  if (!session?.token) return handleLogoutClick();
+
+  const targetSelect = document.getElementById('levelTargetSelect');
+  const levelInput = document.getElementById('levelValueInput');
+  if (!targetSelect?.value) {
+    alert('레벨을 조정할 유저를 선택해주세요.');
+    return;
+  }
+
+  const targetLevel = Math.max(1, Math.floor(Number(levelInput?.value) || 1));
+  const selectedLabel = targetSelect.options[targetSelect.selectedIndex]?.textContent || '선택한 유저';
+  if (!confirm(`${selectedLabel}의 레벨을 ${targetLevel}(으)로 변경하시겠습니까? 현재 경험치는 0으로 초기화됩니다.`)) {
+    return;
+  }
+
+  try {
+    const data = await postJson(
+      `${API_URL}/api/admin/set-level`,
+      {
+        targetUserId: targetSelect.value,
+        level: targetLevel
+      },
+      getAdminAuthHeaders()
+    );
+
+    setText('adminStatus', `${data.updatedLabel} 레벨을 ${data.level}(으)로 변경했습니다.`);
+    alert(`${data.updatedLabel} 레벨을 ${data.level}(으)로 변경했습니다.`);
   } catch (err) {
     alert(err.message);
   }

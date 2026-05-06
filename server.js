@@ -81,6 +81,14 @@ const ITEM_DATA = {
     desc: '현재 걸린 모든 디버프 제거',
     hoverDesc: '사용 시 현재 걸려 있는 모든 디버프를 제거합니다.'
   },
+  raid_entry_ticket: {
+    name: '회의 추가 입장권',
+    price: 0,
+    type: 'consumable',
+    shopHidden: true,
+    desc: '오늘 보스 레이드 입장 횟수 +1',
+    hoverDesc: '사용 시 오늘 보스 레이드 추가 입장 횟수를 1회 늘립니다.'
+  },
   business_card: {
     name: '명함',
     price: 0,
@@ -1039,6 +1047,9 @@ const userSchema = new mongoose.Schema({
     lastSeenAt: { type: Date, default: null },
     lastShoutAt: { type: Date, default: null },
     lastRaidDayKey: { type: String, default: null },
+    raidEntryDayKey: { type: String, default: null },
+    raidEntryUsedCount: { type: Number, default: 0 },
+    raidEntryBonusCount: { type: Number, default: 0 },
     catFoodGivenCount: { type: Number, default: 0 },
     lastTitleChangeDayKey: { type: String, default: null },
     lastAdventureLog: { type: String, default: '' }
@@ -1142,6 +1153,9 @@ function ensureUserDefaults(user) {
       lastSeenAt: null,
       lastShoutAt: null,
       lastRaidDayKey: null,
+      raidEntryDayKey: null,
+      raidEntryUsedCount: 0,
+      raidEntryBonusCount: 0,
       catFoodGivenCount: 0,
       lastTitleChangeDayKey: null,
       lastAdventureLog: ''
@@ -1152,6 +1166,9 @@ function ensureUserDefaults(user) {
   user.meta.lastSeenAt = user.meta.lastSeenAt || null;
   user.meta.lastShoutAt = user.meta.lastShoutAt || null;
   user.meta.lastRaidDayKey = user.meta.lastRaidDayKey || null;
+  user.meta.raidEntryDayKey = user.meta.raidEntryDayKey || null;
+  user.meta.raidEntryUsedCount = Number(user.meta.raidEntryUsedCount ?? 0);
+  user.meta.raidEntryBonusCount = Number(user.meta.raidEntryBonusCount ?? 0);
   user.meta.catFoodGivenCount = Number(user.meta.catFoodGivenCount ?? 0);
   user.meta.lastTitleChangeDayKey = user.meta.lastTitleChangeDayKey || null;
   user.meta.lastAdventureLog = user.meta.lastAdventureLog || '';
@@ -1293,8 +1310,39 @@ function clearQueuedRaidUser(userId) {
   }
 }
 
+function syncRaidEntryState(user, now = new Date()) {
+  const todayKey = getKSTDateKey(now);
+  const legacyUsedToday = user.meta.lastRaidDayKey === todayKey ? 1 : 0;
+
+  if (user.meta.raidEntryDayKey !== todayKey) {
+    user.meta.raidEntryDayKey = todayKey;
+    user.meta.raidEntryUsedCount = legacyUsedToday;
+    user.meta.raidEntryBonusCount = 0;
+    return;
+  }
+
+  user.meta.raidEntryUsedCount = Math.max(user.meta.raidEntryUsedCount, legacyUsedToday);
+}
+
+function getRaidEntryLimit(user, now = new Date()) {
+  syncRaidEntryState(user, now);
+  return RAID_DAILY_LIMIT + Math.max(0, Number(user.meta.raidEntryBonusCount || 0));
+}
+
+function getRaidRemainingEntries(user, now = new Date()) {
+  syncRaidEntryState(user, now);
+  return Math.max(0, getRaidEntryLimit(user, now) - Math.max(0, Number(user.meta.raidEntryUsedCount || 0)));
+}
+
 function isRaidAlreadyUsedToday(user, now = new Date()) {
-  return user.meta.lastRaidDayKey === getKSTDateKey(now);
+  return getRaidRemainingEntries(user, now) <= 0;
+}
+
+function consumeRaidEntry(user, now = new Date()) {
+  if (isRaidAlreadyUsedToday(user, now)) return false;
+  user.meta.raidEntryUsedCount += 1;
+  user.meta.lastRaidDayKey = getKSTDateKey(now);
+  return true;
 }
 
 function getRaidBossRewardRatio(level) {
@@ -1368,7 +1416,7 @@ function getItemPrice(user, itemId) {
 function getShopPricesForUser(user) {
   const prices = {};
   for (const itemId of Object.keys(ITEM_DATA)) {
-    if (ITEM_DATA[itemId].type === 'special') continue;
+    if (ITEM_DATA[itemId].type === 'special' || ITEM_DATA[itemId].shopHidden) continue;
     prices[itemId] = getItemPrice(user, itemId);
   }
   return prices;
@@ -1676,6 +1724,7 @@ async function buildRaidStateResponse(user, now = new Date()) {
     slots,
     queuedSlotIndex: slotIndex,
     todayUsed: isRaidAlreadyUsedToday(user, now),
+    remainingEntries: getRaidRemainingEntries(user, now),
     minLevelMet: user.gameState.level >= RAID_MIN_LEVEL,
     canStart: slotIndex === slots.findIndex(Boolean) && slotIndex !== -1 && !raidState.activeBattle,
     countdown: raidState.activeBattle?.phase === 'countdown'
@@ -2161,6 +2210,9 @@ function buildGameStateResponse(user, now = new Date()) {
       loginCount: user.meta.loginCount,
       lastShoutAt: user.meta.lastShoutAt,
       lastRaidDayKey: user.meta.lastRaidDayKey,
+      raidEntryDayKey: user.meta.raidEntryDayKey,
+      raidEntryUsedCount: user.meta.raidEntryUsedCount,
+      raidEntryBonusCount: user.meta.raidEntryBonusCount,
       catFoodGivenCount: user.meta.catFoodGivenCount,
       lastTitleChangeDayKey: user.meta.lastTitleChangeDayKey,
       lastAdventureLog: user.meta.lastAdventureLog
@@ -2838,6 +2890,10 @@ app.post('/api/inventory/use', async (req, res) => {
     } else if (itemId === 'tylenol') {
       removeAllDebuffs(user);
       queueNotification(user, 'item_use', `타이레놀을 ${useQuantity}정 사용했습니다. 현재 걸려 있는 모든 디버프를 제거했습니다.`);
+    } else if (itemId === 'raid_entry_ticket') {
+      syncRaidEntryState(user, now);
+      user.meta.raidEntryBonusCount += useQuantity;
+      queueNotification(user, 'item_use', `회의 추가 입장권 ${useQuantity}장을 사용했습니다. 오늘 보스 레이드 입장 가능 횟수가 ${useQuantity}회 증가했습니다.`);
     }
 
     reconcileTitles(user, now);
@@ -3044,15 +3100,12 @@ app.post('/api/raid/start', async (req, res) => {
       if (user.gameState.level < RAID_MIN_LEVEL) {
         return res.status(400).json({ msg: `${user.nickname || user.username} 님의 레벨이 부족합니다.` });
       }
-      if (isRaidAlreadyUsedToday(user, now)) {
+      if (!consumeRaidEntry(user, now)) {
         return res.status(400).json({ msg: `${user.nickname || user.username} 님은 오늘 이미 레이드에 참여했습니다.` });
       }
-      user.meta.lastRaidDayKey = getKSTDateKey(now);
       participants.push(createRaidParticipantFromUser(user));
       await user.save();
     }
-
-    starter.meta.lastRaidDayKey = getKSTDateKey(now);
 
     raidState.activeBattle = {
       battleId: `raid-${Date.now()}`,
@@ -3299,6 +3352,47 @@ app.post('/api/admin/delete-user', async (req, res) => {
     });
   } catch (err) {
     console.error('Admin delete user error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/admin/set-level', async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+
+  const { targetUserId, level } = req.body;
+  const targetLevel = Math.max(1, Math.floor(Number(level) || 1));
+  if (!targetUserId) {
+    return res.status(400).json({ msg: '대상 사용자 ID가 필요합니다.' });
+  }
+
+  try {
+    const user = await User.findById(targetUserId);
+    if (!user) {
+      return res.status(404).json({ msg: '대상 사용자를 찾을 수 없습니다.' });
+    }
+
+    const now = new Date();
+    ensureUserDefaults(user);
+    calculateOfflineGains(user, now);
+
+    user.gameState.level = targetLevel;
+    user.gameState.exp = 0;
+    user.gameState.passiveExpCarry = 0;
+    user.gameState.moneyCarry = Number(user.gameState.moneyCarry || 0);
+    user.gameState.maxStamina = 10;
+    user.gameState.stamina = Math.min(getEffectiveMaxStamina(user, now), user.gameState.stamina);
+    reconcileTitles(user, now);
+    queueNotification(user, 'admin_level', `운영자가 당신의 레벨을 ${targetLevel}(으)로 조정했습니다.`);
+
+    await user.save();
+
+    res.json({
+      success: true,
+      updatedLabel: user.nickname ? `${user.nickname} (${user.username})` : user.username,
+      level: targetLevel
+    });
+  } catch (err) {
+    console.error('Admin set level error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
   }
 });

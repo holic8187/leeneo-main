@@ -60,6 +60,16 @@
           <button id="adminDeleteUserBtn" class="menu-action-btn">선택 유저 삭제</button>
           <p class="menu-note">삭제 즉시 계정 데이터가 제거되며 복구할 수 없습니다.</p>
         </div>
+
+        <div class="admin-card">
+          <h3>레벨 조정</h3>
+          <label for="levelTargetSelect">대상 유저</label>
+          <select id="levelTargetSelect"></select>
+          <label for="levelValueInput">설정할 레벨</label>
+          <input type="number" id="levelValueInput" min="1" step="1" value="1">
+          <button id="adminSetLevelBtn" class="menu-action-btn">레벨 적용</button>
+          <p class="menu-note">적용 시 해당 유저의 현재 경험치는 0으로 초기화됩니다.</p>
+        </div>
       </div>
     </div>
   </div>

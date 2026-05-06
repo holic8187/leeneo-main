@@ -260,13 +260,16 @@ progress {
 
 .raid-entry-btn {
   position: absolute;
-  top: 12px;
-  left: 12px;
-  padding: 8px 12px;
+  top: 10px;
+  left: 10px;
+  padding: 5px 10px;
   border: 1px solid #0f5e2f;
   background: #1f7a39;
   color: #ffe56b;
   font-weight: bold;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.2;
   cursor: pointer;
 }
 
@@ -277,10 +280,11 @@ progress {
 
 .raid-entry-hint {
   position: absolute;
-  top: 48px;
-  left: 12px;
-  max-width: 180px;
+  top: 42px;
+  left: 10px;
+  max-width: 150px;
   font-size: 12px;
+  line-height: 1.25;
   color: #666666;
   text-align: left;
   white-space: normal;
