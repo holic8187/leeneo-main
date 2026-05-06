@@ -1379,6 +1379,8 @@ function createRaidParticipantFromUser(user) {
     maxHp: 100,
     hp: 100,
     shield: 0,
+    lastHpLoss: 0,
+    lastShieldLoss: 0,
     silenceTurns: 0,
     plannedSkill: false,
     plannedTargetUserId: null,
@@ -1497,12 +1499,15 @@ function getParticipantCard(participant) {
 
 function applyRaidDamage(target, damage) {
   let remainingDamage = damage;
+  let blocked = 0;
   if (target.shield > 0) {
-    const blocked = Math.min(target.shield, remainingDamage);
+    blocked = Math.min(target.shield, remainingDamage);
     target.shield -= blocked;
     remainingDamage -= blocked;
   }
   target.hp = Math.max(0, target.hp - remainingDamage);
+  target.lastShieldLoss = blocked;
+  target.lastHpLoss = remainingDamage;
   return remainingDamage;
 }
 
@@ -1539,6 +1544,7 @@ function performRaidBasicAttack(participant, battle) {
   }
 
   battle.bossHp = Math.max(0, battle.bossHp - totalDamage);
+  battle.bossLastHpLoss = totalDamage;
   const criticalText = critCount > 0 ? ` (치명타 ${critCount}회)` : '';
   return `${participant.displayName}의 기본 공격이 ${totalDamage.toLocaleString()} 피해를 입혔습니다.${criticalText}`;
 }
@@ -1658,11 +1664,12 @@ function performRaidBossAction(battle) {
   if (pattern === 'ice') {
     const targets = [...aliveParticipants]
       .sort(() => Math.random() - 0.5)
-      .slice(0, Math.min(2, aliveParticipants.length));
+      .slice(0, Math.min(3, aliveParticipants.length));
     targets.forEach((participant) => {
+      applyRaidDamage(participant, 30);
       participant.silenceTurns = Math.max(participant.silenceTurns, 1);
     });
-    return `트름녀의 얼음씹기! ${targets.map((participant) => participant.displayName).join(', ')} 이(가) 1턴 침묵에 걸렸습니다.`;
+    return `트름녀의 얼음씹기! ${targets.map((participant) => participant.displayName).join(', ')} 이(가) 30 피해를 받고 1턴 침묵에 걸렸습니다.`;
   }
 
   return '트름녀가 잠시 숨을 골랐습니다.';
@@ -1676,6 +1683,7 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
     bossName: RAID_BOSS_DATA[activeBattle.bossId].name,
     bossHp: activeBattle.bossHp,
     bossMaxHp: activeBattle.bossMaxHp,
+    bossLastHpLoss: activeBattle.bossLastHpLoss || 0,
     phase: activeBattle.phase,
     currentTurnIndex: activeBattle.turnIndex,
     bossPatternIndex: activeBattle.bossPatternIndex,
@@ -1691,6 +1699,8 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
         hp: participant.hp,
         maxHp: participant.maxHp,
         shield: participant.shield,
+        lastHpLoss: participant.lastHpLoss || 0,
+        lastShieldLoss: participant.lastShieldLoss || 0,
         silenceTurns: participant.silenceTurns,
         skillCooldown: participant.skillCooldown,
         plannedSkill: participant.plannedSkill,
@@ -3128,6 +3138,7 @@ app.post('/api/raid/start', async (req, res) => {
       bossId: RAID_BOSS_ID,
       bossHp: RAID_BOSS_DATA[RAID_BOSS_ID].maxHp,
       bossMaxHp: RAID_BOSS_DATA[RAID_BOSS_ID].maxHp,
+      bossLastHpLoss: 0,
       participants,
       phase: 'countdown',
       countdownEndsAt: new Date(now.getTime() + (RAID_COUNTDOWN_SECONDS * 1000)),

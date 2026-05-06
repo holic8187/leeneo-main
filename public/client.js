@@ -581,9 +581,8 @@ async function handleAdventureClick() {
     const latestUser = getStoredUser();
     if (latestUser) {
       updateShoutStatus(latestUser);
-    } else if (btn) {
-      btn.disabled = false;
     }
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -1002,6 +1001,183 @@ function renderRaidBattle(raidState, user) {
           <div class="raid-hp-bar"><div class="raid-hp-fill" style="width:${Math.max(0, hpRatio)}%"></div></div>
           <div class="raid-status-text">HP ${formatNumber(participant.hp)} / ${formatNumber(participant.maxHp)}${participant.silenceTurns > 0 ? ' / 침묵' : ''}</div>
           <div class="raid-shield-text">보호막 ${formatNumber(participant.shield || 0)}</div>
+          ${ownControls}
+        </div>
+      `
+    );
+  });
+}
+
+function renderRaidBattle(raidState, user) {
+  const battle = raidState?.activeBattle;
+  if (!battle) return;
+  const participantCount = battle.participants?.length || 0;
+  const currentTurnIndex = Number(battle.currentTurnIndex || 0);
+  const isBossTurn = currentTurnIndex >= participantCount;
+
+  setText('raidScreenBossName', battle.bossName);
+  setText('raidBossTitle', battle.bossName);
+  setText('raidBossHpText', `${formatNumber(battle.bossHp)} / ${formatNumber(battle.bossMaxHp)}`);
+
+  const turnBanner = document.getElementById('raidTurnBanner');
+  const turnLabel = document.getElementById('raidTurnLabel');
+  const turnActor = document.getElementById('raidTurnActor');
+  if (turnBanner && turnLabel && turnActor) {
+    const turnNumber = Math.max(1, Number(battle.bossPatternIndex || 0) + 1);
+    const actingParticipant = !isBossTurn ? battle.participants?.[currentTurnIndex] : null;
+    turnLabel.textContent = `현재 턴 ${formatNumber(turnNumber)}`;
+    turnActor.textContent = isBossTurn
+      ? '보스 행동'
+      : `우리팀 행동${actingParticipant?.displayName ? ` - ${actingParticipant.displayName}` : ''}`;
+    turnBanner.classList.toggle('party-turn', !isBossTurn);
+    turnBanner.classList.toggle('boss-turn', isBossTurn);
+  }
+
+  const bossArea = document.getElementById('raidBossArea');
+  if (bossArea) bossArea.classList.toggle('active-turn', isBossTurn);
+
+  const bossBar = document.querySelector('.raid-boss-bar');
+  if (bossBar) {
+    const ratio = battle.bossMaxHp > 0 ? (battle.bossHp / battle.bossMaxHp) * 100 : 0;
+    const bossLossText = Number(battle.bossLastHpLoss || 0) > 0 ? `-${formatNumber(battle.bossLastHpLoss || 0)}` : '';
+    bossBar.innerHTML = `
+      <div id="raidBossHpFill" class="raid-boss-bar-fill" style="width:${Math.max(0, ratio)}%"></div>
+      ${bossLossText ? `<div class="raid-loss-indicator">${bossLossText}</div>` : ''}
+    `;
+  }
+
+  const battleLog = document.getElementById('raidBattleLog');
+  if (battleLog) {
+    const logs = battle.recentLogs || [];
+    battleLog.innerHTML = logs
+      .map((line, index) => `<div class="raid-log-line ${index === logs.length - 1 ? 'latest' : ''}">${escapeHtml(line)}</div>`)
+      .join('');
+  }
+
+  const participantList = document.getElementById('raidParticipantList');
+  if (!participantList) return;
+  participantList.innerHTML = '';
+
+  (battle.participants || []).forEach((participant) => {
+    const hpRatio = participant.maxHp > 0 ? (participant.hp / participant.maxHp) * 100 : 0;
+    const shieldRatio = participant.maxHp > 0 ? Math.min(100, (participant.shield / participant.maxHp) * 100) : 0;
+    const ownControls = participant.isSelf ? buildRaidSkillControls(participant, battle.participants) : '';
+    const isActiveParticipant = !isBossTurn && Number(participant.turnOrder) === currentTurnIndex;
+    const lossTextParts = [];
+    if (Number(participant.lastShieldLoss || 0) > 0) lossTextParts.push(`실드 -${formatNumber(participant.lastShieldLoss || 0)}`);
+    if (Number(participant.lastHpLoss || 0) > 0) lossTextParts.push(`HP -${formatNumber(participant.lastHpLoss || 0)}`);
+    const lossText = lossTextParts.join(' / ');
+
+    participantList.insertAdjacentHTML(
+      'beforeend',
+      `
+        <div class="raid-participant-card ${isActiveParticipant ? 'active-turn' : ''}">
+          <div class="raid-participant-header">
+            <div>
+              <strong>${escapeHtml(participant.displayName)}</strong>
+              <span class="menu-note">Lv.${formatNumber(participant.level)}</span>
+            </div>
+            <div>${escapeHtml(participant.equippedCardName || '장착 카드 없음')}</div>
+          </div>
+          <div class="raid-bar-wrap">
+            ${participant.shield > 0 ? `<div class="raid-shield-indicator">실드 ${formatNumber(participant.shield || 0)}</div>` : ''}
+            ${lossText ? `<div class="raid-loss-indicator">${escapeHtml(lossText)}</div>` : ''}
+            <div class="raid-hp-bar">
+              <div class="raid-hp-fill" style="width:${Math.max(0, hpRatio)}%"></div>
+              ${participant.shield > 0 ? `<div class="raid-shield-fill" style="left:${Math.max(0, hpRatio)}%; width:${Math.max(0, Math.min(100 - hpRatio, shieldRatio))}%"></div>` : ''}
+            </div>
+          </div>
+          <div class="raid-status-text">HP ${formatNumber(participant.hp)} / ${formatNumber(participant.maxHp)}${participant.silenceTurns > 0 ? ' / 침묵' : ''}</div>
+          <div class="raid-shield-text">보호막 ${formatNumber(participant.shield || 0)}</div>
+          ${ownControls}
+        </div>
+      `
+    );
+  });
+}
+
+function renderRaidBattle(raidState, user) {
+  const battle = raidState?.activeBattle;
+  if (!battle) return;
+  const participantCount = battle.participants?.length || 0;
+  const currentTurnIndex = Number(battle.currentTurnIndex || 0);
+  const isBossTurn = currentTurnIndex >= participantCount;
+
+  setText('raidScreenBossName', battle.bossName);
+  setText('raidBossTitle', battle.bossName);
+  setText('raidBossHpText', `${formatNumber(battle.bossHp)} / ${formatNumber(battle.bossMaxHp)}`);
+
+  const turnBanner = document.getElementById('raidTurnBanner');
+  const turnLabel = document.getElementById('raidTurnLabel');
+  const turnActor = document.getElementById('raidTurnActor');
+  if (turnBanner && turnLabel && turnActor) {
+    const turnNumber = Math.max(1, Number(battle.bossPatternIndex || 0) + 1);
+    const actingParticipant = !isBossTurn ? battle.participants?.[currentTurnIndex] : null;
+    turnLabel.textContent = `현재 턴 ${formatNumber(turnNumber)}`;
+    turnActor.textContent = isBossTurn
+      ? '보스 행동'
+      : `우리팀 행동${actingParticipant?.displayName ? ` - ${actingParticipant.displayName}` : ''}`;
+    turnBanner.classList.toggle('party-turn', !isBossTurn);
+    turnBanner.classList.toggle('boss-turn', isBossTurn);
+  }
+
+  const bossArea = document.getElementById('raidBossArea');
+  if (bossArea) bossArea.classList.toggle('active-turn', isBossTurn);
+
+  const bossBar = document.querySelector('.raid-boss-bar');
+  if (bossBar) {
+    const ratio = battle.bossMaxHp > 0 ? (battle.bossHp / battle.bossMaxHp) * 100 : 0;
+    const bossLossText = Number(battle.bossLastHpLoss || 0) > 0 ? `-${formatNumber(battle.bossLastHpLoss || 0)}` : '';
+    bossBar.innerHTML = `
+      <div id="raidBossHpFill" class="raid-boss-bar-fill" style="width:${Math.max(0, ratio)}%"></div>
+      ${bossLossText ? `<div class="raid-loss-indicator">${bossLossText}</div>` : ''}
+    `;
+  }
+
+  const battleLog = document.getElementById('raidBattleLog');
+  if (battleLog) {
+    const logs = battle.recentLogs || [];
+    battleLog.innerHTML = logs
+      .map((line, index) => `<div class="raid-log-line ${index === logs.length - 1 ? 'latest' : ''}">${escapeHtml(line)}</div>`)
+      .join('');
+  }
+
+  const participantList = document.getElementById('raidParticipantList');
+  if (!participantList) return;
+  participantList.innerHTML = '';
+
+  (battle.participants || []).forEach((participant) => {
+    const hpRatio = participant.maxHp > 0 ? (participant.hp / participant.maxHp) * 100 : 0;
+    const shieldRatio = participant.maxHp > 0 ? Math.min(100, (participant.shield / participant.maxHp) * 100) : 0;
+    const ownControls = participant.isSelf ? buildRaidSkillControls(participant, battle.participants) : '';
+    const isActiveParticipant = !isBossTurn && Number(participant.turnOrder) === currentTurnIndex;
+    const lossTextParts = [];
+    if (Number(participant.lastShieldLoss || 0) > 0) lossTextParts.push(`실드 -${formatNumber(participant.lastShieldLoss || 0)}`);
+    if (Number(participant.lastHpLoss || 0) > 0) lossTextParts.push(`HP -${formatNumber(participant.lastHpLoss || 0)}`);
+    const lossText = lossTextParts.join(' / ');
+
+    participantList.insertAdjacentHTML(
+      'beforeend',
+      `
+        <div class="raid-participant-card ${isActiveParticipant ? 'active-turn' : ''}">
+          <div class="raid-participant-header">
+            <div>
+              <strong>${escapeHtml(participant.displayName)}</strong>
+              <span class="menu-note">Lv.${formatNumber(participant.level)}</span>
+            </div>
+            <div>${escapeHtml(participant.equippedCardName || '장착 카드 없음')}</div>
+          </div>
+          <div class="raid-bar-wrap">
+            ${participant.shield > 0 ? `<div class="raid-shield-indicator">실드 ${formatNumber(participant.shield || 0)}</div>` : ''}
+            ${lossText ? `<div class="raid-loss-indicator">${escapeHtml(lossText)}</div>` : ''}
+            <div class="raid-hp-bar">
+              <div class="raid-hp-fill" style="width:${Math.max(0, hpRatio)}%"></div>
+              ${participant.shield > 0 ? `<div class="raid-shield-fill" style="left:${Math.max(0, hpRatio)}%; width:${Math.max(0, Math.min(100 - hpRatio, shieldRatio))}%"></div>` : ''}
+            </div>
+          </div>
+          <div class="raid-status-text">HP ${formatNumber(participant.hp)} / ${formatNumber(participant.maxHp)}</div>
+          <div class="raid-shield-text">보호막 ${formatNumber(participant.shield || 0)}</div>
+          ${participant.silenceTurns > 0 ? `<div class="raid-cc-text">CC: 침묵 (${formatNumber(participant.silenceTurns)}턴)</div>` : ''}
           ${ownControls}
         </div>
       `
