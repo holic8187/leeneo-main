@@ -52,16 +52,26 @@ const ITEM_DATA = {
 
 const CARD_DATA = {
   ineo_diet: { name: '이네오의 다이어트 선언', grade: 'S', color: '#c62828', skillName: '다이어트 선언', skillDesc: '돌아오는 턴에 기본 공격을 총 10회 합니다. 각 공격마다 크리티컬이 적용될 수 있습니다.', cooldown: 3, targetType: null },
+  gangnam_style: { name: '일 중에 몰래 듣는 강남스타일', grade: 'S', color: '#c62828', skillName: '강남스타일', skillDesc: '1턴 동안 모든 팀원에게 크리티컬률 20%와 흥겨움 버프를 부여합니다. 흥겨움 동안 기본 공격 횟수가 2배가 됩니다.', cooldown: 2, targetType: null },
+  delegate_lee: { name: '이것 좀 대신 해줘 이대리', grade: 'S', color: '#c62828', skillName: '이것 좀 대신 해줘', skillDesc: '현재 입장한 파티원의 전체 레벨 합 x 30의 데미지를 1회 가합니다.', cooldown: 2, targetType: null },
   strawberry_latte: { name: '딸기라떼', grade: 'A', color: '#f9a825', skillName: '딸기라떼', skillDesc: '다음 턴까지 지속되는 보호막 40을 파티원 전원에게 제공합니다.', cooldown: 2, targetType: null },
   rebuttal: { name: '반박', grade: 'A', color: '#f9a825', skillName: '반박', skillDesc: '파티원 전체의 HP를 20 회복합니다.', cooldown: 2, targetType: null },
   parking_master: { name: '멍프의 주차', grade: 'A', color: '#f9a825', skillName: '멍프의 주차', skillDesc: '돌아오는 턴에 기본 공격을 총 4회 합니다. 각 공격마다 크리티컬이 적용될 수 있습니다.', cooldown: 2, targetType: null },
+  tissue_box: { name: '김주임의 휴지곽', grade: 'A', color: '#f9a825', skillName: '휴지곽', skillDesc: '2턴 동안 자신이 반격 버프를 획득합니다. 피격당하면 피격 1회당 기본 공격 1번으로 반격합니다.', cooldown: 2, targetType: null },
+  drinking_angle: { name: '야채곱창', grade: 'A', color: '#f9a825', skillName: '소주각?', skillDesc: '액티브 스킬 없음. 전투 시작 시 모든 파티원에게 전리품 2배 버프를 부여합니다.', cooldown: 0, targetType: null, passiveOnly: true },
+  tax_invoice: { name: '호이의 세금계산서', grade: 'A', color: '#f9a825', skillName: '세금계산서', skillDesc: '파티원 2인을 선택하여 1회 피격 무효화, 1턴 공격력 25% 증가, 1회 디버프 무효화를 부여합니다.', cooldown: 3, targetType: 'ally_pair' },
   sherlock: { name: '셜록몬드의 추리', grade: 'B', color: '#1565c0', skillName: '셜록몬드의 추리', skillDesc: '다다음 턴까지 파티원 전원의 크리티컬 확률을 50% 증가시킵니다.', cooldown: 5, targetType: null },
   blind_date: { name: '심심이의 소개팅', grade: 'B', color: '#1565c0', skillName: '심심이의 소개팅', skillDesc: '랜덤 파티원 1명의 HP를 30 감소시키지만 다음 공격 피해를 2배로 증가시킵니다.', cooldown: 3, targetType: null },
   fantasy: { name: '라연이의 망상', grade: 'B', color: '#1565c0', skillName: '라연이의 망상', skillDesc: '파티원 전원의 해로운 효과를 제거합니다.', cooldown: 4, targetType: null },
   broken_leg: { name: '감자의 부러진 다리', grade: 'B', color: '#1565c0', skillName: '감자의 부러진 다리', skillDesc: '선택한 파티원 1명의 HP를 30 회복시킵니다.', cooldown: 2, targetType: 'ally' },
+  military_service: { name: '자네, 군필인가?', grade: 'B', color: '#1565c0', skillName: '군필인가?', skillDesc: '이번 턴에 가하는 자신의 모든 공격에 자신의 레벨 x 20의 추가 데미지를 줍니다.', cooldown: 2, targetType: null },
+  invincible_logic: { name: '무적의 논리', grade: 'B', color: '#1565c0', skillName: '무적의 논리', skillDesc: '파티원 1인을 선택하여 해당 팀원에게 1회 피격 무효화 버프를 제공합니다.', cooldown: 2, targetType: 'ally' },
+  ride_line: { name: '라인 잘타야지', grade: 'B', color: '#1565c0', skillName: '라인 잘타야지', skillDesc: '랜덤 파티원 2인의 공격력을 1턴 동안 25% 증가시킵니다.', cooldown: 4, targetType: null },
   wig: { name: '김부장의 가발', grade: 'C', color: '#2e7d32', skillName: '김부장의 가발', skillDesc: '돌아오는 턴에 자신의 기본 공격을 총 3회 합니다.', cooldown: 3, targetType: null },
   chatgpt: { name: '모래의 챗지피티', grade: 'C', color: '#2e7d32', skillName: '모래의 챗지피티', skillDesc: '돌아오는 턴에 기본공격에 더해 자신의 레벨 x 10 추가 피해를 입힙니다.', cooldown: 2, targetType: null },
-  pho: { name: '닐닐이의 쌀국수', grade: 'C', color: '#2e7d32', skillName: '닐닐이의 쌀국수', skillDesc: '랜덤 파티원 3명에게 각각 50의 보호막을 제공합니다.', cooldown: 3, targetType: null }
+  pho: { name: '닐닐이의 쌀국수', grade: 'C', color: '#2e7d32', skillName: '닐닐이의 쌀국수', skillDesc: '랜덤 파티원 3명에게 각각 50의 보호막을 제공합니다.', cooldown: 3, targetType: null },
+  coca_cola: { name: '코카의 콜라', grade: 'C', color: '#2e7d32', skillName: '코카의 콜라', skillDesc: '선택한 파티원 1인의 공격력을 2턴 동안 30% 증가시킵니다.', cooldown: 3, targetType: 'ally' },
+  cider_comment: { name: '사이다 발언', grade: 'C', color: '#2e7d32', skillName: '사이다 발언', skillDesc: '파티원 1인을 선택하여 해당 팀원에게 1회 모든 디버프 무효화 버프를 제공합니다.', cooldown: 3, targetType: 'ally' }
 };
 
 const BUFF_DATA = {
@@ -942,7 +952,7 @@ function renderRaidBattle(raidState, user) {
 
   setText('raidScreenBossName', battle.bossName);
   setText('raidBossTitle', battle.bossName);
-  setText('raidBossHpText', `${formatNumber(battle.bossHp)} / ${formatNumber(battle.bossMaxHp)}`);
+  setText('raidBossHpText', `${formatNumber(battle.bossHp)} / ${formatNumber(battle.bossMaxHp)}${battle.bossShield > 0 ? ` / 실드 ${formatNumber(battle.bossShield)}` : ''}`);
 
   const turnBanner = document.getElementById('raidTurnBanner');
   const turnLabel = document.getElementById('raidTurnLabel');
@@ -1039,9 +1049,12 @@ function renderRaidBattle(raidState, user) {
   const bossBar = document.querySelector('.raid-boss-bar');
   if (bossBar) {
     const ratio = battle.bossMaxHp > 0 ? (battle.bossHp / battle.bossMaxHp) * 100 : 0;
+    const shieldRatio = battle.bossMaxHp > 0 ? Math.min(100, (battle.bossShield / battle.bossMaxHp) * 100) : 0;
     const bossLossText = Number(battle.bossLastHpLoss || 0) > 0 ? `-${formatNumber(battle.bossLastHpLoss || 0)}` : '';
     bossBar.innerHTML = `
       <div id="raidBossHpFill" class="raid-boss-bar-fill" style="width:${Math.max(0, ratio)}%"></div>
+      ${battle.bossShield > 0 ? `<div class="raid-shield-fill" style="left:${Math.max(0, ratio)}%; width:${Math.max(0, Math.min(100 - ratio, shieldRatio))}%"></div>` : ''}
+      ${battle.bossShield > 0 ? `<div class="raid-shield-indicator">실드 ${formatNumber(battle.bossShield)}</div>` : ''}
       ${bossLossText ? `<div class="raid-loss-indicator">${bossLossText}</div>` : ''}
     `;
   }
@@ -1189,12 +1202,21 @@ function buildRaidSkillControls(participant, participants) {
   if (!participant.equippedCardId) {
     return '<div class="raid-skill-row"><span class="muted-text">장착한 카드가 없어 기본 공격만 사용합니다.</span></div>';
   }
+  if (participant.passiveOnly) {
+    return '<div class="raid-skill-row"><span class="muted-text">전투 시작 시 자동으로 적용되는 패시브 카드입니다.</span></div>';
+  }
 
   const disabled = participant.hp <= 0 || participant.skillCooldown > 0;
-  const targetOptions = participant.targetType === 'ally'
+  const targetOptions = ['ally', 'ally_pair'].includes(participant.targetType)
     ? participants
       .filter((entry) => entry.hp > 0)
       .map((entry) => `<option value="${escapeHtml(entry.userId)}" ${entry.userId === participant.plannedTargetUserId ? 'selected' : ''}>${escapeHtml(entry.displayName)}</option>`)
+      .join('')
+    : '';
+  const targetOptions2 = participant.targetType === 'ally_pair'
+    ? participants
+      .filter((entry) => entry.hp > 0)
+      .map((entry) => `<option value="${escapeHtml(entry.userId)}" ${entry.userId === participant.plannedTargetUserId2 ? 'selected' : ''}>${escapeHtml(entry.displayName)}</option>`)
       .join('')
     : '';
 
@@ -1209,8 +1231,11 @@ function buildRaidSkillControls(participant, participants) {
         ${participant.plannedSkill ? '다음 턴 스킬 사용 예정' : '다음 턴 스킬 사용'}
       </button>
       <span class="menu-note">쿨다운 ${formatNumber(participant.skillCooldown)}턴</span>
-      ${participant.targetType === 'ally'
+      ${['ally', 'ally_pair'].includes(participant.targetType)
         ? `<select id="raidTargetSelect-${escapeHtml(participant.userId)}">${targetOptions}</select>`
+        : ''}
+      ${participant.targetType === 'ally_pair'
+        ? `<select id="raidTargetSelect2-${escapeHtml(participant.userId)}">${targetOptions2}</select>`
         : ''}
     </div>
   `;
@@ -1305,12 +1330,14 @@ async function handleRaidSkillToggle(userId, useSkill) {
   const user = getStoredUser();
   if (!user?._id) return handleLogoutClick();
   const targetSelect = document.getElementById(`raidTargetSelect-${userId}`);
+  const targetSelect2 = document.getElementById(`raidTargetSelect2-${userId}`);
 
   try {
     const data = await postJson(`${API_URL}/api/raid/plan-skill`, {
       userId: user._id,
       useSkill,
-      targetUserId: targetSelect?.value || null
+      targetUserId: targetSelect?.value || null,
+      targetUserId2: targetSelect2?.value || null
     });
     if (latestRaidState) {
       latestRaidState.activeBattle = data.raid;
