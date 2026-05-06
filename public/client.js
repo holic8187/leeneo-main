@@ -1324,6 +1324,7 @@ async function handleRaidSkillToggle(userId, useSkill) {
 function updateGameUI(user) {
   updateStatusUI(user);
   updateBuffUI(user);
+  updateSpecialActionButtons(user);
   updateShoutStatus(user);
   updateInventoryUI(user);
   updateShopUI(user);
@@ -1331,6 +1332,19 @@ function updateGameUI(user) {
   updateStockStatus(user);
   updateStressEffect(user.gameState?.stress || 0);
   setText('adventureLog', user.meta?.lastAdventureLog || '모험에서 어떤 일이 벌어질지 모릅니다.');
+}
+
+function updateSpecialActionButtons(user) {
+  const adventureBtn = document.getElementById('adventureBtn');
+  if (adventureBtn && user?.gameState) {
+    const staminaCost = Number(user.itemStats?.adventureStaminaMultiplier || 1);
+    const currentStamina = Number(user.gameState.stamina || 0);
+    const hasPendingChoice = Boolean(user.pendingAdventure?.eventId);
+    const canUseAdventure = currentStamina >= staminaCost && !hasPendingChoice;
+
+    adventureBtn.disabled = !canUseAdventure;
+    adventureBtn.textContent = `모험하기 (행동력 ${formatNumber(staminaCost, staminaCost % 1 === 0 ? 0 : 1)})`;
+  }
 }
 
 function updateStatusUI(user) {
