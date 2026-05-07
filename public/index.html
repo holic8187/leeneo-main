@@ -197,6 +197,9 @@
 
               <div id="tab-inventory" class="menu-content hidden">
                 <h4>소지품</h4>
+                <div class="card-actions">
+                  <button id="openFusionModalBtn" class="mini-btn">카드 합성</button>
+                </div>
                 <table class="inner-table">
                   <thead>
                     <tr>
@@ -295,6 +298,26 @@
     </div>
   </div>
 
+  <div id="fusionModal" class="modal-overlay hidden">
+    <div class="excel-sheet modal-panel fusion-modal-panel">
+      <h3>카드 합성</h3>
+      <p class="menu-note">같은 등급 카드 5장을 등록하면 합성할 수 있습니다. 등록된 카드를 누르면 리스트에서 빠집니다.</p>
+      <div class="fusion-top-row">
+        <div>
+          <h4>합성 리스트</h4>
+          <div id="fusionSlotList" class="fusion-slot-list"></div>
+        </div>
+        <div class="fusion-side-actions">
+          <div id="fusionProbabilityText" class="menu-note">등급별 합성 확률을 확인하세요.</div>
+          <button id="confirmFusionBtn" class="menu-action-btn">합성하기</button>
+          <button id="closeFusionModalBtn" class="mini-btn">닫기</button>
+        </div>
+      </div>
+      <h4 class="section-gap">보유 카드</h4>
+      <div id="fusionSourceList" class="fusion-source-list"></div>
+    </div>
+  </div>
+
   <div id="raidLobbyModal" class="modal-overlay hidden">
     <div class="excel-sheet modal-panel raid-modal-panel">
       <h3>오늘의 회의 참석</h3>
@@ -361,6 +384,6 @@
     </div>
   </div>
 
-  <script src="client.js?v=21"></script>
+  <script src="client.js?v=22"></script>
 </body>
 </html>

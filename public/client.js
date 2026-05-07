@@ -133,6 +133,7 @@ let latestGlobalState = { activeShoutText: '', activeShoutKey: '' };
 let lastRenderedShoutKey = '';
 let latestRaidState = null;
 let raidCountdownVisible = false;
+let cardFusionSelection = [];
 
 document.addEventListener('DOMContentLoaded', () => {
   initApp();
@@ -159,6 +160,9 @@ function setupEventListeners() {
   bindClick('raidCountdownCancelBtn', handleRaidCountdownCancelClick);
   bindClick('raidBackBtn', handleRaidBackClick);
   bindClick('cardDrawBtn', handleCardDraw);
+  bindClick('openFusionModalBtn', openCardFusionModal);
+  bindClick('closeFusionModalBtn', closeCardFusionModal);
+  bindClick('confirmFusionBtn', handleCardFusionConfirm);
   bindClick('stockInvestBtn', handleStockInvest);
   bindClick('adminLogoutBtn', handleLogoutClick);
   bindClick('adminGiftBtn', handleAdminGift);
@@ -670,6 +674,233 @@ function getRequestedQuantity(inputId) {
   return Number.isFinite(value) && value > 0 ? value : 1;
 }
 
+function isFusionModalOpen() {
+  return !document.getElementById('fusionModal')?.classList.contains('hidden');
+}
+
+function getFusionProbabilityText(grade = null) {
+  if (grade === 'C') return 'C 5장 합성: B 30% / 랜덤 C 70%';
+  if (grade === 'B') return 'B 5장 합성: A 20% / 랜덤 B 80%';
+  if (grade === 'A') return 'A 5장 합성: S 10% / 랜덤 A 90%';
+  return 'C 5장: B 30% / C 70%, B 5장: A 20% / B 80%, A 5장: S 10% / A 90%';
+}
+
+function getFusionSelectionCountMap() {
+  const counts = new Map();
+  cardFusionSelection.forEach((cardId) => {
+    counts.set(cardId, (counts.get(cardId) || 0) + 1);
+  });
+  return counts;
+}
+
+function getLockedFusionGrade() {
+  if (!cardFusionSelection.length) return null;
+  return CARD_DATA[cardFusionSelection[0]]?.grade || null;
+}
+
+function normalizeCardFusionSelection(user) {
+  const ownedCounts = new Map((user.cardDetails || []).map((card) => [card.id, Number(card.quantity || 0)]));
+  const normalized = [];
+  const usedCounts = new Map();
+  let lockedGrade = null;
+
+  for (const cardId of cardFusionSelection) {
+    const cardInfo = CARD_DATA[cardId];
+    if (!cardInfo || cardInfo.grade === 'S') continue;
+
+    if (lockedGrade && lockedGrade !== cardInfo.grade) continue;
+    const used = usedCounts.get(cardId) || 0;
+    const owned = ownedCounts.get(cardId) || 0;
+    if (used >= owned) continue;
+
+    lockedGrade ||= cardInfo.grade;
+    normalized.push(cardId);
+    usedCounts.set(cardId, used + 1);
+    if (normalized.length >= 5) break;
+  }
+
+  cardFusionSelection = normalized;
+}
+
+function renderCardFusionModal(user) {
+  const slotList = document.getElementById('fusionSlotList');
+  const sourceList = document.getElementById('fusionSourceList');
+  const probabilityText = document.getElementById('fusionProbabilityText');
+  const confirmButton = document.getElementById('confirmFusionBtn');
+  if (!slotList || !sourceList || !probabilityText || !confirmButton) return;
+
+  normalizeCardFusionSelection(user);
+  const selectedCounts = getFusionSelectionCountMap();
+  const lockedGrade = getLockedFusionGrade();
+  const ownedCards = (user.cardDetails || [])
+    .filter((card) => card.quantity > 0)
+    .sort((a, b) => {
+      const gradeOrder = { S: 0, A: 1, B: 2, C: 3 };
+      return (gradeOrder[a.grade] ?? 9) - (gradeOrder[b.grade] ?? 9) || a.name.localeCompare(b.name, 'ko');
+    });
+
+  probabilityText.textContent = getFusionProbabilityText(lockedGrade);
+  confirmButton.disabled = cardFusionSelection.length !== 5;
+
+  slotList.innerHTML = '';
+  for (let index = 0; index < 5; index += 1) {
+    const cardId = cardFusionSelection[index];
+    if (!cardId) {
+      slotList.insertAdjacentHTML(
+        'beforeend',
+        `<div class="fusion-slot empty"><strong>${index + 1}번 슬롯</strong><div class="fusion-card-meta">비어 있습니다.</div></div>`
+      );
+      continue;
+    }
+
+    const card = ownedCards.find((entry) => entry.id === cardId) || CARD_DATA[cardId];
+    slotList.insertAdjacentHTML(
+      'beforeend',
+      `
+        <div class="fusion-slot filled" onclick="handleCardFusionSlotRemove(${index})">
+          <div class="fusion-card-head">
+            <span class="fusion-card-name">${escapeHtml(card.name)}</span>
+            <span class="grade-badge" style="background:${escapeHtml(card.color || CARD_GRADE_COLORS?.[card.grade] || '#666666')}">${escapeHtml(card.grade)}</span>
+          </div>
+          <div class="fusion-card-meta">${escapeHtml(card.skillName || '')}<br>${escapeHtml(card.skillDesc || '')}</div>
+        </div>
+      `
+    );
+  }
+
+  sourceList.innerHTML = '';
+  const sourceCards = ownedCards.filter((card) => card.grade !== 'S');
+  if (!sourceCards.length) {
+    sourceList.innerHTML = '<div class="fusion-slot empty">합성 가능한 카드가 없습니다.</div>';
+    return;
+  }
+
+  sourceCards.forEach((card) => {
+    const alreadySelected = selectedCounts.get(card.id) || 0;
+    const available = Math.max(0, Number(card.quantity || 0) - alreadySelected);
+    const disabled = available <= 0 || (lockedGrade && lockedGrade !== card.grade);
+    const qtyInputId = `fusion-qty-${card.id}`;
+    const actionHtml = available <= 0
+      ? '<span class="muted-text">등록 완료</span>'
+      : available === 1
+        ? `<button class="mini-btn" ${disabled ? 'disabled' : ''} onclick="handleCardFusionAdd('${card.id}')">등록</button>`
+        : `<input id="${qtyInputId}" class="qty-input" type="number" min="1" max="${available}" step="1" value="1" ${disabled ? 'disabled' : ''}><button class="mini-btn" ${disabled ? 'disabled' : ''} onclick="handleCardFusionAdd('${card.id}', '${qtyInputId}')">등록</button>`;
+
+    sourceList.insertAdjacentHTML(
+      'beforeend',
+      `
+        <div class="fusion-source-card ${disabled ? 'disabled' : ''}">
+          <div class="fusion-card-head">
+            <span class="fusion-card-name">${escapeHtml(card.name)}</span>
+            <span class="grade-badge" style="background:${escapeHtml(card.color)}">${escapeHtml(card.grade)}</span>
+          </div>
+          <div class="fusion-card-meta">
+            보유 ${formatNumber(card.quantity)}장 / 등록 가능 ${formatNumber(available)}장<br>
+            ${escapeHtml(card.skillName)}<br>
+            ${escapeHtml(card.skillDesc)}
+          </div>
+          <div class="fusion-card-actions">
+            ${actionHtml}
+          </div>
+        </div>
+      `
+    );
+  });
+}
+
+function openCardFusionModal() {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+  cardFusionSelection = [];
+  showModal('fusionModal');
+  renderCardFusionModal(user);
+}
+
+function closeCardFusionModal() {
+  cardFusionSelection = [];
+  hideModal('fusionModal');
+}
+
+function handleCardFusionAdd(cardId, inputId = null) {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+
+  const card = (user.cardDetails || []).find((entry) => entry.id === cardId && entry.quantity > 0);
+  if (!card) {
+    alert('보유한 카드를 찾을 수 없습니다.');
+    return;
+  }
+  if (card.grade === 'S') {
+    alert('S등급 카드는 합성할 수 없습니다.');
+    return;
+  }
+
+  normalizeCardFusionSelection(user);
+  const lockedGrade = getLockedFusionGrade();
+  if (lockedGrade && lockedGrade !== card.grade) {
+    alert('같은 등급 카드만 합성 리스트에 등록할 수 있습니다.');
+    return;
+  }
+
+  const selectedCounts = getFusionSelectionCountMap();
+  const available = Math.max(0, Number(card.quantity || 0) - (selectedCounts.get(cardId) || 0));
+  if (available <= 0) {
+    alert('더 이상 등록할 수 있는 카드가 없습니다.');
+    return;
+  }
+
+  const remainingSlots = 5 - cardFusionSelection.length;
+  if (remainingSlots <= 0) {
+    alert('합성 리스트는 최대 5장까지 등록할 수 있습니다.');
+    return;
+  }
+
+  let quantity = available === 1 ? 1 : getRequestedQuantity(inputId);
+  quantity = Math.max(1, Math.min(quantity, available, remainingSlots));
+  for (let index = 0; index < quantity; index += 1) {
+    cardFusionSelection.push(cardId);
+  }
+  renderCardFusionModal(user);
+}
+
+function handleCardFusionSlotRemove(index) {
+  if (index < 0 || index >= cardFusionSelection.length) return;
+  cardFusionSelection.splice(index, 1);
+  const user = getStoredUser();
+  if (user?._id) {
+    renderCardFusionModal(user);
+  }
+}
+
+async function handleCardFusionConfirm() {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+
+  normalizeCardFusionSelection(user);
+  if (cardFusionSelection.length !== 5) {
+    alert('합성 리스트를 5장으로 채워주세요.');
+    return;
+  }
+
+  try {
+    const data = await postJson(`${API_URL}/api/cards/fuse`, {
+      userId: user._id,
+      cardIds: [...cardFusionSelection]
+    });
+    cardFusionSelection = [];
+    updateLocalUserState(data);
+    const result = data.fusionResult?.result;
+    if (result) {
+      alert(`합성 결과: [${result.grade}] ${result.name}`);
+    }
+    if (isFusionModalOpen()) {
+      renderCardFusionModal(getStoredUser());
+    }
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
 async function handleBuyClick(itemId, inputId) {
   const user = getStoredUser();
   if (!user?._id) return handleLogoutClick();
@@ -795,6 +1026,9 @@ function updateLocalUserState(data) {
   saveStoredUser(data.user);
   applyGlobalState(data.global);
   updateGameUI(data.user);
+  if (isFusionModalOpen()) {
+    renderCardFusionModal(data.user);
+  }
   updateRaidButton(data.user, latestRaidState);
   showNotifications(data.notifications);
 }
@@ -1391,6 +1625,9 @@ function updateGameUI(user) {
   updateStockStatus(user);
   updateStressEffect(user.gameState?.stress || 0);
   setText('adventureLog', user.meta?.lastAdventureLog || '모험에서 어떤 일이 벌어질지 모릅니다.');
+  if (isFusionModalOpen()) {
+    renderCardFusionModal(user);
+  }
 }
 
 function updateSpecialActionButtons(user) {
@@ -1554,21 +1791,20 @@ function updateInventoryUI(user) {
 
   if (titleDetails.length === 0) {
     titleList.innerHTML = '<tr><td colspan="3">아직 해금한 칭호가 없습니다.</td></tr>';
-    return;
+  } else {
+    titleDetails.forEach((title) => {
+      titleList.insertAdjacentHTML(
+        'beforeend',
+        `
+          <tr class="${title.equipped ? 'equipped-title-row' : ''}">
+            <td title="${escapeHtml(title.unlockDesc || '')}">${escapeHtml(title.name)}</td>
+            <td title="${escapeHtml(title.unlockDesc || '')}">${escapeHtml(title.desc)}</td>
+            <td><button class="mini-btn" onclick="handleToggleTitle('${title.id}')">${title.equipped ? '해제' : '장착'}</button></td>
+          </tr>
+        `
+      );
+    });
   }
-
-  titleDetails.forEach((title) => {
-    titleList.insertAdjacentHTML(
-      'beforeend',
-      `
-        <tr class="${title.equipped ? 'equipped-title-row' : ''}">
-          <td title="${escapeHtml(title.unlockDesc || '')}">${escapeHtml(title.name)}</td>
-          <td title="${escapeHtml(title.unlockDesc || '')}">${escapeHtml(title.desc)}</td>
-          <td><button class="mini-btn" onclick="handleToggleTitle('${title.id}')">${title.equipped ? '해제' : '장착'}</button></td>
-        </tr>
-      `
-    );
-  });
 
   cardList.innerHTML = '';
   const cardDetails = user.cardDetails || [];
@@ -1593,6 +1829,10 @@ function updateInventoryUI(user) {
       `
     );
   });
+
+  if (isFusionModalOpen()) {
+    renderCardFusionModal(user);
+  }
 }
 
 function updateShopUI(user) {
@@ -1601,9 +1841,16 @@ function updateShopUI(user) {
 
   shopList.innerHTML = '';
   Object.entries(ITEM_DATA).forEach(([itemId, itemInfo]) => {
-    if (['cat_tuna_can', 'business_card'].includes(itemId) || itemInfo.shopHidden) return;
+    if (itemId === 'cat_tuna_can' || itemInfo.shopHidden) return;
     const price = user.shopPrices?.[itemId] ?? 0;
     const qtyInputId = `buy-qty-${itemId}`;
+    const remainingBusinessCardBuys = Math.max(0, 5 - Number(user.shopState?.dailyBusinessCardPurchases || 0));
+    const isBusinessCard = itemId === 'business_card';
+    const description = isBusinessCard
+      ? `${itemInfo.desc || ''} (오늘 남은 구매 가능: ${remainingBusinessCardBuys}/5)`
+      : (itemInfo.desc || '');
+    const disabledAttr = isBusinessCard && remainingBusinessCardBuys <= 0 ? 'disabled' : '';
+    const maxAttr = isBusinessCard && remainingBusinessCardBuys > 0 ? `max="${remainingBusinessCardBuys}"` : '';
 
     shopList.insertAdjacentHTML(
       'beforeend',
@@ -1611,8 +1858,8 @@ function updateShopUI(user) {
         <tr>
           <td>${escapeHtml(itemInfo.name)}</td>
           <td>${formatNumber(price)}원</td>
-          <td>${escapeHtml(itemInfo.desc || '')}</td>
-          <td><div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" step="1" value="1"><button class="mini-btn" onclick="handleBuyClick('${itemId}', '${qtyInputId}')">구매</button></div></td>
+          <td>${escapeHtml(description)}</td>
+          <td><div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" step="1" value="1" ${maxAttr} ${disabledAttr}><button class="mini-btn" ${disabledAttr} onclick="handleBuyClick('${itemId}', '${qtyInputId}')">구매</button></div></td>
         </tr>
       `
     );

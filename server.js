@@ -1208,6 +1208,7 @@ const userSchema = new mongoose.Schema({
   shopState: {
     dayKey: { type: String, default: null },
     dailySpend: { type: Number, default: 0 },
+    dailyBusinessCardPurchases: { type: Number, default: 0 },
     lastShoppingAddictQualifiedDayKey: { type: String, default: null }
   },
   meta: {
@@ -1308,11 +1309,13 @@ function ensureUserDefaults(user) {
     user.shopState = {
       dayKey: null,
       dailySpend: 0,
+      dailyBusinessCardPurchases: 0,
       lastShoppingAddictQualifiedDayKey: null
     };
   }
   user.shopState.dayKey = user.shopState.dayKey || null;
   user.shopState.dailySpend = Number(user.shopState.dailySpend ?? 0);
+  user.shopState.dailyBusinessCardPurchases = Number(user.shopState.dailyBusinessCardPurchases ?? 0);
   user.shopState.lastShoppingAddictQualifiedDayKey = user.shopState.lastShoppingAddictQualifiedDayKey || null;
 
   if (!user.meta) {
@@ -1431,6 +1434,21 @@ function addCardToCollection(user, cardId, amount = 1) {
   } else {
     user.cards.push({ cardId, quantity: amount });
   }
+}
+
+function removeCardFromCollection(user, cardId, amount = 1) {
+  const entry = getCardEntry(user, cardId);
+  if (!entry || entry.quantity < amount) return false;
+
+  entry.quantity -= amount;
+  if (entry.quantity <= 0) {
+    user.cards = user.cards.filter((card) => card.cardId !== cardId);
+  }
+
+  if (user.equippedCardId === cardId && getCardQuantity(user, cardId) <= 0) {
+    user.equippedCardId = null;
+  }
+  return true;
 }
 
 function getEquippedCardInfo(user) {
@@ -1612,7 +1630,8 @@ function getItemPrice(user, itemId) {
 function getShopPricesForUser(user) {
   const prices = {};
   for (const itemId of Object.keys(ITEM_DATA)) {
-    if (ITEM_DATA[itemId].type === 'special' || ITEM_DATA[itemId].shopHidden) continue;
+    if (ITEM_DATA[itemId].shopHidden) continue;
+    if (ITEM_DATA[itemId].type === 'special' && itemId !== 'business_card') continue;
     prices[itemId] = getItemPrice(user, itemId);
   }
   return prices;
@@ -1622,6 +1641,10 @@ function getTotalBuyPrice(user, itemId, quantity) {
   if (quantity <= 0) return 0;
   const itemInfo = ITEM_DATA[itemId];
   if (!itemInfo) return 0;
+
+  if (itemId === 'business_card') {
+    return 100000 * quantity;
+  }
 
   if (itemId !== 'pen_monami') {
     return getItemPrice(user, itemId) * quantity;
@@ -1633,6 +1656,30 @@ function getTotalBuyPrice(user, itemId, quantity) {
     total += Math.round(itemInfo.price * getMonamiPriceMultiplier(currentOwned + offset));
   }
   return total;
+}
+
+function getRemainingBusinessCardPurchases(user) {
+  return Math.max(0, 5 - Number(user.shopState?.dailyBusinessCardPurchases || 0));
+}
+
+function getFusionOutcomeGrade(sourceGrade) {
+  const roll = Math.random();
+  if (sourceGrade === 'C') {
+    return roll < 0.3 ? 'B' : 'C';
+  }
+  if (sourceGrade === 'B') {
+    return roll < 0.2 ? 'A' : 'B';
+  }
+  if (sourceGrade === 'A') {
+    return roll < 0.1 ? 'S' : 'A';
+  }
+  return sourceGrade;
+}
+
+function getRandomCardIdByGrade(grade) {
+  const pool = Object.values(CARD_DATA).filter((card) => card.grade === grade);
+  if (!pool.length) return null;
+  return pool[Math.floor(Math.random() * pool.length)].id;
 }
 
 function getEquippedTitleDefinition(user) {
@@ -2422,6 +2469,7 @@ function syncDailyShopState(user, now = new Date()) {
   if (user.shopState.dayKey !== todayKey) {
     user.shopState.dayKey = todayKey;
     user.shopState.dailySpend = 0;
+    user.shopState.dailyBusinessCardPurchases = 0;
   }
 }
 
@@ -3382,7 +3430,9 @@ app.post('/api/shop/buy', async (req, res) => {
 
   const itemInfo = ITEM_DATA[itemId];
   if (!itemInfo) return res.status(400).json({ msg: '존재하지 않는 아이템입니다.' });
-  if (itemInfo.type === 'special') return res.status(400).json({ msg: '해당 아이템은 상점에서 구매할 수 없습니다.' });
+  if (itemInfo.type === 'special' && itemId !== 'business_card') {
+    return res.status(400).json({ msg: '해당 아이템은 상점에서 구매할 수 없습니다.' });
+  }
 
   try {
     const user = await User.findById(userId);
@@ -3390,6 +3440,12 @@ app.post('/api/shop/buy', async (req, res) => {
 
     const now = new Date();
     calculateOfflineGains(user, now);
+    syncDailyShopState(user, now);
+
+    if (itemId === 'business_card' && buyQuantity > getRemainingBusinessCardPurchases(user)) {
+      return res.status(400).json({ msg: '명함은 하루에 최대 5개까지만 구매할 수 있습니다.' });
+    }
+
     const totalPrice = getTotalBuyPrice(user, itemId, buyQuantity);
 
     if (user.gameState.money < totalPrice) {
@@ -3398,6 +3454,9 @@ app.post('/api/shop/buy', async (req, res) => {
 
     user.gameState.money -= totalPrice;
     addItemToInventory(user, itemId, buyQuantity);
+    if (itemId === 'business_card') {
+      user.shopState.dailyBusinessCardPurchases += buyQuantity;
+    }
     recordShopSpend(user, totalPrice, now);
 
     const derivedStats = calculateDerivedStats(user, now);
@@ -3540,6 +3599,77 @@ app.post('/api/cards/draw', async (req, res) => {
     res.json(response);
   } catch (err) {
     console.error('Card draw error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/cards/fuse', async (req, res) => {
+  const { userId, cardIds } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+  if (!Array.isArray(cardIds) || cardIds.length !== 5) {
+    return res.status(400).json({ msg: '합성에는 카드 5장이 필요합니다.' });
+  }
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+
+    const now = new Date();
+    calculateOfflineGains(user, now);
+
+    const quantityMap = new Map();
+    let sourceGrade = null;
+    for (const cardId of cardIds) {
+      const cardInfo = CARD_DATA[cardId];
+      if (!cardInfo) {
+        return res.status(400).json({ msg: '존재하지 않는 카드가 포함되어 있습니다.' });
+      }
+      if (cardInfo.grade === 'S') {
+        return res.status(400).json({ msg: 'S등급 카드는 합성할 수 없습니다.' });
+      }
+      if (!sourceGrade) {
+        sourceGrade = cardInfo.grade;
+      } else if (sourceGrade !== cardInfo.grade) {
+        return res.status(400).json({ msg: '같은 등급 카드만 합성할 수 있습니다.' });
+      }
+      quantityMap.set(cardId, (quantityMap.get(cardId) || 0) + 1);
+    }
+
+    for (const [cardId, amount] of quantityMap.entries()) {
+      if (getCardQuantity(user, cardId) < amount) {
+        return res.status(400).json({ msg: '보유 카드 수량이 부족합니다.' });
+      }
+    }
+
+    for (const [cardId, amount] of quantityMap.entries()) {
+      removeCardFromCollection(user, cardId, amount);
+    }
+
+    const resultGrade = getFusionOutcomeGrade(sourceGrade);
+    const resultCardId = getRandomCardIdByGrade(resultGrade);
+    if (!resultCardId) {
+      return res.status(500).json({ msg: '합성 결과 카드를 찾지 못했습니다.' });
+    }
+
+    addCardToCollection(user, resultCardId, 1);
+
+    user.gameState.lastActionTime = now;
+    const response = await buildUserResponseWithGlobals(user, now);
+    response.fusionResult = {
+      sourceGrade,
+      result: {
+        id: resultCardId,
+        name: CARD_DATA[resultCardId].name,
+        grade: CARD_DATA[resultCardId].grade,
+        color: CARD_GRADE_COLORS[CARD_DATA[resultCardId].grade] || '#666666',
+        skillName: CARD_DATA[resultCardId].skillName,
+        skillDesc: CARD_DATA[resultCardId].skillDesc
+      }
+    };
+    await user.save();
+    res.json(response);
+  } catch (err) {
+    console.error('Card fusion error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
   }
 });
