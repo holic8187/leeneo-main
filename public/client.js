@@ -1424,6 +1424,13 @@ function renderRaidBattle(raidState, user) {
     if (Number(participant.lastShieldLoss || 0) > 0) lossTextParts.push(`실드 -${formatNumber(participant.lastShieldLoss || 0)}`);
     if (Number(participant.lastHpLoss || 0) > 0) lossTextParts.push(`HP -${formatNumber(participant.lastHpLoss || 0)}`);
     const lossText = lossTextParts.join(' / ');
+    const effectBadges = (participant.statusEffects || [])
+      .map((effect) => `
+        <div class="raid-effect-badge ${effect.type === 'debuff' ? 'raid-effect-debuff' : 'raid-effect-buff'}" title="${escapeHtml(effect.desc || '')}">
+          ${escapeHtml(effect.name)}${effect.turns ? ` (${formatNumber(effect.turns)}턴)` : ''}${effect.count ? ` (${formatNumber(effect.count)}회)` : ''}
+        </div>
+      `)
+      .join('');
 
     participantList.insertAdjacentHTML(
       'beforeend',
