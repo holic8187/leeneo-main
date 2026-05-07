@@ -54,12 +54,14 @@ const CARD_DATA = {
   ineo_diet: { name: '이네오의 다이어트 선언', grade: 'S', color: '#c62828', skillName: '다이어트 선언', skillDesc: '돌아오는 턴에 기본 공격을 총 10회 합니다. 각 공격마다 크리티컬이 적용될 수 있습니다.', cooldown: 3, targetType: null },
   gangnam_style: { name: '일 중에 몰래 듣는 강남스타일', grade: 'S', color: '#c62828', skillName: '강남스타일', skillDesc: '1턴 동안 모든 팀원에게 크리티컬률 20%와 흥겨움 버프를 부여합니다. 흥겨움 동안 기본 공격 횟수가 2배가 됩니다.', cooldown: 2, targetType: null },
   delegate_lee: { name: '이것 좀 대신 해줘 이대리', grade: 'S', color: '#c62828', skillName: '이것 좀 대신 해줘', skillDesc: '현재 입장한 파티원의 전체 레벨 합 x 30의 데미지를 1회 가합니다.', cooldown: 2, targetType: null },
+  celine_tears: { name: '구마의 눈물 젖은 셀린느', grade: 'S', color: '#c62828', skillName: '셀린느', skillDesc: '1턴 동안 <셀린느> 버프를 얻어 공격력이 50% 증가하고, 버프가 끝날 때 자신의 레벨 x 60 피해를 입힙니다.', cooldown: 2, targetType: null },
   strawberry_latte: { name: '딸기라떼', grade: 'A', color: '#f9a825', skillName: '딸기라떼', skillDesc: '다음 턴까지 지속되는 보호막 40을 파티원 전원에게 제공합니다.', cooldown: 2, targetType: null },
   rebuttal: { name: '반박', grade: 'A', color: '#f9a825', skillName: '반박', skillDesc: '파티원 전체의 HP를 20 회복합니다.', cooldown: 2, targetType: null },
   parking_master: { name: '멍프의 주차', grade: 'A', color: '#f9a825', skillName: '멍프의 주차', skillDesc: '돌아오는 턴에 기본 공격을 총 4회 합니다. 각 공격마다 크리티컬이 적용될 수 있습니다.', cooldown: 2, targetType: null },
   tissue_box: { name: '김주임의 휴지곽', grade: 'A', color: '#f9a825', skillName: '휴지곽', skillDesc: '2턴 동안 자신이 반격 버프를 획득합니다. 피격당하면 피격 1회당 기본 공격 1번으로 반격합니다.', cooldown: 2, targetType: null },
   drinking_angle: { name: '야채곱창', grade: 'A', color: '#f9a825', skillName: '소주각?', skillDesc: '액티브 스킬 없음. 전투 시작 시 모든 파티원에게 전리품 2배 버프를 부여합니다.', cooldown: 0, targetType: null, passiveOnly: true },
   tax_invoice: { name: '호이의 세금계산서', grade: 'A', color: '#f9a825', skillName: '세금계산서', skillDesc: '파티원 2인을 선택하여 1회 피격 무효화, 1턴 공격력 25% 증가, 1회 디버프 무효화를 부여합니다.', cooldown: 3, targetType: 'ally_pair' },
+  rotation_blind_date: { name: '코카의 로테이션 소개팅', grade: 'A', color: '#f9a825', skillName: '소개팅 상대', skillDesc: '액티브 스킬 없음. 매 턴 자신을 제외한 파티원 1명에게 카드 효과를 1.5배로 증폭하는 <소개팅 상대> 버프를 차례대로 줍니다.', cooldown: 0, targetType: null, passiveOnly: true },
   sherlock: { name: '셜록몬드의 추리', grade: 'B', color: '#1565c0', skillName: '셜록몬드의 추리', skillDesc: '다다음 턴까지 파티원 전원의 크리티컬 확률을 50% 증가시킵니다.', cooldown: 5, targetType: null },
   blind_date: { name: '심심이의 소개팅', grade: 'B', color: '#1565c0', skillName: '심심이의 소개팅', skillDesc: '랜덤 파티원 1명의 HP를 30 감소시키지만 다음 공격 피해를 2배로 증가시킵니다.', cooldown: 3, targetType: null },
   fantasy: { name: '라연이의 망상', grade: 'B', color: '#1565c0', skillName: '라연이의 망상', skillDesc: '파티원 전원의 해로운 효과를 제거합니다.', cooldown: 4, targetType: null },
@@ -71,7 +73,8 @@ const CARD_DATA = {
   chatgpt: { name: '모래의 챗지피티', grade: 'C', color: '#2e7d32', skillName: '모래의 챗지피티', skillDesc: '돌아오는 턴에 기본공격에 더해 자신의 레벨 x 10 추가 피해를 입힙니다.', cooldown: 2, targetType: null },
   pho: { name: '닐닐이의 쌀국수', grade: 'C', color: '#2e7d32', skillName: '닐닐이의 쌀국수', skillDesc: '랜덤 파티원 3명에게 각각 50의 보호막을 제공합니다.', cooldown: 3, targetType: null },
   coca_cola: { name: '코카의 콜라', grade: 'C', color: '#2e7d32', skillName: '코카의 콜라', skillDesc: '선택한 파티원 1인의 공격력을 2턴 동안 30% 증가시킵니다.', cooldown: 3, targetType: 'ally' },
-  cider_comment: { name: '사이다 발언', grade: 'C', color: '#2e7d32', skillName: '사이다 발언', skillDesc: '파티원 1인을 선택하여 해당 팀원에게 1회 모든 디버프 무효화 버프를 제공합니다.', cooldown: 3, targetType: 'ally' }
+  cider_comment: { name: '사이다 발언', grade: 'C', color: '#2e7d32', skillName: '사이다 발언', skillDesc: '파티원 1인을 선택하여 해당 팀원에게 1회 모든 디버프 무효화 버프를 제공합니다.', cooldown: 3, targetType: 'ally' },
+  rooftop_pigeons: { name: '옥상의 비둘기떼', grade: 'C', color: '#2e7d32', skillName: '비둘기떼', skillDesc: '자신의 레벨 x 8의 데미지로 5회 공격합니다.', cooldown: 3, targetType: null }
 };
 
 const BUFF_DATA = {
@@ -153,6 +156,7 @@ function setupEventListeners() {
   bindClick('raidLobbyBtn', openRaidLobby);
   bindClick('raidLobbyCloseBtn', closeRaidLobby);
   bindClick('raidStartBtn', handleRaidStartClick);
+  bindClick('raidCountdownCancelBtn', handleRaidCountdownCancelClick);
   bindClick('raidBackBtn', handleRaidBackClick);
   bindClick('cardDrawBtn', handleCardDraw);
   bindClick('stockInvestBtn', handleStockInvest);
@@ -1244,6 +1248,7 @@ function buildRaidSkillControls(participant, participants) {
 function updateRaidCountdown(raidState, user) {
   const overlay = document.getElementById('raidCountdownOverlay');
   const numberEl = document.getElementById('raidCountdownNumber');
+  const cancelBtn = document.getElementById('raidCountdownCancelBtn');
   if (!overlay || !numberEl) return;
 
   const countdown = raidState?.countdown;
@@ -1254,6 +1259,7 @@ function updateRaidCountdown(raidState, user) {
     const remainingMs = new Date(countdown.endsAt).getTime() - Date.now();
     const remaining = Math.max(0, Math.ceil(remainingMs / 1000));
     numberEl.textContent = String(Math.max(1, remaining));
+    if (cancelBtn) cancelBtn.disabled = false;
     showModal('raidCountdownOverlay');
     raidCountdownVisible = true;
     return;
@@ -1262,6 +1268,7 @@ function updateRaidCountdown(raidState, user) {
   if (battle?.phase === 'active' && isParticipant) {
     hideModal('raidCountdownOverlay');
     raidCountdownVisible = false;
+    if (cancelBtn) cancelBtn.disabled = true;
     hideModal('raidLobbyModal');
     showRaidScreen();
     renderRaidBattle(raidState, user);
@@ -1271,6 +1278,10 @@ function updateRaidCountdown(raidState, user) {
   if (raidCountdownVisible) {
     hideModal('raidCountdownOverlay');
     raidCountdownVisible = false;
+    if (cancelBtn) cancelBtn.disabled = false;
+    if (!raidState?.activeBattle && Number.isInteger(raidState?.queuedSlotIndex) && raidState.queuedSlotIndex >= 0) {
+      showModal('raidLobbyModal');
+    }
   }
 }
 
@@ -1322,6 +1333,27 @@ async function handleRaidStartClick() {
     updateRaidLobbyUI(latestRaidState, user);
     updateRaidCountdown(latestRaidState, user);
   } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleRaidCountdownCancelClick() {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+
+  try {
+    const button = document.getElementById('raidCountdownCancelBtn');
+    if (button) button.disabled = true;
+    const data = await postJson(`${API_URL}/api/raid/cancel-countdown`, { userId: user._id });
+    latestRaidState = data.raid;
+    hideModal('raidCountdownOverlay');
+    raidCountdownVisible = false;
+    updateRaidButton(user, latestRaidState);
+    updateRaidLobbyUI(latestRaidState, user);
+    showModal('raidLobbyModal');
+  } catch (err) {
+    const button = document.getElementById('raidCountdownCancelBtn');
+    if (button) button.disabled = false;
     alert(err.message);
   }
 }

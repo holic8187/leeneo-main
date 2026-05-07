@@ -211,7 +211,7 @@ const CARD_DATA = {
     id: 'ineo_diet',
     name: '이네오의 다이어트 선언',
     grade: 'S',
-    rate: 0.0003333333,
+    rate: 0.00025,
     skillName: '다이어트 선언',
     skillDesc: '돌아오는 턴에 기본 공격을 총 10회 합니다. 각 공격마다 크리티컬이 적용될 수 있습니다.',
     cooldown: 3,
@@ -222,7 +222,7 @@ const CARD_DATA = {
     id: 'gangnam_style',
     name: '일 중에 몰래 듣는 강남스타일',
     grade: 'S',
-    rate: 0.0003333333,
+    rate: 0.00025,
     skillName: '강남스타일',
     skillDesc: '1턴 동안 모든 팀원에게 크리티컬률 20%와 흥겨움 버프를 부여합니다. 흥겨움이 있으면 기본 공격 횟수가 2배가 됩니다.',
     cooldown: 2,
@@ -235,18 +235,31 @@ const CARD_DATA = {
     id: 'delegate_lee',
     name: '이것 좀 대신 해줘 이대리',
     grade: 'S',
-    rate: 0.0003333333,
+    rate: 0.00025,
     skillName: '이것 좀 대신 해줘',
     skillDesc: '현재 입장한 파티원의 전체 레벨 합 x 30의 데미지를 1회 가합니다.',
     cooldown: 2,
     effectType: 'party_level_blast',
     multiplierPerLevel: 30
   },
+  celine_tears: {
+    id: 'celine_tears',
+    name: '구마의 눈물 젖은 셀린느',
+    grade: 'S',
+    rate: 0.00025,
+    skillName: '셀린느',
+    skillDesc: '1턴 동안 <셀린느> 버프를 얻어 공격력이 50% 증가하고, 버프가 끝날 때 자신의 레벨 x 60 피해를 입힙니다.',
+    cooldown: 2,
+    effectType: 'self_celine_buff',
+    turns: 1,
+    attackBonusPercent: 0.5,
+    expireDamagePerLevel: 60
+  },
   strawberry_latte: {
     id: 'strawberry_latte',
     name: '딸기라떼',
     grade: 'A',
-    rate: 0.0048333333,
+    rate: 0.0041428571,
     skillName: '딸기라떼',
     skillDesc: '다음 턴까지 지속되는 보호막 40을 파티원 전원에게 제공합니다.',
     cooldown: 2,
@@ -257,7 +270,7 @@ const CARD_DATA = {
     id: 'rebuttal',
     name: '반박',
     grade: 'A',
-    rate: 0.0048333333,
+    rate: 0.0041428571,
     skillName: '반박',
     skillDesc: '파티원 전체의 HP를 20 회복합니다.',
     cooldown: 2,
@@ -268,7 +281,7 @@ const CARD_DATA = {
     id: 'parking_master',
     name: '멍프의 주차',
     grade: 'A',
-    rate: 0.0048333333,
+    rate: 0.0041428571,
     skillName: '멍프의 주차',
     skillDesc: '돌아오는 턴에 기본 공격을 총 4회 합니다. 각 공격마다 크리티컬이 적용될 수 있습니다.',
     cooldown: 2,
@@ -279,7 +292,7 @@ const CARD_DATA = {
     id: 'tissue_box',
     name: '김주임의 휴지곽',
     grade: 'A',
-    rate: 0.0048333333,
+    rate: 0.0041428571,
     skillName: '휴지곽',
     skillDesc: '2턴 동안 자신이 반격 버프를 획득합니다. 피격당하면 피격 1회당 자신의 기본 공격 1번으로 반격합니다.',
     cooldown: 2,
@@ -290,7 +303,7 @@ const CARD_DATA = {
     id: 'drinking_angle',
     name: '야채곱창',
     grade: 'A',
-    rate: 0.0048333333,
+    rate: 0.0041428571,
     skillName: '소주각?',
     skillDesc: '액티브 스킬 없음. 전투 시작 시 모든 파티원에게 소주각? 버프를 부여하며, 전투 승리 시 모든 전리품을 2배로 획득합니다.',
     cooldown: 0,
@@ -302,7 +315,7 @@ const CARD_DATA = {
     id: 'tax_invoice',
     name: '호이의 세금계산서',
     grade: 'A',
-    rate: 0.0048333333,
+    rate: 0.0041428571,
     skillName: '세금계산서',
     skillDesc: '파티원 2인을 선택하여 1회 피격 무효화, 1턴 공격력 25% 증가, 1회 디버프 무효화 버프를 제공합니다.',
     cooldown: 3,
@@ -311,6 +324,19 @@ const CARD_DATA = {
     negateHitCount: 1,
     debuffImmuneCount: 1,
     attackBonusPercent: 0.25,
+    turns: 1
+  },
+  rotation_blind_date: {
+    id: 'rotation_blind_date',
+    name: '코카의 로테이션 소개팅',
+    grade: 'A',
+    rate: 0.0041428571,
+    skillName: '소개팅 상대',
+    skillDesc: '액티브 스킬 없음. 매 턴 자신을 제외한 파티원 1명에게 카드 효과를 1.5배로 증폭하는 <소개팅 상대> 버프를 차례대로 줍니다.',
+    cooldown: 0,
+    effectType: 'passive_rotation_amp',
+    passiveOnly: true,
+    amplifyMultiplier: 1.5,
     turns: 1
   },
   sherlock: {
@@ -399,7 +425,7 @@ const CARD_DATA = {
     id: 'wig',
     name: '김부장의 가발',
     grade: 'C',
-    rate: 0.134,
+    rate: 0.1116666667,
     skillName: '김부장의 가발',
     skillDesc: '돌아오는 턴에 자신의 기본 공격을 총 3회 합니다.',
     cooldown: 3,
@@ -410,7 +436,7 @@ const CARD_DATA = {
     id: 'chatgpt',
     name: '모래의 챗지피티',
     grade: 'C',
-    rate: 0.134,
+    rate: 0.1116666667,
     skillName: '모래의 챗지피티',
     skillDesc: '돌아오는 턴에 기본 공격에 더해 자신의 레벨 x 10의 추가 데미지를 입힙니다.',
     cooldown: 2,
@@ -421,7 +447,7 @@ const CARD_DATA = {
     id: 'pho',
     name: '닐닐이의 쌀국수',
     grade: 'C',
-    rate: 0.134,
+    rate: 0.1116666667,
     skillName: '닐닐이의 쌀국수',
     skillDesc: '랜덤 파티원 3명에게 각각 50의 보호막을 제공합니다.',
     cooldown: 3,
@@ -433,7 +459,7 @@ const CARD_DATA = {
     id: 'coca_cola',
     name: '코카의 콜라',
     grade: 'C',
-    rate: 0.134,
+    rate: 0.1116666667,
     skillName: '코카의 콜라',
     skillDesc: '선택한 파티원 1인의 공격력을 2턴 동안 30% 증가시킵니다.',
     cooldown: 3,
@@ -446,13 +472,25 @@ const CARD_DATA = {
     id: 'cider_comment',
     name: '사이다 발언',
     grade: 'C',
-    rate: 0.134,
+    rate: 0.1116666667,
     skillName: '사이다 발언',
     skillDesc: '파티원 1인을 선택하여 해당 팀원에게 1회 모든 디버프 무효화 버프를 제공합니다.',
     cooldown: 3,
     effectType: 'target_debuff_guard',
     targetType: 'ally',
     debuffImmuneCount: 1
+  },
+  rooftop_pigeons: {
+    id: 'rooftop_pigeons',
+    name: '옥상의 비둘기떼',
+    grade: 'C',
+    rate: 0.1116666667,
+    skillName: '비둘기떼',
+    skillDesc: '자신의 레벨 x 8의 데미지로 5회 공격합니다.',
+    cooldown: 3,
+    effectType: 'self_fixed_multi_hit',
+    hits: 5,
+    damagePerLevel: 8
   }
 };
 
@@ -1476,6 +1514,14 @@ function consumeRaidEntry(user, now = new Date()) {
   return true;
 }
 
+function refundRaidEntry(user, now = new Date()) {
+  syncRaidEntryState(user, now);
+  user.meta.raidEntryUsedCount = Math.max(0, Number(user.meta.raidEntryUsedCount || 0) - 1);
+  if (user.meta.raidEntryUsedCount <= 0) {
+    user.meta.lastRaidDayKey = null;
+  }
+}
+
 function getRaidBossRewardRatio(level) {
   if (level >= 50) return 0.2;
   if (level <= 10) return 1;
@@ -1524,7 +1570,13 @@ function createRaidParticipantFromUser(user) {
     attackBonusTurns: 0,
     attackBonusPercent: 0,
     perHitBonusTurns: 0,
-    perHitBonusDamage: 0
+    perHitBonusDamage: 0,
+    celineTurns: 0,
+    celineExpireDamage: 0,
+    celineAttackBonusPercent: 0,
+    cardEffectAmpTurns: 0,
+    cardEffectAmpValue: 1,
+    rotationIndex: 0
   };
 }
 
@@ -1689,7 +1741,7 @@ function getSelectableRaidTargets(battle) {
 
 function useRaidCardSkill(participant, battle) {
   const card = getParticipantCard(participant);
-  if (!card) return null;
+  if (!card || card.passiveOnly) return null;
 
   if (participant.silenceTurns > 0) {
     participant.silenceTurns = Math.max(0, participant.silenceTurns - 1);
@@ -1697,73 +1749,190 @@ function useRaidCardSkill(participant, battle) {
   }
 
   if (!participant.plannedSkill || participant.skillCooldown > 0) {
-    if (participant.silenceTurns > 0) {
-      participant.silenceTurns = Math.max(0, participant.silenceTurns - 1);
-    }
     return null;
   }
 
+  const ampMultiplier = getRaidCardEffectAmpMultiplier(participant);
+  const scaleFlat = (value) => Math.max(0, Math.floor(Number(value || 0) * ampMultiplier));
+  const scalePercent = (value) => Number((Number(value || 0) * ampMultiplier).toFixed(4));
+  const scaleCount = (value) => Math.max(1, Math.ceil(Number(value || 0) * ampMultiplier));
+  const scaleBonusMultiplier = (value) => Number((1 + ((Number(value || 1) - 1) * ampMultiplier)).toFixed(4));
+
   participant.skillCooldown = card.cooldown + 1;
   participant.plannedSkill = false;
-  let logText = `${participant.displayName}이(가) ${card.name} 스킬을 사용했습니다.`;
+  let logText = `${participant.displayName}(이)가 ${card.name} 스킬을 사용했습니다.`;
 
   if (card.effectType === 'self_multi_hit') {
-    participant.extraHits = Math.max(participant.extraHits, card.hits - 1);
+    participant.extraHits = Math.max(participant.extraHits, scaleCount(card.hits) - 1);
+  } else if (card.effectType === 'self_fixed_multi_hit') {
+    const hits = Math.max(1, Number(card.hits || 1));
+    const perHitDamage = scaleFlat(participant.level * Number(card.damagePerLevel || 0));
+    const totalDamage = perHitDamage * hits;
+    applyRaidDamageToBoss(battle, totalDamage);
+    logText = `${participant.displayName}(이)가 ${card.name}로 ${hits}회 공격해 ${totalDamage.toLocaleString()} 피해를 입혔습니다.`;
+  } else if (card.effectType === 'self_celine_buff') {
+    participant.celineTurns = Math.max(participant.celineTurns, Number(card.turns || 1));
+    participant.celineAttackBonusPercent = Math.max(Number(participant.celineAttackBonusPercent || 0), scalePercent(card.attackBonusPercent));
+    participant.celineExpireDamage = Math.max(Number(participant.celineExpireDamage || 0), scaleFlat(participant.level * Number(card.expireDamagePerLevel || 0)));
+    logText = `${participant.displayName}(이)가 <셀린느> 버프를 얻었습니다.`;
   } else if (card.effectType === 'party_shield') {
+    const shieldAmount = scaleFlat(card.shield);
     battle.participants.forEach((ally) => {
-      if (ally.hp > 0) ally.shield += card.shield;
+      if (ally.hp > 0) ally.shield += shieldAmount;
     });
-    logText = `${participant.displayName}이(가) ${card.name}로 파티 전원에게 보호막 ${card.shield}을 부여했습니다.`;
+    logText = `${participant.displayName}(이)가 ${card.name}로 파티 전원에게 보호막 ${shieldAmount}을 부여했습니다.`;
   } else if (card.effectType === 'party_heal') {
+    const healAmount = scaleFlat(card.heal);
     battle.participants.forEach((ally) => {
-      if (ally.hp > 0) healRaidTarget(ally, card.heal);
+      if (ally.hp > 0) healRaidTarget(ally, healAmount);
     });
-    logText = `${participant.displayName}이(가) ${card.name}로 파티 전원의 HP를 ${card.heal} 회복시켰습니다.`;
+    logText = `${participant.displayName}(이)가 ${card.name}로 파티 전원의 HP를 ${healAmount} 회복시켰습니다.`;
   } else if (card.effectType === 'party_crit_bonus') {
+    const critBonus = scalePercent(card.critBonus);
     battle.participants.forEach((ally) => {
-      if (ally.hp > 0) ally.critBonusTurns = Math.max(ally.critBonusTurns, card.turns);
+      if (ally.hp > 0) {
+        ally.critBonusTurns = Math.max(ally.critBonusTurns, card.turns);
+        ally.critBonusValue = Math.max(Number(ally.critBonusValue || 0), critBonus);
+      }
     });
-    logText = `${participant.displayName}이(가) ${card.name}로 파티 전원의 크리티컬 확률을 높였습니다.`;
+    logText = `${participant.displayName}(이)가 ${card.name}로 파티 전원의 크리티컬 확률을 높였습니다.`;
+  } else if (card.effectType === 'party_hype_crit') {
+    const critBonus = scalePercent(card.critBonus);
+    battle.participants.forEach((ally) => {
+      if (ally.hp > 0) {
+        ally.critBonusTurns = Math.max(ally.critBonusTurns, card.turns);
+        ally.critBonusValue = Math.max(Number(ally.critBonusValue || 0), critBonus);
+        ally.hypeTurns = Math.max(ally.hypeTurns, card.hypeTurns || 1);
+      }
+    });
+    logText = `${participant.displayName}(이)가 ${card.name}로 파티 전원에게 흥겨움과 크리티컬 버프를 부여했습니다.`;
+  } else if (card.effectType === 'party_level_blast') {
+    const totalLevels = battle.participants.reduce((sum, member) => sum + Number(member.level || 0), 0);
+    const damage = scaleFlat(totalLevels * Number(card.multiplierPerLevel || 0));
+    applyRaidDamageToBoss(battle, damage);
+    logText = `${participant.displayName}(이)가 ${card.name}로 ${damage.toLocaleString()} 피해를 가했습니다.`;
   } else if (card.effectType === 'random_ally_sacrifice_buff') {
     const aliveAllies = getAliveRaidParticipants(battle);
     if (aliveAllies.length > 0) {
       const target = aliveAllies[Math.floor(Math.random() * aliveAllies.length)];
-      applyRaidDamage(target, card.selfDamage);
+      applyRaidDamage(target, card.selfDamage, { battle, source: 'ally', allowCounter: false });
       target.damageMultiplierTurns = 1;
-      target.damageMultiplierValue = card.damageMultiplier;
-      logText = `${participant.displayName}이(가) ${card.name}로 ${target.displayName}의 HP를 ${card.selfDamage} 줄이고 다음 공격 피해를 ${card.damageMultiplier}배로 높였습니다.`;
+      target.damageMultiplierValue = Math.max(Number(target.damageMultiplierValue || 1), scaleBonusMultiplier(card.damageMultiplier));
+      logText = `${participant.displayName}(이)가 ${card.name}로 ${target.displayName}의 HP를 ${card.selfDamage} 줄이고 다음 공격 피해를 증폭시켰습니다.`;
     }
   } else if (card.effectType === 'party_cleanse') {
     battle.participants.forEach((ally) => cleanseRaidTarget(ally));
-    logText = `${participant.displayName}이(가) ${card.name}로 파티의 해로운 효과를 제거했습니다.`;
+    logText = `${participant.displayName}(이)가 ${card.name}로 파티의 해로운 효과를 제거했습니다.`;
   } else if (card.effectType === 'target_heal') {
     const selectedTargetId = participant.plannedTargetUserId;
     const target = getRaidParticipant(battle, selectedTargetId) || getAliveRaidParticipants(battle)[0] || participant;
-    healRaidTarget(target, card.heal);
-    logText = `${participant.displayName}이(가) ${card.name}로 ${target.displayName}의 HP를 ${card.heal} 회복시켰습니다.`;
+    const healAmount = scaleFlat(card.heal);
+    healRaidTarget(target, healAmount);
+    logText = `${participant.displayName}(이)가 ${card.name}로 ${target.displayName}의 HP를 ${healAmount} 회복시켰습니다.`;
   } else if (card.effectType === 'self_bonus_damage') {
-    participant.extraDamage = participant.level * card.bonusPerLevel;
+    participant.extraDamage = scaleFlat(participant.level * Number(card.bonusPerLevel || 0));
+  } else if (card.effectType === 'self_per_hit_bonus') {
+    participant.perHitBonusDamage = scaleFlat(participant.level * Number(card.bonusPerLevel || 0));
+    participant.perHitBonusTurns = 1;
+    logText = `${participant.displayName}(이)가 ${card.name}로 이번 턴 공격마다 추가 피해를 준비했습니다.`;
   } else if (card.effectType === 'random_shield') {
     const aliveAllies = getAliveRaidParticipants(battle);
     const shuffled = [...aliveAllies].sort(() => Math.random() - 0.5).slice(0, Math.min(card.targets, aliveAllies.length));
+    const shieldAmount = scaleFlat(card.shield);
     shuffled.forEach((target) => {
-      target.shield += card.shield;
+      target.shield += shieldAmount;
     });
-    logText = `${participant.displayName}이(가) ${card.name}로 ${shuffled.length}명에게 보호막 ${card.shield}을 부여했습니다.`;
+    logText = `${participant.displayName}(이)가 ${card.name}로 ${shuffled.length}명에게 보호막 ${shieldAmount}을 부여했습니다.`;
+  } else if (card.effectType === 'self_counter') {
+    participant.counterTurns = Math.max(participant.counterTurns, card.turns);
+    logText = `${participant.displayName}(이)가 ${card.name}로 반격 태세에 들어갔습니다.`;
+  } else if (card.effectType === 'target_pair_guard_buff') {
+    const selectedTargetId = participant.plannedTargetUserId;
+    const selectedTargetId2 = participant.plannedTargetUserId2;
+    const first = getRaidParticipant(battle, selectedTargetId) || getAliveRaidParticipants(battle)[0] || participant;
+    const second = getRaidParticipant(battle, selectedTargetId2) || getAliveRaidParticipants(battle).find((entry) => entry.userId !== first.userId) || first;
+    const negateCount = scaleCount(card.negateHitCount || 0);
+    const debuffGuardCount = scaleCount(card.debuffImmuneCount || 0);
+    const attackBonusPercent = scalePercent(card.attackBonusPercent);
+    [first, second].forEach((target) => {
+      target.negateHitCount += negateCount;
+      target.debuffImmuneCount += debuffGuardCount;
+      target.attackBonusTurns = Math.max(target.attackBonusTurns, card.turns);
+      target.attackBonusPercent = Math.max(Number(target.attackBonusPercent || 0), attackBonusPercent);
+    });
+    logText = `${participant.displayName}(이)가 ${card.name}로 ${first.displayName}${second.userId !== first.userId ? `, ${second.displayName}` : ''}에게 보호 버프를 부여했습니다.`;
+  } else if (card.effectType === 'target_negate_hit') {
+    const selectedTargetId = participant.plannedTargetUserId;
+    const target = getRaidParticipant(battle, selectedTargetId) || getAliveRaidParticipants(battle)[0] || participant;
+    const negateCount = scaleCount(card.negateHitCount || 0);
+    target.negateHitCount += negateCount;
+    logText = `${participant.displayName}(이)가 ${card.name}로 ${target.displayName}에게 피격 무효 ${negateCount}회를 부여했습니다.`;
+  } else if (card.effectType === 'random_party_attack_buff') {
+    const aliveAllies = getAliveRaidParticipants(battle);
+    const shuffled = [...aliveAllies].sort(() => Math.random() - 0.5).slice(0, Math.min(card.targets, aliveAllies.length));
+    const attackBonusPercent = scalePercent(card.attackBonusPercent);
+    shuffled.forEach((target) => {
+      target.attackBonusTurns = Math.max(target.attackBonusTurns, card.turns);
+      target.attackBonusPercent = Math.max(Number(target.attackBonusPercent || 0), attackBonusPercent);
+    });
+    logText = `${participant.displayName}(이)가 ${card.name}로 ${shuffled.map((target) => target.displayName).join(', ')}의 공격력을 높였습니다.`;
+  } else if (card.effectType === 'target_attack_buff') {
+    const selectedTargetId = participant.plannedTargetUserId;
+    const target = getRaidParticipant(battle, selectedTargetId) || getAliveRaidParticipants(battle)[0] || participant;
+    const attackBonusPercent = scalePercent(card.attackBonusPercent);
+    target.attackBonusTurns = Math.max(target.attackBonusTurns, card.turns);
+    target.attackBonusPercent = Math.max(Number(target.attackBonusPercent || 0), attackBonusPercent);
+    logText = `${participant.displayName}(이)가 ${card.name}로 ${target.displayName}의 공격력을 높였습니다.`;
+  } else if (card.effectType === 'target_debuff_guard') {
+    const selectedTargetId = participant.plannedTargetUserId;
+    const target = getRaidParticipant(battle, selectedTargetId) || getAliveRaidParticipants(battle)[0] || participant;
+    const debuffGuardCount = scaleCount(card.debuffImmuneCount || 0);
+    target.debuffImmuneCount += debuffGuardCount;
+    logText = `${participant.displayName}(이)가 ${card.name}로 ${target.displayName}에게 디버프 무효 ${debuffGuardCount}회를 부여했습니다.`;
   }
 
   participant.plannedTargetUserId = null;
+  participant.plannedTargetUserId2 = null;
   return logText;
 }
 
-function tickRaidParticipantEndOfTurn(participant) {
+function tickRaidParticipantEndOfTurn(participant, battle) {
   if (participant.skillCooldown > 0) participant.skillCooldown -= 1;
   if (participant.silenceTurns > 0) participant.silenceTurns -= 1;
-  if (participant.critBonusTurns > 0) participant.critBonusTurns -= 1;
+  if (participant.critBonusTurns > 0) {
+    participant.critBonusTurns -= 1;
+    if (participant.critBonusTurns <= 0) participant.critBonusValue = 0;
+  }
   if (participant.damageMultiplierTurns > 0) {
     participant.damageMultiplierTurns -= 1;
     if (participant.damageMultiplierTurns <= 0) {
       participant.damageMultiplierValue = 1;
+    }
+  }
+  if (participant.hypeTurns > 0) participant.hypeTurns -= 1;
+  if (participant.counterTurns > 0) participant.counterTurns -= 1;
+  if (participant.attackBonusTurns > 0) {
+    participant.attackBonusTurns -= 1;
+    if (participant.attackBonusTurns <= 0) participant.attackBonusPercent = 0;
+  }
+  if (participant.perHitBonusTurns > 0) {
+    participant.perHitBonusTurns -= 1;
+    if (participant.perHitBonusTurns <= 0) participant.perHitBonusDamage = 0;
+  }
+  if (participant.cardEffectAmpTurns > 0) {
+    participant.cardEffectAmpTurns -= 1;
+    if (participant.cardEffectAmpTurns <= 0) participant.cardEffectAmpValue = 1;
+  }
+  if (participant.celineTurns > 0) {
+    participant.celineTurns -= 1;
+    if (participant.celineTurns <= 0) {
+      const expireDamage = Number(participant.celineExpireDamage || 0);
+      if (battle && expireDamage > 0 && battle.bossHp > 0) {
+        applyRaidDamageToBoss(battle, expireDamage);
+        battle.logs.push(`${participant.displayName}? <???> ??? ???? ${expireDamage.toLocaleString()} ??? ?????.`);
+      }
+      participant.celineExpireDamage = 0;
+      participant.celineAttackBonusPercent = 0;
     }
   }
   participant.extraHits = 0;
@@ -1860,8 +2029,31 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
   };
 }
 
+function getRaidCardEffectAmpMultiplier(participant) {
+  return participant.cardEffectAmpTurns > 0 ? Number(participant.cardEffectAmpValue || 1) : 1;
+}
+
+function triggerRaidTurnStartPassives(participant, battle) {
+  const card = getParticipantCard(participant);
+  if (!card || participant.hp <= 0) return null;
+  if (card.effectType !== 'passive_rotation_amp') return null;
+
+  const targets = battle.participants.filter((entry) => entry.hp > 0 && entry.userId !== participant.userId);
+  if (!targets.length) return null;
+
+  const rotationIndex = Number(participant.rotationIndex || 0) % targets.length;
+  const target = targets[rotationIndex];
+  participant.rotationIndex = (rotationIndex + 1) % targets.length;
+  target.cardEffectAmpTurns = Math.max(target.cardEffectAmpTurns, Number(card.turns || 1));
+  target.cardEffectAmpValue = Math.max(Number(target.cardEffectAmpValue || 1), Number(card.amplifyMultiplier || 1));
+
+  return `${participant.displayName}? ${card.name} ??? ${target.displayName}?? <??? ??> ??? ?????.`;
+}
+
 function getRaidAttackBonusPercent(participant) {
-  return participant.attackBonusTurns > 0 ? Number(participant.attackBonusPercent || 0) : 0;
+  const baseBonus = participant.attackBonusTurns > 0 ? Number(participant.attackBonusPercent || 0) : 0;
+  const celineBonus = participant.celineTurns > 0 ? Number(participant.celineAttackBonusPercent || 0) : 0;
+  return baseBonus + celineBonus;
 }
 
 function applyRaidDamageToBoss(battle, damage) {
@@ -1951,162 +2143,6 @@ function applyRaidDebuffImmunity(target) {
     return true;
   }
   return false;
-}
-
-function useRaidCardSkill(participant, battle) {
-  const card = getParticipantCard(participant);
-  if (!card || card.passiveOnly) return null;
-
-  if (participant.silenceTurns > 0) {
-    participant.silenceTurns = Math.max(0, participant.silenceTurns - 1);
-    return `${participant.displayName}은(는) 침묵 상태라 스킬을 사용할 수 없습니다.`;
-  }
-
-  if (!participant.plannedSkill || participant.skillCooldown > 0) {
-    return null;
-  }
-
-  participant.skillCooldown = card.cooldown + 1;
-  participant.plannedSkill = false;
-  let logText = `${participant.displayName}이(가) ${card.name} 스킬을 사용했습니다.`;
-
-  if (card.effectType === 'self_multi_hit') {
-    participant.extraHits = Math.max(participant.extraHits, card.hits - 1);
-  } else if (card.effectType === 'party_shield') {
-    battle.participants.forEach((ally) => {
-      if (ally.hp > 0) ally.shield += card.shield;
-    });
-    logText = `${participant.displayName}이(가) ${card.name}로 파티 전원에게 보호막 ${card.shield}을 부여했습니다.`;
-  } else if (card.effectType === 'party_heal') {
-    battle.participants.forEach((ally) => {
-      if (ally.hp > 0) healRaidTarget(ally, card.heal);
-    });
-    logText = `${participant.displayName}이(가) ${card.name}로 파티 전원의 HP를 ${card.heal} 회복시켰습니다.`;
-  } else if (card.effectType === 'party_crit_bonus') {
-    battle.participants.forEach((ally) => {
-      if (ally.hp > 0) {
-        ally.critBonusTurns = Math.max(ally.critBonusTurns, card.turns);
-        ally.critBonusValue = Math.max(Number(ally.critBonusValue || 0), Number(card.critBonus || 0));
-      }
-    });
-    logText = `${participant.displayName}이(가) ${card.name}로 파티 전원의 크리티컬 확률을 높였습니다.`;
-  } else if (card.effectType === 'party_hype_crit') {
-    battle.participants.forEach((ally) => {
-      if (ally.hp > 0) {
-        ally.critBonusTurns = Math.max(ally.critBonusTurns, card.turns);
-        ally.critBonusValue = Math.max(Number(ally.critBonusValue || 0), Number(card.critBonus || 0));
-        ally.hypeTurns = Math.max(ally.hypeTurns, card.hypeTurns || 1);
-      }
-    });
-    logText = `${participant.displayName}이(가) ${card.name}로 파티 전원에게 흥겨움과 크리티컬 버프를 부여했습니다.`;
-  } else if (card.effectType === 'party_level_blast') {
-    const totalLevels = battle.participants.reduce((sum, member) => sum + Number(member.level || 0), 0);
-    const damage = totalLevels * Number(card.multiplierPerLevel || 0);
-    applyRaidDamageToBoss(battle, damage);
-    logText = `${participant.displayName}이(가) ${card.name}로 ${damage.toLocaleString()} 피해를 가했습니다.`;
-  } else if (card.effectType === 'random_ally_sacrifice_buff') {
-    const aliveAllies = getAliveRaidParticipants(battle);
-    if (aliveAllies.length > 0) {
-      const target = aliveAllies[Math.floor(Math.random() * aliveAllies.length)];
-      applyRaidDamage(target, card.selfDamage, { battle, source: 'ally', allowCounter: false });
-      target.damageMultiplierTurns = 1;
-      target.damageMultiplierValue = card.damageMultiplier;
-      logText = `${participant.displayName}이(가) ${card.name}로 ${target.displayName}의 HP를 ${card.selfDamage} 줄이고 다음 공격 피해를 ${card.damageMultiplier}배로 높였습니다.`;
-    }
-  } else if (card.effectType === 'party_cleanse') {
-    battle.participants.forEach((ally) => cleanseRaidTarget(ally));
-    logText = `${participant.displayName}이(가) ${card.name}로 파티의 해로운 효과를 제거했습니다.`;
-  } else if (card.effectType === 'target_heal') {
-    const selectedTargetId = participant.plannedTargetUserId;
-    const target = getRaidParticipant(battle, selectedTargetId) || getAliveRaidParticipants(battle)[0] || participant;
-    healRaidTarget(target, card.heal);
-    logText = `${participant.displayName}이(가) ${card.name}로 ${target.displayName}의 HP를 ${card.heal} 회복시켰습니다.`;
-  } else if (card.effectType === 'self_bonus_damage') {
-    participant.extraDamage = participant.level * card.bonusPerLevel;
-  } else if (card.effectType === 'self_per_hit_bonus') {
-    participant.perHitBonusDamage = participant.level * Number(card.bonusPerLevel || 0);
-    participant.perHitBonusTurns = 1;
-    logText = `${participant.displayName}이(가) ${card.name}로 이번 턴 공격마다 추가 피해를 준비했습니다.`;
-  } else if (card.effectType === 'random_shield') {
-    const aliveAllies = getAliveRaidParticipants(battle);
-    const shuffled = [...aliveAllies].sort(() => Math.random() - 0.5).slice(0, Math.min(card.targets, aliveAllies.length));
-    shuffled.forEach((target) => {
-      target.shield += card.shield;
-    });
-    logText = `${participant.displayName}이(가) ${card.name}로 ${shuffled.length}명에게 보호막 ${card.shield}을 부여했습니다.`;
-  } else if (card.effectType === 'self_counter') {
-    participant.counterTurns = Math.max(participant.counterTurns, card.turns);
-    logText = `${participant.displayName}이(가) ${card.name}로 반격 태세에 들어갔습니다.`;
-  } else if (card.effectType === 'target_pair_guard_buff') {
-    const selectedTargetId = participant.plannedTargetUserId;
-    const selectedTargetId2 = participant.plannedTargetUserId2;
-    const first = getRaidParticipant(battle, selectedTargetId) || getAliveRaidParticipants(battle)[0] || participant;
-    const second = getRaidParticipant(battle, selectedTargetId2)
-      || getAliveRaidParticipants(battle).find((entry) => entry.userId !== first.userId)
-      || first;
-    [first, second].forEach((target) => {
-      target.negateHitCount += Number(card.negateHitCount || 0);
-      target.debuffImmuneCount += Number(card.debuffImmuneCount || 0);
-      target.attackBonusTurns = Math.max(target.attackBonusTurns, card.turns);
-      target.attackBonusPercent = Math.max(Number(target.attackBonusPercent || 0), Number(card.attackBonusPercent || 0));
-    });
-    logText = `${participant.displayName}이(가) ${card.name}로 ${first.displayName}${second.userId !== first.userId ? `, ${second.displayName}` : ''}에게 보호 버프를 부여했습니다.`;
-  } else if (card.effectType === 'target_negate_hit') {
-    const selectedTargetId = participant.plannedTargetUserId;
-    const target = getRaidParticipant(battle, selectedTargetId) || getAliveRaidParticipants(battle)[0] || participant;
-    target.negateHitCount += Number(card.negateHitCount || 0);
-    logText = `${participant.displayName}이(가) ${card.name}로 ${target.displayName}에게 1회 피격 무효화를 부여했습니다.`;
-  } else if (card.effectType === 'random_party_attack_buff') {
-    const aliveAllies = getAliveRaidParticipants(battle);
-    const shuffled = [...aliveAllies].sort(() => Math.random() - 0.5).slice(0, Math.min(card.targets, aliveAllies.length));
-    shuffled.forEach((target) => {
-      target.attackBonusTurns = Math.max(target.attackBonusTurns, card.turns);
-      target.attackBonusPercent = Math.max(Number(target.attackBonusPercent || 0), Number(card.attackBonusPercent || 0));
-    });
-    logText = `${participant.displayName}이(가) ${card.name}로 ${shuffled.map((target) => target.displayName).join(', ')}의 공격력을 높였습니다.`;
-  } else if (card.effectType === 'target_attack_buff') {
-    const selectedTargetId = participant.plannedTargetUserId;
-    const target = getRaidParticipant(battle, selectedTargetId) || getAliveRaidParticipants(battle)[0] || participant;
-    target.attackBonusTurns = Math.max(target.attackBonusTurns, card.turns);
-    target.attackBonusPercent = Math.max(Number(target.attackBonusPercent || 0), Number(card.attackBonusPercent || 0));
-    logText = `${participant.displayName}이(가) ${card.name}로 ${target.displayName}의 공격력을 높였습니다.`;
-  } else if (card.effectType === 'target_debuff_guard') {
-    const selectedTargetId = participant.plannedTargetUserId;
-    const target = getRaidParticipant(battle, selectedTargetId) || getAliveRaidParticipants(battle)[0] || participant;
-    target.debuffImmuneCount += Number(card.debuffImmuneCount || 0);
-    logText = `${participant.displayName}이(가) ${card.name}로 ${target.displayName}에게 디버프 무효화를 부여했습니다.`;
-  }
-
-  participant.plannedTargetUserId = null;
-  participant.plannedTargetUserId2 = null;
-  return logText;
-}
-
-function tickRaidParticipantEndOfTurn(participant) {
-  if (participant.skillCooldown > 0) participant.skillCooldown -= 1;
-  if (participant.silenceTurns > 0) participant.silenceTurns -= 1;
-  if (participant.critBonusTurns > 0) {
-    participant.critBonusTurns -= 1;
-    if (participant.critBonusTurns <= 0) participant.critBonusValue = 0;
-  }
-  if (participant.damageMultiplierTurns > 0) {
-    participant.damageMultiplierTurns -= 1;
-    if (participant.damageMultiplierTurns <= 0) {
-      participant.damageMultiplierValue = 1;
-    }
-  }
-  if (participant.hypeTurns > 0) participant.hypeTurns -= 1;
-  if (participant.counterTurns > 0) participant.counterTurns -= 1;
-  if (participant.attackBonusTurns > 0) {
-    participant.attackBonusTurns -= 1;
-    if (participant.attackBonusTurns <= 0) participant.attackBonusPercent = 0;
-  }
-  if (participant.perHitBonusTurns > 0) {
-    participant.perHitBonusTurns -= 1;
-    if (participant.perHitBonusTurns <= 0) participant.perHitBonusDamage = 0;
-  }
-  participant.extraHits = 0;
-  participant.extraDamage = 0;
 }
 
 function performRaidBossAction(battle) {
@@ -2331,12 +2367,14 @@ async function advanceRaidState(now = new Date()) {
     if (activeBattle.turnIndex < activeBattle.participants.length) {
       const participant = activeBattle.participants[activeBattle.turnIndex];
       if (participant.hp > 0) {
+        const passiveLog = triggerRaidTurnStartPassives(participant, activeBattle);
+        if (passiveLog) activeBattle.logs.push(passiveLog);
         const skillLog = useRaidCardSkill(participant, activeBattle);
         if (skillLog) activeBattle.logs.push(skillLog);
         activeBattle.logs.push(performRaidBasicAttack(participant, activeBattle));
-        tickRaidParticipantEndOfTurn(participant);
+        tickRaidParticipantEndOfTurn(participant, activeBattle);
       } else {
-        activeBattle.logs.push(`${participant.displayName}은(는) 전투 불능 상태입니다.`);
+        activeBattle.logs.push(`${participant.displayName}?(?) ?? ?? ?????.`);
       }
       activeBattle.turnIndex += 1;
     } else {
@@ -3661,6 +3699,53 @@ app.post('/api/raid/start', async (req, res) => {
   } catch (err) {
     console.error('Raid start error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/raid/cancel-countdown', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ msg: '?ъ슜??ID媛 ?꾩슂?⑸땲??' });
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '?ъ슜?먮? 李얠쓣 ???놁뒿?덈떎.' });
+
+    const activeBattle = raidState.activeBattle;
+    if (!activeBattle || activeBattle.phase !== 'countdown') {
+      return res.status(400).json({ msg: '?낆옣 移댁슫?몃떎?댁슫 以묒씤 ?덉씠?쒓? ?놁뒿?덈떎.' });
+    }
+
+    const isParticipant = activeBattle.participants.some((participant) => String(participant.userId) === String(userId));
+    if (!isParticipant) {
+      return res.status(403).json({ msg: '?덉씠?쒓? 李몄뿬?먮쭔 痍⑥냼???덉뒿?덈떎.' });
+    }
+
+    const participantIds = activeBattle.participants.map((participant) => String(participant.userId));
+    const users = await User.find({ _id: { $in: participantIds } });
+    const userMap = new Map(users.map((entry) => [String(entry._id), entry]));
+
+    raidState.slots = Array(RAID_PARTY_SIZE).fill(null);
+    activeBattle.participants.forEach((participant, index) => {
+      if (index < RAID_PARTY_SIZE) {
+        raidState.slots[index] = String(participant.userId);
+      }
+    });
+
+    for (const participantId of participantIds) {
+      const participantUser = userMap.get(String(participantId));
+      if (!participantUser) continue;
+      refundRaidEntry(participantUser, new Date());
+      await participantUser.save();
+    }
+
+    raidState.activeBattle = null;
+    bumpRaidVersion();
+
+    const raid = await buildRaidStateResponse(user, new Date());
+    res.json({ raid, cancelled: true });
+  } catch (err) {
+    console.error('Raid countdown cancel error:', err);
+    res.status(500).json({ msg: '?쒕쾭 ?ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.' });
   }
 });
 
