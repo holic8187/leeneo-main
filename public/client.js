@@ -1557,6 +1557,8 @@ async function pollRaidState() {
     updateRaidCountdown(latestRaidState, user);
 
     if (latestRaidState?.activeBattle?.phase === 'active' && latestRaidState.activeBattle.isParticipant) {
+      hideModal('raidLobbyModal');
+      showRaidScreen();
       renderRaidBattle(latestRaidState, user);
     } else if (!latestRaidState?.activeBattle && !document.getElementById('raid-screen').classList.contains('hidden')) {
       handleRaidBackClick();

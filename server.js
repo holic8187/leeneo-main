@@ -2497,7 +2497,7 @@ async function advanceRaidState(now = new Date()) {
   if (!activeBattle) return;
 
   let safety = 0;
-  while (raidState.activeBattle && safety < 20) {
+  while (raidState.activeBattle && safety < 500) {
     safety += 1;
 
     if (activeBattle.phase === 'countdown') {
@@ -3880,8 +3880,13 @@ app.post('/api/raid/start', async (req, res) => {
     if (!starter) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
     const now = new Date();
     calculateOfflineGains(starter, now);
+    await advanceRaidState(now);
 
     if (raidState.activeBattle) {
+      if (isRaidUserParticipant(raidState.activeBattle, userId)) {
+        const raid = await buildRaidStateResponse(starter, now);
+        return res.json({ raid, resumed: true });
+      }
       return res.status(400).json({ msg: '이미 레이드가 진행 중입니다.' });
     }
 
