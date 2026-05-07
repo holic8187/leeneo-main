@@ -1331,7 +1331,7 @@ function renderRaidBattle(raidState, user) {
     const lossText = lossTextParts.join(' / ');
     const effectBadges = (participant.statusEffects || [])
       .map((effect) => `
-        <div class="raid-effect-badge ${effect.type === 'debuff' ? 'raid-effect-debuff' : 'raid-effect-buff'}" title="${escapeHtml(effect.desc || '')}">
+        <div class="raid-effect-badge ${effect.type === 'debuff' ? 'raid-effect-debuff' : 'raid-effect-buff'}" data-tooltip="${escapeHtml(effect.desc || '')}" title="${escapeHtml(effect.desc || '')}">
           ${escapeHtml(effect.name)}${effect.turns ? ` (${formatNumber(effect.turns)}턴)` : ''}${effect.count ? ` (${formatNumber(effect.count)}회)` : ''}
         </div>
       `)

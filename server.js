@@ -1607,7 +1607,7 @@ function buildQueuedSlotSnapshot(user) {
 function createRaidParticipantFromUser(user) {
   return {
     userId: String(user._id),
-    displayName: buildDisplayName(user),
+    displayName: user.nickname || user.username,
     nickname: user.nickname || user.username,
     level: user.gameState.level,
     maxHp: 100,
@@ -2113,6 +2113,15 @@ function performRaidBossAction(battle) {
 
 function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
   if (!activeBattle) return null;
+  const sanitizedLogs = activeBattle.logs.slice(-8).map((line) => {
+    let normalized = String(line || '');
+    activeBattle.participants.forEach((participant) => {
+      if (participant?.displayName && participant?.nickname && participant.displayName !== participant.nickname) {
+        normalized = normalized.split(participant.displayName).join(participant.nickname);
+      }
+    });
+    return normalized;
+  });
   return {
     battleId: activeBattle.battleId,
     bossId: activeBattle.bossId,
@@ -2347,7 +2356,7 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
       return {
         turnOrder: participant.turnOrder,
         userId: participant.userId,
-        displayName: participant.displayName,
+        displayName: participant.nickname || participant.displayName,
         level: participant.level,
         hp: participant.hp,
         maxHp: participant.maxHp,
@@ -2370,7 +2379,7 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
         isSelf: viewerUserId ? participant.userId === String(viewerUserId) : false
       };
     }),
-    recentLogs: activeBattle.logs.slice(-8)
+    recentLogs: sanitizedLogs
   };
 }
 

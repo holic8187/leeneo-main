@@ -671,6 +671,36 @@ progress {
   font-size: 12px;
   font-weight: 700;
   border: 1px solid transparent;
+  position: relative;
+  cursor: help;
+}
+
+.raid-effect-badge::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  min-width: 160px;
+  max-width: 260px;
+  padding: 8px 10px;
+  border: 1px solid #b7b7b7;
+  background: #fffde7;
+  color: #333333;
+  border-radius: 6px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: normal;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.raid-effect-badge:hover::after,
+.raid-effect-badge:focus-visible::after {
+  opacity: 1;
 }
 
 .raid-effect-buff {
