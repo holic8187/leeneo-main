@@ -295,9 +295,19 @@ progress {
   border-color: #7f1010;
 }
 
+.raid-entry-count {
+  position: absolute;
+  top: 40px;
+  left: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1f3f68;
+  text-align: left;
+}
+
 .raid-entry-hint {
   position: absolute;
-  top: 42px;
+  top: 58px;
   left: 10px;
   max-width: 150px;
   font-size: 12px;

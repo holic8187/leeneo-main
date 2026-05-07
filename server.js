@@ -52,6 +52,14 @@ const ITEM_DATA = {
     hoverDesc: '보유량 1개마다 월급 획득량이 0.05% 증가합니다.',
     stats: { moneyBonus: 0.05 }
   },
+  pen_jetstream: {
+    name: '제트스트림 볼펜',
+    price: 500000,
+    type: 'passive',
+    desc: '월급 획득량 +0.1%',
+    hoverDesc: '보유량 1개마다 월급 획득량이 0.1% 증가합니다.',
+    stats: { moneyBonus: 0.1 }
+  },
   coffee_mix: {
     name: '맥심 커피믹스',
     price: 50000,
@@ -412,10 +420,11 @@ const CARD_DATA = {
     grade: 'B',
     rate: 0.0428571429,
     skillName: '무적의 논리',
-    skillDesc: '파티원 1인을 선택하여 해당 팀원에게 1회 피격 무효화 버프를 제공합니다.',
+    skillDesc: '랜덤 파티원 2인에게 1회 피격 무효화 버프를 제공합니다.',
     cooldown: 2,
-    effectType: 'target_negate_hit',
-    targetType: 'ally',
+    effectType: 'random_party_negate_hit',
+    targetType: null,
+    targets: 2,
     negateHitCount: 1
   },
   ride_line: {
@@ -1680,7 +1689,7 @@ function getMonamiPriceMultiplier(ownedCount) {
 function getItemPrice(user, itemId) {
   const itemInfo = ITEM_DATA[itemId];
   if (!itemInfo) return 0;
-  if (itemId === 'pen_monami') {
+  if (['pen_monami', 'pen_jetstream'].includes(itemId)) {
     return Math.round(itemInfo.price * getMonamiPriceMultiplier(getInventoryQuantity(user, itemId)));
   }
   return itemInfo.price;
@@ -1705,7 +1714,7 @@ function getTotalBuyPrice(user, itemId, quantity) {
     return 100000 * quantity;
   }
 
-  if (itemId !== 'pen_monami') {
+  if (!['pen_monami', 'pen_jetstream'].includes(itemId)) {
     return getItemPrice(user, itemId) * quantity;
   }
 
@@ -1997,12 +2006,14 @@ function useRaidCardSkill(participant, battle) {
       target.attackBonusPercent = Math.max(Number(target.attackBonusPercent || 0), attackBonusPercent);
     });
     logText = `${participant.displayName}(이)가 ${card.name}로 ${first.displayName}${second.userId !== first.userId ? `, ${second.displayName}` : ''}에게 보호 버프를 부여했습니다.`;
-  } else if (card.effectType === 'target_negate_hit') {
-    const selectedTargetId = participant.plannedTargetUserId;
-    const target = getRaidParticipant(battle, selectedTargetId) || getAliveRaidParticipants(battle)[0] || participant;
+  } else if (card.effectType === 'random_party_negate_hit') {
+    const aliveAllies = getAliveRaidParticipants(battle);
+    const shuffled = [...aliveAllies].sort(() => Math.random() - 0.5).slice(0, Math.min(card.targets || 2, aliveAllies.length));
     const negateCount = scaleCount(card.negateHitCount || 0);
-    target.negateHitCount += negateCount;
-    logText = `${participant.displayName}(이)가 ${card.name}로 ${target.displayName}에게 피격 무효 ${negateCount}회를 부여했습니다.`;
+    shuffled.forEach((target) => {
+      target.negateHitCount += negateCount;
+    });
+    logText = `${participant.displayName}(이)가 ${card.name}로 ${shuffled.map((target) => target.displayName).join(', ')}에게 피격 무효 ${negateCount}회를 부여했습니다.`;
   } else if (card.effectType === 'random_party_attack_buff') {
     const aliveAllies = getAliveRaidParticipants(battle);
     const shuffled = [...aliveAllies].sort(() => Math.random() - 0.5).slice(0, Math.min(card.targets, aliveAllies.length));

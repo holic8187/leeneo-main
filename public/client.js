@@ -6,6 +6,11 @@ const ITEM_DATA = {
     desc: '월급 획득량 +0.05%',
     hoverDesc: '보유량 1개마다 월급 획득량이 0.05% 증가합니다.'
   },
+  pen_jetstream: {
+    name: '젣트?ㅽ듃由? 蹂쇳렂',
+    desc: '?붽툒 ?띾뱷??+0.1%',
+    hoverDesc: '蹂댁쑀??1媛쒕쭏???붽툒 ?띾뱷?됱씠 0.1% 利앷??⑸땲??'
+  },
   coffee_mix: {
     name: '맥심 커피믹스',
     desc: '스트레스 증가량 2% 감소',
@@ -68,7 +73,7 @@ const CARD_DATA = {
   fantasy: { name: '라연이의 망상', grade: 'B', color: '#1565c0', skillName: '라연이의 망상', skillDesc: '파티원 전원의 해로운 효과를 제거합니다.', cooldown: 4, targetType: null },
   broken_leg: { name: '감자의 부러진 다리', grade: 'B', color: '#1565c0', skillName: '감자의 부러진 다리', skillDesc: '선택한 파티원 1명의 HP를 30 회복시킵니다.', cooldown: 2, targetType: 'ally' },
   military_service: { name: '자네, 군필인가?', grade: 'B', color: '#1565c0', skillName: '군필인가?', skillDesc: '이번 턴에 가하는 자신의 모든 공격에 자신의 레벨 x 20의 추가 데미지를 줍니다.', cooldown: 2, targetType: null },
-  invincible_logic: { name: '무적의 논리', grade: 'B', color: '#1565c0', skillName: '무적의 논리', skillDesc: '파티원 1인을 선택하여 해당 팀원에게 1회 피격 무효화 버프를 제공합니다.', cooldown: 2, targetType: 'ally' },
+  invincible_logic: { name: '무적의 논리', grade: 'B', color: '#1565c0', skillName: '무적의 논리', skillDesc: '랜덤 파티원 2인에게 1회 피격 무효화 버프를 제공합니다.', cooldown: 2, targetType: null },
   ride_line: { name: '라인 잘타야지', grade: 'B', color: '#1565c0', skillName: '라인 잘타야지', skillDesc: '랜덤 파티원 2인의 공격력을 1턴 동안 25% 증가시킵니다.', cooldown: 4, targetType: null },
   wig: { name: '김부장의 가발', grade: 'C', color: '#2e7d32', skillName: '김부장의 가발', skillDesc: '돌아오는 턴에 자신의 기본 공격을 총 3회 합니다.', cooldown: 3, targetType: null },
   chatgpt: { name: '모래의 챗지피티', grade: 'C', color: '#2e7d32', skillName: '모래의 챗지피티', skillDesc: '돌아오는 턴에 기본공격에 더해 자신의 레벨 x 10 추가 피해를 입힙니다.', cooldown: 2, targetType: null },
@@ -1131,13 +1136,20 @@ function updateRaidButton(user, raidState) {
   const button = document.getElementById('raidLobbyBtn');
   const hint = document.getElementById('raidEntryHint');
   if (!button || !hint || !user) return;
+  let queueCountEl = document.getElementById('raidQueueCount');
+  if (!queueCountEl) {
+    button.insertAdjacentHTML('afterend', '<div id="raidQueueCount" class="raid-entry-count">현재 입장 대기중 0/5</div>');
+    queueCountEl = document.getElementById('raidQueueCount');
+  }
 
   const todayUsed = Boolean(raidState?.todayUsed);
   const minLevelMet = Boolean(raidState?.minLevelMet);
   const queued = Number.isInteger(raidState?.queuedSlotIndex) && raidState.queuedSlotIndex >= 0;
   const remainingEntries = Number(raidState?.remainingEntries ?? 0);
+  const queuedCount = (raidState?.slots || []).filter(Boolean).length;
 
   button.classList.toggle('waiting', queued);
+  if (queueCountEl) queueCountEl.textContent = `현재 입장 대기중 ${queuedCount}/5`;
   button.textContent = queued ? '회의 참석 대기중' : '회의 참석';
 
   if (todayUsed) {
