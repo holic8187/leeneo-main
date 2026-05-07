@@ -1532,6 +1532,11 @@ function bumpRaidVersion() {
   raidState.version += 1;
 }
 
+function clearActiveRaidBattle() {
+  raidState.activeBattle = null;
+  bumpRaidVersion();
+}
+
 function findQueuedRaidSlotIndex(userId) {
   return raidState.slots.findIndex((slotUserId) => String(slotUserId) === String(userId));
 }
@@ -2399,7 +2404,12 @@ function applyRaidBattleStartPassives(activeBattle) {
 }
 
 async function buildRaidStateResponse(user, now = new Date()) {
-  await advanceRaidState(now);
+  try {
+    await advanceRaidState(now);
+  } catch (err) {
+    console.error('Raid state reconciliation error:', err);
+    clearActiveRaidBattle();
+  }
 
   const queuedUserIds = raidState.slots.filter(Boolean);
   const queuedUsers = queuedUserIds.length
@@ -2488,8 +2498,7 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
     await user.save();
   }
 
-  raidState.activeBattle = null;
-  bumpRaidVersion();
+  clearActiveRaidBattle();
 }
 
 async function advanceRaidState(now = new Date()) {
@@ -3880,7 +3889,12 @@ app.post('/api/raid/start', async (req, res) => {
     if (!starter) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
     const now = new Date();
     calculateOfflineGains(starter, now);
-    await advanceRaidState(now);
+    try {
+      await advanceRaidState(now);
+    } catch (err) {
+      console.error('Raid advance before start error:', err);
+      clearActiveRaidBattle();
+    }
 
     if (raidState.activeBattle) {
       if (isRaidUserParticipant(raidState.activeBattle, userId)) {
@@ -3943,6 +3957,13 @@ app.post('/api/raid/start', async (req, res) => {
     res.json({ raid });
   } catch (err) {
     console.error('Raid start error:', err);
+    if (
+      raidState.activeBattle
+      && raidState.activeBattle.phase === 'countdown'
+      && raidState.activeBattle.participants?.some((participant) => String(participant.userId) === String(userId))
+    ) {
+      clearActiveRaidBattle();
+    }
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
   }
 });
