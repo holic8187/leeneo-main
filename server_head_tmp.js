@@ -305,10 +305,11 @@ const CARD_DATA = {
     grade: 'A',
     rate: 0.0041428571,
     skillName: '소주각?',
-    skillDesc: '액티브 스킬 없음. 전투 시작 시 모든 파티원에게 소주각? 버프를 부여합니다. 버프를 지닌 상태로 전투 승리 시 전리품을 2배로 획득합니다.',
+    skillDesc: '액티브 스킬 없음. 전투 시작 시 모든 파티원에게 소주각? 버프를 부여하며, 전투 승리 시 모든 전리품을 2배로 획득합니다.',
     cooldown: 0,
     effectType: 'passive_party_reward',
-    passiveOnly: true
+    passiveOnly: true,
+    rewardMultiplier: 2
   },
   tax_invoice: {
     id: 'tax_invoice',
@@ -349,17 +350,6 @@ const CARD_DATA = {
     effectType: 'party_crit_bonus',
     critBonus: 0.5,
     turns: 2
-  },
-  lotto_numbers: {
-    id: 'lotto_numbers',
-    name: '모래의 로또번호',
-    grade: 'B',
-    rate: 0.0428571429,
-    skillName: '이번엔 될거같아',
-    skillDesc: '액티브 스킬 없음. 전투 시작 시 모든 파티원에게 <이번엔 될거같아> 버프를 부여합니다. 버프를 지닌 상태로 전투 승리 시 절반 확률로 보상을 3배로 획득하거나 보상을 획득하지 못합니다.',
-    cooldown: 0,
-    effectType: 'passive_party_lotto',
-    passiveOnly: true
   },
   blind_date: {
     id: 'blind_date',
@@ -1630,8 +1620,6 @@ function createRaidParticipantFromUser(user) {
     hypeTurns: 0,
     counterTurns: 0,
     rewardMultiplier: 1,
-    sojuRewardBuff: false,
-    lottoRewardBuff: false,
     negateHitCount: 0,
     debuffImmuneCount: 0,
     attackBonusTurns: 0,
@@ -1753,8 +1741,7 @@ function buildRaidParticipantStatusEffects(participant) {
   if (Number(participant.perHitBonusTurns || 0) > 0) effects.push({ type: 'buff', name: '추가 타격 피해', turns: Number(participant.perHitBonusTurns || 0), desc: `공격마다 +${Number(participant.perHitBonusDamage || 0).toLocaleString()} 피해` });
   if (Number(participant.celineTurns || 0) > 0) effects.push({ type: 'buff', name: '셀린느', turns: Number(participant.celineTurns || 0), desc: `공격력 +${Math.round(Number(participant.celineAttackBonusPercent || 0) * 100)}%, 종료 시 추가 피해` });
   if (Number(participant.cardEffectAmpTurns || 0) > 0) effects.push({ type: 'buff', name: '소개팅 상대', turns: Number(participant.cardEffectAmpTurns || 0), desc: `카드 효과 x${Number(participant.cardEffectAmpValue || 1).toFixed(2)}` });
-  if (participant.sojuRewardBuff) effects.push({ type: 'buff', name: '소주각?', desc: '전투 승리 시 전리품 2배' });
-  if (participant.lottoRewardBuff) effects.push({ type: 'buff', name: '이번엔 될거같아', desc: '전투 승리 시 절반 확률로 전리품 3배 또는 보상 없음' });
+  if (Number(participant.rewardMultiplier || 1) > 1) effects.push({ type: 'buff', name: '소주각?', desc: `전리품 x${Number(participant.rewardMultiplier || 1).toFixed(0)}` });
   return effects;
 }
 
@@ -1771,16 +1758,13 @@ function buildDisplayName(user) {
 }
 
 function rollCardDraw() {
-  const cards = Object.values(CARD_DATA);
-  const totalWeight = cards.reduce((sum, card) => sum + Number(card.rate || 0), 0);
-  if (totalWeight <= 0) return cards[cards.length - 1];
-  const roll = Math.random() * totalWeight;
+  const roll = Math.random();
   let cumulative = 0;
-  for (const card of cards) {
-    cumulative += Number(card.rate || 0);
+  for (const card of Object.values(CARD_DATA)) {
+    cumulative += card.rate;
     if (roll <= cumulative) return card;
   }
-  return cards[cards.length - 1];
+  return Object.values(CARD_DATA)[Object.values(CARD_DATA).length - 1];
 }
 
 function getRaidLobbySummary() {
@@ -2377,15 +2361,9 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
 function applyRaidBattleStartPassives(activeBattle) {
   if (activeBattle.participants.some((participant) => participant.equippedCardId === 'drinking_angle')) {
     activeBattle.participants.forEach((participant) => {
-      participant.sojuRewardBuff = true;
+      participant.rewardMultiplier = Math.max(Number(participant.rewardMultiplier || 1), 2);
     });
-    activeBattle.logs.push('야채곱창이 파티 전원에게 소주각? 버프를 부여했습니다.');
-  }
-  if (activeBattle.participants.some((participant) => participant.equippedCardId === 'lotto_numbers')) {
-    activeBattle.participants.forEach((participant) => {
-      participant.lottoRewardBuff = true;
-    });
-    activeBattle.logs.push('모래의 로또번호가 파티 전원에게 이번엔 될거같아 버프를 부여했습니다.');
+    activeBattle.logs.push('야채곱창의 소주각? 버프로 파티 전원의 전리품이 2배로 적용됩니다.');
   }
 }
 
@@ -2440,21 +2418,7 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
 
     if (activeBattle.winner === 'players') {
       const rewardRatio = getRaidBossRewardRatio(participant.level);
-      let rewardMultiplier = 1;
-      const rewardNotes = [];
-      if (participant.sojuRewardBuff) {
-        rewardMultiplier *= 2;
-        rewardNotes.push('소주각? 적용으로 전리품 2배');
-      }
-      if (participant.lottoRewardBuff) {
-        if (Math.random() < 0.5) {
-          rewardMultiplier *= 3;
-          rewardNotes.push('이번엔 될거같아 성공으로 전리품 3배');
-        } else {
-          rewardMultiplier = 0;
-          rewardNotes.push('이번엔 될거같아 실패로 보상 없음');
-        }
-      }
+      const rewardMultiplier = Math.max(1, Math.floor(Number(participant.rewardMultiplier || 1)));
       const expReward = Math.floor(getRequiredExp(participant.level) * rewardRatio * rewardMultiplier);
       const businessCards = Math.floor(Math.random() * 3) * rewardMultiplier;
       const bacchus = (3 + Math.floor(Math.random() * 3)) * rewardMultiplier;
@@ -2469,7 +2433,7 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
       queueNotification(
         user,
         'raid_reward',
-        `보스 레이드 승리! 경험치 ${expReward.toLocaleString()}, 명함 ${businessCards}장, 박카스 ${bacchus}개, 모나미 볼펜 ${monami}개, ${moneyReward.toLocaleString()}원을 획득했습니다.${rewardNotes.length ? ` (${rewardNotes.join(', ')})` : ''}`
+        `보스 레이드 승리! 경험치 ${expReward.toLocaleString()}, 명함 ${businessCards}장, 박카스 ${bacchus}개, 모나미 볼펜 ${monami}개, ${moneyReward.toLocaleString()}원을 획득했습니다.`
       );
     } else {
       queueNotification(user, 'raid_fail', '보스 레이드에서 패배했습니다. 이번에는 보상을 획득하지 못했습니다.');
