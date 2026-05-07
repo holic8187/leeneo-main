@@ -1841,7 +1841,11 @@ function updateInventoryUI(user) {
           <td>${escapeHtml(card.name)}</td>
           <td><span class="grade-badge" style="background:${escapeHtml(card.color)}">${escapeHtml(card.grade)}</span></td>
           <td>${formatNumber(card.quantity)}장 보유</td>
-          <td title="${escapeHtml(card.skillDesc)}">${escapeHtml(card.skillName)} (쿨 ${formatNumber(card.cooldown)}턴)</td>
+          <td>
+            <strong>${escapeHtml(card.skillName)}</strong>
+            <div class="menu-note">${escapeHtml(card.skillDesc)}</div>
+            <div class="menu-note">지속/적용: ${escapeHtml(getCardDurationText(card))} / 쿨타임 ${formatNumber(card.cooldown)}턴</div>
+          </td>
           <td><button class="mini-btn" onclick="handleToggleCardEquip('${card.id}')">${actionText}</button></td>
         </tr>
       `
@@ -1882,6 +1886,17 @@ function updateShopUI(user) {
       `
     );
   });
+}
+
+function getCardDurationText(card) {
+  if (!card) return '즉시';
+  if (card.passiveOnly) return '전투 내내 또는 매 턴 자동 적용';
+  const desc = String(card.skillDesc || '');
+  const turnMatch = desc.match(/(\d+)턴/);
+  if (turnMatch) return `${turnMatch[1]}턴`;
+  if (desc.includes('다음 턴')) return '다음 턴';
+  if (desc.includes('돌아오는 턴')) return '다음 자신의 턴';
+  return '즉시';
 }
 
 function updateStatsTab(user) {
