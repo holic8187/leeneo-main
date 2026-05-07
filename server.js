@@ -501,6 +501,38 @@ const CARD_GRADE_COLORS = {
   C: '#2e7d32'
 };
 
+const SUPPORT_PACKAGE_DATA = {
+  fatigue_recovery: {
+    id: 'fatigue_recovery',
+    name: '피로회복패키지',
+    price: 1000,
+    rewards: [
+      { itemId: 'bacchus', quantity: 1 },
+      { itemId: 'business_card', quantity: 10 }
+    ]
+  },
+  awakening: {
+    id: 'awakening',
+    name: '각성패키지',
+    price: 3000,
+    rewards: [
+      { itemId: 'bacchus', quantity: 5 },
+      { itemId: 'pen_monami', quantity: 2 },
+      { itemId: 'business_card', quantity: 33 }
+    ]
+  },
+  super_rich: {
+    id: 'super_rich',
+    name: '초부자패키지',
+    price: 5000,
+    rewards: [
+      { itemId: 'bacchus', quantity: 10 },
+      { itemId: 'pen_monami', quantity: 5 },
+      { itemId: 'business_card', quantity: 55 }
+    ]
+  }
+};
+
 const RAID_BOSS_DATA = {
   [RAID_BOSS_ID]: {
     id: RAID_BOSS_ID,
@@ -1127,6 +1159,11 @@ const ADMIN_GIFT_CATALOG = {
     id,
     name: buff.name,
     durationMs: buff.durationMs
+  })),
+  packages: Object.values(SUPPORT_PACKAGE_DATA).map((pkg) => ({
+    id: pkg.id,
+    name: `${pkg.name} (${pkg.price.toLocaleString()}원)`,
+    rewardsText: pkg.rewards.map((reward) => `${ITEM_DATA[reward.itemId]?.name || reward.itemId} ${reward.quantity}개`).join(', ')
   }))
 };
 
@@ -1680,6 +1717,32 @@ function getRandomCardIdByGrade(grade) {
   const pool = Object.values(CARD_DATA).filter((card) => card.grade === grade);
   if (!pool.length) return null;
   return pool[Math.floor(Math.random() * pool.length)].id;
+}
+
+function applySupportPackage(user, packageId) {
+  const packageInfo = SUPPORT_PACKAGE_DATA[packageId];
+  if (!packageInfo) return null;
+  packageInfo.rewards.forEach((reward) => {
+    addItemToInventory(user, reward.itemId, reward.quantity);
+  });
+  return packageInfo;
+}
+
+function buildRaidParticipantStatusEffects(participant) {
+  const effects = [];
+  if (Number(participant.silenceTurns || 0) > 0) effects.push({ type: 'debuff', name: '침묵', turns: Number(participant.silenceTurns || 0), desc: '스킬 사용 불가' });
+  if (Number(participant.counterTurns || 0) > 0) effects.push({ type: 'buff', name: '반격', turns: Number(participant.counterTurns || 0), desc: '보스에게 피격당하면 기본 공격으로 반격' });
+  if (Number(participant.negateHitCount || 0) > 0) effects.push({ type: 'buff', name: '피격 무효', count: Number(participant.negateHitCount || 0), desc: '다음 피격을 무효화' });
+  if (Number(participant.debuffImmuneCount || 0) > 0) effects.push({ type: 'buff', name: '디버프 무효', count: Number(participant.debuffImmuneCount || 0), desc: '다음 디버프를 무효화' });
+  if (Number(participant.critBonusTurns || 0) > 0) effects.push({ type: 'buff', name: '크리티컬 상승', turns: Number(participant.critBonusTurns || 0), desc: `치명타 확률 +${Math.round(Number(participant.critBonusValue || 0) * 100)}%` });
+  if (Number(participant.hypeTurns || 0) > 0) effects.push({ type: 'buff', name: '흥겨움', turns: Number(participant.hypeTurns || 0), desc: '기본 공격 횟수 2배' });
+  if (Number(participant.attackBonusTurns || 0) > 0) effects.push({ type: 'buff', name: '공격력 상승', turns: Number(participant.attackBonusTurns || 0), desc: `공격력 +${Math.round(Number(participant.attackBonusPercent || 0) * 100)}%` });
+  if (Number(participant.damageMultiplierTurns || 0) > 0) effects.push({ type: 'buff', name: '피해 증폭', turns: Number(participant.damageMultiplierTurns || 0), desc: `가하는 피해 x${Number(participant.damageMultiplierValue || 1).toFixed(2)}` });
+  if (Number(participant.perHitBonusTurns || 0) > 0) effects.push({ type: 'buff', name: '추가 타격 피해', turns: Number(participant.perHitBonusTurns || 0), desc: `공격마다 +${Number(participant.perHitBonusDamage || 0).toLocaleString()} 피해` });
+  if (Number(participant.celineTurns || 0) > 0) effects.push({ type: 'buff', name: '셀린느', turns: Number(participant.celineTurns || 0), desc: `공격력 +${Math.round(Number(participant.celineAttackBonusPercent || 0) * 100)}%, 종료 시 추가 피해` });
+  if (Number(participant.cardEffectAmpTurns || 0) > 0) effects.push({ type: 'buff', name: '소개팅 상대', turns: Number(participant.cardEffectAmpTurns || 0), desc: `카드 효과 x${Number(participant.cardEffectAmpValue || 1).toFixed(2)}` });
+  if (Number(participant.rewardMultiplier || 1) > 1) effects.push({ type: 'buff', name: '소주각?', desc: `전리품 x${Number(participant.rewardMultiplier || 1).toFixed(0)}` });
+  return effects;
 }
 
 function getEquippedTitleDefinition(user) {
@@ -2266,6 +2329,7 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
     participants: activeBattle.participants.map((participant) => {
       const card = getParticipantCard(participant);
       return {
+        turnOrder: participant.turnOrder,
         userId: participant.userId,
         displayName: participant.displayName,
         level: participant.level,
@@ -2286,6 +2350,7 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
         skillDesc: card?.skillDesc || '',
         targetType: card?.targetType || null,
         passiveOnly: Boolean(card?.passiveOnly),
+        statusEffects: buildRaidParticipantStatusEffects(participant),
         isSelf: viewerUserId ? participant.userId === String(viewerUserId) : false
       };
     }),
@@ -4037,7 +4102,7 @@ app.post('/api/admin/gift', async (req, res) => {
     return res.status(400).json({ msg: '대상 지정 방식이 올바르지 않습니다.' });
   }
 
-  if (!['item', 'buff'].includes(giftType)) {
+  if (!['item', 'buff', 'package'].includes(giftType)) {
     return res.status(400).json({ msg: '선물 종류가 올바르지 않습니다.' });
   }
 
@@ -4047,6 +4112,10 @@ app.post('/api/admin/gift', async (req, res) => {
 
   if (giftType === 'buff' && !BUFF_DATA[giftId]) {
     return res.status(400).json({ msg: '존재하지 않는 버프입니다.' });
+  }
+
+  if (giftType === 'package' && !SUPPORT_PACKAGE_DATA[giftId]) {
+    return res.status(400).json({ msg: '존재하지 않는 패키지입니다.' });
   }
 
   try {
@@ -4067,9 +4136,12 @@ app.post('/api/admin/gift', async (req, res) => {
       if (giftType === 'item') {
         addItemToInventory(user, giftId, giftQuantity);
         queueNotification(user, 'admin_gift', `운영자로부터 선물이 도착했습니다! <${ITEM_DATA[giftId].name} ${giftQuantity}개>`);
-      } else {
+      } else if (giftType === 'buff') {
         setOrRefreshBuff(user, giftId, BUFF_DATA[giftId].durationMs);
         queueNotification(user, 'admin_gift', `운영자로부터 선물이 도착했습니다! <${BUFF_DATA[giftId].name}>`);
+      } else {
+        const packageInfo = applySupportPackage(user, giftId);
+        queueNotification(user, 'admin_gift', `운영자로부터 선물이 도착했습니다! <${packageInfo.name}>`);
       }
 
       reconcileTitles(user, now);

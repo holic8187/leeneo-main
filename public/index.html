@@ -41,6 +41,7 @@
           <select id="giftTypeSelect">
             <option value="item">아이템</option>
             <option value="buff">버프</option>
+            <option value="package">패키지</option>
           </select>
 
           <label for="giftIdSelect">선물 항목</label>
@@ -86,7 +87,10 @@
         <div>스트레스: <strong><span id="stress">0.00</span></strong></div>
         <div>명함: <strong><span id="businessCardCount">0</span>장</strong></div>
       </div>
-      <button id="logoutBtn" class="mini-btn">퇴근하기</button>
+      <div class="status-top-actions">
+        <button id="supportBtn" class="mini-btn support-btn">직장인은 지갑전사</button>
+        <button id="logoutBtn" class="mini-btn">퇴근하기</button>
+      </div>
     </div>
 
     <div class="status-bar">
@@ -197,9 +201,6 @@
 
               <div id="tab-inventory" class="menu-content hidden">
                 <h4>소지품</h4>
-                <div class="card-actions">
-                  <button id="openFusionModalBtn" class="mini-btn">카드 합성</button>
-                </div>
                 <table class="inner-table">
                   <thead>
                     <tr>
@@ -225,6 +226,9 @@
                 </table>
 
                 <h4 class="section-gap">카드</h4>
+                <div class="card-actions">
+                  <button id="openFusionModalBtn" class="mini-btn">카드 합성</button>
+                </div>
                 <table class="inner-table">
                   <thead>
                     <tr>
@@ -318,6 +322,31 @@
     </div>
   </div>
 
+  <div id="supportModal" class="modal-overlay hidden">
+    <div class="excel-sheet modal-panel support-modal-panel">
+      <h3>직장인은 지갑전사</h3>
+      <div class="support-account">토스뱅크 1000-4112-0011</div>
+      <p class="menu-note">"받는분에게 표시 란"에 실명 대신 자신의 닉네임으로 설정하고 후원하면 자동으로 아이템이 지급됩니다</p>
+      <div class="support-package-list">
+        <div class="support-package-card">
+          <strong>피로회복패키지 - 1,000원</strong>
+          <div class="menu-note">박카스 1개, 명함 10개</div>
+        </div>
+        <div class="support-package-card">
+          <strong>각성패키지 - 3,000원</strong>
+          <div class="menu-note">박카스 5개, 모나미볼펜 2개, 명함 33개</div>
+        </div>
+        <div class="support-package-card">
+          <strong>초부자패키지 - 5,000원</strong>
+          <div class="menu-note">박카스 10개, 모나미볼펜 5개, 명함 55개</div>
+        </div>
+      </div>
+      <div class="modal-buttons">
+        <button id="supportModalCloseBtn" class="mini-btn">닫기</button>
+      </div>
+    </div>
+  </div>
+
   <div id="raidLobbyModal" class="modal-overlay hidden">
     <div class="excel-sheet modal-panel raid-modal-panel">
       <h3>오늘의 회의 참석</h3>
@@ -384,6 +413,6 @@
     </div>
   </div>
 
-  <script src="client.js?v=22"></script>
+  <script src="client.js?v=23"></script>
 </body>
 </html>

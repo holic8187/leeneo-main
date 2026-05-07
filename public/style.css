@@ -143,6 +143,23 @@ td {
   justify-content: space-between;
 }
 
+.status-top-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.support-btn {
+  background: #1565c0;
+  color: #ffe56b;
+  border-color: #0f4b91;
+  font-weight: 700;
+}
+
+.support-btn:hover {
+  background: #1e72d0;
+}
+
 .shout-banner {
   position: relative;
   overflow: hidden;
@@ -641,6 +658,33 @@ progress {
   font-weight: 700;
 }
 
+.raid-effect-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.raid-effect-badge {
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+
+.raid-effect-buff {
+  background: #e8f5e9;
+  border-color: #b7dfbe;
+  color: #256029;
+}
+
+.raid-effect-debuff {
+  background: #ffe0e0;
+  border-color: #ef9a9a;
+  color: #b71c1c;
+}
+
 .raid-shield-indicator {
   position: absolute;
   left: 8px;
@@ -822,6 +866,33 @@ progress {
   display: flex;
   gap: 8px;
   align-items: center;
+}
+
+.support-modal-panel {
+  width: min(620px, calc(100vw - 40px));
+}
+
+.support-account {
+  margin: 8px 0 12px;
+  padding: 14px 16px;
+  border: var(--excel-border);
+  background: #eef5ff;
+  color: #0d47a1;
+  font-size: 24px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.support-package-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.support-package-card {
+  padding: 12px;
+  border: var(--excel-border);
+  background: #fbfbfb;
 }
 
 .stock-controls {

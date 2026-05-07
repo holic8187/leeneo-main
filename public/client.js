@@ -147,6 +147,8 @@ function initApp() {
 function setupEventListeners() {
   bindClick('loginBtn', handleLoginClick);
   bindClick('logoutBtn', handleLogoutClick);
+  bindClick('supportBtn', openSupportModal);
+  bindClick('supportModalCloseBtn', closeSupportModal);
   bindClick('setNicknameBtn', handleSetNicknameClick);
   bindClick('clickWorkBtn', handleClickWork);
   bindClick('adventureBtn', handleAdventureClick);
@@ -760,7 +762,7 @@ function renderCardFusionModal(user) {
         <div class="fusion-slot filled" onclick="handleCardFusionSlotRemove(${index})">
           <div class="fusion-card-head">
             <span class="fusion-card-name">${escapeHtml(card.name)}</span>
-            <span class="grade-badge" style="background:${escapeHtml(card.color || CARD_GRADE_COLORS?.[card.grade] || '#666666')}">${escapeHtml(card.grade)}</span>
+            <span class="grade-badge" style="background:${escapeHtml(card.color || '#666666')}">${escapeHtml(card.grade)}</span>
           </div>
           <div class="fusion-card-meta">${escapeHtml(card.skillName || '')}<br>${escapeHtml(card.skillDesc || '')}</div>
         </div>
@@ -819,6 +821,14 @@ function openCardFusionModal() {
 function closeCardFusionModal() {
   cardFusionSelection = [];
   hideModal('fusionModal');
+}
+
+function openSupportModal() {
+  showModal('supportModal');
+}
+
+function closeSupportModal() {
+  hideModal('supportModal');
 }
 
 function handleCardFusionAdd(cardId, inputId = null) {
@@ -1318,6 +1328,13 @@ function renderRaidBattle(raidState, user) {
     if (Number(participant.lastShieldLoss || 0) > 0) lossTextParts.push(`실드 -${formatNumber(participant.lastShieldLoss || 0)}`);
     if (Number(participant.lastHpLoss || 0) > 0) lossTextParts.push(`HP -${formatNumber(participant.lastHpLoss || 0)}`);
     const lossText = lossTextParts.join(' / ');
+    const effectBadges = (participant.statusEffects || [])
+      .map((effect) => `
+        <div class="raid-effect-badge ${effect.type === 'debuff' ? 'raid-effect-debuff' : 'raid-effect-buff'}" title="${escapeHtml(effect.desc || '')}">
+          ${escapeHtml(effect.name)}${effect.turns ? ` (${formatNumber(effect.turns)}턴)` : ''}${effect.count ? ` (${formatNumber(effect.count)}회)` : ''}
+        </div>
+      `)
+      .join('');
 
     participantList.insertAdjacentHTML(
       'beforeend',
@@ -1428,7 +1445,7 @@ function renderRaidBattle(raidState, user) {
           </div>
           <div class="raid-status-text">HP ${formatNumber(participant.hp)} / ${formatNumber(participant.maxHp)}</div>
           <div class="raid-shield-text">보호막 ${formatNumber(participant.shield || 0)}</div>
-          ${participant.silenceTurns > 0 ? `<div class="raid-cc-text">CC: 침묵 (${formatNumber(participant.silenceTurns)}턴)</div>` : ''}
+          <div class="raid-effect-list">${effectBadges || '<span class="muted-text">버프 / 디버프 없음</span>'}</div>
           ${ownControls}
         </div>
       `
@@ -1444,7 +1461,8 @@ function buildRaidSkillControls(participant, participants) {
     return '<div class="raid-skill-row"><span class="muted-text">전투 시작 시 자동으로 적용되는 패시브 카드입니다.</span></div>';
   }
 
-  const disabled = participant.hp <= 0 || participant.skillCooldown > 0;
+  const silenced = Number(participant.silenceTurns || 0) > 0;
+  const disabled = participant.hp <= 0 || participant.skillCooldown > 0 || silenced;
   const targetOptions = ['ally', 'ally_pair'].includes(participant.targetType)
     ? participants
       .filter((entry) => entry.hp > 0)
@@ -1468,7 +1486,7 @@ function buildRaidSkillControls(participant, participants) {
       >
         ${participant.plannedSkill ? '다음 턴 스킬 사용 예정' : '다음 턴 스킬 사용'}
       </button>
-      <span class="menu-note">쿨다운 ${formatNumber(participant.skillCooldown)}턴</span>
+      <span class="menu-note">${silenced ? `침묵 ${formatNumber(participant.silenceTurns)}턴` : `쿨다운 ${formatNumber(participant.skillCooldown)}턴`}</span>
       ${['ally', 'ally_pair'].includes(participant.targetType)
         ? `<select id="raidTargetSelect-${escapeHtml(participant.userId)}">${targetOptions}</select>`
         : ''}
@@ -2081,7 +2099,11 @@ function renderAdminGiftOptions() {
   if (!session?.giftCatalog || !giftType || !giftSelect || !quantityInput) return;
 
   const selectedType = giftType.value;
-  const entries = selectedType === 'buff' ? session.giftCatalog.buffs : session.giftCatalog.items;
+  const entries = selectedType === 'buff'
+    ? session.giftCatalog.buffs
+    : selectedType === 'package'
+      ? (session.giftCatalog.packages || [])
+      : session.giftCatalog.items;
 
   giftSelect.innerHTML = '';
   entries.forEach((entry) => {
@@ -2091,8 +2113,8 @@ function renderAdminGiftOptions() {
     );
   });
 
-  quantityInput.disabled = selectedType === 'buff';
-  if (selectedType === 'buff') quantityInput.value = '1';
+  quantityInput.disabled = selectedType === 'buff' || selectedType === 'package';
+  if (selectedType === 'buff' || selectedType === 'package') quantityInput.value = '1';
 }
 
 async function handleAdminGift() {
@@ -2215,5 +2237,7 @@ window.handleBuyClick = handleBuyClick;
 window.handleUseItem = handleUseItem;
 window.handleToggleTitle = handleToggleTitle;
 window.handleToggleCardEquip = handleToggleCardEquip;
+window.handleCardFusionAdd = handleCardFusionAdd;
+window.handleCardFusionSlotRemove = handleCardFusionSlotRemove;
 window.handleRaidSlotClick = handleRaidSlotClick;
 window.handleRaidSkillToggle = handleRaidSkillToggle;
