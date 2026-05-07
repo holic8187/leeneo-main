@@ -1175,6 +1175,16 @@ function updateRaidLobbyUI(raidState, user) {
   const slots = raidState?.slots || Array(5).fill(null);
   slots.forEach((slot, index) => {
     const isSelf = slot?.userId && user && String(slot.userId) === String(user._id);
+    const cardTooltip = slot
+      ? [
+          slot.equippedCardName || '장착 카드 없음',
+          slot.equippedCardSkillName ? `스킬: ${slot.equippedCardSkillName}` : '',
+          slot.equippedCardSkillDesc || '',
+          slot.equippedCardName
+            ? (slot.equippedCardPassiveOnly ? '패시브 카드' : `쿨타임 ${formatNumber(slot.equippedCardCooldown || 0)}턴`)
+            : ''
+        ].filter(Boolean).join('\n')
+      : '';
     slotGrid.insertAdjacentHTML(
       'beforeend',
       `
@@ -1182,7 +1192,7 @@ function updateRaidLobbyUI(raidState, user) {
           ${slot
             ? `<div class="raid-slot-name">${escapeHtml(slot.displayName)}</div>
                <div>Lv.${formatNumber(slot.level)}</div>
-               <div class="raid-slot-card">${escapeHtml(slot.equippedCardName || '장착 카드 없음')}</div>`
+               <div class="raid-slot-card" title="${escapeHtml(cardTooltip)}">${escapeHtml(slot.equippedCardName || '장착 카드 없음')}</div>`
             : `<div class="raid-slot-name">${index + 1}번 슬롯</div><div>클릭해 참가 대기</div>`}
         </button>
       `

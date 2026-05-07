@@ -1602,10 +1602,15 @@ function buildQueuedSlotSnapshot(user) {
   const equippedCard = getEquippedCardInfo(user);
   return {
     userId: String(user._id),
-    displayName: buildDisplayName(user),
+    displayName: user.nickname || user.username,
+    nickname: user.nickname || user.username,
     level: user.gameState.level,
     equippedCardName: equippedCard?.name || '장착 카드 없음',
-    equippedCardGrade: equippedCard?.grade || null
+    equippedCardGrade: equippedCard?.grade || null,
+    equippedCardSkillName: equippedCard?.skillName || '',
+    equippedCardSkillDesc: equippedCard?.skillDesc || '',
+    equippedCardCooldown: Number(equippedCard?.cooldown || 0),
+    equippedCardPassiveOnly: Boolean(equippedCard?.passiveOnly)
   };
 }
 
@@ -2060,7 +2065,7 @@ function tickRaidParticipantEndOfTurn(participant, battle) {
       const expireDamage = Number(participant.celineExpireDamage || 0);
       if (battle && expireDamage > 0 && battle.bossHp > 0) {
         applyRaidDamageToBoss(battle, expireDamage);
-        battle.logs.push(`${participant.displayName}? <???> ??? ???? ${expireDamage.toLocaleString()} ??? ?????.`);
+        battle.logs.push(`${participant.displayName}의 <셀린느> 버프가 종료되며 ${expireDamage.toLocaleString()} 피해를 입혔습니다.`);
       }
       participant.celineExpireDamage = 0;
       participant.celineAttackBonusPercent = 0;
@@ -2187,7 +2192,7 @@ function triggerRaidTurnStartPassives(participant, battle) {
   target.cardEffectAmpTurns = Math.max(target.cardEffectAmpTurns, Number(card.turns || 1));
   target.cardEffectAmpValue = Math.max(Number(target.cardEffectAmpValue || 1), Number(card.amplifyMultiplier || 1));
 
-  return `${participant.displayName}? ${card.name} ??? ${target.displayName}?? <??? ??> ??? ?????.`;
+  return `${participant.displayName}의 ${card.name} 효과로 ${target.displayName}에게 <소개팅 상대> 버프가 적용되었습니다.`;
 }
 
 function getRaidAttackBonusPercent(participant) {
@@ -2549,7 +2554,7 @@ async function advanceRaidState(now = new Date()) {
         activeBattle.logs.push(performRaidBasicAttack(participant, activeBattle));
         tickRaidParticipantEndOfTurn(participant, activeBattle);
       } else {
-        activeBattle.logs.push(`${participant.displayName}?(?) ?? ?? ?????.`);
+        activeBattle.logs.push(`${participant.displayName}님은 전투불능 상태입니다.`);
       }
       activeBattle.turnIndex += 1;
     } else {
