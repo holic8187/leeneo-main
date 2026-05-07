@@ -2342,6 +2342,15 @@ function performRaidBossAction(battle) {
 
 function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
   if (!activeBattle) return null;
+  const sanitizedLogs = activeBattle.logs.slice(-8).map((line) => {
+    let normalized = String(line || '');
+    activeBattle.participants.forEach((participant) => {
+      if (participant?.displayName && participant?.nickname && participant.displayName !== participant.nickname) {
+        normalized = normalized.split(participant.displayName).join(participant.nickname);
+      }
+    });
+    return normalized;
+  });
   return {
     battleId: activeBattle.battleId,
     bossId: activeBattle.bossId,
@@ -2356,10 +2365,10 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
     nextActionAt: activeBattle.nextActionAt,
     countdownEndsAt: activeBattle.countdownEndsAt || null,
     isParticipant: viewerUserId ? isRaidUserParticipant(activeBattle, viewerUserId) : false,
-    participants: activeBattle.participants.map((participant) => {
+    participants: activeBattle.participants.map((participant, index) => {
       const card = getParticipantCard(participant);
       return {
-        turnOrder: participant.turnOrder,
+        turnOrder: Number.isInteger(participant.turnOrder) ? participant.turnOrder : index,
         userId: participant.userId,
         displayName: participant.nickname || participant.displayName,
         level: participant.level,
