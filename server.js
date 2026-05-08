@@ -1946,9 +1946,11 @@ function useRaidCardSkill(participant, battle) {
     const critBonus = scalePercent(card.critBonus);
     battle.participants.forEach((ally) => {
       if (ally.hp > 0) {
-        ally.critBonusTurns = Math.max(ally.critBonusTurns, card.turns);
+        const appliedCritTurns = ally.userId === participant.userId ? card.turns + 1 : card.turns;
+        const appliedHypeTurns = ally.userId === participant.userId ? (card.hypeTurns || 1) + 1 : (card.hypeTurns || 1);
+        ally.critBonusTurns = Math.max(ally.critBonusTurns, appliedCritTurns);
         ally.critBonusValue = Math.max(Number(ally.critBonusValue || 0), critBonus);
-        ally.hypeTurns = Math.max(ally.hypeTurns, card.hypeTurns || 1);
+        ally.hypeTurns = Math.max(ally.hypeTurns, appliedHypeTurns);
       }
     });
     logText = `${participant.displayName}(이)가 ${card.name}로 파티 전원에게 흥겨움과 크리티컬 버프를 부여했습니다.`;
@@ -2473,6 +2475,8 @@ async function buildRaidStateResponse(user, now = new Date()) {
 }
 
 async function finalizeRaidBattle(activeBattle, now = new Date()) {
+  if (!activeBattle || activeBattle.finalized) return;
+  activeBattle.finalizing = true;
   const participantIds = activeBattle.participants.map((participant) => participant.userId);
   const users = await User.find({ _id: { $in: participantIds } });
   const userMap = new Map(users.map((entry) => [String(entry._id), entry]));
@@ -2535,6 +2539,7 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
     await user.save();
   }
 
+  activeBattle.finalized = true;
   clearActiveRaidBattle();
 }
 
@@ -2599,6 +2604,8 @@ async function advanceRaidState(now = new Date()) {
   }
 
   if (raidState.activeBattle?.winner) {
+    if (raidState.activeBattle.finalizing || raidState.activeBattle.finalized) return;
+    raidState.activeBattle.finalizing = true;
     await finalizeRaidBattle(raidState.activeBattle, now);
   }
 }

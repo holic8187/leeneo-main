@@ -394,8 +394,13 @@ async function getJson(url, headers = {}) {
 }
 
 function showNotifications(notifications = []) {
+  const seen = new Set();
   notifications.forEach((notification) => {
-    if (notification?.text) alert(notification.text);
+    if (!notification?.text) return;
+    const key = `${notification.type || ''}::${notification.text}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    alert(notification.text);
   });
 }
 
