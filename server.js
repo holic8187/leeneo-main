@@ -233,12 +233,13 @@ const CARD_DATA = {
     grade: 'S',
     rate: 0.00025,
     skillName: '강남스타일',
-    skillDesc: '1턴 동안 모든 팀원에게 크리티컬률 20%와 흥겨움 버프를 부여합니다. 흥겨움이 있으면 기본 공격 횟수가 2배가 됩니다.',
+    skillDesc: '1턴 동안 모든 팀원에게 크리티컬률 20%와 흥겨움 버프를 부여하고, 보호막 10을 제공합니다. 흥겨움이 있으면 기본 공격 횟수가 2배가 됩니다.',
     cooldown: 2,
     effectType: 'party_hype_crit',
     critBonus: 0.2,
     turns: 1,
-    hypeTurns: 1
+    hypeTurns: 1,
+    shield: 10
   },
   delegate_lee: {
     id: 'delegate_lee',
@@ -1633,6 +1634,8 @@ function createRaidParticipantFromUser(user) {
     maxHp: 100,
     hp: 100,
     shield: 0,
+    tempShieldAmount: 0,
+    tempShieldTurns: 0,
     lastHpLoss: 0,
     lastShieldLoss: 0,
     silenceTurns: 0,
@@ -1836,6 +1839,9 @@ function applyRaidDamage(target, damage) {
     blocked = Math.min(target.shield, remainingDamage);
     target.shield -= blocked;
     remainingDamage -= blocked;
+    if (target.tempShieldAmount > 0) {
+      target.tempShieldAmount = Math.max(0, Number(target.tempShieldAmount || 0) - blocked);
+    }
   }
   target.hp = Math.max(0, target.hp - remainingDamage);
   target.lastShieldLoss = blocked;
@@ -1944,16 +1950,21 @@ function useRaidCardSkill(participant, battle) {
     logText = `${participant.displayName}(이)가 ${card.name}로 파티 전원의 크리티컬 확률을 높였습니다.`;
   } else if (card.effectType === 'party_hype_crit') {
     const critBonus = scalePercent(card.critBonus);
+    const shieldAmount = scaleFlat(card.shield || 0);
     battle.participants.forEach((ally) => {
       if (ally.hp > 0) {
         const appliedCritTurns = ally.userId === participant.userId ? card.turns + 1 : card.turns;
         const appliedHypeTurns = ally.userId === participant.userId ? (card.hypeTurns || 1) + 1 : (card.hypeTurns || 1);
+        const appliedShieldTurns = ally.userId === participant.userId ? card.turns + 1 : card.turns;
         ally.critBonusTurns = Math.max(ally.critBonusTurns, appliedCritTurns);
         ally.critBonusValue = Math.max(Number(ally.critBonusValue || 0), critBonus);
         ally.hypeTurns = Math.max(ally.hypeTurns, appliedHypeTurns);
+        ally.shield += shieldAmount;
+        ally.tempShieldAmount = Number(ally.tempShieldAmount || 0) + shieldAmount;
+        ally.tempShieldTurns = Math.max(Number(ally.tempShieldTurns || 0), appliedShieldTurns);
       }
     });
-    logText = `${participant.displayName}(이)가 ${card.name}로 파티 전원에게 흥겨움과 크리티컬 버프를 부여했습니다.`;
+    logText = `${participant.displayName}(이)가 ${card.name}로 파티 전원에게 흥겨움, 크리티컬 버프와 보호막 ${shieldAmount}을 부여했습니다.`;
   } else if (card.effectType === 'party_level_blast') {
     const totalLevels = battle.participants.reduce((sum, member) => sum + Number(member.level || 0), 0);
     const damage = scaleFlat(totalLevels * Number(card.multiplierPerLevel || 0));
@@ -2060,6 +2071,16 @@ function tickRaidParticipantEndOfTurn(participant, battle) {
     }
   }
   if (participant.hypeTurns > 0) participant.hypeTurns -= 1;
+  if (participant.tempShieldTurns > 0) {
+    participant.tempShieldTurns -= 1;
+    if (participant.tempShieldTurns <= 0) {
+      const remainingTempShield = Number(participant.tempShieldAmount || 0);
+      if (remainingTempShield > 0) {
+        participant.shield = Math.max(0, Number(participant.shield || 0) - remainingTempShield);
+      }
+      participant.tempShieldAmount = 0;
+    }
+  }
   if (participant.counterTurns > 0) participant.counterTurns -= 1;
   if (participant.attackBonusTurns > 0) {
     participant.attackBonusTurns -= 1;

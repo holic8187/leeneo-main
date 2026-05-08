@@ -57,7 +57,7 @@ const ITEM_DATA = {
 
 const CARD_DATA = {
   ineo_diet: { name: '이네오의 다이어트 선언', grade: 'S', color: '#c62828', skillName: '다이어트 선언', skillDesc: '돌아오는 턴에 기본 공격을 총 10회 합니다. 각 공격마다 크리티컬이 적용될 수 있습니다.', cooldown: 3, targetType: null },
-  gangnam_style: { name: '일 중에 몰래 듣는 강남스타일', grade: 'S', color: '#c62828', skillName: '강남스타일', skillDesc: '1턴 동안 모든 팀원에게 크리티컬률 20%와 흥겨움 버프를 부여합니다. 흥겨움 동안 기본 공격 횟수가 2배가 됩니다.', cooldown: 2, targetType: null },
+  gangnam_style: { name: '일 중에 몰래 듣는 강남스타일', grade: 'S', color: '#c62828', skillName: '강남스타일', skillDesc: '1턴 동안 모든 팀원에게 크리티컬률 20%와 흥겨움 버프를 부여하고, 보호막 10을 제공합니다. 흥겨움 동안 기본 공격 횟수가 2배가 됩니다.', cooldown: 2, targetType: null },
   delegate_lee: { name: '이것 좀 대신 해줘 이대리', grade: 'S', color: '#c62828', skillName: '이것 좀 대신 해줘', skillDesc: '현재 입장한 파티원의 전체 레벨 합 x 30의 데미지를 1회 가합니다.', cooldown: 2, targetType: null },
   celine_tears: { name: '구마의 눈물 젖은 셀린느', grade: 'S', color: '#c62828', skillName: '셀린느', skillDesc: '1턴 동안 <셀린느> 버프를 얻어 공격력이 50% 증가하고, 버프가 끝날 때 자신의 레벨 x 60 피해를 입힙니다.', cooldown: 2, targetType: null },
   strawberry_latte: { name: '딸기라떼', grade: 'A', color: '#f9a825', skillName: '딸기라떼', skillDesc: '다음 턴까지 지속되는 보호막 40을 파티원 전원에게 제공합니다.', cooldown: 2, targetType: null },
