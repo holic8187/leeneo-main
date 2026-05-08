@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>일해라 이네오!! - 통합 문서1</title>
-  <link rel="stylesheet" href="style.css?v=18">
+  <link rel="stylesheet" href="style.css?v=20">
 </head>
 <body>
   <div id="login-screen">
@@ -357,6 +357,9 @@
         </div>
         <div>
           <h4>보상 목록</h4>
+          <h4>보스 스킬 사용 순서</h4>
+          <ul id="raidBossSkillList" class="raid-reward-list"></ul>
+          <h4>보상 목록</h4>
           <ul id="raidRewardList" class="raid-reward-list"></ul>
         </div>
       </div>
@@ -406,13 +409,13 @@
           <div id="raidBattleLog" class="raid-battle-log"></div>
         </div>
       </div>
-      <div>
+      <div class="raid-participant-panel">
         <h4>참가 플레이어</h4>
         <div id="raidParticipantList" class="raid-participant-list"></div>
       </div>
     </div>
   </div>
 
-  <script src="client.js?v=36"></script>
+  <script src="client.js?v=40"></script>
 </body>
 </html>

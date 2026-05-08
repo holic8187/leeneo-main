@@ -1181,18 +1181,33 @@ function updateRaidButton(user, raidState) {
 function updateRaidLobbyUI(raidState, user) {
   const slotGrid = document.getElementById('raidSlotGrid');
   const rewardList = document.getElementById('raidRewardList');
+  const skillList = document.getElementById('raidBossSkillList');
   const bossName = document.getElementById('raidBossName');
   const bossDesc = document.getElementById('raidBossDesc');
   const startBtn = document.getElementById('raidStartBtn');
-  if (!slotGrid || !rewardList || !bossName || !bossDesc || !startBtn) return;
+  if (!slotGrid || !rewardList || !skillList || !bossName || !bossDesc || !startBtn) return;
 
   const lobby = raidState?.lobby;
   bossName.textContent = lobby ? `오늘의 보스 정보: ${lobby.bossName}` : '오늘의 보스 정보';
   bossDesc.textContent = lobby ? `${lobby.bossName} / 보스 HP 50,000 / 최소 레벨 ${lobby.minLevel}` : '';
 
+  if (skillList.previousElementSibling?.tagName === 'H4') {
+    skillList.previousElementSibling.textContent = '보스 스킬 사용 순서';
+    const staleHeading = skillList.previousElementSibling.previousElementSibling;
+    if (staleHeading?.tagName === 'H4') staleHeading.style.display = 'none';
+  }
+  if (rewardList.previousElementSibling?.tagName === 'H4') {
+    rewardList.previousElementSibling.textContent = '보상 목록';
+  }
+
   rewardList.innerHTML = '';
   (lobby?.rewardsText || []).forEach((rewardText) => {
     rewardList.insertAdjacentHTML('beforeend', `<li>${escapeHtml(rewardText)}</li>`);
+  });
+
+  skillList.innerHTML = '';
+  (lobby?.skillsText || []).forEach((skillText) => {
+    skillList.insertAdjacentHTML('beforeend', `<li>${escapeHtml(skillText)}</li>`);
   });
 
   slotGrid.innerHTML = '';
@@ -1431,9 +1446,11 @@ function renderRaidBattle(raidState, user) {
   const bossBar = document.querySelector('.raid-boss-bar');
   if (bossBar) {
     const ratio = battle.bossMaxHp > 0 ? (battle.bossHp / battle.bossMaxHp) * 100 : 0;
+    const shieldRatio = battle.bossMaxHp > 0 ? Math.min(100, (battle.bossShield / battle.bossMaxHp) * 100) : 0;
     const bossLossText = Number(battle.bossLastHpLoss || 0) > 0 ? `-${formatNumber(battle.bossLastHpLoss || 0)}` : '';
     bossBar.innerHTML = `
       <div id="raidBossHpFill" class="raid-boss-bar-fill" style="width:${Math.max(0, ratio)}%"></div>
+      ${battle.bossShield > 0 ? `<div class="raid-shield-fill" style="left:${Math.max(0, ratio)}%; width:${Math.max(0, Math.min(100 - ratio, shieldRatio))}%"></div>` : ''}
       ${bossLossText ? `<div class="raid-loss-indicator">${bossLossText}</div>` : ''}
     `;
   }
@@ -2325,3 +2342,104 @@ window.handleCardFusionAdd = handleCardFusionAdd;
 window.handleCardFusionSlotRemove = handleCardFusionSlotRemove;
 window.handleRaidSlotClick = handleRaidSlotClick;
 window.handleRaidSkillToggle = handleRaidSkillToggle;
+
+function buildRaidTargetButtons(participant, participants, targetSlot, disabled) {
+  const selectedTargetId = targetSlot === 2 ? participant.plannedTargetUserId2 : participant.plannedTargetUserId;
+  return participants
+    .filter((entry) => entry.hp > 0)
+    .map((entry) => `
+      <button
+        class="mini-btn raid-target-btn ${entry.userId === selectedTargetId ? 'selected' : ''}"
+        ${disabled ? 'disabled' : ''}
+        onclick="handleRaidTargetSelect('${participant.userId}', ${targetSlot}, '${entry.userId}')"
+      >
+        ${escapeHtml(entry.displayName)}
+      </button>
+    `)
+    .join('');
+}
+
+function buildRaidSkillControls(participant, participants) {
+  if (!participant.equippedCardId) {
+    return '<div class="raid-skill-row"><span class="muted-text">장착한 카드가 없어 기본 공격만 사용합니다.</span></div>';
+  }
+  if (participant.passiveOnly) {
+    return '<div class="raid-skill-row"><span class="muted-text">전투 시작 시 자동으로 적용되는 패시브 카드입니다.</span></div>';
+  }
+
+  const silenced = Number(participant.silenceTurns || 0) > 0;
+  const disabled = participant.hp <= 0 || participant.skillCooldown > 0 || silenced;
+  const needsPrimaryTarget = participant.targetType === 'ally' || participant.targetType === 'ally_pair';
+  const needsSecondaryTarget = participant.targetType === 'ally_pair';
+  const missingPrimaryTarget = needsPrimaryTarget && !participant.plannedTargetUserId;
+  const missingSecondaryTarget = needsSecondaryTarget && !participant.plannedTargetUserId2;
+  const toggleDisabled = participant.plannedSkill
+    ? disabled
+    : (disabled || missingPrimaryTarget || missingSecondaryTarget);
+
+  return `
+    <div class="raid-skill-row">
+      <button
+        class="mini-btn"
+        ${toggleDisabled ? 'disabled' : ''}
+        title="${escapeHtml(participant.skillDesc || '')}"
+        onclick="handleRaidSkillToggle('${participant.userId}', ${participant.plannedSkill ? 'false' : 'true'})"
+      >
+        ${participant.plannedSkill ? '다음 턴 스킬 사용 예정' : '다음 턴 스킬 사용'}
+      </button>
+      <span class="menu-note">${silenced ? `침묵 ${formatNumber(participant.silenceTurns)}턴` : `쿨다운 ${formatNumber(participant.skillCooldown)}턴`}</span>
+    </div>
+    ${needsPrimaryTarget ? `
+      <div class="raid-target-group">
+        <div class="raid-target-label">${participant.targetType === 'ally_pair' ? '1번 대상' : '버프 대상'}</div>
+        <div class="raid-target-buttons">${buildRaidTargetButtons(participant, participants, 1, disabled)}</div>
+      </div>
+    ` : ''}
+    ${needsSecondaryTarget ? `
+      <div class="raid-target-group">
+        <div class="raid-target-label">2번 대상</div>
+        <div class="raid-target-buttons">${buildRaidTargetButtons(participant, participants, 2, disabled)}</div>
+      </div>
+    ` : ''}
+  `;
+}
+
+async function handleRaidSkillToggle(userId, useSkill) {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+
+  try {
+    const data = await postJson(`${API_URL}/api/raid/plan-skill`, {
+      userId: user._id,
+      useSkill
+    });
+    if (latestRaidState) {
+      latestRaidState.activeBattle = data.raid;
+    }
+    renderRaidBattle(latestRaidState, user);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleRaidTargetSelect(userId, targetSlot, targetUserId) {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+
+  try {
+    const data = await postJson(`${API_URL}/api/raid/set-target`, {
+      userId: user._id,
+      targetSlot,
+      targetUserId
+    });
+    if (latestRaidState) {
+      latestRaidState.activeBattle = data.raid;
+    }
+    renderRaidBattle(latestRaidState, user);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+window.handleRaidSkillToggle = handleRaidSkillToggle;
+window.handleRaidTargetSelect = handleRaidTargetSelect;

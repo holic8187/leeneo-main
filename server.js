@@ -271,7 +271,7 @@ const CARD_DATA = {
     grade: 'A',
     rate: 0.0041428571,
     skillName: '딸기라떼',
-    skillDesc: '다음 턴까지 지속되는 보호막 40을 파티원 전원에게 제공합니다.',
+    skillDesc: '이번 턴까지만 유지되는 보호막 40을 파티원 전원에게 제공합니다.',
     cooldown: 2,
     effectType: 'party_shield',
     shield: 40
@@ -561,6 +561,12 @@ const RAID_BOSS_DATA = {
     maxHp: 50000,
     imageLabel: '트름녀',
     patternOrder: ['burp', 'ice', 'smack', 'shield'],
+    skillsText: [
+      '1. 트름하기: 파티 전체에게 30 피해',
+      '2. 얼음씹기: 랜덤 3명에게 30 피해, 1턴 침묵',
+      '3. 쩝쩝거리기: 랜덤 대상에게 20 피해씩 총 4회',
+      '4. 눈 새 행동: 1턴 지속 보호막 10,000 획득'
+    ],
     rewardsText: [
       '경험치: 10레벨 기준 현재 레벨 경험치통의 100%, 이후 레벨당 2% 감소, 50레벨 이상은 20% 고정',
       '명함 0~2장',
@@ -1636,6 +1642,7 @@ function createRaidParticipantFromUser(user) {
     shield: 0,
     tempShieldAmount: 0,
     tempShieldTurns: 0,
+    roundShieldAmount: 0,
     lastHpLoss: 0,
     lastShieldLoss: 0,
     silenceTurns: 0,
@@ -1812,6 +1819,7 @@ function getRaidLobbySummary() {
     bossId: boss.id,
     bossName: boss.name,
     minLevel: RAID_MIN_LEVEL,
+    skillsText: boss.skillsText || [],
     rewardsText: boss.rewardsText
   };
 }
@@ -1830,6 +1838,17 @@ function getRaidParticipant(activeBattle, userId) {
 
 function getParticipantCard(participant) {
   return participant?.equippedCardId ? CARD_DATA[participant.equippedCardId] || null : null;
+}
+
+function clearRoundShieldEffects(battle) {
+  if (!battle?.participants?.length) return;
+  battle.participants.forEach((participant) => {
+    const remainingRoundShield = Number(participant.roundShieldAmount || 0);
+    if (remainingRoundShield > 0) {
+      participant.shield = Math.max(0, Number(participant.shield || 0) - remainingRoundShield);
+      participant.roundShieldAmount = 0;
+    }
+  });
 }
 
 function applyRaidDamage(target, damage) {
@@ -1930,7 +1949,10 @@ function useRaidCardSkill(participant, battle) {
   } else if (card.effectType === 'party_shield') {
     const shieldAmount = scaleFlat(card.shield);
     battle.participants.forEach((ally) => {
-      if (ally.hp > 0) ally.shield += shieldAmount;
+      if (ally.hp > 0) {
+        ally.shield += shieldAmount;
+        ally.roundShieldAmount = Number(ally.roundShieldAmount || 0) + shieldAmount;
+      }
     });
     logText = `${participant.displayName}(이)가 ${card.name}로 파티 전원에게 보호막 ${shieldAmount}을 부여했습니다.`;
   } else if (card.effectType === 'party_heal') {
@@ -2275,6 +2297,9 @@ function applyRaidDamage(target, damage, options = {}) {
     blocked = Math.min(target.shield, remainingDamage);
     target.shield -= blocked;
     remainingDamage -= blocked;
+    if (target.roundShieldAmount > 0) {
+      target.roundShieldAmount = Math.max(0, Number(target.roundShieldAmount || 0) - blocked);
+    }
   }
   target.hp = Math.max(0, target.hp - remainingDamage);
   target.lastShieldLoss = blocked;
@@ -2335,6 +2360,7 @@ function performRaidBossAction(battle) {
     aliveParticipants.forEach((participant) => {
       applyRaidDamage(participant, 30, { battle, source: 'boss' });
     });
+    clearRoundShieldEffects(battle);
     return '트름녀의 트름하기! 파티 전체가 30 피해를 받았습니다.';
   }
 
@@ -2355,6 +2381,7 @@ function performRaidBossAction(battle) {
     });
     const silencedText = silencedNames.length ? `${silencedNames.join(', ')} 이(가) 1턴 침묵에 걸렸습니다.` : '모든 대상이 침묵을 막아냈습니다.';
     const resistedText = resistedNames.length ? ` ${resistedNames.join(', ')} 은(는) 디버프를 막아냈습니다.` : '';
+    clearRoundShieldEffects(battle);
     return `트름녀의 얼음씹기! 대상 3명이 30 피해를 받았습니다. ${silencedText}${resistedText}`;
   }
 
@@ -2367,6 +2394,7 @@ function performRaidBossAction(battle) {
       applyRaidDamage(target, 20, { battle, source: 'boss' });
       targetNames.push(target.displayName);
     }
+    clearRoundShieldEffects(battle);
     return `트름녀의 쩝쩝거리기! ${targetNames.join(', ')}에게 연속 공격이 날아갔습니다.`;
   }
 
@@ -2374,6 +2402,7 @@ function performRaidBossAction(battle) {
     battle.bossShield = Number(battle.bossShield || 0) + 10000;
     battle.bossShieldTurns = 1;
     battle.bossLastHpLoss = 0;
+    clearRoundShieldEffects(battle);
     return '트름녀의 눈 새 행동! 1턴 지속되는 10000의 실드를 획득했습니다.';
   }
 
@@ -4117,9 +4146,15 @@ app.post('/api/raid/plan-skill', async (req, res) => {
         }
         participant.plannedTargetUserId2 = String(targetUserId2);
       }
-    } else if (!useSkill) {
-      participant.plannedTargetUserId = null;
-      participant.plannedTargetUserId2 = null;
+    }
+
+    if (useSkill && card.targetType === 'ally' && !participant.plannedTargetUserId) {
+      return res.status(400).json({ msg: '버프를 줄 파티원을 먼저 선택해주세요.' });
+    }
+    if (useSkill && card.targetType === 'ally_pair') {
+      if (!participant.plannedTargetUserId || !participant.plannedTargetUserId2) {
+        return res.status(400).json({ msg: '두 명의 파티원을 먼저 선택해주세요.' });
+      }
     }
 
     participant.plannedSkill = Boolean(useSkill);
@@ -4127,6 +4162,48 @@ app.post('/api/raid/plan-skill', async (req, res) => {
     res.json({ raid: buildRaidBattleSnapshot(raidState.activeBattle, userId) });
   } catch (err) {
     console.error('Raid skill plan error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/raid/set-target', async (req, res) => {
+  const { userId, targetUserId, targetSlot } = req.body;
+  if (!userId || !targetUserId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+
+  try {
+    await advanceRaidState(new Date());
+    if (!raidState.activeBattle || raidState.activeBattle.phase === 'finished') {
+      return res.status(400).json({ msg: '진행 중인 레이드가 없습니다.' });
+    }
+
+    const participant = getRaidParticipant(raidState.activeBattle, userId);
+    if (!participant) {
+      return res.status(403).json({ msg: '현재 레이드 참가자가 아닙니다.' });
+    }
+
+    const card = getParticipantCard(participant);
+    if (!card || !['ally', 'ally_pair'].includes(card.targetType)) {
+      return res.status(400).json({ msg: '대상을 선택하는 스킬이 아닙니다.' });
+    }
+
+    const selectableTargets = getSelectableRaidTargets(raidState.activeBattle);
+    if (!selectableTargets.includes(String(targetUserId))) {
+      return res.status(400).json({ msg: '선택할 수 없는 대상입니다.' });
+    }
+
+    const slotNumber = Number(targetSlot || 1);
+    if (slotNumber === 1) {
+      participant.plannedTargetUserId = String(targetUserId);
+    } else if (slotNumber === 2 && card.targetType === 'ally_pair') {
+      participant.plannedTargetUserId2 = String(targetUserId);
+    } else {
+      return res.status(400).json({ msg: '올바르지 않은 대상 슬롯입니다.' });
+    }
+
+    bumpRaidVersion();
+    res.json({ raid: buildRaidBattleSnapshot(raidState.activeBattle, userId) });
+  } catch (err) {
+    console.error('Raid target set error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
   }
 });
