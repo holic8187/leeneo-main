@@ -107,7 +107,7 @@ const ITEM_DATA = {
   },
   business_card: {
     name: '명함',
-    price: 0,
+    price: 200000,
     type: 'special',
     desc: '카드 뽑기에 사용하는 재화',
     hoverDesc: '카드 뽑기에서 사용하는 재화입니다.'
@@ -1711,7 +1711,7 @@ function getTotalBuyPrice(user, itemId, quantity) {
   if (!itemInfo) return 0;
 
   if (itemId === 'business_card') {
-    return 100000 * quantity;
+    return 200000 * quantity;
   }
 
   if (!['pen_monami', 'pen_jetstream'].includes(itemId)) {
