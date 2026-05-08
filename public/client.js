@@ -7,9 +7,9 @@ const ITEM_DATA = {
     hoverDesc: '보유량 1개마다 월급 획득량이 0.05% 증가합니다.'
   },
   pen_jetstream: {
-    name: '젣트?ㅽ듃由? 蹂쇳렂',
-    desc: '?붽툒 ?띾뱷??+0.1%',
-    hoverDesc: '蹂댁쑀??1媛쒕쭏???붽툒 ?띾뱷?됱씠 0.1% 利앷??⑸땲??'
+    name: '제트스트림 볼펜',
+    desc: '월급 획득량 +0.1%',
+    hoverDesc: '보유량 1개마다 월급 획득량이 0.1% 증가합니다.'
   },
   coffee_mix: {
     name: '맥심 커피믹스',
