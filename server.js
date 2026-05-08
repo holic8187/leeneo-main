@@ -39,6 +39,7 @@ const RAID_MIN_LEVEL = 10;
 const RAID_PARTY_SIZE = 5;
 const RAID_ACTION_DELAY_MS = 2000;
 const RAID_COUNTDOWN_SECONDS = 3;
+const RAID_COUNTDOWN_BUFFER_MS = 2000;
 const RAID_DAILY_LIMIT = 1;
 const RAID_BOSS_ID = 'burp_queen';
 const RAID_POLL_VERSION_EMPTY = 0;
@@ -2475,6 +2476,17 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
   const participantIds = activeBattle.participants.map((participant) => participant.userId);
   const users = await User.find({ _id: { $in: participantIds } });
   const userMap = new Map(users.map((entry) => [String(entry._id), entry]));
+  const sharedBaseRewards = activeBattle.winner === 'players'
+    ? {
+        businessCards: Math.floor(Math.random() * 3),
+        bacchus: 3 + Math.floor(Math.random() * 3),
+        monami: Math.floor(Math.random() * 2),
+        moneyReward: 100000 + Math.floor(Math.random() * 200001)
+      }
+    : null;
+  const sharedLottoOutcome = activeBattle.winner === 'players' && activeBattle.participants.some((participant) => participant.lottoRewardBuff)
+    ? (Math.random() < 0.5 ? 'success' : 'fail')
+    : null;
 
   for (const participant of activeBattle.participants) {
     const user = userMap.get(participant.userId);
@@ -2491,7 +2503,7 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
         rewardNotes.push('소주각? 적용으로 전리품 2배');
       }
       if (participant.lottoRewardBuff) {
-        if (Math.random() < 0.5) {
+        if (sharedLottoOutcome === 'success') {
           rewardMultiplier *= 3;
           rewardNotes.push('이번엔 될거같아 성공으로 전리품 3배');
         } else {
@@ -2500,10 +2512,10 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
         }
       }
       const expReward = Math.floor(getRequiredExp(participant.level) * rewardRatio * rewardMultiplier);
-      const businessCards = Math.floor(Math.random() * 3) * rewardMultiplier;
-      const bacchus = (3 + Math.floor(Math.random() * 3)) * rewardMultiplier;
-      const monami = Math.floor(Math.random() * 2) * rewardMultiplier;
-      const moneyReward = (100000 + Math.floor(Math.random() * 200001)) * rewardMultiplier;
+      const businessCards = (sharedBaseRewards?.businessCards || 0) * rewardMultiplier;
+      const bacchus = (sharedBaseRewards?.bacchus || 0) * rewardMultiplier;
+      const monami = (sharedBaseRewards?.monami || 0) * rewardMultiplier;
+      const moneyReward = (sharedBaseRewards?.moneyReward || 0) * rewardMultiplier;
       user.gameState.exp += expReward;
       checkLevelUp(user);
       addItemToInventory(user, 'business_card', businessCards);
@@ -3957,6 +3969,8 @@ app.post('/api/raid/start', async (req, res) => {
       await user.save();
     }
 
+    const countdownDurationMs = (RAID_COUNTDOWN_SECONDS * 1000) + RAID_COUNTDOWN_BUFFER_MS;
+
     raidState.activeBattle = {
       battleId: `raid-${Date.now()}`,
       bossId: RAID_BOSS_ID,
@@ -3967,8 +3981,8 @@ app.post('/api/raid/start', async (req, res) => {
       bossLastHpLoss: 0,
       participants,
       phase: 'countdown',
-      countdownEndsAt: new Date(now.getTime() + (RAID_COUNTDOWN_SECONDS * 1000)),
-      nextActionAt: new Date(now.getTime() + (RAID_COUNTDOWN_SECONDS * 1000)),
+      countdownEndsAt: new Date(now.getTime() + countdownDurationMs),
+      nextActionAt: new Date(now.getTime() + countdownDurationMs),
       turnIndex: 0,
       bossPatternIndex: 0,
       logs: ['레이드가 곧 시작됩니다. 3, 2, 1'],

@@ -139,6 +139,9 @@ let latestGlobalState = { activeShoutText: '', activeShoutKey: '' };
 let lastRenderedShoutKey = '';
 let latestRaidState = null;
 let raidCountdownVisible = false;
+let raidCountdownTicker = null;
+let raidCountdownEndsAtMs = 0;
+let raidCountdownDisplayStartMs = 0;
 let cardFusionSelection = [];
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -215,6 +218,10 @@ function clearIntervals() {
   if (rankingInterval) clearInterval(rankingInterval);
   if (syncInterval) clearInterval(syncInterval);
   if (raidPollInterval) clearInterval(raidPollInterval);
+  if (raidCountdownTicker) clearInterval(raidCountdownTicker);
+  raidCountdownTicker = null;
+  raidCountdownEndsAtMs = 0;
+  raidCountdownDisplayStartMs = 0;
 }
 
 function clearSessions() {
@@ -1353,8 +1360,9 @@ function renderRaidBattle(raidState, user) {
     const lossText = lossTextParts.join(' / ');
     const effectBadges = (participant.statusEffects || [])
       .map((effect) => `
-        <div class="raid-effect-badge ${effect.type === 'debuff' ? 'raid-effect-debuff' : 'raid-effect-buff'}" data-tooltip="${escapeHtml(effect.desc || '')}">
-          ${escapeHtml(effect.name)}${effect.turns ? ` (${formatNumber(effect.turns)}턴)` : ''}${effect.count ? ` (${formatNumber(effect.count)}회)` : ''}
+        <div class="raid-effect-badge ${effect.type === 'debuff' ? 'raid-effect-debuff' : 'raid-effect-buff'}">
+          <div class="raid-effect-name">${escapeHtml(effect.name)}${effect.turns ? ` (${formatNumber(effect.turns)}턴)` : ''}${effect.count ? ` (${formatNumber(effect.count)}회)` : ''}</div>
+          ${effect.desc ? `<div class="raid-effect-desc">${escapeHtml(effect.desc)}</div>` : ''}
         </div>
       `)
       .join('');
@@ -1448,8 +1456,9 @@ function renderRaidBattle(raidState, user) {
     const lossText = lossTextParts.join(' / ');
     const effectBadges = (participant.statusEffects || [])
       .map((effect) => `
-        <div class="raid-effect-badge ${effect.type === 'debuff' ? 'raid-effect-debuff' : 'raid-effect-buff'}" data-tooltip="${escapeHtml(effect.desc || '')}">
-          ${escapeHtml(effect.name)}${effect.turns ? ` (${formatNumber(effect.turns)}턴)` : ''}${effect.count ? ` (${formatNumber(effect.count)}회)` : ''}
+        <div class="raid-effect-badge ${effect.type === 'debuff' ? 'raid-effect-debuff' : 'raid-effect-buff'}">
+          <div class="raid-effect-name">${escapeHtml(effect.name)}${effect.turns ? ` (${formatNumber(effect.turns)}턴)` : ''}${effect.count ? ` (${formatNumber(effect.count)}회)` : ''}</div>
+          ${effect.desc ? `<div class="raid-effect-desc">${escapeHtml(effect.desc)}</div>` : ''}
         </div>
       `)
       .join('');
@@ -1527,6 +1536,22 @@ function buildRaidSkillControls(participant, participants) {
   `;
 }
 
+function stopRaidCountdownTicker() {
+  if (raidCountdownTicker) clearInterval(raidCountdownTicker);
+  raidCountdownTicker = null;
+  raidCountdownEndsAtMs = 0;
+  raidCountdownDisplayStartMs = 0;
+}
+
+function renderRaidCountdownNumber() {
+  const numberEl = document.getElementById('raidCountdownNumber');
+  if (!numberEl || !raidCountdownVisible || !raidCountdownDisplayStartMs) return;
+
+  const elapsedSeconds = Math.floor((Date.now() - raidCountdownDisplayStartMs) / 1000);
+  const displayValue = Math.max(1, 3 - elapsedSeconds);
+  numberEl.textContent = String(displayValue);
+}
+
 function updateRaidCountdown(raidState, user) {
   const overlay = document.getElementById('raidCountdownOverlay');
   const numberEl = document.getElementById('raidCountdownNumber');
@@ -1538,18 +1563,24 @@ function updateRaidCountdown(raidState, user) {
   const isParticipant = Boolean(battle?.isParticipant);
 
   if (countdown?.active && isParticipant && countdown.endsAt) {
-    const remainingMs = new Date(countdown.endsAt).getTime() - Date.now();
-    const remaining = Math.max(0, Math.ceil(remainingMs / 1000));
-    numberEl.textContent = String(Math.max(1, remaining));
+    const nextEndsAtMs = new Date(countdown.endsAt).getTime();
+    if (raidCountdownEndsAtMs !== nextEndsAtMs) {
+      if (raidCountdownTicker) clearInterval(raidCountdownTicker);
+      raidCountdownEndsAtMs = nextEndsAtMs;
+      raidCountdownDisplayStartMs = Date.now();
+      raidCountdownTicker = setInterval(renderRaidCountdownNumber, 200);
+    }
     if (cancelBtn) cancelBtn.disabled = false;
     showModal('raidCountdownOverlay');
     raidCountdownVisible = true;
+    renderRaidCountdownNumber();
     return;
   }
 
   if (battle?.phase === 'active' && isParticipant) {
     hideModal('raidCountdownOverlay');
     raidCountdownVisible = false;
+    stopRaidCountdownTicker();
     if (cancelBtn) cancelBtn.disabled = true;
     hideModal('raidLobbyModal');
     showRaidScreen();
@@ -1560,6 +1591,7 @@ function updateRaidCountdown(raidState, user) {
   if (raidCountdownVisible) {
     hideModal('raidCountdownOverlay');
     raidCountdownVisible = false;
+    stopRaidCountdownTicker();
     if (cancelBtn) cancelBtn.disabled = false;
     if (!raidState?.activeBattle && Number.isInteger(raidState?.queuedSlotIndex) && raidState.queuedSlotIndex >= 0) {
       showModal('raidLobbyModal');
