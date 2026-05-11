@@ -1475,13 +1475,32 @@ function ensureUserDefaults(user) {
   user.pendingAdventure.message = user.pendingAdventure.message || null;
   user.pendingAdventure.createdAt = user.pendingAdventure.createdAt || null;
 
-  user.enhancedCards = user.enhancedCards
-    .filter((entry) => CARD_DATA[entry.cardId] && Number(entry.level) > 0 && Number(entry.quantity) > 0)
-    .map((entry) => ({
+  const normalizedEnhancedCards = [];
+  let enhancedCardsChanged = false;
+  user.enhancedCards.forEach((entry) => {
+    if (!CARD_DATA[entry.cardId] || Number(entry.level) <= 0 || Number(entry.quantity) <= 0) {
+      enhancedCardsChanged = true;
+      return;
+    }
+
+    const normalizedLevel = Math.max(1, Math.min(5, Number(entry.level)));
+    const normalizedQuantity = Math.max(1, Math.floor(Number(entry.quantity)));
+    if (normalizedLevel !== Number(entry.level) || normalizedQuantity !== Number(entry.quantity)) {
+      enhancedCardsChanged = true;
+    }
+
+    normalizedEnhancedCards.push({
       cardId: entry.cardId,
-      level: Math.max(1, Math.min(5, Number(entry.level))),
-      quantity: Math.max(1, Math.floor(Number(entry.quantity)))
-    }));
+      level: normalizedLevel,
+      quantity: normalizedQuantity
+    });
+  });
+  if (normalizedEnhancedCards.length !== user.enhancedCards.length) {
+    enhancedCardsChanged = true;
+  }
+  if (enhancedCardsChanged) {
+    user.enhancedCards = normalizedEnhancedCards;
+  }
 
   migrateLegacyBuffs(user);
   if (user.equippedCardId && getOwnedCardVariantQuantity(user, user.equippedCardId, user.equippedCardLevel || 0) <= 0) {
@@ -4569,27 +4588,12 @@ app.post('/api/raid/state', async (req, res) => {
     ensureUserDefaults(user);
     const now = new Date();
     const raid = await buildRaidStateResponse(user, now);
-
-    let userResponse;
-    try {
-      userResponse = await runUserMutationWithRetry(userId, async (latestUser) => {
-        return buildUserResponseWithGlobals(latestUser, now);
-      }, { conflictLabel: 'Raid state sync conflict' });
-    } catch (syncErr) {
-      console.warn('Raid state sync recovery:', syncErr?.message || syncErr);
-      const latestUser = await User.findById(userId);
-      if (!latestUser) {
-        return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
-      }
-      ensureUserDefaults(latestUser);
-      userResponse = {
-        user: buildGameStateResponse(latestUser, now),
-        notifications: Array.isArray(latestUser.pendingNotifications) ? [...latestUser.pendingNotifications] : [],
-        global: getGlobalState(now)
-      };
-    }
-
-    res.json({ raid, ...userResponse });
+    res.json({
+      raid,
+      user: buildGameStateResponse(user, now),
+      notifications: Array.isArray(user.pendingNotifications) ? [...user.pendingNotifications] : [],
+      global: getGlobalState(now)
+    });
   } catch (err) {
     console.error('Raid state error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });

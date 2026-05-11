@@ -150,6 +150,7 @@ let raidBarAnimationState = {
   bossHpRatio: null,
   participantHpRatios: {}
 };
+const recentNotificationKeys = new Map();
 
 document.addEventListener('DOMContentLoaded', () => {
   initApp();
@@ -475,11 +476,20 @@ async function getJson(url, headers = {}) {
 
 function showNotifications(notifications = []) {
   const seen = new Set();
+  const now = Date.now();
+  for (const [key, shownAt] of recentNotificationKeys.entries()) {
+    if (now - shownAt > 60000) {
+      recentNotificationKeys.delete(key);
+    }
+  }
   notifications.forEach((notification) => {
     if (!notification?.text) return;
     const key = `${notification.type || ''}::${notification.text}`;
     if (seen.has(key)) return;
+    const lastShownAt = recentNotificationKeys.get(key) || 0;
+    if (now - lastShownAt < 15000) return;
     seen.add(key);
+    recentNotificationKeys.set(key, now);
     alert(notification.text);
   });
 }
