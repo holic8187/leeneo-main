@@ -1679,6 +1679,39 @@ function createHttpError(statusCode, message) {
   return error;
 }
 
+async function runUserMutationWithRetry(userId, mutateUser, options = {}) {
+  const {
+    maxRetries = 1,
+    conflictLabel = 'User mutation conflict'
+  } = options;
+
+  let lastError = null;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    const user = await User.findById(userId);
+    if (!user) {
+      throw createHttpError(404, '사용자를 찾을 수 없습니다.');
+    }
+
+    ensureUserDefaults(user);
+    const result = await mutateUser(user, attempt);
+
+    try {
+      await user.save();
+      return result;
+    } catch (err) {
+      lastError = err;
+      if (isVersionConflictError(err) && attempt < maxRetries) {
+        console.warn(`${conflictLabel}:`, err.message);
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  throw lastError || createHttpError(500, '서버 오류가 발생했습니다.');
+}
+
 function cleanupExpiredBuffs(user, now = new Date()) {
   user.buffs = user.buffs.filter((buff) => new Date(buff.expiresAt) > now);
 }
@@ -3725,40 +3758,39 @@ app.post('/api/action/work', async (req, res) => {
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      cleanupExpiredBuffs(user, now);
 
-    const now = new Date();
-    calculateOfflineGains(user, now);
-    cleanupExpiredBuffs(user, now);
+      const derivedStats = calculateDerivedStats(user, now);
+      const hadTooMuchStress = user.gameState.stress >= 100;
 
-    const derivedStats = calculateDerivedStats(user, now);
-    const hadTooMuchStress = user.gameState.stress >= 100;
+      if (!derivedStats.noStress) {
+        const clickStressGain = CLICK_STRESS_GAIN * derivedStats.stressMultiplier;
+        user.gameState.stress = Number(Math.min(100, user.gameState.stress + clickStressGain).toFixed(2));
+      }
 
-    if (!derivedStats.noStress) {
-      const clickStressGain = CLICK_STRESS_GAIN * derivedStats.stressMultiplier;
-      user.gameState.stress = Number(Math.min(100, user.gameState.stress + clickStressGain).toFixed(2));
-    }
+      if (derivedStats.clickStressRelief > 0) {
+        user.gameState.stress = Number(Math.max(0, user.gameState.stress - derivedStats.clickStressRelief).toFixed(2));
+      }
 
-    if (derivedStats.clickStressRelief > 0) {
-      user.gameState.stress = Number(Math.max(0, user.gameState.stress - derivedStats.clickStressRelief).toFixed(2));
-    }
+      if (!hadTooMuchStress) {
+        const expMultiplier = (1 + derivedStats.expBonusPercent / 100);
+        user.gameState.exp += Math.floor(getClickExp(user.gameState.level) * expMultiplier * derivedStats.clickExpMultiplier);
+      }
 
-    if (!hadTooMuchStress) {
-      const expMultiplier = (1 + derivedStats.expBonusPercent / 100);
-      user.gameState.exp += Math.floor(getClickExp(user.gameState.level) * expMultiplier * derivedStats.clickExpMultiplier);
-    }
+      checkLevelUp(user);
+      reconcileTitles(user, now);
+      user.gameState.lastActionTime = now;
 
-    checkLevelUp(user);
-    reconcileTitles(user, now);
-    user.gameState.lastActionTime = now;
+      return buildUserResponseWithGlobals(user, now);
+    }, { conflictLabel: 'Work action conflict' });
 
-    const response = await buildUserResponseWithGlobals(user, now);
-    await user.save();
     res.json(response);
   } catch (err) {
     console.error('Work action error:', err);
-    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+    res.status(err?.statusCode || 500).json({ msg: err?.message || '서버 오류가 발생했습니다.' });
   }
 });
 
@@ -3800,61 +3832,58 @@ app.post('/api/action/adventure', async (req, res) => {
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      cleanupExpiredBuffs(user, now);
 
-    const now = new Date();
-    calculateOfflineGains(user, now);
-    cleanupExpiredBuffs(user, now);
+      if (user.pendingAdventure?.eventId) {
+        throw createHttpError(400, '진행 중인 모험 선택지가 남아 있습니다. 먼저 결과를 선택해주세요.');
+      }
 
-    if (user.pendingAdventure?.eventId) {
-      return res.status(400).json({ msg: '진행 중인 모험 선택지가 남아 있습니다. 먼저 결과를 선택해주세요.' });
-    }
+      const staminaCost = getAdventureStaminaCost(user, now);
+      if (user.gameState.stamina < staminaCost) {
+        throw createHttpError(400, `행동력이 부족합니다. (필요: ${staminaCost})`);
+      }
 
-    const staminaCost = getAdventureStaminaCost(user, now);
-    if (user.gameState.stamina < staminaCost) {
-      return res.status(400).json({ msg: `행동력이 부족합니다. (필요: ${staminaCost})` });
-    }
+      user.gameState.stamina = Number((user.gameState.stamina - staminaCost).toFixed(2));
+      user.gameState.lastActionTime = now;
 
-    user.gameState.stamina = Number((user.gameState.stamina - staminaCost).toFixed(2));
-    user.gameState.lastActionTime = now;
+      const event = rollAdventureEvent();
+      const eventTitle = `${event.location} / ${event.actor}`;
+      setAdventureLog(user, `${eventTitle} - ${event.message}`);
 
-    const event = rollAdventureEvent();
-    const eventTitle = `${event.location} / ${event.actor}`;
-    setAdventureLog(user, `${eventTitle} - ${event.message}`);
+      if (event.reward?.type === 'cat_choice') {
+        user.pendingAdventure = {
+          eventId: event.id,
+          location: event.location,
+          actor: event.actor,
+          message: event.message,
+          createdAt: now
+        };
 
-    if (event.reward?.type === 'cat_choice') {
-      user.pendingAdventure = {
-        eventId: event.id,
-        location: event.location,
-        actor: event.actor,
+        return buildAdventureChoiceResponse(user, now);
+      }
+
+      const rewardText = applyAdventureReward(user, event.reward, now);
+      setAdventureLog(user, `${eventTitle} - ${event.message} / ${rewardText}`);
+      clearPendingAdventure(user);
+      reconcileTitles(user, now);
+
+      const response = await buildUserResponseWithGlobals(user, now);
+      response.adventureResult = {
+        requiresChoice: false,
+        title: eventTitle,
         message: event.message,
-        createdAt: now
+        rewardText
       };
+      return response;
+    }, { conflictLabel: 'Adventure action conflict' });
 
-      const response = await buildAdventureChoiceResponse(user, now);
-      await user.save();
-      return res.json(response);
-    }
-
-    const rewardText = applyAdventureReward(user, event.reward, now);
-    setAdventureLog(user, `${eventTitle} - ${event.message} / ${rewardText}`);
-    clearPendingAdventure(user);
-    reconcileTitles(user, now);
-
-    const response = await buildUserResponseWithGlobals(user, now);
-    response.adventureResult = {
-      requiresChoice: false,
-      title: eventTitle,
-      message: event.message,
-      rewardText
-    };
-
-    await user.save();
     res.json(response);
   } catch (err) {
     console.error('Adventure action error:', err);
-    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+    res.status(err?.statusCode || 500).json({ msg: err?.message || '서버 오류가 발생했습니다.' });
   }
 });
 
@@ -3864,74 +3893,73 @@ app.post('/api/action/adventure/resolve', async (req, res) => {
   if (!['yes', 'no'].includes(choice)) return res.status(400).json({ msg: '올바르지 않은 선택입니다.' });
 
   try {
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
 
-    const now = new Date();
-    calculateOfflineGains(user, now);
+      if (!user.pendingAdventure?.eventId) {
+        throw createHttpError(400, '진행 중인 모험 선택지가 없습니다.');
+      }
 
-    if (!user.pendingAdventure?.eventId) {
-      return res.status(400).json({ msg: '진행 중인 모험 선택지가 없습니다.' });
-    }
+      const eventTitle = `${user.pendingAdventure.location} / ${user.pendingAdventure.actor}`;
+      let rewardText = '아무 일도 일어나지 않았습니다.';
+      const hasCatButlerTitle = user.titles?.unlocked?.includes('cat_butler');
 
-    const eventTitle = `${user.pendingAdventure.location} / ${user.pendingAdventure.actor}`;
-    let rewardText = '아무 일도 일어나지 않았습니다.';
-    const hasCatButlerTitle = user.titles?.unlocked?.includes('cat_butler');
+      if (choice === 'yes') {
+        if (getInventoryQuantity(user, 'cat_tuna_can') > 0) {
+          removeItemFromInventory(user, 'cat_tuna_can', 1);
+          user.meta.catFoodGivenCount += 1;
+          rewardText = `고양이에게 참치캔을 건넸습니다. 현재 총 ${user.meta.catFoodGivenCount}번 건네줬습니다.`;
 
-    if (choice === 'yes') {
-      if (getInventoryQuantity(user, 'cat_tuna_can') > 0) {
-        removeItemFromInventory(user, 'cat_tuna_can', 1);
-        user.meta.catFoodGivenCount += 1;
-        rewardText = `고양이에게 참치캔을 건넸습니다. 현재 총 ${user.meta.catFoodGivenCount}번 건네줬습니다.`;
+          if (user.meta.catFoodGivenCount >= 10) {
+            unlockTitle(user, 'cat_butler');
+            setOrRefreshBuff(user, 'cat_gratitude_buff', CAT_GRATITUDE_DURATION_MS);
+            rewardText += ' 고양이의 보은 버프를 획득했습니다.';
+          }
 
-        if (user.meta.catFoodGivenCount >= 10) {
-          unlockTitle(user, 'cat_butler');
-          setOrRefreshBuff(user, 'cat_gratitude_buff', CAT_GRATITUDE_DURATION_MS);
-          rewardText += ' 고양이의 보은 버프를 획득했습니다.';
-        }
+          if (hasCatButlerTitle || user.meta.catFoodGivenCount >= 10) {
+            setOrRefreshBuff(user, 'cat_gratitude_buff', CAT_GRATITUDE_DURATION_MS);
+            addItemToInventory(user, 'bacchus', 1);
 
-        if (hasCatButlerTitle || user.meta.catFoodGivenCount >= 10) {
-          setOrRefreshBuff(user, 'cat_gratitude_buff', CAT_GRATITUDE_DURATION_MS);
-          addItemToInventory(user, 'bacchus', 1);
+            const extraItemPool = ['hot6', 'cat_tuna_can', 'pen_monami'];
+            const extraItemId = extraItemPool[Math.floor(Math.random() * extraItemPool.length)];
+            addItemToInventory(user, extraItemId, 1);
 
-          const extraItemPool = ['hot6', 'cat_tuna_can', 'pen_monami'];
-          const extraItemId = extraItemPool[Math.floor(Math.random() * extraItemPool.length)];
-          addItemToInventory(user, extraItemId, 1);
-
-          rewardText += ` 고양이가 보답으로 박카스 1개와 ${ITEM_DATA[extraItemId].name} 1개를 남겨두고 갔습니다.`;
+            rewardText += ` 고양이가 보답으로 박카스 1개와 ${ITEM_DATA[extraItemId].name} 1개를 남겨두고 갔습니다.`;
+          }
+        } else {
+          rewardText = '참치캔이 없어 고양이에게 아무것도 줄 수 없었습니다.';
+          if (hasCatButlerTitle) {
+            setOrRefreshBuff(user, 'cat_gratitude_buff', CAT_GRATITUDE_DURATION_MS);
+            rewardText += ' 그래도 고양이는 당신을 기억하고 있어 고양이의 보은 버프를 남겨줬습니다.';
+          }
         }
       } else {
-        rewardText = '참치캔이 없어 고양이에게 아무것도 줄 수 없었습니다.';
+        rewardText = '고양이를 한 번 쓰다듬고 지나쳤습니다. 아무것도 획득하지 못했습니다.';
         if (hasCatButlerTitle) {
           setOrRefreshBuff(user, 'cat_gratitude_buff', CAT_GRATITUDE_DURATION_MS);
           rewardText += ' 그래도 고양이는 당신을 기억하고 있어 고양이의 보은 버프를 남겨줬습니다.';
         }
       }
-    } else {
-      rewardText = '고양이를 한 번 쓰다듬고 지나쳤습니다. 아무것도 획득하지 못했습니다.';
-      if (hasCatButlerTitle) {
-        setOrRefreshBuff(user, 'cat_gratitude_buff', CAT_GRATITUDE_DURATION_MS);
-        rewardText += ' 그래도 고양이는 당신을 기억하고 있어 고양이의 보은 버프를 남겨줬습니다.';
-      }
-    }
 
-    setAdventureLog(user, `${eventTitle} - ${rewardText}`);
-    clearPendingAdventure(user);
-    reconcileTitles(user, now);
+      setAdventureLog(user, `${eventTitle} - ${rewardText}`);
+      clearPendingAdventure(user);
+      reconcileTitles(user, now);
 
-    const response = await buildUserResponseWithGlobals(user, now);
-    response.adventureResult = {
-      requiresChoice: false,
-      title: eventTitle,
-      message: '고양이가 잠시 당신을 바라보다가 천천히 발걸음을 옮겼다.',
-      rewardText
-    };
+      const response = await buildUserResponseWithGlobals(user, now);
+      response.adventureResult = {
+        requiresChoice: false,
+        title: eventTitle,
+        message: '고양이가 잠시 당신을 바라보다가 천천히 발걸음을 옮겼다.',
+        rewardText
+      };
+      return response;
+    }, { conflictLabel: 'Adventure resolve conflict' });
 
-    await user.save();
     res.json(response);
   } catch (err) {
     console.error('Adventure resolve error:', err);
-    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+    res.status(err?.statusCode || 500).json({ msg: err?.message || '서버 오류가 발생했습니다.' });
   }
 });
 
@@ -4230,36 +4258,36 @@ app.post('/api/cards/draw', async (req, res) => {
   const drawCount = Math.max(1, Math.floor(Number(quantity) || 1));
 
   try {
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
 
-    const now = new Date();
-    calculateOfflineGains(user, now);
+      if (!removeItemFromInventory(user, 'business_card', drawCount)) {
+        throw createHttpError(400, '명함이 부족합니다.');
+      }
 
-    if (!removeItemFromInventory(user, 'business_card', drawCount)) {
-      return res.status(400).json({ msg: '명함이 부족합니다.' });
-    }
+      const results = [];
+      for (let drawIndex = 0; drawIndex < drawCount; drawIndex += 1) {
+        const card = rollCardDraw();
+        addCardToCollection(user, card.id, 1);
+        results.push({
+          id: card.id,
+          name: card.name,
+          grade: card.grade,
+          color: CARD_GRADE_COLORS[card.grade]
+        });
+      }
 
-    const results = [];
-    for (let drawIndex = 0; drawIndex < drawCount; drawIndex += 1) {
-      const card = rollCardDraw();
-      addCardToCollection(user, card.id, 1);
-      results.push({
-        id: card.id,
-        name: card.name,
-        grade: card.grade,
-        color: CARD_GRADE_COLORS[card.grade]
-      });
-    }
+      user.gameState.lastActionTime = now;
+      const response = await buildUserResponseWithGlobals(user, now);
+      response.drawResults = results;
+      return response;
+    }, { conflictLabel: 'Card draw conflict' });
 
-    user.gameState.lastActionTime = now;
-    const response = await buildUserResponseWithGlobals(user, now);
-    response.drawResults = results;
-    await user.save();
     res.json(response);
   } catch (err) {
     console.error('Card draw error:', err);
-    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+    res.status(err?.statusCode || 500).json({ msg: err?.message || '서버 오류가 발생했습니다.' });
   }
 });
 
@@ -4461,6 +4489,7 @@ app.post('/api/raid/toggle-slot', async (req, res) => {
   try {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    ensureUserDefaults(user);
     const now = new Date();
     calculateOfflineGains(user, now);
 
@@ -4479,6 +4508,20 @@ app.post('/api/raid/toggle-slot', async (req, res) => {
       raidState.slots[targetSlot] = null;
       bumpRaidVersion();
     } else {
+      if (user.equippedCardId) {
+        const queuedOtherUserIds = raidState.slots
+          .filter(Boolean)
+          .filter((slotUserId) => String(slotUserId) !== String(user._id));
+        if (queuedOtherUserIds.length) {
+          const duplicateCardUser = await User.findOne({
+            _id: { $in: queuedOtherUserIds },
+            equippedCardId: user.equippedCardId
+          }).select('nickname username');
+          if (duplicateCardUser) {
+            return res.status(400).json({ msg: '중복된 카드를 들고 온 참가자가 이미 있습니다.' });
+          }
+        }
+      }
       if (raidState.slots[targetSlot] && String(raidState.slots[targetSlot]) !== String(user._id)) {
         return res.status(400).json({ msg: '이미 다른 플레이어가 대기 중인 슬롯입니다.' });
       }
