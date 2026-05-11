@@ -2102,7 +2102,7 @@ function createRaidParticipantFromUser(user) {
 function setOrRefreshBuff(user, buffId, durationMs, options = {}) {
   const now = options.now || new Date();
   const existingBuff = user.buffs.find((buff) => buff.buffId === buffId);
-  const shouldStack = Boolean(options.stackDuration);
+  const shouldStack = Boolean(options.stackDuration) || buffId === 'cat_gratitude_buff';
   const baseTime = existingBuff && new Date(existingBuff.expiresAt) > now
     ? new Date(existingBuff.expiresAt)
     : now;
