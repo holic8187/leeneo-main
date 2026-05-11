@@ -2884,7 +2884,7 @@ async function buildRaidStateResponse(user, now = new Date()) {
 
   const queuedUserIds = raidState.slots.filter(Boolean);
   const queuedUsers = queuedUserIds.length
-    ? await User.find({ _id: { $in: queuedUserIds } }).select('nickname username gameState.level equippedCardId titles')
+    ? await User.find({ _id: { $in: queuedUserIds } }).select('nickname username gameState.level equippedCardId equippedCardLevel cards enhancedCards titles')
     : [];
   const queuedMap = new Map(queuedUsers.map((queuedUser) => [String(queuedUser._id), queuedUser]));
 
@@ -4365,11 +4365,6 @@ app.post('/api/cards/enhance', async (req, res) => {
         removeEnhancedCard(user, cardId, currentLevel, 1);
       }
       addEnhancedCard(user, cardId, nextLevel, 1);
-
-      if (user.equippedCardId === cardId && Number(user.equippedCardLevel || 0) === currentLevel) {
-        user.equippedCardId = cardId;
-        user.equippedCardLevel = nextLevel;
-      }
     }
 
     user.gameState.lastActionTime = now;

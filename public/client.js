@@ -1065,6 +1065,12 @@ async function handleCardEnhanceConfirm() {
     updateLocalUserState(data);
     const result = data.enhancementResult;
     if (result) {
+      selectedEnhanceCardKey = getCardVariantKey(
+        result.cardId,
+        result.success ? result.nextLevel : result.previousLevel
+      );
+    }
+    if (result) {
       alert(result.success
         ? `${result.cardName} +${formatNumber(result.previousLevel)} 강화 성공! -> +${formatNumber(result.nextLevel)}`
         : `${result.cardName} +${formatNumber(result.previousLevel)} 강화에 실패했습니다.`);
