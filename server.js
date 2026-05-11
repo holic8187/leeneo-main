@@ -3744,13 +3744,6 @@ app.post('/api/action/work', async (req, res) => {
     user.gameState.lastActionTime = now;
 
     const response = await buildUserResponseWithGlobals(user, now);
-    response.shopPurchase = {
-      itemId,
-      itemName: itemInfo.name,
-      quantity: buyQuantity,
-      totalPrice,
-      ownedQuantity: getInventoryQuantity(user, itemId)
-    };
     await user.save();
     res.json(response);
   } catch (err) {
