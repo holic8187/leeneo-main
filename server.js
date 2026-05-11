@@ -1820,7 +1820,7 @@ function buildCardVariantDetails(user) {
         cooldown: resolved.cooldown,
         durationText: getCardDurationText(card.id, 0),
         canEnhance: true,
-        availableEnhanceQuantity: Math.max(0, baseQuantity - (equipped ? 1 : 0)),
+        availableEnhanceQuantity: baseQuantity,
         enhanceSuccessRate: getCardEnhancementSuccessRate(0),
         enhanceCost: getCardEnhancementCost(card.id, 0),
         nextEnhancementPreview: nextPreview ? {
@@ -1859,7 +1859,7 @@ function buildCardVariantDetails(user) {
         cooldown: resolved.cooldown,
         durationText: getCardDurationText(entry.cardId, normalizedLevel),
         canEnhance: normalizedLevel < 5,
-        availableEnhanceQuantity: Math.max(0, Number(entry.quantity) - (equipped ? 1 : 0)),
+        availableEnhanceQuantity: Number(entry.quantity),
         enhanceSuccessRate: normalizedLevel < 5 ? getCardEnhancementSuccessRate(normalizedLevel) : 0,
         enhanceCost: normalizedLevel < 5 ? getCardEnhancementCost(entry.cardId, normalizedLevel) : 0,
         nextEnhancementPreview: nextPreview ? {
@@ -3997,6 +3997,9 @@ app.post('/api/action/side-job', async (req, res) => {
 
     const now = new Date();
     calculateOfflineGains(user, now);
+    if (Number(user.gameState.stress || 0) > 60) {
+      return res.status(400).json({ msg: '부업하기는 스트레스가 60 이하일 때만 할 수 있습니다.' });
+    }
     const derivedStats = calculateDerivedStats(user, now);
     const salaryPerMinute = getSalaryPerMinute(user.gameState.level, derivedStats.moneyBonusPercent);
     const gainedMoney = Math.floor(salaryPerMinute * 300);
@@ -4343,9 +4346,9 @@ app.post('/api/cards/enhance', async (req, res) => {
       return res.status(400).json({ msg: '해당 강화 단계의 카드를 보유하고 있지 않습니다.' });
     }
     const equippedThisVariant = user.equippedCardId === cardId && Number(user.equippedCardLevel || 0) === currentLevel;
-    const availableEnhanceQuantity = getOwnedCardVariantQuantity(user, cardId, currentLevel) - (equippedThisVariant ? 1 : 0);
+    const availableEnhanceQuantity = getOwnedCardVariantQuantity(user, cardId, currentLevel);
     if (availableEnhanceQuantity <= 0) {
-      return res.status(400).json({ msg: '장착 중인 카드만 남아 있어 강화에 사용할 수 없습니다.' });
+      return res.status(400).json({ msg: '강화에 사용할 카드가 없습니다.' });
     }
 
     const enhanceCost = getCardEnhancementCost(cardId, currentLevel);
@@ -4365,6 +4368,10 @@ app.post('/api/cards/enhance', async (req, res) => {
         removeEnhancedCard(user, cardId, currentLevel, 1);
       }
       addEnhancedCard(user, cardId, nextLevel, 1);
+      if (equippedThisVariant) {
+        user.equippedCardId = cardId;
+        user.equippedCardLevel = nextLevel;
+      }
     }
 
     user.gameState.lastActionTime = now;
@@ -4484,9 +4491,11 @@ app.post('/api/raid/start', async (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
+  const consumedUsers = [];
   try {
     const starter = await User.findById(userId);
     if (!starter) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    ensureUserDefaults(starter);
     const now = new Date();
     calculateOfflineGains(starter, now);
     try {
@@ -4516,6 +4525,7 @@ app.post('/api/raid/start', async (req, res) => {
     const users = await User.find({ _id: { $in: participantIds } });
     const userMap = new Map(users.map((user) => [String(user._id), user]));
     const participants = [];
+    const participantUsers = [];
 
     for (const participantId of participantIds) {
       const user = userMap.get(String(participantId));
@@ -4525,11 +4535,21 @@ app.post('/api/raid/start', async (req, res) => {
       if (user.gameState.level < RAID_MIN_LEVEL) {
         return res.status(400).json({ msg: `${user.nickname || user.username} 님의 레벨이 부족합니다.` });
       }
+      participants.push(createRaidParticipantFromUser(user));
+      participantUsers.push(user);
+    }
+
+    if (participants.length < 2) {
+      raidState.slots = raidState.slots.map((slotUserId) => (userMap.has(String(slotUserId)) ? slotUserId : null));
+      bumpRaidVersion();
+      return res.status(400).json({ msg: '참여 가능한 파티원이 2명 이상 있어야 합니다.' });
+    }
+
+    for (const user of participantUsers) {
       if (!consumeRaidEntry(user, now)) {
         return res.status(400).json({ msg: `${user.nickname || user.username} 님은 오늘 이미 레이드에 참여했습니다.` });
       }
-      participants.push(createRaidParticipantFromUser(user));
-      await user.save();
+      consumedUsers.push(user);
     }
 
     const countdownDurationMs = (RAID_COUNTDOWN_SECONDS * 1000) + RAID_COUNTDOWN_BUFFER_MS;
@@ -4555,10 +4575,38 @@ app.post('/api/raid/start', async (req, res) => {
     raidState.slots = Array(RAID_PARTY_SIZE).fill(null);
     bumpRaidVersion();
 
-    const raid = await buildRaidStateResponse(starter, now);
+    for (const user of participantUsers) {
+      await user.save();
+    }
+
+    const responseUser = participantUsers.find((entry) => String(entry._id) === String(userId)) || starter;
+    const raid = {
+      version: raidState.version,
+      lobby: getRaidLobbySummary(),
+      slots: Array(RAID_PARTY_SIZE).fill(null),
+      queuedSlotIndex: -1,
+      todayUsed: isRaidAlreadyUsedToday(responseUser, now),
+      remainingEntries: getRaidRemainingEntries(responseUser, now),
+      minLevelMet: responseUser.gameState.level >= RAID_MIN_LEVEL,
+      canStart: false,
+      countdown: {
+        active: true,
+        endsAt: raidState.activeBattle.countdownEndsAt,
+        participantIds: raidState.activeBattle.participants.map((participant) => participant.userId)
+      },
+      activeBattle: buildRaidBattleSnapshot(raidState.activeBattle, userId)
+    };
     res.json({ raid });
   } catch (err) {
     console.error('Raid start error:', err);
+    for (const user of consumedUsers) {
+      try {
+        refundRaidEntry(user, new Date());
+        await user.save();
+      } catch (refundErr) {
+        console.error('Raid start refund error:', refundErr);
+      }
+    }
     if (
       raidState.activeBattle
       && raidState.activeBattle.phase === 'countdown'

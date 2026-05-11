@@ -2012,8 +2012,12 @@ function refreshSideJobStatus(user) {
   const sideJobStatus = document.getElementById('sideJobStatus');
   if (sideJobBtn && sideJobStatus && user?.gameState) {
     const reward = Math.floor(Number(user.gameState.salaryPerMinute || 0) * 300);
-    sideJobBtn.disabled = false;
-    sideJobStatus.textContent = `즉시 스트레스 +40 / 즉시 획득 ${formatNumber(reward)}원`;
+    const currentStress = Number(user.gameState.stress || 0);
+    const canUse = currentStress <= 60;
+    sideJobBtn.disabled = !canUse;
+    sideJobStatus.textContent = canUse
+      ? `즉시 스트레스 +40 / 즉시 획득 ${formatNumber(reward)}원`
+      : `스트레스가 60 이하여야 부업 가능합니다. (현재 ${formatNumber(currentStress, 2)})`;
   }
 }
 
