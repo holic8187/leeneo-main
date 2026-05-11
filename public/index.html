@@ -1,75 +1,75 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <title>일해라 이네오!! - 통합 문서1</title>
-  <link rel="stylesheet" href="style.css?v=20">
+  <title>?쇳빐???대꽕??! - ?듯빀 臾몄꽌1</title>
+  <link rel="stylesheet" href="style.css?v=21">
 </head>
 <body>
   <div id="login-screen">
     <div class="excel-sheet login-panel">
-      <h3>사원 로그인</h3>
-      <input type="text" id="username" placeholder="사번(ID)">
-      <input type="password" id="password" placeholder="비밀번호">
-      <button id="loginBtn">출근하기</button>
+      <h3>?ъ썝 濡쒓렇??/h3>
+      <input type="text" id="username" placeholder="?щ쾲(ID)">
+      <input type="password" id="password" placeholder="鍮꾨?踰덊샇">
+      <button id="loginBtn">異쒓렐?섍린</button>
     </div>
   </div>
 
   <div id="nickname-screen" class="hidden">
     <div class="excel-sheet login-panel">
-      <h3>닉네임 설정</h3>
-      <p>게임에서 사용할 닉네임을 입력해주세요.</p>
-      <input type="text" id="nicknameInput" placeholder="닉네임">
-      <button id="setNicknameBtn">설정 완료</button>
+      <h3>?됰꽕???ㅼ젙</h3>
+      <p>寃뚯엫?먯꽌 ?ъ슜???됰꽕?꾩쓣 ?낅젰?댁＜?몄슂.</p>
+      <input type="text" id="nicknameInput" placeholder="?됰꽕??>
+      <button id="setNicknameBtn">?ㅼ젙 ?꾨즺</button>
     </div>
   </div>
 
   <div id="admin-screen" class="hidden">
     <div class="excel-sheet admin-panel">
       <div class="status-bar status-top">
-        <div class="status-user">운영자 선물 관리</div>
-        <button id="adminLogoutBtn" class="mini-btn">관리자 로그아웃</button>
+        <div class="status-user">?댁쁺???좊Ъ 愿由?/div>
+        <button id="adminLogoutBtn" class="mini-btn">愿由ъ옄 濡쒓렇?꾩썐</button>
       </div>
 
       <div class="admin-body admin-grid">
         <div class="admin-card">
-          <h3>선물 보내기</h3>
-          <label for="giftTargetSelect">대상 유저</label>
+          <h3>?좊Ъ 蹂대궡湲?/h3>
+          <label for="giftTargetSelect">????좎?</label>
           <select id="giftTargetSelect"></select>
 
-          <label for="giftTypeSelect">선물 종류</label>
+          <label for="giftTypeSelect">?좊Ъ 醫낅쪟</label>
           <select id="giftTypeSelect">
-            <option value="item">아이템</option>
-            <option value="buff">버프</option>
-            <option value="package">패키지</option>
+            <option value="item">?꾩씠??/option>
+            <option value="buff">踰꾪봽</option>
+            <option value="package">?⑦궎吏</option>
           </select>
 
-          <label for="giftIdSelect">선물 항목</label>
+          <label for="giftIdSelect">?좊Ъ ??ぉ</label>
           <select id="giftIdSelect"></select>
 
-          <label for="giftQuantity">수량</label>
+          <label for="giftQuantity">?섎웾</label>
           <input type="number" id="giftQuantity" min="1" step="1" value="1">
 
-          <button id="adminGiftBtn" class="menu-action-btn">선물 발송</button>
-          <p id="adminStatus" class="menu-note">운영자 선물 대상을 불러오는 중입니다.</p>
+          <button id="adminGiftBtn" class="menu-action-btn">?좊Ъ 諛쒖넚</button>
+          <p id="adminStatus" class="menu-note">?댁쁺???좊Ъ ??곸쓣 遺덈윭?ㅻ뒗 以묒엯?덈떎.</p>
         </div>
 
         <div class="admin-card">
-          <h3>유저 삭제</h3>
-          <label for="deleteTargetSelect">삭제할 닉네임</label>
+          <h3>?좎? ??젣</h3>
+          <label for="deleteTargetSelect">??젣???됰꽕??/label>
           <select id="deleteTargetSelect"></select>
-          <button id="adminDeleteUserBtn" class="menu-action-btn">선택 유저 삭제</button>
-          <p class="menu-note">삭제 즉시 계정 데이터가 제거되며 복구할 수 없습니다.</p>
+          <button id="adminDeleteUserBtn" class="menu-action-btn">?좏깮 ?좎? ??젣</button>
+          <p class="menu-note">??젣 利됱떆 怨꾩젙 ?곗씠?곌? ?쒓굅?섎ŉ 蹂듦뎄?????놁뒿?덈떎.</p>
         </div>
 
         <div class="admin-card">
-          <h3>레벨 조정</h3>
-          <label for="levelTargetSelect">대상 유저</label>
+          <h3>?덈꺼 議곗젙</h3>
+          <label for="levelTargetSelect">????좎?</label>
           <select id="levelTargetSelect"></select>
-          <label for="levelValueInput">설정할 레벨</label>
+          <label for="levelValueInput">?ㅼ젙???덈꺼</label>
           <input type="number" id="levelValueInput" min="1" step="1" value="1">
-          <button id="adminSetLevelBtn" class="menu-action-btn">레벨 적용</button>
-          <p class="menu-note">적용 시 해당 유저의 현재 경험치는 0으로 초기화됩니다.</p>
+          <button id="adminSetLevelBtn" class="menu-action-btn">?덈꺼 ?곸슜</button>
+          <p class="menu-note">?곸슜 ???대떦 ?좎????꾩옱 寃쏀뿕移섎뒗 0?쇰줈 珥덇린?붾맗?덈떎.</p>
         </div>
       </div>
     </div>
@@ -81,32 +81,32 @@
     </div>
     <div class="status-bar status-top">
       <div class="status-group">
-        <div>통장 잔고: <strong><span id="money">0</span>원</strong></div>
-        <div>월급: <strong><span id="salaryRate">0</span>원/분</strong></div>
-        <div>행동력: <strong><span id="stamina">10/10</span></strong></div>
-        <div>스트레스: <strong><span id="stress">0.00</span></strong></div>
-        <div>명함: <strong><span id="businessCardCount">0</span>장</strong></div>
+        <div>?듭옣 ?붽퀬: <strong><span id="money">0</span>??/strong></div>
+        <div>?붽툒: <strong><span id="salaryRate">0</span>??遺?/strong></div>
+        <div>?됰룞?? <strong><span id="stamina">10/10</span></strong></div>
+        <div>?ㅽ듃?덉뒪: <strong><span id="stress">0.00</span></strong></div>
+        <div>紐낇븿: <strong><span id="businessCardCount">0</span>??/strong></div>
       </div>
       <div class="status-top-actions">
-        <button id="supportBtn" class="mini-btn support-btn">직장인은 지갑전사</button>
-        <button id="logoutBtn" class="mini-btn">퇴근하기</button>
+        <button id="supportBtn" class="mini-btn support-btn">吏곸옣?몄? 吏媛묒쟾??/button>
+        <button id="logoutBtn" class="mini-btn">?닿렐?섍린</button>
       </div>
     </div>
 
     <div class="status-bar">
-      <div class="status-user">Lv.<span id="level">1</span> <span id="userNickname">사원</span></div>
+      <div class="status-user">Lv.<span id="level">1</span> <span id="userNickname">?ъ썝</span></div>
       <div class="exp-wrap">
-        <span>경험치</span>
+        <span>寃쏀뿕移?/span>
         <progress id="expBar" value="0" max="1000"></progress>
         <span id="expText">0/1000</span>
       </div>
     </div>
 
     <div class="status-bar sub-status">
-      <div>장착 칭호: <strong><span id="currentTitleText">없음</span></strong></div>
-      <div>하루 자동 경험치: <strong><span id="passiveExpPreview">0</span></strong></div>
-      <div>서류 작업 경험치: <strong><span id="clickExpPreview">0</span></strong></div>
-      <div>스트레스 감소율: <strong><span id="stressReductionPreview">0%</span></strong></div>
+      <div>?μ갑 移?샇: <strong><span id="currentTitleText">?놁쓬</span></strong></div>
+      <div>?섎（ ?먮룞 寃쏀뿕移? <strong><span id="passiveExpPreview">0</span></strong></div>
+      <div>?쒕쪟 ?묒뾽 寃쏀뿕移? <strong><span id="clickExpPreview">0</span></strong></div>
+      <div>?ㅽ듃?덉뒪 媛먯냼?? <strong><span id="stressReductionPreview">0%</span></strong></div>
     </div>
 
     <div class="workspace-layout">
@@ -121,15 +121,15 @@
           <tr>
             <td class="sheet-header">1</td>
             <td colspan="10" class="animation-cell animation-host">
-              <button id="raidLobbyBtn" class="raid-entry-btn">회의 참석</button>
-              <div id="raidEntryHint" class="raid-entry-hint">10레벨부터 입장 가능</div>
-              <div id="anim-display" class="anim-display-text">(업무 중...)</div>
+              <button id="raidLobbyBtn" class="raid-entry-btn">?뚯쓽 李몄꽍</button>
+              <div id="raidEntryHint" class="raid-entry-hint">10?덈꺼遺???낆옣 媛??/div>
+              <div id="anim-display" class="anim-display-text">(?낅Т 以?..)</div>
             </td>
           </tr>
           <tr>
             <td class="sheet-header">2</td>
             <td colspan="10" class="buff-cell">
-              <strong>적용 중인 버프 / 디버프</strong>
+              <strong>?곸슜 以묒씤 踰꾪봽 / ?붾쾭??/strong>
               <div id="buff-list" class="buff-list"></div>
             </td>
           </tr>
@@ -137,106 +137,112 @@
             <td class="sheet-header">3</td>
             <td colspan="10" class="menu-host">
               <div class="menu-tabs">
-                <button class="active" data-tab="work" onclick="showTab('work')">열일하기</button>
-                <button data-tab="special" onclick="showTab('special')">특수 행동</button>
-                <button data-tab="inventory" onclick="showTab('inventory')">가방</button>
-                <button data-tab="shop" onclick="showTab('shop')">인터넷쇼핑</button>
-                <button data-tab="stats" onclick="showTab('stats')">능력치</button>
+                <button class="active" data-tab="work" onclick="showTab('work')">?댁씪?섍린</button>
+                <button data-tab="special" onclick="showTab('special')">?뱀닔 ?됰룞</button>
+                <button data-tab="inventory" onclick="showTab('inventory')">媛諛?/button>
+                <button data-tab="shop" onclick="showTab('shop')">?명꽣?룹눥??/button>
+                <button data-tab="stats" onclick="showTab('stats')">?λ젰移?/button>
               </div>
 
               <div id="tab-work" class="menu-content">
-                <button id="clickWorkBtn" class="work-button">서류 작업하기 (클릭 경험치 획득)</button>
-                <p class="menu-note">스트레스가 100이 되면 서류 작업 클릭으로 경험치를 얻을 수 없습니다.</p>
+                <button id="clickWorkBtn" class="work-button">?쒕쪟 ?묒뾽?섍린 (?대┃ 寃쏀뿕移??띾뱷)</button>
+                <p class="menu-note">?ㅽ듃?덉뒪媛 100???섎㈃ ?쒕쪟 ?묒뾽 ?대┃?쇰줈 寃쏀뿕移섎? ?살쓣 ???놁뒿?덈떎.</p>
               </div>
 
               <div id="tab-special" class="menu-content hidden">
                 <div class="special-grid">
                   <div class="special-card">
-                    <button id="shoutBtn" class="menu-action-btn">전체 외치기</button>
-                    <p>10분마다 한 번, 익명으로 전체 메시지를 보낼 수 있습니다.</p>
+                    <button id="shoutBtn" class="menu-action-btn">?꾩껜 ?몄튂湲?/button>
+                    <p>10遺꾨쭏????踰? ?듬챸?쇰줈 ?꾩껜 硫붿떆吏瑜?蹂대궪 ???덉뒿?덈떎.</p>
                     <div class="stock-controls">
-                      <input type="text" id="shoutInput" maxlength="120" placeholder="모든 유저에게 보일 메시지">
+                      <input type="text" id="shoutInput" maxlength="120" placeholder="紐⑤뱺 ?좎??먭쾶 蹂댁씪 硫붿떆吏">
                     </div>
-                    <p id="shoutStatus" class="menu-note">외치기를 지금 사용할 수 있습니다.</p>
+                    <p id="shoutStatus" class="menu-note">?몄튂湲곕? 吏湲??ъ슜?????덉뒿?덈떎.</p>
                   </div>
                   <div class="special-card">
-                    <button id="adventureBtn" class="menu-action-btn">모험하기 (행동력 1)</button>
-                    <p>사무실 안팎을 돌아다니며 랜덤 이벤트를 만납니다. 상황에 따라 돈, 경험치, 아이템, 버프, 디버프를 획득할 수 있습니다.</p>
-                    <p id="adventureLog" class="menu-note">모험에서 어떤 일이 벌어질지 모릅니다.</p>
+                    <button id="adventureBtn" class="menu-action-btn">紐⑦뿕?섍린 (?됰룞??1)</button>
+                    <p>?щТ???덊뙉???뚯븘?ㅻ땲硫??쒕뜡 ?대깽?몃? 留뚮궔?덈떎. ?곹솴???곕씪 ?? 寃쏀뿕移? ?꾩씠?? 踰꾪봽, ?붾쾭?꾨? ?띾뱷?????덉뒿?덈떎.</p>
+                    <p id="adventureLog" class="menu-note">紐⑦뿕?먯꽌 ?대뼡 ?쇱씠 踰뚯뼱吏덉? 紐⑤쫭?덈떎.</p>
                   </div>
                   <div class="special-card">
-                    <button id="lupinBtn" class="menu-action-btn">월급루팡 (행동력 6)</button>
-                    <p>1시간 동안 스트레스를 받지 않고, 2시간 동안 경험치 획득량이 1.5배가 됩니다.</p>
+                    <button id="lupinBtn" class="menu-action-btn">?붽툒猷⑦뙜 (?됰룞??6)</button>
+                    <p>1?쒓컙 ?숈븞 ?ㅽ듃?덉뒪瑜?諛쏆? ?딄퀬, 2?쒓컙 ?숈븞 寃쏀뿕移??띾뱷?됱씠 1.5諛곌? ?⑸땲??</p>
                   </div>
                   <div class="special-card">
-                    <button id="napBtn" class="menu-action-btn">낮잠자기 (행동력 3)</button>
-                    <p>즉시 스트레스를 30 낮춥니다.</p>
+                    <button id="napBtn" class="menu-action-btn">??옞?먭린 (?됰룞??3)</button>
+                    <p>利됱떆 ?ㅽ듃?덉뒪瑜?30 ??땅?덈떎.</p>
                   </div>
                   <div class="special-card">
-                    <button id="fieldWorkBtn" class="menu-action-btn">외근 (행동력 6)</button>
-                    <p>12시간 동안 서류작업 클릭 경험치는 절반으로 감소하지만, 자동 획득 경험치는 5배로 적용됩니다.</p>
+                    <button id="fieldWorkBtn" class="menu-action-btn">?멸렐 (?됰룞??6)</button>
+                    <p>12?쒓컙 ?숈븞 ?쒕쪟?묒뾽 ?대┃ 寃쏀뿕移섎뒗 ?덈컲?쇰줈 媛먯냼?섏?留? ?먮룞 ?띾뱷 寃쏀뿕移섎뒗 5諛곕줈 ?곸슜?⑸땲??</p>
+                  </div>
+                  <div class="special-card">
+                    <button id="sideJobBtn" class="menu-action-btn">부업하기</button>
+                    <p>스트레스를 즉시 40 얻지만, 현재 분당 획득 월급의 300배를 즉시 획득합니다.</p>
+                    <p id="sideJobStatus" class="menu-note">스트레스 감소율은 적용되지 않습니다.</p>
                   </div>
                 </div>
 
                 <div class="special-card stock-card">
-                  <h4>카드 뽑기</h4>
-                  <p>명함을 사용해 카드를 뽑습니다. 원하는 횟수만큼 한 번에 뽑을 수 있습니다.</p>
+                  <h4>移대뱶 戮묎린</h4>
+                  <p>紐낇븿???ъ슜??移대뱶瑜?戮묒뒿?덈떎. ?먰븯???잛닔留뚰겮 ??踰덉뿉 戮묒쓣 ???덉뒿?덈떎.</p>
                   <div class="stock-controls">
-                    <input type="number" id="cardDrawCount" min="1" step="1" value="1" placeholder="뽑기 횟수">
-                    <button id="cardDrawBtn" class="menu-action-btn">뽑기</button>
+                    <input type="number" id="cardDrawCount" min="1" step="1" value="1" placeholder="戮묎린 ?잛닔">
+                    <button id="cardDrawBtn" class="menu-action-btn">戮묎린</button>
                   </div>
-                  <p id="cardDrawStatus" class="menu-note">명함이 충분하면 뽑기를 진행할 수 있습니다.</p>
+                  <p id="cardDrawStatus" class="menu-note">紐낇븿??異⑸텇?섎㈃ 戮묎린瑜?吏꾪뻾?????덉뒿?덈떎.</p>
                 </div>
 
                 <div class="special-card stock-card">
-                  <h4>주식 투자 (하루 1회)</h4>
-                  <p>주식 투자는 행동력을 소모하지 않으며, 다음 로그인 시 결과를 확인합니다.</p>
+                  <h4>二쇱떇 ?ъ옄 (?섎（ 1??</h4>
+                  <p>二쇱떇 ?ъ옄???됰룞?μ쓣 ?뚮え?섏? ?딆쑝硫? ?ㅼ쓬 濡쒓렇????寃곌낵瑜??뺤씤?⑸땲??</p>
                   <div class="stock-controls">
-                    <input type="number" id="stockAmount" min="1" step="1" placeholder="투자 금액">
-                    <button id="stockInvestBtn" class="menu-action-btn">투자하기</button>
+                    <input type="number" id="stockAmount" min="1" step="1" placeholder="?ъ옄 湲덉븸">
+                    <button id="stockInvestBtn" class="menu-action-btn">?ъ옄?섍린</button>
                   </div>
-                  <p id="stock-status" class="menu-note">하루 1회 투자할 수 있으며, 다음 로그인 시 결과를 확인합니다.</p>
+                  <p id="stock-status" class="menu-note">?섎（ 1???ъ옄?????덉쑝硫? ?ㅼ쓬 濡쒓렇????寃곌낵瑜??뺤씤?⑸땲??</p>
                 </div>
               </div>
 
               <div id="tab-inventory" class="menu-content hidden">
-                <h4>소지품</h4>
+                <h4>?뚯???/h4>
                 <table class="inner-table">
                   <thead>
                     <tr>
-                      <th>아이템명</th>
-                      <th>수량</th>
-                      <th>효과</th>
-                      <th>사용</th>
+                      <th>?꾩씠?쒕챸</th>
+                      <th>?섎웾</th>
+                      <th>?④낵</th>
+                      <th>?ъ슜</th>
                     </tr>
                   </thead>
                   <tbody id="inventory-list"></tbody>
                 </table>
 
-                <h4 class="section-gap">칭호</h4>
+                <h4 class="section-gap">移?샇</h4>
                 <table class="inner-table">
                   <thead>
                     <tr>
-                      <th>칭호명</th>
-                      <th>효과</th>
-                      <th>장착</th>
+                      <th>移?샇紐?/th>
+                      <th>?④낵</th>
+                      <th>?μ갑</th>
                     </tr>
                   </thead>
                   <tbody id="title-list"></tbody>
                 </table>
 
-                <h4 class="section-gap">카드</h4>
+                <h4 class="section-gap">移대뱶</h4>
                 <div class="card-actions">
-                  <button id="openFusionModalBtn" class="mini-btn">카드 합성</button>
+                  <button id="openEnhanceModalBtn" class="mini-btn">移대뱶 媛뺥솕</button>
+                  <button id="openFusionModalBtn" class="mini-btn">移대뱶 ?⑹꽦</button>
                 </div>
                 <table class="inner-table">
                   <thead>
                     <tr>
-                      <th>카드명</th>
-                      <th>등급</th>
-                      <th>보유량</th>
-                      <th>스킬</th>
-                      <th>장착</th>
+                      <th>移대뱶紐?/th>
+                      <th>?깃툒</th>
+                      <th>蹂댁쑀??/th>
+                      <th>?ㅽ궗</th>
+                      <th>?μ갑</th>
                     </tr>
                   </thead>
                   <tbody id="card-list"></tbody>
@@ -247,10 +253,10 @@
                 <table class="inner-table">
                   <thead>
                     <tr>
-                      <th>아이템명</th>
-                      <th>가격</th>
-                      <th>효과</th>
-                      <th>구매</th>
+                      <th>?꾩씠?쒕챸</th>
+                      <th>媛寃?/th>
+                      <th>?④낵</th>
+                      <th>援щℓ</th>
                     </tr>
                   </thead>
                   <tbody id="shop-list"></tbody>
@@ -261,8 +267,8 @@
                 <table class="inner-table">
                   <thead>
                     <tr>
-                      <th>항목</th>
-                      <th>값</th>
+                      <th>??ぉ</th>
+                      <th>媛?/th>
                     </tr>
                   </thead>
                   <tbody id="stats-list"></tbody>
@@ -274,18 +280,18 @@
       </div>
 
       <div class="workspace-side">
-        <div class="status-bar ranking-title">실시간 랭킹</div>
+        <div class="status-bar ranking-title">?ㅼ떆媛???궧</div>
         <div class="ranking-list">
           <table class="inner-table">
             <thead>
               <tr>
-                <th class="rank-col">순위</th>
-                <th>닉네임</th>
-                <th class="level-col">레벨</th>
+                <th class="rank-col">?쒖쐞</th>
+                <th>?됰꽕??/th>
+                <th class="level-col">?덈꺼</th>
               </tr>
             </thead>
             <tbody id="ranking-list-body">
-              <tr><td colspan="3" class="center-text">랭킹 로딩 중...</td></tr>
+              <tr><td colspan="3" class="center-text">??궧 濡쒕뵫 以?..</td></tr>
             </tbody>
           </table>
         </div>
@@ -295,7 +301,7 @@
 
   <div id="decisionModal" class="modal-overlay hidden">
     <div class="excel-sheet modal-panel">
-      <h3 id="decisionModalTitle">확인</h3>
+      <h3 id="decisionModalTitle">?뺤씤</h3>
       <p id="decisionModalMessage"></p>
       <div id="decisionModalDetails" class="modal-details"></div>
       <div id="decisionModalButtons" class="modal-buttons"></div>
@@ -304,104 +310,125 @@
 
   <div id="fusionModal" class="modal-overlay hidden">
     <div class="excel-sheet modal-panel fusion-modal-panel">
-      <h3>카드 합성</h3>
-      <p class="menu-note">같은 등급 카드 5장을 등록하면 합성할 수 있습니다. 등록된 카드를 누르면 리스트에서 빠집니다.</p>
+      <h3>移대뱶 ?⑹꽦</h3>
+      <p class="menu-note">媛숈? ?깃툒 移대뱶 5?μ쓣 ?깅줉?섎㈃ ?⑹꽦?????덉뒿?덈떎. ?깅줉??移대뱶瑜??꾨Ⅴ硫?由ъ뒪?몄뿉??鍮좎쭛?덈떎.</p>
       <div class="fusion-top-row">
         <div>
-          <h4>합성 리스트</h4>
+          <h4>?⑹꽦 由ъ뒪??/h4>
           <div id="fusionSlotList" class="fusion-slot-list"></div>
         </div>
         <div class="fusion-side-actions">
-          <div id="fusionProbabilityText" class="menu-note">등급별 합성 확률을 확인하세요.</div>
-          <button id="confirmFusionBtn" class="menu-action-btn">합성하기</button>
-          <button id="closeFusionModalBtn" class="mini-btn">닫기</button>
+          <div id="fusionProbabilityText" class="menu-note">?깃툒蹂??⑹꽦 ?뺣쪧???뺤씤?섏꽭??</div>
+          <button id="confirmFusionBtn" class="menu-action-btn">?⑹꽦?섍린</button>
+          <button id="closeFusionModalBtn" class="mini-btn">?リ린</button>
         </div>
       </div>
-      <h4 class="section-gap">보유 카드</h4>
+      <h4 class="section-gap">蹂댁쑀 移대뱶</h4>
       <div id="fusionSourceList" class="fusion-source-list"></div>
+    </div>
+  </div>
+
+  <div id="enhanceModal" class="modal-overlay hidden">
+    <div class="excel-sheet modal-panel fusion-modal-panel enhance-modal-panel">
+      <h3>移대뱶 媛뺥솕</h3>
+      <p class="menu-note">媛뺥솕??移대뱶瑜??섎굹 ?좏깮?섏꽭?? ?μ갑 以묒씤 移대뱶??媛뺥솕 ?щ즺?먯꽌 ?쒖쇅?섎ŉ, ?깃났 ???ㅼ쓬 ?④퀎 移대뱶濡??щ씪媛묐땲??</p>
+      <div class="enhance-top-row">
+        <div>
+          <h4>?좏깮 移대뱶</h4>
+          <div id="enhanceSelectedCard" class="enhance-selected-card empty">媛뺥솕??移대뱶瑜??꾨옒 紐⑸줉?먯꽌 ?좏깮?섏꽭??</div>
+        </div>
+        <div class="fusion-side-actions enhance-side-actions">
+          <div id="enhanceChanceText" class="menu-note">媛뺥솕??移대뱶瑜??좏깮?섎㈃ ?깃났 ?뺣쪧怨?鍮꾩슜???쒖떆?⑸땲??</div>
+          <div id="enhancePreviewPane" class="modal-note">?꾩옱 ?④낵? 媛뺥솕 ??誘몃━蹂닿린媛 ?ш린???쒖떆?⑸땲??</div>
+          <button id="confirmEnhanceBtn" class="menu-action-btn">媛뺥솕?섍린</button>
+          <button id="closeEnhanceModalBtn" class="mini-btn">?リ린</button>
+        </div>
+      </div>
+      <h4 class="section-gap">蹂댁쑀 移대뱶</h4>
+      <div id="enhanceSourceList" class="fusion-source-list"></div>
     </div>
   </div>
 
   <div id="supportModal" class="modal-overlay hidden">
     <div class="excel-sheet modal-panel support-modal-panel">
-      <h3>직장인은 지갑전사</h3>
-      <div class="support-account">토스뱅크 1000-4112-0011</div>
-      <p class="menu-note">"받는분에게 표시 란"에 실명 대신 자신의 닉네임으로 설정하고 후원하면 자동으로 아이템이 지급됩니다</p>
+      <h3>吏곸옣?몄? 吏媛묒쟾??/h3>
+      <div class="support-account">?좎뒪諭낇겕 1000-4112-0011</div>
+      <p class="menu-note">"諛쏅뒗遺꾩뿉寃??쒖떆 ?"???ㅻ챸 ????먯떊???됰꽕?꾩쑝濡??ㅼ젙?섍퀬 ?꾩썝?섎㈃ ?먮룞?쇰줈 ?꾩씠?쒖씠 吏湲됰맗?덈떎</p>
       <div class="support-package-list">
         <div class="support-package-card">
-          <strong>피로회복패키지 - 1,000원</strong>
-          <div class="menu-note">박카스 1개, 명함 10개</div>
+          <strong>?쇰줈?뚮났?⑦궎吏 - 1,000??/strong>
+          <div class="menu-note">諛뺤뭅??1媛? 紐낇븿 10媛?/div>
         </div>
         <div class="support-package-card">
-          <strong>각성패키지 - 3,000원</strong>
-          <div class="menu-note">박카스 5개, 모나미볼펜 2개, 명함 33개</div>
+          <strong>媛곸꽦?⑦궎吏 - 3,000??/strong>
+          <div class="menu-note">諛뺤뭅??5媛? 紐⑤굹誘몃낵??2媛? 紐낇븿 33媛?/div>
         </div>
         <div class="support-package-card">
-          <strong>초부자패키지 - 5,000원</strong>
-          <div class="menu-note">박카스 10개, 모나미볼펜 5개, 명함 55개</div>
+          <strong>珥덈??먰뙣?ㅼ? - 5,000??/strong>
+          <div class="menu-note">諛뺤뭅??10媛? 紐⑤굹誘몃낵??5媛? 紐낇븿 55媛?/div>
         </div>
       </div>
       <div class="modal-buttons">
-        <button id="supportModalCloseBtn" class="mini-btn">닫기</button>
+        <button id="supportModalCloseBtn" class="mini-btn">?リ린</button>
       </div>
     </div>
   </div>
 
   <div id="raidLobbyModal" class="modal-overlay hidden">
     <div class="excel-sheet modal-panel raid-modal-panel">
-      <h3>오늘의 회의 참석</h3>
+      <h3>?ㅻ뒛???뚯쓽 李몄꽍</h3>
       <div class="raid-lobby-grid">
         <div>
-          <h4 id="raidBossName">오늘의 보스 정보</h4>
-          <p id="raidBossDesc" class="menu-note">트름녀 / 보스 HP 50,000</p>
+          <h4 id="raidBossName">?ㅻ뒛??蹂댁뒪 ?뺣낫</h4>
+          <p id="raidBossDesc" class="menu-note">?몃쫫? / 蹂댁뒪 HP 50,000</p>
         </div>
         <div>
-          <h4>보상 목록</h4>
-          <h4>보스 스킬 사용 순서</h4>
+          <h4>蹂댁긽 紐⑸줉</h4>
+          <h4>蹂댁뒪 ?ㅽ궗 ?ъ슜 ?쒖꽌</h4>
           <ul id="raidBossSkillList" class="raid-reward-list"></ul>
-          <h4>보상 목록</h4>
+          <h4>蹂댁긽 紐⑸줉</h4>
           <ul id="raidRewardList" class="raid-reward-list"></ul>
         </div>
       </div>
-      <h4>현재 대기중인 참여자 슬롯</h4>
+      <h4>?꾩옱 ?湲곗쨷??李몄뿬???щ’</h4>
       <div id="raidSlotGrid" class="raid-slot-grid"></div>
       <div class="modal-buttons raid-modal-actions">
-        <button id="raidLobbyCloseBtn" class="mini-btn">닫기</button>
-        <button id="raidStartBtn" class="mini-btn">입장</button>
+        <button id="raidLobbyCloseBtn" class="mini-btn">?リ린</button>
+        <button id="raidStartBtn" class="mini-btn">?낆옣</button>
       </div>
     </div>
   </div>
 
   <div id="raidCountdownOverlay" class="modal-overlay hidden">
     <div class="excel-sheet modal-panel">
-      <h3>레이드 시작</h3>
-      <p>레이드가 곧 시작됩니다.</p>
+      <h3>?덉씠???쒖옉</h3>
+      <p>?덉씠?쒓? 怨??쒖옉?⑸땲??</p>
       <div id="raidCountdownNumber" class="raid-countdown-number">3</div>
       <div class="modal-actions">
-        <button id="raidCountdownCancelBtn" class="mini-btn">입장 취소</button>
+        <button id="raidCountdownCancelBtn" class="mini-btn">?낆옣 痍⑥냼</button>
       </div>
     </div>
   </div>
 
   <div id="raid-screen" class="hidden excel-sheet raid-screen">
     <div class="status-bar status-top">
-      <button id="raidBackBtn" class="mini-btn">후퇴하기</button>
-      <div class="status-user">보스 레이드: <span id="raidScreenBossName">트름녀</span></div>
-      <div class="menu-note">레이드 중에도 메인 화면으로 돌아가 다른 행동을 할 수 있습니다.</div>
+      <button id="raidBackBtn" class="mini-btn">?꾪눜?섍린</button>
+      <div class="status-user">蹂댁뒪 ?덉씠?? <span id="raidScreenBossName">?몃쫫?</span></div>
+      <div class="menu-note">?덉씠??以묒뿉??硫붿씤 ?붾㈃?쇰줈 ?뚯븘媛 ?ㅻⅨ ?됰룞???????덉뒿?덈떎.</div>
     </div>
     <div class="raid-screen-body">
       <div id="raidBossArea" class="raid-boss-area">
         <div class="raid-boss-portrait">
-          <div class="raid-boss-avatar">트름녀</div>
+          <div class="raid-boss-avatar">?몃쫫?</div>
         </div>
         <div class="raid-boss-status">
           <div class="raid-boss-name-row">
-            <strong id="raidBossTitle">트름녀</strong>
+            <strong id="raidBossTitle">?몃쫫?</strong>
             <span id="raidBossHpText">50,000 / 50,000</span>
           </div>
           <div id="raidTurnBanner" class="raid-turn-banner party-turn">
-            <div id="raidTurnLabel" class="raid-turn-label">현재 턴 1</div>
-            <div id="raidTurnActor" class="raid-turn-actor">우리팀 행동</div>
+            <div id="raidTurnLabel" class="raid-turn-label">?꾩옱 ??1</div>
+            <div id="raidTurnActor" class="raid-turn-actor">?곕━? ?됰룞</div>
           </div>
           <div class="raid-boss-bar">
             <div id="raidBossHpFill" class="raid-boss-bar-fill"></div>
@@ -410,12 +437,12 @@
         </div>
       </div>
       <div class="raid-participant-panel">
-        <h4>참가 플레이어</h4>
+        <h4>李멸? ?뚮젅?댁뼱</h4>
         <div id="raidParticipantList" class="raid-participant-list"></div>
       </div>
     </div>
   </div>
 
-  <script src="client.js?v=40"></script>
+  <script src="client.js?v=41"></script>
 </body>
 </html>

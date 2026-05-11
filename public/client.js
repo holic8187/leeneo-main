@@ -143,6 +143,7 @@ let raidCountdownTicker = null;
 let raidCountdownEndsAtMs = 0;
 let raidCountdownDisplayStartMs = 0;
 let cardFusionSelection = [];
+let selectedEnhanceCardKey = null;
 
 document.addEventListener('DOMContentLoaded', () => {
   initApp();
@@ -165,12 +166,16 @@ function setupEventListeners() {
   bindClick('lupinBtn', handleLupinClick);
   bindClick('napBtn', handleNapClick);
   bindClick('fieldWorkBtn', handleFieldWorkClick);
+  bindClick('sideJobBtn', handleSideJobClick);
   bindClick('raidLobbyBtn', openRaidLobby);
   bindClick('raidLobbyCloseBtn', closeRaidLobby);
   bindClick('raidStartBtn', handleRaidStartClick);
   bindClick('raidCountdownCancelBtn', handleRaidCountdownCancelClick);
   bindClick('raidBackBtn', handleRaidBackClick);
   bindClick('cardDrawBtn', handleCardDraw);
+  bindClick('openEnhanceModalBtn', openCardEnhanceModal);
+  bindClick('closeEnhanceModalBtn', closeCardEnhanceModal);
+  bindClick('confirmEnhanceBtn', handleCardEnhanceConfirm);
   bindClick('openFusionModalBtn', openCardFusionModal);
   bindClick('closeFusionModalBtn', closeCardFusionModal);
   bindClick('confirmFusionBtn', handleCardFusionConfirm);
@@ -602,6 +607,23 @@ async function handleFieldWorkClick() {
   }
 }
 
+async function handleSideJobClick() {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+
+  const btn = document.getElementById('sideJobBtn');
+  if (btn) btn.disabled = true;
+
+  try {
+    const data = await postJson(`${API_URL}/api/action/side-job`, { userId: user._id });
+    updateLocalUserState(data);
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 async function handleAdventureClick() {
   const user = getStoredUser();
   if (!user?._id) return handleLogoutClick();
@@ -694,8 +716,28 @@ function getRequestedQuantity(inputId) {
   return Number.isFinite(value) && value > 0 ? value : 1;
 }
 
+function getCardVariantKey(cardId, enhancementLevel = 0) {
+  return `${cardId}::${Number(enhancementLevel || 0)}`;
+}
+
+function parseCardVariantKey(key) {
+  const [cardId, levelText] = String(key || '').split('::');
+  return {
+    cardId,
+    enhancementLevel: Math.max(0, Math.min(5, Number(levelText || 0) || 0))
+  };
+}
+
+function getCardVariantByKey(user, key) {
+  return (user.cardVariantDetails || []).find((card) => getCardVariantKey(card.cardId, card.enhancementLevel) === key) || null;
+}
+
 function isFusionModalOpen() {
   return !document.getElementById('fusionModal')?.classList.contains('hidden');
+}
+
+function isEnhanceModalOpen() {
+  return !document.getElementById('enhanceModal')?.classList.contains('hidden');
 }
 
 function getFusionProbabilityText(grade = null) {
@@ -841,6 +883,188 @@ function closeCardFusionModal() {
   hideModal('fusionModal');
 }
 
+function normalizeEnhanceSelection(user) {
+  if (!selectedEnhanceCardKey) return;
+  const card = getCardVariantByKey(user, selectedEnhanceCardKey);
+  if (!card || !card.canEnhance || Number(card.availableEnhanceQuantity || 0) <= 0) {
+    selectedEnhanceCardKey = null;
+  }
+}
+
+function renderCardEnhanceModal(user) {
+  const selectedCardEl = document.getElementById('enhanceSelectedCard');
+  const sourceList = document.getElementById('enhanceSourceList');
+  const chanceText = document.getElementById('enhanceChanceText');
+  const previewPane = document.getElementById('enhancePreviewPane');
+  const confirmButton = document.getElementById('confirmEnhanceBtn');
+  if (!selectedCardEl || !sourceList || !chanceText || !previewPane || !confirmButton) return;
+
+  normalizeEnhanceSelection(user);
+  const variants = (user.cardVariantDetails || [])
+    .filter((card) => Number(card.quantity || 0) > 0)
+    .sort((a, b) => {
+      const gradeOrder = { S: 0, A: 1, B: 2, C: 3 };
+      return (gradeOrder[a.grade] ?? 9) - (gradeOrder[b.grade] ?? 9)
+        || String(a.baseName || '').localeCompare(String(b.baseName || ''), 'ko')
+        || Number(a.enhancementLevel || 0) - Number(b.enhancementLevel || 0);
+    });
+
+  const selectedCard = selectedEnhanceCardKey ? getCardVariantByKey(user, selectedEnhanceCardKey) : null;
+
+  if (!selectedCard) {
+    selectedCardEl.className = 'enhance-selected-card empty';
+    selectedCardEl.style.borderColor = '';
+    selectedCardEl.onclick = null;
+    selectedCardEl.innerHTML = '강화할 카드를 아래 목록에서 선택하세요.';
+    chanceText.textContent = '강화할 카드를 선택하면 성공 확률과 비용이 표시됩니다.';
+    previewPane.innerHTML = '현재 효과와 강화 후 미리보기가 여기에 표시됩니다.';
+    confirmButton.disabled = true;
+  } else {
+    selectedCardEl.className = 'enhance-selected-card selected';
+    selectedCardEl.style.borderColor = selectedCard.borderColor || '#d0d0d0';
+    selectedCardEl.innerHTML = `
+      <div class="fusion-card-head">
+        <span class="fusion-card-name">${escapeHtml(selectedCard.name)}</span>
+        <span class="grade-badge" style="background:${escapeHtml(selectedCard.color || '#666666')}">${escapeHtml(selectedCard.grade)}</span>
+      </div>
+      <div class="fusion-card-meta">
+        보유 ${formatNumber(selectedCard.quantity)}장 / 강화 재료 사용 가능 ${formatNumber(selectedCard.availableEnhanceQuantity || 0)}장<br>
+        ${escapeHtml(selectedCard.skillName || '')}<br>
+        ${escapeHtml(selectedCard.skillDesc || '')}<br>
+        지속/적용: ${escapeHtml(selectedCard.durationText || '즉시')} / 쿨타임 ${formatNumber(selectedCard.cooldown || 0)}턴
+      </div>
+    `;
+    selectedCardEl.onclick = () => {
+      selectedEnhanceCardKey = null;
+      renderCardEnhanceModal(user);
+    };
+
+    const successPercent = Math.round(Number(selectedCard.enhanceSuccessRate || 0) * 100);
+    chanceText.textContent = `${escapeHtml(selectedCard.name)} 강화: 성공 확률 ${successPercent}% / 비용 ${formatNumber(selectedCard.enhanceCost || 0)}원`;
+    const nextPreview = selectedCard.nextEnhancementPreview;
+    previewPane.innerHTML = `
+      <div class="enhance-preview-block">
+        <h5>현재 효과</h5>
+        <div><strong>${escapeHtml(selectedCard.skillName || '')}</strong></div>
+        <div class="menu-note">${escapeHtml(selectedCard.skillDesc || '')}</div>
+        <div class="menu-note">지속/적용: ${escapeHtml(selectedCard.durationText || '즉시')} / 쿨타임 ${formatNumber(selectedCard.cooldown || 0)}턴</div>
+      </div>
+      <div class="enhance-preview-block">
+        <h5>강화 후 미리보기</h5>
+        ${nextPreview
+          ? `
+            <div><strong>${escapeHtml(nextPreview.name || '')}</strong></div>
+            <div class="menu-note">${escapeHtml(nextPreview.skillDesc || '')}</div>
+            <div class="menu-note">지속/적용: ${escapeHtml(nextPreview.durationText || '즉시')} / 쿨타임 ${formatNumber(nextPreview.cooldown || 0)}턴</div>
+          `
+          : '<div class="menu-note">이미 최대 강화 단계입니다.</div>'}
+      </div>
+    `;
+    confirmButton.disabled = !selectedCard.canEnhance || Number(selectedCard.availableEnhanceQuantity || 0) <= 0;
+  }
+
+  sourceList.innerHTML = '';
+  if (!variants.length) {
+    sourceList.innerHTML = '<div class="fusion-slot empty">보유 중인 카드가 없습니다.</div>';
+    return;
+  }
+
+  variants.forEach((card) => {
+    const key = getCardVariantKey(card.cardId, card.enhancementLevel);
+    const selected = selectedEnhanceCardKey === key;
+    const available = Number(card.availableEnhanceQuantity ?? card.quantity ?? 0);
+    const disabled = !card.canEnhance || available <= 0;
+    sourceList.insertAdjacentHTML(
+      'beforeend',
+      `
+        <div class="fusion-source-card enhance-source-card ${selected ? 'selected' : ''} ${disabled ? 'unavailable' : ''}" style="border-color:${escapeHtml(card.borderColor || '#d0d0d0')}" onclick="handleCardEnhanceSelect('${card.cardId}', ${Number(card.enhancementLevel || 0)})">
+          <div class="fusion-card-head">
+            <span class="fusion-card-name">${escapeHtml(card.name)}</span>
+            <span class="grade-badge" style="background:${escapeHtml(card.color || '#666666')}">${escapeHtml(card.grade)}</span>
+          </div>
+          <div class="fusion-card-meta">
+            <span class="enhance-card-count">보유 ${formatNumber(card.quantity)}장 / 강화 가능 ${formatNumber(available)}장${card.equipped ? ' / 현재 장착 중' : ''}</span><br>
+            ${escapeHtml(card.skillName || '')}<br>
+            ${escapeHtml(card.skillDesc || '')}<br>
+            지속/적용: ${escapeHtml(card.durationText || '즉시')} / 쿨타임 ${formatNumber(card.cooldown || 0)}턴
+          </div>
+        </div>
+      `
+    );
+  });
+}
+
+function openCardEnhanceModal() {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+  selectedEnhanceCardKey = null;
+  showModal('enhanceModal');
+  renderCardEnhanceModal(user);
+}
+
+function closeCardEnhanceModal() {
+  selectedEnhanceCardKey = null;
+  hideModal('enhanceModal');
+}
+
+function handleCardEnhanceSelect(cardId, enhancementLevel) {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+  const key = getCardVariantKey(cardId, enhancementLevel);
+  const selectedCard = getCardVariantByKey(user, key);
+  if (!selectedCard) return;
+  if (!selectedCard.canEnhance || Number(selectedCard.availableEnhanceQuantity || 0) <= 0) return;
+  if (selectedEnhanceCardKey === key) {
+    selectedEnhanceCardKey = null;
+  } else {
+    selectedEnhanceCardKey = key;
+  }
+  renderCardEnhanceModal(user);
+}
+
+async function handleCardEnhanceConfirm() {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+  if (!selectedEnhanceCardKey) {
+    alert('강화할 카드를 선택해주세요.');
+    return;
+  }
+
+  const selectedCard = getCardVariantByKey(user, selectedEnhanceCardKey);
+  if (!selectedCard) {
+    alert('강화할 카드 정보를 찾을 수 없습니다.');
+    return;
+  }
+  if (!selectedCard.canEnhance || Number(selectedCard.availableEnhanceQuantity || 0) <= 0) {
+    alert('강화할 수 없는 카드입니다.');
+    return;
+  }
+
+  const successPercent = Math.round(Number(selectedCard.enhanceSuccessRate || 0) * 100);
+  const confirmed = confirm(`${selectedCard.name} 강화를 진행할까요?\n성공 확률 ${successPercent}% / 비용 ${formatNumber(selectedCard.enhanceCost || 0)}원`);
+  if (!confirmed) return;
+
+  try {
+    const data = await postJson(`${API_URL}/api/cards/enhance`, {
+      userId: user._id,
+      cardId: selectedCard.cardId,
+      enhancementLevel: selectedCard.enhancementLevel
+    });
+    updateLocalUserState(data);
+    const result = data.enhancementResult;
+    if (result) {
+      alert(result.success
+        ? `${result.cardName} +${formatNumber(result.previousLevel)} 강화 성공! -> +${formatNumber(result.nextLevel)}`
+        : `${result.cardName} +${formatNumber(result.previousLevel)} 강화에 실패했습니다.`);
+    }
+    if (isEnhanceModalOpen()) {
+      renderCardEnhanceModal(getStoredUser());
+    }
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
 function openSupportModal() {
   showModal('supportModal');
 }
@@ -945,6 +1169,9 @@ async function handleBuyClick(itemId, inputId) {
       quantity
     });
     updateLocalUserState(data);
+    if (data.shopPurchase) {
+      alert(`${data.shopPurchase.itemName} ${formatNumber(data.shopPurchase.quantity)}개 구매\n-${formatNumber(data.shopPurchase.totalPrice)}원\n현재 보유 ${formatNumber(data.shopPurchase.ownedQuantity)}개`);
+    }
   } catch (err) {
     alert(err.message);
   }
@@ -993,14 +1220,15 @@ async function handleCardDraw() {
   }
 }
 
-async function handleToggleCardEquip(cardId) {
+async function handleToggleCardEquip(cardId, enhancementLevel = 0) {
   const user = getStoredUser();
   if (!user?._id) return handleLogoutClick();
 
   try {
     const data = await postJson(`${API_URL}/api/cards/equip`, {
       userId: user._id,
-      cardId
+      cardId,
+      enhancementLevel
     });
     updateLocalUserState(data);
   } catch (err) {
@@ -1056,6 +1284,9 @@ function updateLocalUserState(data) {
   updateGameUI(data.user);
   if (isFusionModalOpen()) {
     renderCardFusionModal(data.user);
+  }
+  if (isEnhanceModalOpen()) {
+    renderCardEnhanceModal(data.user);
   }
   updateRaidButton(data.user, latestRaidState);
   showNotifications(data.notifications);
@@ -1722,6 +1953,7 @@ function updateGameUI(user) {
   updateStatusUI(user);
   updateBuffUI(user);
   updateSpecialActionButtons(user);
+  refreshSideJobStatus(user);
   updateShoutStatus(user);
   updateInventoryUI(user);
   updateShopUI(user);
@@ -1731,6 +1963,9 @@ function updateGameUI(user) {
   setText('adventureLog', user.meta?.lastAdventureLog || '모험에서 어떤 일이 벌어질지 모릅니다.');
   if (isFusionModalOpen()) {
     renderCardFusionModal(user);
+  }
+  if (isEnhanceModalOpen()) {
+    renderCardEnhanceModal(user);
   }
 }
 
@@ -1744,6 +1979,16 @@ function updateSpecialActionButtons(user) {
 
     adventureBtn.disabled = !canUseAdventure;
     adventureBtn.textContent = `모험하기 (행동력 ${formatNumber(staminaCost, staminaCost % 1 === 0 ? 0 : 1)})`;
+  }
+}
+
+function refreshSideJobStatus(user) {
+  const sideJobBtn = document.getElementById('sideJobBtn');
+  const sideJobStatus = document.getElementById('sideJobStatus');
+  if (sideJobBtn && sideJobStatus && user?.gameState) {
+    const reward = Math.floor(Number(user.gameState.salaryPerMinute || 0) * 300);
+    sideJobBtn.disabled = false;
+    sideJobStatus.textContent = `즉시 스트레스 +40 / 즉시 획득 ${formatNumber(reward)}원`;
   }
 }
 
@@ -2443,3 +2688,198 @@ async function handleRaidTargetSelect(userId, targetSlot, targetUserId) {
 
 window.handleRaidSkillToggle = handleRaidSkillToggle;
 window.handleRaidTargetSelect = handleRaidTargetSelect;
+window.handleCardEnhanceSelect = handleCardEnhanceSelect;
+
+function getInventoryQuantityFromUser(user, itemId) {
+  return (user.inventory || []).find((item) => item.itemId === itemId)?.quantity || 0;
+}
+
+function updateSpecialActionButtons(user) {
+  const adventureBtn = document.getElementById('adventureBtn');
+  if (adventureBtn && user?.gameState) {
+    const staminaCost = Number(user.itemStats?.adventureStaminaMultiplier || 1);
+    const currentStamina = Number(user.gameState.stamina || 0);
+    const hasPendingChoice = Boolean(user.pendingAdventure?.eventId);
+    const canUseAdventure = currentStamina >= staminaCost && !hasPendingChoice;
+    adventureBtn.disabled = !canUseAdventure;
+    adventureBtn.textContent = `모험하기 (행동력 ${formatNumber(staminaCost, staminaCost % 1 === 0 ? 0 : 1)})`;
+  }
+
+  refreshSideJobStatus(user);
+}
+
+function updateInventoryUI(user) {
+  const inventoryList = document.getElementById('inventory-list');
+  const titleList = document.getElementById('title-list');
+  const cardList = document.getElementById('card-list');
+  if (!inventoryList || !titleList || !cardList) return;
+
+  inventoryList.innerHTML = '';
+  const inventory = user.inventory || [];
+  if (!inventory.length) {
+    inventoryList.innerHTML = '<tr><td colspan="4">가방이 비어 있습니다.</td></tr>';
+  } else {
+    inventory.forEach((item) => {
+      const itemInfo = ITEM_DATA[item.itemId] || {};
+      const desc = itemInfo.hoverDesc || itemInfo.desc || '';
+      const shortDesc = itemInfo.desc || '';
+      const qtyInputId = `use-qty-${item.itemId}`;
+      const canUse = ['bacchus', 'hot6', 'tylenol', 'raid_entry_ticket', 'hagendaz'].includes(item.itemId);
+      const actionButton = canUse
+        ? `<div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" max="${item.quantity}" step="1" value="1"><button class="mini-btn" onclick="handleUseItem('${item.itemId}', '${qtyInputId}')">사용</button></div>`
+        : '<span class="muted-text">상시 적용</span>';
+
+      inventoryList.insertAdjacentHTML(
+        'beforeend',
+        `
+          <tr>
+            <td title="${escapeHtml(desc)}">${escapeHtml(itemInfo.name || item.itemId)}</td>
+            <td>${formatNumber(item.quantity)}</td>
+            <td title="${escapeHtml(desc)}">${escapeHtml(shortDesc)}</td>
+            <td>${actionButton}</td>
+          </tr>
+        `
+      );
+    });
+  }
+
+  titleList.innerHTML = '';
+  const titleDetails = user.titleDetails || [];
+  if (!titleDetails.length) {
+    titleList.innerHTML = '<tr><td colspan="3">아직 해금된 칭호가 없습니다.</td></tr>';
+  } else {
+    titleDetails.forEach((title) => {
+      titleList.insertAdjacentHTML(
+        'beforeend',
+        `
+          <tr class="${title.equipped ? 'equipped-title-row' : ''}">
+            <td title="${escapeHtml(title.unlockDesc || '')}">${escapeHtml(title.name)}</td>
+            <td title="${escapeHtml(title.unlockDesc || '')}">${escapeHtml(title.desc)}</td>
+            <td><button class="mini-btn" onclick="handleToggleTitle('${title.id}')">${title.equipped ? '해제' : '장착'}</button></td>
+          </tr>
+        `
+      );
+    });
+  }
+
+  cardList.innerHTML = '';
+  const cardDetails = (user.cardVariantDetails || []).filter((card) => Number(card.quantity || 0) > 0);
+  if (!cardDetails.length) {
+    cardList.innerHTML = '<tr><td colspan="5">아직 보유한 카드가 없습니다.</td></tr>';
+  } else {
+    cardDetails.forEach((card) => {
+      const actionText = card.equipped ? '해제' : '장착';
+      cardList.insertAdjacentHTML(
+        'beforeend',
+        `
+          <tr>
+            <td><span class="card-name-chip" style="border-color:${escapeHtml(card.borderColor || 'transparent')}">${escapeHtml(card.name)}</span></td>
+            <td><span class="grade-badge" style="background:${escapeHtml(card.color || '#666666')}">${escapeHtml(card.grade)}</span></td>
+            <td>${formatNumber(card.quantity)}장 보유</td>
+            <td>
+              <strong>${escapeHtml(card.skillName || '')}</strong>
+              <div class="menu-note">${escapeHtml(card.skillDesc || '')}</div>
+              <div class="menu-note">지속/적용: ${escapeHtml(card.durationText || '즉시')} / 쿨타임 ${formatNumber(card.cooldown || 0)}턴</div>
+            </td>
+            <td><button class="mini-btn" onclick="handleToggleCardEquip('${card.cardId}', ${Number(card.enhancementLevel || 0)})">${actionText}</button></td>
+          </tr>
+        `
+      );
+    });
+  }
+
+  if (isFusionModalOpen()) {
+    renderCardFusionModal(user);
+  }
+  if (isEnhanceModalOpen()) {
+    renderCardEnhanceModal(user);
+  }
+}
+
+function updateShopUI(user) {
+  const shopList = document.getElementById('shop-list');
+  if (!shopList) return;
+
+  shopList.innerHTML = '';
+  Object.entries(ITEM_DATA).forEach(([itemId, itemInfo]) => {
+    if (itemId === 'cat_tuna_can' || itemInfo.shopHidden) return;
+    if (itemInfo.type === 'special' && itemId !== 'business_card') return;
+
+    const price = user.shopPrices?.[itemId] ?? 0;
+    const qtyInputId = `buy-qty-${itemId}`;
+    const remainingBusinessCardBuys = Math.max(0, 5 - Number(user.shopState?.dailyBusinessCardPurchases || 0));
+    const ownedQuantity = getInventoryQuantityFromUser(user, itemId);
+    const isBusinessCard = itemId === 'business_card';
+    const disabledAttr = isBusinessCard && remainingBusinessCardBuys <= 0 ? 'disabled' : '';
+    const maxAttr = isBusinessCard && remainingBusinessCardBuys > 0 ? `max="${remainingBusinessCardBuys}"` : '';
+    const descParts = [itemInfo.desc || ''];
+    if (isBusinessCard) {
+      descParts.push(`오늘 남은 구매 가능: ${remainingBusinessCardBuys}/5`);
+    }
+    descParts.push(`현재 보유 ${formatNumber(ownedQuantity)}개`);
+
+    shopList.insertAdjacentHTML(
+      'beforeend',
+      `
+        <tr>
+          <td>${escapeHtml(itemInfo.name)}</td>
+          <td>${formatNumber(price)}원</td>
+          <td>${escapeHtml(descParts.filter(Boolean).join(' / '))}</td>
+          <td><div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" step="1" value="1" ${maxAttr} ${disabledAttr}><button class="mini-btn" ${disabledAttr} onclick="handleBuyClick('${itemId}', '${qtyInputId}')">구매</button></div></td>
+        </tr>
+      `
+    );
+  });
+}
+
+function updateRaidLobbyUI(raidState, user) {
+  const slotGrid = document.getElementById('raidSlotGrid');
+  const rewardList = document.getElementById('raidRewardList');
+  const skillList = document.getElementById('raidBossSkillList');
+  const bossName = document.getElementById('raidBossName');
+  const bossDesc = document.getElementById('raidBossDesc');
+  const startBtn = document.getElementById('raidStartBtn');
+  if (!slotGrid || !rewardList || !skillList || !bossName || !bossDesc || !startBtn) return;
+
+  const lobby = raidState?.lobby;
+  bossName.textContent = lobby ? `오늘의 보스 정보: ${lobby.bossName}` : '오늘의 보스 정보';
+  bossDesc.textContent = lobby ? `${lobby.bossName} / 보스 HP 50,000 / 최소 레벨 ${lobby.minLevel}` : '';
+
+  rewardList.innerHTML = '';
+  (lobby?.rewardsText || []).forEach((rewardText) => {
+    rewardList.insertAdjacentHTML('beforeend', `<li>${escapeHtml(rewardText)}</li>`);
+  });
+
+  skillList.innerHTML = '';
+  (lobby?.skillsText || []).forEach((skillText) => {
+    skillList.insertAdjacentHTML('beforeend', `<li>${escapeHtml(skillText)}</li>`);
+  });
+
+  slotGrid.innerHTML = '';
+  const slots = raidState?.slots || Array(5).fill(null);
+  slots.forEach((slot, index) => {
+    const isSelf = slot?.userId && user && String(slot.userId) === String(user._id);
+    const cardTooltip = slot
+      ? [
+          slot.equippedCardName || '장착 카드 없음',
+          slot.equippedCardSkillName ? `스킬: ${slot.equippedCardSkillName}` : '',
+          slot.equippedCardSkillDesc || '',
+          slot.equippedCardName ? (slot.equippedCardPassiveOnly ? '패시브 카드' : `쿨타임 ${formatNumber(slot.equippedCardCooldown || 0)}턴`) : ''
+        ].filter(Boolean).join('\n')
+      : '';
+    slotGrid.insertAdjacentHTML(
+      'beforeend',
+      `
+        <button class="raid-slot ${slot ? '' : 'empty'} ${isSelf ? 'self' : ''}" onclick="handleRaidSlotClick(${index})">
+          ${slot
+            ? `<div class="raid-slot-name"><span class="raid-name-chip" style="border-color:${escapeHtml(slot.equippedCardBorderColor || 'transparent')}">${escapeHtml(slot.displayName)}</span></div>
+               <div>Lv.${formatNumber(slot.level)}</div>
+               <div class="raid-slot-card" title="${escapeHtml(cardTooltip)}">${escapeHtml(slot.equippedCardName || '장착 카드 없음')}</div>`
+            : `<div class="raid-slot-name">${index + 1}번 슬롯</div><div>클릭해 참가 대기</div>`}
+        </button>
+      `
+    );
+  });
+
+  startBtn.disabled = !raidState?.canStart;
+}

@@ -522,6 +522,49 @@ const CARD_GRADE_COLORS = {
   C: '#2e7d32'
 };
 
+const CARD_ENHANCE_SUCCESS_RATES = [0.9, 0.75, 0.55, 0.3, 0.1];
+const CARD_ENHANCE_COSTS = {
+  C: [50000, 100000, 150000, 200000, 250000],
+  B: [100000, 200000, 300000, 400000, 500000],
+  A: [500000, 1000000, 1500000, 2000000, 2500000],
+  S: [1000000, 2000000, 3000000, 4000000, 5000000]
+};
+const CARD_ENHANCE_BORDER_COLORS = {
+  0: '',
+  1: '#2e7d32',
+  2: '#1565c0',
+  3: '#7b1fa2',
+  4: '#f9a825',
+  5: '#c62828'
+};
+const CARD_ENHANCE_RULES = {
+  ineo_diet: { hits: { 0: 7, 1: 8, 3: 10, 5: 11 }, cooldown: { 0: 5, 2: 4, 4: 3 } },
+  gangnam_style: { critBonus: { 0: 0.1, 1: 0.15, 3: 0.2 }, shield: { 0: 10, 2: 15, 5: 20 }, cooldown: { 0: 3, 4: 2 } },
+  delegate_lee: { multiplierPerLevel: { 0: 20, 1: 25, 3: 30, 4: 35 }, cooldown: { 0: 4, 2: 3, 5: 2 } },
+  celine_tears: { attackBonusPercent: { 0: 0.3, 1: 0.4, 4: 0.5 }, expireDamagePerLevel: { 0: 50, 3: 60, 5: 65 }, cooldown: { 0: 3, 2: 2 } },
+  strawberry_latte: { shield: { 0: 20, 1: 25, 3: 30, 4: 35 }, shieldTurns: { 5: 1 }, cooldown: { 0: 4, 2: 3 } },
+  rebuttal: { heal: { 0: 10, 1: 15, 2: 20, 4: 25 }, includeSelf: { 0: 0, 3: 1 }, cooldown: { 0: 4, 5: 3 } },
+  parking_master: { hits: { 0: 2, 2: 3, 4: 4, 5: 5 }, cooldown: { 0: 5, 1: 4, 3: 3 } },
+  tissue_box: { turns: { 0: 1, 2: 2 }, counterDamageMultiplier: { 0: 0.8, 1: 0.9, 4: 1, 5: 1.2 }, cooldown: { 0: 4, 3: 3 } },
+  drinking_angle: { rewardMultiplier: { 0: 1.3, 1: 1.4, 2: 1.5, 3: 1.6, 4: 1.8, 5: 2 } },
+  tax_invoice: { negateHitCount: { 0: 0, 5: 1 }, attackBonusPercent: { 0: 0.15, 1: 0.2, 3: 0.25, 4: 0.3 }, cooldown: { 0: 4, 2: 3 } },
+  rotation_blind_date: { amplifyMultiplier: { 0: 1.1, 1: 1.2, 2: 1.3, 3: 1.4, 4: 1.5, 5: 1.6 } },
+  sherlock: { critBonus: { 0: 0.3, 1: 0.35, 2: 0.4, 3: 0.45, 4: 0.5 }, turns: { 0: 1, 5: 2 } },
+  lotto_numbers: { successChance: { 0: 0.3, 1: 0.35, 2: 0.4, 3: 0.45, 4: 0.5, 5: 0.55 } },
+  blind_date: { selfDamage: { 0: 40, 2: 30, 4: 20 }, cooldown: { 0: 5, 1: 4, 3: 3, 5: 2 } },
+  fantasy: { targets: { 0: 2, 3: 3, 4: 4, 5: 99 }, cooldown: { 0: 5, 1: 4, 2: 3 } },
+  broken_leg: { heal: { 0: 10, 1: 15, 2: 20, 4: 25 }, cooldown: { 0: 4, 3: 3, 5: 2 } },
+  military_service: { bonusPerLevel: { 0: 10, 1: 12, 2: 14, 3: 16, 4: 18, 5: 20 } },
+  invincible_logic: { targets: { 0: 1, 1: 2, 3: 3 }, cooldown: { 0: 5, 2: 4, 4: 3, 5: 2 } },
+  ride_line: { targets: { 0: 1, 1: 2 }, attackBonusPercent: { 0: 0.25, 3: 0.3, 5: 0.35 }, cooldown: { 0: 5, 2: 4, 4: 3 } },
+  wig: { hits: { 0: 2, 2: 3, 4: 4 }, cooldown: { 0: 6, 1: 5, 3: 4, 5: 3 } },
+  chatgpt: { bonusPerLevel: { 0: 6, 1: 7, 2: 8, 3: 9, 4: 10, 5: 12 } },
+  pho: { targets: { 0: 2, 3: 3 }, shield: { 0: 30, 1: 40, 5: 50 }, cooldown: { 0: 5, 2: 4, 4: 3 } },
+  coca_cola: { attackBonusPercent: { 0: 0.2, 1: 0.25, 3: 0.3, 4: 0.35 }, turns: { 0: 1, 5: 2 }, cooldown: { 0: 5, 2: 4 } },
+  cider_comment: { debuffImmuneCount: { 0: 1, 5: 2 }, cooldown: { 0: 6, 1: 5, 2: 4, 3: 3, 4: 2 } },
+  rooftop_pigeons: { damagePerLevel: { 0: 5, 1: 6, 2: 7, 3: 8, 4: 9, 5: 10 } }
+};
+
 const SUPPORT_PACKAGE_DATA = {
   fatigue_recovery: {
     id: 'fatigue_recovery',
@@ -1256,7 +1299,13 @@ const userSchema = new mongoose.Schema({
     cardId: { type: String, required: true },
     quantity: { type: Number, default: 1 }
   }],
+  enhancedCards: [{
+    cardId: { type: String, required: true },
+    level: { type: Number, default: 1 },
+    quantity: { type: Number, default: 1 }
+  }],
   equippedCardId: { type: String, default: null },
+  equippedCardLevel: { type: Number, default: 0 },
   buffs: [{
     buffId: { type: String, required: true },
     expiresAt: { type: Date, required: true }
@@ -1351,7 +1400,9 @@ function ensureUserDefaults(user) {
 
   if (!Array.isArray(user.inventory)) user.inventory = [];
   if (!Array.isArray(user.cards)) user.cards = [];
+  if (!Array.isArray(user.enhancedCards)) user.enhancedCards = [];
   if (!CARD_DATA[user.equippedCardId]) user.equippedCardId = null;
+  user.equippedCardLevel = Math.max(0, Math.min(5, Number(user.equippedCardLevel ?? 0)));
   if (!Array.isArray(user.buffs)) user.buffs = [];
   if (!Array.isArray(user.pendingNotifications)) user.pendingNotifications = [];
 
@@ -1424,7 +1475,19 @@ function ensureUserDefaults(user) {
   user.pendingAdventure.message = user.pendingAdventure.message || null;
   user.pendingAdventure.createdAt = user.pendingAdventure.createdAt || null;
 
+  user.enhancedCards = user.enhancedCards
+    .filter((entry) => CARD_DATA[entry.cardId] && Number(entry.level) > 0 && Number(entry.quantity) > 0)
+    .map((entry) => ({
+      cardId: entry.cardId,
+      level: Math.max(1, Math.min(5, Number(entry.level))),
+      quantity: Math.max(1, Math.floor(Number(entry.quantity)))
+    }));
+
   migrateLegacyBuffs(user);
+  if (user.equippedCardId && getOwnedCardVariantQuantity(user, user.equippedCardId, user.equippedCardLevel || 0) <= 0) {
+    user.equippedCardId = null;
+    user.equippedCardLevel = 0;
+  }
 }
 
 function migrateLegacyBuffs(user) {
@@ -1436,6 +1499,160 @@ function migrateLegacyBuffs(user) {
     { buffId: 'lupin_stress_buff', expiresAt: legacyBuff.expiresAt },
     { buffId: 'lupin_exp_buff', expiresAt: legacyBuff.expiresAt }
   );
+}
+
+function normalizeCardEnhancementLevel(level) {
+  return Math.max(0, Math.min(5, Math.floor(Number(level) || 0)));
+}
+
+function getCardEnhancementStepValue(stepMap, level, fallbackValue) {
+  if (!stepMap || typeof stepMap !== 'object') return fallbackValue;
+  const normalizedLevel = normalizeCardEnhancementLevel(level);
+  let resolved = fallbackValue;
+  Object.keys(stepMap)
+    .map((key) => Number(key))
+    .filter((key) => !Number.isNaN(key))
+    .sort((a, b) => a - b)
+    .forEach((key) => {
+      if (normalizedLevel >= key) resolved = stepMap[key];
+    });
+  return resolved;
+}
+
+function getCardEnhancementColor(level) {
+  return CARD_ENHANCE_BORDER_COLORS[normalizeCardEnhancementLevel(level)] || '';
+}
+
+function getCardDisplayName(cardId, level = 0) {
+  const baseName = CARD_DATA[cardId]?.name || cardId;
+  const normalizedLevel = normalizeCardEnhancementLevel(level);
+  return normalizedLevel > 0 ? `${baseName} +${normalizedLevel}` : baseName;
+}
+
+function getCardDefinition(cardId, enhancementLevel = 0) {
+  const baseCard = CARD_DATA[cardId];
+  if (!baseCard) return null;
+  const level = normalizeCardEnhancementLevel(enhancementLevel);
+  const rules = CARD_ENHANCE_RULES[cardId] || {};
+  const card = { ...baseCard };
+
+  Object.keys(rules).forEach((field) => {
+    card[field] = getCardEnhancementStepValue(rules[field], level, card[field]);
+  });
+
+  card.enhancementLevel = level;
+  card.borderColor = getCardEnhancementColor(level);
+  card.displayName = getCardDisplayName(cardId, level);
+  return card;
+}
+
+function formatCardPercentText(value) {
+  const percent = Number(value || 0) * 100;
+  return `${Number.isInteger(percent) ? percent : Number(percent.toFixed(1))}%`;
+}
+
+function getCardDurationText(cardId, enhancementLevel = 0) {
+  const card = getCardDefinition(cardId, enhancementLevel);
+  if (!card) return '즉시';
+
+  switch (cardId) {
+    case 'ineo_diet':
+    case 'parking_master':
+    case 'wig':
+    case 'chatgpt':
+      return '다음 자신의 턴';
+    case 'gangnam_style':
+    case 'celine_tears':
+    case 'sherlock':
+    case 'blind_date':
+    case 'military_service':
+    case 'ride_line':
+      return `${card.turns || 1}턴`;
+    case 'strawberry_latte':
+      return Number(card.shieldTurns || 0) > 0 ? `${Number(card.shieldTurns || 0)}턴` : '이번 턴까지만';
+    case 'rebuttal':
+    case 'delegate_lee':
+    case 'fantasy':
+    case 'broken_leg':
+    case 'rooftop_pigeons':
+      return '즉시';
+    case 'tissue_box':
+    case 'coca_cola':
+      return `${card.turns || 1}턴`;
+    case 'drinking_angle':
+    case 'rotation_blind_date':
+    case 'lotto_numbers':
+      return '전투 종료까지';
+    case 'tax_invoice':
+      return `공격력 상승 ${card.turns || 1}턴 / 나머지 1회`;
+    case 'pho':
+      return '즉시 부여';
+    case 'cider_comment':
+    case 'invincible_logic':
+      return '1회';
+    default:
+      return '즉시';
+  }
+}
+
+function buildCardSkillDescription(cardId, enhancementLevel = 0) {
+  const card = getCardDefinition(cardId, enhancementLevel);
+  if (!card) return '';
+
+  switch (cardId) {
+    case 'ineo_diet':
+      return `다음 자신의 턴에 기본 공격을 총 ${card.hits}회 합니다.`;
+    case 'gangnam_style':
+      return `파티 전원에게 크리티컬률 ${formatCardPercentText(card.critBonus)}와 흥겨움을 부여하고, 보호막 ${card.shield}을 제공합니다.`;
+    case 'delegate_lee':
+      return `현재 입장한 파티원의 전체 레벨 합 x ${card.multiplierPerLevel}의 데미지를 1회 가합니다.`;
+    case 'celine_tears':
+      return `공격력 ${formatCardPercentText(card.attackBonusPercent)} 증가, 종료 시 자신의 레벨 x ${card.expireDamagePerLevel} 추가 피해`;
+    case 'strawberry_latte':
+      return `파티 전원에게 보호막 ${card.shield}을 제공합니다.`;
+    case 'rebuttal':
+      return `파티원 전체의 HP를 ${card.heal} 회복합니다.${card.includeSelf ? ' 자신도 포함됩니다.' : ' 자신은 제외됩니다.'}`;
+    case 'parking_master':
+      return `다음 자신의 턴에 기본 공격을 총 ${card.hits}회 합니다.`;
+    case 'tissue_box':
+      return `${card.turns}턴 동안 반격합니다. 피격당하면 기본 공격 ${Math.round(Number(card.counterDamageMultiplier || 1) * 100)}% 위력으로 반격합니다.`;
+    case 'drinking_angle':
+      return `전투 시작 시 파티 전원에게 소주각? 버프를 부여하고, 승리 시 전리품 ${Number(card.rewardMultiplier || 1).toFixed(1)}배를 획득합니다.`;
+    case 'tax_invoice':
+      return `파티원 2인에게 피격 무효 ${card.negateHitCount}회, 공격력 ${formatCardPercentText(card.attackBonusPercent)} 증가, 디버프 무효 ${card.debuffImmuneCount}회를 제공합니다.`;
+    case 'rotation_blind_date':
+      return `매 턴 자신을 제외한 파티원 1명에게 카드 효과 x${Number(card.amplifyMultiplier || 1).toFixed(1)} <소개팅 상대>를 부여합니다.`;
+    case 'sherlock':
+      return `파티 전원의 크리티컬 확률을 ${formatCardPercentText(card.critBonus)} 증가시킵니다.`;
+    case 'lotto_numbers':
+      return `전투 시작 시 파티 전원에게 <이번엔 될거같아>를 부여하고, 승리 시 ${formatCardPercentText(card.successChance)} 확률로 전리품 3배 또는 보상 없음이 적용됩니다.`;
+    case 'blind_date':
+      return `랜덤 파티원 1명의 HP를 ${card.selfDamage} 감소시키지만, 다음 턴까지 해당 파티원의 피해를 2배로 증가시킵니다.`;
+    case 'fantasy':
+      return card.targets >= 99 ? '파티 전원의 해로운 효과를 제거합니다.' : `랜덤 파티원 ${card.targets}명의 해로운 효과를 제거합니다.`;
+    case 'broken_leg':
+      return `선택한 파티원 1명의 HP를 ${card.heal} 회복시킵니다.`;
+    case 'military_service':
+      return `이번 턴 자신의 모든 공격에 자신의 레벨 x ${card.bonusPerLevel} 추가 피해를 줍니다.`;
+    case 'invincible_logic':
+      return `랜덤 파티원 ${card.targets}인에게 피격 무효 ${card.negateHitCount}회를 부여합니다.`;
+    case 'ride_line':
+      return `랜덤 파티원 ${card.targets}인의 공격력을 ${formatCardPercentText(card.attackBonusPercent)} 증가시킵니다.`;
+    case 'wig':
+      return `다음 자신의 턴에 기본 공격을 총 ${card.hits}회 합니다.`;
+    case 'chatgpt':
+      return `다음 자신의 턴 기본 공격에 더해 자신의 레벨 x ${card.bonusPerLevel} 추가 피해를 입힙니다.`;
+    case 'pho':
+      return `랜덤 파티원 ${card.targets}명에게 각각 보호막 ${card.shield}을 제공합니다.`;
+    case 'coca_cola':
+      return `선택한 파티원 1인의 공격력을 ${formatCardPercentText(card.attackBonusPercent)} 증가시킵니다.`;
+    case 'cider_comment':
+      return `선택한 파티원 1인에게 디버프 무효 ${card.debuffImmuneCount}회를 제공합니다.`;
+    case 'rooftop_pigeons':
+      return `자신의 레벨 x ${card.damagePerLevel}의 데미지로 ${card.hits}회 공격합니다.`;
+    default:
+      return card.skillDesc || '';
+  }
 }
 
 function queueNotification(user, type, text) {
@@ -1472,12 +1689,26 @@ function getCardEntry(user, cardId) {
   return user.cards.find((card) => card.cardId === cardId);
 }
 
+function getEnhancedCardEntry(user, cardId, level) {
+  const normalizedLevel = normalizeCardEnhancementLevel(level);
+  return (user.enhancedCards || []).find((card) => card.cardId === cardId && Number(card.level) === normalizedLevel);
+}
+
 function getInventoryQuantity(user, itemId) {
   return getInventoryItem(user, itemId)?.quantity || 0;
 }
 
 function getCardQuantity(user, cardId) {
   return getCardEntry(user, cardId)?.quantity || 0;
+}
+
+function getEnhancedCardQuantity(user, cardId, level) {
+  return getEnhancedCardEntry(user, cardId, level)?.quantity || 0;
+}
+
+function getOwnedCardVariantQuantity(user, cardId, level = 0) {
+  const normalizedLevel = normalizeCardEnhancementLevel(level);
+  return normalizedLevel <= 0 ? getCardQuantity(user, cardId) : getEnhancedCardQuantity(user, cardId, normalizedLevel);
 }
 
 function addItemToInventory(user, itemId, amount = 1) {
@@ -1500,6 +1731,17 @@ function addCardToCollection(user, cardId, amount = 1) {
   }
 }
 
+function addEnhancedCard(user, cardId, level, amount = 1) {
+  const normalizedLevel = normalizeCardEnhancementLevel(level);
+  if (amount <= 0 || normalizedLevel <= 0 || !CARD_DATA[cardId]) return;
+  const entry = getEnhancedCardEntry(user, cardId, normalizedLevel);
+  if (entry) {
+    entry.quantity += amount;
+  } else {
+    user.enhancedCards.push({ cardId, level: normalizedLevel, quantity: amount });
+  }
+}
+
 function removeCardFromCollection(user, cardId, amount = 1) {
   const entry = getCardEntry(user, cardId);
   if (!entry || entry.quantity < amount) return false;
@@ -1511,12 +1753,30 @@ function removeCardFromCollection(user, cardId, amount = 1) {
 
   if (user.equippedCardId === cardId && getCardQuantity(user, cardId) <= 0) {
     user.equippedCardId = null;
+    user.equippedCardLevel = 0;
+  }
+  return true;
+}
+
+function removeEnhancedCard(user, cardId, level, amount = 1) {
+  const normalizedLevel = normalizeCardEnhancementLevel(level);
+  const entry = getEnhancedCardEntry(user, cardId, normalizedLevel);
+  if (!entry || entry.quantity < amount) return false;
+
+  entry.quantity -= amount;
+  if (entry.quantity <= 0) {
+    user.enhancedCards = (user.enhancedCards || []).filter((card) => !(card.cardId === cardId && Number(card.level) === normalizedLevel));
+  }
+
+  if (user.equippedCardId === cardId && Number(user.equippedCardLevel || 0) === normalizedLevel && getEnhancedCardQuantity(user, cardId, normalizedLevel) <= 0) {
+    user.equippedCardId = null;
+    user.equippedCardLevel = 0;
   }
   return true;
 }
 
 function getEquippedCardInfo(user) {
-  return CARD_DATA[user.equippedCardId] || null;
+  return getCardDefinition(user.equippedCardId, user.equippedCardLevel || 0);
 }
 
 function buildCardDetails(user) {
@@ -1526,12 +1786,100 @@ function buildCardDetails(user) {
     grade: card.grade,
     color: CARD_GRADE_COLORS[card.grade] || '#666666',
     quantity: getCardQuantity(user, card.id),
-    equipped: user.equippedCardId === card.id,
+    equipped: user.equippedCardId === card.id && Number(user.equippedCardLevel || 0) === 0,
+    enhancementLevel: 0,
+    displayName: getCardDisplayName(card.id, 0),
     skillName: card.skillName,
-    skillDesc: card.skillDesc,
-    cooldown: card.cooldown,
+    skillDesc: buildCardSkillDescription(card.id, 0),
+    cooldown: getCardDefinition(card.id, 0)?.cooldown ?? card.cooldown,
+    durationText: getCardDurationText(card.id, 0),
     targetType: card.targetType || null
   }));
+}
+
+function buildCardVariantDetails(user) {
+  const variants = [];
+  Object.values(CARD_DATA).forEach((card) => {
+    const baseQuantity = getCardQuantity(user, card.id);
+    if (baseQuantity > 0) {
+      const resolved = getCardDefinition(card.id, 0);
+      const equipped = user.equippedCardId === card.id && Number(user.equippedCardLevel || 0) === 0;
+      const nextPreview = getCardDefinition(card.id, 1);
+      variants.push({
+        cardId: card.id,
+        enhancementLevel: 0,
+        name: resolved.displayName,
+        baseName: card.name,
+        grade: card.grade,
+        color: CARD_GRADE_COLORS[card.grade] || '#666666',
+        borderColor: resolved.borderColor,
+        quantity: baseQuantity,
+        equipped,
+        skillName: resolved.skillName,
+        skillDesc: buildCardSkillDescription(card.id, 0),
+        cooldown: resolved.cooldown,
+        durationText: getCardDurationText(card.id, 0),
+        canEnhance: true,
+        availableEnhanceQuantity: Math.max(0, baseQuantity - (equipped ? 1 : 0)),
+        enhanceSuccessRate: getCardEnhancementSuccessRate(0),
+        enhanceCost: getCardEnhancementCost(card.id, 0),
+        nextEnhancementPreview: nextPreview ? {
+          enhancementLevel: 1,
+          name: nextPreview.displayName,
+          skillName: nextPreview.skillName,
+          skillDesc: buildCardSkillDescription(card.id, 1),
+          cooldown: nextPreview.cooldown,
+          durationText: getCardDurationText(card.id, 1),
+          borderColor: nextPreview.borderColor
+        } : null
+      });
+    }
+  });
+
+  (user.enhancedCards || [])
+    .filter((entry) => CARD_DATA[entry.cardId] && Number(entry.quantity) > 0)
+    .forEach((entry) => {
+      const resolved = getCardDefinition(entry.cardId, entry.level);
+      const normalizedLevel = normalizeCardEnhancementLevel(entry.level);
+      const equipped = user.equippedCardId === entry.cardId && Number(user.equippedCardLevel || 0) === normalizedLevel;
+      const nextLevel = Math.min(5, normalizedLevel + 1);
+      const nextPreview = normalizedLevel < 5 ? getCardDefinition(entry.cardId, nextLevel) : null;
+      variants.push({
+        cardId: entry.cardId,
+        enhancementLevel: normalizedLevel,
+        name: resolved.displayName,
+        baseName: CARD_DATA[entry.cardId].name,
+        grade: CARD_DATA[entry.cardId].grade,
+        color: CARD_GRADE_COLORS[CARD_DATA[entry.cardId].grade] || '#666666',
+        borderColor: resolved.borderColor,
+        quantity: Number(entry.quantity),
+        equipped,
+        skillName: resolved.skillName,
+        skillDesc: buildCardSkillDescription(entry.cardId, normalizedLevel),
+        cooldown: resolved.cooldown,
+        durationText: getCardDurationText(entry.cardId, normalizedLevel),
+        canEnhance: normalizedLevel < 5,
+        availableEnhanceQuantity: Math.max(0, Number(entry.quantity) - (equipped ? 1 : 0)),
+        enhanceSuccessRate: normalizedLevel < 5 ? getCardEnhancementSuccessRate(normalizedLevel) : 0,
+        enhanceCost: normalizedLevel < 5 ? getCardEnhancementCost(entry.cardId, normalizedLevel) : 0,
+        nextEnhancementPreview: nextPreview ? {
+          enhancementLevel: nextLevel,
+          name: nextPreview.displayName,
+          skillName: nextPreview.skillName,
+          skillDesc: buildCardSkillDescription(entry.cardId, nextLevel),
+          cooldown: nextPreview.cooldown,
+          durationText: getCardDurationText(entry.cardId, nextLevel),
+          borderColor: nextPreview.borderColor
+        } : null
+      });
+    });
+
+  const gradeOrder = { S: 0, A: 1, B: 2, C: 3 };
+  return variants.sort((a, b) =>
+    (gradeOrder[a.grade] ?? 9) - (gradeOrder[b.grade] ?? 9)
+    || a.baseName.localeCompare(b.baseName, 'ko')
+    || a.enhancementLevel - b.enhancementLevel
+  );
 }
 
 function removeItemFromInventory(user, itemId, amount = 1) {
@@ -1622,12 +1970,14 @@ function buildQueuedSlotSnapshot(user) {
     displayName: user.nickname || user.username,
     nickname: user.nickname || user.username,
     level: user.gameState.level,
-    equippedCardName: equippedCard?.name || '장착 카드 없음',
+    equippedCardName: equippedCard?.displayName || equippedCard?.name || '장착 카드 없음',
     equippedCardGrade: equippedCard?.grade || null,
     equippedCardSkillName: equippedCard?.skillName || '',
-    equippedCardSkillDesc: equippedCard?.skillDesc || '',
+    equippedCardSkillDesc: equippedCard ? buildCardSkillDescription(equippedCard.id, equippedCard.enhancementLevel || 0) : '',
     equippedCardCooldown: Number(equippedCard?.cooldown || 0),
-    equippedCardPassiveOnly: Boolean(equippedCard?.passiveOnly)
+    equippedCardPassiveOnly: Boolean(equippedCard?.passiveOnly),
+    equippedCardEnhancementLevel: Number(equippedCard?.enhancementLevel || 0),
+    equippedCardBorderColor: equippedCard?.borderColor || ''
   };
 }
 
@@ -1651,6 +2001,7 @@ function createRaidParticipantFromUser(user) {
     plannedTargetUserId2: null,
     skillCooldown: 0,
     equippedCardId: user.equippedCardId || null,
+    equippedCardLevel: normalizeCardEnhancementLevel(user.equippedCardLevel || 0),
     extraHits: 0,
     extraDamage: 0,
     damageMultiplierTurns: 0,
@@ -1659,9 +2010,12 @@ function createRaidParticipantFromUser(user) {
     critBonusValue: 0,
     hypeTurns: 0,
     counterTurns: 0,
+    counterDamageMultiplier: 1,
     rewardMultiplier: 1,
     sojuRewardBuff: false,
+    sojuRewardMultiplier: 1,
     lottoRewardBuff: false,
+    lottoRewardSuccessChance: 0.5,
     negateHitCount: 0,
     debuffImmuneCount: 0,
     attackBonusTurns: 0,
@@ -1741,6 +2095,18 @@ function getRemainingBusinessCardPurchases(user) {
   return Math.max(0, 5 - Number(user.shopState?.dailyBusinessCardPurchases || 0));
 }
 
+function getCardEnhancementSuccessRate(level) {
+  const normalizedLevel = normalizeCardEnhancementLevel(level);
+  return CARD_ENHANCE_SUCCESS_RATES[normalizedLevel] ?? 0;
+}
+
+function getCardEnhancementCost(cardId, level) {
+  const grade = CARD_DATA[cardId]?.grade;
+  if (!grade) return 0;
+  const normalizedLevel = normalizeCardEnhancementLevel(level);
+  return CARD_ENHANCE_COSTS[grade]?.[normalizedLevel] ?? 0;
+}
+
 function getFusionOutcomeGrade(sourceGrade) {
   const roll = Math.random();
   if (sourceGrade === 'C') {
@@ -1783,8 +2149,8 @@ function buildRaidParticipantStatusEffects(participant) {
   if (Number(participant.perHitBonusTurns || 0) > 0) effects.push({ type: 'buff', name: '추가 타격 피해', turns: Number(participant.perHitBonusTurns || 0), desc: `공격마다 +${Number(participant.perHitBonusDamage || 0).toLocaleString()} 피해` });
   if (Number(participant.celineTurns || 0) > 0) effects.push({ type: 'buff', name: '셀린느', turns: Number(participant.celineTurns || 0), desc: `공격력 +${Math.round(Number(participant.celineAttackBonusPercent || 0) * 100)}%, 종료 시 추가 피해` });
   if (Number(participant.cardEffectAmpTurns || 0) > 0) effects.push({ type: 'buff', name: '소개팅 상대', turns: Number(participant.cardEffectAmpTurns || 0), desc: `카드 효과 x${Number(participant.cardEffectAmpValue || 1).toFixed(2)}` });
-  if (participant.sojuRewardBuff) effects.push({ type: 'buff', name: '소주각?', desc: '전투 승리 시 전리품 2배' });
-  if (participant.lottoRewardBuff) effects.push({ type: 'buff', name: '이번엔 될거같아', desc: '전투 승리 시 절반 확률로 전리품 3배 또는 보상 없음' });
+  if (participant.sojuRewardBuff) effects.push({ type: 'buff', name: '소주각?', desc: `전투 승리 시 전리품 ${Number(participant.sojuRewardMultiplier || 1).toFixed(1)}배` });
+  if (participant.lottoRewardBuff) effects.push({ type: 'buff', name: '이번엔 될거같아', desc: `전투 승리 시 ${formatCardPercentText(participant.lottoRewardSuccessChance || 0.5)} 확률로 전리품 3배 또는 보상 없음` });
   return effects;
 }
 
@@ -1837,7 +2203,7 @@ function getRaidParticipant(activeBattle, userId) {
 }
 
 function getParticipantCard(participant) {
-  return participant?.equippedCardId ? CARD_DATA[participant.equippedCardId] || null : null;
+  return participant?.equippedCardId ? getCardDefinition(participant.equippedCardId, participant.equippedCardLevel || 0) : null;
 }
 
 function clearRoundShieldEffects(battle) {
@@ -1948,17 +2314,24 @@ function useRaidCardSkill(participant, battle) {
     logText = `${participant.displayName}(이)가 <셀린느> 버프를 얻었습니다.`;
   } else if (card.effectType === 'party_shield') {
     const shieldAmount = scaleFlat(card.shield);
+    const shieldTurns = Math.max(0, Number(card.shieldTurns || 0));
     battle.participants.forEach((ally) => {
       if (ally.hp > 0) {
         ally.shield += shieldAmount;
-        ally.roundShieldAmount = Number(ally.roundShieldAmount || 0) + shieldAmount;
+        if (shieldTurns > 0) {
+          const appliedShieldTurns = ally.userId === participant.userId ? shieldTurns + 1 : shieldTurns;
+          ally.tempShieldAmount = Number(ally.tempShieldAmount || 0) + shieldAmount;
+          ally.tempShieldTurns = Math.max(Number(ally.tempShieldTurns || 0), appliedShieldTurns);
+        } else {
+          ally.roundShieldAmount = Number(ally.roundShieldAmount || 0) + shieldAmount;
+        }
       }
     });
     logText = `${participant.displayName}(이)가 ${card.name}로 파티 전원에게 보호막 ${shieldAmount}을 부여했습니다.`;
   } else if (card.effectType === 'party_heal') {
     const healAmount = scaleFlat(card.heal);
     battle.participants.forEach((ally) => {
-      if (ally.hp > 0) healRaidTarget(ally, healAmount);
+      if (ally.hp > 0 && (card.includeSelf || ally.userId !== participant.userId)) healRaidTarget(ally, healAmount);
     });
     logText = `${participant.displayName}(이)가 ${card.name}로 파티 전원의 HP를 ${healAmount} 회복시켰습니다.`;
   } else if (card.effectType === 'party_crit_bonus') {
@@ -2002,8 +2375,12 @@ function useRaidCardSkill(participant, battle) {
       logText = `${participant.displayName}(이)가 ${card.name}로 ${target.displayName}의 HP를 ${card.selfDamage} 줄이고 다음 공격 피해를 증폭시켰습니다.`;
     }
   } else if (card.effectType === 'party_cleanse') {
-    battle.participants.forEach((ally) => cleanseRaidTarget(ally));
-    logText = `${participant.displayName}(이)가 ${card.name}로 파티의 해로운 효과를 제거했습니다.`;
+    const aliveAllies = getAliveRaidParticipants(battle);
+    const targets = card.targets >= 99
+      ? aliveAllies
+      : [...aliveAllies].sort(() => Math.random() - 0.5).slice(0, Math.min(card.targets || aliveAllies.length, aliveAllies.length));
+    targets.forEach((ally) => cleanseRaidTarget(ally));
+    logText = `${participant.displayName}(이)가 ${card.name}로 ${targets.length >= aliveAllies.length ? '파티 전원' : targets.map((ally) => ally.displayName).join(', ')}의 해로운 효과를 제거했습니다.`;
   } else if (card.effectType === 'target_heal') {
     const selectedTargetId = participant.plannedTargetUserId;
     const target = getRaidParticipant(battle, selectedTargetId) || getAliveRaidParticipants(battle)[0] || participant;
@@ -2026,6 +2403,7 @@ function useRaidCardSkill(participant, battle) {
     logText = `${participant.displayName}(이)가 ${card.name}로 ${shuffled.length}명에게 보호막 ${shieldAmount}을 부여했습니다.`;
   } else if (card.effectType === 'self_counter') {
     participant.counterTurns = Math.max(participant.counterTurns, card.turns);
+    participant.counterDamageMultiplier = Math.max(Number(participant.counterDamageMultiplier || 1), Number(card.counterDamageMultiplier || 1));
     logText = `${participant.displayName}(이)가 ${card.name}로 반격 태세에 들어갔습니다.`;
   } else if (card.effectType === 'target_pair_guard_buff') {
     const selectedTargetId = participant.plannedTargetUserId;
@@ -2103,7 +2481,10 @@ function tickRaidParticipantEndOfTurn(participant, battle) {
       participant.tempShieldAmount = 0;
     }
   }
-  if (participant.counterTurns > 0) participant.counterTurns -= 1;
+  if (participant.counterTurns > 0) {
+    participant.counterTurns -= 1;
+    if (participant.counterTurns <= 0) participant.counterDamageMultiplier = 1;
+  }
   if (participant.attackBonusTurns > 0) {
     participant.attackBonusTurns -= 1;
     if (participant.attackBonusTurns <= 0) participant.attackBonusPercent = 0;
@@ -2273,7 +2654,7 @@ function applyRaidDamageToBoss(battle, damage) {
 function performRaidCounterAttack(participant, battle) {
   const baseDamage = Math.floor(participant.level * 20 * (1 + getRaidAttackBonusPercent(participant)));
   const isCritical = Math.random() < getRaidCriticalChance(participant);
-  let damage = Math.floor(baseDamage * (isCritical ? 1.5 : 1));
+  let damage = Math.floor(baseDamage * Number(participant.counterDamageMultiplier || 1) * (isCritical ? 1.5 : 1));
   if (participant.perHitBonusTurns > 0) damage += participant.perHitBonusDamage || 0;
   if (participant.damageMultiplierTurns > 0) {
     damage = Math.floor(damage * participant.damageMultiplierValue);
@@ -2452,10 +2833,12 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
         plannedTargetUserId: participant.plannedTargetUserId || null,
         plannedTargetUserId2: participant.plannedTargetUserId2 || null,
         equippedCardId: participant.equippedCardId || null,
-        equippedCardName: card?.name || '장착 카드 없음',
+        equippedCardLevel: normalizeCardEnhancementLevel(participant.equippedCardLevel || 0),
+        equippedCardName: card?.displayName || card?.name || '장착 카드 없음',
         equippedCardGrade: card?.grade || null,
+        equippedCardBorderColor: card?.borderColor || '',
         skillName: card?.skillName || '',
-        skillDesc: card?.skillDesc || '',
+        skillDesc: card ? buildCardSkillDescription(card.id, card.enhancementLevel || 0) : '',
         targetType: card?.targetType || null,
         passiveOnly: Boolean(card?.passiveOnly),
         statusEffects: buildRaidParticipantStatusEffects(participant),
@@ -2467,15 +2850,25 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
 }
 
 function applyRaidBattleStartPassives(activeBattle) {
-  if (activeBattle.participants.some((participant) => participant.equippedCardId === 'drinking_angle')) {
+  const sojuCards = activeBattle.participants
+    .map((participant) => getParticipantCard(participant))
+    .filter((card) => card?.id === 'drinking_angle');
+  if (sojuCards.length) {
+    const rewardMultiplier = Math.max(...sojuCards.map((card) => Number(card.rewardMultiplier || 1)));
     activeBattle.participants.forEach((participant) => {
       participant.sojuRewardBuff = true;
+      participant.sojuRewardMultiplier = rewardMultiplier;
     });
     activeBattle.logs.push('야채곱창이 파티 전원에게 소주각? 버프를 부여했습니다.');
   }
-  if (activeBattle.participants.some((participant) => participant.equippedCardId === 'lotto_numbers')) {
+  const lottoCards = activeBattle.participants
+    .map((participant) => getParticipantCard(participant))
+    .filter((card) => card?.id === 'lotto_numbers');
+  if (lottoCards.length) {
+    const successChance = Math.max(...lottoCards.map((card) => Number(card.successChance || 0.5)));
     activeBattle.participants.forEach((participant) => {
       participant.lottoRewardBuff = true;
+      participant.lottoRewardSuccessChance = successChance;
     });
     activeBattle.logs.push('모래의 로또번호가 파티 전원에게 이번엔 될거같아 버프를 부여했습니다.');
   }
@@ -2538,8 +2931,12 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
         moneyReward: 100000 + Math.floor(Math.random() * 200001)
       }
     : null;
-  const sharedLottoOutcome = activeBattle.winner === 'players' && activeBattle.participants.some((participant) => participant.lottoRewardBuff)
-    ? (Math.random() < 0.5 ? 'success' : 'fail')
+  const maxLottoSuccessChance = activeBattle.participants.reduce(
+    (maxChance, participant) => participant.lottoRewardBuff ? Math.max(maxChance, Number(participant.lottoRewardSuccessChance || 0.5)) : maxChance,
+    0
+  );
+  const sharedLottoOutcome = activeBattle.winner === 'players' && maxLottoSuccessChance > 0
+    ? (Math.random() < maxLottoSuccessChance ? 'success' : 'fail')
     : null;
 
   for (const participant of activeBattle.participants) {
@@ -2553,8 +2950,8 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
       let rewardMultiplier = 1;
       const rewardNotes = [];
       if (participant.sojuRewardBuff) {
-        rewardMultiplier *= 2;
-        rewardNotes.push('소주각? 적용으로 전리품 2배');
+        rewardMultiplier *= Number(participant.sojuRewardMultiplier || 1);
+        rewardNotes.push(`소주각? 적용으로 전리품 ${Number(participant.sojuRewardMultiplier || 1).toFixed(1)}배`);
       }
       if (participant.lottoRewardBuff) {
         if (sharedLottoOutcome === 'success') {
@@ -3017,8 +3414,11 @@ function buildGameStateResponse(user, now = new Date()) {
     gameState,
     inventory: user.inventory,
     cards: user.cards,
+    enhancedCards: user.enhancedCards,
     equippedCardId: user.equippedCardId,
+    equippedCardLevel: normalizeCardEnhancementLevel(user.equippedCardLevel || 0),
     cardDetails: buildCardDetails(user),
+    cardVariantDetails: buildCardVariantDetails(user),
     buffs: user.buffs,
     titles: user.titles,
     titleDetails: buildTitleDetails(user, now),
@@ -3344,6 +3744,13 @@ app.post('/api/action/work', async (req, res) => {
     user.gameState.lastActionTime = now;
 
     const response = await buildUserResponseWithGlobals(user, now);
+    response.shopPurchase = {
+      itemId,
+      itemName: itemInfo.name,
+      quantity: buyQuantity,
+      totalPrice,
+      ownedQuantity: getInventoryQuantity(user, itemId)
+    };
     await user.save();
     res.json(response);
   } catch (err) {
@@ -3587,6 +3994,33 @@ app.post('/api/action/nap', async (req, res) => {
   }
 });
 
+app.post('/api/action/side-job', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+
+    const now = new Date();
+    calculateOfflineGains(user, now);
+    const derivedStats = calculateDerivedStats(user, now);
+    const salaryPerMinute = getSalaryPerMinute(user.gameState.level, derivedStats.moneyBonusPercent);
+    const gainedMoney = Math.floor(salaryPerMinute * 300);
+
+    user.gameState.stress = Number(Math.min(100, user.gameState.stress + 40).toFixed(2));
+    user.gameState.money += gainedMoney;
+    user.gameState.lastActionTime = now;
+
+    const response = await buildUserResponseWithGlobals(user, now);
+    await user.save();
+    res.json(response);
+  } catch (err) {
+    console.error('Side job action error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
 app.post('/api/action/stock', async (req, res) => {
   const { userId, amount } = req.body;
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
@@ -3681,6 +4115,13 @@ app.post('/api/shop/buy', async (req, res) => {
     user.gameState.lastActionTime = now;
 
     const response = await buildUserResponseWithGlobals(user, now);
+    response.shopPurchase = {
+      itemId,
+      itemName: itemInfo.name,
+      quantity: buyQuantity,
+      totalPrice,
+      ownedQuantity: getInventoryQuantity(user, itemId)
+    };
     await user.save();
     res.json(response);
   } catch (err) {
@@ -3887,8 +4328,78 @@ app.post('/api/cards/fuse', async (req, res) => {
   }
 });
 
+app.post('/api/cards/enhance', async (req, res) => {
+  const { userId, cardId, enhancementLevel } = req.body;
+  if (!userId || !cardId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+
+    const now = new Date();
+    calculateOfflineGains(user, now);
+
+    const currentLevel = normalizeCardEnhancementLevel(enhancementLevel || 0);
+    if (!CARD_DATA[cardId]) {
+      return res.status(400).json({ msg: '존재하지 않는 카드입니다.' });
+    }
+    if (currentLevel >= 5) {
+      return res.status(400).json({ msg: '이미 최대 강화 단계입니다.' });
+    }
+    if (getOwnedCardVariantQuantity(user, cardId, currentLevel) <= 0) {
+      return res.status(400).json({ msg: '해당 강화 단계의 카드를 보유하고 있지 않습니다.' });
+    }
+    const equippedThisVariant = user.equippedCardId === cardId && Number(user.equippedCardLevel || 0) === currentLevel;
+    const availableEnhanceQuantity = getOwnedCardVariantQuantity(user, cardId, currentLevel) - (equippedThisVariant ? 1 : 0);
+    if (availableEnhanceQuantity <= 0) {
+      return res.status(400).json({ msg: '장착 중인 카드만 남아 있어 강화에 사용할 수 없습니다.' });
+    }
+
+    const enhanceCost = getCardEnhancementCost(cardId, currentLevel);
+    if (user.gameState.money < enhanceCost) {
+      return res.status(400).json({ msg: '강화 비용이 부족합니다.' });
+    }
+
+    user.gameState.money -= enhanceCost;
+    const successRate = getCardEnhancementSuccessRate(currentLevel);
+    const isSuccess = Math.random() < successRate;
+    const nextLevel = currentLevel + 1;
+
+    if (isSuccess) {
+      if (currentLevel <= 0) {
+        removeCardFromCollection(user, cardId, 1);
+      } else {
+        removeEnhancedCard(user, cardId, currentLevel, 1);
+      }
+      addEnhancedCard(user, cardId, nextLevel, 1);
+
+      if (user.equippedCardId === cardId && Number(user.equippedCardLevel || 0) === currentLevel) {
+        user.equippedCardId = cardId;
+        user.equippedCardLevel = nextLevel;
+      }
+    }
+
+    user.gameState.lastActionTime = now;
+    const response = await buildUserResponseWithGlobals(user, now);
+    response.enhancementResult = {
+      cardId,
+      success: isSuccess,
+      previousLevel: currentLevel,
+      nextLevel: isSuccess ? nextLevel : currentLevel,
+      successRate,
+      cost: enhanceCost,
+      cardName: CARD_DATA[cardId].name
+    };
+    await user.save();
+    res.json(response);
+  } catch (err) {
+    console.error('Card enhance error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
 app.post('/api/cards/equip', async (req, res) => {
-  const { userId, cardId } = req.body;
+  const { userId, cardId, enhancementLevel } = req.body;
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
@@ -3898,11 +4409,18 @@ app.post('/api/cards/equip', async (req, res) => {
     const now = new Date();
     calculateOfflineGains(user, now);
 
-    if (cardId && getCardQuantity(user, cardId) <= 0) {
+    const targetLevel = normalizeCardEnhancementLevel(enhancementLevel || 0);
+    if (cardId && getOwnedCardVariantQuantity(user, cardId, targetLevel) <= 0) {
       return res.status(400).json({ msg: '보유하지 않은 카드입니다.' });
     }
 
-    user.equippedCardId = user.equippedCardId === cardId ? null : (cardId || null);
+    if (user.equippedCardId === cardId && Number(user.equippedCardLevel || 0) === targetLevel) {
+      user.equippedCardId = null;
+      user.equippedCardLevel = 0;
+    } else {
+      user.equippedCardId = cardId || null;
+      user.equippedCardLevel = cardId ? targetLevel : 0;
+    }
     const response = await buildUserResponseWithGlobals(user, now);
     await user.save();
     res.json(response);
