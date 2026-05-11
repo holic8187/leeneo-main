@@ -4808,6 +4808,24 @@ app.post('/api/sync', async (req, res) => {
     await user.save();
     res.json(response);
   } catch (err) {
+    if (err?.name === 'VersionError' || String(err?.message || '').includes('No matching document found for id')) {
+      console.warn('Sync save conflict ignored:', err.message);
+      try {
+        const latestUser = await User.findById(userId);
+        if (!latestUser) {
+          return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+        }
+        ensureUserDefaults(latestUser);
+        const now = new Date();
+        return res.json({
+          user: buildGameStateResponse(latestUser, now),
+          notifications: [],
+          global: getGlobalState(now)
+        });
+      } catch (reloadErr) {
+        console.error('Sync conflict recovery error:', reloadErr);
+      }
+    }
     console.error('Sync error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
   }
