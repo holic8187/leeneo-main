@@ -2009,14 +2009,18 @@ async function pollRaidState() {
   try {
     const data = await postJson(`${API_URL}/api/raid/state`, { userId: user._id });
     latestRaidState = data.raid;
-    updateRaidButton(user, latestRaidState);
-    updateRaidLobbyUI(latestRaidState, user);
-    updateRaidCountdown(latestRaidState, user);
+    if (data.user) {
+      updateLocalUserState(data);
+    }
+    const currentUser = getStoredUser() || user;
+    updateRaidButton(currentUser, latestRaidState);
+    updateRaidLobbyUI(latestRaidState, currentUser);
+    updateRaidCountdown(latestRaidState, currentUser);
 
     if (latestRaidState?.activeBattle?.phase === 'active' && latestRaidState.activeBattle.isParticipant) {
       hideModal('raidLobbyModal');
       showRaidScreen();
-      renderRaidBattle(latestRaidState, user);
+      renderRaidBattle(latestRaidState, currentUser);
     } else if (!latestRaidState?.activeBattle && !document.getElementById('raid-screen').classList.contains('hidden')) {
       handleRaidBackClick();
     }

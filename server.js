@@ -3020,8 +3020,6 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
   if (!activeBattle || activeBattle.finalized) return;
   activeBattle.finalizing = true;
   const participantIds = activeBattle.participants.map((participant) => participant.userId);
-  const users = await User.find({ _id: { $in: participantIds } });
-  const userMap = new Map(users.map((entry) => [String(entry._id), entry]));
   const sharedBaseRewards = activeBattle.winner === 'players'
     ? {
         businessCards: Math.floor(Math.random() * 3),
@@ -3038,9 +3036,7 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
     ? (Math.random() < maxLottoSuccessChance ? 'success' : 'fail')
     : null;
 
-  for (const participant of activeBattle.participants) {
-    const user = userMap.get(participant.userId);
-    if (!user) continue;
+  const applyRaidOutcomeToUser = (user, participant) => {
     ensureUserDefaults(user);
     calculateOfflineGains(user, now);
 
@@ -3082,7 +3078,37 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
     }
 
     reconcileTitles(user, now);
-    await user.save();
+  };
+
+  for (const participant of activeBattle.participants) {
+    let finalized = false;
+    let lastFinalizeError = null;
+
+    for (let attempt = 0; attempt < 5 && !finalized; attempt += 1) {
+      const user = await User.findById(participant.userId);
+      if (!user) {
+        finalized = true;
+        break;
+      }
+
+      try {
+        applyRaidOutcomeToUser(user, participant);
+        await user.save();
+        finalized = true;
+      } catch (err) {
+        lastFinalizeError = err;
+        if (isVersionConflictError(err) && attempt < 4) {
+          console.warn(`Raid finalize conflict for ${participant.userId}:`, err.message);
+          continue;
+        }
+        console.error(`Raid finalize error for ${participant.userId}:`, err);
+        finalized = true;
+      }
+    }
+
+    if (!finalized && lastFinalizeError) {
+      console.error(`Raid finalize failed for ${participant.userId}:`, lastFinalizeError);
+    }
   }
 
   activeBattle.finalized = true;
@@ -4541,8 +4567,29 @@ app.post('/api/raid/state', async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
     ensureUserDefaults(user);
-    const raid = await buildRaidStateResponse(user, new Date());
-    res.json({ raid });
+    const now = new Date();
+    const raid = await buildRaidStateResponse(user, now);
+
+    let userResponse;
+    try {
+      userResponse = await runUserMutationWithRetry(userId, async (latestUser) => {
+        return buildUserResponseWithGlobals(latestUser, now);
+      }, { conflictLabel: 'Raid state sync conflict' });
+    } catch (syncErr) {
+      console.warn('Raid state sync recovery:', syncErr?.message || syncErr);
+      const latestUser = await User.findById(userId);
+      if (!latestUser) {
+        return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+      }
+      ensureUserDefaults(latestUser);
+      userResponse = {
+        user: buildGameStateResponse(latestUser, now),
+        notifications: Array.isArray(latestUser.pendingNotifications) ? [...latestUser.pendingNotifications] : [],
+        global: getGlobalState(now)
+      };
+    }
+
+    res.json({ raid, ...userResponse });
   } catch (err) {
     console.error('Raid state error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
@@ -4963,7 +5010,7 @@ app.post('/api/sync', async (req, res) => {
         const now = new Date();
         return res.json({
           user: buildGameStateResponse(latestUser, now),
-          notifications: [],
+          notifications: Array.isArray(latestUser.pendingNotifications) ? [...latestUser.pendingNotifications] : [],
           global: getGlobalState(now)
         });
       } catch (reloadErr) {
