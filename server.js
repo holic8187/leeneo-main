@@ -1669,6 +1669,16 @@ function consumeNotifications(user) {
   return notifications;
 }
 
+function isVersionConflictError(err) {
+  return err?.name === 'VersionError' || String(err?.message || '').includes('No matching document found for id');
+}
+
+function createHttpError(statusCode, message) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
 function cleanupExpiredBuffs(user, now = new Date()) {
   user.buffs = user.buffs.filter((buff) => new Date(buff.expiresAt) > now);
 }
@@ -4545,11 +4555,36 @@ app.post('/api/raid/start', async (req, res) => {
       return res.status(400).json({ msg: '참여 가능한 파티원이 2명 이상 있어야 합니다.' });
     }
 
-    for (const user of participantUsers) {
+    for (let participantIndex = 0; participantIndex < participantUsers.length; participantIndex += 1) {
+      let user = participantUsers[participantIndex];
       if (!consumeRaidEntry(user, now)) {
         return res.status(400).json({ msg: `${user.nickname || user.username} 님은 오늘 이미 레이드에 참여했습니다.` });
       }
-      consumedUsers.push(user);
+      try {
+        await user.save();
+        consumedUsers.push(user);
+      } catch (err) {
+        if (!isVersionConflictError(err)) throw err;
+
+        const latestUser = await User.findById(user._id);
+        if (!latestUser) {
+          throw createHttpError(404, '사용자를 찾을 수 없습니다.');
+        }
+
+        ensureUserDefaults(latestUser);
+        calculateOfflineGains(latestUser, now);
+        if (latestUser.gameState.level < RAID_MIN_LEVEL) {
+          throw createHttpError(400, `${latestUser.nickname || latestUser.username} 님의 레벨이 부족합니다.`);
+        }
+        if (!consumeRaidEntry(latestUser, now)) {
+          throw createHttpError(400, `${latestUser.nickname || latestUser.username} 님은 오늘 이미 레이드에 참여했습니다.`);
+        }
+
+        await latestUser.save();
+        participantUsers[participantIndex] = latestUser;
+        participants[participantIndex] = createRaidParticipantFromUser(latestUser);
+        consumedUsers.push(latestUser);
+      }
     }
 
     const countdownDurationMs = (RAID_COUNTDOWN_SECONDS * 1000) + RAID_COUNTDOWN_BUFFER_MS;
@@ -4574,10 +4609,6 @@ app.post('/api/raid/start', async (req, res) => {
     applyRaidBattleStartPassives(raidState.activeBattle);
     raidState.slots = Array(RAID_PARTY_SIZE).fill(null);
     bumpRaidVersion();
-
-    for (const user of participantUsers) {
-      await user.save();
-    }
 
     const responseUser = participantUsers.find((entry) => String(entry._id) === String(userId)) || starter;
     const raid = {
@@ -4614,7 +4645,7 @@ app.post('/api/raid/start', async (req, res) => {
     ) {
       clearActiveRaidBattle();
     }
-    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+    res.status(err?.statusCode || 500).json({ msg: err?.message || '서버 오류가 발생했습니다.' });
   }
 });
 
@@ -4915,8 +4946,9 @@ app.post('/api/admin/gift', async (req, res) => {
     }
 
     const now = new Date();
+    let deliveredCount = 0;
 
-    for (const user of users) {
+    const applyGiftToUser = (user) => {
       ensureUserDefaults(user);
       calculateOfflineGains(user, now);
 
@@ -4932,12 +4964,40 @@ app.post('/api/admin/gift', async (req, res) => {
       }
 
       reconcileTitles(user, now);
-      await user.save();
+    };
+
+    for (const user of users) {
+      try {
+        applyGiftToUser(user);
+        await user.save();
+        deliveredCount += 1;
+      } catch (err) {
+        if (!isVersionConflictError(err)) {
+          if (targetMode === 'single') throw err;
+          console.error('Admin gift user skipped:', err);
+          continue;
+        }
+
+        try {
+          const latestUser = await User.findById(user._id);
+          if (!latestUser) continue;
+          applyGiftToUser(latestUser);
+          await latestUser.save();
+          deliveredCount += 1;
+        } catch (retryErr) {
+          if (targetMode === 'single') throw retryErr;
+          console.error('Admin gift retry failed:', retryErr);
+        }
+      }
+    }
+
+    if (!deliveredCount) {
+      return res.status(500).json({ msg: '선물 발송에 실패했습니다.' });
     }
 
     res.json({
       success: true,
-      deliveredCount: users.length
+      deliveredCount
     });
   } catch (err) {
     console.error('Admin gift error:', err);
