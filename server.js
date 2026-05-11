@@ -3728,7 +3728,7 @@ function applyAdventureReward(user, reward, now = new Date()) {
   if (reward.type === 'buff') {
     const durationMs = BUFF_DATA[reward.buffId]?.durationMs;
     if (!durationMs) return '아무 일도 일어나지 않았습니다.';
-    setOrRefreshBuff(user, reward.buffId, durationMs);
+    setOrRefreshBuff(user, reward.buffId, durationMs, { now, stackDuration: true });
     return `${BUFF_DATA[reward.buffId].name} 효과를 획득했습니다.`;
   }
 
