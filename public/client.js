@@ -144,6 +144,7 @@ let raidCountdownEndsAtMs = 0;
 let raidCountdownDisplayStartMs = 0;
 let cardFusionSelection = [];
 let selectedEnhanceCardKey = null;
+let raidBattleLogPinnedToBottom = true;
 
 document.addEventListener('DOMContentLoaded', () => {
   initApp();
@@ -151,6 +152,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function initApp() {
   setupEventListeners();
+  setupRaidBattleLogTracking();
   tryAutoLogin();
 }
 
@@ -197,6 +199,16 @@ function bindClick(id, handler) {
   if (!element) return;
   element.removeEventListener('click', handler);
   element.addEventListener('click', handler);
+}
+
+function setupRaidBattleLogTracking() {
+  const battleLog = document.getElementById('raidBattleLog');
+  if (!battleLog) return;
+  battleLog.addEventListener('scroll', () => {
+    const threshold = 16;
+    raidBattleLogPinnedToBottom =
+      battleLog.scrollTop + battleLog.clientHeight >= battleLog.scrollHeight - threshold;
+  });
 }
 
 function getStoredUser() {
@@ -1590,10 +1602,17 @@ function renderRaidBattle(raidState, user) {
 
   const battleLog = document.getElementById('raidBattleLog');
   if (battleLog) {
+    const shouldStickToBottom = raidBattleLogPinnedToBottom
+      || battleLog.scrollHeight <= battleLog.clientHeight
+      || battleLog.scrollTop + battleLog.clientHeight >= battleLog.scrollHeight - 16;
     const logs = battle.recentLogs || [];
     battleLog.innerHTML = logs
       .map((line, index) => `<div class="raid-log-line ${index === logs.length - 1 ? 'latest' : ''}">${escapeHtml(line)}</div>`)
       .join('');
+    if (shouldStickToBottom) {
+      battleLog.scrollTop = battleLog.scrollHeight;
+      raidBattleLogPinnedToBottom = true;
+    }
   }
 
   const participantList = document.getElementById('raidParticipantList');
