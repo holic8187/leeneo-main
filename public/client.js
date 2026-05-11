@@ -145,6 +145,11 @@ let raidCountdownDisplayStartMs = 0;
 let cardFusionSelection = [];
 let selectedEnhanceCardKey = null;
 let raidBattleLogPinnedToBottom = true;
+let userMutationInFlightCount = 0;
+let raidBarAnimationState = {
+  bossHpRatio: null,
+  participantHpRatios: {}
+};
 
 document.addEventListener('DOMContentLoaded', () => {
   initApp();
@@ -218,6 +223,64 @@ function getStoredUser() {
 
 function saveStoredUser(user) {
   localStorage.setItem('user', JSON.stringify(user));
+}
+
+function beginUserMutation() {
+  userMutationInFlightCount += 1;
+}
+
+function endUserMutation() {
+  userMutationInFlightCount = Math.max(0, userMutationInFlightCount - 1);
+}
+
+async function runWithUserMutation(task) {
+  beginUserMutation();
+  try {
+    return await task();
+  } finally {
+    endUserMutation();
+  }
+}
+
+function getRaidBarAnimation(previousRatio, currentRatio) {
+  const normalizedCurrent = Math.max(0, Math.min(100, Number(currentRatio || 0)));
+  const normalizedPrevious = Number.isFinite(previousRatio)
+    ? Math.max(0, Math.min(100, Number(previousRatio || 0)))
+    : normalizedCurrent;
+  const takingDamage = normalizedCurrent < normalizedPrevious;
+  const healing = normalizedCurrent > normalizedPrevious;
+
+  return {
+    startHpRatio: takingDamage || healing ? normalizedPrevious : normalizedCurrent,
+    endHpRatio: normalizedCurrent,
+    startTrailRatio: takingDamage ? normalizedPrevious : normalizedCurrent,
+    endTrailRatio: normalizedCurrent,
+    takingDamage,
+    healing
+  };
+}
+
+function animateRaidBarLayers(root) {
+  if (!root) return;
+  const hpFill = root.querySelector('[data-raid-bar-current]');
+  const hpTrail = root.querySelector('[data-raid-bar-trail]');
+  const shieldFill = root.querySelector('[data-raid-bar-shield]');
+  if (!hpFill || !hpTrail) return;
+
+  const endHpRatio = Number(root.dataset.endHpRatio || 0);
+  const endTrailRatio = Number(root.dataset.endTrailRatio || endHpRatio);
+  const trailDelayMs = Number(root.dataset.trailDelayMs || 420);
+  const endShieldLeft = Number(root.dataset.endShieldLeft || endHpRatio);
+
+  requestAnimationFrame(() => {
+    hpFill.style.width = `${endHpRatio}%`;
+    if (shieldFill) {
+      shieldFill.style.left = `${endShieldLeft}%`;
+    }
+    window.setTimeout(() => {
+      hpTrail.style.width = `${endTrailRatio}%`;
+    }, trailDelayMs);
+  });
 }
 
 function getStoredAdmin() {
@@ -558,7 +621,7 @@ async function handleClickWork() {
   btn.textContent = '서류 작업 중...';
 
   try {
-    const data = await postJson(`${API_URL}/api/action/work`, { userId: user._id });
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/action/work`, { userId: user._id }));
     updateLocalUserState(data);
   } catch (err) {
     alert(err.message);
@@ -576,7 +639,7 @@ async function handleLupinClick() {
   btn.disabled = true;
 
   try {
-    const data = await postJson(`${API_URL}/api/action/lupin`, { userId: user._id });
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/action/lupin`, { userId: user._id }));
     updateLocalUserState(data);
   } catch (err) {
     alert(err.message);
@@ -593,7 +656,7 @@ async function handleNapClick() {
   btn.disabled = true;
 
   try {
-    const data = await postJson(`${API_URL}/api/action/nap`, { userId: user._id });
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/action/nap`, { userId: user._id }));
     updateLocalUserState(data);
   } catch (err) {
     alert(err.message);
@@ -610,7 +673,7 @@ async function handleFieldWorkClick() {
   btn.disabled = true;
 
   try {
-    const data = await postJson(`${API_URL}/api/action/field-work`, { userId: user._id });
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/action/field-work`, { userId: user._id }));
     updateLocalUserState(data);
   } catch (err) {
     alert(err.message);
@@ -627,7 +690,7 @@ async function handleSideJobClick() {
   if (btn) btn.disabled = true;
 
   try {
-    const data = await postJson(`${API_URL}/api/action/side-job`, { userId: user._id });
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/action/side-job`, { userId: user._id }));
     updateLocalUserState(data);
   } catch (err) {
     alert(err.message);
@@ -644,7 +707,7 @@ async function handleAdventureClick() {
   if (btn) btn.disabled = true;
 
   try {
-    const data = await postJson(`${API_URL}/api/action/adventure`, { userId: user._id });
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/action/adventure`, { userId: user._id }));
     updateLocalUserState(data);
     await processAdventureResult(data.adventureResult);
   } catch (err) {
@@ -674,10 +737,10 @@ async function handleShoutClick() {
   if (btn) btn.disabled = true;
 
   try {
-    const data = await postJson(`${API_URL}/api/action/shout`, {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/action/shout`, {
       userId: user._id,
       message
-    });
+    }));
     updateLocalUserState(data);
     if (input) input.value = '';
   } catch (err) {
@@ -711,10 +774,10 @@ async function handleStockInvest() {
   btn.disabled = true;
 
   try {
-    const data = await postJson(`${API_URL}/api/action/stock`, {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/action/stock`, {
       userId: user._id,
       amount
-    });
+    }));
     updateLocalUserState(data);
   } catch (err) {
     alert(err.message);
@@ -726,6 +789,18 @@ function getRequestedQuantity(inputId) {
   const input = document.getElementById(inputId);
   const value = Math.floor(Number(input?.value || 1));
   return Number.isFinite(value) && value > 0 ? value : 1;
+}
+
+function getMaxUsableItemQuantity(user, itemId, ownedQuantity = null) {
+  const owned = ownedQuantity ?? getInventoryQuantityFromUser(user, itemId);
+  if (itemId !== 'bacchus') {
+    return Math.max(0, Math.floor(Number(owned || 0)));
+  }
+
+  const stamina = Number(user?.gameState?.stamina || 0);
+  const maxStamina = Number(user?.gameState?.maxStamina || 0);
+  const recoverable = Math.max(0, Math.floor(maxStamina - stamina));
+  return Math.max(0, Math.min(Math.floor(Number(owned || 0)), recoverable));
 }
 
 function getCardVariantKey(cardId, enhancementLevel = 0) {
@@ -1181,11 +1256,11 @@ async function handleBuyClick(itemId, inputId) {
   if (!confirm(`${itemName} ${formatNumber(quantity)}개를 구매하시겠습니까?`)) return;
 
   try {
-    const data = await postJson(`${API_URL}/api/shop/buy`, {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/shop/buy`, {
       userId: user._id,
       itemId,
       quantity
-    });
+    }));
     updateLocalUserState(data);
     if (data.shopPurchase) {
       alert(`${data.shopPurchase.itemName} ${formatNumber(data.shopPurchase.quantity)}개 구매\n-${formatNumber(data.shopPurchase.totalPrice)}원\n현재 보유 ${formatNumber(data.shopPurchase.ownedQuantity)}개`);
@@ -1198,14 +1273,24 @@ async function handleBuyClick(itemId, inputId) {
 async function handleUseItem(itemId, inputId) {
   const user = getStoredUser();
   if (!user?._id) return handleLogoutClick();
-  const quantity = getRequestedQuantity(inputId);
+  const requestedQuantity = getRequestedQuantity(inputId);
+  const maxUsableQuantity = getMaxUsableItemQuantity(user, itemId);
+  if (maxUsableQuantity <= 0) {
+    if (itemId === 'bacchus') {
+      alert('행동력이 이미 최대치라 박카스를 사용할 수 없습니다.');
+    } else {
+      alert('지금은 해당 아이템을 사용할 수 없습니다.');
+    }
+    return;
+  }
+  const quantity = Math.min(requestedQuantity, maxUsableQuantity);
 
   try {
-    const data = await postJson(`${API_URL}/api/inventory/use`, {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/inventory/use`, {
       userId: user._id,
       itemId,
       quantity
-    });
+    }));
     updateLocalUserState(data);
   } catch (err) {
     alert(err.message);
@@ -1224,10 +1309,10 @@ async function handleCardDraw() {
   }
 
   try {
-    const data = await postJson(`${API_URL}/api/cards/draw`, {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/cards/draw`, {
       userId: user._id,
       quantity
-    });
+    }));
     updateLocalUserState(data);
     const results = (data.drawResults || [])
       .map((card) => `[${card.grade}] ${card.name}`)
@@ -1243,11 +1328,11 @@ async function handleToggleCardEquip(cardId, enhancementLevel = 0) {
   if (!user?._id) return handleLogoutClick();
 
   try {
-    const data = await postJson(`${API_URL}/api/cards/equip`, {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/cards/equip`, {
       userId: user._id,
       cardId,
       enhancementLevel
-    });
+    }));
     updateLocalUserState(data);
   } catch (err) {
     alert(err.message);
@@ -1285,10 +1370,10 @@ async function handleToggleTitle(titleId) {
   if (choice !== 'confirm') return;
 
   try {
-    const data = await postJson(`${API_URL}/api/title/toggle`, {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/title/toggle`, {
       userId: user._id,
       titleId
-    });
+    }));
     updateLocalUserState(data);
   } catch (err) {
     alert(err.message);
@@ -1332,10 +1417,10 @@ async function processAdventureResult(result) {
     if (!user?._id) return handleLogoutClick();
 
     try {
-      const data = await postJson(`${API_URL}/api/action/adventure/resolve`, {
+      const data = await runWithUserMutation(() => postJson(`${API_URL}/api/action/adventure/resolve`, {
         userId: user._id,
         choice
-      });
+      }));
       updateLocalUserState(data);
       await processAdventureResult(data.adventureResult);
     } catch (err) {
@@ -1562,6 +1647,11 @@ function renderRaidBattle(raidState, user) {
         </div>
       `
     );
+    raidBarAnimationState.participantHpRatios[participant.userId] = hpRatio;
+  });
+
+  document.querySelectorAll('.raid-participant-list .raid-bar-anim-root').forEach((root) => {
+    animateRaidBarLayers(root);
   });
 }
 
@@ -1628,6 +1718,7 @@ function renderRaidBattle(raidState, user) {
   (battle.participants || []).forEach((participant) => {
     const hpRatio = participant.maxHp > 0 ? (participant.hp / participant.maxHp) * 100 : 0;
     const shieldRatio = participant.maxHp > 0 ? Math.min(100, (participant.shield / participant.maxHp) * 100) : 0;
+    const hpAnimation = getRaidBarAnimation(raidBarAnimationState.participantHpRatios[participant.userId], hpRatio);
     const ownControls = participant.isSelf ? buildRaidSkillControls(participant, battle.participants) : '';
     const isActiveParticipant = !isBossTurn && Number(participant.turnOrder) === currentTurnIndex;
     const lossTextParts = [];
@@ -1657,9 +1748,16 @@ function renderRaidBattle(raidState, user) {
           <div class="raid-bar-wrap">
             ${participant.shield > 0 ? `<div class="raid-shield-indicator">실드 ${formatNumber(participant.shield || 0)}</div>` : ''}
             ${lossText ? `<div class="raid-loss-indicator">${escapeHtml(lossText)}</div>` : ''}
-            <div class="raid-hp-bar">
-              <div class="raid-hp-fill" style="width:${Math.max(0, hpRatio)}%"></div>
-              ${participant.shield > 0 ? `<div class="raid-shield-fill" style="left:${Math.max(0, hpRatio)}%; width:${Math.max(0, Math.min(100 - hpRatio, shieldRatio))}%"></div>` : ''}
+            <div
+              class="raid-hp-bar raid-bar-anim-root"
+              data-end-hp-ratio="${hpAnimation.endHpRatio}"
+              data-end-trail-ratio="${hpAnimation.endTrailRatio}"
+              data-end-shield-left="${hpAnimation.endHpRatio}"
+              data-trail-delay-ms="420"
+            >
+              <div class="raid-hp-trail-fill" data-raid-bar-trail style="width:${hpAnimation.startTrailRatio}%"></div>
+              <div class="raid-hp-fill" data-raid-bar-current style="width:${hpAnimation.startHpRatio}%"></div>
+              ${participant.shield > 0 ? `<div class="raid-shield-fill" data-raid-bar-shield style="left:${hpAnimation.startHpRatio}%; width:${Math.max(0, Math.min(100 - hpAnimation.endHpRatio, shieldRatio))}%"></div>` : ''}
             </div>
           </div>
           <div class="raid-status-text">HP ${formatNumber(participant.hp)} / ${formatNumber(participant.maxHp)}${participant.silenceTurns > 0 ? ' / 침묵' : ''}</div>
@@ -1668,6 +1766,11 @@ function renderRaidBattle(raidState, user) {
         </div>
       `
     );
+    raidBarAnimationState.participantHpRatios[participant.userId] = hpRatio;
+  });
+
+  document.querySelectorAll('.raid-participant-list .raid-bar-anim-root').forEach((root) => {
+    animateRaidBarLayers(root);
   });
 }
 
@@ -1703,12 +1806,24 @@ function renderRaidBattle(raidState, user) {
   if (bossBar) {
     const ratio = battle.bossMaxHp > 0 ? (battle.bossHp / battle.bossMaxHp) * 100 : 0;
     const shieldRatio = battle.bossMaxHp > 0 ? Math.min(100, (battle.bossShield / battle.bossMaxHp) * 100) : 0;
+    const bossAnimation = getRaidBarAnimation(raidBarAnimationState.bossHpRatio, ratio);
     const bossLossText = Number(battle.bossLastHpLoss || 0) > 0 ? `-${formatNumber(battle.bossLastHpLoss || 0)}` : '';
     bossBar.innerHTML = `
-      <div id="raidBossHpFill" class="raid-boss-bar-fill" style="width:${Math.max(0, ratio)}%"></div>
-      ${battle.bossShield > 0 ? `<div class="raid-shield-fill" style="left:${Math.max(0, ratio)}%; width:${Math.max(0, Math.min(100 - ratio, shieldRatio))}%"></div>` : ''}
-      ${bossLossText ? `<div class="raid-loss-indicator">${bossLossText}</div>` : ''}
+      <div
+        class="raid-bar-anim-root"
+        data-end-hp-ratio="${bossAnimation.endHpRatio}"
+        data-end-trail-ratio="${bossAnimation.endTrailRatio}"
+        data-end-shield-left="${bossAnimation.endHpRatio}"
+        data-trail-delay-ms="420"
+      >
+        <div class="raid-boss-bar-trail" data-raid-bar-trail style="width:${bossAnimation.startTrailRatio}%"></div>
+        <div id="raidBossHpFill" class="raid-boss-bar-fill" data-raid-bar-current style="width:${bossAnimation.startHpRatio}%"></div>
+        ${battle.bossShield > 0 ? `<div class="raid-shield-fill" data-raid-bar-shield style="left:${bossAnimation.startHpRatio}%; width:${Math.max(0, Math.min(100 - bossAnimation.endHpRatio, shieldRatio))}%"></div>` : ''}
+        ${bossLossText ? `<div class="raid-loss-indicator">${bossLossText}</div>` : ''}
+      </div>
     `;
+    animateRaidBarLayers(bossBar.querySelector('.raid-bar-anim-root'));
+    raidBarAnimationState.bossHpRatio = ratio;
   }
 
   const battleLog = document.getElementById('raidBattleLog');
@@ -1726,6 +1841,7 @@ function renderRaidBattle(raidState, user) {
   (battle.participants || []).forEach((participant) => {
     const hpRatio = participant.maxHp > 0 ? (participant.hp / participant.maxHp) * 100 : 0;
     const shieldRatio = participant.maxHp > 0 ? Math.min(100, (participant.shield / participant.maxHp) * 100) : 0;
+    const hpAnimation = getRaidBarAnimation(raidBarAnimationState.participantHpRatios[participant.userId], hpRatio);
     const ownControls = participant.isSelf ? buildRaidSkillControls(participant, battle.participants) : '';
     const isActiveParticipant = !isBossTurn && Number(participant.turnOrder) === currentTurnIndex;
     const lossTextParts = [];
@@ -1755,9 +1871,16 @@ function renderRaidBattle(raidState, user) {
           <div class="raid-bar-wrap">
             ${participant.shield > 0 ? `<div class="raid-shield-indicator">실드 ${formatNumber(participant.shield || 0)}</div>` : ''}
             ${lossText ? `<div class="raid-loss-indicator">${escapeHtml(lossText)}</div>` : ''}
-            <div class="raid-hp-bar">
-              <div class="raid-hp-fill" style="width:${Math.max(0, hpRatio)}%"></div>
-              ${participant.shield > 0 ? `<div class="raid-shield-fill" style="left:${Math.max(0, hpRatio)}%; width:${Math.max(0, Math.min(100 - hpRatio, shieldRatio))}%"></div>` : ''}
+            <div
+              class="raid-hp-bar raid-bar-anim-root"
+              data-end-hp-ratio="${hpAnimation.endHpRatio}"
+              data-end-trail-ratio="${hpAnimation.endTrailRatio}"
+              data-end-shield-left="${hpAnimation.endHpRatio}"
+              data-trail-delay-ms="420"
+            >
+              <div class="raid-hp-trail-fill" data-raid-bar-trail style="width:${hpAnimation.startTrailRatio}%"></div>
+              <div class="raid-hp-fill" data-raid-bar-current style="width:${hpAnimation.startHpRatio}%"></div>
+              ${participant.shield > 0 ? `<div class="raid-shield-fill" data-raid-bar-shield style="left:${hpAnimation.startHpRatio}%; width:${Math.max(0, Math.min(100 - hpAnimation.endHpRatio, shieldRatio))}%"></div>` : ''}
             </div>
           </div>
           <div class="raid-status-text">HP ${formatNumber(participant.hp)} / ${formatNumber(participant.maxHp)}</div>
@@ -1767,6 +1890,8 @@ function renderRaidBattle(raidState, user) {
         </div>
       `
     );
+    raidBarAnimationState.participantHpRatios[participant.userId] = hpRatio;
+    animateRaidBarLayers(participantList.lastElementChild?.querySelector('.raid-bar-anim-root'));
   });
 }
 
@@ -2146,9 +2271,14 @@ function updateInventoryUI(user) {
       const desc = tooltipSource?.hoverDesc || '';
       const shortDesc = tooltipSource?.desc || '';
       const qtyInputId = `use-qty-${item.itemId}`;
+      const canUseInventoryItem = tooltipSource && ['bacchus', 'hot6', 'tylenol', 'raid_entry_ticket', 'hagendaz'].includes(item.itemId);
+      const maxUseQuantity = getMaxUsableItemQuantity(user, item.itemId, item.quantity);
       const actionButton = tooltipSource && ['bacchus', 'hot6', 'tylenol', 'raid_entry_ticket', 'hagendaz'].includes(item.itemId)
         ? `<div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" max="${item.quantity}" step="1" value="1"><button class="mini-btn" onclick="handleUseItem('${item.itemId}', '${qtyInputId}')">사용</button></div>`
         : '<span class="muted-text">상시 적용</span>';
+      const effectiveActionButton = canUseInventoryItem
+        ? `<div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" max="${Math.max(1, maxUseQuantity)}" step="1" value="1" ${maxUseQuantity <= 0 ? 'disabled' : ''}><button class="mini-btn" onclick="handleUseItem('${item.itemId}', '${qtyInputId}')" ${maxUseQuantity <= 0 ? 'disabled' : ''}>?ъ슜</button></div>`
+        : actionButton;
 
       inventoryList.insertAdjacentHTML(
         'beforeend',
@@ -2157,7 +2287,7 @@ function updateInventoryUI(user) {
             <td title="${escapeHtml(desc)}">${escapeHtml(title)}</td>
             <td>${formatNumber(item.quantity)}</td>
             <td title="${escapeHtml(desc)}">${escapeHtml(shortDesc)}</td>
-            <td>${actionButton}</td>
+            <td>${effectiveActionButton}</td>
           </tr>
         `
       );
@@ -2331,6 +2461,7 @@ function updateStressEffect(stress) {
 async function syncUserState() {
   const user = getStoredUser();
   if (!user?._id) return;
+  if (userMutationInFlightCount > 0) return;
 
   try {
     const data = await postJson(`${API_URL}/api/sync`, { userId: user._id });
@@ -2642,14 +2773,18 @@ function buildRaidSkillControls(participant, participants) {
   }
 
   const silenced = Number(participant.silenceTurns || 0) > 0;
-  const disabled = participant.hp <= 0 || participant.skillCooldown > 0 || silenced;
+  const isDead = participant.hp <= 0;
   const needsPrimaryTarget = participant.targetType === 'ally' || participant.targetType === 'ally_pair';
   const needsSecondaryTarget = participant.targetType === 'ally_pair';
   const missingPrimaryTarget = needsPrimaryTarget && !participant.plannedTargetUserId;
   const missingSecondaryTarget = needsSecondaryTarget && !participant.plannedTargetUserId2;
   const toggleDisabled = participant.plannedSkill
-    ? disabled
-    : (disabled || missingPrimaryTarget || missingSecondaryTarget);
+    ? isDead
+    : (isDead || missingPrimaryTarget || missingSecondaryTarget);
+  const targetDisabled = isDead;
+  const statusText = silenced
+    ? `침묵 ${formatNumber(participant.silenceTurns)}턴`
+    : (participant.skillCooldown > 0 ? `쿨다운 ${formatNumber(participant.skillCooldown)}턴` : '예약 가능');
 
   return `
     <div class="raid-skill-row">
@@ -2661,18 +2796,18 @@ function buildRaidSkillControls(participant, participants) {
       >
         ${participant.plannedSkill ? '다음 턴 스킬 사용 예정' : '다음 턴 스킬 사용'}
       </button>
-      <span class="menu-note">${silenced ? `침묵 ${formatNumber(participant.silenceTurns)}턴` : `쿨다운 ${formatNumber(participant.skillCooldown)}턴`}</span>
+      <span class="menu-note">${statusText}</span>
     </div>
     ${needsPrimaryTarget ? `
       <div class="raid-target-group">
         <div class="raid-target-label">${participant.targetType === 'ally_pair' ? '1번 대상' : '버프 대상'}</div>
-        <div class="raid-target-buttons">${buildRaidTargetButtons(participant, participants, 1, disabled)}</div>
+        <div class="raid-target-buttons">${buildRaidTargetButtons(participant, participants, 1, targetDisabled)}</div>
       </div>
     ` : ''}
     ${needsSecondaryTarget ? `
       <div class="raid-target-group">
         <div class="raid-target-label">2번 대상</div>
-        <div class="raid-target-buttons">${buildRaidTargetButtons(participant, participants, 2, disabled)}</div>
+        <div class="raid-target-buttons">${buildRaidTargetButtons(participant, participants, 2, targetDisabled)}</div>
       </div>
     ` : ''}
   `;
@@ -2754,8 +2889,9 @@ function updateInventoryUI(user) {
       const shortDesc = itemInfo.desc || '';
       const qtyInputId = `use-qty-${item.itemId}`;
       const canUse = ['bacchus', 'hot6', 'tylenol', 'raid_entry_ticket', 'hagendaz'].includes(item.itemId);
+      const maxUseQuantity = getMaxUsableItemQuantity(user, item.itemId, item.quantity);
       const actionButton = canUse
-        ? `<div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" max="${item.quantity}" step="1" value="1"><button class="mini-btn" onclick="handleUseItem('${item.itemId}', '${qtyInputId}')">사용</button></div>`
+        ? `<div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" max="${Math.max(1, maxUseQuantity)}" step="1" value="1" ${maxUseQuantity <= 0 ? 'disabled' : ''}><button class="mini-btn" onclick="handleUseItem('${item.itemId}', '${qtyInputId}')" ${maxUseQuantity <= 0 ? 'disabled' : ''}>사용</button></div>`
         : '<span class="muted-text">상시 적용</span>';
 
       inventoryList.insertAdjacentHTML(

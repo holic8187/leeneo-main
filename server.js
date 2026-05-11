@@ -1681,7 +1681,7 @@ function createHttpError(statusCode, message) {
 
 async function runUserMutationWithRetry(userId, mutateUser, options = {}) {
   const {
-    maxRetries = 1,
+    maxRetries = 5,
     conflictLabel = 'User mutation conflict'
   } = options;
 
@@ -1701,14 +1701,20 @@ async function runUserMutationWithRetry(userId, mutateUser, options = {}) {
       return result;
     } catch (err) {
       lastError = err;
-      if (isVersionConflictError(err) && attempt < maxRetries) {
+      if (isVersionConflictError(err)) {
         console.warn(`${conflictLabel}:`, err.message);
-        continue;
+        if (attempt < maxRetries) {
+          continue;
+        }
+        throw createHttpError(409, '요청이 겹쳐 처리에 실패했습니다. 잠시 후 다시 시도해주세요.');
       }
       throw err;
     }
   }
 
+  if (isVersionConflictError(lastError)) {
+    throw createHttpError(409, '요청이 겹쳐 처리에 실패했습니다. 잠시 후 다시 시도해주세요.');
+  }
   throw lastError || createHttpError(500, '서버 오류가 발생했습니다.');
 }
 
@@ -2347,9 +2353,18 @@ function useRaidCardSkill(participant, battle) {
   } else if (card.effectType === 'self_fixed_multi_hit') {
     const hits = Math.max(1, Number(card.hits || 1));
     const perHitDamage = scaleFlat(participant.level * Number(card.damagePerLevel || 0));
-    const totalDamage = perHitDamage * hits;
-    applyRaidDamageToBoss(battle, totalDamage);
-    logText = `${participant.displayName}(이)가 ${card.name}로 ${hits}회 공격해 ${totalDamage.toLocaleString()} 피해를 입혔습니다.`;
+    const logs = [`${participant.displayName}(이)가 ${card.name} 스킬을 사용했습니다.`];
+    for (let hit = 0; hit < hits; hit += 1) {
+      if (battle.bossHp <= 0) break;
+      applyRaidDamageToBoss(battle, perHitDamage);
+      logs.push(`${participant.displayName}의 ${card.name} ${hit + 1}타! ${perHitDamage.toLocaleString()} 피해를 입혔습니다.`);
+    }
+    participant.plannedTargetUserId = null;
+    participant.plannedTargetUserId2 = null;
+    return {
+      logs,
+      delayUnits: Math.max(1, logs.length - 1)
+    };
   } else if (card.effectType === 'self_celine_buff') {
     participant.celineTurns = Math.max(participant.celineTurns, Number(card.turns || 1));
     participant.celineAttackBonusPercent = Math.max(Number(participant.celineAttackBonusPercent || 0), scalePercent(card.attackBonusPercent));
@@ -2694,6 +2709,35 @@ function applyRaidDamageToBoss(battle, damage) {
   return remainingDamage;
 }
 
+function normalizeRaidActionResult(result) {
+  if (!result) {
+    return { logs: [], delayUnits: 0 };
+  }
+  if (typeof result === 'string') {
+    return { logs: [result], delayUnits: 0 };
+  }
+  if (Array.isArray(result)) {
+    return { logs: result.filter(Boolean), delayUnits: 0 };
+  }
+
+  const logs = Array.isArray(result.logs)
+    ? result.logs.filter(Boolean)
+    : (result.log ? [result.log] : []);
+
+  return {
+    logs,
+    delayUnits: Math.max(0, Number(result.delayUnits || 0))
+  };
+}
+
+function appendRaidActionLogs(battle, result) {
+  const normalized = normalizeRaidActionResult(result);
+  normalized.logs.forEach((line) => {
+    battle.logs.push(line);
+  });
+  return normalized.delayUnits;
+}
+
 function performRaidCounterAttack(participant, battle) {
   const baseDamage = Math.floor(participant.level * 20 * (1 + getRaidAttackBonusPercent(participant)));
   const isCritical = Math.random() < getRaidCriticalChance(participant);
@@ -2746,24 +2790,33 @@ function performRaidBasicAttack(participant, battle) {
   const baseDamage = Math.floor(participant.level * 20 * (1 + getRaidAttackBonusPercent(participant)));
   let hitCount = Math.max(1, 1 + participant.extraHits);
   if (participant.hypeTurns > 0) hitCount *= 2;
-  let totalDamage = 0;
-  let critCount = 0;
+  const logs = [];
 
   for (let hit = 0; hit < hitCount; hit += 1) {
+    if (battle.bossHp <= 0) break;
     const isCritical = Math.random() < getRaidCriticalChance(participant);
-    const hitDamage = Math.floor(baseDamage * (isCritical ? 1.5 : 1));
-    totalDamage += hitDamage + (participant.perHitBonusTurns > 0 ? participant.perHitBonusDamage || 0 : 0);
-    if (isCritical) critCount += 1;
+    let hitDamage = Math.floor(baseDamage * (isCritical ? 1.5 : 1));
+    if (participant.perHitBonusTurns > 0) {
+      hitDamage += participant.perHitBonusDamage || 0;
+    }
+    if (hit === 0 && participant.extraDamage > 0) {
+      hitDamage += participant.extraDamage;
+    }
+    if (participant.damageMultiplierTurns > 0) {
+      hitDamage = Math.floor(hitDamage * participant.damageMultiplierValue);
+    }
+    applyRaidDamageToBoss(battle, hitDamage);
+    logs.push(`${participant.displayName}의 기본 공격 ${hit + 1}타! ${hitDamage.toLocaleString()} 피해를 입혔습니다.${isCritical ? ' (치명타)' : ''}`);
   }
 
-  totalDamage += participant.extraDamage;
-  if (participant.damageMultiplierTurns > 0) {
-    totalDamage = Math.floor(totalDamage * participant.damageMultiplierValue);
+  if (!logs.length) {
+    logs.push(`${participant.displayName}의 기본 공격은 더 이상 이어지지 않았습니다.`);
   }
 
-  applyRaidDamageToBoss(battle, totalDamage);
-  const criticalText = critCount > 0 ? ` (치명타 ${critCount}회)` : '';
-  return `${participant.displayName}의 기본 공격이 ${totalDamage.toLocaleString()} 피해를 입혔습니다.${criticalText}`;
+  return {
+    logs,
+    delayUnits: Math.max(1, logs.length)
+  };
 }
 
 function applyRaidDebuffImmunity(target) {
@@ -2810,16 +2863,19 @@ function performRaidBossAction(battle) {
   }
 
   if (pattern === 'smack') {
-    const targetNames = [];
+    const logs = [];
     for (let count = 0; count < 4; count += 1) {
       const currentAlive = getAliveRaidParticipants(battle);
       if (currentAlive.length === 0) break;
       const target = currentAlive[Math.floor(Math.random() * currentAlive.length)];
       applyRaidDamage(target, 20, { battle, source: 'boss' });
-      targetNames.push(target.displayName);
+      logs.push(`트름녀의 쩝쩝거리기 ${count + 1}타! ${target.displayName}에게 20 피해를 입혔습니다.`);
     }
     clearRoundShieldEffects(battle);
-    return `트름녀의 쩝쩝거리기! ${targetNames.join(', ')}에게 연속 공격이 날아갔습니다.`;
+    return {
+      logs: logs.length ? logs : ['트름녀의 쩝쩝거리기! 아무도 맞지 않았습니다.'],
+      delayUnits: Math.max(1, logs.length)
+    };
   }
 
   if (pattern === 'shield') {
@@ -3064,20 +3120,28 @@ async function advanceRaidState(now = new Date()) {
 
     if (activeBattle.turnIndex < activeBattle.participants.length) {
       const participant = activeBattle.participants[activeBattle.turnIndex];
+      let actionDelayUnits = 1;
       if (participant.hp > 0) {
         const passiveLog = triggerRaidTurnStartPassives(participant, activeBattle);
-        if (passiveLog) activeBattle.logs.push(passiveLog);
-        const skillLog = useRaidCardSkill(participant, activeBattle);
-        if (skillLog) activeBattle.logs.push(skillLog);
-        activeBattle.logs.push(performRaidBasicAttack(participant, activeBattle));
+        appendRaidActionLogs(activeBattle, passiveLog);
+        const skillDelayUnits = appendRaidActionLogs(activeBattle, useRaidCardSkill(participant, activeBattle));
+        const attackDelayUnits = appendRaidActionLogs(activeBattle, performRaidBasicAttack(participant, activeBattle));
+        if (attackDelayUnits > 1) {
+          actionDelayUnits += attackDelayUnits - 1;
+        }
+        if (skillDelayUnits > 0) {
+          actionDelayUnits += skillDelayUnits;
+        }
         tickRaidParticipantEndOfTurn(participant, activeBattle);
       } else {
         activeBattle.logs.push(`${participant.displayName}님은 전투불능 상태입니다.`);
       }
       activeBattle.turnIndex += 1;
+      activeBattle.nextActionAt = new Date(new Date(activeBattle.nextActionAt).getTime() + (RAID_ACTION_DELAY_MS * actionDelayUnits));
     } else {
-      activeBattle.logs.push(performRaidBossAction(activeBattle));
+      const bossDelayUnits = appendRaidActionLogs(activeBattle, performRaidBossAction(activeBattle));
       activeBattle.turnIndex = 0;
+      activeBattle.nextActionAt = new Date(new Date(activeBattle.nextActionAt).getTime() + (RAID_ACTION_DELAY_MS * Math.max(1, bossDelayUnits)));
     }
 
     if (activeBattle.bossHp <= 0) {
@@ -3088,8 +3152,6 @@ async function advanceRaidState(now = new Date()) {
       activeBattle.winner = 'boss';
       break;
     }
-
-    activeBattle.nextActionAt = new Date(new Date(activeBattle.nextActionAt).getTime() + RAID_ACTION_DELAY_MS);
     bumpRaidVersion();
   }
 
@@ -3790,7 +3852,7 @@ app.post('/api/action/work', async (req, res) => {
     res.json(response);
   } catch (err) {
     console.error('Work action error:', err);
-    res.status(err?.statusCode || 500).json({ msg: err?.message || '서버 오류가 발생했습니다.' });
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
   }
 });
 
@@ -3883,7 +3945,7 @@ app.post('/api/action/adventure', async (req, res) => {
     res.json(response);
   } catch (err) {
     console.error('Adventure action error:', err);
-    res.status(err?.statusCode || 500).json({ msg: err?.message || '서버 오류가 발생했습니다.' });
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
   }
 });
 
@@ -3959,7 +4021,7 @@ app.post('/api/action/adventure/resolve', async (req, res) => {
     res.json(response);
   } catch (err) {
     console.error('Adventure resolve error:', err);
-    res.status(err?.statusCode || 500).json({ msg: err?.message || '서버 오류가 발생했습니다.' });
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
   }
 });
 
@@ -4167,7 +4229,7 @@ app.post('/api/shop/buy', async (req, res) => {
 app.post('/api/inventory/use', async (req, res) => {
   const { userId, itemId, quantity } = req.body;
   if (!userId || !itemId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
-  const useQuantity = Math.max(1, Math.floor(Number(quantity) || 1));
+  let useQuantity = Math.max(1, Math.floor(Number(quantity) || 1));
 
   const itemInfo = ITEM_DATA[itemId];
   if (!itemInfo || itemInfo.type !== 'consumable') {
@@ -4180,6 +4242,14 @@ app.post('/api/inventory/use', async (req, res) => {
 
     const now = new Date();
     calculateOfflineGains(user, now);
+
+    if (itemId === 'bacchus') {
+      const maxRecoverableStamina = Math.max(0, Math.floor(getEffectiveMaxStamina(user, now) - Number(user.gameState.stamina || 0)));
+      if (maxRecoverableStamina <= 0) {
+        return res.status(400).json({ msg: '행동력이 이미 최대치라 박카스를 사용할 수 없습니다.' });
+      }
+      useQuantity = Math.min(useQuantity, maxRecoverableStamina);
+    }
 
     if (!removeItemFromInventory(user, itemId, useQuantity)) {
       return res.status(400).json({ msg: '해당 아이템이 부족합니다.' });
@@ -4287,7 +4357,7 @@ app.post('/api/cards/draw', async (req, res) => {
     res.json(response);
   } catch (err) {
     console.error('Card draw error:', err);
-    res.status(err?.statusCode || 500).json({ msg: err?.message || '서버 오류가 발생했습니다.' });
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
   }
 });
 
@@ -4688,7 +4758,7 @@ app.post('/api/raid/start', async (req, res) => {
     ) {
       clearActiveRaidBattle();
     }
-    res.status(err?.statusCode || 500).json({ msg: err?.message || '서버 오류가 발생했습니다.' });
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
   }
 });
 

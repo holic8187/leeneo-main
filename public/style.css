@@ -589,10 +589,31 @@ progress {
   position: relative;
 }
 
-.raid-boss-bar-fill {
-  height: 100%;
+.raid-bar-anim-root {
+  position: relative;
   width: 100%;
+  height: 100%;
+}
+
+.raid-boss-bar-trail,
+.raid-hp-trail-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: linear-gradient(90deg, #ff9b9b 0%, #d94b4b 100%);
+  transition: width 0.42s linear;
+  z-index: 1;
+}
+
+.raid-boss-bar-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
   background: linear-gradient(90deg, #ff6b6b 0%, #c62828 100%);
+  transition: width 0.42s linear;
+  z-index: 2;
 }
 
 .raid-battle-log {
@@ -651,8 +672,13 @@ progress {
 }
 
 .raid-hp-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
   height: 100%;
   background: linear-gradient(90deg, #7cc56b 0%, #2e7d32 100%);
+  transition: width 0.42s linear;
+  z-index: 2;
 }
 
 .raid-shield-fill {
@@ -660,6 +686,8 @@ progress {
   top: 0;
   height: 100%;
   background: linear-gradient(90deg, #ffe680 0%, #f2c94c 100%);
+  transition: left 0.42s linear, width 0.42s linear;
+  z-index: 3;
 }
 
 .raid-bar-wrap {
