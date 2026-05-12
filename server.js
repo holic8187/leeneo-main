@@ -1472,6 +1472,27 @@ function ensureUserDefaults(user) {
   user.gameState.lastStaminaResetTime = user.gameState.lastStaminaResetTime || new Date();
 
   if (!Array.isArray(user.inventory)) user.inventory = [];
+  const normalizedInventory = [];
+  const inventoryTotals = new Map();
+  for (const entry of user.inventory) {
+    if (!entry || !entry.itemId) continue;
+    const itemId = String(entry.itemId);
+    const quantity = Math.max(0, Math.floor(Number(entry.quantity) || 0));
+    if (quantity <= 0) continue;
+    inventoryTotals.set(itemId, (inventoryTotals.get(itemId) || 0) + quantity);
+  }
+  for (const [itemId, quantity] of inventoryTotals.entries()) {
+    normalizedInventory.push({ itemId, quantity });
+  }
+  const inventoryChanged = normalizedInventory.length !== user.inventory.length
+    || normalizedInventory.some((entry, index) =>
+      !user.inventory[index]
+      || user.inventory[index].itemId !== entry.itemId
+      || Number(user.inventory[index].quantity) !== entry.quantity
+    );
+  if (inventoryChanged) {
+    user.inventory = normalizedInventory;
+  }
   if (!Array.isArray(user.cards)) user.cards = [];
   if (!Array.isArray(user.enhancedCards)) user.enhancedCards = [];
   if (!CARD_DATA[user.equippedCardId]) user.equippedCardId = null;
@@ -1830,6 +1851,10 @@ function getInventoryItem(user, itemId) {
   return user.inventory.find((item) => item.itemId === itemId);
 }
 
+function getInventoryItems(user, itemId) {
+  return (user.inventory || []).filter((item) => item.itemId === itemId);
+}
+
 function getCardEntry(user, cardId) {
   return user.cards.find((card) => card.cardId === cardId);
 }
@@ -1840,7 +1865,7 @@ function getEnhancedCardEntry(user, cardId, level) {
 }
 
 function getInventoryQuantity(user, itemId) {
-  return getInventoryItem(user, itemId)?.quantity || 0;
+  return getInventoryItems(user, itemId).reduce((total, item) => total + Math.max(0, Number(item.quantity) || 0), 0);
 }
 
 function getCardQuantity(user, cardId) {
@@ -1861,6 +1886,11 @@ function addItemToInventory(user, itemId, amount = 1) {
   const item = getInventoryItem(user, itemId);
   if (item) {
     item.quantity += amount;
+    const duplicateItems = getInventoryItems(user, itemId).slice(1);
+    if (duplicateItems.length > 0) {
+      item.quantity += duplicateItems.reduce((sum, entry) => sum + Math.max(0, Number(entry.quantity) || 0), 0);
+      user.inventory = user.inventory.filter((entry, index) => entry.itemId !== itemId || index === user.inventory.indexOf(item));
+    }
   } else {
     user.inventory.push({ itemId, quantity: amount });
   }
@@ -2028,12 +2058,27 @@ function buildCardVariantDetails(user) {
 }
 
 function removeItemFromInventory(user, itemId, amount = 1) {
-  const item = getInventoryItem(user, itemId);
-  if (!item || item.quantity < amount) return false;
+  const items = getInventoryItems(user, itemId);
+  const totalQuantity = items.reduce((sum, entry) => sum + Math.max(0, Number(entry.quantity) || 0), 0);
+  if (totalQuantity < amount) return false;
 
-  item.quantity -= amount;
-  if (item.quantity <= 0) {
-    user.inventory = user.inventory.filter((entry) => entry.itemId !== itemId);
+  let remainingToRemove = amount;
+  for (const item of items) {
+    if (remainingToRemove <= 0) break;
+    const available = Math.max(0, Number(item.quantity) || 0);
+    const used = Math.min(available, remainingToRemove);
+    item.quantity = available - used;
+    remainingToRemove -= used;
+  }
+
+  if (remainingToRemove > 0) return false;
+
+  user.inventory = user.inventory.filter((entry) => Math.max(0, Number(entry.quantity) || 0) > 0);
+  const firstItem = getInventoryItem(user, itemId);
+  const duplicateItems = getInventoryItems(user, itemId).slice(1);
+  if (firstItem && duplicateItems.length > 0) {
+    firstItem.quantity = getInventoryQuantity(user, itemId);
+    user.inventory = user.inventory.filter((entry, index) => entry.itemId !== itemId || index === user.inventory.indexOf(firstItem));
   }
   return true;
 }

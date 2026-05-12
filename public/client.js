@@ -381,7 +381,9 @@ function setHtml(id, value) {
 }
 
 function getBusinessCardCount(user) {
-  return (user.inventory || []).find((item) => item.itemId === 'business_card')?.quantity || 0;
+  return (user.inventory || [])
+    .filter((item) => item.itemId === 'business_card')
+    .reduce((total, item) => total + Math.max(0, Number(item.quantity) || 0), 0);
 }
 
 function getEquippedCardDetail(user) {
@@ -841,7 +843,29 @@ async function handleStockInvest() {
 function getRequestedQuantity(inputId) {
   const input = document.getElementById(inputId);
   const value = Math.floor(Number(input?.value || 1));
+  rememberQuantityInputValue(inputId, value);
   return Number.isFinite(value) && value > 0 ? value : 1;
+}
+
+const quantityInputState = {};
+
+function rememberQuantityInputValue(inputId, rawValue) {
+  const normalizedId = String(inputId || '');
+  if (!normalizedId) return;
+  const value = Math.floor(Number(rawValue));
+  if (Number.isFinite(value) && value > 0) {
+    quantityInputState[normalizedId] = value;
+  }
+}
+
+function getRememberedQuantityInputValue(inputId, fallback = 1, maxValue = null) {
+  const normalizedId = String(inputId || '');
+  let value = Math.floor(Number(quantityInputState[normalizedId] ?? fallback));
+  if (!Number.isFinite(value) || value <= 0) value = 1;
+  if (Number.isFinite(maxValue) && maxValue > 0) {
+    value = Math.min(value, Math.floor(maxValue));
+  }
+  return Math.max(1, value);
 }
 
 function getMaxUsableItemQuantity(user, itemId, ownedQuantity = null) {
@@ -1575,6 +1599,110 @@ function updateRaidButton(user, raidState) {
   }
 }
 
+function updateShopUI(user) {
+  const shopList = document.getElementById('shop-list');
+  if (!shopList) return;
+
+  shopList.innerHTML = '';
+  const dailyPurchaseLimits = {
+    business_card: 5,
+    bacchus: 10,
+    hot6: 5
+  };
+
+  Object.entries(ITEM_DATA).forEach(([itemId, itemInfo]) => {
+    if (itemId === 'cat_tuna_can' || itemInfo.shopHidden) return;
+    if (itemInfo.type === 'special' && itemId !== 'business_card') return;
+
+    const price = user.shopPrices?.[itemId] ?? 0;
+    const qtyInputId = `buy-qty-${itemId}`;
+    const ownedQuantity = getInventoryQuantityFromUser(user, itemId);
+    const dailyPurchasedCount = itemId === 'business_card'
+      ? Number(user.shopState?.dailyBusinessCardPurchases || 0)
+      : itemId === 'bacchus'
+        ? Number(user.shopState?.dailyBacchusPurchases || 0)
+        : itemId === 'hot6'
+          ? Number(user.shopState?.dailyHot6Purchases || 0)
+          : 0;
+    const dailyPurchaseLimit = dailyPurchaseLimits[itemId] || null;
+    const remainingDailyBuys = dailyPurchaseLimit === null
+      ? null
+      : Math.max(0, dailyPurchaseLimit - dailyPurchasedCount);
+    const disabledAttr = dailyPurchaseLimit !== null && remainingDailyBuys <= 0 ? 'disabled' : '';
+    const maxAttr = dailyPurchaseLimit !== null && remainingDailyBuys > 0 ? `max="${remainingDailyBuys}"` : '';
+    const descParts = [itemInfo.desc || ''];
+
+    if (dailyPurchaseLimit !== null) {
+      descParts.push(`오늘 남은 구매 가능: ${remainingDailyBuys}/${dailyPurchaseLimit}`);
+    }
+    descParts.push(`현재 보유 ${formatNumber(ownedQuantity)}개`);
+
+    shopList.insertAdjacentHTML(
+      'beforeend',
+      `
+        <tr>
+          <td>${escapeHtml(itemInfo.name)}</td>
+          <td>${formatNumber(price)}원</td>
+          <td>${escapeHtml(descParts.filter(Boolean).join(' / '))}</td>
+          <td><div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" step="1" value="${getRememberedQuantityInputValue(qtyInputId, 1, Number.isFinite(remainingDailyBuys) ? remainingDailyBuys : null)}" oninput="rememberQuantityInputValue('${qtyInputId}', this.value)" ${maxAttr} ${disabledAttr}><button class="mini-btn" ${disabledAttr} onclick="handleBuyClick('${itemId}', '${qtyInputId}')">구매</button></div></td>
+        </tr>
+      `
+    );
+  });
+}
+
+function updateShopUI(user) {
+  const shopList = document.getElementById('shop-list');
+  if (!shopList) return;
+
+  shopList.innerHTML = '';
+  const dailyPurchaseLimits = {
+    business_card: 5,
+    bacchus: 10,
+    hot6: 5
+  };
+
+  Object.entries(ITEM_DATA).forEach(([itemId, itemInfo]) => {
+    if (itemId === 'cat_tuna_can' || itemInfo.shopHidden) return;
+    if (itemInfo.type === 'special' && itemId !== 'business_card') return;
+
+    const price = user.shopPrices?.[itemId] ?? 0;
+    const qtyInputId = `buy-qty-${itemId}`;
+    const ownedQuantity = getInventoryQuantityFromUser(user, itemId);
+    const dailyPurchaseLimit = dailyPurchaseLimits[itemId] || null;
+    const dailyPurchasedCount = itemId === 'business_card'
+      ? Number(user.shopState?.dailyBusinessCardPurchases || 0)
+      : itemId === 'bacchus'
+        ? Number(user.shopState?.dailyBacchusPurchases || 0)
+        : itemId === 'hot6'
+          ? Number(user.shopState?.dailyHot6Purchases || 0)
+          : 0;
+    const remainingDailyBuys = dailyPurchaseLimit === null
+      ? null
+      : Math.max(0, dailyPurchaseLimit - dailyPurchasedCount);
+    const disabledAttr = dailyPurchaseLimit !== null && remainingDailyBuys <= 0 ? 'disabled' : '';
+    const maxAttr = dailyPurchaseLimit !== null && remainingDailyBuys > 0 ? `max="${remainingDailyBuys}"` : '';
+    const descParts = [itemInfo.desc || ''];
+
+    if (dailyPurchaseLimit !== null) {
+      descParts.push(`오늘 남은 구매 가능: ${remainingDailyBuys}/${dailyPurchaseLimit}`);
+    }
+    descParts.push(`현재 보유 ${formatNumber(ownedQuantity)}개`);
+
+    shopList.insertAdjacentHTML(
+      'beforeend',
+      `
+        <tr>
+          <td>${escapeHtml(itemInfo.name)}</td>
+          <td>${formatNumber(price)}원</td>
+          <td>${escapeHtml(descParts.filter(Boolean).join(' / '))}</td>
+          <td><div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" step="1" value="${getRememberedQuantityInputValue(qtyInputId, 1, Number.isFinite(remainingDailyBuys) ? remainingDailyBuys : null)}" oninput="rememberQuantityInputValue('${qtyInputId}', this.value)" ${maxAttr} ${disabledAttr}><button class="mini-btn" ${disabledAttr} onclick="handleBuyClick('${itemId}', '${qtyInputId}')">구매</button></div></td>
+        </tr>
+      `
+    );
+  });
+}
+
 function updateRaidLobbyUI(raidState, user) {
   const slotGrid = document.getElementById('raidSlotGrid');
   const rewardList = document.getElementById('raidRewardList');
@@ -1642,6 +1770,58 @@ function updateShopUI(user) {
   const shopList = document.getElementById('shop-list');
   if (!shopList) return;
 
+  shopList.innerHTML = '';
+  const dailyPurchaseLimits = {
+    business_card: 5,
+    bacchus: 10,
+    hot6: 5
+  };
+
+  Object.entries(ITEM_DATA).forEach(([itemId, itemInfo]) => {
+    if (itemId === 'cat_tuna_can' || itemInfo.shopHidden) return;
+    if (itemInfo.type === 'special' && itemId !== 'business_card') return;
+
+    const price = user.shopPrices?.[itemId] ?? 0;
+    const qtyInputId = `buy-qty-${itemId}`;
+    const ownedQuantity = getInventoryQuantityFromUser(user, itemId);
+    const dailyPurchaseLimit = dailyPurchaseLimits[itemId] || null;
+    const dailyPurchasedCount = itemId === 'business_card'
+      ? Number(user.shopState?.dailyBusinessCardPurchases || 0)
+      : itemId === 'bacchus'
+        ? Number(user.shopState?.dailyBacchusPurchases || 0)
+        : itemId === 'hot6'
+          ? Number(user.shopState?.dailyHot6Purchases || 0)
+          : 0;
+    const remainingDailyBuys = dailyPurchaseLimit === null
+      ? null
+      : Math.max(0, dailyPurchaseLimit - dailyPurchasedCount);
+    const disabledAttr = dailyPurchaseLimit !== null && remainingDailyBuys <= 0 ? 'disabled' : '';
+    const maxAttr = dailyPurchaseLimit !== null && remainingDailyBuys > 0 ? `max="${remainingDailyBuys}"` : '';
+    const descParts = [itemInfo.desc || ''];
+
+    if (dailyPurchaseLimit !== null) {
+      descParts.push(`오늘 남은 구매 가능: ${remainingDailyBuys}/${dailyPurchaseLimit}`);
+    }
+    descParts.push(`현재 보유 ${formatNumber(ownedQuantity)}개`);
+
+    shopList.insertAdjacentHTML(
+      'beforeend',
+      `
+        <tr>
+          <td>${escapeHtml(itemInfo.name)}</td>
+          <td>${formatNumber(price)}원</td>
+          <td>${escapeHtml(descParts.filter(Boolean).join(' / '))}</td>
+          <td><div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" step="1" value="${getRememberedQuantityInputValue(qtyInputId, 1, Number.isFinite(remainingDailyBuys) ? remainingDailyBuys : null)}" oninput="rememberQuantityInputValue('${qtyInputId}', this.value)" ${maxAttr} ${disabledAttr}><button class="mini-btn" ${disabledAttr} onclick="handleBuyClick('${itemId}', '${qtyInputId}')">구매</button></div></td>
+        </tr>
+      `
+    );
+  });
+}
+
+function updateShopUI(user) {
+  const shopList = document.getElementById('shop-list');
+  if (!shopList) return;
+
   const dailyPurchaseLimits = {
     business_card: 5,
     bacchus: 10,
@@ -1683,7 +1863,7 @@ function updateShopUI(user) {
           <td>${escapeHtml(itemInfo.name)}</td>
           <td>${formatNumber(price)}원</td>
           <td>${escapeHtml(descParts.filter(Boolean).join(' / '))}</td>
-          <td><div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" step="1" value="1" ${maxAttr} ${disabledAttr}><button class="mini-btn" ${disabledAttr} onclick="handleBuyClick('${itemId}', '${qtyInputId}')">구매</button></div></td>
+          <td><div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" step="1" value="${getRememberedQuantityInputValue(qtyInputId, 1, Number.isFinite(remainingDailyBuys) ? remainingDailyBuys : null)}" oninput="rememberQuantityInputValue('${qtyInputId}', this.value)" ${maxAttr} ${disabledAttr}><button class="mini-btn" ${disabledAttr} onclick="handleBuyClick('${itemId}', '${qtyInputId}')">구매</button></div></td>
         </tr>
       `
     );
@@ -2455,7 +2635,7 @@ function updateInventoryUI(user) {
         ? `<div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" max="${item.quantity}" step="1" value="1"><button class="mini-btn" onclick="handleUseItem('${item.itemId}', '${qtyInputId}')">사용</button></div>`
         : '<span class="muted-text">상시 적용</span>';
       const effectiveActionButton = canUseInventoryItem
-        ? `<div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" max="${Math.max(1, maxUseQuantity)}" step="1" value="1" ${maxUseQuantity <= 0 ? 'disabled' : ''}><button class="mini-btn" onclick="handleUseItem('${item.itemId}', '${qtyInputId}')" ${maxUseQuantity <= 0 ? 'disabled' : ''}>?ъ슜</button></div>`
+        ? `<div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" max="${Math.max(1, maxUseQuantity)}" step="1" value="${getRememberedQuantityInputValue(qtyInputId, 1, Math.max(1, maxUseQuantity))}" oninput="rememberQuantityInputValue('${qtyInputId}', this.value)" ${maxUseQuantity <= 0 ? 'disabled' : ''}><button class="mini-btn" onclick="handleUseItem('${item.itemId}', '${qtyInputId}')" ${maxUseQuantity <= 0 ? 'disabled' : ''}>?ъ슜</button></div>`
         : actionButton;
 
       inventoryList.insertAdjacentHTML(
@@ -3146,7 +3326,9 @@ window.handleRaidTargetSelect = handleRaidTargetSelect;
 window.handleCardEnhanceSelect = handleCardEnhanceSelect;
 
 function getInventoryQuantityFromUser(user, itemId) {
-  return (user.inventory || []).find((item) => item.itemId === itemId)?.quantity || 0;
+  return (user.inventory || [])
+    .filter((item) => item.itemId === itemId)
+    .reduce((total, item) => total + Math.max(0, Number(item.quantity) || 0), 0);
 }
 
 function updateSpecialActionButtons(user) {
