@@ -1690,6 +1690,58 @@ function updateShopUI(user) {
   });
 }
 
+function updateShopUI(user) {
+  const shopList = document.getElementById('shop-list');
+  if (!shopList) return;
+
+  const dailyPurchaseLimits = {
+    business_card: 5,
+    bacchus: 10,
+    hot6: 5
+  };
+
+  shopList.innerHTML = '';
+  Object.entries(ITEM_DATA).forEach(([itemId, itemInfo]) => {
+    if (itemId === 'cat_tuna_can' || itemInfo.shopHidden) return;
+    if (itemInfo.type === 'special' && itemId !== 'business_card') return;
+
+    const price = user.shopPrices?.[itemId] ?? 0;
+    const qtyInputId = `buy-qty-${itemId}`;
+    const ownedQuantity = getInventoryQuantityFromUser(user, itemId);
+    const dailyPurchaseLimit = dailyPurchaseLimits[itemId] || null;
+    const dailyPurchasedCount = itemId === 'business_card'
+      ? Number(user.shopState?.dailyBusinessCardPurchases || 0)
+      : itemId === 'bacchus'
+        ? Number(user.shopState?.dailyBacchusPurchases || 0)
+        : itemId === 'hot6'
+          ? Number(user.shopState?.dailyHot6Purchases || 0)
+          : 0;
+    const remainingDailyBuys = dailyPurchaseLimit === null
+      ? null
+      : Math.max(0, dailyPurchaseLimit - dailyPurchasedCount);
+    const disabledAttr = dailyPurchaseLimit !== null && remainingDailyBuys <= 0 ? 'disabled' : '';
+    const maxAttr = dailyPurchaseLimit !== null && remainingDailyBuys > 0 ? `max="${remainingDailyBuys}"` : '';
+
+    const descParts = [itemInfo.desc || ''];
+    if (dailyPurchaseLimit !== null) {
+      descParts.push(`오늘 남은 구매 가능: ${remainingDailyBuys}/${dailyPurchaseLimit}`);
+    }
+    descParts.push(`현재 보유 ${formatNumber(ownedQuantity)}개`);
+
+    shopList.insertAdjacentHTML(
+      'beforeend',
+      `
+        <tr>
+          <td>${escapeHtml(itemInfo.name)}</td>
+          <td>${formatNumber(price)}원</td>
+          <td>${escapeHtml(descParts.filter(Boolean).join(' / '))}</td>
+          <td><div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" step="1" value="1" ${maxAttr} ${disabledAttr}><button class="mini-btn" ${disabledAttr} onclick="handleBuyClick('${itemId}', '${qtyInputId}')">구매</button></div></td>
+        </tr>
+      `
+    );
+  });
+}
+
 function renderRaidBattle(raidState, user) {
   const battle = raidState?.activeBattle;
   if (!battle) return;
