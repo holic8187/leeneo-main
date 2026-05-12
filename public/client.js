@@ -1586,7 +1586,7 @@ function updateRaidLobbyUI(raidState, user) {
 
   const lobby = raidState?.lobby;
   bossName.textContent = lobby ? `오늘의 보스 정보: ${lobby.bossName}` : '오늘의 보스 정보';
-  bossDesc.textContent = lobby ? `${lobby.bossName} / 보스 HP 50,000 / 최소 레벨 ${lobby.minLevel}` : '';
+  bossDesc.textContent = lobby ? `${lobby.bossName} / 보스 HP 60,000 / 최소 레벨 ${lobby.minLevel}` : '';
 
   if (skillList.previousElementSibling?.tagName === 'H4') {
     skillList.previousElementSibling.textContent = '보스 스킬 사용 순서';
@@ -1636,6 +1636,58 @@ function updateRaidLobbyUI(raidState, user) {
   });
 
   startBtn.disabled = !raidState?.canStart;
+}
+
+function updateShopUI(user) {
+  const shopList = document.getElementById('shop-list');
+  if (!shopList) return;
+
+  const dailyPurchaseLimits = {
+    business_card: 5,
+    bacchus: 10,
+    hot6: 5
+  };
+
+  shopList.innerHTML = '';
+  Object.entries(ITEM_DATA).forEach(([itemId, itemInfo]) => {
+    if (itemId === 'cat_tuna_can' || itemInfo.shopHidden) return;
+    if (itemInfo.type === 'special' && itemId !== 'business_card') return;
+
+    const price = user.shopPrices?.[itemId] ?? 0;
+    const qtyInputId = `buy-qty-${itemId}`;
+    const ownedQuantity = getInventoryQuantityFromUser(user, itemId);
+    const dailyPurchaseLimit = dailyPurchaseLimits[itemId] || null;
+    const dailyPurchasedCount = itemId === 'business_card'
+      ? Number(user.shopState?.dailyBusinessCardPurchases || 0)
+      : itemId === 'bacchus'
+        ? Number(user.shopState?.dailyBacchusPurchases || 0)
+        : itemId === 'hot6'
+          ? Number(user.shopState?.dailyHot6Purchases || 0)
+          : 0;
+    const remainingDailyBuys = dailyPurchaseLimit === null
+      ? null
+      : Math.max(0, dailyPurchaseLimit - dailyPurchasedCount);
+    const disabledAttr = dailyPurchaseLimit !== null && remainingDailyBuys <= 0 ? 'disabled' : '';
+    const maxAttr = dailyPurchaseLimit !== null && remainingDailyBuys > 0 ? `max="${remainingDailyBuys}"` : '';
+
+    const descParts = [itemInfo.desc || ''];
+    if (dailyPurchaseLimit !== null) {
+      descParts.push(`오늘 남은 구매 가능: ${remainingDailyBuys}/${dailyPurchaseLimit}`);
+    }
+    descParts.push(`현재 보유 ${formatNumber(ownedQuantity)}개`);
+
+    shopList.insertAdjacentHTML(
+      'beforeend',
+      `
+        <tr>
+          <td>${escapeHtml(itemInfo.name)}</td>
+          <td>${formatNumber(price)}원</td>
+          <td>${escapeHtml(descParts.filter(Boolean).join(' / '))}</td>
+          <td><div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" step="1" value="1" ${maxAttr} ${disabledAttr}><button class="mini-btn" ${disabledAttr} onclick="handleBuyClick('${itemId}', '${qtyInputId}')">구매</button></div></td>
+        </tr>
+      `
+    );
+  });
 }
 
 function renderRaidBattle(raidState, user) {
@@ -2426,6 +2478,11 @@ function updateShopUI(user) {
   if (!shopList) return;
 
   shopList.innerHTML = '';
+  const dailyPurchaseLimits = {
+    business_card: 5,
+    bacchus: 10,
+    hot6: 5
+  };
   Object.entries(ITEM_DATA).forEach(([itemId, itemInfo]) => {
     if (itemId === 'cat_tuna_can' || itemInfo.shopHidden) return;
     const price = user.shopPrices?.[itemId] ?? 0;
@@ -3157,9 +3214,23 @@ function updateShopUI(user) {
     const remainingBusinessCardBuys = Math.max(0, 5 - Number(user.shopState?.dailyBusinessCardPurchases || 0));
     const ownedQuantity = getInventoryQuantityFromUser(user, itemId);
     const isBusinessCard = itemId === 'business_card';
-    const disabledAttr = isBusinessCard && remainingBusinessCardBuys <= 0 ? 'disabled' : '';
-    const maxAttr = isBusinessCard && remainingBusinessCardBuys > 0 ? `max="${remainingBusinessCardBuys}"` : '';
+    const dailyPurchasedCount = isBusinessCard
+      ? Number(user.shopState?.dailyBusinessCardPurchases || 0)
+      : itemId === 'bacchus'
+        ? Number(user.shopState?.dailyBacchusPurchases || 0)
+        : itemId === 'hot6'
+          ? Number(user.shopState?.dailyHot6Purchases || 0)
+          : 0;
+    const dailyPurchaseLimit = dailyPurchaseLimits[itemId] || null;
+    const remainingDailyBuys = dailyPurchaseLimit === null
+      ? null
+      : Math.max(0, dailyPurchaseLimit - dailyPurchasedCount);
+    const disabledAttr = dailyPurchaseLimit !== null && remainingDailyBuys <= 0 ? 'disabled' : '';
+    const maxAttr = dailyPurchaseLimit !== null && remainingDailyBuys > 0 ? `max="${remainingDailyBuys}"` : '';
     const descParts = [itemInfo.desc || ''];
+    if (!isBusinessCard && dailyPurchaseLimit !== null) {
+      descParts.push(`오늘 남은 구매 가능: ${remainingDailyBuys}/${dailyPurchaseLimit}`);
+    }
     if (isBusinessCard) {
       descParts.push(`오늘 남은 구매 가능: ${remainingBusinessCardBuys}/5`);
     }
@@ -3190,7 +3261,7 @@ function updateRaidLobbyUI(raidState, user) {
 
   const lobby = raidState?.lobby;
   bossName.textContent = lobby ? `오늘의 보스 정보: ${lobby.bossName}` : '오늘의 보스 정보';
-  bossDesc.textContent = lobby ? `${lobby.bossName} / 보스 HP 50,000 / 최소 레벨 ${lobby.minLevel}` : '';
+  bossDesc.textContent = lobby ? `${lobby.bossName} / 보스 HP 60,000 / 최소 레벨 ${lobby.minLevel}` : '';
 
   rewardList.innerHTML = '';
   (lobby?.rewardsText || []).forEach((rewardText) => {

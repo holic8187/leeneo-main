@@ -621,6 +621,12 @@ const SUPPORT_PACKAGE_DATA = {
   }
 };
 
+const DAILY_SHOP_PURCHASE_LIMITS = {
+  business_card: 5,
+  bacchus: 10,
+  hot6: 5
+};
+
 const RAID_BOSS_REWARDS_TEXT = [
   '경험치: 10레벨 기준 현재 레벨 경험치통의 100%, 이후 레벨당 2% 감소, 50레벨 이상은 20% 고정',
   '명함 0~2장',
@@ -633,7 +639,7 @@ const RAID_BOSS_DATA = {
   [RAID_BOSS_ID]: {
     id: RAID_BOSS_ID,
     name: '트름녀',
-    maxHp: 50000,
+    maxHp: 60000,
     imageLabel: '트름녀',
     patternOrder: ['burp', 'ice', 'smack', 'shield'],
     skillsText: [
@@ -647,7 +653,7 @@ const RAID_BOSS_DATA = {
   [RAID_BOSS_ID_BALD_MANAGER]: {
     id: RAID_BOSS_ID_BALD_MANAGER,
     name: '대머리 김부장',
-    maxHp: 50000,
+    maxHp: 60000,
     imageLabel: '대머리 김부장',
     patternOrder: ['wig_search', 'mz', 'afterparty', 'sauna'],
     skillsText: [
@@ -1367,6 +1373,8 @@ const userSchema = new mongoose.Schema({
     dayKey: { type: String, default: null },
     dailySpend: { type: Number, default: 0 },
     dailyBusinessCardPurchases: { type: Number, default: 0 },
+    dailyBacchusPurchases: { type: Number, default: 0 },
+    dailyHot6Purchases: { type: Number, default: 0 },
     lastShoppingAddictQualifiedDayKey: { type: String, default: null }
   },
   meta: {
@@ -1490,12 +1498,16 @@ function ensureUserDefaults(user) {
       dayKey: null,
       dailySpend: 0,
       dailyBusinessCardPurchases: 0,
+      dailyBacchusPurchases: 0,
+      dailyHot6Purchases: 0,
       lastShoppingAddictQualifiedDayKey: null
     };
   }
   user.shopState.dayKey = user.shopState.dayKey || null;
   user.shopState.dailySpend = Number(user.shopState.dailySpend ?? 0);
   user.shopState.dailyBusinessCardPurchases = Number(user.shopState.dailyBusinessCardPurchases ?? 0);
+  user.shopState.dailyBacchusPurchases = Number(user.shopState.dailyBacchusPurchases ?? 0);
+  user.shopState.dailyHot6Purchases = Number(user.shopState.dailyHot6Purchases ?? 0);
   user.shopState.lastShoppingAddictQualifiedDayKey = user.shopState.lastShoppingAddictQualifiedDayKey || null;
 
   if (!user.meta) {
@@ -2232,6 +2244,19 @@ function getRemainingBusinessCardPurchases(user) {
   return Math.max(0, 5 - Number(user.shopState?.dailyBusinessCardPurchases || 0));
 }
 
+function getDailyShopPurchaseCount(user, itemId) {
+  if (itemId === 'business_card') return Number(user.shopState?.dailyBusinessCardPurchases || 0);
+  if (itemId === 'bacchus') return Number(user.shopState?.dailyBacchusPurchases || 0);
+  if (itemId === 'hot6') return Number(user.shopState?.dailyHot6Purchases || 0);
+  return 0;
+}
+
+function getRemainingDailyShopPurchases(user, itemId) {
+  const limit = DAILY_SHOP_PURCHASE_LIMITS[itemId];
+  if (!limit) return Infinity;
+  return Math.max(0, limit - getDailyShopPurchaseCount(user, itemId));
+}
+
 function getCardEnhancementSuccessRate(level) {
   const normalizedLevel = normalizeCardEnhancementLevel(level);
   return CARD_ENHANCE_SUCCESS_RATES[normalizedLevel] ?? 0;
@@ -2404,7 +2429,7 @@ function getRaidCriticalChance(participant) {
 }
 
 function performRaidBasicAttack(participant, battle) {
-  const baseDamage = participant.level * 20;
+  const baseDamage = Math.floor((participant.level / 2) * 20);
   const hitCount = Math.max(1, 1 + participant.extraHits);
   let totalDamage = 0;
   let critCount = 0;
@@ -2855,7 +2880,7 @@ function appendRaidActionLogs(battle, result) {
 }
 
 function performRaidCounterAttack(participant, battle) {
-  const baseDamage = Math.floor(participant.level * 20 * (1 + getRaidAttackBonusPercent(participant)));
+  const baseDamage = Math.floor((participant.level / 2) * 20 * (1 + getRaidAttackBonusPercent(participant)));
   const isCritical = Math.random() < getRaidCriticalChance(participant);
   let damage = Math.floor(baseDamage * Number(participant.counterDamageMultiplier || 1) * (isCritical ? 1.5 : 1));
   if (participant.perHitBonusTurns > 0) damage += participant.perHitBonusDamage || 0;
@@ -2907,7 +2932,7 @@ function getRaidCriticalChance(participant) {
 }
 
 function performRaidBasicAttack(participant, battle) {
-  const baseDamage = Math.floor(participant.level * 20 * (1 + getRaidAttackBonusPercent(participant)));
+  const baseDamage = Math.floor((participant.level / 2) * 20 * (1 + getRaidAttackBonusPercent(participant)));
   let hitCount = Math.max(1, 1 + participant.extraHits);
   if (participant.hypeTurns > 0) hitCount *= 2;
   const logs = [];
@@ -3434,6 +3459,8 @@ function syncDailyShopState(user, now = new Date()) {
     user.shopState.dayKey = todayKey;
     user.shopState.dailySpend = 0;
     user.shopState.dailyBusinessCardPurchases = 0;
+    user.shopState.dailyBacchusPurchases = 0;
+    user.shopState.dailyHot6Purchases = 0;
   }
 }
 
@@ -4434,8 +4461,17 @@ app.post('/api/shop/buy', async (req, res) => {
     calculateOfflineGains(user, now);
     syncDailyShopState(user, now);
 
-    if (itemId === 'business_card' && buyQuantity > getRemainingBusinessCardPurchases(user)) {
-      return res.status(400).json({ msg: '명함은 하루에 최대 5개까지만 구매할 수 있습니다.' });
+    const remainingDailyPurchases = getRemainingDailyShopPurchases(user, itemId);
+    if (Number.isFinite(remainingDailyPurchases) && buyQuantity > remainingDailyPurchases) {
+      if (itemId === 'business_card') {
+        return res.status(400).json({ msg: '명함은 하루에 최대 5개까지만 구매할 수 있습니다.' });
+      }
+      if (itemId === 'bacchus') {
+        return res.status(400).json({ msg: '박카스는 하루에 최대 10개까지만 구매할 수 있습니다.' });
+      }
+      if (itemId === 'hot6') {
+        return res.status(400).json({ msg: '핫식스는 하루에 최대 5개까지만 구매할 수 있습니다.' });
+      }
     }
 
     const totalPrice = getTotalBuyPrice(user, itemId, buyQuantity);
@@ -4448,6 +4484,10 @@ app.post('/api/shop/buy', async (req, res) => {
     addItemToInventory(user, itemId, buyQuantity);
     if (itemId === 'business_card') {
       user.shopState.dailyBusinessCardPurchases += buyQuantity;
+    } else if (itemId === 'bacchus') {
+      user.shopState.dailyBacchusPurchases += buyQuantity;
+    } else if (itemId === 'hot6') {
+      user.shopState.dailyHot6Purchases += buyQuantity;
     }
     recordShopSpend(user, totalPrice, now);
 
