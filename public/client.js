@@ -245,6 +245,47 @@ async function runWithUserMutation(task) {
   }
 }
 
+function getUserStateActionTimeMs(user) {
+  const value = user?.gameState?.lastActionTime;
+  if (!value) return 0;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function shouldApplyIncomingUserState(incomingUser, options = {}) {
+  if (!incomingUser) return false;
+  if (options.force) return true;
+
+  const currentUser = getStoredUser();
+  if (!currentUser?._id) return true;
+
+  const incomingActionMs = getUserStateActionTimeMs(incomingUser);
+  const currentActionMs = getUserStateActionTimeMs(currentUser);
+  if (incomingActionMs !== currentActionMs) {
+    return incomingActionMs >= currentActionMs;
+  }
+
+  const incomingLevel = Number(incomingUser?.gameState?.level || 0);
+  const currentLevel = Number(currentUser?.gameState?.level || 0);
+  if (incomingLevel !== currentLevel) {
+    return incomingLevel >= currentLevel;
+  }
+
+  const incomingExp = Number(incomingUser?.gameState?.exp || 0);
+  const currentExp = Number(currentUser?.gameState?.exp || 0);
+  if (incomingExp !== currentExp) {
+    return incomingExp >= currentExp;
+  }
+
+  const incomingMoney = Number(incomingUser?.gameState?.money || 0);
+  const currentMoney = Number(currentUser?.gameState?.money || 0);
+  if (incomingMoney !== currentMoney) {
+    return incomingMoney >= currentMoney;
+  }
+
+  return true;
+}
+
 function getRaidBarAnimation(previousRatio, currentRatio) {
   const normalizedCurrent = Math.max(0, Math.min(100, Number(currentRatio || 0)));
   const normalizedPrevious = Number.isFinite(previousRatio)
@@ -1392,18 +1433,28 @@ async function handleToggleTitle(titleId) {
   }
 }
 
-function updateLocalUserState(data) {
+function updateLocalUserState(data, options = {}) {
   if (!data?.user) return;
-  saveStoredUser(data.user);
+  const mergedOptions = {
+    force: options.force !== false
+  };
+  if (shouldApplyIncomingUserState(data.user, mergedOptions)) {
+    saveStoredUser(data.user);
+  }
+  const latestUser = getStoredUser();
   applyGlobalState(data.global);
-  updateGameUI(data.user);
+  if (latestUser) {
+    updateGameUI(latestUser);
+  }
   if (isFusionModalOpen()) {
-    renderCardFusionModal(data.user);
+    renderCardFusionModal(latestUser);
   }
   if (isEnhanceModalOpen()) {
-    renderCardEnhanceModal(data.user);
+    renderCardEnhanceModal(latestUser);
   }
-  updateRaidButton(data.user, latestRaidState);
+  if (latestUser) {
+    updateRaidButton(latestUser, latestRaidState);
+  }
   showNotifications(data.notifications);
 }
 
@@ -2023,12 +2074,13 @@ function updateRaidCountdown(raidState, user) {
 async function pollRaidState() {
   const user = getStoredUser();
   if (!user?._id) return;
+  if (userMutationInFlightCount > 0) return;
 
   try {
     const data = await postJson(`${API_URL}/api/raid/state`, { userId: user._id });
     latestRaidState = data.raid;
     if (data.user) {
-      updateLocalUserState(data);
+      updateLocalUserState(data, { force: false });
     }
     const currentUser = getStoredUser() || user;
     updateRaidButton(currentUser, latestRaidState);
@@ -2487,7 +2539,7 @@ async function syncUserState() {
 
   try {
     const data = await postJson(`${API_URL}/api/sync`, { userId: user._id });
-    updateLocalUserState(data);
+    updateLocalUserState(data, { force: false });
   } catch (err) {
     console.error('State sync failed:', err);
   }
