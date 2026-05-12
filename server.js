@@ -2484,17 +2484,22 @@ function useRaidCardSkill(participant, battle) {
   } else if (card.effectType === 'self_fixed_multi_hit') {
     const hits = Math.max(1, Number(card.hits || 1));
     const perHitDamage = scaleFlat(participant.level * Number(card.damagePerLevel || 0));
-    const logs = [`${participant.displayName}(이)가 ${card.name} 스킬을 사용했습니다.`];
+    const steps = [];
     for (let hit = 0; hit < hits; hit += 1) {
-      if (battle.bossHp <= 0) break;
-      applyRaidDamageToBoss(battle, perHitDamage);
-      logs.push(`${participant.displayName}의 ${card.name} ${hit + 1}타! ${perHitDamage.toLocaleString()} 피해를 입혔습니다.`);
+      steps.push({
+        type: 'player_fixed_skill_hit',
+        userId: participant.userId,
+        skillName: card.name,
+        damage: perHitDamage,
+        hitIndex: hit
+      });
     }
     participant.plannedTargetUserId = null;
     participant.plannedTargetUserId2 = null;
     return {
-      logs,
-      delayUnits: Math.max(1, logs.length - 1)
+      logs: [`${participant.displayName}(이)가 ${card.name} 스킬을 사용했습니다.`],
+      steps,
+      delayUnits: Math.max(1, steps.length)
     };
   } else if (card.effectType === 'self_celine_buff') {
     participant.celineTurns = Math.max(participant.celineTurns, Number(card.turns || 1));
@@ -2879,6 +2884,82 @@ function appendRaidActionLogs(battle, result) {
   return normalized.delayUnits;
 }
 
+function queueRaidSequence(battle, steps, options = {}) {
+  battle.pendingSequence = {
+    steps: Array.isArray(steps) ? [...steps] : [],
+    endTurnType: options.endTurnType || null,
+    participantUserId: options.participantUserId || null,
+    clearRoundShieldsAtEnd: Boolean(options.clearRoundShieldsAtEnd)
+  };
+}
+
+function finalizeRaidSequence(battle) {
+  const sequence = battle.pendingSequence;
+  if (!sequence) return;
+
+  if (sequence.clearRoundShieldsAtEnd) {
+    clearRoundShieldEffects(battle);
+  }
+
+  if (sequence.endTurnType === 'participant' && sequence.participantUserId) {
+    const participant = getRaidParticipant(battle, sequence.participantUserId);
+    if (participant) {
+      tickRaidParticipantEndOfTurn(participant, battle);
+    }
+    battle.turnIndex += 1;
+  } else if (sequence.endTurnType === 'boss') {
+    battle.turnIndex = 0;
+  }
+
+  battle.pendingSequence = null;
+}
+
+function executeNextRaidSequenceStep(battle) {
+  const sequence = battle.pendingSequence;
+  if (!sequence || !Array.isArray(sequence.steps) || !sequence.steps.length) return false;
+
+  const step = sequence.steps.shift();
+  if (!step) return false;
+
+  if (step.type === 'player_basic_hit') {
+    const participant = getRaidParticipant(battle, step.userId);
+    if (participant && participant.hp > 0 && battle.bossHp > 0) {
+      const baseDamage = Math.floor((participant.level / 2) * 20 * (1 + getRaidAttackBonusPercent(participant)));
+      const isCritical = Math.random() < getRaidCriticalChance(participant);
+      let hitDamage = Math.floor(baseDamage * (isCritical ? 1.5 : 1));
+      if (participant.perHitBonusTurns > 0) {
+        hitDamage += participant.perHitBonusDamage || 0;
+      }
+      if (step.hitIndex === 0 && participant.extraDamage > 0) {
+        hitDamage += participant.extraDamage;
+      }
+      if (participant.damageMultiplierTurns > 0) {
+        hitDamage = Math.floor(hitDamage * participant.damageMultiplierValue);
+      }
+      applyRaidDamageToBoss(battle, hitDamage);
+      battle.logs.push(`${participant.displayName}의 기본 공격 ${step.hitIndex + 1}타! ${hitDamage.toLocaleString()} 피해를 입혔습니다.${isCritical ? ' (치명타)' : ''}`);
+    }
+  } else if (step.type === 'player_fixed_skill_hit') {
+    const participant = getRaidParticipant(battle, step.userId);
+    if (participant && participant.hp > 0 && battle.bossHp > 0) {
+      applyRaidDamageToBoss(battle, step.damage);
+      battle.logs.push(`${participant.displayName}의 ${step.skillName} ${step.hitIndex + 1}타! ${Number(step.damage || 0).toLocaleString()} 피해를 입혔습니다.`);
+    }
+  } else if (step.type === 'boss_random_hit') {
+    const bossInfo = RAID_BOSS_DATA[battle.bossId] || RAID_BOSS_DATA[RAID_BOSS_ID];
+    const currentAlive = getAliveRaidParticipants(battle);
+    if (currentAlive.length > 0) {
+      const target = currentAlive[Math.floor(Math.random() * currentAlive.length)];
+      applyRaidDamage(target, Number(step.damage || 0), { battle, source: 'boss' });
+      battle.logs.push(`${bossInfo.name}의 ${step.skillName} ${step.hitIndex + 1}타! ${target.displayName}에게 ${Number(step.damage || 0).toLocaleString()} 피해를 입혔습니다.`);
+    }
+  } else if (step.type === 'log' && step.text) {
+    battle.logs.push(step.text);
+  }
+
+  return true;
+}
+
 function performRaidCounterAttack(participant, battle) {
   const baseDamage = Math.floor((participant.level / 2) * 20 * (1 + getRaidAttackBonusPercent(participant)));
   const isCritical = Math.random() < getRaidCriticalChance(participant);
@@ -2932,35 +3013,20 @@ function getRaidCriticalChance(participant) {
 }
 
 function performRaidBasicAttack(participant, battle) {
-  const baseDamage = Math.floor((participant.level / 2) * 20 * (1 + getRaidAttackBonusPercent(participant)));
   let hitCount = Math.max(1, 1 + participant.extraHits);
   if (participant.hypeTurns > 0) hitCount *= 2;
-  const logs = [];
-
+  const steps = [];
   for (let hit = 0; hit < hitCount; hit += 1) {
-    if (battle.bossHp <= 0) break;
-    const isCritical = Math.random() < getRaidCriticalChance(participant);
-    let hitDamage = Math.floor(baseDamage * (isCritical ? 1.5 : 1));
-    if (participant.perHitBonusTurns > 0) {
-      hitDamage += participant.perHitBonusDamage || 0;
-    }
-    if (hit === 0 && participant.extraDamage > 0) {
-      hitDamage += participant.extraDamage;
-    }
-    if (participant.damageMultiplierTurns > 0) {
-      hitDamage = Math.floor(hitDamage * participant.damageMultiplierValue);
-    }
-    applyRaidDamageToBoss(battle, hitDamage);
-    logs.push(`${participant.displayName}의 기본 공격 ${hit + 1}타! ${hitDamage.toLocaleString()} 피해를 입혔습니다.${isCritical ? ' (치명타)' : ''}`);
-  }
-
-  if (!logs.length) {
-    logs.push(`${participant.displayName}의 기본 공격은 더 이상 이어지지 않았습니다.`);
+    steps.push({
+      type: 'player_basic_hit',
+      userId: participant.userId,
+      hitIndex: hit
+    });
   }
 
   return {
-    logs,
-    delayUnits: Math.max(1, logs.length)
+    steps,
+    delayUnits: Math.max(1, steps.length)
   };
 }
 
@@ -3100,18 +3166,19 @@ function performRaidBossAction(battle) {
   }
 
   if (pattern === 'smack') {
-    const logs = [];
+    const steps = [];
     for (let count = 0; count < 4; count += 1) {
-      const currentAlive = getAliveRaidParticipants(battle);
-      if (currentAlive.length === 0) break;
-      const target = currentAlive[Math.floor(Math.random() * currentAlive.length)];
-      applyRaidDamage(target, 20, { battle, source: 'boss' });
-      logs.push(`트름녀의 쩝쩝거리기 ${count + 1}타! ${target.displayName}에게 20 피해를 입혔습니다.`);
+      steps.push({
+        type: 'boss_random_hit',
+        skillName: '쩝쩝거리기',
+        damage: 20,
+        hitIndex: count
+      });
     }
-    clearRoundShieldEffects(battle);
     return {
-      logs: logs.length ? logs : ['트름녀의 쩝쩝거리기! 아무도 맞지 않았습니다.'],
-      delayUnits: Math.max(1, logs.length)
+      steps,
+      delayUnits: Math.max(1, steps.length),
+      clearRoundShieldsAtEnd: true
     };
   }
 
@@ -3295,9 +3362,9 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
         }
       }
       const expReward = Math.floor(getRequiredExp(participant.level) * rewardRatio * rewardMultiplier);
-      const businessCards = (sharedBaseRewards?.businessCards || 0) * rewardMultiplier;
-      const bacchus = (sharedBaseRewards?.bacchus || 0) * rewardMultiplier;
-      const monami = (sharedBaseRewards?.monami || 0) * rewardMultiplier;
+      const businessCards = Math.max(0, Math.round((sharedBaseRewards?.businessCards || 0) * rewardMultiplier));
+      const bacchus = Math.max(0, Math.round((sharedBaseRewards?.bacchus || 0) * rewardMultiplier));
+      const monami = Math.max(0, Math.round((sharedBaseRewards?.monami || 0) * rewardMultiplier));
       const moneyReward = (sharedBaseRewards?.moneyReward || 0) * rewardMultiplier;
       user.gameState.exp += expReward;
       checkLevelUp(user);
@@ -3378,6 +3445,28 @@ async function advanceRaidState(now = new Date()) {
 
     if (now.getTime() < new Date(activeBattle.nextActionAt).getTime()) return;
 
+    if (activeBattle.pendingSequence?.steps?.length) {
+      executeNextRaidSequenceStep(activeBattle);
+      if (activeBattle.pendingSequence?.steps?.length) {
+        activeBattle.nextActionAt = new Date(now.getTime() + RAID_ACTION_DELAY_MS);
+      } else {
+        finalizeRaidSequence(activeBattle);
+        activeBattle.nextActionAt = new Date(now.getTime() + RAID_ACTION_DELAY_MS);
+      }
+
+      if (activeBattle.bossHp <= 0) {
+        activeBattle.winner = 'players';
+        break;
+      }
+      if (getAliveRaidParticipants(activeBattle).length === 0) {
+        activeBattle.winner = 'boss';
+        break;
+      }
+
+      bumpRaidVersion();
+      continue;
+    }
+
     const aliveParticipants = getAliveRaidParticipants(activeBattle);
     if (activeBattle.bossHp <= 0) {
       activeBattle.winner = 'players';
@@ -3390,32 +3479,75 @@ async function advanceRaidState(now = new Date()) {
 
     if (activeBattle.turnIndex < activeBattle.participants.length) {
       const participant = activeBattle.participants[activeBattle.turnIndex];
-      let actionDelayUnits = 1;
       if (participant.hp > 0) {
         if (participant.actionLockTurns > 0) {
           activeBattle.logs.push(`${participant.displayName}님은 가발 찾는중.. 상태라 아무 행동도 할 수 없습니다.`);
+          tickRaidParticipantEndOfTurn(participant, activeBattle);
+          activeBattle.turnIndex += 1;
+          activeBattle.nextActionAt = new Date(now.getTime() + RAID_ACTION_DELAY_MS);
         } else {
           const passiveLog = triggerRaidTurnStartPassives(participant, activeBattle);
           appendRaidActionLogs(activeBattle, passiveLog);
-          const skillDelayUnits = appendRaidActionLogs(activeBattle, useRaidCardSkill(participant, activeBattle));
-          const attackDelayUnits = appendRaidActionLogs(activeBattle, performRaidBasicAttack(participant, activeBattle));
-          if (attackDelayUnits > 1) {
-            actionDelayUnits += attackDelayUnits - 1;
+          const skillResult = useRaidCardSkill(participant, activeBattle);
+          const queuedSteps = [];
+
+          if (skillResult?.steps?.length) {
+            const normalizedSkill = normalizeRaidActionResult(skillResult);
+            normalizedSkill.logs.forEach((line) => activeBattle.logs.push(line));
+            queuedSteps.push(...skillResult.steps);
+          } else {
+            appendRaidActionLogs(activeBattle, skillResult);
           }
-          if (skillDelayUnits > 0) {
-            actionDelayUnits += skillDelayUnits;
+
+          const attackResult = performRaidBasicAttack(participant, activeBattle);
+          if (attackResult?.steps?.length) {
+            queuedSteps.push(...attackResult.steps);
+          } else {
+            appendRaidActionLogs(activeBattle, attackResult);
+          }
+
+          if (queuedSteps.length) {
+            queueRaidSequence(activeBattle, queuedSteps, {
+              endTurnType: 'participant',
+              participantUserId: participant.userId
+            });
+            executeNextRaidSequenceStep(activeBattle);
+            if (activeBattle.pendingSequence?.steps?.length) {
+              activeBattle.nextActionAt = new Date(now.getTime() + RAID_ACTION_DELAY_MS);
+            } else {
+              finalizeRaidSequence(activeBattle);
+              activeBattle.nextActionAt = new Date(now.getTime() + RAID_ACTION_DELAY_MS);
+            }
+          } else {
+            tickRaidParticipantEndOfTurn(participant, activeBattle);
+            activeBattle.turnIndex += 1;
+            activeBattle.nextActionAt = new Date(now.getTime() + RAID_ACTION_DELAY_MS);
           }
         }
-        tickRaidParticipantEndOfTurn(participant, activeBattle);
       } else {
         activeBattle.logs.push(`${participant.displayName}님은 전투불능 상태입니다.`);
+        activeBattle.turnIndex += 1;
+        activeBattle.nextActionAt = new Date(now.getTime() + RAID_ACTION_DELAY_MS);
       }
-      activeBattle.turnIndex += 1;
-      activeBattle.nextActionAt = new Date(new Date(activeBattle.nextActionAt).getTime() + (RAID_ACTION_DELAY_MS * actionDelayUnits));
     } else {
-      const bossDelayUnits = appendRaidActionLogs(activeBattle, performRaidBossAction(activeBattle));
-      activeBattle.turnIndex = 0;
-      activeBattle.nextActionAt = new Date(new Date(activeBattle.nextActionAt).getTime() + (RAID_ACTION_DELAY_MS * Math.max(1, bossDelayUnits)));
+      const bossResult = performRaidBossAction(activeBattle);
+      if (bossResult?.steps?.length) {
+        queueRaidSequence(activeBattle, bossResult.steps, {
+          endTurnType: 'boss',
+          clearRoundShieldsAtEnd: Boolean(bossResult.clearRoundShieldsAtEnd)
+        });
+        executeNextRaidSequenceStep(activeBattle);
+        if (activeBattle.pendingSequence?.steps?.length) {
+          activeBattle.nextActionAt = new Date(now.getTime() + RAID_ACTION_DELAY_MS);
+        } else {
+          finalizeRaidSequence(activeBattle);
+          activeBattle.nextActionAt = new Date(now.getTime() + RAID_ACTION_DELAY_MS);
+        }
+      } else {
+        appendRaidActionLogs(activeBattle, bossResult);
+        activeBattle.turnIndex = 0;
+        activeBattle.nextActionAt = new Date(now.getTime() + RAID_ACTION_DELAY_MS);
+      }
     }
 
     if (activeBattle.bossHp <= 0) {
