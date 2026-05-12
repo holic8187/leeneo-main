@@ -129,6 +129,22 @@ const animations = [
   ]
 ];
 
+animations[0] = [
+  '   O\n  /|\\\\   [PC]\n   |\n  / \\\\',
+  '   O\n  /|>   [PC]\n   |\n  / \\\\',
+  '   O\n  <|\\\\   [PC]\n   |\n  / \\\\'
+];
+animations[1] = [
+  '   O\n  /|\\\\   [DOC]\n   |\n  / \\\\',
+  '   O\n  /|\\\\   [MAIL]\n   |\n  / \\\\',
+  '   O\n  /|\\\\   [CHK]\n   |\n  / \\\\'
+];
+animations[2] = [
+  '   O\n  /|\\\\   (MEET)\n   |\n  / \\\\',
+  '   O\n  /|\\\\   (TALK)\n   |\n  / \\\\',
+  '   O\n  /|\\\\   (MEMO)\n   |\n  / \\\\'
+];
+
 let updateInterval;
 let rankingInterval;
 let syncInterval;
@@ -874,13 +890,23 @@ function hasFocusedQuantityInput() {
 }
 
 function getMaxUsableItemQuantity(user, itemId, ownedQuantity = null) {
-  const owned = ownedQuantity ?? getInventoryQuantityFromUser(user, itemId);
+  const aggregatedOwned = getInventoryQuantityFromUser(user, itemId);
+  const parsedOwned = Math.floor(Number(ownedQuantity));
+  const owned = Math.max(
+    0,
+    Number.isFinite(parsedOwned) && parsedOwned > 0
+      ? Math.max(aggregatedOwned, parsedOwned)
+      : aggregatedOwned
+  );
   if (itemId !== 'bacchus') {
     return Math.max(0, Math.floor(Number(owned || 0)));
   }
 
   const stamina = Number(user?.gameState?.stamina || 0);
-  const maxStamina = Number(user?.gameState?.maxStamina || 0);
+  const maxStamina = Math.max(
+    Number(user?.gameState?.maxStamina || 0),
+    Number(user?.gameState?.baseMaxStamina || 0) + Number(user?.itemStats?.maxStaminaBonus || 0)
+  );
   const recoverable = Math.max(0, Math.floor(maxStamina - stamina));
   return Math.max(0, Math.min(Math.floor(Number(owned || 0)), recoverable));
 }
@@ -2625,7 +2651,14 @@ function updateInventoryUI(user) {
   if (!inventoryList || !titleList || !cardList) return;
 
   inventoryList.innerHTML = '';
-  const inventory = user.inventory || [];
+  const inventoryMap = new Map();
+  (user.inventory || []).forEach((item) => {
+    if (!item?.itemId) return;
+    const current = inventoryMap.get(item.itemId) || { ...item, quantity: 0 };
+    current.quantity += Math.max(0, Number(item.quantity) || 0);
+    inventoryMap.set(item.itemId, current);
+  });
+  const inventory = Array.from(inventoryMap.values());
 
   if (inventory.length === 0) {
     inventoryList.innerHTML = '<tr><td colspan="4">가방이 비어 있습니다.</td></tr>';
@@ -3359,7 +3392,14 @@ function updateInventoryUI(user) {
   if (!inventoryList || !titleList || !cardList) return;
 
   inventoryList.innerHTML = '';
-  const inventory = user.inventory || [];
+  const inventoryMap = new Map();
+  (user.inventory || []).forEach((item) => {
+    if (!item?.itemId) return;
+    const current = inventoryMap.get(item.itemId) || { ...item, quantity: 0 };
+    current.quantity += Math.max(0, Number(item.quantity) || 0);
+    inventoryMap.set(item.itemId, current);
+  });
+  const inventory = Array.from(inventoryMap.values());
   if (!inventory.length) {
     inventoryList.innerHTML = '<tr><td colspan="4">가방이 비어 있습니다.</td></tr>';
   } else {
@@ -3368,8 +3408,9 @@ function updateInventoryUI(user) {
       const desc = itemInfo.hoverDesc || itemInfo.desc || '';
       const shortDesc = itemInfo.desc || '';
       const qtyInputId = `use-qty-${item.itemId}`;
+      const ownedQuantity = getInventoryQuantityFromUser(user, item.itemId);
       const canUse = ['bacchus', 'hot6', 'tylenol', 'raid_entry_ticket', 'hagendaz'].includes(item.itemId);
-      const maxUseQuantity = getMaxUsableItemQuantity(user, item.itemId, item.quantity);
+      const maxUseQuantity = getMaxUsableItemQuantity(user, item.itemId, ownedQuantity);
       const actionButton = canUse
         ? `<div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" max="${Math.max(1, maxUseQuantity)}" step="1" value="${getRememberedQuantityInputValue(qtyInputId, 1, Math.max(1, maxUseQuantity))}" oninput="rememberQuantityInputValue('${qtyInputId}', this.value)" ${maxUseQuantity <= 0 ? 'disabled' : ''}><button class="mini-btn" onclick="handleUseItem('${item.itemId}', '${qtyInputId}')" ${maxUseQuantity <= 0 ? 'disabled' : ''}>사용</button></div>`
         : '<span class="muted-text">상시 적용</span>';
@@ -3379,7 +3420,7 @@ function updateInventoryUI(user) {
         `
           <tr>
             <td title="${escapeHtml(desc)}">${escapeHtml(itemInfo.name || item.itemId)}</td>
-            <td>${formatNumber(item.quantity)}</td>
+            <td>${formatNumber(ownedQuantity)}</td>
             <td title="${escapeHtml(desc)}">${escapeHtml(shortDesc)}</td>
             <td>${actionButton}</td>
           </tr>
