@@ -392,7 +392,7 @@ const CARD_DATA = {
     grade: 'B',
     rate: 0.0428571429,
     skillName: '라연이의 망상',
-    skillDesc: '파티원 전원의 해로운 효과를 제거합니다.',
+    skillDesc: '파티원 전원의 모든 디버프를 제거합니다.',
     cooldown: 4,
     effectType: 'party_cleanse'
   },
@@ -1713,7 +1713,7 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
     case 'blind_date':
       return `랜덤 파티원 1명의 HP를 ${card.selfDamage} 감소시키지만, 다음 턴까지 해당 파티원의 피해를 2배로 증가시킵니다.`;
     case 'fantasy':
-      return card.targets >= 99 ? '파티 전원의 해로운 효과를 제거합니다.' : `랜덤 파티원 ${card.targets}명의 해로운 효과를 제거합니다.`;
+      return card.targets >= 99 ? '파티 전원의 모든 디버프를 제거합니다.' : `랜덤 파티원 ${card.targets}명의 모든 디버프를 제거합니다.`;
     case 'broken_leg':
       return `선택한 파티원 1명의 HP를 ${card.heal} 회복시킵니다.`;
     case 'military_service':
@@ -2545,7 +2545,7 @@ function useRaidCardSkill(participant, battle) {
       ? aliveAllies
       : [...aliveAllies].sort(() => Math.random() - 0.5).slice(0, Math.min(card.targets || aliveAllies.length, aliveAllies.length));
     targets.forEach((ally) => cleanseRaidTarget(ally));
-    logText = `${participant.displayName}(이)가 ${card.name}로 ${targets.length >= aliveAllies.length ? '파티 전원' : targets.map((ally) => ally.displayName).join(', ')}의 해로운 효과를 제거했습니다.`;
+    logText = `${participant.displayName}(이)가 ${card.name}로 ${targets.length >= aliveAllies.length ? '파티 전원' : targets.map((ally) => ally.displayName).join(', ')}의 모든 디버프를 제거했습니다.`;
   } else if (card.effectType === 'target_heal') {
     const selectedTargetId = participant.plannedTargetUserId;
     const target = getRaidParticipant(battle, selectedTargetId) || getAliveRaidParticipants(battle)[0] || participant;

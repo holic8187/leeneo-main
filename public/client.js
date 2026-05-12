@@ -70,7 +70,7 @@ const CARD_DATA = {
   sherlock: { name: '셜록몬드의 추리', grade: 'B', color: '#1565c0', skillName: '셜록몬드의 추리', skillDesc: '다다음 턴까지 파티원 전원의 크리티컬 확률을 50% 증가시킵니다.', cooldown: 5, targetType: null },
   lotto_numbers: { name: '모래의 로또번호', grade: 'B', color: '#1565c0', skillName: '이번엔 될거같아', skillDesc: '액티브 스킬 없음. 전투 시작 시 모든 파티원에게 <이번엔 될거같아> 버프를 부여합니다. 버프를 지닌 상태로 전투 승리 시 절반 확률로 보상을 3배로 획득하거나 보상을 획득하지 못합니다.', cooldown: 0, targetType: null, passiveOnly: true },
   blind_date: { name: '심심이의 소개팅', grade: 'B', color: '#1565c0', skillName: '심심이의 소개팅', skillDesc: '랜덤 파티원 1명의 HP를 30 감소시키지만 다음 공격 피해를 2배로 증가시킵니다.', cooldown: 3, targetType: null },
-  fantasy: { name: '라연이의 망상', grade: 'B', color: '#1565c0', skillName: '라연이의 망상', skillDesc: '파티원 전원의 해로운 효과를 제거합니다.', cooldown: 4, targetType: null },
+  fantasy: { name: '라연이의 망상', grade: 'B', color: '#1565c0', skillName: '라연이의 망상', skillDesc: '파티원 전원의 모든 디버프를 제거합니다.', cooldown: 4, targetType: null },
   broken_leg: { name: '감자의 부러진 다리', grade: 'B', color: '#1565c0', skillName: '감자의 부러진 다리', skillDesc: '선택한 파티원 1명의 HP를 30 회복시킵니다.', cooldown: 2, targetType: 'ally' },
   military_service: { name: '자네, 군필인가?', grade: 'B', color: '#1565c0', skillName: '군필인가?', skillDesc: '이번 턴에 가하는 자신의 모든 공격에 자신의 레벨 x 20의 추가 데미지를 줍니다.', cooldown: 2, targetType: null },
   invincible_logic: { name: '무적의 논리', grade: 'B', color: '#1565c0', skillName: '무적의 논리', skillDesc: '랜덤 파티원 2인에게 1회 피격 무효화 버프를 제공합니다.', cooldown: 2, targetType: null },
