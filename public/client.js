@@ -2806,10 +2806,10 @@ function updateStockStatus(user) {
   if (isLocked) {
     stockInput.value = '';
     stockInput.placeholder = `${formatNumber(pendingAmount)}원을 투자했습니다.`;
-    stockStatus.textContent = `현재 ${formatNumber(pendingAmount)}원이 투자 중이며, 다음 로그인 때 결과를 확인합니다.`;
+    stockStatus.textContent = `현재 ${formatNumber(pendingAmount)}원이 투자 중이며, 결과를 다음 날에 확인할 수 있습니다.`;
   } else {
     stockInput.placeholder = '투자 금액';
-    stockStatus.textContent = '하루 1회 투자할 수 있으며, 다음 로그인 시 결과를 확인합니다.';
+    stockStatus.textContent = '하루 1회 투자할 수 있으며, 결과를 다음 날에 확인할 수 있습니다.';
   }
 }
 
