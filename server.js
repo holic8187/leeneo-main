@@ -5425,6 +5425,59 @@ app.post('/api/admin/set-level', async (req, res) => {
   }
 });
 
+app.post('/api/admin/grant-money', async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+
+  const { targetUserId, amount } = req.body;
+  const grantAmount = Math.max(1, Math.floor(Number(amount) || 0));
+  if (!targetUserId) {
+    return res.status(400).json({ msg: '대상 사용자 ID가 필요합니다.' });
+  }
+  if (!Number.isFinite(grantAmount) || grantAmount <= 0) {
+    return res.status(400).json({ msg: '지급할 금액이 올바르지 않습니다.' });
+  }
+
+  try {
+    let user = await User.findById(targetUserId);
+    if (!user) {
+      return res.status(404).json({ msg: '대상 사용자를 찾을 수 없습니다.' });
+    }
+
+    const now = new Date();
+    ensureUserDefaults(user);
+    calculateOfflineGains(user, now);
+    user.gameState.money += grantAmount;
+    reconcileTitles(user, now);
+    queueNotification(user, 'admin_money', `운영자가 ${grantAmount.toLocaleString()}원을 지급했습니다.`);
+
+    try {
+      await user.save();
+    } catch (err) {
+      if (!isVersionConflictError(err)) throw err;
+      const latestUser = await User.findById(targetUserId);
+      if (!latestUser) {
+        return res.status(404).json({ msg: '대상 사용자를 찾을 수 없습니다.' });
+      }
+      ensureUserDefaults(latestUser);
+      calculateOfflineGains(latestUser, now);
+      latestUser.gameState.money += grantAmount;
+      reconcileTitles(latestUser, now);
+      queueNotification(latestUser, 'admin_money', `운영자가 ${grantAmount.toLocaleString()}원을 지급했습니다.`);
+      await latestUser.save();
+      user = latestUser;
+    }
+
+    res.json({
+      success: true,
+      updatedLabel: user.nickname ? `${user.nickname} (${user.username})` : user.username,
+      amount: grantAmount
+    });
+  } catch (err) {
+    console.error('Admin grant money error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
 app.post('/api/admin/set-raid-boss', async (req, res) => {
   if (!requireAdmin(req, res)) return;
 

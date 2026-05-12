@@ -73,6 +73,16 @@
         </div>
 
         <div class="admin-card">
+          <h3>재화 지급</h3>
+          <label for="moneyTargetSelect">대상 유저</label>
+          <select id="moneyTargetSelect"></select>
+          <label for="moneyAmountInput">지급할 금액</label>
+          <input type="number" id="moneyAmountInput" min="1" step="1000" value="100000">
+          <button id="adminGrantMoneyBtn" class="menu-action-btn">재화 지급</button>
+          <p class="menu-note">선택한 유저의 통장 잔고에 입력한 금액이 즉시 추가됩니다.</p>
+        </div>
+
+        <div class="admin-card">
           <h3>오늘의 보스</h3>
           <p id="adminCurrentRaidBoss" class="menu-note">현재 보스: 불러오는 중</p>
           <p id="adminNextRaidBoss" class="menu-note">다음날 자동 변경: 불러오는 중</p>
@@ -452,6 +462,6 @@
     </div>
   </div>
 
-  <script src="client.js?v=48"></script>
+  <script src="client.js?v=49"></script>
 </body>
 </html>

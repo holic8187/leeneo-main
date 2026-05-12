@@ -192,6 +192,7 @@ function setupEventListeners() {
   bindClick('adminGiftBtn', handleAdminGift);
   bindClick('adminDeleteUserBtn', handleAdminDeleteUser);
   bindClick('adminSetLevelBtn', handleAdminSetLevel);
+  bindClick('adminGrantMoneyBtn', handleAdminGrantMoney);
   bindClick('adminSetRaidBossBtn', handleAdminSetRaidBoss);
 
   const giftType = document.getElementById('giftTypeSelect');
@@ -2594,11 +2595,13 @@ function renderAdminUsers(users) {
   const giftSelect = document.getElementById('giftTargetSelect');
   const deleteSelect = document.getElementById('deleteTargetSelect');
   const levelSelect = document.getElementById('levelTargetSelect');
-  if (!giftSelect || !deleteSelect || !levelSelect) return;
+  const moneySelect = document.getElementById('moneyTargetSelect');
+  if (!giftSelect || !deleteSelect || !levelSelect || !moneySelect) return;
 
   giftSelect.innerHTML = '<option value="ALL_USERS">전체 유저</option>';
   deleteSelect.innerHTML = '<option value="">삭제할 유저 선택</option>';
   levelSelect.innerHTML = '<option value="">레벨 조정할 유저 선택</option>';
+  moneySelect.innerHTML = '<option value="">재화 지급 유저 선택</option>';
   users.forEach((user) => {
     giftSelect.insertAdjacentHTML(
       'beforeend',
@@ -2609,6 +2612,10 @@ function renderAdminUsers(users) {
       `<option value="${escapeHtml(user.id)}">${escapeHtml(user.label)}</option>`
     );
     levelSelect.insertAdjacentHTML(
+      'beforeend',
+      `<option value="${escapeHtml(user.id)}">${escapeHtml(user.label)}</option>`
+    );
+    moneySelect.insertAdjacentHTML(
       'beforeend',
       `<option value="${escapeHtml(user.id)}">${escapeHtml(user.label)}</option>`
     );
@@ -2761,6 +2768,45 @@ async function handleAdminSetLevel() {
 
     setText('adminStatus', `${data.updatedLabel} 레벨을 ${data.level}(으)로 변경했습니다.`);
     alert(`${data.updatedLabel} 레벨을 ${data.level}(으)로 변경했습니다.`);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleAdminGrantMoney() {
+  const session = getStoredAdmin();
+  if (!session?.token) return handleLogoutClick();
+
+  const targetSelect = document.getElementById('moneyTargetSelect');
+  const amountInput = document.getElementById('moneyAmountInput');
+  if (!targetSelect?.value) {
+    alert('재화를 지급할 유저를 선택해주세요.');
+    return;
+  }
+
+  const amount = Math.max(1, Math.floor(Number(amountInput?.value) || 0));
+  if (!Number.isFinite(amount) || amount <= 0) {
+    alert('지급할 금액을 올바르게 입력해주세요.');
+    return;
+  }
+
+  const selectedLabel = targetSelect.options[targetSelect.selectedIndex]?.textContent || '선택한 유저';
+  if (!confirm(`${selectedLabel}에게 ${amount.toLocaleString()}원을 지급하시겠습니까?`)) {
+    return;
+  }
+
+  try {
+    const data = await postJson(
+      `${API_URL}/api/admin/grant-money`,
+      {
+        targetUserId: targetSelect.value,
+        amount
+      },
+      getAdminAuthHeaders()
+    );
+
+    setText('adminStatus', `${data.updatedLabel}에게 ${Number(data.amount).toLocaleString()}원을 지급했습니다.`);
+    alert(`${data.updatedLabel}에게 ${Number(data.amount).toLocaleString()}원을 지급했습니다.`);
   } catch (err) {
     alert(err.message);
   }
