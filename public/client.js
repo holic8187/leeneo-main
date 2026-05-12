@@ -130,19 +130,19 @@ const animations = [
 ];
 
 animations[0] = [
-  '   O\n  /|\\\\   [PC]\n   |\n  / \\\\',
-  '   O\n  /|>   [PC]\n   |\n  / \\\\',
-  '   O\n  <|\\\\   [PC]\n   |\n  / \\\\'
+  '   O   [PC]\n  /|\\\\\n   |\n  / \\\\',
+  '   O   [PC]\n  /|>\n   |\n  / \\\\',
+  '   O   [PC]\n  <|\\\\\n   |\n  / \\\\'
 ];
 animations[1] = [
-  '   O\n  /|\\\\   [DOC]\n   |\n  / \\\\',
-  '   O\n  /|\\\\   [MAIL]\n   |\n  / \\\\',
-  '   O\n  /|\\\\   [CHK]\n   |\n  / \\\\'
+  '   O   [DOC]\n  /|\\\\\n   |\n  / \\\\',
+  '   O   [MAIL]\n  /|\\\\\n   |\n  / \\\\',
+  '   O   [CHK]\n  /|\\\\\n   |\n  / \\\\'
 ];
 animations[2] = [
-  '   O\n  /|\\\\   (MEET)\n   |\n  / \\\\',
-  '   O\n  /|\\\\   (TALK)\n   |\n  / \\\\',
-  '   O\n  /|\\\\   (MEMO)\n   |\n  / \\\\'
+  '   O   (MEET)\n  /|\\\\\n   |\n  / \\\\',
+  '   O   (TALK)\n  /|\\\\\n   |\n  / \\\\',
+  '   O   (MEMO)\n  /|\\\\\n   |\n  / \\\\'
 ];
 
 let updateInterval;
