@@ -1593,9 +1593,11 @@ function renderRaidBattle(raidState, user) {
   const participantCount = battle.participants?.length || 0;
   const currentTurnIndex = Number(battle.currentTurnIndex || 0);
   const isBossTurn = currentTurnIndex >= participantCount;
+  const bossAvatarLabel = battle.bossImageLabel || battle.bossName;
 
   setText('raidScreenBossName', battle.bossName);
   setText('raidBossTitle', battle.bossName);
+  setText('raidBossAvatar', bossAvatarLabel);
   setText('raidBossHpText', `${formatNumber(battle.bossHp)} / ${formatNumber(battle.bossMaxHp)}${battle.bossShield > 0 ? ` / 실드 ${formatNumber(battle.bossShield)}` : ''}`);
 
   const turnBanner = document.getElementById('raidTurnBanner');
@@ -1673,9 +1675,11 @@ function renderRaidBattle(raidState, user) {
   const participantCount = battle.participants?.length || 0;
   const currentTurnIndex = Number(battle.currentTurnIndex || 0);
   const isBossTurn = currentTurnIndex >= participantCount;
+  const bossAvatarLabel = battle.bossImageLabel || battle.bossName;
 
   setText('raidScreenBossName', battle.bossName);
   setText('raidBossTitle', battle.bossName);
+  setText('raidBossAvatar', bossAvatarLabel);
   setText('raidBossHpText', `${formatNumber(battle.bossHp)} / ${formatNumber(battle.bossMaxHp)}`);
 
   const turnBanner = document.getElementById('raidTurnBanner');
@@ -1792,9 +1796,11 @@ function renderRaidBattle(raidState, user) {
   const participantCount = battle.participants?.length || 0;
   const currentTurnIndex = Number(battle.currentTurnIndex || 0);
   const isBossTurn = currentTurnIndex >= participantCount;
+  const bossAvatarLabel = battle.bossImageLabel || battle.bossName;
 
   setText('raidScreenBossName', battle.bossName);
   setText('raidBossTitle', battle.bossName);
+  setText('raidBossAvatar', bossAvatarLabel);
   setText('raidBossHpText', `${formatNumber(battle.bossHp)} / ${formatNumber(battle.bossMaxHp)}`);
 
   const turnBanner = document.getElementById('raidTurnBanner');

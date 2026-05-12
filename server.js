@@ -597,6 +597,27 @@ const SUPPORT_PACKAGE_DATA = {
       { itemId: 'pen_monami', quantity: 5 },
       { itemId: 'business_card', quantity: 55 }
     ]
+  },
+  ultra_rich: {
+    id: 'ultra_rich',
+    name: '초초부자패키지',
+    price: 7000,
+    rewards: [
+      { itemId: 'pen_monami', quantity: 7 },
+      { itemId: 'pen_jetstream', quantity: 1 },
+      { itemId: 'business_card', quantity: 77 }
+    ]
+  },
+  building_owner: {
+    id: 'building_owner',
+    name: '건물주패키지',
+    price: 10000,
+    rewards: [
+      { itemId: 'pen_monami', quantity: 10 },
+      { itemId: 'pen_jetstream', quantity: 2 },
+      { itemId: 'business_card', quantity: 110 },
+      { itemId: 'haagen_dazs', quantity: 1 }
+    ]
   }
 };
 
@@ -2726,6 +2747,7 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
     battleId: activeBattle.battleId,
     bossId: activeBattle.bossId,
     bossName: RAID_BOSS_DATA[activeBattle.bossId].name,
+    bossImageLabel: RAID_BOSS_DATA[activeBattle.bossId].imageLabel || RAID_BOSS_DATA[activeBattle.bossId].name,
     bossHp: activeBattle.bossHp,
     bossMaxHp: activeBattle.bossMaxHp,
     bossLastHpLoss: activeBattle.bossLastHpLoss || 0,
