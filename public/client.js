@@ -3257,6 +3257,11 @@ function updateShopUI(user) {
   if (!shopList) return;
 
   shopList.innerHTML = '';
+  const dailyPurchaseLimits = {
+    business_card: 5,
+    bacchus: 10,
+    hot6: 5
+  };
   Object.entries(ITEM_DATA).forEach(([itemId, itemInfo]) => {
     if (itemId === 'cat_tuna_can' || itemInfo.shopHidden) return;
     if (itemInfo.type === 'special' && itemId !== 'business_card') return;
