@@ -192,6 +192,7 @@ function setupEventListeners() {
   bindClick('adminGiftBtn', handleAdminGift);
   bindClick('adminDeleteUserBtn', handleAdminDeleteUser);
   bindClick('adminSetLevelBtn', handleAdminSetLevel);
+  bindClick('adminSetRaidBossBtn', handleAdminSetRaidBoss);
 
   const giftType = document.getElementById('giftTypeSelect');
   if (giftType) {
@@ -2576,10 +2577,13 @@ async function loadAdminUsers() {
     const data = await getJson(`${API_URL}/api/admin/users`, getAdminAuthHeaders());
     saveStoredAdmin({
       ...session,
-      giftCatalog: data.giftCatalog
+      giftCatalog: data.giftCatalog,
+      currentRaidBossId: data.currentRaidBossId,
+      raidBossOptions: data.raidBossOptions || []
     });
     renderAdminUsers(data.users);
     renderAdminGiftOptions();
+    renderAdminRaidBossControls(data.currentRaidBossId, data.raidBossOptions || []);
     setText('adminStatus', `대상 유저 ${data.users.length}명을 불러왔습니다.`);
   } catch (err) {
     alert(err.message);
@@ -2635,6 +2639,31 @@ function renderAdminGiftOptions() {
 
   quantityInput.disabled = selectedType === 'buff' || selectedType === 'package';
   if (selectedType === 'buff' || selectedType === 'package') quantityInput.value = '1';
+}
+
+function renderAdminRaidBossControls(currentRaidBossId, raidBossOptions) {
+  const select = document.getElementById('adminRaidBossSelect');
+  const currentLabel = document.getElementById('adminCurrentRaidBoss');
+  const nextLabel = document.getElementById('adminNextRaidBoss');
+  if (!select || !currentLabel || !nextLabel) return;
+
+  const options = Array.isArray(raidBossOptions) ? raidBossOptions : [];
+  select.innerHTML = '';
+  options.forEach((entry) => {
+    select.insertAdjacentHTML(
+      'beforeend',
+      `<option value="${escapeHtml(entry.id)}">${escapeHtml(entry.name)}</option>`
+    );
+  });
+
+  if (currentRaidBossId) {
+    select.value = currentRaidBossId;
+  }
+
+  const currentBoss = options.find((entry) => entry.id === currentRaidBossId);
+  const nextBoss = options.find((entry) => entry.id !== currentRaidBossId) || currentBoss;
+  currentLabel.textContent = currentBoss ? `현재 보스: ${currentBoss.name}` : '현재 보스: -';
+  nextLabel.textContent = nextBoss ? `다음날 자동 변경: ${nextBoss.name}` : '다음날 자동 변경: -';
 }
 
 async function handleAdminGift() {
@@ -2732,6 +2761,41 @@ async function handleAdminSetLevel() {
 
     setText('adminStatus', `${data.updatedLabel} 레벨을 ${data.level}(으)로 변경했습니다.`);
     alert(`${data.updatedLabel} 레벨을 ${data.level}(으)로 변경했습니다.`);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleAdminSetRaidBoss() {
+  const session = getStoredAdmin();
+  if (!session?.token) return handleLogoutClick();
+
+  const select = document.getElementById('adminRaidBossSelect');
+  if (!select?.value) {
+    alert('변경할 보스를 선택해주세요.');
+    return;
+  }
+
+  const selectedLabel = select.options[select.selectedIndex]?.textContent || '선택한 보스';
+  if (!confirm(`오늘의 보스를 ${selectedLabel}(으)로 변경하시겠습니까? 다음날에는 다른 보스로 자동 변경됩니다.`)) {
+    return;
+  }
+
+  try {
+    const data = await postJson(
+      `${API_URL}/api/admin/set-raid-boss`,
+      { bossId: select.value },
+      getAdminAuthHeaders()
+    );
+
+    const nextSession = {
+      ...session,
+      currentRaidBossId: data.currentRaidBossId
+    };
+    saveStoredAdmin(nextSession);
+    renderAdminRaidBossControls(data.currentRaidBossId, nextSession.raidBossOptions || []);
+    setText('adminStatus', `오늘의 보스를 ${data.currentRaidBossName}(으)로 변경했습니다.`);
+    alert(`오늘의 보스를 ${data.currentRaidBossName}(으)로 변경했습니다. 다음날에는 ${data.nextRaidBossName}(으)로 자동 변경됩니다.`);
   } catch (err) {
     alert(err.message);
   }

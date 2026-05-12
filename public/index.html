@@ -71,6 +71,16 @@
           <button id="adminSetLevelBtn" class="menu-action-btn">레벨 적용</button>
           <p class="menu-note">적용 시 해당 유저의 현재 경험치는 0으로 초기화됩니다.</p>
         </div>
+
+        <div class="admin-card">
+          <h3>오늘의 보스</h3>
+          <p id="adminCurrentRaidBoss" class="menu-note">현재 보스: 불러오는 중</p>
+          <p id="adminNextRaidBoss" class="menu-note">다음날 자동 변경: 불러오는 중</p>
+          <label for="adminRaidBossSelect">보스 선택</label>
+          <select id="adminRaidBossSelect"></select>
+          <button id="adminSetRaidBossBtn" class="menu-action-btn">오늘의 보스 변경</button>
+          <p class="menu-note">오늘만 선택한 보스로 고정되고, 다음날에는 자동으로 다른 보스로 변경됩니다.</p>
+        </div>
       </div>
     </div>
   </div>
@@ -442,6 +452,6 @@
     </div>
   </div>
 
-  <script src="client.js?v=47"></script>
+  <script src="client.js?v=48"></script>
 </body>
 </html>

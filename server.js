@@ -42,6 +42,9 @@ const RAID_COUNTDOWN_SECONDS = 3;
 const RAID_COUNTDOWN_BUFFER_MS = 2000;
 const RAID_DAILY_LIMIT = 1;
 const RAID_BOSS_ID = 'burp_queen';
+const RAID_BOSS_ID_BALD_MANAGER = 'bald_manager';
+const RAID_BOSS_ROTATION_IDS = [RAID_BOSS_ID, RAID_BOSS_ID_BALD_MANAGER];
+const RAID_BOSS_ROTATION_START_KEY = '2026-05-11';
 const RAID_POLL_VERSION_EMPTY = 0;
 
 const ITEM_DATA = {
@@ -597,6 +600,14 @@ const SUPPORT_PACKAGE_DATA = {
   }
 };
 
+const RAID_BOSS_REWARDS_TEXT = [
+  '경험치: 10레벨 기준 현재 레벨 경험치통의 100%, 이후 레벨당 2% 감소, 50레벨 이상은 20% 고정',
+  '명함 0~2장',
+  '박카스 3~5개',
+  '모나미 볼펜 0~1개',
+  '재화 100,000원~300,000원'
+];
+
 const RAID_BOSS_DATA = {
   [RAID_BOSS_ID]: {
     id: RAID_BOSS_ID,
@@ -610,13 +621,22 @@ const RAID_BOSS_DATA = {
       '3. 쩝쩝거리기: 랜덤 대상에게 20 피해씩 총 4회',
       '4. 눈 새 행동: 1턴 지속 보호막 10,000 획득'
     ],
-    rewardsText: [
-      '경험치: 10레벨 기준 현재 레벨 경험치통의 100%, 이후 레벨당 2% 감소, 50레벨 이상은 20% 고정',
-      '명함 0~2장',
-      '박카스 3~5개',
-      '모나미 볼펜 0~1개',
-      '재화 100,000원~300,000원'
-    ]
+    rewardsText: RAID_BOSS_REWARDS_TEXT
+  },
+  [RAID_BOSS_ID_BALD_MANAGER]: {
+    id: RAID_BOSS_ID_BALD_MANAGER,
+    name: '대머리 김부장',
+    maxHp: 50000,
+    imageLabel: '대머리 김부장',
+    patternOrder: ['wig_search', 'mz', 'afterparty', 'sauna'],
+    skillsText: [
+      '1. 내 가발 어디갔어?!: 랜덤 3명에게 20 피해, 2턴 동안 기본 공격/스킬 사용 불가',
+      '2. 허허, 요즘 엠제트세대란..: 랜덤 4명에게 10 피해, 2턴 동안 회복량/실드 획득량 50% 감소',
+      '3. 비기: 회식은 3차부터: 2턴 지속 보호막 7,000 획득, 전원에게 다음 피격 피해 3배 디버프',
+      '4. 사우나나 갈까?: 파티 전체에게 20 피해',
+      '보너스 규칙: 파티에 <김부장의 가발> 장착자가 있으면 1번 스킬이 어이쿠 가발이 여기있네..로 바뀝니다.'
+    ],
+    rewardsText: RAID_BOSS_REWARDS_TEXT
   }
 };
 
@@ -1242,7 +1262,11 @@ let raidState = {
   version: RAID_POLL_VERSION_EMPTY,
   slots: Array(RAID_PARTY_SIZE).fill(null),
   countdown: null,
-  activeBattle: null
+  activeBattle: null,
+  manualBossOverrideDayKey: null,
+  manualBossOverrideId: null,
+  nextDayForcedBossDayKey: null,
+  nextDayForcedBossId: null
 };
 
 if (!MONGO_URI) {
@@ -1370,6 +1394,26 @@ function getDateKeyDiff(a, b) {
   const bMs = dateKeyToUtcMillis(b);
   if (aMs === null || bMs === null) return 0;
   return Math.floor((aMs - bMs) / (24 * 60 * 60 * 1000));
+}
+
+function getCurrentRaidBossId(now = new Date()) {
+  const todayKey = getKSTDateKey(now);
+  if (raidState.manualBossOverrideDayKey === todayKey && RAID_BOSS_DATA[raidState.manualBossOverrideId]) {
+    return raidState.manualBossOverrideId;
+  }
+  if (raidState.nextDayForcedBossDayKey === todayKey && RAID_BOSS_DATA[raidState.nextDayForcedBossId]) {
+    return raidState.nextDayForcedBossId;
+  }
+  const diff = Math.abs(getDateKeyDiff(todayKey, RAID_BOSS_ROTATION_START_KEY));
+  return RAID_BOSS_ROTATION_IDS[diff % RAID_BOSS_ROTATION_IDS.length] || RAID_BOSS_ID;
+}
+
+function getCurrentRaidBoss(now = new Date()) {
+  return RAID_BOSS_DATA[getCurrentRaidBossId(now)] || RAID_BOSS_DATA[RAID_BOSS_ID];
+}
+
+function getAlternateRaidBossId(selectedBossId) {
+  return RAID_BOSS_ROTATION_IDS.find((bossId) => bossId !== selectedBossId) || selectedBossId;
 }
 
 function isWorkingHour(start, end) {
@@ -2064,6 +2108,7 @@ function createRaidParticipantFromUser(user) {
     lastHpLoss: 0,
     lastShieldLoss: 0,
     silenceTurns: 0,
+    actionLockTurns: 0,
     plannedSkill: false,
     plannedTargetUserId: null,
     plannedTargetUserId2: null,
@@ -2084,6 +2129,9 @@ function createRaidParticipantFromUser(user) {
     sojuRewardMultiplier: 1,
     lottoRewardBuff: false,
     lottoRewardSuccessChance: 0.5,
+    healShieldReductionTurns: 0,
+    healShieldReductionMultiplier: 1,
+    nextHitDamageTakenMultiplier: 1,
     negateHitCount: 0,
     debuffImmuneCount: 0,
     attackBonusTurns: 0,
@@ -2207,6 +2255,9 @@ function applySupportPackage(user, packageId) {
 function buildRaidParticipantStatusEffects(participant) {
   const effects = [];
   if (Number(participant.silenceTurns || 0) > 0) effects.push({ type: 'debuff', name: '침묵', turns: Number(participant.silenceTurns || 0), desc: '스킬 사용 불가' });
+  if (Number(participant.actionLockTurns || 0) > 0) effects.push({ type: 'debuff', name: '가발 찾는중..', turns: Number(participant.actionLockTurns || 0), desc: '기본 공격, 스킬 사용 불가' });
+  if (Number(participant.healShieldReductionTurns || 0) > 0) effects.push({ type: 'debuff', name: '꼰대', turns: Number(participant.healShieldReductionTurns || 0), desc: '회복량 및 실드 획득량 50% 감소' });
+  if (Number(participant.nextHitDamageTakenMultiplier || 1) > 1) effects.push({ type: 'debuff', name: '4차까지?', desc: `다음 공격으로 받는 피해 x${Number(participant.nextHitDamageTakenMultiplier || 1).toFixed(1)}` });
   if (Number(participant.counterTurns || 0) > 0) effects.push({ type: 'buff', name: '반격', turns: Number(participant.counterTurns || 0), desc: '보스에게 피격당하면 기본 공격으로 반격' });
   if (Number(participant.negateHitCount || 0) > 0) effects.push({ type: 'buff', name: '피격 무효', count: Number(participant.negateHitCount || 0), desc: '다음 피격을 무효화' });
   if (Number(participant.debuffImmuneCount || 0) > 0) effects.push({ type: 'buff', name: '디버프 무효', count: Number(participant.debuffImmuneCount || 0), desc: '다음 디버프를 무효화' });
@@ -2247,8 +2298,15 @@ function rollCardDraw() {
   return cards[cards.length - 1];
 }
 
-function getRaidLobbySummary() {
-  const boss = RAID_BOSS_DATA[RAID_BOSS_ID];
+function getRaidRecoveryMultiplier(target) {
+  if (!target) return 1;
+  return Number(target.healShieldReductionTurns || 0) > 0
+    ? Number(target.healShieldReductionMultiplier || 1)
+    : 1;
+}
+
+function getRaidLobbySummary(now = new Date()) {
+  const boss = getCurrentRaidBoss(now);
   return {
     bossId: boss.id,
     bossName: boss.name,
@@ -2285,29 +2343,37 @@ function clearRoundShieldEffects(battle) {
   });
 }
 
-function applyRaidDamage(target, damage) {
-  let remainingDamage = damage;
-  let blocked = 0;
-  if (target.shield > 0) {
-    blocked = Math.min(target.shield, remainingDamage);
-    target.shield -= blocked;
-    remainingDamage -= blocked;
-    if (target.tempShieldAmount > 0) {
-      target.tempShieldAmount = Math.max(0, Number(target.tempShieldAmount || 0) - blocked);
-    }
+function grantRaidShield(target, amount, options = {}) {
+  if (!target || target.hp <= 0) return 0;
+  const effectiveAmount = Math.max(0, Math.floor(Number(amount || 0) * getRaidRecoveryMultiplier(target)));
+  if (effectiveAmount <= 0) return 0;
+
+  target.shield += effectiveAmount;
+  const shieldTurns = Math.max(0, Number(options.turns || 0));
+  if (shieldTurns > 0) {
+    target.tempShieldAmount = Number(target.tempShieldAmount || 0) + effectiveAmount;
+    target.tempShieldTurns = Math.max(Number(target.tempShieldTurns || 0), shieldTurns);
+  } else {
+    target.roundShieldAmount = Number(target.roundShieldAmount || 0) + effectiveAmount;
   }
-  target.hp = Math.max(0, target.hp - remainingDamage);
-  target.lastShieldLoss = blocked;
-  target.lastHpLoss = remainingDamage;
-  return remainingDamage;
+  return effectiveAmount;
 }
 
 function healRaidTarget(target, amount) {
-  target.hp = Math.min(target.maxHp, target.hp + amount);
+  if (!target || target.hp <= 0) return 0;
+  const effectiveAmount = Math.max(0, Math.floor(Number(amount || 0) * getRaidRecoveryMultiplier(target)));
+  if (effectiveAmount <= 0) return 0;
+  const previousHp = Number(target.hp || 0);
+  target.hp = Math.min(target.maxHp, target.hp + effectiveAmount);
+  return Math.max(0, Number(target.hp || 0) - previousHp);
 }
 
 function cleanseRaidTarget(target) {
   target.silenceTurns = 0;
+  target.actionLockTurns = 0;
+  target.healShieldReductionTurns = 0;
+  target.healShieldReductionMultiplier = 1;
+  target.nextHitDamageTakenMultiplier = 1;
 }
 
 function getRaidCriticalChance(participant) {
@@ -2392,25 +2458,27 @@ function useRaidCardSkill(participant, battle) {
   } else if (card.effectType === 'party_shield') {
     const shieldAmount = scaleFlat(card.shield);
     const shieldTurns = Math.max(0, Number(card.shieldTurns || 0));
+    let totalAppliedShield = 0;
     battle.participants.forEach((ally) => {
       if (ally.hp > 0) {
-        ally.shield += shieldAmount;
         if (shieldTurns > 0) {
           const appliedShieldTurns = ally.userId === participant.userId ? shieldTurns + 1 : shieldTurns;
-          ally.tempShieldAmount = Number(ally.tempShieldAmount || 0) + shieldAmount;
-          ally.tempShieldTurns = Math.max(Number(ally.tempShieldTurns || 0), appliedShieldTurns);
+          totalAppliedShield += grantRaidShield(ally, shieldAmount, { turns: appliedShieldTurns });
         } else {
-          ally.roundShieldAmount = Number(ally.roundShieldAmount || 0) + shieldAmount;
+          totalAppliedShield += grantRaidShield(ally, shieldAmount);
         }
       }
     });
-    logText = `${participant.displayName}(이)가 ${card.name}로 파티 전원에게 보호막 ${shieldAmount}을 부여했습니다.`;
+    logText = `${participant.displayName}(이)가 ${card.name}로 파티 전원에게 보호막 ${totalAppliedShield.toLocaleString()}을 부여했습니다.`;
   } else if (card.effectType === 'party_heal') {
     const healAmount = scaleFlat(card.heal);
+    let totalHealed = 0;
     battle.participants.forEach((ally) => {
-      if (ally.hp > 0 && (card.includeSelf || ally.userId !== participant.userId)) healRaidTarget(ally, healAmount);
+      if (ally.hp > 0 && (card.includeSelf || ally.userId !== participant.userId)) {
+        totalHealed += healRaidTarget(ally, healAmount);
+      }
     });
-    logText = `${participant.displayName}(이)가 ${card.name}로 파티 전원의 HP를 ${healAmount} 회복시켰습니다.`;
+    logText = `${participant.displayName}(이)가 ${card.name}로 파티 전원의 HP를 총 ${totalHealed.toLocaleString()} 회복시켰습니다.`;
   } else if (card.effectType === 'party_crit_bonus') {
     const critBonus = scalePercent(card.critBonus);
     battle.participants.forEach((ally) => {
@@ -2423,6 +2491,7 @@ function useRaidCardSkill(participant, battle) {
   } else if (card.effectType === 'party_hype_crit') {
     const critBonus = scalePercent(card.critBonus);
     const shieldAmount = scaleFlat(card.shield || 0);
+    let totalAppliedShield = 0;
     battle.participants.forEach((ally) => {
       if (ally.hp > 0) {
         const appliedCritTurns = ally.userId === participant.userId ? card.turns + 1 : card.turns;
@@ -2431,12 +2500,10 @@ function useRaidCardSkill(participant, battle) {
         ally.critBonusTurns = Math.max(ally.critBonusTurns, appliedCritTurns);
         ally.critBonusValue = Math.max(Number(ally.critBonusValue || 0), critBonus);
         ally.hypeTurns = Math.max(ally.hypeTurns, appliedHypeTurns);
-        ally.shield += shieldAmount;
-        ally.tempShieldAmount = Number(ally.tempShieldAmount || 0) + shieldAmount;
-        ally.tempShieldTurns = Math.max(Number(ally.tempShieldTurns || 0), appliedShieldTurns);
+        totalAppliedShield += grantRaidShield(ally, shieldAmount, { turns: appliedShieldTurns });
       }
     });
-    logText = `${participant.displayName}(이)가 ${card.name}로 파티 전원에게 흥겨움, 크리티컬 버프와 보호막 ${shieldAmount}을 부여했습니다.`;
+    logText = `${participant.displayName}(이)가 ${card.name}로 파티 전원에게 흥겨움, 크리티컬 버프와 보호막 ${totalAppliedShield.toLocaleString()}을 부여했습니다.`;
   } else if (card.effectType === 'party_level_blast') {
     const totalLevels = battle.participants.reduce((sum, member) => sum + Number(member.level || 0), 0);
     const damage = scaleFlat(totalLevels * Number(card.multiplierPerLevel || 0));
@@ -2462,8 +2529,8 @@ function useRaidCardSkill(participant, battle) {
     const selectedTargetId = participant.plannedTargetUserId;
     const target = getRaidParticipant(battle, selectedTargetId) || getAliveRaidParticipants(battle)[0] || participant;
     const healAmount = scaleFlat(card.heal);
-    healRaidTarget(target, healAmount);
-    logText = `${participant.displayName}(이)가 ${card.name}로 ${target.displayName}의 HP를 ${healAmount} 회복시켰습니다.`;
+    const actualHeal = healRaidTarget(target, healAmount);
+    logText = `${participant.displayName}(이)가 ${card.name}로 ${target.displayName}의 HP를 ${actualHeal.toLocaleString()} 회복시켰습니다.`;
   } else if (card.effectType === 'self_bonus_damage') {
     participant.extraDamage = scaleFlat(participant.level * Number(card.bonusPerLevel || 0));
   } else if (card.effectType === 'self_per_hit_bonus') {
@@ -2474,10 +2541,11 @@ function useRaidCardSkill(participant, battle) {
     const aliveAllies = getAliveRaidParticipants(battle);
     const shuffled = [...aliveAllies].sort(() => Math.random() - 0.5).slice(0, Math.min(card.targets, aliveAllies.length));
     const shieldAmount = scaleFlat(card.shield);
+    let totalAppliedShield = 0;
     shuffled.forEach((target) => {
-      target.shield += shieldAmount;
+      totalAppliedShield += grantRaidShield(target, shieldAmount);
     });
-    logText = `${participant.displayName}(이)가 ${card.name}로 ${shuffled.length}명에게 보호막 ${shieldAmount}을 부여했습니다.`;
+    logText = `${participant.displayName}(이)가 ${card.name}로 ${shuffled.length}명에게 보호막 ${totalAppliedShield.toLocaleString()}을 부여했습니다.`;
   } else if (card.effectType === 'self_counter') {
     participant.counterTurns = Math.max(participant.counterTurns, card.turns);
     participant.counterDamageMultiplier = Math.max(Number(participant.counterDamageMultiplier || 1), Number(card.counterDamageMultiplier || 1));
@@ -2537,6 +2605,13 @@ function useRaidCardSkill(participant, battle) {
 function tickRaidParticipantEndOfTurn(participant, battle) {
   if (participant.skillCooldown > 0) participant.skillCooldown -= 1;
   if (participant.silenceTurns > 0) participant.silenceTurns -= 1;
+  if (participant.actionLockTurns > 0) participant.actionLockTurns -= 1;
+  if (participant.healShieldReductionTurns > 0) {
+    participant.healShieldReductionTurns -= 1;
+    if (participant.healShieldReductionTurns <= 0) {
+      participant.healShieldReductionMultiplier = 1;
+    }
+  }
   if (participant.critBonusTurns > 0) {
     participant.critBonusTurns -= 1;
     if (participant.critBonusTurns <= 0) participant.critBonusValue = 0;
@@ -2778,7 +2853,11 @@ function applyRaidDamage(target, damage, options = {}) {
     return 0;
   }
 
-  let remainingDamage = damage;
+  let remainingDamage = Number(damage || 0);
+  if (Number(target.nextHitDamageTakenMultiplier || 1) > 1) {
+    remainingDamage = Math.floor(remainingDamage * Number(target.nextHitDamageTakenMultiplier || 1));
+    target.nextHitDamageTakenMultiplier = 1;
+  }
   let blocked = 0;
   if (target.shield > 0) {
     blocked = Math.min(target.shield, remainingDamage);
@@ -2847,10 +2926,102 @@ function applyRaidDebuffImmunity(target) {
 }
 
 function performRaidBossAction(battle) {
-  const pattern = RAID_BOSS_DATA[battle.bossId].patternOrder[battle.bossPatternIndex % RAID_BOSS_DATA[battle.bossId].patternOrder.length];
+  const bossInfo = RAID_BOSS_DATA[battle.bossId] || RAID_BOSS_DATA[RAID_BOSS_ID];
+  if (battle.bossShieldTurns > 0) {
+    battle.bossShieldTurns -= 1;
+    if (battle.bossShieldTurns <= 0) {
+      battle.bossShield = 0;
+    }
+  }
+  const pattern = bossInfo.patternOrder[battle.bossPatternIndex % bossInfo.patternOrder.length];
   battle.bossPatternIndex += 1;
   const aliveParticipants = getAliveRaidParticipants(battle);
-  if (aliveParticipants.length === 0) return '트름녀가 승리의 포즈를 취했습니다.';
+  if (aliveParticipants.length === 0) return `${bossInfo.name}이(가) 승리의 포즈를 취했습니다.`;
+
+  if (battle.bossId === RAID_BOSS_ID_BALD_MANAGER) {
+    if (pattern === 'wig_search') {
+      const wigTargets = aliveParticipants.filter((participant) => participant.equippedCardId === 'wig');
+      if (wigTargets.length > 0) {
+        const target = wigTargets[Math.floor(Math.random() * wigTargets.length)];
+        applyRaidDamage(target, 20, { battle, source: 'boss' });
+        target.damageMultiplierTurns = Math.max(target.damageMultiplierTurns, 1);
+        target.damageMultiplierValue = Math.max(Number(target.damageMultiplierValue || 1), 2.5);
+        clearRoundShieldEffects(battle);
+        return `대머리 김부장의 어이쿠 가발이 여기있네..! ${target.displayName}에게 20 피해를 입히고 <수고했네> 버프를 부여했습니다.`;
+      }
+
+      const targets = [...aliveParticipants]
+        .sort(() => Math.random() - 0.5)
+        .slice(0, Math.min(3, aliveParticipants.length));
+      const lockedNames = [];
+      const resistedNames = [];
+      targets.forEach((participant) => {
+        applyRaidDamage(participant, 20, { battle, source: 'boss' });
+        if (applyRaidDebuffImmunity(participant)) {
+          resistedNames.push(participant.displayName);
+        } else {
+          participant.actionLockTurns = Math.max(participant.actionLockTurns, 2);
+          lockedNames.push(participant.displayName);
+        }
+      });
+      const lockedText = lockedNames.length ? `${lockedNames.join(', ')} 이(가) 2턴 동안 가발 찾는중.. 상태에 빠졌습니다.` : '모든 대상이 디버프를 막아냈습니다.';
+      const resistedText = resistedNames.length ? ` ${resistedNames.join(', ')} 은(는) 디버프를 막아냈습니다.` : '';
+      clearRoundShieldEffects(battle);
+      return `대머리 김부장의 내 가발 어디갔어?! 대상 3명이 20 피해를 받았습니다. ${lockedText}${resistedText}`;
+    }
+
+    if (pattern === 'mz') {
+      const targets = [...aliveParticipants]
+        .sort(() => Math.random() - 0.5)
+        .slice(0, Math.min(4, aliveParticipants.length));
+      const debuffedNames = [];
+      const resistedNames = [];
+      targets.forEach((participant) => {
+        applyRaidDamage(participant, 10, { battle, source: 'boss' });
+        if (applyRaidDebuffImmunity(participant)) {
+          resistedNames.push(participant.displayName);
+        } else {
+          participant.healShieldReductionTurns = Math.max(participant.healShieldReductionTurns, 2);
+          participant.healShieldReductionMultiplier = Math.min(Number(participant.healShieldReductionMultiplier || 1), 0.5);
+          debuffedNames.push(participant.displayName);
+        }
+      });
+      const debuffedText = debuffedNames.length ? `${debuffedNames.join(', ')} 이(가) 꼰대 디버프에 걸렸습니다.` : '모든 대상이 디버프를 막아냈습니다.';
+      const resistedText = resistedNames.length ? ` ${resistedNames.join(', ')} 은(는) 디버프를 막아냈습니다.` : '';
+      clearRoundShieldEffects(battle);
+      return `대머리 김부장의 허허, 요즘 엠제트세대란..! 대상 4명이 10 피해를 받았습니다. ${debuffedText}${resistedText}`;
+    }
+
+    if (pattern === 'afterparty') {
+      battle.bossShield = Number(battle.bossShield || 0) + 7000;
+      battle.bossShieldTurns = Math.max(Number(battle.bossShieldTurns || 0), 2);
+      battle.bossLastHpLoss = 0;
+      const appliedNames = [];
+      const resistedNames = [];
+      aliveParticipants.forEach((participant) => {
+        if (applyRaidDebuffImmunity(participant)) {
+          resistedNames.push(participant.displayName);
+        } else {
+          participant.nextHitDamageTakenMultiplier = Math.max(Number(participant.nextHitDamageTakenMultiplier || 1), 3);
+          appliedNames.push(participant.displayName);
+        }
+      });
+      clearRoundShieldEffects(battle);
+      const appliedText = appliedNames.length ? `${appliedNames.join(', ')} 이(가) 4차까지? 디버프에 걸렸습니다.` : '모든 대상이 디버프를 막아냈습니다.';
+      const resistedText = resistedNames.length ? ` ${resistedNames.join(', ')} 은(는) 디버프를 막아냈습니다.` : '';
+      return `대머리 김부장의 비기: 회식은 3차부터! 2턴 지속되는 7000의 실드를 획득했습니다. ${appliedText}${resistedText}`;
+    }
+
+    if (pattern === 'sauna') {
+      aliveParticipants.forEach((participant) => {
+        applyRaidDamage(participant, 20, { battle, source: 'boss' });
+      });
+      clearRoundShieldEffects(battle);
+      return '대머리 김부장의 사우나나 갈까?! 파티 전체가 20 피해를 받았습니다.';
+    }
+
+    return '대머리 김부장이 뒷짐을 지고 숨을 골랐습니다.';
+  }
 
   if (pattern === 'burp') {
     aliveParticipants.forEach((participant) => {
@@ -2899,13 +3070,13 @@ function performRaidBossAction(battle) {
 
   if (pattern === 'shield') {
     battle.bossShield = Number(battle.bossShield || 0) + 10000;
-    battle.bossShieldTurns = 1;
+    battle.bossShieldTurns = Math.max(Number(battle.bossShieldTurns || 0), 1);
     battle.bossLastHpLoss = 0;
     clearRoundShieldEffects(battle);
     return '트름녀의 눈 새 행동! 1턴 지속되는 10000의 실드를 획득했습니다.';
   }
 
-  return '트름녀가 잠시 숨을 골랐습니다.';
+  return `${bossInfo.name}이(가) 잠시 숨을 골랐습니다.`;
 }
 
 function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
@@ -3017,7 +3188,7 @@ async function buildRaidStateResponse(user, now = new Date()) {
   const slotIndex = findQueuedRaidSlotIndex(user._id);
   return {
     version: raidState.version,
-    lobby: getRaidLobbySummary(),
+    lobby: getRaidLobbySummary(now),
     slots,
     queuedSlotIndex: slotIndex,
     todayUsed: isRaidAlreadyUsedToday(user, now),
@@ -3087,10 +3258,17 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
       addItemToInventory(user, 'bacchus', bacchus);
       addItemToInventory(user, 'pen_monami', monami);
       user.gameState.money += moneyReward;
+      const rewardSummaryParts = [];
+      if (expReward > 0) rewardSummaryParts.push(`경험치 ${expReward.toLocaleString()}`);
+      if (businessCards > 0) rewardSummaryParts.push(`명함 ${Number(businessCards).toLocaleString()}장`);
+      if (bacchus > 0) rewardSummaryParts.push(`박카스 ${Number(bacchus).toLocaleString()}개`);
+      if (monami > 0) rewardSummaryParts.push(`모나미 볼펜 ${Number(monami).toLocaleString()}개`);
+      if (moneyReward > 0) rewardSummaryParts.push(`${Number(moneyReward).toLocaleString()}원`);
+      const rewardSummaryText = rewardSummaryParts.length ? rewardSummaryParts.join(', ') : '보상을 획득하지 못했습니다.';
       queueNotification(
         user,
         'raid_reward',
-        `보스 레이드 승리! 경험치 ${expReward.toLocaleString()}, 명함 ${businessCards}장, 박카스 ${bacchus}개, 모나미 볼펜 ${monami}개, ${moneyReward.toLocaleString()}원을 획득했습니다.${rewardNotes.length ? ` (${rewardNotes.join(', ')})` : ''}`
+        `보스 레이드 승리! ${rewardSummaryText}${rewardNotes.length ? ` (${rewardNotes.join(', ')})` : ''}`
       );
     } else {
       queueNotification(user, 'raid_fail', '보스 레이드에서 패배했습니다. 이번에는 보상을 획득하지 못했습니다.');
@@ -3167,15 +3345,19 @@ async function advanceRaidState(now = new Date()) {
       const participant = activeBattle.participants[activeBattle.turnIndex];
       let actionDelayUnits = 1;
       if (participant.hp > 0) {
-        const passiveLog = triggerRaidTurnStartPassives(participant, activeBattle);
-        appendRaidActionLogs(activeBattle, passiveLog);
-        const skillDelayUnits = appendRaidActionLogs(activeBattle, useRaidCardSkill(participant, activeBattle));
-        const attackDelayUnits = appendRaidActionLogs(activeBattle, performRaidBasicAttack(participant, activeBattle));
-        if (attackDelayUnits > 1) {
-          actionDelayUnits += attackDelayUnits - 1;
-        }
-        if (skillDelayUnits > 0) {
-          actionDelayUnits += skillDelayUnits;
+        if (participant.actionLockTurns > 0) {
+          activeBattle.logs.push(`${participant.displayName}님은 가발 찾는중.. 상태라 아무 행동도 할 수 없습니다.`);
+        } else {
+          const passiveLog = triggerRaidTurnStartPassives(participant, activeBattle);
+          appendRaidActionLogs(activeBattle, passiveLog);
+          const skillDelayUnits = appendRaidActionLogs(activeBattle, useRaidCardSkill(participant, activeBattle));
+          const attackDelayUnits = appendRaidActionLogs(activeBattle, performRaidBasicAttack(participant, activeBattle));
+          if (attackDelayUnits > 1) {
+            actionDelayUnits += attackDelayUnits - 1;
+          }
+          if (skillDelayUnits > 0) {
+            actionDelayUnits += skillDelayUnits;
+          }
         }
         tickRaidParticipantEndOfTurn(participant, activeBattle);
       } else {
@@ -4753,11 +4935,12 @@ app.post('/api/raid/start', async (req, res) => {
 
     const countdownDurationMs = (RAID_COUNTDOWN_SECONDS * 1000) + RAID_COUNTDOWN_BUFFER_MS;
 
+    const currentBoss = getCurrentRaidBoss(now);
     raidState.activeBattle = {
       battleId: `raid-${Date.now()}`,
-      bossId: RAID_BOSS_ID,
-      bossHp: RAID_BOSS_DATA[RAID_BOSS_ID].maxHp,
-      bossMaxHp: RAID_BOSS_DATA[RAID_BOSS_ID].maxHp,
+      bossId: currentBoss.id,
+      bossHp: currentBoss.maxHp,
+      bossMaxHp: currentBoss.maxHp,
       bossShield: 0,
       bossShieldTurns: 0,
       bossLastHpLoss: 0,
@@ -4777,7 +4960,7 @@ app.post('/api/raid/start', async (req, res) => {
     const responseUser = participantUsers.find((entry) => String(entry._id) === String(userId)) || starter;
     const raid = {
       version: raidState.version,
-      lobby: getRaidLobbySummary(),
+      lobby: getRaidLobbySummary(now),
       slots: Array(RAID_PARTY_SIZE).fill(null),
       queuedSlotIndex: -1,
       todayUsed: isRaidAlreadyUsedToday(responseUser, now),
@@ -5066,7 +5249,12 @@ app.get('/api/admin/users', async (req, res) => {
         nickname: user.nickname,
         label: user.nickname ? `${user.nickname} (${user.username})` : user.username
       })),
-      giftCatalog: ADMIN_GIFT_CATALOG
+      giftCatalog: ADMIN_GIFT_CATALOG,
+      currentRaidBossId: getCurrentRaidBossId(new Date()),
+      raidBossOptions: RAID_BOSS_ROTATION_IDS.map((bossId) => ({
+        id: bossId,
+        name: RAID_BOSS_DATA[bossId]?.name || bossId
+      }))
     });
   } catch (err) {
     console.error('Admin user list error:', err);
@@ -5233,6 +5421,43 @@ app.post('/api/admin/set-level', async (req, res) => {
     });
   } catch (err) {
     console.error('Admin set level error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/admin/set-raid-boss', async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+
+  const { bossId } = req.body;
+  if (!bossId || !RAID_BOSS_DATA[bossId]) {
+    return res.status(400).json({ msg: '변경할 보스가 올바르지 않습니다.' });
+  }
+
+  if (raidState.activeBattle || raidState.slots.some(Boolean)) {
+    return res.status(400).json({ msg: '현재 진행 중이거나 대기 중인 레이드가 있어 보스를 변경할 수 없습니다.' });
+  }
+
+  try {
+    const now = new Date();
+    const todayKey = getKSTDateKey(now);
+    const tomorrowKey = getKSTDateKey(new Date(now.getTime() + (24 * 60 * 60 * 1000)));
+    const nextBossId = getAlternateRaidBossId(bossId);
+
+    raidState.manualBossOverrideDayKey = todayKey;
+    raidState.manualBossOverrideId = bossId;
+    raidState.nextDayForcedBossDayKey = tomorrowKey;
+    raidState.nextDayForcedBossId = nextBossId;
+    bumpRaidVersion();
+
+    res.json({
+      success: true,
+      currentRaidBossId: bossId,
+      currentRaidBossName: RAID_BOSS_DATA[bossId].name,
+      nextRaidBossId: nextBossId,
+      nextRaidBossName: RAID_BOSS_DATA[nextBossId]?.name || nextBossId
+    });
+  } catch (err) {
+    console.error('Admin set raid boss error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
   }
 });
