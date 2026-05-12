@@ -868,6 +868,11 @@ function getRememberedQuantityInputValue(inputId, fallback = 1, maxValue = null)
   return Math.max(1, value);
 }
 
+function hasFocusedQuantityInput() {
+  const activeElement = document.activeElement;
+  return Boolean(activeElement && activeElement.classList?.contains('qty-input'));
+}
+
 function getMaxUsableItemQuantity(user, itemId, ownedQuantity = null) {
   const owned = ownedQuantity ?? getInventoryQuantityFromUser(user, itemId);
   if (itemId !== 'bacchus') {
@@ -1915,7 +1920,7 @@ function updateShopUI(user) {
           <td>${escapeHtml(itemInfo.name)}</td>
           <td>${formatNumber(price)}원</td>
           <td>${escapeHtml(descParts.filter(Boolean).join(' / '))}</td>
-          <td><div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" step="1" value="1" ${maxAttr} ${disabledAttr}><button class="mini-btn" ${disabledAttr} onclick="handleBuyClick('${itemId}', '${qtyInputId}')">구매</button></div></td>
+          <td><div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" step="1" value="${getRememberedQuantityInputValue(qtyInputId, 1, Number.isFinite(remainingDailyBuys) ? remainingDailyBuys : null)}" oninput="rememberQuantityInputValue('${qtyInputId}', this.value)" ${maxAttr} ${disabledAttr}><button class="mini-btn" ${disabledAttr} onclick="handleBuyClick('${itemId}', '${qtyInputId}')">구매</button></div></td>
         </tr>
       `
     );
@@ -2463,8 +2468,10 @@ function updateGameUI(user) {
   updateSpecialActionButtons(user);
   refreshSideJobStatus(user);
   updateShoutStatus(user);
-  updateInventoryUI(user);
-  updateShopUI(user);
+  if (!hasFocusedQuantityInput()) {
+    updateInventoryUI(user);
+    updateShopUI(user);
+  }
   updateStatsTab(user);
   updateStockStatus(user);
   updateStressEffect(user.gameState?.stress || 0);
@@ -2734,7 +2741,7 @@ function updateShopUI(user) {
           <td>${escapeHtml(itemInfo.name)}</td>
           <td>${formatNumber(price)}원</td>
           <td>${escapeHtml(description)}</td>
-          <td><div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" step="1" value="1" ${maxAttr} ${disabledAttr}><button class="mini-btn" ${disabledAttr} onclick="handleBuyClick('${itemId}', '${qtyInputId}')">구매</button></div></td>
+          <td><div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" step="1" value="${getRememberedQuantityInputValue(qtyInputId, 1, Number.isFinite(remainingDailyBuys) ? remainingDailyBuys : null)}" oninput="rememberQuantityInputValue('${qtyInputId}', this.value)" ${maxAttr} ${disabledAttr}><button class="mini-btn" ${disabledAttr} onclick="handleBuyClick('${itemId}', '${qtyInputId}')">구매</button></div></td>
         </tr>
       `
     );
@@ -3364,7 +3371,7 @@ function updateInventoryUI(user) {
       const canUse = ['bacchus', 'hot6', 'tylenol', 'raid_entry_ticket', 'hagendaz'].includes(item.itemId);
       const maxUseQuantity = getMaxUsableItemQuantity(user, item.itemId, item.quantity);
       const actionButton = canUse
-        ? `<div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" max="${Math.max(1, maxUseQuantity)}" step="1" value="1" ${maxUseQuantity <= 0 ? 'disabled' : ''}><button class="mini-btn" onclick="handleUseItem('${item.itemId}', '${qtyInputId}')" ${maxUseQuantity <= 0 ? 'disabled' : ''}>사용</button></div>`
+        ? `<div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" max="${Math.max(1, maxUseQuantity)}" step="1" value="${getRememberedQuantityInputValue(qtyInputId, 1, Math.max(1, maxUseQuantity))}" oninput="rememberQuantityInputValue('${qtyInputId}', this.value)" ${maxUseQuantity <= 0 ? 'disabled' : ''}><button class="mini-btn" onclick="handleUseItem('${item.itemId}', '${qtyInputId}')" ${maxUseQuantity <= 0 ? 'disabled' : ''}>사용</button></div>`
         : '<span class="muted-text">상시 적용</span>';
 
       inventoryList.insertAdjacentHTML(
@@ -3482,7 +3489,7 @@ function updateShopUI(user) {
           <td>${escapeHtml(itemInfo.name)}</td>
           <td>${formatNumber(price)}원</td>
           <td>${escapeHtml(descParts.filter(Boolean).join(' / '))}</td>
-          <td><div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" step="1" value="1" ${maxAttr} ${disabledAttr}><button class="mini-btn" ${disabledAttr} onclick="handleBuyClick('${itemId}', '${qtyInputId}')">구매</button></div></td>
+          <td><div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" step="1" value="${getRememberedQuantityInputValue(qtyInputId, 1, Number.isFinite(remainingDailyBuys) ? remainingDailyBuys : null)}" oninput="rememberQuantityInputValue('${qtyInputId}', this.value)" ${maxAttr} ${disabledAttr}><button class="mini-btn" ${disabledAttr} onclick="handleBuyClick('${itemId}', '${qtyInputId}')">구매</button></div></td>
         </tr>
       `
     );
