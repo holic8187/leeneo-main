@@ -263,8 +263,7 @@ function setupRaidBattleLogTracking() {
   if (!battleLog) return;
   battleLog.addEventListener('scroll', () => {
     const threshold = 16;
-    raidBattleLogPinnedToBottom =
-      battleLog.scrollTop + battleLog.clientHeight >= battleLog.scrollHeight - threshold;
+    raidBattleLogPinnedToBottom = battleLog.scrollTop <= threshold;
   });
 }
 
@@ -983,19 +982,30 @@ function getFusionSelectionCountMap() {
   return counts;
 }
 
-function getLockedFusionGrade() {
+function getFusionOwnedCards(user) {
+  return (user.cardDetails || []).filter((card) => Number(card.quantity || 0) > 0);
+}
+
+function getFusionCardInfo(user, cardId) {
+  return getFusionOwnedCards(user).find((card) => card.id === cardId)
+    || (CARD_DATA[cardId] ? { id: cardId, ...CARD_DATA[cardId] } : null);
+}
+
+function getLockedFusionGrade(user) {
   if (!cardFusionSelection.length) return null;
-  return CARD_DATA[cardFusionSelection[0]]?.grade || null;
+  return getFusionCardInfo(user, cardFusionSelection[0])?.grade || null;
 }
 
 function normalizeCardFusionSelection(user) {
-  const ownedCounts = new Map((user.cardDetails || []).map((card) => [card.id, Number(card.quantity || 0)]));
+  const ownedCards = getFusionOwnedCards(user);
+  const ownedCounts = new Map(ownedCards.map((card) => [card.id, Number(card.quantity || 0)]));
+  const cardInfoMap = new Map(ownedCards.map((card) => [card.id, card]));
   const normalized = [];
   const usedCounts = new Map();
   let lockedGrade = null;
 
   for (const cardId of cardFusionSelection) {
-    const cardInfo = CARD_DATA[cardId];
+    const cardInfo = cardInfoMap.get(cardId) || getFusionCardInfo(user, cardId);
     if (!cardInfo || cardInfo.grade === 'S') continue;
 
     if (lockedGrade && lockedGrade !== cardInfo.grade) continue;
@@ -1021,9 +1031,8 @@ function renderCardFusionModal(user) {
 
   normalizeCardFusionSelection(user);
   const selectedCounts = getFusionSelectionCountMap();
-  const lockedGrade = getLockedFusionGrade();
-  const ownedCards = (user.cardDetails || [])
-    .filter((card) => card.quantity > 0)
+  const lockedGrade = getLockedFusionGrade(user);
+  const ownedCards = getFusionOwnedCards(user)
     .sort((a, b) => {
       const gradeOrder = { S: 0, A: 1, B: 2, C: 3 };
       return (gradeOrder[a.grade] ?? 9) - (gradeOrder[b.grade] ?? 9) || a.name.localeCompare(b.name, 'ko');
@@ -1074,7 +1083,7 @@ function renderCardFusionModal(user) {
       ? '<span class="muted-text">등록 완료</span>'
       : available === 1
         ? `<button class="mini-btn" ${disabled ? 'disabled' : ''} onclick="handleCardFusionAdd('${card.id}')">등록</button>`
-        : `<input id="${qtyInputId}" class="qty-input" type="number" min="1" max="${available}" step="1" value="1" ${disabled ? 'disabled' : ''}><button class="mini-btn" ${disabled ? 'disabled' : ''} onclick="handleCardFusionAdd('${card.id}', '${qtyInputId}')">등록</button>`;
+        : `<input id="${qtyInputId}" class="qty-input" type="number" min="1" max="${available}" step="1" value="${getRememberedQuantityInputValue(qtyInputId, 1, available)}" oninput="rememberQuantityInputValue('${qtyInputId}', this.value)" ${disabled ? 'disabled' : ''}><button class="mini-btn" ${disabled ? 'disabled' : ''} onclick="handleCardFusionAdd('${card.id}', '${qtyInputId}')">등록</button>`;
 
     sourceList.insertAdjacentHTML(
       'beforeend',
@@ -1308,7 +1317,7 @@ function handleCardFusionAdd(cardId, inputId = null) {
   const user = getStoredUser();
   if (!user?._id) return handleLogoutClick();
 
-  const card = (user.cardDetails || []).find((entry) => entry.id === cardId && entry.quantity > 0);
+  const card = getFusionOwnedCards(user).find((entry) => entry.id === cardId && entry.quantity > 0);
   if (!card) {
     alert('보유한 카드를 찾을 수 없습니다.');
     return;
@@ -1319,7 +1328,7 @@ function handleCardFusionAdd(cardId, inputId = null) {
   }
 
   normalizeCardFusionSelection(user);
-  const lockedGrade = getLockedFusionGrade();
+  const lockedGrade = getLockedFusionGrade(user);
   if (lockedGrade && lockedGrade !== card.grade) {
     alert('같은 등급 카드만 합성 리스트에 등록할 수 있습니다.');
     return;
@@ -1896,10 +1905,13 @@ function renderRaidBattle(raidState, user) {
 
   const battleLog = document.getElementById('raidBattleLog');
   if (battleLog) {
-    const logs = battle.recentLogs || [];
+    const logs = [...(battle.recentLogs || [])].reverse();
     battleLog.innerHTML = logs
-      .map((line, index) => `<div class="raid-log-line ${index === logs.length - 1 ? 'latest' : ''}">${escapeHtml(line)}</div>`)
+      .map((line, index) => `<div class="raid-log-line ${index === 0 ? 'latest' : ''}">${escapeHtml(line)}</div>`)
       .join('');
+    if (raidBattleLogPinnedToBottom) {
+      battleLog.scrollTop = 0;
+    }
   }
 
   const participantList = document.getElementById('raidParticipantList');

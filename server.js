@@ -54,7 +54,8 @@ const PEN_REWARD_ITEM_MAP = {
   pen_jetstream: 'reward_pen_jetstream',
   pen_applepencil: 'reward_pen_applepencil'
 };
-const EQUIPMENT_DROP_CHANCE = 0.005;
+const EQUIPMENT_DROP_CHANCE = 0.0005;
+const ADVENTURE_SCROLL_DROP_CHANCE = 0.005;
 const EQUIPMENT_TYPE_CARD = 'card_effect';
 const EQUIPMENT_TYPE_ATTACK = 'basic_attack';
 const EQUIPMENT_SCROLL_DROP_WEIGHT = 3;
@@ -757,6 +758,14 @@ const SUPPORT_PACKAGE_DATA = {
       { itemId: 'business_card', quantity: 55 }
     ]
   },
+  bacchus_100: {
+    id: 'bacchus_100',
+    name: '박카스 100개 패키지',
+    price: 6000,
+    rewards: [
+      { itemId: 'bacchus', quantity: 100 }
+    ]
+  },
   ultra_rich: {
     id: 'ultra_rich',
     name: '초초부자패키지',
@@ -843,9 +852,9 @@ const RAID_BOSS_DATA = {
       '1. 아들자랑 MK.1: 전원의 버프 제거, 제거된 버프 1개당 10 피해, 랜덤 2인에게 2턴 기본 공격 불가',
       '2. 아들이랑 엮기 MK.2: 자신 버프 1개당 6000 회복, 버프가 없으면 보호막 5000 획득',
       '3. ASS-HIT MK.3: 전원에게 10 피해씩 총 3회 공격',
-      '4. 손 톱 깎 기: 랜덤 1인에게 1턴 뒤 30 피해, 이후 20/10 피해로 최대 2회 튕김',
-      '5. 먹고 싶은거 있어?: 전원에게 10 피해, 자신에게 피격 무효 10회 버프',
-      '특수 기믹: 닉네임이 호이인 파티원이 있으면 그 파티원의 피해가 1.5배로 적용됩니다.'
+      '4. 손 톱 깎 기: 랜덤 1인에게 1턴 뒤 40 피해, 이후 30/20 피해로 최대 2회 튕김',
+      '5. 먹고 싶은거 있어?: 전원에게 20 피해, 자신에게 피격 무효 10회 버프',
+      '특수 기믹: 닉네임이 호이인 파티원이 있으면 그 파티원의 피해가 1.5배로 적용되고, 클리어 시 파티 전체 전리품이 1.5배가 됩니다.'
     ],
     rewardsText: RAID_BOSS_REWARDS_TEXT
   }
@@ -1447,6 +1456,51 @@ const ADVENTURE_EVENT_DEFINITIONS = [
     actor: '비둘기',
     message: '옥상 난간에 흩날리던 행사 명함 몇 장을 주워 담았다. 이상하게 멀쩡하다.',
     reward: { type: 'item', itemId: 'business_card', quantity: 2 }
+  }
+];
+
+const ADVENTURE_SCROLL_EVENT_DEFINITIONS = [
+  {
+    id: 'scroll_copier_card_005',
+    location: '복도',
+    actor: '박 대리님',
+    message: '복도 복합기 밑에서 반짝이는 주문서를 발견했다. 박 대리님은 "그거 프린터 토너 부적 같은데?"라며 손사래를 쳤다.',
+    reward: { type: 'item', itemId: 'scroll_card_005', quantity: 1 }
+  },
+  {
+    id: 'scroll_archive_card_01',
+    location: '비품창고',
+    actor: '경비아저씨',
+    message: '비품창고 낡은 바인더 사이에서 카드 효과 주문서가 떨어졌다. 경비아저씨가 "이런 건 주운 사람이 임자지."라고 말했다.',
+    reward: { type: 'item', itemId: 'scroll_card_01', quantity: 1 }
+  },
+  {
+    id: 'scroll_rooftop_card_025',
+    location: '옥상',
+    actor: '비둘기',
+    message: '옥상 난간에 앉아 있던 비둘기가 빛나는 종이를 물고 도망치다 떨어뜨렸다. 꽤 강한 카드 효과 주문서 같다.',
+    reward: { type: 'item', itemId: 'scroll_card_025', quantity: 1 }
+  },
+  {
+    id: 'scroll_parking_attack_01',
+    location: '주차장',
+    actor: '김 주임',
+    message: '주차장 구석에서 김 주임이 몰래 숨겨둔 운동 루틴 메모를 발견했다. 이상하게 기본 공격력 주문서로 쓸 수 있다.',
+    reward: { type: 'item', itemId: 'scroll_attack_01', quantity: 1 }
+  },
+  {
+    id: 'scroll_park_attack_02',
+    location: '근처 공원',
+    actor: '고양이',
+    message: '근처 공원 벤치 아래에서 고양이가 발로 툭툭 치던 주문서를 건네줬다. 고양이도 성장의 맛을 아는 모양이다.',
+    reward: { type: 'item', itemId: 'scroll_attack_02', quantity: 1 }
+  },
+  {
+    id: 'scroll_convenience_attack_05',
+    location: '근처 편의점',
+    actor: '대표님',
+    message: '편의점 영수증 뒤에 기묘한 주문식이 적혀 있었다. 대표님은 "그런 건 경비 처리 안 돼요."라고만 했다.',
+    reward: { type: 'item', itemId: 'scroll_attack_05', quantity: 1 }
   }
 ];
 
@@ -2514,6 +2568,8 @@ function createRaidParticipantFromUser(user) {
     counterTurns: 0,
     counterDamageMultiplier: 1,
     rewardMultiplier: 1,
+    hoiRewardBuff: false,
+    hoiRewardMultiplier: 1,
     sojuRewardBuff: false,
     sojuRewardMultiplier: 1,
     lottoRewardBuff: false,
@@ -2535,7 +2591,7 @@ function createRaidParticipantFromUser(user) {
     cardEffectAmpTurns: 0,
     cardEffectAmpValue: 1,
     rotationIndex: 0,
-    specialDamageMultiplier: user.nickname === '호이' ? 1.5 : 1,
+    specialDamageMultiplier: 1,
     nailBounceDelayTurns: 0,
     nailBounceDamage: 0,
     nailBounceRemainingBounces: 0
@@ -2724,6 +2780,7 @@ function buildRaidParticipantStatusEffects(participant) {
   if (Number(participant.cardEffectAmpTurns || 0) > 0) effects.push({ type: 'buff', name: '소개팅 상대', turns: Number(participant.cardEffectAmpTurns || 0), desc: `카드 효과 x${Number(participant.cardEffectAmpValue || 1).toFixed(2)}` });
   if (participant.sojuRewardBuff) effects.push({ type: 'buff', name: '소주각?', desc: `전투 승리 시 전리품 ${Number(participant.sojuRewardMultiplier || 1).toFixed(1)}배` });
   if (participant.lottoRewardBuff) effects.push({ type: 'buff', name: '이번엔 될거같아', desc: `전투 승리 시 ${formatCardPercentText(participant.lottoRewardSuccessChance || 0.5)} 확률로 전리품 3배 또는 보상 없음` });
+  if (participant.hoiRewardBuff) effects.push({ type: 'buff', name: 'HOI 특수기믹', desc: `전투 승리 시 전리품 ${Number(participant.hoiRewardMultiplier || 1).toFixed(1)}배` });
   return effects;
 }
 
@@ -3560,7 +3617,7 @@ function performRaidBossAction(battle) {
       const target = aliveParticipants[Math.floor(Math.random() * aliveParticipants.length)];
       if (!applyRaidDebuffImmunity(target)) {
         target.nailBounceDelayTurns = Math.max(target.nailBounceDelayTurns, 1);
-        target.nailBounceDamage = Math.max(target.nailBounceDamage, 30);
+        target.nailBounceDamage = Math.max(target.nailBounceDamage, 40);
         target.nailBounceRemainingBounces = Math.max(target.nailBounceRemainingBounces, 2);
         return `HOI-M.S.J-50의 손 톱 깎 기! ${target.displayName}에게 튕겨나간 손톱 디버프를 부여했습니다.`;
       }
@@ -3569,11 +3626,11 @@ function performRaidBossAction(battle) {
 
     if (pattern === 'food_question') {
       aliveParticipants.forEach((participant) => {
-        applyRaidDamage(participant, 10, { battle, source: 'boss' });
+        applyRaidDamage(participant, 20, { battle, source: 'boss' });
       });
       battle.bossNegateHits = Number(battle.bossNegateHits || 0) + 10;
       clearRoundShieldEffects(battle);
-      return 'HOI-M.S.J-50의 먹고 싶은거 있어?! 파티 전체에게 10 피해를 주고 피격 무효 10회를 얻었습니다.';
+      return 'HOI-M.S.J-50의 먹고 싶은거 있어?! 파티 전체에게 20 피해를 주고 피격 무효 10회를 얻었습니다.';
     }
   }
 
@@ -3779,10 +3836,20 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
 }
 
 function applyRaidBattleStartPassives(activeBattle) {
-  const hoiBoosted = activeBattle.participants.filter((participant) => Number(participant.specialDamageMultiplier || 1) > 1);
+  const hoiBoosted = activeBattle.bossId === RAID_BOSS_ID_HOI
+    ? activeBattle.participants.filter((participant) => participant.nickname === '호이')
+    : [];
   hoiBoosted.forEach((participant) => {
+    participant.specialDamageMultiplier = 1.5;
     activeBattle.logs.push(`${participant.displayName}은(는) HOI-M.S.J-50 특수 기믹으로 입히는 피해가 ${Number(participant.specialDamageMultiplier || 1).toFixed(1)}배가 됩니다.`);
   });
+  if (hoiBoosted.length) {
+    activeBattle.participants.forEach((participant) => {
+      participant.hoiRewardBuff = true;
+      participant.hoiRewardMultiplier = 1.5;
+    });
+    activeBattle.logs.push('HOI-M.S.J-50 특수 기믹으로 클리어 시 파티 전체 전리품이 1.5배가 됩니다.');
+  }
   const sojuCards = activeBattle.participants
     .map((participant) => getParticipantCard(participant))
     .filter((card) => card?.id === 'drinking_angle');
@@ -3881,6 +3948,10 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
       if (participant.sojuRewardBuff) {
         rewardMultiplier *= Number(participant.sojuRewardMultiplier || 1);
         rewardNotes.push(`소주각? 적용으로 전리품 ${Number(participant.sojuRewardMultiplier || 1).toFixed(1)}배`);
+      }
+      if (participant.hoiRewardBuff) {
+        rewardMultiplier *= Number(participant.hoiRewardMultiplier || 1);
+        rewardNotes.push(`HOI 특수 기믹으로 전리품 ${Number(participant.hoiRewardMultiplier || 1).toFixed(1)}배`);
       }
       if (participant.lottoRewardBuff) {
         if (sharedLottoOutcome === 'success') {
@@ -4651,6 +4722,9 @@ function applyAdventureReward(user, reward, now = new Date()) {
 }
 
 function rollAdventureEvent() {
+  if (Math.random() < ADVENTURE_SCROLL_DROP_CHANCE) {
+    return ADVENTURE_SCROLL_EVENT_DEFINITIONS[Math.floor(Math.random() * ADVENTURE_SCROLL_EVENT_DEFINITIONS.length)];
+  }
   return ADVENTURE_EVENT_DEFINITIONS[Math.floor(Math.random() * ADVENTURE_EVENT_DEFINITIONS.length)];
 }
 
