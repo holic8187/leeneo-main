@@ -2830,35 +2830,6 @@ function cleanseRaidTarget(target) {
   target.nextHitDamageTakenMultiplier = 1;
 }
 
-function getRaidCriticalChance(participant) {
-  const baseChance = 0.1;
-  const bonus = participant.critBonusTurns > 0 ? 0.5 : 0;
-  return Math.min(1, baseChance + bonus);
-}
-
-function performRaidBasicAttack(participant, battle) {
-  const baseDamage = Math.floor((participant.level / 2) * 20);
-  const hitCount = Math.max(1, 1 + participant.extraHits);
-  let totalDamage = 0;
-  let critCount = 0;
-
-  for (let hit = 0; hit < hitCount; hit += 1) {
-    const isCritical = Math.random() < getRaidCriticalChance(participant);
-    const hitDamage = Math.floor(baseDamage * (isCritical ? 1.5 : 1));
-    totalDamage += hitDamage;
-    if (isCritical) critCount += 1;
-  }
-
-  totalDamage += participant.extraDamage;
-  if (participant.damageMultiplierTurns > 0) {
-    totalDamage = Math.floor(totalDamage * participant.damageMultiplierValue);
-  }
-
-  battle.bossHp = Math.max(0, battle.bossHp - totalDamage);
-  battle.bossLastHpLoss = totalDamage;
-  const criticalText = critCount > 0 ? ` (치명타 ${critCount}회)` : '';
-  return `${participant.displayName}의 기본 공격이 ${totalDamage.toLocaleString()} 피해를 입혔습니다.${criticalText}`;
-}
 
 function getSelectableRaidTargets(battle) {
   return battle.participants.filter((participant) => participant.hp > 0).map((participant) => participant.userId);
@@ -3259,105 +3230,6 @@ function tickRaidParticipantEndOfTurn(participant, battle) {
   participant.extraDamage = 0;
 }
 
-function performRaidBossAction(battle) {
-  if (battle.bossShieldTurns > 0) {
-    battle.bossShieldTurns -= 1;
-    if (battle.bossShieldTurns <= 0) {
-      battle.bossShield = 0;
-    }
-  }
-
-  const pattern = RAID_BOSS_DATA[battle.bossId].patternOrder[battle.bossPatternIndex % RAID_BOSS_DATA[battle.bossId].patternOrder.length];
-  battle.bossPatternIndex += 1;
-  const aliveParticipants = getAliveRaidParticipants(battle);
-  if (aliveParticipants.length === 0) return '트름녀가 승리의 포즈를 취했습니다.';
-
-  if (pattern === 'burp') {
-    aliveParticipants.forEach((participant) => {
-      applyRaidDamage(participant, 30);
-    });
-    return '트름녀의 트름하기! 파티 전체가 30 피해를 받았습니다.';
-  }
-
-  if (pattern === 'smack') {
-    const targetNames = [];
-    for (let count = 0; count < 4; count += 1) {
-      const currentAlive = getAliveRaidParticipants(battle);
-      if (currentAlive.length === 0) break;
-      const target = currentAlive[Math.floor(Math.random() * currentAlive.length)];
-      applyRaidDamage(target, 20);
-      targetNames.push(target.displayName);
-    }
-    return `트름녀의 쩝쩝거리기! ${targetNames.join(', ')}에게 연속 공격이 날아갔습니다.`;
-  }
-
-  if (pattern === 'ice') {
-    const targets = [...aliveParticipants]
-      .sort(() => Math.random() - 0.5)
-      .slice(0, Math.min(3, aliveParticipants.length));
-    targets.forEach((participant) => {
-      applyRaidDamage(participant, 30);
-      participant.silenceTurns = Math.max(participant.silenceTurns, 1);
-    });
-    return `트름녀의 얼음씹기! ${targets.map((participant) => participant.displayName).join(', ')} 이(가) 30 피해를 받고 1턴 침묵에 걸렸습니다.`;
-  }
-
-  return '트름녀가 잠시 숨을 골랐습니다.';
-}
-
-function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
-  if (!activeBattle) return null;
-  const sanitizedLogs = activeBattle.logs.slice(-8).map((line) => {
-    let normalized = String(line || '');
-    activeBattle.participants.forEach((participant) => {
-      if (participant?.displayName && participant?.nickname && participant.displayName !== participant.nickname) {
-        normalized = normalized.split(participant.displayName).join(participant.nickname);
-      }
-    });
-    return normalized;
-  });
-  return {
-    battleId: activeBattle.battleId,
-    bossId: activeBattle.bossId,
-    bossName: RAID_BOSS_DATA[activeBattle.bossId].name,
-    bossImageLabel: RAID_BOSS_DATA[activeBattle.bossId].imageLabel || RAID_BOSS_DATA[activeBattle.bossId].name,
-    bossHp: activeBattle.bossHp,
-    bossMaxHp: activeBattle.bossMaxHp,
-    bossLastHpLoss: activeBattle.bossLastHpLoss || 0,
-    phase: activeBattle.phase,
-    currentTurnIndex: activeBattle.turnIndex,
-    bossPatternIndex: activeBattle.bossPatternIndex,
-    nextActionAt: activeBattle.nextActionAt,
-    countdownEndsAt: activeBattle.countdownEndsAt || null,
-    isParticipant: viewerUserId ? isRaidUserParticipant(activeBattle, viewerUserId) : false,
-    participants: activeBattle.participants.map((participant, index) => {
-      const card = getParticipantCard(participant);
-      return {
-        turnOrder: index,
-        userId: participant.userId,
-        displayName: participant.displayName,
-        level: participant.level,
-        hp: participant.hp,
-        maxHp: participant.maxHp,
-        shield: participant.shield,
-        lastHpLoss: participant.lastHpLoss || 0,
-        lastShieldLoss: participant.lastShieldLoss || 0,
-        silenceTurns: participant.silenceTurns,
-        skillCooldown: participant.skillCooldown,
-        plannedSkill: participant.plannedSkill,
-        plannedTargetUserId: participant.plannedTargetUserId || null,
-        equippedCardId: participant.equippedCardId || null,
-        equippedCardName: card?.name || '장착 카드 없음',
-        equippedCardGrade: card?.grade || null,
-        skillName: card?.skillName || '',
-        skillDesc: card?.skillDesc || '',
-        targetType: card?.targetType || null,
-        isSelf: viewerUserId ? participant.userId === String(viewerUserId) : false
-      };
-    }),
-    recentLogs: activeBattle.logs.slice(-8)
-  };
-}
 
 function getRaidCardEffectAmpMultiplier(participant) {
   return participant.cardEffectAmpTurns > 0 ? Number(participant.cardEffectAmpValue || 1) : 1;
@@ -5977,20 +5849,20 @@ app.post('/api/raid/start', async (req, res) => {
 
 app.post('/api/raid/cancel-countdown', async (req, res) => {
   const { userId } = req.body;
-  if (!userId) return res.status(400).json({ msg: '?ъ슜??ID媛 ?꾩슂?⑸땲??' });
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
     const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ msg: '?ъ슜?먮? 李얠쓣 ???놁뒿?덈떎.' });
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
 
     const activeBattle = raidState.activeBattle;
     if (!activeBattle || activeBattle.phase !== 'countdown') {
-      return res.status(400).json({ msg: '?낆옣 移댁슫?몃떎?댁슫 以묒씤 ?덉씠?쒓? ?놁뒿?덈떎.' });
+      return res.status(400).json({ msg: '입장 카운트다운 중인 레이드가 없습니다.' });
     }
 
     const isParticipant = activeBattle.participants.some((participant) => String(participant.userId) === String(userId));
     if (!isParticipant) {
-      return res.status(403).json({ msg: '?덉씠?쒓? 李몄뿬?먮쭔 痍⑥냼???덉뒿?덈떎.' });
+      return res.status(403).json({ msg: '레이드 참여자만 취소할 수 있습니다.' });
     }
 
     const participantIds = activeBattle.participants.map((participant) => String(participant.userId));
@@ -6018,7 +5890,7 @@ app.post('/api/raid/cancel-countdown', async (req, res) => {
     res.json({ raid, cancelled: true });
   } catch (err) {
     console.error('Raid countdown cancel error:', err);
-    res.status(500).json({ msg: '?쒕쾭 ?ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.' });
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
   }
 });
 
