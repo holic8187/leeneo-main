@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>일해라 이네오!! - 통합 문서1</title>
-  <link rel="stylesheet" href="style.css?v=23">
+  <link rel="stylesheet" href="style.css?v=24">
 </head>
 <body>
   <div id="login-screen">
@@ -198,7 +198,7 @@
                   </div>
                   <div class="special-card">
                     <button id="sideJobBtn" class="menu-action-btn">부업하기</button>
-                    <p>스트레스를 즉시 40 얻지만, 현재 분당 획득 월급의 300배를 즉시 획득합니다.</p>
+                    <p>행동력 1을 소모하고 스트레스를 즉시 40 얻지만, 현재 분당 획득 월급의 300배를 즉시 획득합니다.</p>
                     <p id="sideJobStatus" class="menu-note">스트레스 감소율은 적용되지 않습니다.</p>
                   </div>
                 </div>
@@ -266,6 +266,34 @@
                     </tr>
                   </thead>
                   <tbody id="card-list"></tbody>
+                </table>
+
+                <h4 class="section-gap">장비</h4>
+                <div class="card-actions">
+                  <button id="openEquipmentEnhanceModalBtn" class="mini-btn">장비 강화</button>
+                </div>
+                <table class="inner-table">
+                  <thead>
+                    <tr>
+                      <th>장비명</th>
+                      <th>설명</th>
+                      <th>장착</th>
+                      <th>강화</th>
+                    </tr>
+                  </thead>
+                  <tbody id="equipment-list"></tbody>
+                </table>
+
+                <h4 class="section-gap">주문서</h4>
+                <table class="inner-table">
+                  <thead>
+                    <tr>
+                      <th>주문서명</th>
+                      <th>수량</th>
+                      <th>효과</th>
+                    </tr>
+                  </thead>
+                  <tbody id="equipment-scroll-list"></tbody>
                 </table>
               </div>
 
@@ -369,12 +397,39 @@
     </div>
   </div>
 
+  <div id="equipmentEnhanceModal" class="modal-overlay hidden">
+    <div class="excel-sheet modal-panel fusion-modal-panel enhance-modal-panel">
+      <h3>장비 강화</h3>
+      <div id="equipmentEnhanceLog" class="raid-battle-log equipment-log"></div>
+      <div class="enhance-top-row">
+        <div>
+          <h4>선택 장비</h4>
+          <div id="equipmentEnhanceSelected" class="enhance-selected-card empty">강화할 장비를 아래 목록에서 선택하세요.</div>
+        </div>
+        <div class="fusion-side-actions enhance-side-actions">
+          <div id="equipmentEnhanceChanceText" class="menu-note">장비와 주문서를 선택하면 강화 정보가 표시됩니다.</div>
+          <div id="equipmentEnhancePreview" class="modal-note">현재 수치와 강화 후 미리보기가 여기에 표시됩니다.</div>
+          <button id="confirmEquipmentEnhanceBtn" class="menu-action-btn">강화하기</button>
+          <button id="closeEquipmentEnhanceModalBtn" class="mini-btn">닫기</button>
+        </div>
+      </div>
+      <h4 class="section-gap">보유 장비</h4>
+      <div id="equipmentEnhanceSourceList" class="fusion-source-list"></div>
+      <h4 class="section-gap">보유 주문서</h4>
+      <div id="equipmentEnhanceScrollList" class="fusion-source-list"></div>
+    </div>
+  </div>
+
   <div id="supportModal" class="modal-overlay hidden">
     <div class="excel-sheet modal-panel support-modal-panel">
       <h3>직장인은 지갑전사</h3>
       <div class="support-account">토스뱅크 1000-4112-0011</div>
       <p class="menu-note">"받는분에게 표시 란"에 실명 대신 자신의 닉네임으로 설정하고 후원하면 자동으로 아이템이 지급됩니다</p>
       <div class="support-package-list">
+        <div id="beginnerSupportPackageCard" class="support-package-card">
+          <strong>초보자패키지 - 5,000원</strong>
+          <div class="menu-note">모나미 볼펜 10개, 제트스트림 볼펜 2개, 명함 100개, 하겐다즈 2개</div>
+        </div>
         <div class="support-package-card">
           <strong>피로회복패키지 - 1,000원</strong>
           <div class="menu-note">박카스 1개, 명함 10개</div>
@@ -470,6 +525,6 @@
     </div>
   </div>
 
-  <script src="client.js?v=63"></script>
+  <script src="client.js?v=65"></script>
 </body>
 </html>

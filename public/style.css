@@ -1064,6 +1064,12 @@ progress {
   background: #fbfbfb;
 }
 
+.equipment-log {
+  min-height: 96px;
+  max-height: 180px;
+  margin-bottom: 12px;
+}
+
 .stock-controls {
   display: flex;
   gap: 10px;

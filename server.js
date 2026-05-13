@@ -43,9 +43,22 @@ const RAID_COUNTDOWN_BUFFER_MS = 2000;
 const RAID_DAILY_LIMIT = 1;
 const RAID_BOSS_ID = 'burp_queen';
 const RAID_BOSS_ID_BALD_MANAGER = 'bald_manager';
-const RAID_BOSS_ROTATION_IDS = [RAID_BOSS_ID, RAID_BOSS_ID_BALD_MANAGER];
+const RAID_BOSS_ID_HOI = 'hoi_msj_50';
+const RAID_BOSS_ROTATION_IDS = [RAID_BOSS_ID, RAID_BOSS_ID_BALD_MANAGER, RAID_BOSS_ID_HOI];
 const RAID_BOSS_ROTATION_START_KEY = '2026-05-11';
 const RAID_POLL_VERSION_EMPTY = 0;
+const PEN_SHOP_ITEM_IDS = ['pen_monami', 'pen_jetstream', 'pen_applepencil'];
+const REWARD_PEN_ITEM_IDS = ['reward_pen_monami', 'reward_pen_jetstream', 'reward_pen_applepencil'];
+const PEN_REWARD_ITEM_MAP = {
+  pen_monami: 'reward_pen_monami',
+  pen_jetstream: 'reward_pen_jetstream',
+  pen_applepencil: 'reward_pen_applepencil'
+};
+const EQUIPMENT_DROP_CHANCE = 0.005;
+const EQUIPMENT_TYPE_CARD = 'card_effect';
+const EQUIPMENT_TYPE_ATTACK = 'basic_attack';
+const EQUIPMENT_SCROLL_DROP_WEIGHT = 3;
+const EQUIPMENT_GEAR_DROP_WEIGHT = 7;
 
 const ITEM_DATA = {
   pen_monami: {
@@ -63,6 +76,41 @@ const ITEM_DATA = {
     desc: '월급 획득량 +0.1%',
     hoverDesc: '보유량 1개마다 월급 획득량이 0.1% 증가합니다.',
     stats: { moneyBonus: 0.1 }
+  },
+  pen_applepencil: {
+    name: '애플펜슬',
+    price: 1500000,
+    type: 'passive',
+    desc: '월급 획득량 +2%',
+    hoverDesc: '보유량 1개마다 월급 획득량이 2% 증가합니다.',
+    stats: { moneyBonus: 2 }
+  },
+  reward_pen_monami: {
+    name: '보상 모나미 볼펜',
+    price: 0,
+    type: 'passive',
+    shopHidden: true,
+    desc: '월급 획득량 +0.05%',
+    hoverDesc: '보상으로 받은 모나미 볼펜입니다. 월급 획득량이 0.05% 증가하며 상점 가격 상승에는 영향을 주지 않습니다.',
+    stats: { moneyBonus: 0.05 }
+  },
+  reward_pen_jetstream: {
+    name: '보상 제트스트림 볼펜',
+    price: 0,
+    type: 'passive',
+    shopHidden: true,
+    desc: '월급 획득량 +0.1%',
+    hoverDesc: '보상으로 받은 제트스트림 볼펜입니다. 월급 획득량이 0.1% 증가하며 상점 가격 상승에는 영향을 주지 않습니다.',
+    stats: { moneyBonus: 0.1 }
+  },
+  reward_pen_applepencil: {
+    name: '보상 애플펜슬',
+    price: 0,
+    type: 'passive',
+    shopHidden: true,
+    desc: '월급 획득량 +2%',
+    hoverDesc: '보상으로 받은 애플펜슬입니다. 월급 획득량이 2% 증가하며 상점 가격 상승에는 영향을 주지 않습니다.',
+    stats: { moneyBonus: 2 }
   },
   coffee_mix: {
     name: '맥심 커피믹스',
@@ -122,6 +170,54 @@ const ITEM_DATA = {
     type: 'special',
     desc: '모험 중 고양이에게 줄 수 있음',
     hoverDesc: '회사 밖에서 고양이를 만났을 때 건네줄 수 있습니다. 가방에서는 직접 사용할 수 없습니다.'
+  },
+  scroll_card_005: {
+    name: '주문서: 카드 효과 +0.5%',
+    price: 0,
+    type: 'special',
+    shopHidden: true,
+    desc: '카드 효과 장비 전용 / 강화확률 100%',
+    hoverDesc: '카드 효과 장비에만 사용할 수 있습니다. 성공 시 카드 효과 수치가 0.5% 증가합니다. 강화확률 100%'
+  },
+  scroll_card_01: {
+    name: '주문서: 카드 효과 +1%',
+    price: 0,
+    type: 'special',
+    shopHidden: true,
+    desc: '카드 효과 장비 전용 / 강화확률 60%',
+    hoverDesc: '카드 효과 장비에만 사용할 수 있습니다. 성공 시 카드 효과 수치가 1% 증가합니다. 강화확률 60%'
+  },
+  scroll_card_025: {
+    name: '주문서: 카드 효과 +2.5%',
+    price: 0,
+    type: 'special',
+    shopHidden: true,
+    desc: '카드 효과 장비 전용 / 강화확률 10%',
+    hoverDesc: '카드 효과 장비에만 사용할 수 있습니다. 성공 시 카드 효과 수치가 2.5% 증가합니다. 강화확률 10%'
+  },
+  scroll_attack_01: {
+    name: '주문서: 기본 공격력 +1%',
+    price: 0,
+    type: 'special',
+    shopHidden: true,
+    desc: '기본 공격력 장비 전용 / 강화확률 100%',
+    hoverDesc: '기본 공격력 장비에만 사용할 수 있습니다. 성공 시 기본 공격력 수치가 1% 증가합니다. 강화확률 100%'
+  },
+  scroll_attack_02: {
+    name: '주문서: 기본 공격력 +2%',
+    price: 0,
+    type: 'special',
+    shopHidden: true,
+    desc: '기본 공격력 장비 전용 / 강화확률 60%',
+    hoverDesc: '기본 공격력 장비에만 사용할 수 있습니다. 성공 시 기본 공격력 수치가 2% 증가합니다. 강화확률 60%'
+  },
+  scroll_attack_05: {
+    name: '주문서: 기본 공격력 +5%',
+    price: 0,
+    type: 'special',
+    shopHidden: true,
+    desc: '기본 공격력 장비 전용 / 강화확률 10%',
+    hoverDesc: '기본 공격력 장비에만 사용할 수 있습니다. 성공 시 기본 공격력 수치가 5% 증가합니다. 강화확률 10%'
   }
 };
 
@@ -515,6 +611,53 @@ const CARD_DATA = {
     effectType: 'self_fixed_multi_hit',
     hits: 5,
     damagePerLevel: 8
+  },
+  sunscreen: {
+    id: 'sunscreen',
+    name: '썬크림',
+    grade: 'S',
+    rate: 0.00025,
+    skillName: '썬크림',
+    skillDesc: '랜덤 팀원 3인에게 피격 무효화 1회를 부여합니다.',
+    cooldown: 6,
+    effectType: 'party_negate_hit_by_level',
+    targets: 3,
+    negateHitCount: 1
+  },
+  trial_and_growth: {
+    id: 'trial_and_growth',
+    name: '날 죽이지 못하는 시련은 어쩌고저쩌고..',
+    grade: 'S',
+    rate: 0.00025,
+    skillName: '시련은 성장의 밑거름',
+    skillDesc: '현재 자신이 가진 버프/디버프 총 갯수 x 레벨 x 4의 피해를 3회 주고, 모든 디버프를 제거합니다.',
+    cooldown: 5,
+    effectType: 'self_status_blast',
+    hits: 3,
+    multiplierPerStatus: 4
+  },
+  precise_strike: {
+    id: 'precise_strike',
+    name: '정곡찌르기',
+    grade: 'A',
+    rate: 0.008,
+    skillName: '정곡찌르기',
+    skillDesc: '자신의 레벨 x 40의 데미지를 1회 줍니다. 이 스킬은 방어막을 무시하고 HP에 직접 데미지를 입힙니다.',
+    cooldown: 5,
+    effectType: 'direct_hp_strike',
+    multiplierPerLevel: 40
+  },
+  umbrella_copy: {
+    id: 'umbrella_copy',
+    name: '쓰비의 우산 돌려쓰기',
+    grade: 'A',
+    rate: 0.008,
+    skillName: '우산 돌려쓰기',
+    skillDesc: '랜덤 파티원 1명의 카드 효과를 절반만 적용해 따라 합니다.',
+    cooldown: 6,
+    effectType: 'copy_ally_skill',
+    copyEffectMultiplier: 0.5,
+    targetType: null
   }
 };
 
@@ -565,10 +708,26 @@ const CARD_ENHANCE_RULES = {
   pho: { targets: { 0: 2, 3: 3 }, shield: { 0: 30, 1: 40, 5: 50 }, cooldown: { 0: 5, 2: 4, 4: 3 } },
   coca_cola: { attackBonusPercent: { 0: 0.2, 1: 0.25, 3: 0.3, 4: 0.35 }, turns: { 0: 1, 5: 2 }, cooldown: { 0: 5, 2: 4 } },
   cider_comment: { debuffImmuneCount: { 0: 1, 5: 2 }, cooldown: { 0: 6, 1: 5, 2: 4, 3: 3, 4: 2 } },
-  rooftop_pigeons: { damagePerLevel: { 0: 5, 1: 6, 2: 7, 3: 8, 4: 9, 5: 10 } }
+  rooftop_pigeons: { damagePerLevel: { 0: 5, 1: 6, 2: 7, 3: 8, 4: 9, 5: 10 } },
+  sunscreen: { targets: { 0: 3, 2: 4, 3: 99 }, negateHitCount: { 0: 1, 4: 2 }, includeSelf: { 0: 0, 3: 1 }, cooldown: { 0: 6, 1: 5, 5: 4 } },
+  trial_and_growth: { multiplierPerStatus: { 0: 4, 1: 5, 2: 6, 5: 7 }, cooldown: { 0: 5, 3: 4, 4: 3 } },
+  precise_strike: { multiplierPerLevel: { 0: 40, 2: 45, 3: 50, 4: 55 }, cooldown: { 0: 5, 1: 4, 5: 3 } },
+  umbrella_copy: { copyEffectMultiplier: { 0: 0.5, 2: 0.6, 3: 0.7 }, canSelectCopyTarget: { 4: 1 }, cooldown: { 0: 6, 1: 5, 5: 4 } }
 };
 
 const SUPPORT_PACKAGE_DATA = {
+  beginner: {
+    id: 'beginner',
+    name: '초보자패키지',
+    price: 5000,
+    beginnerOnlyMaxLevel: 49,
+    rewards: [
+      { itemId: 'reward_pen_monami', quantity: 10 },
+      { itemId: 'reward_pen_jetstream', quantity: 2 },
+      { itemId: 'business_card', quantity: 100 },
+      { itemId: 'hagendaz', quantity: 2 }
+    ]
+  },
   fatigue_recovery: {
     id: 'fatigue_recovery',
     name: '피로회복패키지',
@@ -584,7 +743,7 @@ const SUPPORT_PACKAGE_DATA = {
     price: 3000,
     rewards: [
       { itemId: 'bacchus', quantity: 5 },
-      { itemId: 'pen_monami', quantity: 2 },
+      { itemId: 'reward_pen_monami', quantity: 2 },
       { itemId: 'business_card', quantity: 33 }
     ]
   },
@@ -594,7 +753,7 @@ const SUPPORT_PACKAGE_DATA = {
     price: 5000,
     rewards: [
       { itemId: 'bacchus', quantity: 10 },
-      { itemId: 'pen_monami', quantity: 5 },
+      { itemId: 'reward_pen_monami', quantity: 5 },
       { itemId: 'business_card', quantity: 55 }
     ]
   },
@@ -603,8 +762,8 @@ const SUPPORT_PACKAGE_DATA = {
     name: '초초부자패키지',
     price: 7000,
     rewards: [
-      { itemId: 'pen_monami', quantity: 7 },
-      { itemId: 'pen_jetstream', quantity: 1 },
+      { itemId: 'reward_pen_monami', quantity: 7 },
+      { itemId: 'reward_pen_jetstream', quantity: 1 },
       { itemId: 'business_card', quantity: 77 }
     ]
   },
@@ -613,25 +772,34 @@ const SUPPORT_PACKAGE_DATA = {
     name: '건물주패키지',
     price: 10000,
     rewards: [
-      { itemId: 'pen_monami', quantity: 10 },
-      { itemId: 'pen_jetstream', quantity: 2 },
+      { itemId: 'reward_pen_monami', quantity: 10 },
+      { itemId: 'reward_pen_jetstream', quantity: 2 },
       { itemId: 'business_card', quantity: 110 },
-      { itemId: 'haagen_dazs', quantity: 1 }
+      { itemId: 'hagendaz', quantity: 1 }
     ]
   }
 };
 
 const DAILY_SHOP_PURCHASE_LIMITS = {
   business_card: 5,
-  bacchus: 10,
+  bacchus: 20,
   hot6: 5
+};
+
+const EQUIPMENT_SCROLL_RULES = {
+  scroll_card_005: { equipmentType: EQUIPMENT_TYPE_CARD, addValue: 0.5, successRate: 1 },
+  scroll_card_01: { equipmentType: EQUIPMENT_TYPE_CARD, addValue: 1, successRate: 0.6 },
+  scroll_card_025: { equipmentType: EQUIPMENT_TYPE_CARD, addValue: 2.5, successRate: 0.1 },
+  scroll_attack_01: { equipmentType: EQUIPMENT_TYPE_ATTACK, addValue: 1, successRate: 1 },
+  scroll_attack_02: { equipmentType: EQUIPMENT_TYPE_ATTACK, addValue: 2, successRate: 0.6 },
+  scroll_attack_05: { equipmentType: EQUIPMENT_TYPE_ATTACK, addValue: 5, successRate: 0.1 }
 };
 
 const RAID_BOSS_REWARDS_TEXT = [
   '경험치: 10레벨 기준 현재 레벨 경험치통의 100%, 이후 레벨당 2% 감소, 50레벨 이상은 20% 고정',
   '명함 0~2장',
   '박카스 3~5개',
-  '모나미 볼펜 0~1개',
+  '보상 모나미 볼펜 0~1개',
   '재화 100,000원~300,000원'
 ];
 
@@ -662,6 +830,22 @@ const RAID_BOSS_DATA = {
       '3. 비기: 회식은 3차부터: 2턴 지속 보호막 7,000 획득, 전원에게 다음 피격 피해 3배 디버프',
       '4. 사우나나 갈까?: 파티 전체에게 20 피해',
       '보너스 규칙: 파티에 <김부장의 가발> 장착자가 있으면 1번 스킬이 어이쿠 가발이 여기있네..로 바뀝니다.'
+    ],
+    rewardsText: RAID_BOSS_REWARDS_TEXT
+  },
+  [RAID_BOSS_ID_HOI]: {
+    id: RAID_BOSS_ID_HOI,
+    name: 'HOI-M.S.J-50',
+    maxHp: 60000,
+    imageLabel: 'HOI-M.S.J-50',
+    patternOrder: ['son_brag', 'son_mix', 'ass_hit', 'nail_clip', 'food_question'],
+    skillsText: [
+      '1. 아들자랑 MK.1: 전원의 버프 제거, 제거된 버프 1개당 10 피해, 랜덤 2인에게 2턴 기본 공격 불가',
+      '2. 아들이랑 엮기 MK.2: 자신 버프 1개당 6000 회복, 버프가 없으면 보호막 5000 획득',
+      '3. ASS-HIT MK.3: 전원에게 10 피해씩 총 3회 공격',
+      '4. 손 톱 깎 기: 랜덤 1인에게 1턴 뒤 30 피해, 이후 20/10 피해로 최대 2회 튕김',
+      '5. 먹고 싶은거 있어?: 전원에게 10 피해, 자신에게 피격 무효 10회 버프',
+      '특수 기믹: 닉네임이 호이인 파티원이 있으면 그 파티원의 피해가 1.5배로 적용됩니다.'
     ],
     rewardsText: RAID_BOSS_REWARDS_TEXT
   }
@@ -1355,6 +1539,16 @@ const userSchema = new mongoose.Schema({
     level: { type: Number, default: 1 },
     quantity: { type: Number, default: 1 }
   }],
+  equipments: [{
+    equipmentId: { type: String, required: true },
+    equipmentType: { type: String, required: true },
+    statValue: { type: Number, required: true },
+    upgradesLeft: { type: Number, default: 7 }
+  }],
+  equippedEquipment: {
+    cardEffect: { type: String, default: null },
+    basicAttack: { type: String, default: null }
+  },
   equippedCardId: { type: String, default: null },
   equippedCardLevel: { type: Number, default: 0 },
   buffs: [{
@@ -1495,6 +1689,12 @@ function ensureUserDefaults(user) {
   }
   if (!Array.isArray(user.cards)) user.cards = [];
   if (!Array.isArray(user.enhancedCards)) user.enhancedCards = [];
+  if (!Array.isArray(user.equipments)) user.equipments = [];
+  if (!user.equippedEquipment || typeof user.equippedEquipment !== 'object') {
+    user.equippedEquipment = { cardEffect: null, basicAttack: null };
+  }
+  user.equippedEquipment.cardEffect = user.equippedEquipment.cardEffect || null;
+  user.equippedEquipment.basicAttack = user.equippedEquipment.basicAttack || null;
   if (!CARD_DATA[user.equippedCardId]) user.equippedCardId = null;
   user.equippedCardLevel = Math.max(0, Math.min(5, Number(user.equippedCardLevel ?? 0)));
   if (!Array.isArray(user.buffs)) user.buffs = [];
@@ -1600,6 +1800,42 @@ function ensureUserDefaults(user) {
     user.enhancedCards = normalizedEnhancedCards;
   }
 
+  const normalizedEquipments = [];
+  const seenEquipmentIds = new Set();
+  let equipmentsChanged = false;
+  user.equipments.forEach((entry) => {
+    if (!entry?.equipmentId || seenEquipmentIds.has(String(entry.equipmentId))) {
+      equipmentsChanged = true;
+      return;
+    }
+    const equipmentType = entry.equipmentType === EQUIPMENT_TYPE_ATTACK ? EQUIPMENT_TYPE_ATTACK : EQUIPMENT_TYPE_CARD;
+    const statValue = Number(entry.statValue || 0);
+    const upgradesLeft = Math.max(0, Math.floor(Number(entry.upgradesLeft ?? 7)));
+    if (!Number.isFinite(statValue) || statValue <= 0) {
+      equipmentsChanged = true;
+      return;
+    }
+    seenEquipmentIds.add(String(entry.equipmentId));
+    normalizedEquipments.push({
+      equipmentId: String(entry.equipmentId),
+      equipmentType,
+      statValue: Number(statValue.toFixed(2)),
+      upgradesLeft
+    });
+  });
+  if (normalizedEquipments.length !== user.equipments.length) {
+    equipmentsChanged = true;
+  }
+  if (equipmentsChanged) {
+    user.equipments = normalizedEquipments;
+  }
+  if (user.equippedEquipment.cardEffect && !user.equipments.some((entry) => entry.equipmentId === user.equippedEquipment.cardEffect && entry.equipmentType === EQUIPMENT_TYPE_CARD)) {
+    user.equippedEquipment.cardEffect = null;
+  }
+  if (user.equippedEquipment.basicAttack && !user.equipments.some((entry) => entry.equipmentId === user.equippedEquipment.basicAttack && entry.equipmentType === EQUIPMENT_TYPE_ATTACK)) {
+    user.equippedEquipment.basicAttack = null;
+  }
+
   migrateLegacyBuffs(user);
   if (user.equippedCardId && getOwnedCardVariantQuantity(user, user.equippedCardId, user.equippedCardLevel || 0) <= 0) {
     user.equippedCardId = null;
@@ -1620,6 +1856,59 @@ function migrateLegacyBuffs(user) {
 
 function normalizeCardEnhancementLevel(level) {
   return Math.max(0, Math.min(5, Math.floor(Number(level) || 0)));
+}
+
+function isPenShopItemId(itemId) {
+  return PEN_SHOP_ITEM_IDS.includes(itemId);
+}
+
+function getRewardVariantItemId(itemId) {
+  return PEN_REWARD_ITEM_MAP[itemId] || itemId;
+}
+
+function buildEquipmentDisplayName(entry) {
+  if (!entry) return '장비';
+  return entry.equipmentType === EQUIPMENT_TYPE_CARD
+    ? '장비: 카드 효과 증폭'
+    : '장비: 기본 공격력 증폭';
+}
+
+function buildEquipmentDescription(entry) {
+  if (!entry) return '';
+  if (entry.equipmentType === EQUIPMENT_TYPE_CARD) {
+    return `카드 효과 +${Number(entry.statValue || 0).toFixed(1)}% / 남은 업그레이드 ${Number(entry.upgradesLeft || 0)}회 / 턴 수 증가나 타수 증가 버프에는 적용되지 않습니다.`;
+  }
+  return `기본 공격력 +${Number(entry.statValue || 0).toFixed(1)}% / 남은 업그레이드 ${Number(entry.upgradesLeft || 0)}회`;
+}
+
+function createEquipmentEntry(equipmentType) {
+  const min = equipmentType === EQUIPMENT_TYPE_CARD ? 3 : 3.5;
+  const max = equipmentType === EQUIPMENT_TYPE_CARD ? 7 : 6.5;
+  const raw = min + (Math.random() * (max - min));
+  return {
+    equipmentId: new mongoose.Types.ObjectId().toString(),
+    equipmentType,
+    statValue: Number(raw.toFixed(1)),
+    upgradesLeft: 7
+  };
+}
+
+function getEquipmentById(user, equipmentId) {
+  return (user.equipments || []).find((entry) => String(entry.equipmentId) === String(equipmentId));
+}
+
+function buildEquipmentDetails(user) {
+  const equippedCardEffectId = user.equippedEquipment?.cardEffect || null;
+  const equippedBasicAttackId = user.equippedEquipment?.basicAttack || null;
+  return (user.equipments || []).map((entry) => ({
+    equipmentId: entry.equipmentId,
+    equipmentType: entry.equipmentType,
+    name: buildEquipmentDisplayName(entry),
+    statValue: Number(entry.statValue || 0),
+    upgradesLeft: Number(entry.upgradesLeft || 0),
+    desc: buildEquipmentDescription(entry),
+    equipped: equippedCardEffectId === entry.equipmentId || equippedBasicAttackId === entry.equipmentId
+  }));
 }
 
 function getCardEnhancementStepValue(stepMap, level, fallbackValue) {
@@ -1657,6 +1946,10 @@ function getCardDefinition(cardId, enhancementLevel = 0) {
     card[field] = getCardEnhancementStepValue(rules[field], level, card[field]);
   });
 
+  if (card.id === 'umbrella_copy') {
+    card.targetType = card.canSelectCopyTarget ? 'ally' : null;
+  }
+
   card.enhancementLevel = level;
   card.borderColor = getCardEnhancementColor(level);
   card.displayName = getCardDisplayName(cardId, level);
@@ -1692,6 +1985,7 @@ function getCardDurationText(cardId, enhancementLevel = 0) {
     case 'fantasy':
     case 'broken_leg':
     case 'rooftop_pigeons':
+    case 'precise_strike':
       return '즉시';
     case 'tissue_box':
     case 'coca_cola':
@@ -1707,6 +2001,12 @@ function getCardDurationText(cardId, enhancementLevel = 0) {
     case 'cider_comment':
     case 'invincible_logic':
       return '1회';
+    case 'sunscreen':
+      return '1회';
+    case 'trial_and_growth':
+      return '즉시 / 사용 시 자신의 디버프 제거';
+    case 'umbrella_copy':
+      return '즉시 / 복사한 카드 효과는 반감';
     default:
       return '즉시';
   }
@@ -1767,6 +2067,14 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
       return `선택한 파티원 1인에게 디버프 무효 ${card.debuffImmuneCount}회를 제공합니다.`;
     case 'rooftop_pigeons':
       return `자신의 레벨 x ${card.damagePerLevel}의 데미지로 ${card.hits}회 공격합니다.`;
+    case 'sunscreen':
+      return `${card.includeSelf ? '자신 포함 ' : ''}${card.targets >= 99 ? '파티 전원' : `랜덤 팀원 ${card.targets}인`}에게 피격 무효 ${card.negateHitCount}회를 부여합니다.`;
+    case 'trial_and_growth':
+      return `현재 자신이 가진 버프/디버프 총 갯수 x 레벨 x ${card.multiplierPerStatus}의 피해를 ${card.hits}회 주고, 자신의 모든 디버프를 제거합니다.`;
+    case 'precise_strike':
+      return `자신의 레벨 x ${card.multiplierPerLevel}의 데미지를 1회 주며, 방어막을 무시하고 HP에 직접 피해를 입힙니다.`;
+    case 'umbrella_copy':
+      return `${card.canSelectCopyTarget ? '선택한' : '랜덤'} 파티원 1명의 카드 효과를 ${Math.round(Number(card.copyEffectMultiplier || 0.5) * 100)}%만 적용해 따라 합니다.`;
     default:
       return card.skillDesc || '';
   }
@@ -2172,6 +2480,8 @@ function buildQueuedSlotSnapshot(user) {
 }
 
 function createRaidParticipantFromUser(user) {
+  const equippedCardEffect = getEquipmentById(user, user.equippedEquipment?.cardEffect);
+  const equippedBasicAttack = getEquipmentById(user, user.equippedEquipment?.basicAttack);
   return {
     userId: String(user._id),
     displayName: user.nickname || user.username,
@@ -2187,6 +2497,7 @@ function createRaidParticipantFromUser(user) {
     lastShieldLoss: 0,
     silenceTurns: 0,
     actionLockTurns: 0,
+    basicAttackLockTurns: 0,
     plannedSkill: false,
     plannedTargetUserId: null,
     plannedTargetUserId2: null,
@@ -2216,12 +2527,18 @@ function createRaidParticipantFromUser(user) {
     attackBonusPercent: 0,
     perHitBonusTurns: 0,
     perHitBonusDamage: 0,
+    cardEffectEquipmentBonusPercent: Number(equippedCardEffect?.statValue || 0) / 100,
+    basicAttackEquipmentBonusPercent: Number(equippedBasicAttack?.statValue || 0) / 100,
     celineTurns: 0,
     celineExpireDamage: 0,
     celineAttackBonusPercent: 0,
     cardEffectAmpTurns: 0,
     cardEffectAmpValue: 1,
-    rotationIndex: 0
+    rotationIndex: 0,
+    specialDamageMultiplier: user.nickname === '호이' ? 1.5 : 1,
+    nailBounceDelayTurns: 0,
+    nailBounceDamage: 0,
+    nailBounceRemainingBounces: 0
   };
 }
 
@@ -2248,7 +2565,7 @@ function getMonamiPriceMultiplier(ownedCount) {
 function getItemPrice(user, itemId) {
   const itemInfo = ITEM_DATA[itemId];
   if (!itemInfo) return 0;
-  if (['pen_monami', 'pen_jetstream'].includes(itemId)) {
+  if (isPenShopItemId(itemId)) {
     return Math.round(itemInfo.price * getMonamiPriceMultiplier(getInventoryQuantity(user, itemId)));
   }
   return itemInfo.price;
@@ -2273,7 +2590,7 @@ function getTotalBuyPrice(user, itemId, quantity) {
     return 200000 * quantity;
   }
 
-  if (!['pen_monami', 'pen_jetstream'].includes(itemId)) {
+  if (!isPenShopItemId(itemId)) {
     return getItemPrice(user, itemId) * quantity;
   }
 
@@ -2343,12 +2660,58 @@ function applySupportPackage(user, packageId) {
   return packageInfo;
 }
 
+function getEquipmentScrollRule(itemId) {
+  return EQUIPMENT_SCROLL_RULES[itemId] || null;
+}
+
+function getEquipmentTypeName(equipmentType) {
+  return equipmentType === EQUIPMENT_TYPE_ATTACK ? '기본 공격력' : '카드 효과';
+}
+
+function buildEquipmentEnhanceLog(scrollItemId, equipment, success) {
+  const scrollName = ITEM_DATA[scrollItemId]?.name || scrollItemId;
+  const successRate = Math.round((getEquipmentScrollRule(scrollItemId)?.successRate || 0) * 100);
+  const equipmentName = buildEquipmentDisplayName(equipment);
+  if (success) {
+    return `${scrollName} ${successRate}%가 한 순간 빛나더니 신비로운 힘이 그대로 ${equipmentName}에 전해졌습니다.`;
+  }
+  return `${scrollName} ${successRate}%가 한 순간 빛났지만 ${equipmentName}에는 아무런 변화도 일어나지 않았습니다.`;
+}
+
+function applyWorkDrop(user) {
+  if (Math.random() >= EQUIPMENT_DROP_CHANCE) return null;
+
+  const totalWeight = EQUIPMENT_GEAR_DROP_WEIGHT + EQUIPMENT_SCROLL_DROP_WEIGHT;
+  const gearRoll = Math.random() * totalWeight;
+  if (gearRoll < EQUIPMENT_GEAR_DROP_WEIGHT) {
+    const equipmentType = Math.random() < 0.5 ? EQUIPMENT_TYPE_CARD : EQUIPMENT_TYPE_ATTACK;
+    const equipment = createEquipmentEntry(equipmentType);
+    user.equipments.push(equipment);
+    return {
+      type: 'equipment',
+      text: `${buildEquipmentDisplayName(equipment)}를 획득했습니다! (${buildEquipmentDescription(equipment)})`,
+      equipment
+    };
+  }
+
+  const scrollItemIds = Object.keys(EQUIPMENT_SCROLL_RULES);
+  const scrollItemId = scrollItemIds[Math.floor(Math.random() * scrollItemIds.length)];
+  addItemToInventory(user, scrollItemId, 1);
+  return {
+    type: 'scroll',
+    text: `${ITEM_DATA[scrollItemId].name} 1개를 획득했습니다!`,
+    itemId: scrollItemId
+  };
+}
+
 function buildRaidParticipantStatusEffects(participant) {
   const effects = [];
   if (Number(participant.silenceTurns || 0) > 0) effects.push({ type: 'debuff', name: '침묵', turns: Number(participant.silenceTurns || 0), desc: '스킬 사용 불가' });
   if (Number(participant.actionLockTurns || 0) > 0) effects.push({ type: 'debuff', name: '가발 찾는중..', turns: Number(participant.actionLockTurns || 0), desc: '기본 공격, 스킬 사용 불가' });
+  if (Number(participant.basicAttackLockTurns || 0) > 0) effects.push({ type: 'debuff', name: '울 아들 만나봐', turns: Number(participant.basicAttackLockTurns || 0), desc: '기본 공격 불가' });
   if (Number(participant.healShieldReductionTurns || 0) > 0) effects.push({ type: 'debuff', name: '꼰대', turns: Number(participant.healShieldReductionTurns || 0), desc: '회복량 및 실드 획득량 50% 감소' });
   if (Number(participant.nextHitDamageTakenMultiplier || 1) > 1) effects.push({ type: 'debuff', name: '4차까지?', desc: `다음 공격으로 받는 피해 x${Number(participant.nextHitDamageTakenMultiplier || 1).toFixed(1)}` });
+  if (Number(participant.nailBounceDelayTurns || 0) > 0 && Number(participant.nailBounceDamage || 0) > 0) effects.push({ type: 'debuff', name: '튕겨나간 손톱', turns: Number(participant.nailBounceDelayTurns || 0), desc: `${Number(participant.nailBounceDamage || 0)} 피해 예정` });
   if (Number(participant.counterTurns || 0) > 0) effects.push({ type: 'buff', name: '반격', turns: Number(participant.counterTurns || 0), desc: '보스에게 피격당하면 기본 공격으로 반격' });
   if (Number(participant.negateHitCount || 0) > 0) effects.push({ type: 'buff', name: '피격 무효', count: Number(participant.negateHitCount || 0), desc: '다음 피격을 무효화' });
   if (Number(participant.debuffImmuneCount || 0) > 0) effects.push({ type: 'buff', name: '디버프 무효', count: Number(participant.debuffImmuneCount || 0), desc: '다음 디버프를 무효화' });
@@ -2515,10 +2878,12 @@ function useRaidCardSkill(participant, battle) {
   }
 
   const ampMultiplier = getRaidCardEffectAmpMultiplier(participant);
-  const scaleFlat = (value) => Math.max(0, Math.floor(Number(value || 0) * ampMultiplier));
-  const scalePercent = (value) => Number((Number(value || 0) * ampMultiplier).toFixed(4));
+  const equipmentMultiplier = 1 + Number(participant.cardEffectEquipmentBonusPercent || 0);
+  const totalValueMultiplier = ampMultiplier * equipmentMultiplier;
+  const scaleFlat = (value) => Math.max(0, Math.floor(Number(value || 0) * totalValueMultiplier));
+  const scalePercent = (value) => Number((Number(value || 0) * totalValueMultiplier).toFixed(4));
   const scaleCount = (value) => Math.max(1, Math.ceil(Number(value || 0) * ampMultiplier));
-  const scaleBonusMultiplier = (value) => Number((1 + ((Number(value || 1) - 1) * ampMultiplier)).toFixed(4));
+  const scaleBonusMultiplier = (value) => Number((1 + ((Number(value || 1) - 1) * totalValueMultiplier)).toFixed(4));
 
   participant.skillCooldown = card.cooldown + 1;
   participant.plannedSkill = false;
@@ -2669,6 +3034,118 @@ function useRaidCardSkill(participant, battle) {
       target.negateHitCount += negateCount;
     });
     logText = `${participant.displayName}(이)가 ${card.name}로 ${shuffled.map((target) => target.displayName).join(', ')}에게 피격 무효 ${negateCount}회를 부여했습니다.`;
+  } else if (card.effectType === 'party_negate_hit_by_level') {
+    const aliveAllies = getAliveRaidParticipants(battle);
+    const candidates = card.includeSelf ? aliveAllies : aliveAllies.filter((entry) => entry.userId !== participant.userId);
+    const targets = (card.targets || 0) >= 99
+      ? candidates
+      : [...candidates].sort(() => Math.random() - 0.5).slice(0, Math.min(card.targets || 1, candidates.length));
+    const negateCount = scaleCount(card.negateHitCount || 1);
+    targets.forEach((target) => {
+      target.negateHitCount += negateCount;
+    });
+    logText = `${participant.displayName}(이)가 ${card.name}로 ${targets.map((target) => target.displayName).join(', ')}에게 피격 무효 ${negateCount}회를 부여했습니다.`;
+  } else if (card.effectType === 'self_status_blast') {
+    const statusCount = buildRaidParticipantStatusEffects(participant).length;
+    const perHitDamage = scaleFlat(statusCount * participant.level * Number(card.multiplierPerStatus || 0));
+    const steps = [];
+    for (let hit = 0; hit < Math.max(1, Number(card.hits || 1)); hit += 1) {
+      steps.push({
+        type: 'player_fixed_skill_hit',
+        userId: participant.userId,
+        skillName: card.name,
+        damage: perHitDamage,
+        hitIndex: hit
+      });
+    }
+    participant.silenceTurns = 0;
+    participant.actionLockTurns = 0;
+    participant.basicAttackLockTurns = 0;
+    participant.healShieldReductionTurns = 0;
+    participant.healShieldReductionMultiplier = 1;
+    participant.nextHitDamageTakenMultiplier = 1;
+    participant.nailBounceDelayTurns = 0;
+    participant.nailBounceDamage = 0;
+    participant.nailBounceRemainingBounces = 0;
+    participant.plannedTargetUserId = null;
+    participant.plannedTargetUserId2 = null;
+    return {
+      logs: [`${participant.displayName}(이)가 ${card.name} 스킬을 사용했습니다. 현재 상태 갯수 ${statusCount}개 기준입니다.`],
+      steps,
+      delayUnits: Math.max(1, steps.length)
+    };
+  } else if (card.effectType === 'direct_hp_strike') {
+    const damage = scaleFlat(participant.level * Number(card.multiplierPerLevel || 0));
+    if (Number(battle.bossNegateHits || 0) > 0) {
+      battle.bossNegateHits -= 1;
+      battle.bossLastHpLoss = 0;
+      logText = `${participant.displayName}(이)가 ${card.name}를 사용했지만 보스의 피격 무효에 막혔습니다.`;
+    } else {
+      battle.bossHp = Math.max(0, Number(battle.bossHp || 0) - damage);
+      battle.bossLastHpLoss = damage;
+      logText = `${participant.displayName}(이)가 ${card.name}로 방어막을 무시하고 ${damage.toLocaleString()} 피해를 입혔습니다.`;
+    }
+  } else if (card.effectType === 'copy_ally_skill') {
+    const copyCandidates = getAliveRaidParticipants(battle).filter((entry) => entry.userId !== participant.userId && getParticipantCard(entry) && !getParticipantCard(entry).passiveOnly);
+    const sourceParticipant = card.canSelectCopyTarget
+      ? (getRaidParticipant(battle, participant.plannedTargetUserId) || copyCandidates[0])
+      : copyCandidates[Math.floor(Math.random() * copyCandidates.length)];
+    const copiedCard = sourceParticipant ? getParticipantCard(sourceParticipant) : null;
+    if (!copiedCard || copiedCard.id === 'umbrella_copy') {
+      logText = `${participant.displayName}(이)가 ${card.name}를 사용했지만 복사할 카드 효과가 없었습니다.`;
+    } else {
+      const copyScale = Number(card.copyEffectMultiplier || 0.5);
+      if (copiedCard.effectType === 'party_shield') {
+        const shieldAmount = Math.max(1, Math.floor(Number(copiedCard.shield || 0) * copyScale));
+        let totalAppliedShield = 0;
+        battle.participants.forEach((ally) => {
+          if (ally.hp > 0) totalAppliedShield += grantRaidShield(ally, shieldAmount);
+        });
+        logText = `${participant.displayName}(이)가 ${sourceParticipant.displayName}의 ${copiedCard.name}를 흉내 내 파티 전원에게 보호막 ${totalAppliedShield.toLocaleString()}을 부여했습니다.`;
+      } else if (copiedCard.effectType === 'party_heal') {
+        const healAmount = Math.max(1, Math.floor(Number(copiedCard.heal || 0) * copyScale));
+        let totalHealed = 0;
+        battle.participants.forEach((ally) => {
+          if (ally.hp > 0) totalHealed += healRaidTarget(ally, healAmount);
+        });
+        logText = `${participant.displayName}(이)가 ${sourceParticipant.displayName}의 ${copiedCard.name}를 흉내 내 파티 전원을 회복했습니다.`;
+      } else if (copiedCard.effectType === 'party_level_blast') {
+        const totalLevels = battle.participants.reduce((sum, member) => sum + Number(member.level || 0), 0);
+        const damage = Math.max(1, Math.floor(totalLevels * Number(copiedCard.multiplierPerLevel || 0) * copyScale));
+        applyRaidDamageToBoss(battle, damage);
+        logText = `${participant.displayName}(이)가 ${sourceParticipant.displayName}의 ${copiedCard.name}를 흉내 내 ${damage.toLocaleString()} 피해를 입혔습니다.`;
+      } else if (copiedCard.effectType === 'self_fixed_multi_hit') {
+        const hits = Math.max(1, Math.ceil(Number(copiedCard.hits || 1) * copyScale));
+        const perHitDamage = Math.max(1, Math.floor(participant.level * Number(copiedCard.damagePerLevel || 0) * copyScale));
+        const steps = [];
+        for (let hit = 0; hit < hits; hit += 1) {
+          steps.push({
+            type: 'player_fixed_skill_hit',
+            userId: participant.userId,
+            skillName: copiedCard.name,
+            damage: perHitDamage,
+            hitIndex: hit
+          });
+        }
+        participant.plannedTargetUserId = null;
+        participant.plannedTargetUserId2 = null;
+        return {
+          logs: [`${participant.displayName}(이)가 ${sourceParticipant.displayName}의 ${copiedCard.name}를 흉내 냈습니다.`],
+          steps,
+          delayUnits: Math.max(1, steps.length)
+        };
+      } else if (copiedCard.effectType === 'random_party_negate_hit' || copiedCard.effectType === 'party_negate_hit_by_level') {
+        const targets = getAliveRaidParticipants(battle).sort(() => Math.random() - 0.5).slice(0, Math.max(1, Math.floor((Number(copiedCard.targets || 1) || 1) * copyScale)));
+        targets.forEach((target) => {
+          target.negateHitCount += Math.max(1, Math.floor((Number(copiedCard.negateHitCount || 1) || 1) * copyScale));
+        });
+        logText = `${participant.displayName}(이)가 ${sourceParticipant.displayName}의 ${copiedCard.name}를 흉내 내 방어 버프를 부여했습니다.`;
+      } else {
+        const damage = Math.max(1, Math.floor(participant.level * 20 * copyScale));
+        applyRaidDamageToBoss(battle, damage);
+        logText = `${participant.displayName}(이)가 ${sourceParticipant.displayName}의 ${copiedCard.name}를 흉내 냈지만 절반 위력으로만 ${damage.toLocaleString()} 피해를 입혔습니다.`;
+      }
+    }
   } else if (card.effectType === 'random_party_attack_buff') {
     const aliveAllies = getAliveRaidParticipants(battle);
     const shuffled = [...aliveAllies].sort(() => Math.random() - 0.5).slice(0, Math.min(card.targets, aliveAllies.length));
@@ -2702,6 +3179,7 @@ function tickRaidParticipantEndOfTurn(participant, battle) {
   if (participant.skillCooldown > 0) participant.skillCooldown -= 1;
   if (participant.silenceTurns > 0) participant.silenceTurns -= 1;
   if (participant.actionLockTurns > 0) participant.actionLockTurns -= 1;
+  if (participant.basicAttackLockTurns > 0) participant.basicAttackLockTurns -= 1;
   if (participant.healShieldReductionTurns > 0) {
     participant.healShieldReductionTurns -= 1;
     if (participant.healShieldReductionTurns <= 0) {
@@ -2755,6 +3233,26 @@ function tickRaidParticipantEndOfTurn(participant, battle) {
       }
       participant.celineExpireDamage = 0;
       participant.celineAttackBonusPercent = 0;
+    }
+  }
+  if (participant.nailBounceDelayTurns > 0) {
+    participant.nailBounceDelayTurns -= 1;
+    if (participant.nailBounceDelayTurns <= 0 && Number(participant.nailBounceDamage || 0) > 0) {
+      const pendingDamage = Number(participant.nailBounceDamage || 0);
+      applyRaidDamage(participant, pendingDamage, { battle, source: 'boss', allowCounter: false });
+      battle.logs.push(`${participant.displayName}에게 튕겨나간 손톱이 꽂혀 ${pendingDamage.toLocaleString()} 피해를 입혔습니다.`);
+      if (Number(participant.nailBounceRemainingBounces || 0) > 0) {
+        const candidates = getAliveRaidParticipants(battle).filter((entry) => entry.userId !== participant.userId);
+        if (candidates.length > 0) {
+          const target = candidates[Math.floor(Math.random() * candidates.length)];
+          target.nailBounceDelayTurns = Math.max(target.nailBounceDelayTurns, 1);
+          target.nailBounceDamage = Math.max(0, pendingDamage - 10);
+          target.nailBounceRemainingBounces = Math.max(0, Number(participant.nailBounceRemainingBounces || 0) - 1);
+          battle.logs.push(`튕겨나간 손톱이 ${target.displayName}에게 튕겨갔습니다.`);
+        }
+      }
+      participant.nailBounceDamage = 0;
+      participant.nailBounceRemainingBounces = 0;
     }
   }
   participant.extraHits = 0;
@@ -2889,6 +3387,11 @@ function getRaidAttackBonusPercent(participant) {
 }
 
 function applyRaidDamageToBoss(battle, damage) {
+  if (Number(battle.bossNegateHits || 0) > 0) {
+    battle.bossNegateHits -= 1;
+    battle.bossLastHpLoss = 0;
+    return 0;
+  }
   let remainingDamage = damage;
   if (battle.bossShield > 0) {
     const blocked = Math.min(battle.bossShield, remainingDamage);
@@ -2969,7 +3472,7 @@ function executeNextRaidSequenceStep(battle) {
   if (step.type === 'player_basic_hit') {
     const participant = getRaidParticipant(battle, step.userId);
     if (participant && participant.hp > 0 && battle.bossHp > 0) {
-      const baseDamage = Math.floor((participant.level / 2) * 20 * (1 + getRaidAttackBonusPercent(participant)));
+      const baseDamage = Math.floor((participant.level / 2) * 20 * (1 + getRaidAttackBonusPercent(participant)) * (1 + Number(participant.basicAttackEquipmentBonusPercent || 0)) * Number(participant.specialDamageMultiplier || 1));
       const isCritical = Math.random() < getRaidCriticalChance(participant);
       let hitDamage = Math.floor(baseDamage * (isCritical ? 1.5 : 1));
       if (participant.perHitBonusTurns > 0) {
@@ -2998,6 +3501,13 @@ function executeNextRaidSequenceStep(battle) {
       applyRaidDamage(target, Number(step.damage || 0), { battle, source: 'boss' });
       battle.logs.push(`${bossInfo.name}의 ${step.skillName} ${step.hitIndex + 1}타! ${target.displayName}에게 ${Number(step.damage || 0).toLocaleString()} 피해를 입혔습니다.`);
     }
+  } else if (step.type === 'boss_all_hit') {
+    const bossInfo = RAID_BOSS_DATA[battle.bossId] || RAID_BOSS_DATA[RAID_BOSS_ID];
+    const currentAlive = getAliveRaidParticipants(battle);
+    currentAlive.forEach((target) => {
+      applyRaidDamage(target, Number(step.damage || 0), { battle, source: 'boss' });
+    });
+    battle.logs.push(`${bossInfo.name}의 ${step.skillName} ${step.hitIndex + 1}타! 파티 전체가 ${Number(step.damage || 0).toLocaleString()} 피해를 받았습니다.`);
   } else if (step.type === 'log' && step.text) {
     battle.logs.push(step.text);
   }
@@ -3006,7 +3516,7 @@ function executeNextRaidSequenceStep(battle) {
 }
 
 function performRaidCounterAttack(participant, battle) {
-  const baseDamage = Math.floor((participant.level / 2) * 20 * (1 + getRaidAttackBonusPercent(participant)));
+  const baseDamage = Math.floor((participant.level / 2) * 20 * (1 + getRaidAttackBonusPercent(participant)) * (1 + Number(participant.basicAttackEquipmentBonusPercent || 0)) * Number(participant.specialDamageMultiplier || 1));
   const isCritical = Math.random() < getRaidCriticalChance(participant);
   let damage = Math.floor(baseDamage * Number(participant.counterDamageMultiplier || 1) * (isCritical ? 1.5 : 1));
   if (participant.perHitBonusTurns > 0) damage += participant.perHitBonusDamage || 0;
@@ -3058,6 +3568,12 @@ function getRaidCriticalChance(participant) {
 }
 
 function performRaidBasicAttack(participant, battle) {
+  if (participant.basicAttackLockTurns > 0) {
+    return {
+      logs: [`${participant.displayName}님은 울 아들 만나봐 상태라 기본 공격을 할 수 없습니다.`],
+      delayUnits: 0
+    };
+  }
   let hitCount = Math.max(1, 1 + participant.extraHits);
   if (participant.hypeTurns > 0) hitCount *= 2;
   const steps = [];
@@ -3095,6 +3611,99 @@ function performRaidBossAction(battle) {
   battle.bossPatternIndex += 1;
   const aliveParticipants = getAliveRaidParticipants(battle);
   if (aliveParticipants.length === 0) return `${bossInfo.name}이(가) 승리의 포즈를 취했습니다.`;
+
+  if (battle.bossId === RAID_BOSS_ID_HOI) {
+    if (pattern === 'son_brag') {
+      const targets = [...aliveParticipants].sort(() => Math.random() - 0.5).slice(0, Math.min(2, aliveParticipants.length));
+      const affectedNames = [];
+      const resistedNames = [];
+      aliveParticipants.forEach((participant) => {
+        const removedBuffCount = buildRaidParticipantStatusEffects(participant).filter((effect) => effect.type === 'buff').length;
+        if (removedBuffCount > 0) {
+          applyRaidDamage(participant, removedBuffCount * 10, { battle, source: 'boss', allowCounter: false });
+        }
+        participant.critBonusTurns = 0;
+        participant.critBonusValue = 0;
+        participant.hypeTurns = 0;
+        participant.counterTurns = 0;
+        participant.counterDamageMultiplier = 1;
+        participant.attackBonusTurns = 0;
+        participant.attackBonusPercent = 0;
+        participant.damageMultiplierTurns = 0;
+        participant.damageMultiplierValue = 1;
+        participant.perHitBonusTurns = 0;
+        participant.perHitBonusDamage = 0;
+        participant.negateHitCount = 0;
+        participant.debuffImmuneCount = 0;
+        participant.cardEffectAmpTurns = 0;
+        participant.cardEffectAmpValue = 1;
+        participant.celineTurns = 0;
+        participant.celineExpireDamage = 0;
+        participant.celineAttackBonusPercent = 0;
+      });
+      targets.forEach((participant) => {
+        if (applyRaidDebuffImmunity(participant)) {
+          resistedNames.push(participant.displayName);
+        } else {
+          participant.basicAttackLockTurns = Math.max(participant.basicAttackLockTurns, 2);
+          affectedNames.push(participant.displayName);
+        }
+      });
+      clearRoundShieldEffects(battle);
+      return `HOI-M.S.J-50의 아들자랑 MK.1! 전원의 버프를 제거하고 ${affectedNames.join(', ') || '대상 없음'}에게 울 아들 만나봐 디버프를 적용했습니다.${resistedNames.length ? ` ${resistedNames.join(', ')} 은(는) 디버프를 막아냈습니다.` : ''}`;
+    }
+
+    if (pattern === 'son_mix') {
+      const bossBuffCount = Math.max(0, Number(battle.bossNegateHits || 0));
+      if (bossBuffCount > 0) {
+        const healAmount = bossBuffCount * 6000;
+        battle.bossHp = Math.min(battle.bossMaxHp, battle.bossHp + healAmount);
+        battle.bossLastHpLoss = 0;
+        return `HOI-M.S.J-50의 아들이랑 엮기 MK.2! 보유 버프 ${bossBuffCount}개로 HP를 ${healAmount.toLocaleString()} 회복했습니다.`;
+      }
+      battle.bossShield = Number(battle.bossShield || 0) + 5000;
+      battle.bossShieldTurns = Math.max(Number(battle.bossShieldTurns || 0), 1);
+      battle.bossLastHpLoss = 0;
+      return 'HOI-M.S.J-50의 아들이랑 엮기 MK.2! 버프가 없어 보호막 5000을 얻었습니다.';
+    }
+
+    if (pattern === 'ass_hit') {
+      const steps = [];
+      for (let count = 0; count < 3; count += 1) {
+        steps.push({
+          type: 'boss_all_hit',
+          skillName: 'ASS-HIT MK.3',
+          damage: 10,
+          hitIndex: count
+        });
+      }
+      return {
+        steps,
+        delayUnits: Math.max(1, steps.length),
+        clearRoundShieldsAtEnd: true
+      };
+    }
+
+    if (pattern === 'nail_clip') {
+      const target = aliveParticipants[Math.floor(Math.random() * aliveParticipants.length)];
+      if (!applyRaidDebuffImmunity(target)) {
+        target.nailBounceDelayTurns = Math.max(target.nailBounceDelayTurns, 1);
+        target.nailBounceDamage = Math.max(target.nailBounceDamage, 30);
+        target.nailBounceRemainingBounces = Math.max(target.nailBounceRemainingBounces, 2);
+        return `HOI-M.S.J-50의 손 톱 깎 기! ${target.displayName}에게 튕겨나간 손톱 디버프를 부여했습니다.`;
+      }
+      return `HOI-M.S.J-50의 손 톱 깎 기! ${target.displayName}은(는) 디버프를 막아냈습니다.`;
+    }
+
+    if (pattern === 'food_question') {
+      aliveParticipants.forEach((participant) => {
+        applyRaidDamage(participant, 10, { battle, source: 'boss' });
+      });
+      battle.bossNegateHits = Number(battle.bossNegateHits || 0) + 10;
+      clearRoundShieldEffects(battle);
+      return 'HOI-M.S.J-50의 먹고 싶은거 있어?! 파티 전체에게 10 피해를 주고 피격 무효 10회를 얻었습니다.';
+    }
+  }
 
   if (battle.bossId === RAID_BOSS_ID_BALD_MANAGER) {
     if (pattern === 'wig_search') {
@@ -3298,6 +3907,10 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
 }
 
 function applyRaidBattleStartPassives(activeBattle) {
+  const hoiBoosted = activeBattle.participants.filter((participant) => Number(participant.specialDamageMultiplier || 1) > 1);
+  hoiBoosted.forEach((participant) => {
+    activeBattle.logs.push(`${participant.displayName}은(는) HOI-M.S.J-50 특수 기믹으로 입히는 피해가 ${Number(participant.specialDamageMultiplier || 1).toFixed(1)}배가 됩니다.`);
+  });
   const sojuCards = activeBattle.participants
     .map((participant) => getParticipantCard(participant))
     .filter((card) => card?.id === 'drinking_angle');
@@ -3415,13 +4028,13 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
       checkLevelUp(user);
       addItemToInventory(user, 'business_card', businessCards);
       addItemToInventory(user, 'bacchus', bacchus);
-      addItemToInventory(user, 'pen_monami', monami);
+      addItemToInventory(user, 'reward_pen_monami', monami);
       user.gameState.money += moneyReward;
       const rewardSummaryParts = [];
       if (expReward > 0) rewardSummaryParts.push(`경험치 ${expReward.toLocaleString()}`);
       if (businessCards > 0) rewardSummaryParts.push(`명함 ${Number(businessCards).toLocaleString()}장`);
       if (bacchus > 0) rewardSummaryParts.push(`박카스 ${Number(bacchus).toLocaleString()}개`);
-      if (monami > 0) rewardSummaryParts.push(`모나미 볼펜 ${Number(monami).toLocaleString()}개`);
+      if (monami > 0) rewardSummaryParts.push(`보상 모나미 볼펜 ${Number(monami).toLocaleString()}개`);
       if (moneyReward > 0) rewardSummaryParts.push(`${Number(moneyReward).toLocaleString()}원`);
       const rewardSummaryText = rewardSummaryParts.length ? rewardSummaryParts.join(', ') : '보상을 획득하지 못했습니다.';
       queueNotification(
@@ -3971,6 +4584,8 @@ function buildGameStateResponse(user, now = new Date()) {
     workHours: user.workHours,
     gameState,
     inventory: user.inventory,
+    equipmentDetails: buildEquipmentDetails(user),
+    equippedEquipment: user.equippedEquipment,
     cards: user.cards,
     enhancedCards: user.enhancedCards,
     equippedCardId: user.equippedCardId,
@@ -4207,7 +4822,7 @@ app.post('/api/login', async (req, res) => {
       const hashedPassword = await bcrypt.hash(password, 10);
       user = new User({ username, password: hashedPassword });
       ensureUserDefaults(user);
-      addItemToInventory(user, 'pen_monami', 1);
+      addItemToInventory(user, 'reward_pen_monami', 1);
       await user.save();
       isNewUser = true;
     } else {
@@ -4298,8 +4913,15 @@ app.post('/api/action/work', async (req, res) => {
       checkLevelUp(user);
       reconcileTitles(user, now);
       user.gameState.lastActionTime = now;
-
-      return buildUserResponseWithGlobals(user, now);
+      const workDrop = applyWorkDrop(user);
+      if (workDrop?.text) {
+        queueNotification(user, 'work_drop', workDrop.text);
+      }
+      const response = await buildUserResponseWithGlobals(user, now);
+      if (workDrop) {
+        response.workDrop = workDrop;
+      }
+      return response;
     }, { conflictLabel: 'Work action conflict' });
 
     res.json(response);
@@ -4436,7 +5058,7 @@ app.post('/api/action/adventure/resolve', async (req, res) => {
             setOrRefreshBuff(user, 'cat_gratitude_buff', CAT_GRATITUDE_DURATION_MS);
             addItemToInventory(user, 'bacchus', 1);
 
-            const extraItemPool = ['hot6', 'cat_tuna_can', 'pen_monami'];
+            const extraItemPool = ['hot6', 'cat_tuna_can', 'reward_pen_monami'];
             const extraItemId = extraItemPool[Math.floor(Math.random() * extraItemPool.length)];
             addItemToInventory(user, extraItemId, 1);
 
@@ -4553,10 +5175,14 @@ app.post('/api/action/side-job', async (req, res) => {
     if (Number(user.gameState.stress || 0) > 60) {
       return res.status(400).json({ msg: '부업하기는 스트레스가 60 이하일 때만 할 수 있습니다.' });
     }
+    if (Number(user.gameState.stamina || 0) < 1) {
+      return res.status(400).json({ msg: '행동력이 부족합니다.' });
+    }
     const derivedStats = calculateDerivedStats(user, now);
     const salaryPerMinute = getSalaryPerMinute(user.gameState.level, derivedStats.moneyBonusPercent);
     const gainedMoney = Math.floor(salaryPerMinute * 300);
 
+    user.gameState.stamina = Number(Math.max(0, user.gameState.stamina - 1).toFixed(2));
     user.gameState.stress = Number(Math.min(100, user.gameState.stress + 40).toFixed(2));
     user.gameState.money += gainedMoney;
     user.gameState.lastActionTime = now;
@@ -4644,10 +5270,17 @@ app.post('/api/shop/buy', async (req, res) => {
         return res.status(400).json({ msg: '명함은 하루에 최대 5개까지만 구매할 수 있습니다.' });
       }
       if (itemId === 'bacchus') {
-        return res.status(400).json({ msg: '박카스는 하루에 최대 10개까지만 구매할 수 있습니다.' });
+        return res.status(400).json({ msg: '박카스는 하루에 최대 20개까지만 구매할 수 있습니다.' });
       }
       if (itemId === 'hot6') {
         return res.status(400).json({ msg: '핫식스는 하루에 최대 5개까지만 구매할 수 있습니다.' });
+      }
+    }
+
+    if (itemId === 'coffee_mix') {
+      const derivedStats = calculateDerivedStats(user, now);
+      if (Number(derivedStats.stressReductionPercent || 0) >= 100) {
+        return res.status(400).json({ msg: '스트레스 감소율이 이미 100%에 도달해 더 이상 맥심 커피믹스를 구매할 수 없습니다.' });
       }
     }
 
@@ -4784,6 +5417,89 @@ app.post('/api/title/toggle', async (req, res) => {
     res.json(response);
   } catch (err) {
     console.error('Title toggle error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/equipment/toggle-equip', async (req, res) => {
+  const { userId, equipmentId } = req.body;
+  if (!userId || !equipmentId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+
+    const now = new Date();
+    calculateOfflineGains(user, now);
+    ensureUserDefaults(user);
+
+    const equipment = getEquipmentById(user, equipmentId);
+    if (!equipment) {
+      return res.status(404).json({ msg: '장비를 찾을 수 없습니다.' });
+    }
+
+    const slotKey = equipment.equipmentType === EQUIPMENT_TYPE_ATTACK ? 'basicAttack' : 'cardEffect';
+    user.equippedEquipment[slotKey] = user.equippedEquipment[slotKey] === equipment.equipmentId ? null : equipment.equipmentId;
+    const response = await buildUserResponseWithGlobals(user, now);
+    await user.save();
+    res.json(response);
+  } catch (err) {
+    console.error('Equipment toggle error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/equipment/upgrade', async (req, res) => {
+  const { userId, equipmentId, scrollItemId } = req.body;
+  if (!userId || !equipmentId || !scrollItemId) {
+    return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+  }
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+
+    const now = new Date();
+    calculateOfflineGains(user, now);
+    ensureUserDefaults(user);
+
+    const equipment = getEquipmentById(user, equipmentId);
+    if (!equipment) {
+      return res.status(404).json({ msg: '장비를 찾을 수 없습니다.' });
+    }
+    if (Number(equipment.upgradesLeft || 0) <= 0) {
+      return res.status(400).json({ msg: '더 이상 업그레이드할 수 없는 장비입니다.' });
+    }
+
+    const scrollRule = getEquipmentScrollRule(scrollItemId);
+    if (!scrollRule) {
+      return res.status(400).json({ msg: '사용할 수 없는 주문서입니다.' });
+    }
+    if (scrollRule.equipmentType !== equipment.equipmentType) {
+      return res.status(400).json({ msg: '해당 장비에는 사용할 수 없는 주문서입니다.' });
+    }
+    if (getInventoryQuantity(user, scrollItemId) <= 0) {
+      return res.status(400).json({ msg: '보유한 주문서가 없습니다.' });
+    }
+
+    removeItemFromInventory(user, scrollItemId, 1);
+    equipment.upgradesLeft = Math.max(0, Number(equipment.upgradesLeft || 0) - 1);
+    const success = Math.random() < Number(scrollRule.successRate || 0);
+    if (success) {
+      equipment.statValue = Number((Number(equipment.statValue || 0) + Number(scrollRule.addValue || 0)).toFixed(1));
+    }
+
+    const logText = buildEquipmentEnhanceLog(scrollItemId, equipment, success);
+    const response = await buildUserResponseWithGlobals(user, now);
+    response.equipmentUpgrade = {
+      success,
+      equipmentId: equipment.equipmentId,
+      logText
+    };
+    await user.save();
+    res.json(response);
+  } catch (err) {
+    console.error('Equipment upgrade error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
   }
 });
@@ -4983,6 +5699,22 @@ app.post('/api/cards/equip', async (req, res) => {
       return res.status(400).json({ msg: '보유하지 않은 카드입니다.' });
     }
 
+    const queuedSlotIndex = findQueuedRaidSlotIndex(user._id);
+    if (queuedSlotIndex >= 0 && cardId) {
+      const otherQueuedUserIds = raidState.slots
+        .filter(Boolean)
+        .filter((slotUserId) => String(slotUserId) !== String(user._id));
+      if (otherQueuedUserIds.length) {
+        const duplicateCardUser = await User.findOne({
+          _id: { $in: otherQueuedUserIds },
+          equippedCardId: cardId
+        }).select('nickname username');
+        if (duplicateCardUser) {
+          return res.status(400).json({ msg: '같은 카드를 든 참가자가 이미 대기 중이라 교체할 수 없습니다.' });
+        }
+      }
+    }
+
     if (user.equippedCardId === cardId && Number(user.equippedCardLevel || 0) === targetLevel) {
       user.equippedCardId = null;
       user.equippedCardLevel = 0;
@@ -5132,6 +5864,14 @@ app.post('/api/raid/start', async (req, res) => {
       }
       participants.push(createRaidParticipantFromUser(user));
       participantUsers.push(user);
+    }
+
+    const duplicateCardIds = participants
+      .map((participant) => participant.equippedCardId)
+      .filter(Boolean)
+      .filter((cardId, index, list) => list.indexOf(cardId) !== index);
+    if (duplicateCardIds.length) {
+      return res.status(400).json({ msg: '같은 카드를 장착한 참가자가 있어 레이드를 시작할 수 없습니다.' });
     }
 
     if (participants.length < 2) {
@@ -5544,8 +6284,9 @@ app.post('/api/admin/gift', async (req, res) => {
       calculateOfflineGains(user, now);
 
       if (giftType === 'item') {
-        addItemToInventory(user, giftId, giftQuantity);
-        queueNotification(user, 'admin_gift', `운영자로부터 선물이 도착했습니다! <${ITEM_DATA[giftId].name} ${giftQuantity}개>`);
+        const actualGiftItemId = getRewardVariantItemId(giftId);
+        addItemToInventory(user, actualGiftItemId, giftQuantity);
+        queueNotification(user, 'admin_gift', `운영자로부터 선물이 도착했습니다! <${ITEM_DATA[actualGiftItemId].name} ${giftQuantity}개>`);
       } else if (giftType === 'buff') {
         setOrRefreshBuff(user, giftId, BUFF_DATA[giftId].durationMs);
         queueNotification(user, 'admin_gift', `운영자로부터 선물이 도착했습니다! <${BUFF_DATA[giftId].name}>`);
