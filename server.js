@@ -5213,17 +5213,31 @@ app.post('/api/action/side-job', async (req, res) => {
 
       const derivedStats = calculateDerivedStats(user, now);
       const salaryPerMinute = getSalaryPerMinute(user.gameState.level, derivedStats.moneyBonusPercent);
-      const gainedMoney = Math.floor(salaryPerMinute * 300);
+      const rawGainedMoney = salaryPerMinute * 300;
+      if (!Number.isFinite(rawGainedMoney) || rawGainedMoney <= 0) {
+        throw createHttpError(500, '부업 보상 계산에 실패했습니다. 잠시 후 다시 시도해주세요.');
+      }
+
+      const gainedMoney = Math.floor(rawGainedMoney);
+      const moneyBefore = Number(user.gameState.money || 0);
       const stressBefore = Number(user.gameState.stress || 0);
 
       user.gameState.stamina = Number(Math.max(0, Number(user.gameState.stamina || 0) - 1).toFixed(2));
       user.gameState.stress = Number(Math.min(100, stressBefore + 40).toFixed(2));
-      user.gameState.money = Number(user.gameState.money || 0) + gainedMoney;
+      user.gameState.money = moneyBefore + gainedMoney;
       user.gameState.lastActionTime = now;
+      if (typeof user.markModified === 'function') {
+        user.markModified('gameState.money');
+        user.markModified('gameState.stamina');
+        user.markModified('gameState.stress');
+        user.markModified('gameState.lastActionTime');
+      }
 
       const mutationResponse = await buildUserResponseWithGlobals(user, now);
       mutationResponse.sideJobResult = {
         gainedMoney,
+        moneyBefore,
+        moneyAfter: Number(user.gameState.money || 0),
         stressGain: Number((user.gameState.stress - stressBefore).toFixed(2)),
         staminaCost: 1
       };
