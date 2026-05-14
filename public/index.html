@@ -269,9 +269,16 @@
                 </table>
 
                 <h4 class="section-gap">장비</h4>
-                <div class="card-actions">
+                <div class="card-actions equipment-controls">
                   <button id="openEquipmentEnhanceModalBtn" class="mini-btn">장비 강화</button>
+                  <button class="mini-btn" onclick="handleEquipmentSortChange('attack_desc')">공격력 높은 순</button>
+                  <button class="mini-btn" onclick="handleEquipmentSortChange('attack_asc')">공격력 낮은 순</button>
+                  <button class="mini-btn" onclick="handleEquipmentSortChange('card_desc')">스킬 증폭 높은 순</button>
+                  <button class="mini-btn" onclick="handleEquipmentSortChange('card_asc')">스킬 증폭 낮은 순</button>
+                  <button class="mini-btn" onclick="handleEquipmentSortChange('upgrade_desc')">강화 높은 순</button>
+                  <button class="mini-btn" onclick="handleEquipmentSortChange('acquired')">획득 순</button>
                 </div>
+                <div id="equipmentPager" class="equipment-pager menu-note"></div>
                 <table class="inner-table">
                   <thead>
                     <tr>
@@ -529,6 +536,6 @@
     </div>
   </div>
 
-  <script src="client.js?v=67"></script>
+  <script src="client.js?v=68"></script>
 </body>
 </html>

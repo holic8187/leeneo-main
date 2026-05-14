@@ -190,6 +190,9 @@ let selectedEnhanceCardKey = null;
 let selectedEquipmentEnhanceId = null;
 let selectedEquipmentScrollId = null;
 let equipmentEnhanceLogs = [];
+const EQUIPMENT_PAGE_SIZE = 15;
+let equipmentListPage = 1;
+let equipmentSortMode = 'acquired';
 let raidBattleLogPinnedToBottom = true;
 let userMutationInFlightCount = 0;
 let raidBarAnimationState = {
@@ -1686,6 +1689,86 @@ function getEquipmentScrollQuantity(user, itemId) {
   return getInventoryQuantityFromUser(user, itemId);
 }
 
+function getEquipmentUpgradeCount(equipment) {
+  return Math.max(0, 7 - Number(equipment?.upgradesLeft ?? 7));
+}
+
+function getEquipmentTypedStat(equipment, equipmentType) {
+  return equipment?.equipmentType === equipmentType ? Number(equipment.statValue || 0) : 0;
+}
+
+function getEquipmentSortLabel(mode = equipmentSortMode) {
+  const labels = {
+    attack_desc: '공격력 높은 순',
+    attack_asc: '공격력 낮은 순',
+    card_desc: '스킬 증폭 높은 순',
+    card_asc: '스킬 증폭 낮은 순',
+    upgrade_desc: '강화 높은 순',
+    acquired: '획득 순'
+  };
+  return labels[mode] || labels.acquired;
+}
+
+function getSortedEquipmentDetails(equipments) {
+  const indexed = (equipments || []).map((equipment, index) => ({ equipment, index }));
+  const tieBreakByAcquired = (left, right) => left.index - right.index;
+  const compareByValue = (left, right, getValue, direction = 'desc') => {
+    const leftValue = getValue(left.equipment);
+    const rightValue = getValue(right.equipment);
+    if (leftValue === rightValue) return tieBreakByAcquired(left, right);
+    const diff = leftValue - rightValue;
+    if (diff !== 0) return direction === 'asc' ? diff : -diff;
+    return tieBreakByAcquired(left, right);
+  };
+
+  indexed.sort((left, right) => {
+    switch (equipmentSortMode) {
+      case 'attack_desc':
+        return compareByValue(left, right, (equipment) => equipment?.equipmentType === 'basic_attack' ? getEquipmentTypedStat(equipment, 'basic_attack') : -1, 'desc');
+      case 'attack_asc':
+        return compareByValue(left, right, (equipment) => equipment?.equipmentType === 'basic_attack' ? getEquipmentTypedStat(equipment, 'basic_attack') : Number.POSITIVE_INFINITY, 'asc');
+      case 'card_desc':
+        return compareByValue(left, right, (equipment) => equipment?.equipmentType === 'card_effect' ? getEquipmentTypedStat(equipment, 'card_effect') : -1, 'desc');
+      case 'card_asc':
+        return compareByValue(left, right, (equipment) => equipment?.equipmentType === 'card_effect' ? getEquipmentTypedStat(equipment, 'card_effect') : Number.POSITIVE_INFINITY, 'asc');
+      case 'upgrade_desc':
+        return compareByValue(left, right, getEquipmentUpgradeCount, 'desc');
+      case 'acquired':
+      default:
+        return tieBreakByAcquired(left, right);
+    }
+  });
+
+  return indexed.map(({ equipment }) => equipment);
+}
+
+function renderEquipmentPager(totalCount, currentPage, totalPages) {
+  const pager = document.getElementById('equipmentPager');
+  if (!pager) return;
+  if (totalCount <= EQUIPMENT_PAGE_SIZE) {
+    pager.innerHTML = `정렬: ${escapeHtml(getEquipmentSortLabel())} / 총 ${formatNumber(totalCount)}개`;
+    return;
+  }
+  pager.innerHTML = `
+    <button class="mini-btn" onclick="handleEquipmentPageChange(${currentPage - 1})" ${currentPage <= 1 ? 'disabled' : ''}>이전</button>
+    <span>${formatNumber(currentPage)} / ${formatNumber(totalPages)} 페이지 · 정렬: ${escapeHtml(getEquipmentSortLabel())} · 총 ${formatNumber(totalCount)}개</span>
+    <button class="mini-btn" onclick="handleEquipmentPageChange(${currentPage + 1})" ${currentPage >= totalPages ? 'disabled' : ''}>다음</button>
+  `;
+}
+
+function handleEquipmentSortChange(mode) {
+  equipmentSortMode = mode;
+  equipmentListPage = 1;
+  updateInventoryUI(getStoredUser());
+}
+
+function handleEquipmentPageChange(page) {
+  const user = getStoredUser();
+  const totalPages = Math.max(1, Math.ceil((user?.equipmentDetails?.length || 0) / EQUIPMENT_PAGE_SIZE));
+  equipmentListPage = Math.min(totalPages, Math.max(1, Number(page) || 1));
+  updateInventoryUI(user);
+}
+
 function openSupportModal() {
   const user = getStoredUser();
   const beginnerCard = document.getElementById('beginnerSupportPackageCard');
@@ -1847,6 +1930,8 @@ window.handleToggleEquipmentEquip = handleToggleEquipmentEquip;
 window.handleOpenEquipmentEnhanceFor = handleOpenEquipmentEnhanceFor;
 window.handleEquipmentEnhanceSelect = handleEquipmentEnhanceSelect;
 window.handleEquipmentScrollSelect = handleEquipmentScrollSelect;
+window.handleEquipmentSortChange = handleEquipmentSortChange;
+window.handleEquipmentPageChange = handleEquipmentPageChange;
 
 
 function renderRaidBattle(raidState, user) {
@@ -2973,8 +3058,13 @@ function updateInventoryUI(user) {
   const equipmentScrollList = document.getElementById('equipment-scroll-list');
   if (equipmentList && equipmentScrollList) {
     const equipments = user.equipmentDetails || [];
-    equipmentList.innerHTML = equipments.length ? '' : '<tr><td colspan="4">보유한 장비가 없습니다.</td></tr>';
-    equipments.forEach((equipment) => {
+    const sortedEquipments = getSortedEquipmentDetails(equipments);
+    const totalEquipmentPages = Math.max(1, Math.ceil(sortedEquipments.length / EQUIPMENT_PAGE_SIZE));
+    equipmentListPage = Math.min(totalEquipmentPages, Math.max(1, equipmentListPage));
+    const pageStart = (equipmentListPage - 1) * EQUIPMENT_PAGE_SIZE;
+    const pagedEquipments = sortedEquipments.slice(pageStart, pageStart + EQUIPMENT_PAGE_SIZE);
+    equipmentList.innerHTML = pagedEquipments.length ? '' : '<tr><td colspan="4">보유한 장비가 없습니다.</td></tr>';
+    pagedEquipments.forEach((equipment) => {
       equipmentList.insertAdjacentHTML('beforeend', `
         <tr>
           <td>${escapeHtml(equipment.name)}</td>
@@ -2984,6 +3074,7 @@ function updateInventoryUI(user) {
         </tr>
       `);
     });
+    renderEquipmentPager(sortedEquipments.length, equipmentListPage, totalEquipmentPages);
 
     const scrollIds = new Set(getEquipmentScrollItemIds());
     const scrollMap = new Map();

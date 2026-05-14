@@ -2879,6 +2879,24 @@ function healRaidTarget(target, amount) {
   return Math.max(0, Number(target.hp || 0) - previousHp);
 }
 
+function applyRaidPartyHeal(participants, amount, options = {}) {
+  const { excludeUserId = null } = options;
+  let totalHealed = 0;
+  const healedEntries = [];
+
+  (participants || []).forEach((ally) => {
+    if (!ally || ally.hp <= 0) return;
+    if (excludeUserId && ally.userId === excludeUserId) return;
+    const actualHealed = healRaidTarget(ally, amount);
+    totalHealed += actualHealed;
+    if (actualHealed > 0) {
+      healedEntries.push(`${ally.displayName} +${actualHealed.toLocaleString()}`);
+    }
+  });
+
+  return { totalHealed, healedEntries };
+}
+
 function cleanseRaidTarget(target) {
   target.silenceTurns = 0;
   target.actionLockTurns = 0;
@@ -2961,13 +2979,12 @@ function useRaidCardSkill(participant, battle) {
     logText = `${participant.displayName}(이)가 ${card.name}로 파티 전원에게 보호막 ${totalAppliedShield.toLocaleString()}을 부여했습니다.`;
   } else if (card.effectType === 'party_heal') {
     const healAmount = scaleFlat(card.heal);
-    let totalHealed = 0;
-    battle.participants.forEach((ally) => {
-      if (ally.hp > 0 && (card.includeSelf || ally.userId !== participant.userId)) {
-        totalHealed += healRaidTarget(ally, healAmount);
-      }
+    const { totalHealed, healedEntries } = applyRaidPartyHeal(battle.participants, healAmount, {
+      excludeUserId: card.includeSelf ? null : participant.userId
     });
-    logText = `${participant.displayName}(이)가 ${card.name}로 파티 전원의 HP를 총 ${totalHealed.toLocaleString()} 회복시켰습니다.`;
+    logText = totalHealed > 0
+      ? `${participant.displayName}(이)가 ${card.name}로 ${healedEntries.join(', ')} 회복시켰습니다. (파티 총 ${totalHealed.toLocaleString()})`
+      : `${participant.displayName}(이)가 ${card.name}를 사용했지만 회복된 HP가 없습니다.`;
   } else if (card.effectType === 'party_crit_bonus') {
     const critBonus = scalePercent(card.critBonus);
     battle.participants.forEach((ally) => {
@@ -3132,11 +3149,10 @@ function useRaidCardSkill(participant, battle) {
         logText = `${participant.displayName}(이)가 ${sourceParticipant.displayName}의 ${copiedCard.name}를 흉내 내 파티 전원에게 보호막 ${totalAppliedShield.toLocaleString()}을 부여했습니다.`;
       } else if (copiedCard.effectType === 'party_heal') {
         const healAmount = Math.max(1, Math.floor(Number(copiedCard.heal || 0) * copyScale));
-        let totalHealed = 0;
-        battle.participants.forEach((ally) => {
-          if (ally.hp > 0) totalHealed += healRaidTarget(ally, healAmount);
-        });
-        logText = `${participant.displayName}(이)가 ${sourceParticipant.displayName}의 ${copiedCard.name}를 흉내 내 파티 전원을 회복했습니다.`;
+        const { totalHealed, healedEntries } = applyRaidPartyHeal(battle.participants, healAmount);
+        logText = totalHealed > 0
+          ? `${participant.displayName}(이)가 ${sourceParticipant.displayName}의 ${copiedCard.name}를 흉내 내 ${healedEntries.join(', ')} 회복시켰습니다. (파티 총 ${totalHealed.toLocaleString()})`
+          : `${participant.displayName}(이)가 ${sourceParticipant.displayName}의 ${copiedCard.name}를 흉내 냈지만 회복된 HP가 없습니다.`;
       } else if (copiedCard.effectType === 'party_level_blast') {
         const totalLevels = battle.participants.reduce((sum, member) => sum + Number(member.level || 0), 0);
         const damage = Math.max(1, Math.floor(totalLevels * Number(copiedCard.multiplierPerLevel || 0) * copyScale));
@@ -5113,32 +5129,40 @@ app.post('/api/action/side-job', async (req, res) => {
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
 
-    const now = new Date();
-    calculateOfflineGains(user, now);
-    if (Number(user.gameState.stress || 0) > 60) {
-      return res.status(400).json({ msg: '부업하기는 스트레스가 60 이하일 때만 할 수 있습니다.' });
-    }
-    if (Number(user.gameState.stamina || 0) < 1) {
-      return res.status(400).json({ msg: '행동력이 부족합니다.' });
-    }
-    const derivedStats = calculateDerivedStats(user, now);
-    const salaryPerMinute = getSalaryPerMinute(user.gameState.level, derivedStats.moneyBonusPercent);
-    const gainedMoney = Math.floor(salaryPerMinute * 300);
+      if (Number(user.gameState.stress || 0) > 60) {
+        throw createHttpError(400, '부업하기는 스트레스가 60 이하일 때만 할 수 있습니다.');
+      }
+      if (Number(user.gameState.stamina || 0) < 1) {
+        throw createHttpError(400, '행동력이 부족합니다.');
+      }
 
-    user.gameState.stamina = Number(Math.max(0, user.gameState.stamina - 1).toFixed(2));
-    user.gameState.stress = Number(Math.min(100, user.gameState.stress + 40).toFixed(2));
-    user.gameState.money += gainedMoney;
-    user.gameState.lastActionTime = now;
+      const derivedStats = calculateDerivedStats(user, now);
+      const salaryPerMinute = getSalaryPerMinute(user.gameState.level, derivedStats.moneyBonusPercent);
+      const gainedMoney = Math.floor(salaryPerMinute * 300);
+      const stressBefore = Number(user.gameState.stress || 0);
 
-    const response = await buildUserResponseWithGlobals(user, now);
-    await user.save();
+      user.gameState.stamina = Number(Math.max(0, Number(user.gameState.stamina || 0) - 1).toFixed(2));
+      user.gameState.stress = Number(Math.min(100, stressBefore + 40).toFixed(2));
+      user.gameState.money = Number(user.gameState.money || 0) + gainedMoney;
+      user.gameState.lastActionTime = now;
+
+      const mutationResponse = await buildUserResponseWithGlobals(user, now);
+      mutationResponse.sideJobResult = {
+        gainedMoney,
+        stressGain: Number((user.gameState.stress - stressBefore).toFixed(2)),
+        staminaCost: 1
+      };
+      return mutationResponse;
+    }, { conflictLabel: 'Side job action conflict' });
+
     res.json(response);
   } catch (err) {
     console.error('Side job action error:', err);
-    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
   }
 });
 

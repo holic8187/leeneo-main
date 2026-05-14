@@ -895,6 +895,18 @@ progress {
   justify-content: flex-end;
 }
 
+.equipment-controls {
+  flex-wrap: wrap;
+}
+
+.equipment-pager {
+  margin: 6px 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .card-name-chip,
 .raid-name-chip {
   display: inline-block;
