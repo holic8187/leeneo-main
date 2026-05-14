@@ -5037,31 +5037,29 @@ app.post('/api/action/field-work', async (req, res) => {
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      cleanupExpiredBuffs(user, now);
 
-    const now = new Date();
-    calculateOfflineGains(user, now);
-    cleanupExpiredBuffs(user, now);
+      if (user.gameState.stamina < 6) {
+        throw createHttpError(400, '행동력이 부족합니다. (필요: 6)');
+      }
 
-    if (user.gameState.stamina < 6) {
-      return res.status(400).json({ msg: '행동력이 부족합니다. (필요: 6)' });
-    }
+      if (hasBuff(user, 'field_work_buff', now)) {
+        throw createHttpError(400, '이미 외근 중입니다.');
+      }
 
-    if (hasBuff(user, 'field_work_buff', now)) {
-      return res.status(400).json({ msg: '이미 외근 중입니다.' });
-    }
+      user.gameState.stamina -= 6;
+      setOrRefreshBuff(user, 'field_work_buff', FIELD_WORK_DURATION_MS);
+      user.gameState.lastActionTime = now;
 
-    user.gameState.stamina -= 6;
-    setOrRefreshBuff(user, 'field_work_buff', FIELD_WORK_DURATION_MS);
-    user.gameState.lastActionTime = now;
-
-    const response = await buildUserResponseWithGlobals(user, now);
-    await user.save();
+      return buildUserResponseWithGlobals(user, now);
+    }, { conflictLabel: 'Field work action conflict' });
     res.json(response);
   } catch (err) {
     console.error('Field work action error:', err);
-    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
   }
 });
 
@@ -5206,32 +5204,30 @@ app.post('/api/action/lupin', async (req, res) => {
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      cleanupExpiredBuffs(user, now);
 
-    const now = new Date();
-    calculateOfflineGains(user, now);
-    cleanupExpiredBuffs(user, now);
+      if (user.gameState.stamina < 6) {
+        throw createHttpError(400, '행동력이 부족합니다. (필요: 6)');
+      }
 
-    if (user.gameState.stamina < 6) {
-      return res.status(400).json({ msg: '행동력이 부족합니다. (필요: 6)' });
-    }
+      if (hasBuff(user, 'lupin_stress_buff', now) || hasBuff(user, 'lupin_exp_buff', now)) {
+        throw createHttpError(400, '이미 월급루팡 효과가 적용 중입니다.');
+      }
 
-    if (hasBuff(user, 'lupin_stress_buff', now) || hasBuff(user, 'lupin_exp_buff', now)) {
-      return res.status(400).json({ msg: '이미 월급루팡 효과가 적용 중입니다.' });
-    }
+      user.gameState.stamina -= 6;
+      setOrRefreshBuff(user, 'lupin_stress_buff', LUPIN_STRESS_DURATION_MS);
+      setOrRefreshBuff(user, 'lupin_exp_buff', LUPIN_EXP_DURATION_MS);
+      user.gameState.lastActionTime = now;
 
-    user.gameState.stamina -= 6;
-    setOrRefreshBuff(user, 'lupin_stress_buff', LUPIN_STRESS_DURATION_MS);
-    setOrRefreshBuff(user, 'lupin_exp_buff', LUPIN_EXP_DURATION_MS);
-    user.gameState.lastActionTime = now;
-
-    const response = await buildUserResponseWithGlobals(user, now);
-    await user.save();
+      return buildUserResponseWithGlobals(user, now);
+    }, { conflictLabel: 'Lupin action conflict' });
     res.json(response);
   } catch (err) {
     console.error('Lupin action error:', err);
-    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
   }
 });
 
@@ -5240,26 +5236,24 @@ app.post('/api/action/nap', async (req, res) => {
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
 
-    const now = new Date();
-    calculateOfflineGains(user, now);
+      if (user.gameState.stamina < 3) {
+        throw createHttpError(400, '행동력이 부족합니다. (필요: 3)');
+      }
 
-    if (user.gameState.stamina < 3) {
-      return res.status(400).json({ msg: '행동력이 부족합니다. (필요: 3)' });
-    }
+      user.gameState.stamina -= 3;
+      user.gameState.stress = Number(Math.max(0, user.gameState.stress - 30).toFixed(2));
+      user.gameState.lastActionTime = now;
 
-    user.gameState.stamina -= 3;
-    user.gameState.stress = Number(Math.max(0, user.gameState.stress - 30).toFixed(2));
-    user.gameState.lastActionTime = now;
-
-    const response = await buildUserResponseWithGlobals(user, now);
-    await user.save();
+      return buildUserResponseWithGlobals(user, now);
+    }, { conflictLabel: 'Nap action conflict' });
     res.json(response);
   } catch (err) {
     console.error('Nap action error:', err);
-    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
   }
 });
 

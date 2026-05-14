@@ -202,6 +202,11 @@ let raidBarAnimationState = {
 const recentNotificationKeys = new Map();
 const BGM_MUTED_STORAGE_KEY = 'ineoBgmMuted';
 const BGM_VOLUME = 0.16;
+const BGM_TRACKS = {
+  normal: 'bgm.mp3',
+  raid: 'raid-bgm.mp3'
+};
+let currentBgmMode = 'normal';
 
 document.addEventListener('DOMContentLoaded', () => {
   initApp();
@@ -219,6 +224,7 @@ function setupEventListeners() {
   bindClick('loginBtn', handleLoginClick);
   bindClick('logoutBtn', handleLogoutClick);
   bindClick('bgmToggleBtn', handleBgmToggleClick);
+  bindClick('raidBgmToggleBtn', handleBgmToggleClick);
   bindClick('supportBtn', openSupportModal);
   bindClick('supportModalCloseBtn', closeSupportModal);
   bindClick('setNicknameBtn', handleSetNicknameClick);
@@ -426,24 +432,39 @@ function configureBgmAudio() {
   audio.muted = isBgmMuted();
 }
 
-function updateBgmToggleButton() {
-  const button = document.getElementById('bgmToggleBtn');
-  if (!button) return;
+function switchBgmTrack(mode = 'normal') {
+  const audio = getBgmAudio();
+  if (!audio) return;
 
+  const normalizedMode = BGM_TRACKS[mode] ? mode : 'normal';
+  const nextSrc = BGM_TRACKS[normalizedMode];
+  if (audio.getAttribute('src') !== nextSrc) {
+    audio.pause();
+    audio.setAttribute('src', nextSrc);
+    audio.load();
+  }
+  currentBgmMode = normalizedMode;
+}
+
+function updateBgmToggleButton() {
   const audio = getBgmAudio();
   const muted = isBgmMuted();
   const isPlaying = Boolean(audio && !audio.paused && !muted);
-  button.textContent = isPlaying ? 'BGM 끄기' : 'BGM 켜기';
-  button.classList.toggle('is-muted', !isPlaying);
-  button.setAttribute('aria-pressed', String(isPlaying));
-  button.title = isPlaying ? '배경음악 음소거' : '배경음악 켜기';
+
+  document.querySelectorAll('.bgm-toggle-btn').forEach((button) => {
+    button.textContent = isPlaying ? 'BGM 끄기' : 'BGM 켜기';
+    button.classList.toggle('is-muted', !isPlaying);
+    button.setAttribute('aria-pressed', String(isPlaying));
+    button.title = isPlaying ? '배경음악 음소거' : '배경음악 켜기';
+  });
 }
 
-async function startBgm() {
+async function startBgm(mode = currentBgmMode) {
   const audio = getBgmAudio();
   if (!audio) return;
 
   configureBgmAudio();
+  switchBgmTrack(mode);
   if (isBgmMuted()) {
     audio.pause();
     updateBgmToggleButton();
@@ -464,6 +485,7 @@ function stopBgm(resetPosition = false) {
   if (!audio) return;
   audio.pause();
   if (resetPosition) audio.currentTime = 0;
+  if (resetPosition) switchBgmTrack('normal');
   updateBgmToggleButton();
 }
 
@@ -475,7 +497,7 @@ function handleBgmToggleClick() {
   if (shouldMute) {
     stopBgm(false);
   } else {
-    startBgm();
+    startBgm(currentBgmMode);
   }
   updateBgmToggleButton();
 }
@@ -1703,7 +1725,7 @@ function showGameScreen(user) {
   updateGameUI(user);
   startAnimation();
   startPeriodicUpdates();
-  startBgm();
+  startBgm('normal');
 
   if (user.pendingAdventure?.eventId && !modalResolver) {
     processAdventureResult({
@@ -1732,11 +1754,13 @@ function closeRaidLobby() {
 function handleRaidBackClick() {
   document.getElementById('raid-screen').classList.add('hidden');
   document.getElementById('game-screen').classList.remove('hidden');
+  startBgm('normal');
 }
 
 function showRaidScreen() {
   document.getElementById('game-screen').classList.add('hidden');
   document.getElementById('raid-screen').classList.remove('hidden');
+  startBgm('raid');
 }
 
 function updateRaidButton(user, raidState) {
