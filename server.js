@@ -1883,12 +1883,7 @@ function ensureUserDefaults(user) {
   if (equipmentsChanged) {
     user.equipments = normalizedEquipments;
   }
-  if (user.equippedEquipment.cardEffect && !user.equipments.some((entry) => entry.equipmentId === user.equippedEquipment.cardEffect && entry.equipmentType === EQUIPMENT_TYPE_CARD)) {
-    user.equippedEquipment.cardEffect = null;
-  }
-  if (user.equippedEquipment.basicAttack && !user.equipments.some((entry) => entry.equipmentId === user.equippedEquipment.basicAttack && entry.equipmentType === EQUIPMENT_TYPE_ATTACK)) {
-    user.equippedEquipment.basicAttack = null;
-  }
+  normalizeSingleEquippedEquipment(user);
 
   migrateLegacyBuffs(user);
   if (user.equippedCardId && getOwnedCardVariantQuantity(user, user.equippedCardId, user.equippedCardLevel || 0) <= 0) {
@@ -1951,9 +1946,43 @@ function getEquipmentById(user, equipmentId) {
   return (user.equipments || []).find((entry) => String(entry.equipmentId) === String(equipmentId));
 }
 
+function normalizeSingleEquippedEquipment(user) {
+  if (!user.equippedEquipment || typeof user.equippedEquipment !== 'object') {
+    user.equippedEquipment = { cardEffect: null, basicAttack: null };
+  }
+
+  const equippedCardEffect = user.equippedEquipment.cardEffect
+    ? getEquipmentById(user, user.equippedEquipment.cardEffect)
+    : null;
+  const equippedBasicAttack = user.equippedEquipment.basicAttack
+    ? getEquipmentById(user, user.equippedEquipment.basicAttack)
+    : null;
+  const singleEquipped = equippedCardEffect || equippedBasicAttack || null;
+
+  user.equippedEquipment.cardEffect =
+    singleEquipped?.equipmentType === EQUIPMENT_TYPE_CARD ? singleEquipped.equipmentId : null;
+  user.equippedEquipment.basicAttack =
+    singleEquipped?.equipmentType === EQUIPMENT_TYPE_ATTACK ? singleEquipped.equipmentId : null;
+
+  return singleEquipped;
+}
+
+function clearEquippedEquipment(user) {
+  if (!user.equippedEquipment || typeof user.equippedEquipment !== 'object') {
+    user.equippedEquipment = { cardEffect: null, basicAttack: null };
+    return;
+  }
+  user.equippedEquipment.cardEffect = null;
+  user.equippedEquipment.basicAttack = null;
+}
+
+function getEquippedEquipment(user) {
+  return normalizeSingleEquippedEquipment(user);
+}
+
 function buildEquipmentDetails(user) {
-  const equippedCardEffectId = user.equippedEquipment?.cardEffect || null;
-  const equippedBasicAttackId = user.equippedEquipment?.basicAttack || null;
+  const equippedEquipment = getEquippedEquipment(user);
+  const equippedEquipmentId = equippedEquipment?.equipmentId || null;
   return (user.equipments || []).map((entry) => ({
     equipmentId: entry.equipmentId,
     equipmentType: entry.equipmentType,
@@ -1961,7 +1990,7 @@ function buildEquipmentDetails(user) {
     statValue: Number(entry.statValue || 0),
     upgradesLeft: Number(entry.upgradesLeft || 0),
     desc: buildEquipmentDescription(entry),
-    equipped: equippedCardEffectId === entry.equipmentId || equippedBasicAttackId === entry.equipmentId
+    equipped: equippedEquipmentId === entry.equipmentId
   }));
 }
 
@@ -2534,8 +2563,9 @@ function buildQueuedSlotSnapshot(user) {
 }
 
 function createRaidParticipantFromUser(user) {
-  const equippedCardEffect = getEquipmentById(user, user.equippedEquipment?.cardEffect);
-  const equippedBasicAttack = getEquipmentById(user, user.equippedEquipment?.basicAttack);
+  const equippedEquipment = getEquippedEquipment(user);
+  const equippedCardEffect = equippedEquipment?.equipmentType === EQUIPMENT_TYPE_CARD ? equippedEquipment : null;
+  const equippedBasicAttack = equippedEquipment?.equipmentType === EQUIPMENT_TYPE_ATTACK ? equippedEquipment : null;
   return {
     userId: String(user._id),
     displayName: user.nickname || user.username,
@@ -4665,6 +4695,39 @@ function getRemainingExpToNextLevel(user) {
   return Math.max(0, getRequiredExp(user.gameState.level) - user.gameState.exp);
 }
 
+function getGeneralExpMultiplier(user, now = new Date()) {
+  const derivedStats = calculateDerivedStats(user, now);
+  const activeBuffEffects = getActiveBuffEffects(user, now);
+  const multiplier = (1 + derivedStats.expBonusPercent / 100) * (1 + activeBuffEffects.expBonusAdd);
+  return Number.isFinite(multiplier) ? Math.max(0, multiplier) : 1;
+}
+
+function grantExperience(user, baseExp, now = new Date(), options = {}) {
+  const beforeLevel = Number(user.gameState.level || 1);
+  const beforeExp = Number(user.gameState.exp || 0);
+  const rawMultiplier = options.multiplier ?? getGeneralExpMultiplier(user, now);
+  const multiplier = Number.isFinite(rawMultiplier) ? Math.max(0, rawMultiplier) : 1;
+  const minimumGain = options.minimumGain ?? 0;
+  const safeBaseExp = Math.max(0, Math.floor(Number(baseExp) || 0));
+  const gainedExp = Math.max(minimumGain, Math.floor(safeBaseExp * multiplier));
+
+  user.gameState.exp = beforeExp + gainedExp;
+  const leveledUp = checkLevelUp(user);
+
+  return {
+    beforeLevel,
+    beforeExp,
+    beforeRequiredExp: getRequiredExp(beforeLevel),
+    baseExp: safeBaseExp,
+    gainedExp,
+    multiplier: Number(multiplier.toFixed(4)),
+    leveledUp,
+    afterLevel: Number(user.gameState.level || beforeLevel),
+    afterExp: Number(user.gameState.exp || 0),
+    afterRequiredExp: getRequiredExp(user.gameState.level || beforeLevel)
+  };
+}
+
 function applyAdventureReward(user, reward, now = new Date()) {
   if (!reward) {
     return '아무것도 획득하지 못했습니다.';
@@ -4716,19 +4779,27 @@ function applyAdventureReward(user, reward, now = new Date()) {
 
   if (reward.type === 'exp_fraction') {
     const remainingExp = getRemainingExpToNextLevel(user);
-    const gainedExp = Math.max(1, Math.floor(remainingExp / reward.divisor));
-    user.gameState.exp += gainedExp;
-    const leveledUp = checkLevelUp(user);
-    return leveledUp
-      ? `${gainedExp.toLocaleString()} 경험치를 얻었고 즉시 레벨업했습니다.`
-      : `${gainedExp.toLocaleString()} 경험치를 획득했습니다.`;
+    const baseExp = Math.max(1, Math.floor(remainingExp / reward.divisor));
+    const expResult = grantExperience(user, baseExp, now, { minimumGain: 1 });
+    const multiplierText = expResult.multiplier !== 1
+      ? ` (경험치 배율 ${expResult.multiplier.toFixed(2)}배 적용)`
+      : '';
+
+    if (expResult.leveledUp) {
+      return `${expResult.gainedExp.toLocaleString()} 경험치를 얻어 레벨 ${expResult.afterLevel}이 되었습니다.${multiplierText} 현재 경험치 ${expResult.afterExp.toLocaleString()}/${expResult.afterRequiredExp.toLocaleString()}`;
+    }
+
+    return `${expResult.gainedExp.toLocaleString()} 경험치를 획득했습니다.${multiplierText} 현재 경험치 ${expResult.afterExp.toLocaleString()}/${expResult.afterRequiredExp.toLocaleString()}`;
   }
 
   if (reward.type === 'rare_level') {
     if (Math.random() < reward.chance) {
+      const beforeLevel = Number(user.gameState.level || 1);
       user.gameState.exp = getRequiredExp(user.gameState.level);
-      checkLevelUp(user);
-      return '기적처럼 즉시 레벨업했습니다!';
+      const leveledUp = checkLevelUp(user);
+      return leveledUp
+        ? `기적처럼 즉시 레벨업하여 레벨 ${user.gameState.level}이 되었습니다! 현재 경험치 ${Number(user.gameState.exp || 0).toLocaleString()}/${getRequiredExp(user.gameState.level).toLocaleString()}`
+        : `기적이 스쳐 지나갔지만 레벨 ${beforeLevel}에 머물렀습니다.`;
     }
     const fallbackText = applyAdventureReward(user, reward.fallback, now);
     return `즉시 레벨업에는 실패했습니다. 대신 ${fallbackText}`;
@@ -5408,8 +5479,14 @@ app.post('/api/equipment/toggle-equip', async (req, res) => {
       return res.status(404).json({ msg: '장비를 찾을 수 없습니다.' });
     }
 
-    const slotKey = equipment.equipmentType === EQUIPMENT_TYPE_ATTACK ? 'basicAttack' : 'cardEffect';
-    user.equippedEquipment[slotKey] = user.equippedEquipment[slotKey] === equipment.equipmentId ? null : equipment.equipmentId;
+    const currentlyEquipped = getEquippedEquipment(user);
+    clearEquippedEquipment(user);
+
+    if (currentlyEquipped?.equipmentId !== equipment.equipmentId) {
+      const slotKey = equipment.equipmentType === EQUIPMENT_TYPE_ATTACK ? 'basicAttack' : 'cardEffect';
+      user.equippedEquipment[slotKey] = equipment.equipmentId;
+    }
+
     const response = await buildUserResponseWithGlobals(user, now);
     await user.save();
     res.json(response);
