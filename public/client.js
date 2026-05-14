@@ -200,6 +200,8 @@ let raidBarAnimationState = {
   participantHpRatios: {}
 };
 const recentNotificationKeys = new Map();
+const BGM_MUTED_STORAGE_KEY = 'ineoBgmMuted';
+const BGM_VOLUME = 0.16;
 
 document.addEventListener('DOMContentLoaded', () => {
   initApp();
@@ -208,12 +210,15 @@ document.addEventListener('DOMContentLoaded', () => {
 function initApp() {
   setupEventListeners();
   setupRaidBattleLogTracking();
+  configureBgmAudio();
+  updateBgmToggleButton();
   tryAutoLogin();
 }
 
 function setupEventListeners() {
   bindClick('loginBtn', handleLoginClick);
   bindClick('logoutBtn', handleLogoutClick);
+  bindClick('bgmToggleBtn', handleBgmToggleClick);
   bindClick('supportBtn', openSupportModal);
   bindClick('supportModalCloseBtn', closeSupportModal);
   bindClick('setNicknameBtn', handleSetNicknameClick);
@@ -403,6 +408,76 @@ function clearSessions() {
   localStorage.removeItem('token');
   localStorage.removeItem('user');
   localStorage.removeItem('adminSession');
+}
+
+function getBgmAudio() {
+  return document.getElementById('bgmAudio');
+}
+
+function isBgmMuted() {
+  return localStorage.getItem(BGM_MUTED_STORAGE_KEY) === '1';
+}
+
+function configureBgmAudio() {
+  const audio = getBgmAudio();
+  if (!audio) return;
+  audio.volume = BGM_VOLUME;
+  audio.loop = true;
+  audio.muted = isBgmMuted();
+}
+
+function updateBgmToggleButton() {
+  const button = document.getElementById('bgmToggleBtn');
+  if (!button) return;
+
+  const audio = getBgmAudio();
+  const muted = isBgmMuted();
+  const isPlaying = Boolean(audio && !audio.paused && !muted);
+  button.textContent = isPlaying ? 'BGM 끄기' : 'BGM 켜기';
+  button.classList.toggle('is-muted', !isPlaying);
+  button.setAttribute('aria-pressed', String(isPlaying));
+  button.title = isPlaying ? '배경음악 음소거' : '배경음악 켜기';
+}
+
+async function startBgm() {
+  const audio = getBgmAudio();
+  if (!audio) return;
+
+  configureBgmAudio();
+  if (isBgmMuted()) {
+    audio.pause();
+    updateBgmToggleButton();
+    return;
+  }
+
+  try {
+    await audio.play();
+  } catch (err) {
+    console.warn('BGM playback was blocked by the browser:', err);
+  } finally {
+    updateBgmToggleButton();
+  }
+}
+
+function stopBgm(resetPosition = false) {
+  const audio = getBgmAudio();
+  if (!audio) return;
+  audio.pause();
+  if (resetPosition) audio.currentTime = 0;
+  updateBgmToggleButton();
+}
+
+function handleBgmToggleClick() {
+  const audio = getBgmAudio();
+  const shouldMute = audio ? !audio.paused && !isBgmMuted() : !isBgmMuted();
+  localStorage.setItem(BGM_MUTED_STORAGE_KEY, shouldMute ? '1' : '0');
+
+  if (shouldMute) {
+    stopBgm(false);
+  } else {
+    startBgm();
+  }
+  updateBgmToggleButton();
 }
 
 function formatNumber(value, decimals = 0) {
@@ -706,6 +781,7 @@ function handleLogoutClick() {
   closeDecisionModal();
   hideModal('raidLobbyModal');
   hideModal('raidCountdownOverlay');
+  stopBgm(true);
   clearSessions();
   hideAllScreens();
 
@@ -1620,6 +1696,7 @@ function showGameScreen(user) {
   updateGameUI(user);
   startAnimation();
   startPeriodicUpdates();
+  startBgm();
 
   if (user.pendingAdventure?.eventId && !modalResolver) {
     processAdventureResult({

@@ -96,6 +96,7 @@
   </div>
 
   <div id="game-screen" class="hidden excel-sheet">
+    <audio id="bgmAudio" src="bgm.mp3" preload="auto" loop></audio>
     <div id="shoutBanner" class="shout-banner shout-banner-empty">
       <div id="shoutBannerText" class="shout-banner-text"></div>
     </div>
@@ -108,6 +109,7 @@
         <div>명함: <strong><span id="businessCardCount">0</span>장</strong></div>
       </div>
       <div class="status-top-actions">
+        <button id="bgmToggleBtn" class="mini-btn bgm-toggle-btn" aria-pressed="false">BGM 켜기</button>
         <button id="supportBtn" class="mini-btn support-btn">직장인은 지갑전사</button>
         <button id="logoutBtn" class="mini-btn">퇴근하기</button>
       </div>
@@ -537,6 +539,6 @@
     </div>
   </div>
 
-  <script src="client.js?v=70"></script>
+  <script src="client.js?v=71"></script>
 </body>
 </html>

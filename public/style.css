@@ -160,6 +160,20 @@ td {
   background: #1e72d0;
 }
 
+.bgm-toggle-btn {
+  min-width: 74px;
+  background: #eef7f0;
+  color: #1f5f38;
+  border-color: #8fbc9a;
+  font-weight: 700;
+}
+
+.bgm-toggle-btn.is-muted {
+  color: #555;
+  background: #eeeeee;
+  border-color: #c8c8c8;
+}
+
 .shout-banner {
   position: relative;
   overflow: hidden;
