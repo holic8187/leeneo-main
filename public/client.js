@@ -438,7 +438,13 @@ function getBusinessCardCount(user) {
 }
 
 function getEquippedCardDetail(user) {
-  return (user.cardDetails || []).find((card) => card.equipped) || null;
+  const equippedCardId = user?.equippedCardId || null;
+  const equippedCardLevel = Number(user?.equippedCardLevel || 0);
+  if (!equippedCardId) return null;
+
+  return (user.cardVariantDetails || []).find((card) =>
+    card.cardId === equippedCardId && Number(card.enhancementLevel || 0) === equippedCardLevel
+  ) || (user.cardDetails || []).find((card) => card.equipped) || null;
 }
 
 function hideModal(id) {
