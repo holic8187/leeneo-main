@@ -2253,7 +2253,7 @@ function refreshSideJobStatus(user) {
   const canUse = stress <= 60 && stamina >= 1;
   sideJobBtn.disabled = !canUse;
   sideJobStatus.textContent = canUse
-    ? `행동력 1 소모 / 즉시 스트레스 +40 / 즉시 획득 ${formatNumber(reward)}원`
+    ? `즉시 스트레스 +40 / 즉시 획득 ${formatNumber(reward)}원`
     : stress > 60
       ? `스트레스가 60 이하여야 부업 가능합니다. (현재 ${formatNumber(stress, 2)})`
       : `행동력이 부족합니다. 현재 행동력 ${formatNumber(stamina, 2)}`;
