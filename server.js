@@ -2187,10 +2187,46 @@ function createHttpError(statusCode, message) {
   return error;
 }
 
+const userMutationLocks = new Map();
+
+async function withUserMutationLock(userId, operation) {
+  const key = String(userId || '');
+  if (!key) {
+    return operation();
+  }
+
+  const previous = userMutationLocks.get(key) || Promise.resolve();
+  let releaseCurrent;
+  const current = new Promise((resolve) => {
+    releaseCurrent = resolve;
+  });
+  const chain = previous.catch(() => {}).then(() => current);
+  userMutationLocks.set(key, chain);
+
+  await previous.catch(() => {});
+
+  try {
+    return await operation();
+  } finally {
+    releaseCurrent();
+    if (userMutationLocks.get(key) === chain) {
+      userMutationLocks.delete(key);
+    }
+  }
+}
+
 async function runUserMutationWithRetry(userId, mutateUser, options = {}) {
+  if (!options.skipUserMutationLock) {
+    return withUserMutationLock(userId, () => runUserMutationWithRetry(userId, mutateUser, {
+      ...options,
+      skipUserMutationLock: true
+    }));
+  }
+
   const {
     maxRetries = 5,
-    conflictLabel = 'User mutation conflict'
+    conflictLabel = 'User mutation conflict',
+    afterSave = null
   } = options;
 
   let lastError = null;
@@ -2206,6 +2242,9 @@ async function runUserMutationWithRetry(userId, mutateUser, options = {}) {
 
     try {
       await user.save();
+      if (typeof afterSave === 'function') {
+        return await afterSave(user, result, attempt);
+      }
       return result;
     } catch (err) {
       lastError = err;
@@ -5233,16 +5272,28 @@ app.post('/api/action/side-job', async (req, res) => {
         user.markModified('gameState.lastActionTime');
       }
 
-      const mutationResponse = await buildUserResponseWithGlobals(user, now);
-      mutationResponse.sideJobResult = {
-        gainedMoney,
-        moneyBefore,
-        moneyAfter: Number(user.gameState.money || 0),
-        stressGain: Number((user.gameState.stress - stressBefore).toFixed(2)),
-        staminaCost: 1
+      return {
+        responseNow: now,
+        sideJobResult: {
+          gainedMoney,
+          moneyBefore,
+          moneyAfter: Number(user.gameState.money || 0),
+          stressGain: Number((user.gameState.stress - stressBefore).toFixed(2)),
+          staminaCost: 1
+        }
       };
-      return mutationResponse;
-    }, { conflictLabel: 'Side job action conflict' });
+    }, {
+      conflictLabel: 'Side job action conflict',
+      afterSave: async (user, result) => {
+        const now = new Date();
+        const mutationResponse = await buildUserResponseWithGlobals(user, now);
+        mutationResponse.sideJobResult = {
+          ...result.sideJobResult,
+          moneyAfter: Number(user.gameState.money || 0)
+        };
+        return mutationResponse;
+      }
+    });
 
     res.json(response);
   } catch (err) {
@@ -6215,17 +6266,25 @@ app.post('/api/sync', async (req, res) => {
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    const response = await withUserMutationLock(userId, async () => {
+      const user = await User.findById(userId);
+      if (!user) {
+        throw createHttpError(404, '사용자를 찾을 수 없습니다.');
+      }
 
-    const now = new Date();
-    calculateOfflineGains(user, now);
-    reconcileTitles(user, now);
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      reconcileTitles(user, now);
 
-    const response = await buildUserResponseWithGlobals(user, now);
-    await user.save();
+      const syncResponse = await buildUserResponseWithGlobals(user, now);
+      await user.save();
+      return syncResponse;
+    });
     res.json(response);
   } catch (err) {
+    if (err?.statusCode) {
+      return res.status(err.statusCode).json({ msg: err.message });
+    }
     if (err?.name === 'VersionError' || String(err?.message || '').includes('No matching document found for id')) {
       console.warn('Sync save conflict ignored:', err.message);
       try {
