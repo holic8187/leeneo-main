@@ -879,14 +879,21 @@ async function handleSideJobClick() {
 
   try {
     const data = await runWithUserMutation(() => postJson(`${API_URL}/api/action/side-job`, { userId: user._id }));
-    updateLocalUserState(data);
     if (data.sideJobResult) {
       const result = data.sideJobResult;
+      if (data.user?.gameState) {
+        data.user.gameState.money = Number(result.moneyAfter ?? data.user.gameState.money);
+        data.user.gameState.stress = Number(result.stressAfter ?? data.user.gameState.stress);
+        data.user.gameState.stamina = Number(result.staminaAfter ?? data.user.gameState.stamina);
+      }
+      updateLocalUserState(data, { force: true });
       alert(
         `부업 완료\n+${formatNumber(result.gainedMoney || 0)}원 획득\n` +
         `잔고: ${formatNumber(result.moneyBefore || 0)}원 -> ${formatNumber(result.moneyAfter || 0)}원\n` +
         `스트레스 +${formatNumber(result.stressGain || 0, 2)} / 행동력 -${formatNumber(result.staminaCost || 1, 1)}`
       );
+    } else {
+      updateLocalUserState(data, { force: true });
     }
   } catch (err) {
     alert(err.message);

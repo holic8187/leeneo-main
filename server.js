@@ -2215,6 +2215,35 @@ async function withUserMutationLock(userId, operation) {
   }
 }
 
+function toPlainMongoValue(value) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => toPlainMongoValue(entry));
+  }
+  if (value && typeof value.toObject === 'function') {
+    return value.toObject({ depopulate: true, versionKey: false });
+  }
+  if (value && typeof value === 'object' && !(value instanceof Date)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, toPlainMongoValue(entry)])
+    );
+  }
+  return value;
+}
+
+function buildUserPersistenceSnapshot(user) {
+  return {
+    gameState: toPlainMongoValue(user.gameState),
+    inventory: toPlainMongoValue(user.inventory),
+    buffs: toPlainMongoValue(user.buffs),
+    titles: toPlainMongoValue(user.titles),
+    pendingStockInvestment: toPlainMongoValue(user.pendingStockInvestment),
+    shopState: toPlainMongoValue(user.shopState),
+    meta: toPlainMongoValue(user.meta),
+    pendingAdventure: toPlainMongoValue(user.pendingAdventure),
+    pendingNotifications: toPlainMongoValue(user.pendingNotifications)
+  };
+}
+
 async function runUserMutationWithRetry(userId, mutateUser, options = {}) {
   if (!options.skipUserMutationLock) {
     return withUserMutationLock(userId, () => runUserMutationWithRetry(userId, mutateUser, {
@@ -5239,7 +5268,12 @@ app.post('/api/action/side-job', async (req, res) => {
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
-    const response = await runUserMutationWithRetry(userId, async (user) => {
+    const response = await withUserMutationLock(userId, async () => {
+      const user = await User.findById(userId);
+      if (!user) {
+        throw createHttpError(404, '사용자를 찾을 수 없습니다.');
+      }
+
       const now = new Date();
       calculateOfflineGains(user, now);
 
@@ -5260,39 +5294,49 @@ app.post('/api/action/side-job', async (req, res) => {
       const gainedMoney = Math.floor(rawGainedMoney);
       const moneyBefore = Number(user.gameState.money || 0);
       const stressBefore = Number(user.gameState.stress || 0);
+      const staminaBefore = Number(user.gameState.stamina || 0);
 
       user.gameState.stamina = Number(Math.max(0, Number(user.gameState.stamina || 0) - 1).toFixed(2));
       user.gameState.stress = Number(Math.min(100, stressBefore + 40).toFixed(2));
       user.gameState.money = moneyBefore + gainedMoney;
       user.gameState.lastActionTime = now;
-      if (typeof user.markModified === 'function') {
-        user.markModified('gameState.money');
-        user.markModified('gameState.stamina');
-        user.markModified('gameState.stress');
-        user.markModified('gameState.lastActionTime');
+
+      const persistedState = buildUserPersistenceSnapshot(user);
+      const updateResult = await User.updateOne(
+        { _id: user._id },
+        {
+          $set: persistedState,
+          $inc: { __v: 1 }
+        }
+      );
+
+      const matchedCount = updateResult.matchedCount ?? updateResult.n ?? 0;
+      if (!matchedCount) {
+        throw createHttpError(409, '부업 처리 중 저장 충돌이 발생했습니다. 다시 시도해주세요.');
       }
 
-      return {
-        responseNow: now,
-        sideJobResult: {
-          gainedMoney,
-          moneyBefore,
-          moneyAfter: Number(user.gameState.money || 0),
-          stressGain: Number((user.gameState.stress - stressBefore).toFixed(2)),
-          staminaCost: 1
-        }
-      };
-    }, {
-      conflictLabel: 'Side job action conflict',
-      afterSave: async (user, result) => {
-        const now = new Date();
-        const mutationResponse = await buildUserResponseWithGlobals(user, now);
-        mutationResponse.sideJobResult = {
-          ...result.sideJobResult,
-          moneyAfter: Number(user.gameState.money || 0)
-        };
-        return mutationResponse;
+      const savedUser = await User.findById(user._id);
+      if (!savedUser) {
+        throw createHttpError(404, '사용자를 찾을 수 없습니다.');
       }
+      ensureUserDefaults(savedUser);
+
+      const mutationResponse = await buildUserResponseWithGlobals(savedUser, now);
+      const moneyAfter = Number(savedUser.gameState.money || 0);
+      const stressAfter = Number(savedUser.gameState.stress || 0);
+      const staminaAfter = Number(savedUser.gameState.stamina || 0);
+      mutationResponse.sideJobResult = {
+        gainedMoney,
+        moneyBefore,
+        moneyAfter,
+        stressBefore,
+        stressAfter,
+        stressGain: Number((stressAfter - stressBefore).toFixed(2)),
+        staminaBefore,
+        staminaAfter,
+        staminaCost: Number((staminaBefore - staminaAfter).toFixed(2))
+      };
+      return mutationResponse;
     });
 
     res.json(response);
