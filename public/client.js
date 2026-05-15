@@ -220,6 +220,22 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-15-1234-news-typing-multi-source-trim',
+    time: '2026-05-15 12:34',
+    title: '\ub274\uc2a4 \ud0c0\uc790 \ucd9c\ucc98 \ubc18\ubcf5 \uc81c\uac70',
+    items: [
+      '\ub274\uc2a4 \uc81c\ubaa9 \ub05d\uc5d0 \ucd9c\ucc98\uac00 \uc5ec\ub7ec \ubc88 \ubd99\ub294 \uacbd\uc6b0\ub3c4 \ubc18\ubcf5 \uc81c\uac70\ud558\ub3c4\ub85d \ubcf4\uac15\ud588\uc2b5\ub2c8\ub2e4.'
+    ]
+  },
+  {
+    id: '2026-05-15-1232-news-typing-source-trim',
+    time: '2026-05-15 12:32',
+    title: '뉴스 타자 출처 제거 보강',
+    items: [
+      '뉴스 제목 끝에 영문 매체명이 붙는 경우도 타자 문장에서 제거되도록 정리했습니다.'
+    ]
+  },
+  {
     id: '2026-05-15-1229-news-typing-cleanup',
     time: '2026-05-15 12:29',
     title: '뉴스 타자 문장 정리 강화',

@@ -2909,6 +2909,25 @@ function stripHtml(value = '') {
     .trim();
 }
 
+const NEWS_TYPING_SOURCE_SUFFIX_PATTERN = /(신문|일보|뉴스|경제|방송|TV|데일리|타임즈|헤럴드|연합|통신|비즈|조선|중앙|동아|한겨레|경향|매일|한국|서울|머니|뉴시스|프레시안|오마이|투데이|news|daily|times|herald|biz|chosun|joongang|donga|hani|korea|yonhap|press|media|zdnet|etnews|mk|sbs|mbc|kbs|jtbc|ytn)/i;
+
+function stripNewsTypingSourceSuffix(value = '') {
+  let text = String(value).trim();
+  for (let index = 0; index < 4; index += 1) {
+    const match = text.match(/\s+[-|]\s+([^-|]{2,50})$/);
+    if (!match) break;
+
+    const suffix = match[1].trim();
+    const body = text.slice(0, match.index).trim();
+    if (body.length < 12) break;
+
+    const sourceLikeEnglish = /^[A-Z][A-Za-z0-9 .&]{2,40}$/.test(suffix) && /[a-z]/.test(suffix);
+    if (!NEWS_TYPING_SOURCE_SUFFIX_PATTERN.test(suffix) && !sourceLikeEnglish) break;
+    text = body;
+  }
+  return text;
+}
+
 function sanitizeNewsTypingSentence(value = '') {
   let text = stripHtml(value)
     .normalize('NFKC')
@@ -2922,6 +2941,8 @@ function sanitizeNewsTypingSentence(value = '') {
     .replace(/\s+/g, ' ')
     .trim();
 
+  text = stripNewsTypingSourceSuffix(text);
+
   text = text
     .replace(/\s*[-|]\s*[^-|]{1,25}(?:신문|일보|뉴스|경제|방송|TV|데일리|타임즈|헤럴드|연합|통신)\s*$/i, '')
     .replace(/\s+[가-힣A-Za-z0-9]{1,20}(?:신문|일보|뉴스|경제|방송|TV|데일리|타임즈|헤럴드|연합|통신)\s*$/i, '')
@@ -2929,7 +2950,7 @@ function sanitizeNewsTypingSentence(value = '') {
     .replace(/\s+/g, ' ')
     .trim();
 
-  return text.replace(/\s+/g, ' ').trim();
+  return stripNewsTypingSourceSuffix(text).replace(/\s+/g, ' ').trim();
 }
 
 function normalizeNewsTypingAnswer(value = '') {
