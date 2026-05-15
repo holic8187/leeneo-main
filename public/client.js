@@ -220,6 +220,14 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-15-1240-news-typing-dash-tail-trim',
+    time: '2026-05-15 12:40',
+    title: '\ub274\uc2a4 \ud0c0\uc790 \ub3c4\uba54\uc778 \ucd9c\ucc98 \uc81c\uac70',
+    items: [
+      '\ub274\uc2a4 \uc81c\ubaa9 \ub05d\uc758 - \ub4a4\uc5d0 \ubd99\ub294 \ub9e4\uccb4\uba85\uacfc \ub3c4\uba54\uc778 \ucd9c\ucc98\ub97c \uc77c\uad04 \uc81c\uac70\ud558\ub3c4\ub85d \ubcc0\uacbd\ud588\uc2b5\ub2c8\ub2e4.'
+    ]
+  },
+  {
     id: '2026-05-15-1234-news-typing-multi-source-trim',
     time: '2026-05-15 12:34',
     title: '\ub274\uc2a4 \ud0c0\uc790 \ucd9c\ucc98 \ubc18\ubcf5 \uc81c\uac70',
