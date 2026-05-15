@@ -220,12 +220,21 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-15-1153-news-typing-normalize',
+    time: '2026-05-15 11:53',
+    title: '뉴스 타자 판정 완화 및 보상 기준 변경',
+    items: [
+      '뉴스 문장의 따옴표, 대시, 공백 차이 때문에 겉보기에는 같은 문장이 실패하던 판정을 보정했습니다.',
+      '타자 보상 기준을 단어 수에서 공백 제외 글자와 부호 수로 변경했습니다.'
+    ]
+  },
+  {
     id: '2026-05-15-1145-news-typing-work',
     time: '2026-05-15 11:45',
     title: '뉴스 타자 열일하기 추가',
     items: [
       '열일하기 탭을 좌우로 나누고 오른쪽에 RSS 기반 뉴스 문장 타자 입력 기능을 추가했습니다.',
-      '문장을 정확히 입력하고 Enter를 누르면 단어 수만큼 서류 작업 클릭 경험치를 획득합니다.',
+      '문장을 정확히 입력하고 Enter를 누르면 공백을 제외한 글자와 부호 수만큼 서류 작업 클릭 경험치를 획득합니다.',
       '뉴스 문장은 드래그 복사와 붙여넣기를 막고, 제출 후에도 입력창 포커스가 유지되도록 했습니다.'
     ]
   },
@@ -1047,7 +1056,7 @@ function renderNewsTypingPrompt(prompt) {
   promptEl.textContent = currentNewsTypingPrompt.text;
   promptEl.dataset.promptId = currentNewsTypingPrompt.id || '';
   if (statusEl && !statusEl.dataset.locked) {
-    statusEl.textContent = `현재 문장 ${formatNumber(currentNewsTypingPrompt.wordCount || 0)}단어 · Enter로 제출`;
+    statusEl.textContent = `현재 문장 ${formatNumber(currentNewsTypingPrompt.unitCount || currentNewsTypingPrompt.wordCount || 0)}타 · Enter로 제출`;
   }
 }
 
@@ -1108,7 +1117,7 @@ async function handleNewsTypingSubmit() {
     updateLocalUserState(data);
     const result = data.newsTypingResult || {};
     if (statusEl) {
-      statusEl.textContent = `${formatNumber(result.wordCount || 0)}단어 정산 완료: +${formatNumber(result.gainedExp || 0)} EXP`;
+      statusEl.textContent = `${formatNumber(result.unitCount || result.wordCount || 0)}타 정산 완료: +${formatNumber(result.gainedExp || 0)} EXP`;
     }
     if (input) input.value = '';
     renderNewsTypingPrompt(result.nextPrompt);

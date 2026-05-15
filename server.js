@@ -2910,6 +2910,11 @@ function stripHtml(value = '') {
 
 function sanitizeNewsTypingSentence(value = '') {
   let text = stripHtml(value)
+    .normalize('NFKC')
+    .replace(/[“”„‟]/g, '"')
+    .replace(/[‘’‚‛]/g, "'")
+    .replace(/[‐‑‒–—―]/g, '-')
+    .replace(/\u00a0/g, ' ')
     .replace(/\[[^\]]{1,20}\]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
@@ -2925,8 +2930,14 @@ function sanitizeNewsTypingSentence(value = '') {
   return text.replace(/\s+/g, ' ').trim();
 }
 
-function getNewsTypingWordCount(text = '') {
-  return String(text).trim().split(/\s+/).filter(Boolean).length;
+function normalizeNewsTypingAnswer(value = '') {
+  return sanitizeNewsTypingSentence(value)
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getNewsTypingUnitCount(text = '') {
+  return normalizeNewsTypingAnswer(text).replace(/\s/g, '').length;
 }
 
 function buildNewsTypingPrompt(text) {
@@ -2934,7 +2945,8 @@ function buildNewsTypingPrompt(text) {
   return {
     id: crypto.createHash('sha1').update(normalizedText).digest('hex').slice(0, 16),
     text: normalizedText,
-    wordCount: getNewsTypingWordCount(normalizedText)
+    unitCount: getNewsTypingUnitCount(normalizedText),
+    wordCount: getNewsTypingUnitCount(normalizedText)
   };
 }
 
@@ -2946,7 +2958,7 @@ function parseRssTypingCandidates(xml = '') {
     const descriptionMatch = itemXml.match(/<description\b[^>]*>([\s\S]*?)<\/description>/i);
     [titleMatch?.[1], descriptionMatch?.[1]].forEach((entry) => {
       const sentence = sanitizeNewsTypingSentence(entry || '');
-      if (sentence.length >= 12 && sentence.length <= 120 && getNewsTypingWordCount(sentence) >= 3) {
+      if (sentence.length >= 12 && sentence.length <= 120 && getNewsTypingUnitCount(sentence) >= 8) {
         candidates.push(sentence);
       }
     });
@@ -2991,7 +3003,7 @@ async function fetchNewsTypingPrompts(force = false) {
 
   const prompts = (uniqueSentences.length ? uniqueSentences : NEWS_TYPING_FALLBACK_SENTENCES)
     .map(buildNewsTypingPrompt)
-    .filter((prompt) => prompt.text && prompt.wordCount > 0);
+    .filter((prompt) => prompt.text && prompt.unitCount > 0);
 
   if (prompts.length) {
     newsTypingCache = {
@@ -5263,8 +5275,9 @@ app.post('/api/action/news-typing', async (req, res) => {
       return res.status(400).json({ msg: '뉴스 문장이 만료되었습니다. 새 문장을 불러와주세요.' });
     }
 
-    const normalizedAnswer = String(answer || '').trim();
-    if (normalizedAnswer !== prompt.text) {
+    const normalizedAnswer = normalizeNewsTypingAnswer(answer);
+    const normalizedPromptText = normalizeNewsTypingAnswer(prompt.text);
+    if (normalizedAnswer !== normalizedPromptText) {
       return res.status(400).json({ msg: '문장이 정확히 일치하지 않습니다.' });
     }
 
@@ -5275,21 +5288,21 @@ app.post('/api/action/news-typing', async (req, res) => {
 
       const derivedStats = calculateDerivedStats(user, now);
       const hadTooMuchStress = user.gameState.stress >= 100;
-      const wordCount = Math.max(1, Number(prompt.wordCount || getNewsTypingWordCount(prompt.text)));
-      const clickStressGain = CLICK_STRESS_GAIN * wordCount * derivedStats.stressMultiplier;
+      const unitCount = Math.max(1, Number(prompt.unitCount || getNewsTypingUnitCount(prompt.text)));
+      const clickStressGain = CLICK_STRESS_GAIN * unitCount * derivedStats.stressMultiplier;
 
       if (!derivedStats.noStress) {
         user.gameState.stress = Number(Math.min(100, user.gameState.stress + clickStressGain).toFixed(2));
       }
 
       if (derivedStats.clickStressRelief > 0) {
-        user.gameState.stress = Number(Math.max(0, user.gameState.stress - derivedStats.clickStressRelief * wordCount).toFixed(2));
+        user.gameState.stress = Number(Math.max(0, user.gameState.stress - derivedStats.clickStressRelief * unitCount).toFixed(2));
       }
 
       let gainedExp = 0;
       if (!hadTooMuchStress) {
         const expMultiplier = (1 + derivedStats.expBonusPercent / 100);
-        gainedExp = Math.floor(getClickExp(user.gameState.level) * wordCount * expMultiplier * derivedStats.clickExpMultiplier);
+        gainedExp = Math.floor(getClickExp(user.gameState.level) * unitCount * expMultiplier * derivedStats.clickExpMultiplier);
         user.gameState.exp += gainedExp;
       }
 
@@ -5301,7 +5314,8 @@ app.post('/api/action/news-typing', async (req, res) => {
       const mutationResponse = await buildUserResponseWithGlobals(user, now);
       mutationResponse.newsTypingResult = {
         gainedExp,
-        wordCount,
+        unitCount,
+        wordCount: unitCount,
         nextPrompt
       };
       return mutationResponse;
