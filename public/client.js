@@ -221,6 +221,14 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-15-1318-raid-queued-boss-lock',
+    time: '2026-05-15 13:18',
+    title: '\ub808\uc774\ub4dc \ub300\uae30 \ubcf4\uc2a4 \uace0\uc815',
+    items: [
+      '\ub808\uc774\ub4dc \ub300\uae30\uc5f4\uc5d0 \uccab \ucc38\uac00\uc790\uac00 \ub4e4\uc5b4\uc628 \uc21c\uac04\uc758 \ubcf4\uc2a4\ub97c \uace0\uc815\ud574, \ub300\uae30\ucc3d\uacfc \uc2e4\uc81c \uc785\uc7a5 \ubcf4\uc2a4\uac00 \ub2ec\ub77c\uc9c0\uc9c0 \uc54a\ub3c4\ub85d \uc218\uc815\ud588\uc2b5\ub2c8\ub2e4.'
+    ]
+  },
+  {
     id: '2026-05-15-1305-raid-boss-portrait-toggle',
     time: '2026-05-15 13:05',
     title: '\ubcf4\uc2a4 \ucd08\uc0c1\ud654 ON/OFF \ucd94\uac00',

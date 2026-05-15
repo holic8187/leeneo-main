@@ -1559,6 +1559,7 @@ let activeShouts = [];
 let raidState = {
   version: RAID_POLL_VERSION_EMPTY,
   slots: Array(RAID_PARTY_SIZE).fill(null),
+  queuedBossId: null,
   countdown: null,
   activeBattle: null,
   manualBossOverrideDayKey: null,
@@ -1720,6 +1721,29 @@ function getCurrentRaidBossId(now = new Date()) {
 
 function getCurrentRaidBoss(now = new Date()) {
   return RAID_BOSS_DATA[getCurrentRaidBossId(now)] || RAID_BOSS_DATA[RAID_BOSS_ID];
+}
+
+function hasQueuedRaidUsers() {
+  return raidState.slots.some(Boolean);
+}
+
+function syncQueuedRaidBoss(now = new Date()) {
+  if (!hasQueuedRaidUsers()) {
+    raidState.queuedBossId = null;
+    return null;
+  }
+
+  if (!RAID_BOSS_DATA[raidState.queuedBossId]) {
+    raidState.queuedBossId = getCurrentRaidBossId(now);
+  }
+  return RAID_BOSS_DATA[raidState.queuedBossId] || getCurrentRaidBoss(now);
+}
+
+function getRaidLobbyBoss(now = new Date()) {
+  if (raidState.activeBattle?.bossId && RAID_BOSS_DATA[raidState.activeBattle.bossId]) {
+    return RAID_BOSS_DATA[raidState.activeBattle.bossId];
+  }
+  return syncQueuedRaidBoss(now) || getCurrentRaidBoss(now);
 }
 
 function getAlternateRaidBossId(selectedBossId) {
@@ -2592,6 +2616,7 @@ function clearQueuedRaidUser(userId) {
   const slotIndex = findQueuedRaidSlotIndex(userId);
   if (slotIndex >= 0) {
     raidState.slots[slotIndex] = null;
+    syncQueuedRaidBoss(new Date());
     bumpRaidVersion();
   }
 }
@@ -3121,7 +3146,7 @@ function getRaidRecoveryMultiplier(target) {
 }
 
 function getRaidLobbySummary(now = new Date()) {
-  const boss = getCurrentRaidBoss(now);
+  const boss = getRaidLobbyBoss(now);
   return {
     bossId: boss.id,
     bossName: boss.name,
@@ -6321,6 +6346,7 @@ app.post('/api/raid/toggle-slot', async (req, res) => {
     const existingSlot = findQueuedRaidSlotIndex(user._id);
     if (existingSlot === targetSlot) {
       raidState.slots[targetSlot] = null;
+      syncQueuedRaidBoss(now);
       bumpRaidVersion();
     } else {
       if (user.equippedCardId) {
@@ -6344,6 +6370,7 @@ app.post('/api/raid/toggle-slot', async (req, res) => {
         raidState.slots[existingSlot] = null;
       }
       raidState.slots[targetSlot] = String(user._id);
+      syncQueuedRaidBoss(now);
       bumpRaidVersion();
     }
 
@@ -6417,6 +6444,7 @@ app.post('/api/raid/start', async (req, res) => {
 
     if (participants.length < 2) {
       raidState.slots = raidState.slots.map((slotUserId) => (userMap.has(String(slotUserId)) ? slotUserId : null));
+      syncQueuedRaidBoss(now);
       bumpRaidVersion();
       return res.status(400).json({ msg: '참여 가능한 파티원이 2명 이상 있어야 합니다.' });
     }
@@ -6455,7 +6483,7 @@ app.post('/api/raid/start', async (req, res) => {
 
     const countdownDurationMs = (RAID_COUNTDOWN_SECONDS * 1000) + RAID_COUNTDOWN_BUFFER_MS;
 
-    const currentBoss = getCurrentRaidBoss(now);
+    const currentBoss = syncQueuedRaidBoss(now) || getCurrentRaidBoss(now);
     raidState.activeBattle = {
       battleId: `raid-${Date.now()}`,
       bossId: currentBoss.id,
@@ -6475,6 +6503,7 @@ app.post('/api/raid/start', async (req, res) => {
     };
     applyRaidBattleStartPassives(raidState.activeBattle);
     raidState.slots = Array(RAID_PARTY_SIZE).fill(null);
+    raidState.queuedBossId = null;
     bumpRaidVersion();
 
     const responseUser = participantUsers.find((entry) => String(entry._id) === String(userId)) || starter;
@@ -6544,6 +6573,7 @@ app.post('/api/raid/cancel-countdown', async (req, res) => {
         raidState.slots[index] = String(participant.userId);
       }
     });
+    raidState.queuedBossId = activeBattle.bossId;
 
     for (const participantId of participantIds) {
       const participantUser = userMap.get(String(participantId));
