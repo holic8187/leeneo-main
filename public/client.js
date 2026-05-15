@@ -217,6 +217,15 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-15-1104-raid-shield-exp-fix',
+    time: '2026-05-15 11:04',
+    title: '레이드 보호막 지속 및 레벨업 경험치 수정',
+    items: [
+      '카드로 획득한 보호막이 중간 파티원 행동 후 사라지지 않고 해당 턴의 보스 턴까지 유지되도록 수정했습니다.',
+      '보스 보상 등으로 레벨업할 때 요구 경험치를 초과한 남은 경험치가 0으로 사라지지 않고 다음 레벨 경험치로 이어지도록 수정했습니다.'
+    ]
+  },
+  {
     id: '2026-05-15-1025-equipment-dismantle',
     time: '2026-05-15 10:25',
     title: '장비 분해 추가',

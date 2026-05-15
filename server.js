@@ -2063,15 +2063,17 @@ function getCardDurationText(cardId, enhancementLevel = 0) {
     case 'wig':
     case 'chatgpt':
       return '다음 자신의 턴';
-    case 'gangnam_style':
     case 'celine_tears':
     case 'sherlock':
     case 'blind_date':
     case 'military_service':
     case 'ride_line':
       return `${card.turns || 1}턴`;
+    case 'gangnam_style':
+      return `버프 ${card.turns || 1}턴 / 보호막은 해당 턴의 보스 턴까지`;
     case 'strawberry_latte':
-      return Number(card.shieldTurns || 0) > 0 ? `${Number(card.shieldTurns || 0)}턴` : '이번 턴까지만';
+    case 'pho':
+      return '해당 턴의 보스 턴까지';
     case 'rebuttal':
     case 'delegate_lee':
     case 'fantasy':
@@ -2088,8 +2090,6 @@ function getCardDurationText(cardId, enhancementLevel = 0) {
       return '전투 종료까지';
     case 'tax_invoice':
       return `공격력 상승 ${card.turns || 1}턴 / 나머지 1회`;
-    case 'pho':
-      return '즉시 부여';
     case 'cider_comment':
     case 'invincible_logic':
       return '1회';
@@ -2112,13 +2112,13 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
     case 'ineo_diet':
       return `다음 자신의 턴에 기본 공격을 총 ${card.hits}회 합니다. 각 공격은 기본 공격 피해의 90%로 적용됩니다.`;
     case 'gangnam_style':
-      return `파티 전원에게 크리티컬률 ${formatCardPercentText(card.critBonus)}와 흥겨움을 부여하고, 보호막 ${card.shield}을 제공합니다. 흥겨움 중 기본 공격은 2배 타격으로 적용됩니다.`;
+      return `파티 전원에게 크리티컬률 ${formatCardPercentText(card.critBonus)}와 흥겨움을 부여하고, 해당 턴 보스 턴까지 유지되는 보호막 ${card.shield}을 제공합니다. 흥겨움 중 기본 공격은 2배 타격으로 적용됩니다.`;
     case 'delegate_lee':
       return `현재 입장한 파티원의 전체 레벨 합 x ${card.multiplierPerLevel}의 데미지를 1회 가합니다.`;
     case 'celine_tears':
       return `공격력 ${formatCardPercentText(card.attackBonusPercent)} 증가, 종료 시 자신의 레벨 x ${card.expireDamagePerLevel} 추가 피해`;
     case 'strawberry_latte':
-      return `파티 전원에게 보호막 ${card.shield}을 제공합니다.`;
+      return `파티 전원에게 해당 턴 보스 턴까지 유지되는 보호막 ${card.shield}을 제공합니다.`;
     case 'rebuttal':
       return `파티원 전체의 HP를 ${card.heal} 회복합니다.${card.includeSelf ? ' 자신도 포함됩니다.' : ' 자신은 제외됩니다.'}`;
     case 'parking_master':
@@ -2152,7 +2152,7 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
     case 'chatgpt':
       return `다음 자신의 턴 기본 공격에 더해 자신의 레벨 x ${card.bonusPerLevel} 추가 피해를 입힙니다.`;
     case 'pho':
-      return `랜덤 파티원 ${card.targets}명에게 각각 보호막 ${card.shield}을 제공합니다.`;
+      return `랜덤 파티원 ${card.targets}명에게 각각 해당 턴 보스 턴까지 유지되는 보호막 ${card.shield}을 제공합니다.`;
     case 'coca_cola':
       return `선택한 파티원 1인의 공격력을 ${formatCardPercentText(card.attackBonusPercent)} 증가시킵니다.`;
     case 'cider_comment':
@@ -3074,16 +3074,10 @@ function useRaidCardSkill(participant, battle) {
     logText = `${participant.displayName}(이)가 <셀린느> 버프를 얻었습니다.`;
   } else if (card.effectType === 'party_shield') {
     const shieldAmount = scaleFlat(card.shield);
-    const shieldTurns = Math.max(0, Number(card.shieldTurns || 0));
     let totalAppliedShield = 0;
     battle.participants.forEach((ally) => {
       if (ally.hp > 0) {
-        if (shieldTurns > 0) {
-          const appliedShieldTurns = ally.userId === participant.userId ? shieldTurns + 1 : shieldTurns;
-          totalAppliedShield += grantRaidShield(ally, shieldAmount, { turns: appliedShieldTurns });
-        } else {
-          totalAppliedShield += grantRaidShield(ally, shieldAmount);
-        }
+        totalAppliedShield += grantRaidShield(ally, shieldAmount);
       }
     });
     logText = `${participant.displayName}(이)가 ${card.name}로 파티 전원에게 보호막 ${totalAppliedShield.toLocaleString()}을 부여했습니다.`;
@@ -3112,11 +3106,10 @@ function useRaidCardSkill(participant, battle) {
       if (ally.hp > 0) {
         const appliedCritTurns = ally.userId === participant.userId ? card.turns + 1 : card.turns;
         const appliedHypeTurns = ally.userId === participant.userId ? (card.hypeTurns || 1) + 1 : (card.hypeTurns || 1);
-        const appliedShieldTurns = ally.userId === participant.userId ? card.turns + 1 : card.turns;
         ally.critBonusTurns = Math.max(ally.critBonusTurns, appliedCritTurns);
         ally.critBonusValue = Math.max(Number(ally.critBonusValue || 0), critBonus);
         ally.hypeTurns = Math.max(ally.hypeTurns, appliedHypeTurns);
-        totalAppliedShield += grantRaidShield(ally, shieldAmount, { turns: appliedShieldTurns });
+        totalAppliedShield += grantRaidShield(ally, shieldAmount);
       }
     });
     logText = `${participant.displayName}(이)가 ${card.name}로 파티 전원에게 흥겨움, 크리티컬 버프와 보호막 ${totalAppliedShield.toLocaleString()}을 부여했습니다.`;
@@ -4297,6 +4290,7 @@ async function advanceRaidState(now = new Date()) {
         }
       } else {
         appendRaidActionLogs(activeBattle, bossResult);
+        clearRoundShieldEffects(activeBattle);
         activeBattle.turnIndex = 0;
         activeBattle.nextActionAt = new Date(now.getTime() + RAID_ACTION_DELAY_MS);
       }
@@ -4556,15 +4550,29 @@ function reconcileTitles(user, now = new Date()) {
 }
 
 function checkLevelUp(user) {
-  const requiredExp = getRequiredExp(user.gameState.level);
-  if (user.gameState.exp < requiredExp) return false;
+  if (!user?.gameState) return false;
 
-  user.gameState.level += 1;
-  user.gameState.exp = 0;
-  user.gameState.passiveExpCarry = 0;
-  addItemToInventory(user, 'bacchus', 1);
-  queueNotification(user, 'level_up', `레벨 ${user.gameState.level} 달성! 레벨업 보상으로 박카스 1병을 받았습니다.`);
-  return true;
+  user.gameState.level = Math.max(1, Math.floor(Number(user.gameState.level || 1)));
+  user.gameState.exp = Math.max(0, Number(user.gameState.exp || 0));
+
+  let leveledUp = false;
+  let safety = 0;
+  while (safety < 1000) {
+    const requiredExp = getRequiredExp(user.gameState.level);
+    if (user.gameState.exp < requiredExp) break;
+
+    user.gameState.exp = Number((user.gameState.exp - requiredExp).toFixed(6));
+    user.gameState.level += 1;
+    addItemToInventory(user, 'bacchus', 1);
+    queueNotification(user, 'level_up', `레벨 ${user.gameState.level} 달성! 레벨업 보상으로 박카스 1병을 받았습니다.`);
+    leveledUp = true;
+    safety += 1;
+  }
+
+  if (leveledUp) {
+    user.gameState.passiveExpCarry = 0;
+  }
+  return leveledUp;
 }
 
 function calculateOfflineGains(user, now = new Date()) {
