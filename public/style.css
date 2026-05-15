@@ -497,6 +497,51 @@ progress {
   margin-bottom: 16px;
 }
 
+.raid-lobby-boss-portrait {
+  width: 96px;
+  height: 96px;
+  margin: 8px 0;
+  border: var(--excel-border);
+  background: linear-gradient(180deg, #fff6dd 0%, #f6e2b7 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.raid-portrait-toggle-btn {
+  margin: 2px 0 6px;
+  font-size: 12px;
+}
+
+.raid-portrait-toggle-btn.off {
+  background: #f3f3f3;
+  color: #555555;
+}
+
+.raid-lobby-boss-img,
+.raid-boss-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.raid-lobby-boss-fallback {
+  width: 76px;
+  height: 76px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  background: radial-gradient(circle at 30% 30%, #ffd7a8 0%, #ffb07c 40%, #d85a3b 100%);
+  color: #5d1600;
+  font-size: 14px;
+  font-weight: bold;
+  padding: 6px;
+}
+
 .raid-reward-list {
   margin: 0;
   padding-left: 18px;
@@ -594,6 +639,16 @@ progress {
   color: #5d1600;
   font-size: 22px;
   font-weight: bold;
+  text-align: center;
+  padding: 8px;
+}
+
+.raid-boss-avatar-img {
+  width: 150px;
+  height: 150px;
+  border-radius: 14px;
+  border: 1px solid #d7b36b;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
 }
 
 .raid-boss-name-row {

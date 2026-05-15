@@ -211,6 +211,7 @@ let raidBarAnimationState = {
 };
 const recentNotificationKeys = new Map();
 const BGM_MUTED_STORAGE_KEY = 'ineoBgmMuted';
+const RAID_BOSS_PORTRAIT_STORAGE_KEY = 'ineoRaidBossPortraitEnabled';
 const BGM_VOLUME = 0.16;
 const BGM_TRACKS = {
   normal: 'bgm.mp3',
@@ -219,6 +220,22 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-05-15-1305-raid-boss-portrait-toggle',
+    time: '2026-05-15 13:05',
+    title: '\ubcf4\uc2a4 \ucd08\uc0c1\ud654 ON/OFF \ucd94\uac00',
+    items: [
+      '\ubcf4\uc2a4 \ub300\uae30\ud654\uba74\uacfc \uc804\ud22c\ud654\uba74\uc5d0\uc11c \uc5f0\ub3d9\ub418\ub294 \ucd08\uc0c1\ud654 ON/OFF \ubc84\ud2bc\uc744 \ucd94\uac00\ud588\uc2b5\ub2c8\ub2e4.'
+    ]
+  },
+  {
+    id: '2026-05-15-1252-raid-boss-portraits',
+    time: '2026-05-15 12:52',
+    title: '\ubcf4\uc2a4 \ucd08\uc0c1\ud654 \ud45c\uc2dc \uc900\ube44',
+    items: [
+      '\ubcf4\uc2a4 \uc785\uc7a5 \ub300\uae30\ucc3d\uacfc \uc804\ud22c\ud654\uba74\uc5d0 \ubcf4\uc2a4 \ucd08\uc0c1\ud654\ub97c \ud45c\uc2dc\ud560 \uc218 \uc788\ub3c4\ub85d \ud30c\uc77c \uacbd\ub85c\ub97c \uc5f0\uacb0\ud588\uc2b5\ub2c8\ub2e4.'
+    ]
+  },
   {
     id: '2026-05-15-1240-news-typing-dash-tail-trim',
     time: '2026-05-15 12:40',
@@ -339,6 +356,7 @@ function initApp() {
   setupRaidBattleLogTracking();
   configureBgmAudio();
   updateBgmToggleButton();
+  updateRaidBossPortraitToggleButtons();
   tryAutoLogin();
 }
 
@@ -347,6 +365,8 @@ function setupEventListeners() {
   bindClick('logoutBtn', handleLogoutClick);
   bindClick('bgmToggleBtn', handleBgmToggleClick);
   bindClick('raidBgmToggleBtn', handleBgmToggleClick);
+  bindClick('raidLobbyPortraitToggleBtn', handleRaidBossPortraitToggle);
+  bindClick('raidBattlePortraitToggleBtn', handleRaidBossPortraitToggle);
   bindClick('patchNotesBtn', () => openPatchNotesModal({ markSeen: true }));
   bindClick('raidPatchNotesBtn', () => openPatchNotesModal({ markSeen: true }));
   bindClick('patchNotesCloseBtn', closePatchNotesModal);
@@ -666,6 +686,63 @@ function setText(id, value) {
 function setHtml(id, value) {
   const element = document.getElementById(id);
   if (element) element.innerHTML = value;
+}
+
+function buildRaidBossPortraitHtml(portraitSrc, bossName, options = {}) {
+  const name = bossName || '보스';
+  const imageClass = options.imageClass || 'raid-boss-avatar-img';
+  const fallbackClass = options.fallbackClass || 'raid-boss-avatar';
+  const hiddenFallbackClass = portraitSrc ? ' hidden' : '';
+  const imageHtml = portraitSrc
+    ? `<img class="${imageClass}" src="${escapeHtml(portraitSrc)}" alt="${escapeHtml(name)} 초상화" onerror="this.classList.add('hidden'); this.nextElementSibling.classList.remove('hidden');">`
+    : '';
+
+  return `
+    ${imageHtml}
+    <div class="${fallbackClass}${hiddenFallbackClass}">${escapeHtml(name)}</div>
+  `;
+}
+
+function isRaidBossPortraitEnabled() {
+  return localStorage.getItem(RAID_BOSS_PORTRAIT_STORAGE_KEY) !== 'false';
+}
+
+function updateRaidBossPortraitToggleButtons() {
+  const enabled = isRaidBossPortraitEnabled();
+  ['raidLobbyPortraitToggleBtn', 'raidBattlePortraitToggleBtn'].forEach((buttonId) => {
+    const button = document.getElementById(buttonId);
+    if (!button) return;
+    button.textContent = enabled ? '초상화 끄기' : '초상화 켜기';
+    button.setAttribute('aria-pressed', String(enabled));
+    button.classList.toggle('off', !enabled);
+  });
+}
+
+function rerenderRaidBossPortraitSections() {
+  updateRaidBossPortraitToggleButtons();
+  const user = getStoredUser();
+  if (latestRaidState) {
+    updateRaidLobbyUI(latestRaidState, user);
+    if (latestRaidState.activeBattle && !document.getElementById('raid-screen')?.classList.contains('hidden')) {
+      renderRaidBattle(latestRaidState, user);
+    }
+  }
+}
+
+function handleRaidBossPortraitToggle() {
+  const nextEnabled = !isRaidBossPortraitEnabled();
+  localStorage.setItem(RAID_BOSS_PORTRAIT_STORAGE_KEY, nextEnabled ? 'true' : 'false');
+  rerenderRaidBossPortraitSections();
+}
+
+function renderRaidBossPortrait(element, portraitSrc, bossName, options = {}) {
+  if (!element) return;
+  const enabled = isRaidBossPortraitEnabled();
+  const effectivePortraitSrc = enabled ? portraitSrc : '';
+  const key = `${enabled}|${effectivePortraitSrc || ''}|${bossName || ''}|${options.imageClass || ''}|${options.fallbackClass || ''}`;
+  if (element.dataset.portraitKey === key) return;
+  element.dataset.portraitKey = key;
+  element.innerHTML = buildRaidBossPortraitHtml(effectivePortraitSrc, bossName, options);
 }
 
 function getBusinessCardCount(user) {
@@ -2485,15 +2562,17 @@ window.handleEquipmentDismantleSortChange = handleEquipmentDismantleSortChange;
 function renderRaidBattle(raidState, user) {
   const battle = raidState?.activeBattle;
   if (!battle) return;
+  updateRaidBossPortraitToggleButtons();
   const participantCount = battle.participants?.length || 0;
   const currentTurnIndex = Number(battle.currentTurnIndex || 0);
   const isBossTurn = currentTurnIndex >= participantCount;
-  const bossAvatarLabel = battle.bossImageLabel || battle.bossName;
 
   setText('raidScreenBossName', battle.bossName);
   setText('raidBossTitle', battle.bossName);
-  setText('raidBossAvatar', bossAvatarLabel);
   setText('raidBossHpText', `${formatNumber(battle.bossHp)} / ${formatNumber(battle.bossMaxHp)}`);
+
+  const bossPortrait = document.getElementById('raidBossPortrait');
+  renderRaidBossPortrait(bossPortrait, battle.bossPortrait, battle.bossName);
 
   const turnBanner = document.getElementById('raidTurnBanner');
   const turnLabel = document.getElementById('raidTurnLabel');
@@ -3705,17 +3784,23 @@ function updateShopUI(user) {
 }
 
 function updateRaidLobbyUI(raidState, user) {
+  updateRaidBossPortraitToggleButtons();
   const slotGrid = document.getElementById('raidSlotGrid');
   const rewardList = document.getElementById('raidRewardList');
   const skillList = document.getElementById('raidBossSkillList');
   const bossName = document.getElementById('raidBossName');
   const bossDesc = document.getElementById('raidBossDesc');
+  const bossPortrait = document.getElementById('raidLobbyBossPortrait');
   const startBtn = document.getElementById('raidStartBtn');
   if (!slotGrid || !rewardList || !skillList || !bossName || !bossDesc || !startBtn) return;
 
   const lobby = raidState?.lobby;
   bossName.textContent = lobby ? `오늘의 보스 정보: ${lobby.bossName}` : '오늘의 보스 정보';
   bossDesc.textContent = lobby ? `${lobby.bossName} / 보스 HP ${formatNumber(lobby.maxHp || 60000)} / 최소 레벨 ${lobby.minLevel}` : '';
+  renderRaidBossPortrait(bossPortrait, lobby?.bossPortrait, lobby?.bossName, {
+    imageClass: 'raid-lobby-boss-img',
+    fallbackClass: 'raid-lobby-boss-fallback'
+  });
 
   rewardList.innerHTML = '';
   (lobby?.rewardsText || []).forEach((rewardText) => {

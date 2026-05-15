@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>일해라 이네오!! - 통합 문서1</title>
-  <link rel="stylesheet" href="style.css?v=26">
+  <link rel="stylesheet" href="style.css?v=28">
 </head>
 <body>
   <div id="login-screen">
@@ -520,6 +520,8 @@
       <div class="raid-lobby-grid">
         <div>
           <h4 id="raidBossName">오늘의 보스 정보</h4>
+          <button id="raidLobbyPortraitToggleBtn" class="mini-btn raid-portrait-toggle-btn" aria-pressed="true">초상화 끄기</button>
+          <div id="raidLobbyBossPortrait" class="raid-lobby-boss-portrait"></div>
           <p id="raidBossDesc" class="menu-note">트름녀 / 보스 HP 60,000</p>
         </div>
         <div>
@@ -555,13 +557,14 @@
       <div class="status-user">보스 레이드: <span id="raidScreenBossName">트름녀</span></div>
       <div class="status-top-actions">
         <button id="raidBgmToggleBtn" class="mini-btn bgm-toggle-btn" aria-pressed="false">BGM 켜기</button>
+        <button id="raidBattlePortraitToggleBtn" class="mini-btn raid-portrait-toggle-btn" aria-pressed="true">초상화 끄기</button>
         <button id="raidPatchNotesBtn" class="mini-btn patch-notes-btn">패치노트</button>
         <div class="menu-note">레이드 중에도 메인 화면으로 돌아가 다른 행동을 할 수 있습니다.</div>
       </div>
     </div>
     <div class="raid-screen-body">
       <div id="raidBossArea" class="raid-boss-area">
-        <div class="raid-boss-portrait">
+        <div id="raidBossPortrait" class="raid-boss-portrait">
           <div id="raidBossAvatar" class="raid-boss-avatar">트름녀</div>
         </div>
         <div class="raid-boss-status">
@@ -586,6 +589,6 @@
     </div>
   </div>
 
-  <script src="client.js?v=85"></script>
+  <script src="client.js?v=87"></script>
 </body>
 </html>

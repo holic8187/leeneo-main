@@ -848,6 +848,7 @@ const RAID_BOSS_DATA = {
     name: '트름녀',
     maxHp: 60000,
     imageLabel: '트름녀',
+    portrait: 'assets/bosses/burp_queen.png',
     patternOrder: ['burp', 'ice', 'smack', 'shield'],
     skillsText: [
       '1. 트름하기: 파티 전체에게 30 피해',
@@ -862,6 +863,7 @@ const RAID_BOSS_DATA = {
     name: '대머리 김부장',
     maxHp: 60000,
     imageLabel: '대머리 김부장',
+    portrait: 'assets/bosses/bald_manager.png',
     patternOrder: ['wig_search', 'mz', 'afterparty', 'sauna'],
     skillsText: [
       '1. 내 가발 어디갔어?!: 랜덤 3명에게 20 피해, 2턴 동안 기본 공격/스킬 사용 불가',
@@ -877,6 +879,7 @@ const RAID_BOSS_DATA = {
     name: 'HOI-M.S.J-50',
     maxHp: 60000,
     imageLabel: 'HOI-M.S.J-50',
+    portrait: 'assets/bosses/hoi_msj_50.png',
     patternOrder: ['son_brag', 'son_mix', 'ass_hit', 'nail_clip', 'food_question'],
     skillsText: [
       '1. 아들자랑 MK.1: 전원의 버프 제거, 제거된 버프 1개당 10 피해, 랜덤 2인에게 2턴 기본 공격 불가',
@@ -3122,6 +3125,9 @@ function getRaidLobbySummary(now = new Date()) {
   return {
     bossId: boss.id,
     bossName: boss.name,
+    bossPortrait: boss.portrait || '',
+    bossImageLabel: boss.imageLabel || boss.name,
+    maxHp: boss.maxHp,
     minLevel: RAID_MIN_LEVEL,
     skillsText: boss.skillsText || [],
     rewardsText: boss.rewardsText
@@ -4115,6 +4121,7 @@ function performRaidBossAction(battle) {
 
 function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
   if (!activeBattle) return null;
+  const bossData = RAID_BOSS_DATA[activeBattle.bossId] || RAID_BOSS_DATA[RAID_BOSS_ID];
   const sanitizedLogs = activeBattle.logs.slice(-8).map((line) => {
     let normalized = String(line || '');
     activeBattle.participants.forEach((participant) => {
@@ -4127,7 +4134,9 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
   return {
     battleId: activeBattle.battleId,
     bossId: activeBattle.bossId,
-    bossName: RAID_BOSS_DATA[activeBattle.bossId].name,
+    bossName: bossData.name,
+    bossPortrait: bossData.portrait || '',
+    bossImageLabel: bossData.imageLabel || bossData.name,
     bossHp: activeBattle.bossHp,
     bossMaxHp: activeBattle.bossMaxHp,
     bossShield: activeBattle.bossShield || 0,
