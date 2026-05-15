@@ -174,6 +174,13 @@ td {
   border-color: #c8c8c8;
 }
 
+.patch-notes-btn {
+  background: #fff8d8;
+  color: #6f4d00;
+  border-color: #d9b74c;
+  font-weight: 700;
+}
+
 .shout-banner {
   position: relative;
   overflow: hidden;
@@ -981,6 +988,11 @@ progress {
   opacity: 0.45;
 }
 
+.fusion-source-card.selected {
+  box-shadow: inset 0 0 0 2px #2f7d32;
+  background: #edf7ee;
+}
+
 .fusion-card-head {
   display: flex;
   justify-content: space-between;
@@ -1065,6 +1077,47 @@ progress {
 
 .support-modal-panel {
   width: min(620px, calc(100vw - 40px));
+}
+
+.patch-notes-modal-panel {
+  width: min(760px, calc(100vw - 40px));
+}
+
+.patch-notes-list {
+  display: grid;
+  gap: 12px;
+  max-height: 520px;
+  overflow-y: auto;
+  margin: 14px 0;
+  padding-right: 4px;
+}
+
+.patch-note-card {
+  padding: 12px 14px;
+  border: var(--excel-border);
+  background: #fffdf0;
+}
+
+.patch-note-card:first-child {
+  border-color: #d9b74c;
+  box-shadow: inset 4px 0 0 #d9b74c;
+}
+
+.patch-note-time {
+  font-size: 12px;
+  color: #666666;
+  margin-bottom: 4px;
+}
+
+.patch-note-title {
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.patch-note-items {
+  margin: 0;
+  padding-left: 18px;
+  line-height: 1.55;
 }
 
 .support-account {

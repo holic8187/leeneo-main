@@ -110,6 +110,7 @@
       </div>
       <div class="status-top-actions">
         <button id="bgmToggleBtn" class="mini-btn bgm-toggle-btn" aria-pressed="false">BGM 켜기</button>
+        <button id="patchNotesBtn" class="mini-btn patch-notes-btn">패치노트</button>
         <button id="supportBtn" class="mini-btn support-btn">직장인은 지갑전사</button>
         <button id="logoutBtn" class="mini-btn">퇴근하기</button>
       </div>
@@ -273,6 +274,7 @@
                 <h4 class="section-gap">장비</h4>
                 <div class="card-actions equipment-controls">
                   <button id="openEquipmentEnhanceModalBtn" class="mini-btn">장비 강화</button>
+                  <button id="openEquipmentDismantleModalBtn" class="mini-btn">장비 분해</button>
                   <button class="mini-btn" onclick="handleEquipmentSortChange('attack_desc')">공격력 높은 순</button>
                   <button class="mini-btn" onclick="handleEquipmentSortChange('attack_asc')">공격력 낮은 순</button>
                   <button class="mini-btn" onclick="handleEquipmentSortChange('card_desc')">스킬 증폭 높은 순</button>
@@ -430,6 +432,27 @@
     </div>
   </div>
 
+  <div id="equipmentDismantleModal" class="modal-overlay hidden">
+    <div class="excel-sheet modal-panel fusion-modal-panel enhance-modal-panel">
+      <h3>장비 분해</h3>
+      <p class="menu-note">분해할 장비를 선택하세요. 장비 1개당 장비 파편 0~5개를 획득합니다. 장착 중인 장비도 분해하면 자동 해제됩니다.</p>
+      <div class="card-actions equipment-controls">
+        <button class="mini-btn" onclick="handleEquipmentDismantleSortChange('attack_desc')">공격력 높은 순</button>
+        <button class="mini-btn" onclick="handleEquipmentDismantleSortChange('attack_asc')">공격력 낮은 순</button>
+        <button class="mini-btn" onclick="handleEquipmentDismantleSortChange('card_desc')">스킬 증폭 높은 순</button>
+        <button class="mini-btn" onclick="handleEquipmentDismantleSortChange('card_asc')">스킬 증폭 낮은 순</button>
+        <button class="mini-btn" onclick="handleEquipmentDismantleSortChange('upgrade_desc')">강화 높은 순</button>
+        <button class="mini-btn" onclick="handleEquipmentDismantleSortChange('acquired')">획득 순</button>
+      </div>
+      <div id="equipmentDismantleSummary" class="modal-note">분해할 장비를 아래 목록에서 선택하세요.</div>
+      <div id="equipmentDismantleList" class="fusion-source-list"></div>
+      <div class="modal-buttons">
+        <button id="confirmEquipmentDismantleBtn" class="menu-action-btn">선택 장비 분해</button>
+        <button id="closeEquipmentDismantleModalBtn" class="mini-btn">닫기</button>
+      </div>
+    </div>
+  </div>
+
   <div id="supportModal" class="modal-overlay hidden">
     <div class="excel-sheet modal-panel support-modal-panel">
       <h3>직장인은 지갑전사</h3>
@@ -467,6 +490,17 @@
       </div>
       <div class="modal-buttons">
         <button id="supportModalCloseBtn" class="mini-btn">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="patchNotesModal" class="modal-overlay hidden">
+    <div class="excel-sheet modal-panel patch-notes-modal-panel">
+      <h3>패치노트</h3>
+      <p class="menu-note">업데이트 시간과 변경 내역을 최신순으로 기록합니다. 새 패치가 배포되면 한 번 자동으로 표시됩니다.</p>
+      <div id="patchNotesList" class="patch-notes-list"></div>
+      <div class="modal-buttons">
+        <button id="patchNotesCloseBtn" class="mini-btn">닫기</button>
       </div>
     </div>
   </div>
@@ -512,6 +546,7 @@
       <div class="status-user">보스 레이드: <span id="raidScreenBossName">트름녀</span></div>
       <div class="status-top-actions">
         <button id="raidBgmToggleBtn" class="mini-btn bgm-toggle-btn" aria-pressed="false">BGM 켜기</button>
+        <button id="raidPatchNotesBtn" class="mini-btn patch-notes-btn">패치노트</button>
         <div class="menu-note">레이드 중에도 메인 화면으로 돌아가 다른 행동을 할 수 있습니다.</div>
       </div>
     </div>
@@ -542,6 +577,6 @@
     </div>
   </div>
 
-  <script src="client.js?v=75"></script>
+  <script src="client.js?v=77"></script>
 </body>
 </html>

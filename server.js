@@ -173,6 +173,14 @@ const ITEM_DATA = {
     desc: '모험 중 고양이에게 줄 수 있음',
     hoverDesc: '회사 밖에서 고양이를 만났을 때 건네줄 수 있습니다. 가방에서는 직접 사용할 수 없습니다.'
   },
+  equipment_fragment: {
+    name: '장비 파편',
+    price: 0,
+    type: 'special',
+    shopHidden: true,
+    desc: '장비 분해로 획득하는 재화',
+    hoverDesc: '장비를 분해하면 획득할 수 있습니다. 추후 전용 상점에서 사용할 예정입니다.'
+  },
   scroll_card_005: {
     name: '주문서: 카드 효과 +0.5%',
     price: 0,
@@ -5680,6 +5688,75 @@ app.post('/api/equipment/upgrade', async (req, res) => {
   } catch (err) {
     console.error('Equipment upgrade error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/equipment/dismantle', async (req, res) => {
+  const { userId, equipmentIds } = req.body;
+  if (!userId || !Array.isArray(equipmentIds)) {
+    return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+  }
+
+  const selectedIds = [...new Set(equipmentIds.map((id) => String(id || '').trim()).filter(Boolean))].slice(0, 100);
+  if (!selectedIds.length) {
+    return res.status(400).json({ msg: '분해할 장비를 선택해주세요.' });
+  }
+
+  try {
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      ensureUserDefaults(user);
+
+      const selectedSet = new Set(selectedIds);
+      const dismantled = [];
+      let fragmentCount = 0;
+
+      user.equipments = (user.equipments || []).filter((equipment) => {
+        const equipmentId = String(equipment.equipmentId || '');
+        if (!selectedSet.has(equipmentId)) return true;
+
+        const fragments = Math.floor(Math.random() * 6);
+        fragmentCount += fragments;
+        dismantled.push({
+          equipmentId,
+          name: buildEquipmentDisplayName(equipment),
+          desc: buildEquipmentDescription(equipment),
+          fragments
+        });
+        return false;
+      });
+
+      if (!dismantled.length) {
+        throw createHttpError(404, '분해할 장비를 찾을 수 없습니다.');
+      }
+
+      if (user.equippedEquipment?.cardEffect && selectedSet.has(String(user.equippedEquipment.cardEffect))) {
+        user.equippedEquipment.cardEffect = null;
+      }
+      if (user.equippedEquipment?.basicAttack && selectedSet.has(String(user.equippedEquipment.basicAttack))) {
+        user.equippedEquipment.basicAttack = null;
+      }
+      normalizeSingleEquippedEquipment(user);
+
+      if (fragmentCount > 0) {
+        addItemToInventory(user, 'equipment_fragment', fragmentCount);
+      }
+      user.gameState.lastActionTime = now;
+
+      const response = await buildUserResponseWithGlobals(user, now);
+      response.equipmentDismantle = {
+        count: dismantled.length,
+        fragments: fragmentCount,
+        results: dismantled
+      };
+      return response;
+    }, { conflictLabel: 'Equipment dismantle conflict' });
+
+    res.json(response);
+  } catch (err) {
+    console.error('Equipment dismantle error:', err);
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
   }
 });
 

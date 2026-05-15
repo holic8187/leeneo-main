@@ -52,6 +52,11 @@ const ITEM_DATA = {
     name: '고양이 참치캔',
     desc: '고양이에게 줄 수 있음',
     hoverDesc: '모험 중 회사 밖에서 고양이를 만났을 때 건네줄 수 있습니다.'
+  },
+  equipment_fragment: {
+    name: '장비 파편',
+    desc: '장비 분해로 획득하는 재화',
+    hoverDesc: '장비를 분해하면 획득할 수 있습니다. 추후 전용 상점에서 사용할 예정입니다.'
   }
 };
 
@@ -193,6 +198,8 @@ let equipmentEnhanceLogs = [];
 const EQUIPMENT_PAGE_SIZE = 15;
 let equipmentListPage = 1;
 let equipmentSortMode = 'acquired';
+let equipmentDismantleSelection = new Set();
+let equipmentDismantleSortMode = 'acquired';
 let raidBattleLogPinnedToBottom = true;
 let userMutationInFlightCount = 0;
 let raidBarAnimationState = {
@@ -207,6 +214,40 @@ const BGM_TRACKS = {
   raid: 'raid-bgm.mp3'
 };
 let currentBgmMode = 'normal';
+const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
+const PATCH_NOTES = [
+  {
+    id: '2026-05-15-1025-equipment-dismantle',
+    time: '2026-05-15 10:25',
+    title: '장비 분해 추가',
+    items: [
+      '가방의 장비 영역에 장비 분해 버튼을 추가했습니다.',
+      '분해 팝업에서 장비를 정렬하고 여러 장비를 선택해 한 번에 분해할 수 있습니다.',
+      '장비 1개를 분해할 때마다 장비 파편 0~5개를 획득하며, 파편은 가방에 보관됩니다.'
+    ]
+  },
+  {
+    id: '2026-05-15-1017-patch-notes',
+    time: '2026-05-15 10:17',
+    title: '패치노트 시스템 추가',
+    items: [
+      '로그인 후 최신 패치노트가 유저별로 한 번 자동 표시됩니다.',
+      '상단 BGM 버튼 옆에 패치노트 버튼을 추가해 언제든 다시 확인할 수 있습니다.',
+      '앞으로 패치 요청이 들어올 때마다 시간과 변경 내역을 이 기록에 계속 누적합니다.'
+    ]
+  },
+  {
+    id: '2026-05-15-1005-raid-balance',
+    time: '2026-05-15 10:05',
+    title: '레이드 다단히트 밸런스 및 통신 주기 조정',
+    items: [
+      '이네오의 다이어트 선언, 멍프의 주차, 김부장의 가발, 옥상의 비둘기떼, 쓰비 우산으로 복사한 다단히트 피해를 각 타격 90%로 조정했습니다.',
+      '강남스타일의 흥겨움은 기본 공격 2배 효과만 적용되며 90% 피해 보정에서는 제외했습니다.',
+      '날 죽이지 못하는 시련은 어쩌고저쩌고.. 카드의 강화별 계수와 쿨타임을 상향 조정했습니다.',
+      '랭킹 갱신은 30초, 레이드 폴링은 3초, 일반 동기화는 7초로 조정했습니다.'
+    ]
+  }
+];
 
 document.addEventListener('DOMContentLoaded', () => {
   initApp();
@@ -225,6 +266,9 @@ function setupEventListeners() {
   bindClick('logoutBtn', handleLogoutClick);
   bindClick('bgmToggleBtn', handleBgmToggleClick);
   bindClick('raidBgmToggleBtn', handleBgmToggleClick);
+  bindClick('patchNotesBtn', () => openPatchNotesModal({ markSeen: true }));
+  bindClick('raidPatchNotesBtn', () => openPatchNotesModal({ markSeen: true }));
+  bindClick('patchNotesCloseBtn', closePatchNotesModal);
   bindClick('supportBtn', openSupportModal);
   bindClick('supportModalCloseBtn', closeSupportModal);
   bindClick('setNicknameBtn', handleSetNicknameClick);
@@ -247,6 +291,9 @@ function setupEventListeners() {
   bindClick('openEquipmentEnhanceModalBtn', openEquipmentEnhanceModal);
   bindClick('closeEquipmentEnhanceModalBtn', closeEquipmentEnhanceModal);
   bindClick('confirmEquipmentEnhanceBtn', handleEquipmentEnhanceConfirm);
+  bindClick('openEquipmentDismantleModalBtn', openEquipmentDismantleModal);
+  bindClick('closeEquipmentDismantleModalBtn', closeEquipmentDismantleModal);
+  bindClick('confirmEquipmentDismantleBtn', handleEquipmentDismantleConfirm);
   bindClick('openFusionModalBtn', openCardFusionModal);
   bindClick('closeFusionModalBtn', closeCardFusionModal);
   bindClick('confirmFusionBtn', handleCardFusionConfirm);
@@ -554,6 +601,71 @@ function showModal(id) {
   if (element) element.classList.remove('hidden');
 }
 
+function getLatestPatchNoteId() {
+  return PATCH_NOTES[0]?.id || '';
+}
+
+function isAnyModalOpen() {
+  return Array.from(document.querySelectorAll('.modal-overlay'))
+    .some((element) => !element.classList.contains('hidden'));
+}
+
+function renderPatchNotes() {
+  const list = document.getElementById('patchNotesList');
+  if (!list) return;
+
+  list.innerHTML = '';
+  PATCH_NOTES.forEach((note) => {
+    const card = document.createElement('article');
+    card.className = 'patch-note-card';
+
+    const time = document.createElement('div');
+    time.className = 'patch-note-time';
+    time.textContent = note.time;
+    card.appendChild(time);
+
+    const title = document.createElement('div');
+    title.className = 'patch-note-title';
+    title.textContent = note.title;
+    card.appendChild(title);
+
+    const items = document.createElement('ul');
+    items.className = 'patch-note-items';
+    (note.items || []).forEach((text) => {
+      const item = document.createElement('li');
+      item.textContent = text;
+      items.appendChild(item);
+    });
+    card.appendChild(items);
+    list.appendChild(card);
+  });
+}
+
+function openPatchNotesModal({ markSeen = true } = {}) {
+  renderPatchNotes();
+  showModal('patchNotesModal');
+  if (markSeen) {
+    const latestId = getLatestPatchNoteId();
+    if (latestId) localStorage.setItem(PATCH_NOTES_STORAGE_KEY, latestId);
+  }
+}
+
+function closePatchNotesModal() {
+  hideModal('patchNotesModal');
+}
+
+function maybeShowPatchNotesOnce(attempt = 0) {
+  const latestId = getLatestPatchNoteId();
+  if (!latestId || localStorage.getItem(PATCH_NOTES_STORAGE_KEY) === latestId) return;
+
+  if (isAnyModalOpen() && attempt < 20) {
+    setTimeout(() => maybeShowPatchNotesOnce(attempt + 1), 1000);
+    return;
+  }
+
+  openPatchNotesModal({ markSeen: true });
+}
+
 function closeDecisionModal(result = null) {
   const overlay = document.getElementById('decisionModal');
   if (overlay) overlay.classList.add('hidden');
@@ -801,6 +913,8 @@ function tryAutoLogin() {
 function handleLogoutClick() {
   clearIntervals();
   closeDecisionModal();
+  hideModal('patchNotesModal');
+  hideModal('equipmentDismantleModal');
   hideModal('raidLobbyModal');
   hideModal('raidCountdownOverlay');
   stopBgm(true);
@@ -1671,6 +1785,9 @@ function updateLocalUserState(data, options = {}) {
   if (isEquipmentEnhanceModalOpen()) {
     renderEquipmentEnhanceModal(latestUser);
   }
+  if (isEquipmentDismantleModalOpen()) {
+    renderEquipmentDismantleModal(latestUser);
+  }
   if (latestUser) {
     updateRaidButton(latestUser, latestRaidState);
   }
@@ -1739,6 +1856,8 @@ function showGameScreen(user) {
       ]
     });
   }
+
+  setTimeout(() => maybeShowPatchNotesOnce(), 500);
 }
 
 function openRaidLobby() {
@@ -1803,6 +1922,11 @@ function isEquipmentEnhanceModalOpen() {
   return modal && !modal.classList.contains('hidden');
 }
 
+function isEquipmentDismantleModalOpen() {
+  const modal = document.getElementById('equipmentDismantleModal');
+  return modal && !modal.classList.contains('hidden');
+}
+
 function getEquipmentScrollItemIds() {
   return ['scroll_card_005', 'scroll_card_01', 'scroll_card_025', 'scroll_attack_01', 'scroll_attack_02', 'scroll_attack_05'];
 }
@@ -1831,7 +1955,7 @@ function getEquipmentSortLabel(mode = equipmentSortMode) {
   return labels[mode] || labels.acquired;
 }
 
-function getSortedEquipmentDetails(equipments) {
+function getSortedEquipmentDetails(equipments, sortMode = equipmentSortMode) {
   const indexed = (equipments || []).map((equipment, index) => ({ equipment, index }));
   const tieBreakByAcquired = (left, right) => left.index - right.index;
   const compareByValue = (left, right, getValue, direction = 'desc') => {
@@ -1844,7 +1968,7 @@ function getSortedEquipmentDetails(equipments) {
   };
 
   indexed.sort((left, right) => {
-    switch (equipmentSortMode) {
+    switch (sortMode) {
       case 'attack_desc':
         return compareByValue(left, right, (equipment) => equipment?.equipmentType === 'basic_attack' ? getEquipmentTypedStat(equipment, 'basic_attack') : -1, 'desc');
       case 'attack_asc':
@@ -1910,6 +2034,96 @@ function openEquipmentEnhanceModal() {
 
 function closeEquipmentEnhanceModal() {
   hideModal('equipmentEnhanceModal');
+}
+
+function openEquipmentDismantleModal() {
+  equipmentDismantleSelection = new Set();
+  equipmentDismantleSortMode = equipmentSortMode || 'acquired';
+  renderEquipmentDismantleModal(getStoredUser());
+  showModal('equipmentDismantleModal');
+}
+
+function closeEquipmentDismantleModal() {
+  equipmentDismantleSelection = new Set();
+  hideModal('equipmentDismantleModal');
+}
+
+function handleEquipmentDismantleSortChange(mode) {
+  equipmentDismantleSortMode = mode;
+  renderEquipmentDismantleModal(getStoredUser());
+}
+
+function handleEquipmentDismantleSelect(equipmentId) {
+  if (equipmentDismantleSelection.has(equipmentId)) {
+    equipmentDismantleSelection.delete(equipmentId);
+  } else {
+    equipmentDismantleSelection.add(equipmentId);
+  }
+  renderEquipmentDismantleModal(getStoredUser());
+}
+
+function renderEquipmentDismantleModal(user) {
+  const summary = document.getElementById('equipmentDismantleSummary');
+  const list = document.getElementById('equipmentDismantleList');
+  const confirmBtn = document.getElementById('confirmEquipmentDismantleBtn');
+  if (!summary || !list || !confirmBtn) return;
+
+  const equipments = user?.equipmentDetails || [];
+  const ownedIds = new Set(equipments.map((equipment) => String(equipment.equipmentId)));
+  equipmentDismantleSelection = new Set([...equipmentDismantleSelection].filter((equipmentId) => ownedIds.has(String(equipmentId))));
+
+  const selectedCount = equipmentDismantleSelection.size;
+  summary.innerHTML = `
+    <strong>선택 ${formatNumber(selectedCount)}개</strong>
+    <div class="menu-note">정렬: ${escapeHtml(getEquipmentSortLabel(equipmentDismantleSortMode))} / 예상 획득: 장비 1개당 장비 파편 0~5개</div>
+  `;
+  confirmBtn.disabled = selectedCount <= 0;
+
+  const sortedEquipments = getSortedEquipmentDetails(equipments, equipmentDismantleSortMode);
+  list.innerHTML = sortedEquipments.length
+    ? sortedEquipments.map((equipment) => {
+      const selected = equipmentDismantleSelection.has(equipment.equipmentId);
+      return `
+        <button class="fusion-source-card ${selected ? 'selected' : ''}" onclick="handleEquipmentDismantleSelect('${equipment.equipmentId}')">
+          <strong>${escapeHtml(equipment.name)}${equipment.equipped ? ' (장착 중)' : ''}</strong>
+          <div class="menu-note">${escapeHtml(equipment.desc || '')}</div>
+          <div class="menu-note">${selected ? '분해 대상에 등록됨' : '클릭하면 분해 대상에 등록됩니다.'}</div>
+        </button>
+      `;
+    }).join('')
+    : '<div class="muted-text">보유한 장비가 없습니다.</div>';
+}
+
+async function handleEquipmentDismantleConfirm() {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+
+  const equipmentIds = [...equipmentDismantleSelection];
+  if (!equipmentIds.length) {
+    alert('분해할 장비를 선택해주세요.');
+    return;
+  }
+
+  const ok = confirm(`선택한 장비 ${equipmentIds.length}개를 분해하시겠습니까? 장비는 복구할 수 없습니다.`);
+  if (!ok) return;
+
+  try {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/equipment/dismantle`, {
+      userId: user._id,
+      equipmentIds
+    }));
+    equipmentDismantleSelection = new Set();
+    updateLocalUserState(data);
+    const result = data.equipmentDismantle;
+    if (result) {
+      alert(`장비 ${result.count}개를 분해했습니다. 장비 파편 ${result.fragments}개를 획득했습니다.`);
+    }
+    if (isEquipmentDismantleModalOpen()) {
+      renderEquipmentDismantleModal(getStoredUser());
+    }
+  } catch (err) {
+    alert(err.message);
+  }
 }
 
 async function handleToggleEquipmentEquip(equipmentId) {
@@ -2054,6 +2268,8 @@ window.handleEquipmentEnhanceSelect = handleEquipmentEnhanceSelect;
 window.handleEquipmentScrollSelect = handleEquipmentScrollSelect;
 window.handleEquipmentSortChange = handleEquipmentSortChange;
 window.handleEquipmentPageChange = handleEquipmentPageChange;
+window.handleEquipmentDismantleSelect = handleEquipmentDismantleSelect;
+window.handleEquipmentDismantleSortChange = handleEquipmentDismantleSortChange;
 
 
 function renderRaidBattle(raidState, user) {
@@ -3219,6 +3435,9 @@ function updateInventoryUI(user) {
   }
   if (isEquipmentEnhanceModalOpen()) {
     renderEquipmentEnhanceModal(user);
+  }
+  if (isEquipmentDismantleModalOpen()) {
+    renderEquipmentDismantleModal(user);
   }
 }
 
