@@ -430,6 +430,46 @@ progress {
   border-top: var(--excel-border);
 }
 
+.work-split {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.85fr) minmax(280px, 1.15fr);
+  gap: 12px;
+}
+
+.work-panel {
+  min-width: 0;
+  padding: 12px;
+  border: var(--excel-border);
+  background: #fbfbfb;
+}
+
+.news-typing-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.news-typing-prompt {
+  min-height: 52px;
+  padding: 10px 12px;
+  border: var(--excel-border);
+  background: #f7fbff;
+  font-weight: bold;
+  line-height: 1.45;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.news-typing-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 720px) {
+  .work-split {
+    grid-template-columns: 1fr;
+  }
+}
+
 .menu-note,
 .muted-text {
   color: var(--muted-text);

@@ -5,6 +5,7 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const path = require('path');
+const crypto = require('crypto');
 
 const app = express();
 
@@ -14,10 +15,30 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
 const ADMIN_USERNAME = 'dinguree';
 const ADMIN_PASSWORD = 'dinguree';
 
+let newsTypingCache = {
+  fetchedAt: 0,
+  prompts: []
+};
+let newsTypingCursor = 0;
+
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const BASE_DAILY_SALARY = 300000;
 const BASE_DAILY_PASSIVE_EXP = 400;
 const BASE_CLICK_EXP = 5;
+const NEWS_TYPING_CACHE_TTL_MS = 10 * 60 * 1000;
+const NEWS_TYPING_RSS_FEEDS = [
+  'https://news.google.com/rss?hl=ko&gl=KR&ceid=KR:ko',
+  'https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=ko&gl=KR&ceid=KR:ko',
+  'https://news.google.com/rss/headlines/section/topic/TECHNOLOGY?hl=ko&gl=KR&ceid=KR:ko'
+];
+const NEWS_TYPING_FETCH_TIMEOUT_MS = 3500;
+const NEWS_TYPING_FALLBACK_SENTENCES = [
+  '오늘 국내 주요 기업들이 신규 서비스 출시 계획을 공개했다.',
+  '시장 전문가들은 이번 주 경제 지표 발표에 주목하고 있다.',
+  '정부는 중소기업의 디지털 전환을 지원하는 새 정책을 발표했다.',
+  '기술 업계는 인공지능 서비스 경쟁이 더 치열해질 것으로 보고 있다.',
+  '소비자 물가 흐름을 두고 여러 기관의 전망이 엇갈리고 있다.'
+];
 const IDLE_STRESS_PER_SECOND = 1 / 1800;
 const CLICK_STRESS_GAIN = 0.25;
 const LUPIN_STRESS_DURATION_MS = 60 * 60 * 1000;
@@ -2868,6 +2889,149 @@ function applyWorkDrop(user) {
   };
 }
 
+function decodeXmlEntities(value = '') {
+  return String(value)
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, code) => String.fromCharCode(parseInt(code, 16)));
+}
+
+function stripHtml(value = '') {
+  return decodeXmlEntities(value)
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function sanitizeNewsTypingSentence(value = '') {
+  let text = stripHtml(value)
+    .replace(/\[[^\]]{1,20}\]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const sourceSeparatorIndex = text.lastIndexOf(' - ');
+  if (sourceSeparatorIndex > 10) {
+    const sourceText = text.slice(sourceSeparatorIndex + 3).trim();
+    if (sourceText.length <= 30) {
+      text = text.slice(0, sourceSeparatorIndex).trim();
+    }
+  }
+
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+function getNewsTypingWordCount(text = '') {
+  return String(text).trim().split(/\s+/).filter(Boolean).length;
+}
+
+function buildNewsTypingPrompt(text) {
+  const normalizedText = sanitizeNewsTypingSentence(text);
+  return {
+    id: crypto.createHash('sha1').update(normalizedText).digest('hex').slice(0, 16),
+    text: normalizedText,
+    wordCount: getNewsTypingWordCount(normalizedText)
+  };
+}
+
+function parseRssTypingCandidates(xml = '') {
+  const candidates = [];
+  const itemMatches = String(xml).match(/<item\b[\s\S]*?<\/item>/gi) || [];
+  itemMatches.forEach((itemXml) => {
+    const titleMatch = itemXml.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i);
+    const descriptionMatch = itemXml.match(/<description\b[^>]*>([\s\S]*?)<\/description>/i);
+    [titleMatch?.[1], descriptionMatch?.[1]].forEach((entry) => {
+      const sentence = sanitizeNewsTypingSentence(entry || '');
+      if (sentence.length >= 12 && sentence.length <= 120 && getNewsTypingWordCount(sentence) >= 3) {
+        candidates.push(sentence);
+      }
+    });
+  });
+  return candidates;
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = NEWS_TYPING_FETCH_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchNewsTypingPrompts(force = false) {
+  const now = Date.now();
+  const cacheFresh = newsTypingCache.prompts.length
+    && now - newsTypingCache.fetchedAt < NEWS_TYPING_CACHE_TTL_MS;
+  if (!force && cacheFresh) return newsTypingCache.prompts;
+
+  const candidates = [];
+  await Promise.allSettled(NEWS_TYPING_RSS_FEEDS.map(async (url) => {
+    const response = await fetchWithTimeout(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 IneoOfficeTypingGame/1.0'
+      }
+    });
+    if (!response.ok) throw new Error(`RSS fetch failed: ${response.status}`);
+    const xml = await response.text();
+    candidates.push(...parseRssTypingCandidates(xml));
+  }));
+
+  const uniqueSentences = [...new Set(candidates)]
+    .filter((sentence) => !/Google\s*뉴스/i.test(sentence))
+    .slice(0, 120);
+
+  const prompts = (uniqueSentences.length ? uniqueSentences : NEWS_TYPING_FALLBACK_SENTENCES)
+    .map(buildNewsTypingPrompt)
+    .filter((prompt) => prompt.text && prompt.wordCount > 0);
+
+  if (prompts.length) {
+    newsTypingCache = {
+      fetchedAt: now,
+      prompts
+    };
+  } else if (!newsTypingCache.prompts.length) {
+    newsTypingCache = {
+      fetchedAt: now,
+      prompts: NEWS_TYPING_FALLBACK_SENTENCES.map(buildNewsTypingPrompt)
+    };
+  }
+
+  return newsTypingCache.prompts;
+}
+
+async function getNewsTypingPrompt(afterId = null) {
+  const prompts = await fetchNewsTypingPrompts(false);
+  if (!prompts.length) return null;
+
+  if (afterId) {
+    const foundIndex = prompts.findIndex((prompt) => prompt.id === afterId);
+    if (foundIndex >= 0) {
+      return prompts[(foundIndex + 1) % prompts.length];
+    }
+  }
+
+  newsTypingCursor = (newsTypingCursor + 1) % prompts.length;
+  return prompts[newsTypingCursor];
+}
+
+async function findNewsTypingPrompt(promptId) {
+  if (!promptId) return null;
+  const cachedPrompt = newsTypingCache.prompts.find((prompt) => prompt.id === promptId);
+  if (cachedPrompt) return cachedPrompt;
+
+  const prompts = await fetchNewsTypingPrompts(true);
+  return prompts.find((prompt) => prompt.id === promptId) || null;
+}
+
 function buildRaidParticipantStatusEffects(participant) {
   const effects = [];
   if (Number(participant.silenceTurns || 0) > 0) effects.push({ type: 'debuff', name: '침묵', turns: Number(participant.silenceTurns || 0), desc: '스킬 사용 불가' });
@@ -5029,6 +5193,18 @@ app.post('/api/set-nickname', async (req, res) => {
   }
 });
 
+app.get('/api/news-typing/prompt', async (req, res) => {
+  try {
+    const prompt = await getNewsTypingPrompt(req.query.afterId || null);
+    if (!prompt) return res.status(503).json({ msg: '뉴스 문장을 불러오지 못했습니다.' });
+    res.json({ prompt });
+  } catch (err) {
+    console.error('News typing prompt error:', err);
+    const fallbackPrompt = NEWS_TYPING_FALLBACK_SENTENCES.map(buildNewsTypingPrompt)[0];
+    res.json({ prompt: fallbackPrompt });
+  }
+});
+
 app.post('/api/action/work', async (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
@@ -5073,6 +5249,67 @@ app.post('/api/action/work', async (req, res) => {
     res.json(response);
   } catch (err) {
     console.error('Work action error:', err);
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/action/news-typing', async (req, res) => {
+  const { userId, promptId, answer } = req.body;
+  if (!userId || !promptId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+
+  try {
+    const prompt = await findNewsTypingPrompt(promptId);
+    if (!prompt) {
+      return res.status(400).json({ msg: '뉴스 문장이 만료되었습니다. 새 문장을 불러와주세요.' });
+    }
+
+    const normalizedAnswer = String(answer || '').trim();
+    if (normalizedAnswer !== prompt.text) {
+      return res.status(400).json({ msg: '문장이 정확히 일치하지 않습니다.' });
+    }
+
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      cleanupExpiredBuffs(user, now);
+
+      const derivedStats = calculateDerivedStats(user, now);
+      const hadTooMuchStress = user.gameState.stress >= 100;
+      const wordCount = Math.max(1, Number(prompt.wordCount || getNewsTypingWordCount(prompt.text)));
+      const clickStressGain = CLICK_STRESS_GAIN * wordCount * derivedStats.stressMultiplier;
+
+      if (!derivedStats.noStress) {
+        user.gameState.stress = Number(Math.min(100, user.gameState.stress + clickStressGain).toFixed(2));
+      }
+
+      if (derivedStats.clickStressRelief > 0) {
+        user.gameState.stress = Number(Math.max(0, user.gameState.stress - derivedStats.clickStressRelief * wordCount).toFixed(2));
+      }
+
+      let gainedExp = 0;
+      if (!hadTooMuchStress) {
+        const expMultiplier = (1 + derivedStats.expBonusPercent / 100);
+        gainedExp = Math.floor(getClickExp(user.gameState.level) * wordCount * expMultiplier * derivedStats.clickExpMultiplier);
+        user.gameState.exp += gainedExp;
+      }
+
+      checkLevelUp(user);
+      reconcileTitles(user, now);
+      user.gameState.lastActionTime = now;
+
+      const nextPrompt = await getNewsTypingPrompt(prompt.id);
+      const mutationResponse = await buildUserResponseWithGlobals(user, now);
+      mutationResponse.newsTypingResult = {
+        gainedExp,
+        wordCount,
+        nextPrompt
+      };
+      return mutationResponse;
+    }, { conflictLabel: 'News typing action conflict' });
+
+    res.json(response);
+  } catch (err) {
+    console.error('News typing action error:', err);
     res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
   }
 });

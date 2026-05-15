@@ -203,6 +203,8 @@ let equipmentDismantleSortMode = 'acquired';
 let raidBattleLogPinnedToBottom = true;
 let userMutationInFlightCount = 0;
 let loginRequestSerial = 0;
+let currentNewsTypingPrompt = null;
+let newsTypingLoading = false;
 let raidBarAnimationState = {
   bossHpRatio: null,
   participantHpRatios: {}
@@ -217,6 +219,16 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-05-15-1145-news-typing-work',
+    time: '2026-05-15 11:45',
+    title: '뉴스 타자 열일하기 추가',
+    items: [
+      '열일하기 탭을 좌우로 나누고 오른쪽에 RSS 기반 뉴스 문장 타자 입력 기능을 추가했습니다.',
+      '문장을 정확히 입력하고 Enter를 누르면 단어 수만큼 서류 작업 클릭 경험치를 획득합니다.',
+      '뉴스 문장은 드래그 복사와 붙여넣기를 막고, 제출 후에도 입력창 포커스가 유지되도록 했습니다.'
+    ]
+  },
   {
     id: '2026-05-15-1131-account-switch-fix',
     time: '2026-05-15 11:31',
@@ -300,6 +312,7 @@ function setupEventListeners() {
   bindClick('supportModalCloseBtn', closeSupportModal);
   bindClick('setNicknameBtn', handleSetNicknameClick);
   bindClick('clickWorkBtn', handleClickWork);
+  setupNewsTypingInput();
   bindClick('adventureBtn', handleAdventureClick);
   bindClick('shoutBtn', handleShoutClick);
   bindClick('lupinBtn', handleLupinClick);
@@ -1001,6 +1014,111 @@ async function handleClickWork() {
   } finally {
     btn.disabled = false;
     btn.textContent = '서류 작업하기 (클릭 경험치 획득)';
+  }
+}
+
+function setupNewsTypingInput() {
+  const input = document.getElementById('newsTypingInput');
+  const prompt = document.getElementById('newsTypingPrompt');
+  if (input) {
+    input.addEventListener('keydown', handleNewsTypingKeydown);
+    input.addEventListener('paste', blockNewsTypingPaste);
+    input.addEventListener('drop', blockNewsTypingPaste);
+  }
+  if (prompt) {
+    prompt.addEventListener('copy', (event) => event.preventDefault());
+    prompt.addEventListener('cut', (event) => event.preventDefault());
+    prompt.addEventListener('contextmenu', (event) => event.preventDefault());
+  }
+}
+
+function renderNewsTypingPrompt(prompt) {
+  currentNewsTypingPrompt = prompt || null;
+  const promptEl = document.getElementById('newsTypingPrompt');
+  const statusEl = document.getElementById('newsTypingStatus');
+  if (!promptEl) return;
+
+  if (!currentNewsTypingPrompt?.text) {
+    promptEl.textContent = '뉴스 문장을 불러오지 못했습니다.';
+    if (statusEl) statusEl.textContent = '잠시 후 다시 시도해주세요.';
+    return;
+  }
+
+  promptEl.textContent = currentNewsTypingPrompt.text;
+  promptEl.dataset.promptId = currentNewsTypingPrompt.id || '';
+  if (statusEl && !statusEl.dataset.locked) {
+    statusEl.textContent = `현재 문장 ${formatNumber(currentNewsTypingPrompt.wordCount || 0)}단어 · Enter로 제출`;
+  }
+}
+
+async function loadNewsTypingPrompt(afterId = '') {
+  if (newsTypingLoading) return;
+  newsTypingLoading = true;
+  const statusEl = document.getElementById('newsTypingStatus');
+  try {
+    const query = afterId ? `?afterId=${encodeURIComponent(afterId)}` : '';
+    const data = await getJson(`${API_URL}/api/news-typing/prompt${query}`);
+    renderNewsTypingPrompt(data.prompt);
+  } catch (err) {
+    if (statusEl) statusEl.textContent = err.message || '뉴스 문장을 불러오지 못했습니다.';
+  } finally {
+    newsTypingLoading = false;
+  }
+}
+
+function blockNewsTypingPaste(event) {
+  event.preventDefault();
+  const statusEl = document.getElementById('newsTypingStatus');
+  if (statusEl) statusEl.textContent = '붙여넣기는 사용할 수 없습니다. 직접 입력해주세요.';
+  const input = document.getElementById('newsTypingInput');
+  if (input) input.focus();
+}
+
+async function handleNewsTypingKeydown(event) {
+  if (event.key !== 'Enter') return;
+  event.preventDefault();
+  await handleNewsTypingSubmit();
+}
+
+async function handleNewsTypingSubmit() {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+
+  const input = document.getElementById('newsTypingInput');
+  const statusEl = document.getElementById('newsTypingStatus');
+  const answer = input?.value || '';
+  if (!currentNewsTypingPrompt?.id) {
+    if (statusEl) statusEl.textContent = '뉴스 문장을 먼저 불러오는 중입니다.';
+    await loadNewsTypingPrompt();
+    input?.focus();
+    return;
+  }
+  if (!answer.trim()) {
+    if (statusEl) statusEl.textContent = '문장을 입력한 뒤 Enter를 눌러주세요.';
+    input?.focus();
+    return;
+  }
+
+  try {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/action/news-typing`, {
+      userId: user._id,
+      promptId: currentNewsTypingPrompt.id,
+      answer
+    }));
+    updateLocalUserState(data);
+    const result = data.newsTypingResult || {};
+    if (statusEl) {
+      statusEl.textContent = `${formatNumber(result.wordCount || 0)}단어 정산 완료: +${formatNumber(result.gainedExp || 0)} EXP`;
+    }
+    if (input) input.value = '';
+    renderNewsTypingPrompt(result.nextPrompt);
+  } catch (err) {
+    if (statusEl) statusEl.textContent = err.message || '문장이 정확히 일치하지 않습니다.';
+  } finally {
+    window.setTimeout(() => {
+      const latestInput = document.getElementById('newsTypingInput');
+      if (latestInput) latestInput.focus();
+    }, 0);
   }
 }
 
@@ -1889,6 +2007,7 @@ function showGameScreen(user) {
   document.getElementById('raid-screen').classList.add('hidden');
   updateShoutBanner(latestGlobalState);
   updateGameUI(user);
+  loadNewsTypingPrompt();
   startAnimation();
   startPeriodicUpdates();
   startBgm('normal');
@@ -3207,6 +3326,12 @@ window.showTab = function showTab(tabName) {
 
   const activeButton = document.querySelector(`.menu-tabs button[data-tab="${tabName}"]`);
   if (activeButton) activeButton.classList.add('active');
+
+  if (tabName === 'work') {
+    if (!currentNewsTypingPrompt) loadNewsTypingPrompt();
+    const input = document.getElementById('newsTypingInput');
+    if (input) window.setTimeout(() => input.focus(), 0);
+  }
 };
 
 window.handleBuyClick = handleBuyClick;
