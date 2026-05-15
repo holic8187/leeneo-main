@@ -202,6 +202,7 @@ let equipmentDismantleSelection = new Set();
 let equipmentDismantleSortMode = 'acquired';
 let raidBattleLogPinnedToBottom = true;
 let userMutationInFlightCount = 0;
+let loginRequestSerial = 0;
 let raidBarAnimationState = {
   bossHpRatio: null,
   participantHpRatios: {}
@@ -216,6 +217,23 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-05-15-1131-account-switch-fix',
+    time: '2026-05-15 11:31',
+    title: '계정 전환 안정화',
+    items: [
+      '로그아웃 후 다른 계정으로 로그인할 때 이전 계정의 늦게 도착한 응답이 새 로그인 상태를 덮어쓰지 않도록 수정했습니다.',
+      '로그아웃 시 남아있는 갱신 타이머와 레이드 상태를 더 확실하게 정리하도록 보강했습니다.'
+    ]
+  },
+  {
+    id: '2026-05-15-1115-equipment-dismantle-scroll',
+    time: '2026-05-15 11:15',
+    title: '장비 분해창 스크롤 개선',
+    items: [
+      '장비 분해 팝업에서 목록을 끝까지 내려도 마지막 장비가 하단에 가려지지 않도록 스크롤 영역을 조정했습니다.'
+    ]
+  },
   {
     id: '2026-05-15-1104-raid-shield-exp-fix',
     time: '2026-05-15 11:04',
@@ -346,6 +364,10 @@ function saveStoredUser(user) {
   localStorage.setItem('user', JSON.stringify(user));
 }
 
+function getUserIdentity(user) {
+  return user?._id ? String(user._id) : '';
+}
+
 function beginUserMutation() {
   userMutationInFlightCount += 1;
 }
@@ -372,10 +394,12 @@ function getUserStateActionTimeMs(user) {
 
 function shouldApplyIncomingUserState(incomingUser, options = {}) {
   if (!incomingUser) return false;
-  if (options.force) return true;
-
   const currentUser = getStoredUser();
-  if (!currentUser?._id) return true;
+  const incomingUserId = getUserIdentity(incomingUser);
+  const currentUserId = getUserIdentity(currentUser);
+  if (!incomingUserId || !currentUserId) return false;
+  if (incomingUserId !== currentUserId) return false;
+  if (options.force) return true;
 
   const incomingActionMs = getUserStateActionTimeMs(incomingUser);
   const currentActionMs = getUserStateActionTimeMs(currentUser);
@@ -461,6 +485,11 @@ function clearIntervals() {
   if (syncInterval) clearInterval(syncInterval);
   if (raidPollInterval) clearInterval(raidPollInterval);
   if (raidCountdownTicker) clearInterval(raidCountdownTicker);
+  animationInterval = null;
+  updateInterval = null;
+  rankingInterval = null;
+  syncInterval = null;
+  raidPollInterval = null;
   raidCountdownTicker = null;
   raidCountdownEndsAtMs = 0;
   raidCountdownDisplayStartMs = 0;
@@ -826,6 +855,7 @@ function hideAllScreens() {
 async function handleLoginClick(event) {
   event?.preventDefault();
 
+  const requestSerial = ++loginRequestSerial;
   const username = document.getElementById('username').value.trim();
   const password = document.getElementById('password').value;
 
@@ -836,13 +866,16 @@ async function handleLoginClick(event) {
 
   try {
     const data = await postJson(`${API_URL}/api/login`, { username, password });
+    if (requestSerial !== loginRequestSerial) return;
     processLoginSuccess(data);
   } catch (err) {
+    if (requestSerial !== loginRequestSerial) return;
     alert(`로그인 실패: ${err.message}`);
   }
 }
 
 function processLoginSuccess(data) {
+  clearIntervals();
   clearSessions();
   localStorage.setItem('token', data.token);
 
@@ -920,6 +953,13 @@ function tryAutoLogin() {
 }
 
 function handleLogoutClick() {
+  loginRequestSerial += 1;
+  userMutationInFlightCount = 0;
+  latestRaidState = null;
+  raidBarAnimationState = {
+    bossHpRatio: null,
+    participantHpRatios: {}
+  };
   clearIntervals();
   closeDecisionModal();
   hideModal('patchNotesModal');
