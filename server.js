@@ -41,6 +41,7 @@ const RAID_ACTION_DELAY_MS = 2000;
 const RAID_COUNTDOWN_SECONDS = 3;
 const RAID_COUNTDOWN_BUFFER_MS = 2000;
 const RAID_DAILY_LIMIT = 1;
+const RAID_MULTI_HIT_DAMAGE_MULTIPLIER = 0.9;
 const RAID_BOSS_ID = 'burp_queen';
 const RAID_BOSS_ID_BALD_MANAGER = 'bald_manager';
 const RAID_BOSS_ID_HOI = 'hoi_msj_50';
@@ -322,7 +323,7 @@ const CARD_DATA = {
     grade: 'S',
     rate: 0.00025,
     skillName: '다이어트 선언',
-    skillDesc: '돌아오는 턴에 기본 공격을 총 10회 합니다. 각 공격마다 크리티컬이 적용될 수 있습니다.',
+    skillDesc: '돌아오는 턴에 기본 공격을 총 10회 합니다. 각 공격은 기본 공격 피해의 90%로 적용되며 크리티컬이 적용될 수 있습니다.',
     cooldown: 3,
     effectType: 'self_multi_hit',
     hits: 10
@@ -393,7 +394,7 @@ const CARD_DATA = {
     grade: 'A',
     rate: 0.0041428571,
     skillName: '멍프의 주차',
-    skillDesc: '돌아오는 턴에 기본 공격을 총 4회 합니다. 각 공격마다 크리티컬이 적용될 수 있습니다.',
+    skillDesc: '돌아오는 턴에 기본 공격을 총 4회 합니다. 각 공격은 기본 공격 피해의 90%로 적용되며 크리티컬이 적용될 수 있습니다.',
     cooldown: 2,
     effectType: 'self_multi_hit',
     hits: 4
@@ -548,7 +549,7 @@ const CARD_DATA = {
     grade: 'C',
     rate: 0.1116666667,
     skillName: '김부장의 가발',
-    skillDesc: '돌아오는 턴에 자신의 기본 공격을 총 3회 합니다.',
+    skillDesc: '돌아오는 턴에 자신의 기본 공격을 총 3회 합니다. 각 공격은 기본 공격 피해의 90%로 적용됩니다.',
     cooldown: 3,
     effectType: 'self_multi_hit',
     hits: 3
@@ -607,7 +608,7 @@ const CARD_DATA = {
     grade: 'C',
     rate: 0.1116666667,
     skillName: '비둘기떼',
-    skillDesc: '자신의 레벨 x 8의 데미지로 5회 공격합니다.',
+    skillDesc: '자신의 레벨 x 8의 데미지로 5회 공격합니다. 각 공격은 90% 위력으로 적용됩니다.',
     cooldown: 3,
     effectType: 'self_fixed_multi_hit',
     hits: 5,
@@ -631,11 +632,11 @@ const CARD_DATA = {
     grade: 'S',
     rate: 0.00025,
     skillName: '시련은 성장의 밑거름',
-    skillDesc: '현재 자신이 가진 버프/디버프 총 갯수 x 레벨 x 4의 피해를 3회 주고, 모든 디버프를 제거합니다.',
+    skillDesc: '현재 자신이 가진 버프/디버프 총 갯수 x 레벨 x 5의 피해를 3회 주고, 모든 디버프를 제거합니다.',
     cooldown: 5,
     effectType: 'self_status_blast',
     hits: 3,
-    multiplierPerStatus: 4
+    multiplierPerStatus: 5
   },
   precise_strike: {
     id: 'precise_strike',
@@ -711,7 +712,7 @@ const CARD_ENHANCE_RULES = {
   cider_comment: { debuffImmuneCount: { 0: 1, 5: 2 }, cooldown: { 0: 6, 1: 5, 2: 4, 3: 3, 4: 2 } },
   rooftop_pigeons: { damagePerLevel: { 0: 5, 1: 6, 2: 7, 3: 8, 4: 9, 5: 10 } },
   sunscreen: { targets: { 0: 3, 2: 4, 3: 99 }, negateHitCount: { 0: 1, 4: 2 }, includeSelf: { 0: 0, 3: 1 }, cooldown: { 0: 6, 1: 5, 5: 4 } },
-  trial_and_growth: { multiplierPerStatus: { 0: 4, 1: 5, 2: 6, 5: 7 }, cooldown: { 0: 5, 3: 4, 4: 3 } },
+  trial_and_growth: { multiplierPerStatus: { 0: 5, 1: 5, 2: 6, 3: 7, 4: 7, 5: 8 }, cooldown: { 0: 5, 1: 4, 4: 3 } },
   precise_strike: { multiplierPerLevel: { 0: 40, 2: 45, 3: 50, 4: 55 }, cooldown: { 0: 5, 1: 4, 5: 3 } },
   umbrella_copy: { copyEffectMultiplier: { 0: 0.5, 2: 0.6, 3: 0.7 }, canSelectCopyTarget: { 4: 1 }, cooldown: { 0: 6, 1: 5, 5: 4 } }
 };
@@ -2101,9 +2102,9 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
 
   switch (cardId) {
     case 'ineo_diet':
-      return `다음 자신의 턴에 기본 공격을 총 ${card.hits}회 합니다.`;
+      return `다음 자신의 턴에 기본 공격을 총 ${card.hits}회 합니다. 각 공격은 기본 공격 피해의 90%로 적용됩니다.`;
     case 'gangnam_style':
-      return `파티 전원에게 크리티컬률 ${formatCardPercentText(card.critBonus)}와 흥겨움을 부여하고, 보호막 ${card.shield}을 제공합니다.`;
+      return `파티 전원에게 크리티컬률 ${formatCardPercentText(card.critBonus)}와 흥겨움을 부여하고, 보호막 ${card.shield}을 제공합니다. 흥겨움 중 기본 공격은 2배 타격으로 적용됩니다.`;
     case 'delegate_lee':
       return `현재 입장한 파티원의 전체 레벨 합 x ${card.multiplierPerLevel}의 데미지를 1회 가합니다.`;
     case 'celine_tears':
@@ -2113,7 +2114,7 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
     case 'rebuttal':
       return `파티원 전체의 HP를 ${card.heal} 회복합니다.${card.includeSelf ? ' 자신도 포함됩니다.' : ' 자신은 제외됩니다.'}`;
     case 'parking_master':
-      return `다음 자신의 턴에 기본 공격을 총 ${card.hits}회 합니다.`;
+      return `다음 자신의 턴에 기본 공격을 총 ${card.hits}회 합니다. 각 공격은 기본 공격 피해의 90%로 적용됩니다.`;
     case 'tissue_box':
       return `${card.turns}턴 동안 반격합니다. 피격당하면 기본 공격 ${Math.round(Number(card.counterDamageMultiplier || 1) * 100)}% 위력으로 반격합니다.`;
     case 'drinking_angle':
@@ -2139,7 +2140,7 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
     case 'ride_line':
       return `랜덤 파티원 ${card.targets}인의 공격력을 ${formatCardPercentText(card.attackBonusPercent)} 증가시킵니다.`;
     case 'wig':
-      return `다음 자신의 턴에 기본 공격을 총 ${card.hits}회 합니다.`;
+      return `다음 자신의 턴에 기본 공격을 총 ${card.hits}회 합니다. 각 공격은 기본 공격 피해의 90%로 적용됩니다.`;
     case 'chatgpt':
       return `다음 자신의 턴 기본 공격에 더해 자신의 레벨 x ${card.bonusPerLevel} 추가 피해를 입힙니다.`;
     case 'pho':
@@ -2149,7 +2150,7 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
     case 'cider_comment':
       return `선택한 파티원 1인에게 디버프 무효 ${card.debuffImmuneCount}회를 제공합니다.`;
     case 'rooftop_pigeons':
-      return `자신의 레벨 x ${card.damagePerLevel}의 데미지로 ${card.hits}회 공격합니다.`;
+      return `자신의 레벨 x ${card.damagePerLevel}의 데미지로 ${card.hits}회 공격합니다. 각 공격은 90% 위력으로 적용됩니다.`;
     case 'sunscreen':
       return `${card.includeSelf ? '자신 포함 ' : ''}${card.targets >= 99 ? '파티 전원' : `랜덤 팀원 ${card.targets}인`}에게 피격 무효 ${card.negateHitCount}회를 부여합니다.`;
     case 'trial_and_growth':
@@ -2657,6 +2658,7 @@ function createRaidParticipantFromUser(user) {
     equippedCardId: user.equippedCardId || null,
     equippedCardLevel: normalizeCardEnhancementLevel(user.equippedCardLevel || 0),
     extraHits: 0,
+    multiHitDamageMultiplier: 1,
     extraDamage: 0,
     damageMultiplierTurns: 0,
     damageMultiplierValue: 1,
@@ -3025,6 +3027,7 @@ function useRaidCardSkill(participant, battle) {
   const equipmentMultiplier = 1 + Number(participant.cardEffectEquipmentBonusPercent || 0);
   const totalValueMultiplier = ampMultiplier * equipmentMultiplier;
   const scaleFlat = (value) => Math.max(0, Math.floor(Number(value || 0) * totalValueMultiplier));
+  const scaleMultiHitFlat = (value) => Math.max(1, Math.floor(Number(value || 0) * totalValueMultiplier * RAID_MULTI_HIT_DAMAGE_MULTIPLIER));
   const scalePercent = (value) => Number((Number(value || 0) * totalValueMultiplier).toFixed(4));
   const scaleCount = (value) => Math.max(1, Math.ceil(Number(value || 0) * ampMultiplier));
   const scaleBonusMultiplier = (value) => Number((1 + ((Number(value || 1) - 1) * totalValueMultiplier)).toFixed(4));
@@ -3035,9 +3038,10 @@ function useRaidCardSkill(participant, battle) {
 
   if (card.effectType === 'self_multi_hit') {
     participant.extraHits = Math.max(participant.extraHits, scaleCount(card.hits) - 1);
+    participant.multiHitDamageMultiplier = Math.min(Number(participant.multiHitDamageMultiplier || 1), RAID_MULTI_HIT_DAMAGE_MULTIPLIER);
   } else if (card.effectType === 'self_fixed_multi_hit') {
     const hits = Math.max(1, Number(card.hits || 1));
-    const perHitDamage = scaleFlat(participant.level * Number(card.damagePerLevel || 0));
+    const perHitDamage = scaleMultiHitFlat(participant.level * Number(card.damagePerLevel || 0));
     const steps = [];
     for (let hit = 0; hit < hits; hit += 1) {
       steps.push({
@@ -3256,9 +3260,14 @@ function useRaidCardSkill(participant, battle) {
         const damage = Math.max(1, Math.floor(totalLevels * Number(copiedCard.multiplierPerLevel || 0) * copyScale));
         applyRaidDamageToBoss(battle, damage);
         logText = `${participant.displayName}(이)가 ${sourceParticipant.displayName}의 ${copiedCard.name}를 흉내 내 ${damage.toLocaleString()} 피해를 입혔습니다.`;
+      } else if (copiedCard.effectType === 'self_multi_hit') {
+        const hits = Math.max(1, Math.ceil(Number(copiedCard.hits || 1) * copyScale));
+        participant.extraHits = Math.max(participant.extraHits, hits - 1);
+        participant.multiHitDamageMultiplier = Math.min(Number(participant.multiHitDamageMultiplier || 1), RAID_MULTI_HIT_DAMAGE_MULTIPLIER);
+        logText = `${participant.displayName}(이)가 ${sourceParticipant.displayName}의 ${copiedCard.name}를 흉내 내 다음 기본 공격을 ${hits}회로 준비했습니다.`;
       } else if (copiedCard.effectType === 'self_fixed_multi_hit') {
         const hits = Math.max(1, Math.ceil(Number(copiedCard.hits || 1) * copyScale));
-        const perHitDamage = Math.max(1, Math.floor(participant.level * Number(copiedCard.damagePerLevel || 0) * copyScale));
+        const perHitDamage = Math.max(1, Math.floor(participant.level * Number(copiedCard.damagePerLevel || 0) * copyScale * RAID_MULTI_HIT_DAMAGE_MULTIPLIER));
         const steps = [];
         for (let hit = 0; hit < hits; hit += 1) {
           steps.push({
@@ -3276,6 +3285,19 @@ function useRaidCardSkill(participant, battle) {
           steps,
           delayUnits: Math.max(1, steps.length)
         };
+      } else if (copiedCard.effectType === 'party_hype_crit') {
+        const critBonus = Math.max(0, Number(copiedCard.critBonus || 0) * copyScale);
+        const shieldAmount = Math.max(0, Math.floor(Number(copiedCard.shield || 0) * copyScale));
+        let totalAppliedShield = 0;
+        battle.participants.forEach((ally) => {
+          if (ally.hp > 0) {
+            ally.critBonusTurns = Math.max(ally.critBonusTurns, Number(copiedCard.turns || 1));
+            ally.critBonusValue = Math.max(Number(ally.critBonusValue || 0), critBonus);
+            ally.hypeTurns = Math.max(ally.hypeTurns, Number(copiedCard.hypeTurns || 1));
+            totalAppliedShield += grantRaidShield(ally, shieldAmount);
+          }
+        });
+        logText = `${participant.displayName}(이)가 ${sourceParticipant.displayName}의 ${copiedCard.name}를 흉내 내 흥겨움과 보호막 ${totalAppliedShield.toLocaleString()}을 부여했습니다.`;
       } else if (copiedCard.effectType === 'random_party_negate_hit' || copiedCard.effectType === 'party_negate_hit_by_level') {
         const targets = getAliveRaidParticipants(battle).sort(() => Math.random() - 0.5).slice(0, Math.max(1, Math.floor((Number(copiedCard.targets || 1) || 1) * copyScale)));
         targets.forEach((target) => {
@@ -3338,7 +3360,9 @@ function tickRaidParticipantEndOfTurn(participant, battle) {
       participant.damageMultiplierValue = 1;
     }
   }
-  if (participant.hypeTurns > 0) participant.hypeTurns -= 1;
+  if (participant.hypeTurns > 0) {
+    participant.hypeTurns -= 1;
+  }
   if (participant.tempShieldTurns > 0) {
     participant.tempShieldTurns -= 1;
     if (participant.tempShieldTurns <= 0) {
@@ -3398,6 +3422,7 @@ function tickRaidParticipantEndOfTurn(participant, battle) {
     }
   }
   participant.extraHits = 0;
+  participant.multiHitDamageMultiplier = 1;
   participant.extraDamage = 0;
 }
 
@@ -3517,7 +3542,8 @@ function executeNextRaidSequenceStep(battle) {
     if (participant && participant.hp > 0 && battle.bossHp > 0) {
       const baseDamage = Math.floor((participant.level / 2) * 20 * (1 + getRaidAttackBonusPercent(participant)) * (1 + Number(participant.basicAttackEquipmentBonusPercent || 0)) * Number(participant.specialDamageMultiplier || 1));
       const isCritical = Math.random() < getRaidCriticalChance(participant);
-      let hitDamage = Math.floor(baseDamage * (isCritical ? 1.5 : 1));
+      const hitDamageMultiplier = Number.isFinite(Number(step.damageMultiplier)) ? Number(step.damageMultiplier) : 1;
+      let hitDamage = Math.floor(baseDamage * hitDamageMultiplier * (isCritical ? 1.5 : 1));
       if (participant.perHitBonusTurns > 0) {
         hitDamage += participant.perHitBonusDamage || 0;
       }
@@ -3618,13 +3644,16 @@ function performRaidBasicAttack(participant, battle) {
     };
   }
   let hitCount = Math.max(1, 1 + participant.extraHits);
+  const multiHitDamageMultiplier = Number(participant.multiHitDamageMultiplier || 1);
+  const damageMultiplier = Math.min(1, multiHitDamageMultiplier);
   if (participant.hypeTurns > 0) hitCount *= 2;
   const steps = [];
   for (let hit = 0; hit < hitCount; hit += 1) {
     steps.push({
       type: 'player_basic_hit',
       userId: participant.userId,
-      hitIndex: hit
+      hitIndex: hit,
+      damageMultiplier
     });
   }
 
