@@ -2896,6 +2896,7 @@ function decodeXmlEntities(value = '') {
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
+    .replace(/&nbsp;/gi, ' ')
     .replace(/&#39;/g, "'")
     .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
     .replace(/&#x([0-9a-fA-F]+);/g, (_, code) => String.fromCharCode(parseInt(code, 16)));
@@ -2915,17 +2916,18 @@ function sanitizeNewsTypingSentence(value = '') {
     .replace(/[‘’‚‛]/g, "'")
     .replace(/[‐‑‒–—―]/g, '-')
     .replace(/\u00a0/g, ' ')
+    .replace(/&(?:nbsp|amp|lt|gt|quot|#39);/gi, ' ')
     .replace(/\[[^\]]{1,20}\]/g, '')
+    .replace(/\([^)]{1,20}(?:신문|일보|뉴스|경제|방송|TV|데일리|타임즈|헤럴드|연합|통신)[^)]{0,10}\)/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 
-  const sourceSeparatorIndex = text.lastIndexOf(' - ');
-  if (sourceSeparatorIndex > 10) {
-    const sourceText = text.slice(sourceSeparatorIndex + 3).trim();
-    if (sourceText.length <= 30) {
-      text = text.slice(0, sourceSeparatorIndex).trim();
-    }
-  }
+  text = text
+    .replace(/\s*[-|]\s*[^-|]{1,25}(?:신문|일보|뉴스|경제|방송|TV|데일리|타임즈|헤럴드|연합|통신)\s*$/i, '')
+    .replace(/\s+[가-힣A-Za-z0-9]{1,20}(?:신문|일보|뉴스|경제|방송|TV|데일리|타임즈|헤럴드|연합|통신)\s*$/i, '')
+    .replace(/[^\uAC00-\uD7A3A-Za-z0-9\s.,!?'"():;%+\-/]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 
   return text.replace(/\s+/g, ' ').trim();
 }
@@ -2955,13 +2957,10 @@ function parseRssTypingCandidates(xml = '') {
   const itemMatches = String(xml).match(/<item\b[\s\S]*?<\/item>/gi) || [];
   itemMatches.forEach((itemXml) => {
     const titleMatch = itemXml.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i);
-    const descriptionMatch = itemXml.match(/<description\b[^>]*>([\s\S]*?)<\/description>/i);
-    [titleMatch?.[1], descriptionMatch?.[1]].forEach((entry) => {
-      const sentence = sanitizeNewsTypingSentence(entry || '');
-      if (sentence.length >= 12 && sentence.length <= 120 && getNewsTypingUnitCount(sentence) >= 8) {
-        candidates.push(sentence);
-      }
-    });
+    const sentence = sanitizeNewsTypingSentence(titleMatch?.[1] || '');
+    if (sentence.length >= 12 && sentence.length <= 100 && getNewsTypingUnitCount(sentence) >= 8) {
+      candidates.push(sentence);
+    }
   });
   return candidates;
 }
@@ -2997,8 +2996,11 @@ async function fetchNewsTypingPrompts(force = false) {
     candidates.push(...parseRssTypingCandidates(xml));
   }));
 
-  const uniqueSentences = [...new Set(candidates)]
+  const uniqueSentences = [...new Map(candidates
     .filter((sentence) => !/Google\s*뉴스/i.test(sentence))
+    .filter((sentence) => !/&[a-z0-9#]+;/i.test(sentence))
+    .filter((sentence) => /[\uAC00-\uD7A3A-Za-z0-9]/.test(sentence))
+    .map((sentence) => [normalizeNewsTypingAnswer(sentence), sentence])).values()]
     .slice(0, 120);
 
   const prompts = (uniqueSentences.length ? uniqueSentences : NEWS_TYPING_FALLBACK_SENTENCES)

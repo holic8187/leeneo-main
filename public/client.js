@@ -220,6 +220,15 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-15-1229-news-typing-cleanup',
+    time: '2026-05-15 12:29',
+    title: '뉴스 타자 문장 정리 강화',
+    items: [
+      '뉴스 타자 문장에서 출처, HTML 엔티티, 입력하기 어려운 특수문자를 제거하도록 필터를 강화했습니다.',
+      '같은 기사 제목이 출처만 붙어 반복되는 경우 중복으로 나오지 않도록 정리했습니다.'
+    ]
+  },
+  {
     id: '2026-05-15-1153-news-typing-normalize',
     time: '2026-05-15 11:53',
     title: '뉴스 타자 판정 완화 및 보상 기준 변경',
