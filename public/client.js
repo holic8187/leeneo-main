@@ -232,6 +232,15 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-18-1449-raid-hp-smooth-animation',
+    time: '2026-05-18 14:49',
+    title: '레이드 HP바 애니메이션 개선',
+    items: [
+      '레이드 HP바를 매 렌더마다 새로 만들지 않고 유지하도록 변경해, 피해와 회복이 이전 수치에서 현재 수치까지 부드럽게 움직이도록 개선했습니다.',
+      '피해를 입을 때 초록색 HP가 먼저 줄고, 붉은 잔상이 뒤따라 줄어드는 연출이 더 안정적으로 보이도록 조정했습니다.'
+    ]
+  },
+  {
     id: '2026-05-18-1445-patch-note-per-user-equipment-scroll',
     time: '2026-05-18 14:45',
     title: '패치노트 표시와 장비 강화창 개선',
@@ -561,48 +570,149 @@ function shouldApplyIncomingUserState(incomingUser, options = {}) {
   return true;
 }
 
-function getRaidBarAnimation(previousRatio, currentRatio) {
-  const normalizedCurrent = Math.max(0, Math.min(100, Number(currentRatio || 0)));
-  const normalizedPrevious = Number.isFinite(previousRatio)
-    ? Math.max(0, Math.min(100, Number(previousRatio || 0)))
-    : normalizedCurrent;
-  const takingDamage = normalizedCurrent < normalizedPrevious;
-  const healing = normalizedCurrent > normalizedPrevious;
+function ensureRaidAnimatedBar(container, { fillClass, trailClass }) {
+  if (!container) return null;
+  let root = container.querySelector(':scope > .raid-bar-anim-root');
+  if (root) return root;
 
-  return {
-    startHpRatio: takingDamage || healing ? normalizedPrevious : normalizedCurrent,
-    endHpRatio: normalizedCurrent,
-    startTrailRatio: takingDamage ? normalizedPrevious : normalizedCurrent,
-    endTrailRatio: normalizedCurrent,
-    takingDamage,
-    healing
-  };
+  container.innerHTML = `
+    <div class="raid-bar-anim-root" data-current-hp-ratio="">
+      <div class="${trailClass}" data-raid-bar-trail style="width:0%"></div>
+      <div class="${fillClass}" data-raid-bar-current style="width:0%"></div>
+      <div class="raid-shield-fill hidden" data-raid-bar-shield style="left:0%; width:0%"></div>
+      <div class="raid-loss-indicator hidden" data-raid-bar-loss></div>
+    </div>
+  `;
+  return container.querySelector(':scope > .raid-bar-anim-root');
 }
 
-function animateRaidBarLayers(root) {
+function readRaidBarWidthRatio(element, root) {
+  const rootWidth = root?.getBoundingClientRect?.().width || 0;
+  const width = element?.getBoundingClientRect?.().width || 0;
+  if (rootWidth <= 0) return null;
+  return Math.max(0, Math.min(100, (width / rootWidth) * 100));
+}
+
+function setRaidBarTransitionEnabled(root, enabled) {
+  const elements = [
+    root.querySelector('[data-raid-bar-current]'),
+    root.querySelector('[data-raid-bar-trail]'),
+    root.querySelector('[data-raid-bar-shield]')
+  ].filter(Boolean);
+  elements.forEach((element) => {
+    element.style.transition = enabled ? '' : 'none';
+  });
+}
+
+function updateRaidAnimatedBar(container, options = {}) {
+  const {
+    hpRatio = 0,
+    shieldRatio = 0,
+    lossText = '',
+    fillClass = 'raid-hp-fill',
+    trailClass = 'raid-hp-trail-fill',
+    trailDelayMs = 950
+  } = options;
+  const root = ensureRaidAnimatedBar(container, { fillClass, trailClass });
   if (!root) return;
+
   const hpFill = root.querySelector('[data-raid-bar-current]');
   const hpTrail = root.querySelector('[data-raid-bar-trail]');
   const shieldFill = root.querySelector('[data-raid-bar-shield]');
+  const lossEl = root.querySelector('[data-raid-bar-loss]');
   if (!hpFill || !hpTrail) return;
 
-  const endHpRatio = Number(root.dataset.endHpRatio || 0);
-  const endTrailRatio = Number(root.dataset.endTrailRatio || endHpRatio);
-  const trailDelayMs = Number(root.dataset.trailDelayMs || 420);
-  const endShieldLeft = Number(root.dataset.endShieldLeft || endHpRatio);
+  const targetHpRatio = Math.max(0, Math.min(100, Number(hpRatio || 0)));
+  const targetShieldRatio = Math.max(0, Math.min(100, Number(shieldRatio || 0)));
+  const previousTargetRaw = root.dataset.currentHpRatio;
+  const previousTarget = previousTargetRaw === '' || previousTargetRaw == null
+    ? NaN
+    : Number(previousTargetRaw);
+  const isFirstRender = !Number.isFinite(previousTarget);
+  const visualHpRatio = readRaidBarWidthRatio(hpFill, root);
+  const visualTrailRatio = readRaidBarWidthRatio(hpTrail, root);
+  const startHpRatio = isFirstRender ? targetHpRatio : (visualHpRatio ?? previousTarget);
+  const startTrailRatio = isFirstRender ? targetHpRatio : Math.max(visualTrailRatio ?? startHpRatio, startHpRatio);
+  const changed = Math.abs(targetHpRatio - (Number.isFinite(previousTarget) ? previousTarget : targetHpRatio)) > 0.01
+    || Math.abs(targetHpRatio - startHpRatio) > 0.01;
+  const takingDamage = targetHpRatio < startHpRatio;
+  const endShieldWidth = Math.max(0, Math.min(100 - targetHpRatio, targetShieldRatio));
 
-  hpFill.getBoundingClientRect();
+  root.dataset.currentHpRatio = String(targetHpRatio);
+
+  if (lossEl) {
+    lossEl.textContent = lossText || '';
+    lossEl.classList.toggle('hidden', !lossText);
+  }
+
+  if (isFirstRender || !changed) {
+    setRaidBarTransitionEnabled(root, false);
+    hpFill.style.width = `${targetHpRatio}%`;
+    hpTrail.style.width = `${targetHpRatio}%`;
+    if (shieldFill) {
+      shieldFill.classList.toggle('hidden', targetShieldRatio <= 0);
+      shieldFill.style.left = `${targetHpRatio}%`;
+      shieldFill.style.width = `${endShieldWidth}%`;
+    }
+    root.getBoundingClientRect();
+    requestAnimationFrame(() => setRaidBarTransitionEnabled(root, true));
+    return;
+  }
+
+  setRaidBarTransitionEnabled(root, false);
+  hpFill.style.width = `${startHpRatio}%`;
+  hpTrail.style.width = `${takingDamage ? Math.max(startTrailRatio, startHpRatio) : startHpRatio}%`;
+  if (shieldFill) {
+    shieldFill.classList.toggle('hidden', targetShieldRatio <= 0);
+    shieldFill.style.left = `${startHpRatio}%`;
+    shieldFill.style.width = `${Math.max(0, Math.min(100 - startHpRatio, targetShieldRatio))}%`;
+  }
+
+  root.getBoundingClientRect();
+
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      hpFill.style.width = `${endHpRatio}%`;
-      if (shieldFill) {
-        shieldFill.style.left = `${endShieldLeft}%`;
+      setRaidBarTransitionEnabled(root, true);
+      hpFill.style.width = `${targetHpRatio}%`;
+      if (!takingDamage) {
+        hpTrail.style.width = `${targetHpRatio}%`;
       }
-      window.setTimeout(() => {
-        hpTrail.style.width = `${endTrailRatio}%`;
-      }, trailDelayMs);
+      if (shieldFill) {
+        shieldFill.style.left = `${targetHpRatio}%`;
+        shieldFill.style.width = `${endShieldWidth}%`;
+      }
+      if (takingDamage) {
+        window.setTimeout(() => {
+          hpTrail.style.width = `${targetHpRatio}%`;
+        }, trailDelayMs);
+      }
     });
   });
+}
+
+function createRaidParticipantCardElement(userId) {
+  const card = document.createElement('div');
+  card.className = 'raid-participant-card';
+  card.dataset.userId = String(userId || '');
+  card.innerHTML = `
+    <div class="raid-participant-header">
+      <div>
+        <strong data-raid-participant-name></strong>
+        <span class="menu-note" data-raid-participant-level></span>
+      </div>
+      <div data-raid-participant-card></div>
+    </div>
+    <div class="raid-bar-wrap">
+      <div class="raid-shield-indicator hidden" data-raid-participant-shield-indicator></div>
+      <div class="raid-loss-indicator hidden" data-raid-participant-loss></div>
+      <div class="raid-hp-bar" data-raid-participant-hp-bar></div>
+    </div>
+    <div class="raid-status-text" data-raid-participant-status></div>
+    <div class="raid-shield-text" data-raid-participant-shield-text></div>
+    <div class="raid-effect-list" data-raid-participant-effects></div>
+    <div data-raid-participant-controls></div>
+  `;
+  return card;
 }
 
 function getStoredAdmin() {
@@ -3021,23 +3131,15 @@ function renderRaidBattle(raidState, user) {
   if (bossBar) {
     const ratio = battle.bossMaxHp > 0 ? (battle.bossHp / battle.bossMaxHp) * 100 : 0;
     const shieldRatio = battle.bossMaxHp > 0 ? Math.min(100, (battle.bossShield / battle.bossMaxHp) * 100) : 0;
-    const bossAnimation = getRaidBarAnimation(raidBarAnimationState.bossHpRatio, ratio);
     const bossLossText = Number(battle.bossLastHpLoss || 0) > 0 ? `-${formatNumber(battle.bossLastHpLoss || 0)}` : '';
-    bossBar.innerHTML = `
-      <div
-        class="raid-bar-anim-root"
-        data-end-hp-ratio="${bossAnimation.endHpRatio}"
-        data-end-trail-ratio="${bossAnimation.endTrailRatio}"
-        data-end-shield-left="${bossAnimation.endHpRatio}"
-        data-trail-delay-ms="800"
-      >
-        <div class="raid-boss-bar-trail" data-raid-bar-trail style="width:${bossAnimation.startTrailRatio}%"></div>
-        <div id="raidBossHpFill" class="raid-boss-bar-fill" data-raid-bar-current style="width:${bossAnimation.startHpRatio}%"></div>
-        ${battle.bossShield > 0 ? `<div class="raid-shield-fill" data-raid-bar-shield style="left:${bossAnimation.startHpRatio}%; width:${Math.max(0, Math.min(100 - bossAnimation.endHpRatio, shieldRatio))}%"></div>` : ''}
-        ${bossLossText ? `<div class="raid-loss-indicator">${bossLossText}</div>` : ''}
-      </div>
-    `;
-    animateRaidBarLayers(bossBar.querySelector('.raid-bar-anim-root'));
+    updateRaidAnimatedBar(bossBar, {
+      hpRatio: ratio,
+      shieldRatio,
+      lossText: bossLossText,
+      fillClass: 'raid-boss-bar-fill',
+      trailClass: 'raid-boss-bar-trail',
+      trailDelayMs: 950
+    });
     raidBarAnimationState.bossHpRatio = ratio;
   }
 
@@ -3054,12 +3156,14 @@ function renderRaidBattle(raidState, user) {
 
   const participantList = document.getElementById('raidParticipantList');
   if (!participantList) return;
-  participantList.innerHTML = '';
+  const activeParticipantIds = new Set((battle.participants || []).map((participant) => String(participant.userId)));
+  Array.from(participantList.children).forEach((child) => {
+    if (!activeParticipantIds.has(String(child.dataset.userId || ''))) child.remove();
+  });
 
   (battle.participants || []).forEach((participant) => {
     const hpRatio = participant.maxHp > 0 ? (participant.hp / participant.maxHp) * 100 : 0;
     const shieldRatio = participant.maxHp > 0 ? Math.min(100, (participant.shield / participant.maxHp) * 100) : 0;
-    const hpAnimation = getRaidBarAnimation(raidBarAnimationState.participantHpRatios[participant.userId], hpRatio);
     const ownControls = participant.isSelf ? buildRaidSkillControls(participant, battle.participants) : '';
     const isActiveParticipant = !isBossTurn && Number(participant.turnOrder) === currentTurnIndex;
     const lossTextParts = [];
@@ -3075,41 +3179,49 @@ function renderRaidBattle(raidState, user) {
       `)
       .join('');
 
-    participantList.insertAdjacentHTML(
-      'beforeend',
-      `
-        <div class="raid-participant-card ${isActiveParticipant ? 'active-turn' : ''}">
-          <div class="raid-participant-header">
-            <div>
-              <strong>${escapeHtml(participant.displayName)}</strong>
-              <span class="menu-note">Lv.${formatNumber(participant.level)}</span>
-            </div>
-            <div>${escapeHtml(participant.equippedCardName || '장착 카드 없음')}</div>
-          </div>
-          <div class="raid-bar-wrap">
-            ${participant.shield > 0 ? `<div class="raid-shield-indicator">실드 ${formatNumber(participant.shield || 0)}</div>` : ''}
-            ${lossText ? `<div class="raid-loss-indicator">${escapeHtml(lossText)}</div>` : ''}
-            <div
-              class="raid-hp-bar raid-bar-anim-root"
-              data-end-hp-ratio="${hpAnimation.endHpRatio}"
-              data-end-trail-ratio="${hpAnimation.endTrailRatio}"
-              data-end-shield-left="${hpAnimation.endHpRatio}"
-              data-trail-delay-ms="800"
-            >
-              <div class="raid-hp-trail-fill" data-raid-bar-trail style="width:${hpAnimation.startTrailRatio}%"></div>
-              <div class="raid-hp-fill" data-raid-bar-current style="width:${hpAnimation.startHpRatio}%"></div>
-              ${participant.shield > 0 ? `<div class="raid-shield-fill" data-raid-bar-shield style="left:${hpAnimation.startHpRatio}%; width:${Math.max(0, Math.min(100 - hpAnimation.endHpRatio, shieldRatio))}%"></div>` : ''}
-            </div>
-          </div>
-          <div class="raid-status-text">HP ${formatNumber(participant.hp)} / ${formatNumber(participant.maxHp)}</div>
-          <div class="raid-shield-text">보호막 ${formatNumber(participant.shield || 0)}</div>
-          <div class="raid-effect-list">${effectBadges || '<span class="muted-text">버프 / 디버프 없음</span>'}</div>
-          ${ownControls}
-        </div>
-      `
-    );
+    let participantCard = Array.from(participantList.children)
+      .find((child) => String(child.dataset.userId || '') === String(participant.userId));
+    if (!participantCard) {
+      participantCard = createRaidParticipantCardElement(participant.userId);
+    }
+    participantList.appendChild(participantCard);
+    participantCard.classList.toggle('active-turn', isActiveParticipant);
+    participantCard.querySelector('[data-raid-participant-name]').textContent = participant.displayName || '';
+    participantCard.querySelector('[data-raid-participant-level]').textContent = `Lv.${formatNumber(participant.level)}`;
+    participantCard.querySelector('[data-raid-participant-card]').textContent = participant.equippedCardName || '장착 카드 없음';
+    participantCard.querySelector('[data-raid-participant-status]').textContent = `HP ${formatNumber(participant.hp)} / ${formatNumber(participant.maxHp)}`;
+    participantCard.querySelector('[data-raid-participant-shield-text]').textContent = `보호막 ${formatNumber(participant.shield || 0)}`;
+
+    const shieldIndicator = participantCard.querySelector('[data-raid-participant-shield-indicator]');
+    if (shieldIndicator) {
+      shieldIndicator.textContent = participant.shield > 0 ? `실드 ${formatNumber(participant.shield || 0)}` : '';
+      shieldIndicator.classList.toggle('hidden', !(participant.shield > 0));
+    }
+
+    const lossIndicator = participantCard.querySelector('[data-raid-participant-loss]');
+    if (lossIndicator) {
+      lossIndicator.textContent = lossText || '';
+      lossIndicator.classList.toggle('hidden', !lossText);
+    }
+
+    const effectsEl = participantCard.querySelector('[data-raid-participant-effects]');
+    if (effectsEl) {
+      effectsEl.innerHTML = effectBadges || '<span class="muted-text">버프 / 디버프 없음</span>';
+    }
+
+    const controlsEl = participantCard.querySelector('[data-raid-participant-controls]');
+    if (controlsEl) {
+      controlsEl.innerHTML = ownControls;
+    }
+
+    updateRaidAnimatedBar(participantCard.querySelector('[data-raid-participant-hp-bar]'), {
+      hpRatio,
+      shieldRatio,
+      fillClass: 'raid-hp-fill',
+      trailClass: 'raid-hp-trail-fill',
+      trailDelayMs: 950
+    });
     raidBarAnimationState.participantHpRatios[participant.userId] = hpRatio;
-    animateRaidBarLayers(participantList.lastElementChild?.querySelector('.raid-bar-anim-root'));
   });
 }
 

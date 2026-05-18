@@ -764,7 +764,9 @@ progress {
   left: 0;
   height: 100%;
   background: linear-gradient(90deg, #ff9b9b 0%, #d94b4b 100%);
-  transition: width 0.8s linear;
+  transition: width 1.05s cubic-bezier(0.22, 0.61, 0.36, 1);
+  will-change: width;
+  transform: translateZ(0);
   z-index: 1;
 }
 
@@ -774,7 +776,9 @@ progress {
   left: 0;
   height: 100%;
   background: linear-gradient(90deg, #ff6b6b 0%, #c62828 100%);
-  transition: width 0.8s linear;
+  transition: width 1.05s cubic-bezier(0.22, 0.61, 0.36, 1);
+  will-change: width;
+  transform: translateZ(0);
   z-index: 2;
 }
 
@@ -839,7 +843,9 @@ progress {
   left: 0;
   height: 100%;
   background: linear-gradient(90deg, #7cc56b 0%, #2e7d32 100%);
-  transition: width 0.8s linear;
+  transition: width 1.05s cubic-bezier(0.22, 0.61, 0.36, 1);
+  will-change: width;
+  transform: translateZ(0);
   z-index: 2;
 }
 
@@ -848,7 +854,11 @@ progress {
   top: 0;
   height: 100%;
   background: linear-gradient(90deg, #ffe680 0%, #f2c94c 100%);
-  transition: left 0.8s linear, width 0.8s linear;
+  transition:
+    left 1.05s cubic-bezier(0.22, 0.61, 0.36, 1),
+    width 1.05s cubic-bezier(0.22, 0.61, 0.36, 1);
+  will-change: left, width;
+  transform: translateZ(0);
   z-index: 3;
 }
 
