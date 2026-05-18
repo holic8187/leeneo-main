@@ -205,6 +205,8 @@ let equipmentListPage = 1;
 let equipmentSortMode = 'acquired';
 let equipmentDismantleSelection = new Set();
 let equipmentDismantleSortMode = 'acquired';
+let marketplaceState = { itemType: 'scroll', view: 'active', sort: 'time_desc', data: { active: [], mine: [] } };
+let marketplaceRegisterState = { itemType: 'scroll', selected: null };
 let raidBattleLogPinnedToBottom = true;
 let userMutationInFlightCount = 0;
 let loginRequestSerial = 0;
@@ -225,6 +227,16 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-05-18-fragment-shop-marketplace-raid-rewards',
+    time: '2026-05-18 00:00',
+    title: '파편 상점과 사내 번개장터 준비',
+    items: [
+      '회의 참석 옆에 파편 상점 버튼을 추가하고 현재 보유 장비 파편 수를 확인할 수 있게 했습니다.',
+      '사내 번개장터에서 장비와 주문서를 등록, 구매, 회수, 정산할 수 있는 기본 거래소 화면을 추가했습니다.',
+      '보스 클리어 보상에 장비 파편 1~5개와 낮은 확률의 장비/주문서 보상을 추가했습니다.'
+    ]
+  },
   {
     id: '2026-05-15-1318-raid-queued-boss-lock',
     time: '2026-05-15 13:18',
@@ -396,6 +408,14 @@ function setupEventListeners() {
   bindClick('sideJobBtn', handleSideJobClick);
   bindClick('workOptimizationSkillBtn', handleWorkOptimizationSkillClick);
   bindClick('raidLobbyBtn', openRaidLobby);
+  bindClick('fragmentShopBtn', openFragmentShopModal);
+  bindClick('fragmentShopCloseBtn', closeFragmentShopModal);
+  bindClick('marketplaceBtn', openMarketplaceModal);
+  bindClick('marketplaceCloseBtn', closeMarketplaceModal);
+  bindClick('marketplaceRegisterOpenBtn', openMarketplaceRegisterModal);
+  bindClick('marketplaceRegisterCloseBtn', closeMarketplaceRegisterModal);
+  bindClick('marketplaceRegisterBtn', handleMarketplaceRegisterConfirm);
+  bindClick('marketplaceSettleBtn', handleMarketplaceSettle);
   bindClick('raidLobbyCloseBtn', closeRaidLobby);
   bindClick('raidStartBtn', handleRaidStartClick);
   bindClick('raidCountdownCancelBtn', handleRaidCountdownCancelClick);
@@ -1120,6 +1140,9 @@ function handleLogoutClick() {
   closeDecisionModal();
   hideModal('patchNotesModal');
   hideModal('equipmentDismantleModal');
+  hideModal('fragmentShopModal');
+  hideModal('marketplaceModal');
+  hideModal('marketplaceRegisterModal');
   hideModal('raidLobbyModal');
   hideModal('raidCountdownOverlay');
   stopBgm(true);
@@ -2120,6 +2143,18 @@ function updateLocalUserState(data, options = {}) {
   if (isEquipmentDismantleModalOpen()) {
     renderEquipmentDismantleModal(latestUser);
   }
+  if (data.marketplace) {
+    marketplaceState.data = data.marketplace;
+    renderMarketplace();
+    const registerModal = document.getElementById('marketplaceRegisterModal');
+    if (registerModal && !registerModal.classList.contains('hidden')) {
+      renderMarketplaceRegisterModal();
+    }
+  }
+  const fragmentShopModal = document.getElementById('fragmentShopModal');
+  if (fragmentShopModal && !fragmentShopModal.classList.contains('hidden')) {
+    openFragmentShopModal();
+  }
   if (latestUser) {
     updateRaidButton(latestUser, latestRaidState);
   }
@@ -2355,6 +2390,295 @@ function openSupportModal() {
     beginnerCard.classList.toggle('hidden', Number(user?.gameState?.level || 1) >= 50);
   }
   showModal('supportModal');
+}
+
+function openFragmentShopModal() {
+  const user = getStoredUser();
+  const count = getInventoryQuantityFromUser(user, 'equipment_fragment');
+  setText('fragmentShopCount', `현재 보유 파편: ${formatNumber(count)}개`);
+  showModal('fragmentShopModal');
+}
+
+function closeFragmentShopModal() {
+  hideModal('fragmentShopModal');
+}
+
+function formatMarketDate(value) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+async function loadMarketplaceData() {
+  const user = getStoredUser();
+  if (!user?._id) return;
+  const data = await getJson(`${API_URL}/api/marketplace?userId=${encodeURIComponent(user._id)}`);
+  marketplaceState.data = data.marketplace || { active: [], mine: [] };
+  renderMarketplace();
+}
+
+function openMarketplaceModal() {
+  showModal('marketplaceModal');
+  renderMarketplace();
+  loadMarketplaceData().catch((err) => {
+    setText('marketplaceStatus', err.message || '거래소 정보를 불러오지 못했습니다.');
+  });
+}
+
+function closeMarketplaceModal() {
+  hideModal('marketplaceModal');
+}
+
+function openMarketplaceRegisterModal() {
+  marketplaceRegisterState = { itemType: marketplaceState.itemType || 'scroll', selected: null };
+  renderMarketplaceRegisterModal();
+  showModal('marketplaceRegisterModal');
+}
+
+function closeMarketplaceRegisterModal() {
+  hideModal('marketplaceRegisterModal');
+  showModal('marketplaceModal');
+}
+
+function getMarketplaceListingsForView() {
+  const data = marketplaceState.data || { active: [], mine: [] };
+  const source = marketplaceState.view === 'active'
+    ? data.active || []
+    : data.mine || [];
+  const filtered = source.filter((listing) => {
+    if (listing.itemType !== marketplaceState.itemType) return false;
+    if (marketplaceState.view === 'mine') return listing.status === 'active';
+    if (marketplaceState.view === 'sold') return ['sold', 'settling', 'settled'].includes(listing.status);
+    return listing.status === 'active';
+  });
+
+  filtered.sort((left, right) => {
+    if (marketplaceState.sort === 'price_asc') return Number(left.price || 0) - Number(right.price || 0);
+    if (marketplaceState.sort === 'price_desc') return Number(right.price || 0) - Number(left.price || 0);
+    const leftTime = new Date(left.createdAt || 0).getTime();
+    const rightTime = new Date(right.createdAt || 0).getTime();
+    return marketplaceState.sort === 'time_asc' ? leftTime - rightTime : rightTime - leftTime;
+  });
+  return filtered;
+}
+
+function renderMarketplace() {
+  const listEl = document.getElementById('marketplaceList');
+  const statusEl = document.getElementById('marketplaceStatus');
+  if (!listEl || !statusEl) return;
+
+  const typeLabel = marketplaceState.itemType === 'equipment' ? '장비' : '주문서';
+  const viewLabel = marketplaceState.view === 'active'
+    ? '전체 판매중'
+    : marketplaceState.view === 'mine'
+      ? '내 등록중'
+      : '내 판매완료';
+  const listings = getMarketplaceListingsForView();
+  statusEl.textContent = `${typeLabel} / ${viewLabel} / ${formatNumber(listings.length)}개`;
+  listEl.innerHTML = listings.length ? '' : '<tr><td colspan="6">표시할 물품이 없습니다.</td></tr>';
+
+  listings.forEach((listing) => {
+    const isMine = Boolean(listing.mine);
+    const statusText = listing.status === 'active'
+      ? '판매중'
+      : listing.status === 'settled'
+        ? '정산완료'
+        : listing.status === 'settling'
+          ? '정산중'
+          : `판매완료 (${formatMarketDate(listing.soldAt)})`;
+    const actionHtml = marketplaceState.view === 'active'
+      ? `<button class="mini-btn" onclick="handleMarketplaceBuy('${listing.id}')" ${isMine ? 'disabled' : ''}>구매</button>`
+      : marketplaceState.view === 'mine'
+        ? `<button class="mini-btn" onclick="handleMarketplaceCancel('${listing.id}')">회수</button>`
+        : '-';
+    const quantityText = Number(listing.quantity || 1) > 1 ? ` x${formatNumber(listing.quantity)}` : '';
+    const traderName = marketplaceState.view === 'sold'
+      ? (listing.buyerName ? `구매자: ${listing.buyerName}` : '구매자: -')
+      : (listing.sellerName || '-');
+    listEl.insertAdjacentHTML('beforeend', `
+      <tr class="${isMine ? 'market-listing-owned' : ''}">
+        <td>${escapeHtml(listing.itemName || listing.itemId)}${quantityText}</td>
+        <td>${escapeHtml(listing.description || '')}</td>
+        <td>${escapeHtml(traderName)}</td>
+        <td>${formatNumber(listing.price)}원</td>
+        <td>${escapeHtml(statusText)}</td>
+        <td>${actionHtml}</td>
+      </tr>
+    `);
+  });
+}
+
+function handleMarketplaceTypeChange(itemType) {
+  marketplaceState.itemType = itemType;
+  renderMarketplace();
+}
+
+function handleMarketplaceViewChange(view) {
+  marketplaceState.view = view;
+  renderMarketplace();
+}
+
+function handleMarketplaceSortChange(sort) {
+  marketplaceState.sort = sort;
+  renderMarketplace();
+}
+
+function renderMarketplaceRegisterModal() {
+  const user = getStoredUser();
+  const listEl = document.getElementById('marketplaceRegisterList');
+  const selectionEl = document.getElementById('marketplaceRegisterSelection');
+  const quantityInput = document.getElementById('marketplaceRegisterQuantity');
+  if (!listEl || !selectionEl || !quantityInput) return;
+
+  const selected = marketplaceRegisterState.selected;
+  selectionEl.textContent = selected
+    ? `선택됨: ${selected.name}${selected.quantity > 1 ? ` x${formatNumber(selected.quantity)}` : ''}`
+    : '등록할 물품을 선택하세요.';
+  quantityInput.disabled = marketplaceRegisterState.itemType === 'equipment';
+  if (marketplaceRegisterState.itemType === 'equipment') quantityInput.value = '1';
+
+  listEl.innerHTML = '';
+  if (marketplaceRegisterState.itemType === 'equipment') {
+    const equipments = user?.equipmentDetails || [];
+    listEl.innerHTML = equipments.length ? '' : '<div class="modal-note">등록 가능한 장비가 없습니다.</div>';
+    equipments.forEach((equipment) => {
+      listEl.insertAdjacentHTML('beforeend', `
+        <button class="fusion-source-card ${selected?.itemId === equipment.equipmentId ? 'selected' : ''}" onclick="handleMarketplaceRegisterSelect('equipment', '${equipment.equipmentId}')">
+          <strong>${escapeHtml(equipment.name)}</strong><br>
+          <span>${escapeHtml(equipment.desc || '')}</span>
+        </button>
+      `);
+    });
+    return;
+  }
+
+  const scrollEntries = getEquipmentScrollItemIds()
+    .map((itemId) => ({ itemId, quantity: getInventoryQuantityFromUser(user, itemId), itemInfo: ITEM_DATA[itemId] || {} }))
+    .filter((entry) => entry.quantity > 0);
+  listEl.innerHTML = scrollEntries.length ? '' : '<div class="modal-note">등록 가능한 주문서가 없습니다.</div>';
+  scrollEntries.forEach((entry) => {
+    listEl.insertAdjacentHTML('beforeend', `
+      <button class="fusion-source-card ${selected?.itemId === entry.itemId ? 'selected' : ''}" onclick="handleMarketplaceRegisterSelect('scroll', '${entry.itemId}')">
+        <strong>${escapeHtml(entry.itemInfo.name || entry.itemId)} x${formatNumber(entry.quantity)}</strong><br>
+        <span>${escapeHtml(entry.itemInfo.desc || '')}</span>
+      </button>
+    `);
+  });
+}
+
+function handleMarketplaceRegisterTypeChange(itemType) {
+  marketplaceRegisterState = { itemType, selected: null };
+  renderMarketplaceRegisterModal();
+}
+
+function handleMarketplaceRegisterSelect(itemType, itemId) {
+  const user = getStoredUser();
+  if (itemType === 'equipment') {
+    const equipment = (user?.equipmentDetails || []).find((entry) => entry.equipmentId === itemId);
+    marketplaceRegisterState.selected = equipment ? {
+      itemType,
+      itemId,
+      name: equipment.name,
+      quantity: 1
+    } : null;
+  } else {
+    const itemInfo = ITEM_DATA[itemId] || {};
+    const quantity = getInventoryQuantityFromUser(user, itemId);
+    marketplaceRegisterState.selected = quantity > 0 ? {
+      itemType,
+      itemId,
+      name: itemInfo.name || itemId,
+      quantity
+    } : null;
+    const quantityInput = document.getElementById('marketplaceRegisterQuantity');
+    if (quantityInput) {
+      quantityInput.max = String(quantity);
+      quantityInput.value = '1';
+    }
+  }
+  renderMarketplaceRegisterModal();
+}
+
+async function handleMarketplaceRegisterConfirm() {
+  const user = getStoredUser();
+  const selected = marketplaceRegisterState.selected;
+  if (!user?._id || !selected) return alert('등록할 물품을 선택해주세요.');
+  const quantity = selected.itemType === 'equipment'
+    ? 1
+    : Math.max(1, Math.min(selected.quantity, Math.floor(Number(document.getElementById('marketplaceRegisterQuantity')?.value) || 1)));
+  const rawPrice = Number(document.getElementById('marketplaceRegisterPrice')?.value);
+  if (!Number.isFinite(rawPrice) || rawPrice < 1) return alert('판매 가격을 입력해주세요.');
+  const price = Math.floor(rawPrice);
+
+  try {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/marketplace/list`, {
+      userId: user._id,
+      itemType: selected.itemType,
+      itemId: selected.itemId,
+      quantity,
+      price
+    }));
+    updateLocalUserState(data, { force: true });
+    marketplaceState.data = data.marketplace || marketplaceState.data;
+    marketplaceRegisterState.selected = null;
+    renderMarketplaceRegisterModal();
+    renderMarketplace();
+    alert(data.marketplaceResult?.message || '물품을 등록했습니다.');
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleMarketplaceBuy(listingId) {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+  if (!confirm('이 물품을 구매하시겠습니까?')) return;
+  try {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/marketplace/buy`, {
+      userId: user._id,
+      listingId
+    }));
+    updateLocalUserState(data, { force: true });
+    marketplaceState.data = data.marketplace || marketplaceState.data;
+    renderMarketplace();
+    alert(data.marketplaceResult?.message || '구매했습니다.');
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleMarketplaceCancel(listingId) {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+  if (!confirm('등록한 물품을 회수하시겠습니까?')) return;
+  try {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/marketplace/cancel`, {
+      userId: user._id,
+      listingId
+    }));
+    updateLocalUserState(data, { force: true });
+    marketplaceState.data = data.marketplace || marketplaceState.data;
+    renderMarketplace();
+    alert(data.marketplaceResult?.message || '물품을 회수했습니다.');
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleMarketplaceSettle() {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+  try {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/marketplace/settle`, { userId: user._id }));
+    updateLocalUserState(data, { force: true });
+    marketplaceState.data = data.marketplace || marketplaceState.data;
+    marketplaceState.view = 'sold';
+    renderMarketplace();
+    alert(data.marketplaceResult?.message || '정산했습니다.');
+  } catch (err) {
+    alert(err.message);
+  }
 }
 
 function openEquipmentEnhanceModal() {
@@ -2603,6 +2927,13 @@ window.handleEquipmentSortChange = handleEquipmentSortChange;
 window.handleEquipmentPageChange = handleEquipmentPageChange;
 window.handleEquipmentDismantleSelect = handleEquipmentDismantleSelect;
 window.handleEquipmentDismantleSortChange = handleEquipmentDismantleSortChange;
+window.handleMarketplaceTypeChange = handleMarketplaceTypeChange;
+window.handleMarketplaceViewChange = handleMarketplaceViewChange;
+window.handleMarketplaceSortChange = handleMarketplaceSortChange;
+window.handleMarketplaceRegisterTypeChange = handleMarketplaceRegisterTypeChange;
+window.handleMarketplaceRegisterSelect = handleMarketplaceRegisterSelect;
+window.handleMarketplaceBuy = handleMarketplaceBuy;
+window.handleMarketplaceCancel = handleMarketplaceCancel;
 
 
 function renderRaidBattle(raidState, user) {

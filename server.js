@@ -66,6 +66,7 @@ const RAID_COUNTDOWN_SECONDS = 3;
 const RAID_COUNTDOWN_BUFFER_MS = 2000;
 const RAID_DAILY_LIMIT = 1;
 const RAID_MULTI_HIT_DAMAGE_MULTIPLIER = 0.9;
+const RAID_SPECIAL_REWARD_CHANCE = 0.05;
 const RAID_BOSS_ID = 'burp_queen';
 const RAID_BOSS_ID_BALD_MANAGER = 'bald_manager';
 const RAID_BOSS_ID_HOI = 'hoi_msj_50';
@@ -1713,6 +1714,29 @@ const userSchema = new mongoose.Schema({
 
 const User = mongoose.model('User', userSchema);
 
+const marketplaceListingSchema = new mongoose.Schema({
+  sellerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  sellerName: { type: String, default: '' },
+  itemType: { type: String, enum: ['equipment', 'scroll'], required: true },
+  itemId: { type: String, required: true },
+  itemName: { type: String, required: true },
+  description: { type: String, default: '' },
+  quantity: { type: Number, default: 1 },
+  equipmentSnapshot: { type: mongoose.Schema.Types.Mixed, default: null },
+  price: { type: Number, required: true },
+  status: { type: String, enum: ['active', 'sold', 'settling', 'settled', 'cancelled'], default: 'active' },
+  buyerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  buyerName: { type: String, default: '' },
+  createdAt: { type: Date, default: Date.now },
+  soldAt: { type: Date, default: null },
+  settledAt: { type: Date, default: null }
+});
+
+marketplaceListingSchema.index({ status: 1, itemType: 1, createdAt: -1 });
+marketplaceListingSchema.index({ sellerId: 1, status: 1, createdAt: -1 });
+
+const MarketplaceListing = mongoose.model('MarketplaceListing', marketplaceListingSchema);
+
 function getKSTDateKey(date = new Date()) {
   const kst = new Date(date.getTime() + KST_OFFSET_MS);
   const year = kst.getUTCFullYear();
@@ -2029,6 +2053,20 @@ function createEquipmentEntry(equipmentType) {
   };
 }
 
+function cloneEquipmentEntry(entry, options = {}) {
+  return {
+    equipmentId: options.preserveId && entry.equipmentId ? String(entry.equipmentId) : new mongoose.Types.ObjectId().toString(),
+    equipmentType: entry.equipmentType,
+    statValue: Number(entry.statValue || 0),
+    upgradesLeft: Number(entry.upgradesLeft || 0)
+  };
+}
+
+function getRandomEquipmentScrollItemId() {
+  const scrollItemIds = Object.keys(EQUIPMENT_SCROLL_RULES);
+  return scrollItemIds[Math.floor(Math.random() * scrollItemIds.length)] || null;
+}
+
 function getEquipmentById(user, equipmentId) {
   return (user.equipments || []).find((entry) => String(entry.equipmentId) === String(equipmentId));
 }
@@ -2079,6 +2117,46 @@ function buildEquipmentDetails(user) {
     desc: buildEquipmentDescription(entry),
     equipped: equippedEquipmentId === entry.equipmentId
   }));
+}
+
+function buildMarketplaceListingDetail(listing, currentUserId = null) {
+  const plainListing = listing.toObject ? listing.toObject() : listing;
+  return {
+    id: String(plainListing._id),
+    sellerId: String(plainListing.sellerId),
+    sellerName: plainListing.sellerName || '익명 직원',
+    itemType: plainListing.itemType,
+    itemId: plainListing.itemId,
+    itemName: plainListing.itemName,
+    description: plainListing.description,
+    quantity: Number(plainListing.quantity || 1),
+    equipment: plainListing.equipmentSnapshot || null,
+    price: Number(plainListing.price || 0),
+    status: plainListing.status,
+    buyerId: plainListing.buyerId ? String(plainListing.buyerId) : null,
+    buyerName: plainListing.buyerName || '',
+    createdAt: plainListing.createdAt,
+    soldAt: plainListing.soldAt,
+    settledAt: plainListing.settledAt,
+    mine: currentUserId ? String(plainListing.sellerId) === String(currentUserId) : false
+  };
+}
+
+async function buildMarketplaceResponse(userId) {
+  const activeListings = await MarketplaceListing.find({ status: 'active' })
+    .sort({ createdAt: -1 })
+    .limit(300);
+  const myListings = userId
+    ? await MarketplaceListing.find({
+        sellerId: userId,
+        status: { $in: ['active', 'sold', 'settling', 'settled'] }
+      }).sort({ createdAt: -1 }).limit(300)
+    : [];
+
+  return {
+    active: activeListings.map((listing) => buildMarketplaceListingDetail(listing, userId)),
+    mine: myListings.map((listing) => buildMarketplaceListingDetail(listing, userId))
+  };
 }
 
 function getCardEnhancementStepValue(stepMap, level, fallbackValue) {
@@ -4350,12 +4428,20 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
   if (!activeBattle || activeBattle.finalized) return;
   activeBattle.finalizing = true;
   const participantIds = activeBattle.participants.map((participant) => participant.userId);
+  const raidSpecialRewardType = Math.random() < RAID_SPECIAL_REWARD_CHANCE
+    ? (Math.random() < 0.5 ? 'equipment' : 'scroll')
+    : null;
   const sharedBaseRewards = activeBattle.winner === 'players'
     ? {
         businessCards: Math.floor(Math.random() * 3),
         bacchus: 3 + Math.floor(Math.random() * 3),
         monami: Math.floor(Math.random() * 2),
-        moneyReward: 100000 + Math.floor(Math.random() * 200001)
+        moneyReward: 100000 + Math.floor(Math.random() * 200001),
+        fragments: 1 + Math.floor(Math.random() * 5),
+        equipment: raidSpecialRewardType === 'equipment'
+          ? createEquipmentEntry(Math.random() < 0.5 ? EQUIPMENT_TYPE_CARD : EQUIPMENT_TYPE_ATTACK)
+          : null,
+        scrollItemId: raidSpecialRewardType === 'scroll' ? getRandomEquipmentScrollItemId() : null
       }
     : null;
   const maxLottoSuccessChance = activeBattle.participants.reduce(
@@ -4396,17 +4482,30 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
       const bacchus = Math.max(0, Math.round((sharedBaseRewards?.bacchus || 0) * rewardMultiplier));
       const monami = Math.max(0, Math.round((sharedBaseRewards?.monami || 0) * rewardMultiplier));
       const moneyReward = (sharedBaseRewards?.moneyReward || 0) * rewardMultiplier;
+      const fragments = Math.max(0, Math.round((sharedBaseRewards?.fragments || 0) * rewardMultiplier));
+      const equipmentCount = sharedBaseRewards?.equipment ? Math.max(0, Math.round(rewardMultiplier)) : 0;
+      const scrollCount = sharedBaseRewards?.scrollItemId ? Math.max(0, Math.round(rewardMultiplier)) : 0;
       user.gameState.exp += expReward;
       checkLevelUp(user);
       addItemToInventory(user, 'business_card', businessCards);
       addItemToInventory(user, 'bacchus', bacchus);
       addItemToInventory(user, 'reward_pen_monami', monami);
+      addItemToInventory(user, 'equipment_fragment', fragments);
+      for (let index = 0; index < equipmentCount; index += 1) {
+        user.equipments.push(cloneEquipmentEntry(sharedBaseRewards.equipment));
+      }
+      if (scrollCount > 0) {
+        addItemToInventory(user, sharedBaseRewards.scrollItemId, scrollCount);
+      }
       user.gameState.money += moneyReward;
       const rewardSummaryParts = [];
       if (expReward > 0) rewardSummaryParts.push(`경험치 ${expReward.toLocaleString()}`);
       if (businessCards > 0) rewardSummaryParts.push(`명함 ${Number(businessCards).toLocaleString()}장`);
       if (bacchus > 0) rewardSummaryParts.push(`박카스 ${Number(bacchus).toLocaleString()}개`);
       if (monami > 0) rewardSummaryParts.push(`보상 모나미 볼펜 ${Number(monami).toLocaleString()}개`);
+      if (fragments > 0) rewardSummaryParts.push(`장비 파편 ${Number(fragments).toLocaleString()}개`);
+      if (equipmentCount > 0) rewardSummaryParts.push(`${buildEquipmentDisplayName(sharedBaseRewards.equipment)} ${Number(equipmentCount).toLocaleString()}개`);
+      if (scrollCount > 0) rewardSummaryParts.push(`${ITEM_DATA[sharedBaseRewards.scrollItemId]?.name || sharedBaseRewards.scrollItemId} ${Number(scrollCount).toLocaleString()}개`);
       if (moneyReward > 0) rewardSummaryParts.push(`${Number(moneyReward).toLocaleString()}원`);
       const rewardSummaryText = rewardSummaryParts.length ? rewardSummaryParts.join(', ') : '보상을 획득하지 못했습니다.';
       queueNotification(
@@ -6249,6 +6348,271 @@ app.post('/api/equipment/dismantle', async (req, res) => {
     res.json(response);
   } catch (err) {
     console.error('Equipment dismantle error:', err);
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.get('/api/marketplace', async (req, res) => {
+  const { userId } = req.query;
+  try {
+    res.json({
+      marketplace: await buildMarketplaceResponse(userId || null)
+    });
+  } catch (err) {
+    console.error('Marketplace load error:', err);
+    res.status(500).json({ msg: '거래소 정보를 불러오지 못했습니다.' });
+  }
+});
+
+app.post('/api/marketplace/list', async (req, res) => {
+  const { userId, itemType, itemId, price, quantity } = req.body;
+  const listingPrice = Math.max(1, Math.floor(Number(price) || 0));
+  const listingQuantity = Math.max(1, Math.floor(Number(quantity) || 1));
+
+  if (!userId || !['equipment', 'scroll'].includes(itemType) || !itemId) {
+    return res.status(400).json({ msg: '등록할 물품 정보가 부족합니다.' });
+  }
+  if (listingPrice <= 0) {
+    return res.status(400).json({ msg: '판매 가격은 1원 이상이어야 합니다.' });
+  }
+
+  try {
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      ensureUserDefaults(user);
+
+      let listingPayload = null;
+      if (itemType === 'equipment') {
+        const equipment = getEquipmentById(user, itemId);
+        if (!equipment) throw createHttpError(404, '등록할 장비를 찾을 수 없습니다.');
+        listingPayload = {
+          sellerId: user._id,
+          sellerName: buildDisplayName(user),
+          itemType: 'equipment',
+          itemId: String(equipment.equipmentId),
+          itemName: buildEquipmentDisplayName(equipment),
+          description: buildEquipmentDescription(equipment),
+          quantity: 1,
+          equipmentSnapshot: {
+            equipmentId: String(equipment.equipmentId),
+            equipmentType: equipment.equipmentType,
+            statValue: Number(equipment.statValue || 0),
+            upgradesLeft: Number(equipment.upgradesLeft || 0)
+          },
+          price: listingPrice
+        };
+        user.equipments = (user.equipments || []).filter((entry) => String(entry.equipmentId) !== String(itemId));
+        if (user.equippedEquipment?.cardEffect === itemId) user.equippedEquipment.cardEffect = null;
+        if (user.equippedEquipment?.basicAttack === itemId) user.equippedEquipment.basicAttack = null;
+        normalizeSingleEquippedEquipment(user);
+      } else {
+        const itemInfo = ITEM_DATA[itemId];
+        if (!itemInfo || !getEquipmentScrollRule(itemId)) {
+          throw createHttpError(400, '거래소에 등록할 수 없는 주문서입니다.');
+        }
+        if (!removeItemFromInventory(user, itemId, listingQuantity)) {
+          throw createHttpError(400, '등록할 주문서 수량이 부족합니다.');
+        }
+        listingPayload = {
+          sellerId: user._id,
+          sellerName: buildDisplayName(user),
+          itemType: 'scroll',
+          itemId,
+          itemName: itemInfo.name,
+          description: itemInfo.desc || itemInfo.hoverDesc || '',
+          quantity: listingQuantity,
+          equipmentSnapshot: null,
+          price: listingPrice
+        };
+      }
+
+      user.gameState.lastActionTime = now;
+      return { listingPayload };
+    }, {
+      conflictLabel: 'Marketplace list conflict',
+      afterSave: async (user, result) => {
+        await MarketplaceListing.create(result.listingPayload);
+        const now = new Date();
+        const response = await buildUserResponseWithGlobals(user, now);
+        response.marketplace = await buildMarketplaceResponse(user._id);
+        response.marketplaceResult = { message: '물품을 거래소에 등록했습니다.' };
+        return response;
+      }
+    });
+
+    res.json(response);
+  } catch (err) {
+    console.error('Marketplace list error:', err);
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/marketplace/buy', async (req, res) => {
+  const { userId, listingId } = req.body;
+  if (!userId || !listingId) return res.status(400).json({ msg: '구매 정보가 부족합니다.' });
+
+  let reservedListing = null;
+  try {
+    const now = new Date();
+    const currentListing = await MarketplaceListing.findById(listingId);
+    if (!currentListing || currentListing.status !== 'active') {
+      return res.status(404).json({ msg: '이미 판매되었거나 존재하지 않는 물품입니다.' });
+    }
+    if (String(currentListing.sellerId) === String(userId)) {
+      return res.status(400).json({ msg: '내가 등록한 물품은 구매할 수 없습니다.' });
+    }
+
+    reservedListing = await MarketplaceListing.findOneAndUpdate(
+      { _id: listingId, status: 'active' },
+      { $set: { status: 'sold', buyerId: userId, soldAt: now } },
+      { new: true }
+    );
+    if (!reservedListing) {
+      return res.status(409).json({ msg: '방금 다른 유저가 먼저 구매했습니다.' });
+    }
+
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      calculateOfflineGains(user, now);
+      ensureUserDefaults(user);
+      const price = Number(reservedListing.price || 0);
+      if (Number(user.gameState.money || 0) < price) {
+        throw createHttpError(400, '잔고가 부족합니다.');
+      }
+
+      user.gameState.money -= price;
+      if (reservedListing.itemType === 'equipment') {
+        user.equipments.push(cloneEquipmentEntry(reservedListing.equipmentSnapshot));
+      } else {
+        addItemToInventory(user, reservedListing.itemId, Number(reservedListing.quantity || 1));
+      }
+      user.gameState.lastActionTime = now;
+      return null;
+    }, {
+      conflictLabel: 'Marketplace buy conflict',
+      afterSave: async (user) => {
+        reservedListing.buyerName = buildDisplayName(user);
+        await reservedListing.save();
+        const response = await buildUserResponseWithGlobals(user, now);
+        response.marketplace = await buildMarketplaceResponse(user._id);
+        response.marketplaceResult = { message: `${reservedListing.itemName}을(를) 구매했습니다.` };
+        return response;
+      }
+    });
+
+    res.json(response);
+  } catch (err) {
+    if (reservedListing?._id && reservedListing.status === 'sold') {
+      await MarketplaceListing.updateOne(
+        { _id: reservedListing._id, status: 'sold', buyerId: userId },
+        { $set: { status: 'active' }, $unset: { buyerId: '', buyerName: '', soldAt: '' } }
+      ).catch((revertErr) => console.error('Marketplace buy reservation revert failed:', revertErr));
+    }
+    console.error('Marketplace buy error:', err);
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/marketplace/cancel', async (req, res) => {
+  const { userId, listingId } = req.body;
+  if (!userId || !listingId) return res.status(400).json({ msg: '취소 정보가 부족합니다.' });
+
+  let cancelledListing = null;
+  try {
+    cancelledListing = await MarketplaceListing.findOneAndUpdate(
+      { _id: listingId, sellerId: userId, status: 'active' },
+      { $set: { status: 'cancelled' } },
+      { new: true }
+    );
+    if (!cancelledListing) {
+      return res.status(404).json({ msg: '취소할 등록 물품을 찾을 수 없습니다.' });
+    }
+
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      ensureUserDefaults(user);
+      if (cancelledListing.itemType === 'equipment') {
+        user.equipments.push(cloneEquipmentEntry(cancelledListing.equipmentSnapshot, { preserveId: true }));
+      } else {
+        addItemToInventory(user, cancelledListing.itemId, Number(cancelledListing.quantity || 1));
+      }
+      user.gameState.lastActionTime = now;
+      return null;
+    }, {
+      conflictLabel: 'Marketplace cancel conflict',
+      afterSave: async (user) => {
+        const now = new Date();
+        const response = await buildUserResponseWithGlobals(user, now);
+        response.marketplace = await buildMarketplaceResponse(user._id);
+        response.marketplaceResult = { message: '등록 물품을 회수했습니다.' };
+        return response;
+      }
+    });
+
+    res.json(response);
+  } catch (err) {
+    if (cancelledListing?._id) {
+      await MarketplaceListing.updateOne(
+        { _id: cancelledListing._id, status: 'cancelled' },
+        { $set: { status: 'active' } }
+      ).catch((revertErr) => console.error('Marketplace cancel revert failed:', revertErr));
+    }
+    console.error('Marketplace cancel error:', err);
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/marketplace/settle', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+
+  let claimIds = [];
+  try {
+    const soldListings = await MarketplaceListing.find({ sellerId: userId, status: 'sold' });
+    claimIds = soldListings.map((listing) => listing._id);
+    if (!claimIds.length) return res.status(400).json({ msg: '정산할 판매 금액이 없습니다.' });
+
+    await MarketplaceListing.updateMany(
+      { _id: { $in: claimIds }, sellerId: userId, status: 'sold' },
+      { $set: { status: 'settling' } }
+    );
+    const claimedListings = await MarketplaceListing.find({ _id: { $in: claimIds }, sellerId: userId, status: 'settling' });
+    const settleAmount = claimedListings.reduce((sum, listing) => sum + Number(listing.price || 0), 0);
+    if (settleAmount <= 0) throw createHttpError(400, '정산할 금액이 없습니다.');
+
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      ensureUserDefaults(user);
+      user.gameState.money += settleAmount;
+      queueNotification(user, 'marketplace_settle', `사내 번개장터 판매 대금 ${settleAmount.toLocaleString()}원을 정산받았습니다.`);
+      user.gameState.lastActionTime = now;
+      return null;
+    }, {
+      conflictLabel: 'Marketplace settle conflict',
+      afterSave: async (user) => {
+        const now = new Date();
+        await MarketplaceListing.updateMany(
+          { _id: { $in: claimIds }, sellerId: userId, status: 'settling' },
+          { $set: { status: 'settled', settledAt: now } }
+        );
+        const response = await buildUserResponseWithGlobals(user, now);
+        response.marketplace = await buildMarketplaceResponse(user._id);
+        response.marketplaceResult = { message: `${settleAmount.toLocaleString()}원을 정산했습니다.` };
+        return response;
+      }
+    });
+
+    res.json(response);
+  } catch (err) {
+    if (claimIds.length) {
+      await MarketplaceListing.updateMany(
+        { _id: { $in: claimIds }, status: 'settling' },
+        { $set: { status: 'sold' } }
+      ).catch((revertErr) => console.error('Marketplace settle revert failed:', revertErr));
+    }
+    console.error('Marketplace settle error:', err);
     res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
   }
 });

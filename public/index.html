@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>네오상사 거래명세서</title>
-  <link rel="stylesheet" href="style.css?v=28">
+  <link rel="stylesheet" href="style.css?v=29">
 </head>
 <body>
   <div id="login-screen">
@@ -146,6 +146,8 @@
             <td class="sheet-header">1</td>
             <td colspan="10" class="animation-cell animation-host">
               <button id="raidLobbyBtn" class="raid-entry-btn">회의 참석</button>
+              <button id="fragmentShopBtn" class="raid-entry-btn side-entry-btn">파편 상점</button>
+              <button id="marketplaceBtn" class="raid-entry-btn side-entry-btn marketplace-entry-btn">사내 번개장터</button>
               <div id="raidEntryHint" class="raid-entry-hint">10레벨부터 입장 가능</div>
               <div id="anim-display" class="anim-display-text">(업무 중..)</div>
             </td>
@@ -474,6 +476,76 @@
     </div>
   </div>
 
+  <div id="fragmentShopModal" class="modal-overlay hidden">
+    <div class="excel-sheet modal-panel marketplace-modal-panel">
+      <h3>파편 상점</h3>
+      <p id="fragmentShopCount" class="menu-note">현재 보유 파편: 0개</p>
+      <div class="modal-note">구매 항목은 추후 업데이트 예정입니다.</div>
+      <div class="modal-buttons">
+        <button id="fragmentShopCloseBtn" class="mini-btn">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="marketplaceModal" class="modal-overlay hidden">
+    <div class="excel-sheet modal-panel marketplace-modal-panel">
+      <h3>사내 번개장터</h3>
+      <div class="market-toolbar">
+        <button class="mini-btn" onclick="handleMarketplaceTypeChange('scroll')">주문서 탭</button>
+        <button class="mini-btn" onclick="handleMarketplaceTypeChange('equipment')">장비 탭</button>
+        <button class="mini-btn" onclick="handleMarketplaceViewChange('active')">전체 판매중</button>
+        <button class="mini-btn" onclick="handleMarketplaceViewChange('mine')">등록중인 물품</button>
+        <button class="mini-btn" onclick="handleMarketplaceViewChange('sold')">판매완료</button>
+      </div>
+      <div class="market-toolbar">
+        <button class="mini-btn" onclick="handleMarketplaceSortChange('price_asc')">가격 낮은순</button>
+        <button class="mini-btn" onclick="handleMarketplaceSortChange('price_desc')">가격 높은순</button>
+        <button class="mini-btn" onclick="handleMarketplaceSortChange('time_asc')">등록 빠른순</button>
+        <button class="mini-btn" onclick="handleMarketplaceSortChange('time_desc')">등록 늦은순</button>
+      </div>
+      <p id="marketplaceStatus" class="menu-note">거래소 정보를 불러오는 중입니다.</p>
+      <table class="inner-table marketplace-table">
+        <thead>
+          <tr>
+            <th>물품</th>
+            <th>스펙</th>
+            <th>판매자</th>
+            <th>가격</th>
+            <th>상태</th>
+            <th>행동</th>
+          </tr>
+        </thead>
+        <tbody id="marketplaceList"></tbody>
+      </table>
+      <div class="modal-buttons">
+        <button id="marketplaceRegisterOpenBtn" class="menu-action-btn">물품 등록</button>
+        <button id="marketplaceSettleBtn" class="menu-action-btn">정산</button>
+        <button id="marketplaceCloseBtn" class="mini-btn">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="marketplaceRegisterModal" class="modal-overlay hidden">
+    <div class="excel-sheet modal-panel marketplace-modal-panel">
+      <h3>물품 등록</h3>
+      <p class="menu-note">보유 장비 또는 주문서를 선택한 뒤 판매 가격을 입력하세요. 등록 시 물품은 가방에서 빠집니다.</p>
+      <div class="market-toolbar">
+        <button class="mini-btn" onclick="handleMarketplaceRegisterTypeChange('scroll')">주문서</button>
+        <button class="mini-btn" onclick="handleMarketplaceRegisterTypeChange('equipment')">장비</button>
+      </div>
+      <div id="marketplaceRegisterSelection" class="modal-note">등록할 물품을 선택하세요.</div>
+      <div class="stock-controls marketplace-register-controls">
+        <input type="number" id="marketplaceRegisterQuantity" min="1" step="1" value="1" placeholder="수량">
+        <input type="number" id="marketplaceRegisterPrice" min="1" step="1" placeholder="판매 가격">
+        <button id="marketplaceRegisterBtn" class="menu-action-btn">등록</button>
+      </div>
+      <div id="marketplaceRegisterList" class="fusion-source-list marketplace-register-list"></div>
+      <div class="modal-buttons">
+        <button id="marketplaceRegisterCloseBtn" class="mini-btn">나가기</button>
+      </div>
+    </div>
+  </div>
+
   <div id="supportModal" class="modal-overlay hidden">
     <div class="excel-sheet modal-panel support-modal-panel">
       <h3>직장인은 지갑전사</h3>
@@ -601,6 +673,6 @@
     </div>
   </div>
 
-  <script src="client.js?v=89"></script>
+  <script src="client.js?v=90"></script>
 </body>
 </html>
