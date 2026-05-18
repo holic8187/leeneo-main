@@ -1407,11 +1407,12 @@ async function handleAdventureClick() {
   } catch (err) {
     alert(err.message);
   } finally {
+    if (btn) btn.disabled = false;
     const latestUser = getStoredUser();
     if (latestUser) {
       updateShoutStatus(latestUser);
+      updateSpecialActionButtons(latestUser);
     }
-    if (btn) btn.disabled = false;
   }
 }
 

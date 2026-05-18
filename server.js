@@ -2399,6 +2399,12 @@ function buildUserPersistenceSnapshot(user) {
   return {
     gameState: toPlainMongoValue(user.gameState),
     inventory: toPlainMongoValue(user.inventory),
+    cards: toPlainMongoValue(user.cards),
+    enhancedCards: toPlainMongoValue(user.enhancedCards),
+    equipments: toPlainMongoValue(user.equipments),
+    equippedEquipment: toPlainMongoValue(user.equippedEquipment),
+    equippedCardId: user.equippedCardId || null,
+    equippedCardLevel: normalizeCardEnhancementLevel(user.equippedCardLevel || 0),
     buffs: toPlainMongoValue(user.buffs),
     titles: toPlainMongoValue(user.titles),
     pendingStockInvestment: toPlainMongoValue(user.pendingStockInvestment),
@@ -2407,6 +2413,21 @@ function buildUserPersistenceSnapshot(user) {
     pendingAdventure: toPlainMongoValue(user.pendingAdventure),
     pendingNotifications: toPlainMongoValue(user.pendingNotifications)
   };
+}
+
+async function persistUserSnapshot(user, options = {}) {
+  const updateResult = await User.updateOne(
+    { _id: user._id },
+    {
+      $set: buildUserPersistenceSnapshot(user),
+      $inc: { __v: 1 }
+    }
+  );
+
+  const matchedCount = updateResult.matchedCount ?? updateResult.n ?? 0;
+  if (!matchedCount) {
+    throw createHttpError(options.statusCode || 409, options.message || '저장 중 충돌이 발생했습니다. 다시 시도해주세요.');
+  }
 }
 
 async function runUserMutationWithRetry(userId, mutateUser, options = {}) {
@@ -5698,7 +5719,13 @@ app.post('/api/action/adventure', async (req, res) => {
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
-    const response = await runUserMutationWithRetry(userId, async (user) => {
+    const response = await withUserMutationLock(userId, async () => {
+      const user = await User.findById(userId);
+      if (!user) {
+        throw createHttpError(404, '사용자를 찾을 수 없습니다.');
+      }
+      ensureUserDefaults(user);
+
       const now = new Date();
       calculateOfflineGains(user, now);
       cleanupExpiredBuffs(user, now);
@@ -5728,7 +5755,9 @@ app.post('/api/action/adventure', async (req, res) => {
           createdAt: now
         };
 
-        return buildAdventureChoiceResponse(user, now);
+        const choiceResponse = await buildAdventureChoiceResponse(user, now);
+        await persistUserSnapshot(user, { message: '모험 선택지 저장 중 충돌이 발생했습니다. 다시 시도해주세요.' });
+        return choiceResponse;
       }
 
       const rewardText = applyAdventureReward(user, event.reward, now);
@@ -5743,8 +5772,9 @@ app.post('/api/action/adventure', async (req, res) => {
         message: event.message,
         rewardText
       };
+      await persistUserSnapshot(user, { message: '모험 결과 저장 중 충돌이 발생했습니다. 다시 시도해주세요.' });
       return response;
-    }, { conflictLabel: 'Adventure action conflict' });
+    });
 
     res.json(response);
   } catch (err) {
@@ -5759,7 +5789,13 @@ app.post('/api/action/adventure/resolve', async (req, res) => {
   if (!['yes', 'no'].includes(choice)) return res.status(400).json({ msg: '올바르지 않은 선택입니다.' });
 
   try {
-    const response = await runUserMutationWithRetry(userId, async (user) => {
+    const response = await withUserMutationLock(userId, async () => {
+      const user = await User.findById(userId);
+      if (!user) {
+        throw createHttpError(404, '사용자를 찾을 수 없습니다.');
+      }
+      ensureUserDefaults(user);
+
       const now = new Date();
       calculateOfflineGains(user, now);
 
@@ -5818,8 +5854,9 @@ app.post('/api/action/adventure/resolve', async (req, res) => {
         message: '고양이가 잠시 당신을 바라보다가 천천히 발걸음을 옮겼다.',
         rewardText
       };
+      await persistUserSnapshot(user, { message: '모험 선택 결과 저장 중 충돌이 발생했습니다. 다시 시도해주세요.' });
       return response;
-    }, { conflictLabel: 'Adventure resolve conflict' });
+    });
 
     res.json(response);
   } catch (err) {
