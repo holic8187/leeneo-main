@@ -113,6 +113,11 @@ const BUFF_DATA = {
     name: '핫식스 버프',
     desc: '서류작업 클릭 시 스트레스를 0.1 낮춥니다.',
     className: 'buff-item title-buff'
+  },
+  work_optimization_buff: {
+    name: '업무 최적화',
+    desc: '1시간 동안 모든 획득 경험치가 2배가 됩니다.',
+    className: 'buff-item title-buff'
   }
 };
 
@@ -389,6 +394,7 @@ function setupEventListeners() {
   bindClick('napBtn', handleNapClick);
   bindClick('fieldWorkBtn', handleFieldWorkClick);
   bindClick('sideJobBtn', handleSideJobClick);
+  bindClick('workOptimizationSkillBtn', handleWorkOptimizationSkillClick);
   bindClick('raidLobbyBtn', openRaidLobby);
   bindClick('raidLobbyCloseBtn', closeRaidLobby);
   bindClick('raidStartBtn', handleRaidStartClick);
@@ -675,6 +681,16 @@ function formatNumber(value, decimals = 0) {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals
   });
+}
+
+function formatDurationMs(ms) {
+  const totalSeconds = Math.max(0, Math.ceil(Number(ms || 0) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}시간 ${minutes}분 ${seconds}초`;
+  if (minutes > 0) return `${minutes}분 ${seconds}초`;
+  return `${seconds}초`;
 }
 
 function escapeHtml(value) {
@@ -1235,7 +1251,8 @@ async function handleNewsTypingSubmit() {
     updateLocalUserState(data);
     const result = data.newsTypingResult || {};
     if (statusEl) {
-      statusEl.textContent = `${formatNumber(result.unitCount || result.wordCount || 0)}타 정산 완료: +${formatNumber(result.gainedExp || 0)} EXP`;
+      const dropText = result.dropCount > 0 ? ` / 장비·주문서 ${formatNumber(result.dropCount)}개 획득` : '';
+      statusEl.textContent = `${formatNumber(result.unitCount || result.wordCount || 0)}타 정산 완료: +${formatNumber(result.gainedExp || 0)} EXP${dropText}`;
     }
     if (input) input.value = '';
     renderNewsTypingPrompt(result.nextPrompt);
@@ -1329,6 +1346,27 @@ async function handleSideJobClick() {
     alert(err.message);
   } finally {
     if (btn) btn.disabled = false;
+  }
+}
+
+async function handleWorkOptimizationSkillClick() {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+
+  const btn = document.getElementById('workOptimizationSkillBtn');
+  if (btn) btn.disabled = true;
+
+  try {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/skill/work-optimization`, { userId: user._id }));
+    updateLocalUserState(data, { force: true });
+    if (data.skillResult?.message) {
+      alert(data.skillResult.message);
+    }
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    const latestUser = getStoredUser();
+    updateSkillTab(latestUser);
   }
 }
 
@@ -2844,6 +2882,7 @@ function updateGameUI(user) {
   updateStatusUI(user);
   updateBuffUI(user);
   updateSpecialActionButtons(user);
+  updateSkillTab(user);
   refreshSideJobStatus(user);
   updateShoutStatus(user);
   if (!hasFocusedQuantityInput()) {
@@ -2862,6 +2901,33 @@ function updateGameUI(user) {
   }
 }
 
+
+function updateSkillTab(user) {
+  const tabButton = document.getElementById('skillTabButton');
+  const skillTab = document.getElementById('tab-skill');
+  const skillButton = document.getElementById('workOptimizationSkillBtn');
+  const statusEl = document.getElementById('workOptimizationSkillStatus');
+  const skill = user?.skills?.workOptimization || {};
+  const unlocked = Boolean(user?.skills?.unlocked && skill.unlocked);
+
+  if (tabButton) tabButton.classList.toggle('hidden', !unlocked);
+  if (!unlocked && skillTab && !skillTab.classList.contains('hidden') && typeof window.showTab === 'function') {
+    window.showTab('work');
+  }
+
+  if (!skillButton || !statusEl) return;
+  if (!unlocked) {
+    skillButton.disabled = true;
+    statusEl.textContent = `${skill.unlockLevel || 200}레벨부터 사용할 수 있습니다.`;
+    return;
+  }
+
+  const remainingMs = Number(skill.remainingMs || 0);
+  skillButton.disabled = !skill.available;
+  statusEl.textContent = skill.available
+    ? '사용 가능: 현재 온라인인 모든 유저에게 1시간 경험치 2배 버프를 부여합니다.'
+    : `재사용 대기 중: ${formatDurationMs(remainingMs)} 남음`;
+}
 
 function refreshSideJobStatus(user) {
   const sideJobBtn = document.getElementById('sideJobBtn');
@@ -3228,7 +3294,9 @@ function renderAdminGiftOptions() {
     ? session.giftCatalog.buffs
     : selectedType === 'package'
       ? (session.giftCatalog.packages || [])
-      : session.giftCatalog.items;
+      : selectedType === 'title'
+        ? (session.giftCatalog.titles || [])
+        : session.giftCatalog.items;
 
   giftSelect.innerHTML = '';
   entries.forEach((entry) => {
@@ -3238,8 +3306,8 @@ function renderAdminGiftOptions() {
     );
   });
 
-  quantityInput.disabled = selectedType === 'buff' || selectedType === 'package';
-  if (selectedType === 'buff' || selectedType === 'package') quantityInput.value = '1';
+  quantityInput.disabled = selectedType === 'buff' || selectedType === 'package' || selectedType === 'title';
+  if (selectedType === 'buff' || selectedType === 'package' || selectedType === 'title') quantityInput.value = '1';
 }
 
 function renderAdminRaidBossControls(currentRaidBossId, raidBossOptions) {
@@ -3277,7 +3345,7 @@ async function handleAdminGift() {
   const quantity = Math.max(1, Math.floor(Number(document.getElementById('giftQuantity').value) || 1));
 
   if (!giftId) {
-    alert('선물할 아이템 또는 버프를 선택해주세요.');
+    alert('선물할 항목을 선택해주세요.');
     return;
   }
 

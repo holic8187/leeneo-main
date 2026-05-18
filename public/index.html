@@ -42,6 +42,7 @@
             <option value="item">아이템</option>
             <option value="buff">버프</option>
             <option value="package">패키지</option>
+            <option value="title">칭호</option>
           </select>
 
           <label for="giftIdSelect">선물 항목</label>
@@ -162,6 +163,7 @@
               <div class="menu-tabs">
                 <button class="active" data-tab="work" onclick="showTab('work')">열일하기</button>
                 <button data-tab="special" onclick="showTab('special')">특수 행동</button>
+                <button id="skillTabButton" class="hidden" data-tab="skill" onclick="showTab('skill')">스킬</button>
                 <button data-tab="inventory" onclick="showTab('inventory')">가방</button>
                 <button data-tab="shop" onclick="showTab('shop')">인터넷쇼핑</button>
                 <button data-tab="stats" onclick="showTab('stats')">능력치</button>
@@ -233,6 +235,16 @@
                     <button id="stockInvestBtn" class="menu-action-btn">투자하기</button>
                   </div>
                   <p id="stock-status" class="menu-note">하루 1회 투자할 수 있으며 다음 로그인 때 결과를 확인합니다.</p>
+                </div>
+              </div>
+
+              <div id="tab-skill" class="menu-content hidden">
+                <div class="special-grid">
+                  <div class="special-card">
+                    <button id="workOptimizationSkillBtn" class="menu-action-btn">업무 최적화</button>
+                    <p>5시간마다 한 번, 현재 온라인인 모든 유저에게 1시간 동안 모든 획득 경험치 2배 버프를 부여합니다.</p>
+                    <p id="workOptimizationSkillStatus" class="menu-note">200레벨부터 사용할 수 있습니다.</p>
+                  </div>
                 </div>
               </div>
 
@@ -589,6 +601,6 @@
     </div>
   </div>
 
-  <script src="client.js?v=88"></script>
+  <script src="client.js?v=89"></script>
 </body>
 </html>

@@ -48,6 +48,9 @@ const FIELD_WORK_DURATION_MS = 12 * 60 * 60 * 1000;
 const CONFIDENCE_DURATION_MS = 60 * 60 * 1000;
 const FATIGUE_DURATION_MS = 4 * 60 * 60 * 1000;
 const CAT_GRATITUDE_DURATION_MS = 60 * 60 * 1000;
+const WORK_OPTIMIZATION_DURATION_MS = 60 * 60 * 1000;
+const WORK_OPTIMIZATION_COOLDOWN_MS = 5 * 60 * 60 * 1000;
+const WORK_OPTIMIZATION_UNLOCK_LEVEL = 200;
 const SHOUT_COOLDOWN_MS = 10 * 60 * 1000;
 const SHOUT_VISIBLE_DURATION_MS = 36 * 1000;
 const ONLINE_THRESHOLD_MS = 25 * 1000;
@@ -82,6 +85,7 @@ const EQUIPMENT_TYPE_CARD = 'card_effect';
 const EQUIPMENT_TYPE_ATTACK = 'basic_attack';
 const EQUIPMENT_SCROLL_DROP_WEIGHT = 3;
 const EQUIPMENT_GEAR_DROP_WEIGHT = 7;
+const CAT_TUNA_CAN_ITEM_IDS = ['cat_tuna_can', 'tuna_can', 'cat_food'];
 
 const ITEM_DATA = {
   pen_monami: {
@@ -295,6 +299,12 @@ const BUFF_DATA = {
     durationMs: CAT_GRATITUDE_DURATION_MS,
     desc: '1시간 동안 모든 경험치 획득량이 2배가 됩니다.',
     effects: { expBonusAdd: 1 }
+  },
+  work_optimization_buff: {
+    name: '업무 최적화',
+    durationMs: WORK_OPTIMIZATION_DURATION_MS,
+    desc: '1시간 동안 모든 획득 경험치가 2배가 됩니다.',
+    effects: { expBonusAdd: 1 }
   }
 };
 
@@ -342,6 +352,13 @@ const TITLE_DATA = {
     unlockDesc: '고양이에게 참치캔을 총 10번 건네주면 획득',
     baseDesc: '장착 시 매일 행동력 +2, 월급 +6%, 모험 시 행동력 소모 절반',
     effects: { staminaBonus: 2, moneyBonus: 6, adventureStaminaMultiplier: 0.5 }
+  },
+  pure_blood: {
+    name: '순혈주의자',
+    unlockDesc: '운영자 지급 전용',
+    baseDesc: '장착 시 타이핑 경험치 1.2배, 월급 +5%',
+    effects: { typingExpMultiplier: 1.2, moneyBonus: 5 },
+    adminOnly: true
   }
 };
 
@@ -1277,7 +1294,7 @@ const ADVENTURE_EVENT_DEFINITIONS = [
     location: '사무실',
     actor: '박 대리님',
     message: '박 대리님이 서랍 깊은 곳에서 작은 참치캔을 꺼냈다. "지난번에 고양이 좋아하던데, 이거 하나 가져가."',
-    reward: { type: 'item', itemId: 'hot6', quantity: 1 }
+    reward: { type: 'item', itemId: 'cat_tuna_can', quantity: 1 }
   },
   {
     id: 'office_park_exp',
@@ -1552,6 +1569,13 @@ const ADMIN_GIFT_CATALOG = {
     id: pkg.id,
     name: `${pkg.name} (${pkg.price.toLocaleString()}원)`,
     rewardsText: pkg.rewards.map((reward) => `${ITEM_DATA[reward.itemId]?.name || reward.itemId} ${reward.quantity}개`).join(', ')
+  })),
+  titles: Object.entries(TITLE_DATA)
+    .filter(([, title]) => title.adminOnly)
+    .map(([id, title]) => ({
+      id,
+      name: title.name,
+      desc: title.baseDesc
   }))
 };
 
@@ -1670,6 +1694,8 @@ const userSchema = new mongoose.Schema({
     raidEntryBonusCount: { type: Number, default: 0 },
     catFoodGivenCount: { type: Number, default: 0 },
     lastTitleChangeDayKey: { type: String, default: null },
+    lastWorkOptimizationAt: { type: Date, default: null },
+    workOptimizationSkillNotified: { type: Boolean, default: false },
     lastAdventureLog: { type: String, default: '' }
   },
   pendingAdventure: {
@@ -1854,6 +1880,8 @@ function ensureUserDefaults(user) {
       raidEntryBonusCount: 0,
       catFoodGivenCount: 0,
       lastTitleChangeDayKey: null,
+      lastWorkOptimizationAt: null,
+      workOptimizationSkillNotified: false,
       lastAdventureLog: ''
     };
   }
@@ -1867,6 +1895,8 @@ function ensureUserDefaults(user) {
   user.meta.raidEntryBonusCount = Number(user.meta.raidEntryBonusCount ?? 0);
   user.meta.catFoodGivenCount = Number(user.meta.catFoodGivenCount ?? 0);
   user.meta.lastTitleChangeDayKey = user.meta.lastTitleChangeDayKey || null;
+  user.meta.lastWorkOptimizationAt = user.meta.lastWorkOptimizationAt || null;
+  user.meta.workOptimizationSkillNotified = Boolean(user.meta.workOptimizationSkillNotified);
   user.meta.lastAdventureLog = user.meta.lastAdventureLog || '';
 
   if (!user.pendingAdventure || typeof user.pendingAdventure !== 'object') {
@@ -2599,6 +2629,24 @@ function removeItemFromInventory(user, itemId, amount = 1) {
   return true;
 }
 
+function getCatTunaCanQuantity(user) {
+  return CAT_TUNA_CAN_ITEM_IDS.reduce((total, itemId) => total + getInventoryQuantity(user, itemId), 0);
+}
+
+function removeCatTunaCanFromInventory(user, amount = 1) {
+  let remaining = Math.max(1, Math.floor(Number(amount) || 1));
+  for (const itemId of CAT_TUNA_CAN_ITEM_IDS) {
+    if (remaining <= 0) break;
+    const available = getInventoryQuantity(user, itemId);
+    if (available <= 0) continue;
+    const removeAmount = Math.min(available, remaining);
+    if (removeItemFromInventory(user, itemId, removeAmount)) {
+      remaining -= removeAmount;
+    }
+  }
+  return remaining <= 0;
+}
+
 function bumpRaidVersion() {
   raidState.version += 1;
 }
@@ -2915,6 +2963,16 @@ function applyWorkDrop(user) {
     text: `${ITEM_DATA[scrollItemId].name} 1개를 획득했습니다!`,
     itemId: scrollItemId
   };
+}
+
+function applyWorkDrops(user, attempts = 1) {
+  const normalizedAttempts = Math.max(0, Math.floor(Number(attempts) || 0));
+  const drops = [];
+  for (let index = 0; index < normalizedAttempts; index += 1) {
+    const drop = applyWorkDrop(user);
+    if (drop) drops.push(drop);
+  }
+  return drops;
 }
 
 function decodeXmlEntities(value = '') {
@@ -4656,6 +4714,7 @@ function calculateDerivedStats(user, now = new Date()) {
   const titleStressMultiplier = titleEffects.titleStressMultiplier || 1;
   const passiveExpMultiplier = Math.max(0, 1 + activeBuffEffects.expBonusAdd + activeBuffEffects.passiveExpBonusAdd);
   const clickExpMultiplier = Math.max(0, 1 + activeBuffEffects.expBonusAdd + activeBuffEffects.clickExpBonusAdd);
+  const typingExpMultiplier = Math.max(0, Number(titleEffects.typingExpMultiplier || 1));
 
   const finalStressMultiplier = Number((itemStats.stressMultiplier * titleStressMultiplier).toFixed(6));
 
@@ -4671,6 +4730,7 @@ function calculateDerivedStats(user, now = new Date()) {
     shopStressRelief: Number((titleEffects.shopStressRelief || 0).toFixed(2)),
     passiveExpMultiplier,
     clickExpMultiplier,
+    typingExpMultiplier,
     noStress: activeBuffEffects.noStress,
     maxStaminaBonus: Number(titleEffects.staminaBonus || 0),
     adventureStaminaMultiplier: Number(titleEffects.adventureStaminaMultiplier || 1)
@@ -4710,6 +4770,50 @@ function getEffectiveMaxStamina(user, now = new Date()) {
 function getAdventureStaminaCost(user, now = new Date()) {
   const derivedStats = calculateDerivedStats(user, now);
   return Number((1 * derivedStats.adventureStaminaMultiplier).toFixed(2));
+}
+
+function hasWorkOptimizationSkill(user) {
+  return Number(user?.gameState?.level || 1) >= WORK_OPTIMIZATION_UNLOCK_LEVEL;
+}
+
+function getWorkOptimizationSkillState(user, now = new Date()) {
+  const unlocked = hasWorkOptimizationSkill(user);
+  const lastUsedAt = user.meta?.lastWorkOptimizationAt ? new Date(user.meta.lastWorkOptimizationAt) : null;
+  const nextAvailableAt = lastUsedAt
+    ? new Date(lastUsedAt.getTime() + WORK_OPTIMIZATION_COOLDOWN_MS)
+    : null;
+  const remainingMs = unlocked && nextAvailableAt
+    ? Math.max(0, nextAvailableAt.getTime() - now.getTime())
+    : 0;
+
+  return {
+    id: 'work_optimization',
+    name: '업무 최적화',
+    unlocked,
+    unlockLevel: WORK_OPTIMIZATION_UNLOCK_LEVEL,
+    cooldownMs: WORK_OPTIMIZATION_COOLDOWN_MS,
+    buffDurationMs: WORK_OPTIMIZATION_DURATION_MS,
+    lastUsedAt,
+    nextAvailableAt,
+    remainingMs,
+    available: unlocked && remainingMs <= 0,
+    desc: '5시간마다 한 번 사용할 수 있습니다. 현재 온라인인 모든 유저에게 1시간 동안 모든 획득 경험치 2배 버프를 부여합니다.'
+  };
+}
+
+function buildSkillDetails(user, now = new Date()) {
+  const workOptimization = getWorkOptimizationSkillState(user, now);
+  return {
+    unlocked: workOptimization.unlocked,
+    workOptimization
+  };
+}
+
+function reconcileSkills(user) {
+  if (!hasWorkOptimizationSkill(user)) return;
+  if (user.meta.workOptimizationSkillNotified) return;
+  user.meta.workOptimizationSkillNotified = true;
+  queueNotification(user, 'skill_unlock', '<업무 최적화> 스킬을 획득했습니다! 스킬 탭에서 5시간마다 사용할 수 있습니다.');
 }
 
 function settlePendingStockInvestment(user, now = new Date()) {
@@ -4774,6 +4878,8 @@ function reconcileTitles(user, now = new Date()) {
   if (shoppingDaysWithoutBigSpend > SHOPPING_ADDICT_LOSE_AFTER_DAYS) {
     removeTitle(user, 'shopping_addict');
   }
+
+  reconcileSkills(user);
 }
 
 function checkLevelUp(user) {
@@ -4936,6 +5042,8 @@ function buildGameStateResponse(user, now = new Date()) {
       raidEntryBonusCount: user.meta.raidEntryBonusCount,
       catFoodGivenCount: user.meta.catFoodGivenCount,
       lastTitleChangeDayKey: user.meta.lastTitleChangeDayKey,
+      lastWorkOptimizationAt: user.meta.lastWorkOptimizationAt,
+      workOptimizationSkillNotified: user.meta.workOptimizationSkillNotified,
       lastAdventureLog: user.meta.lastAdventureLog
     },
     itemStats: {
@@ -4950,10 +5058,12 @@ function buildGameStateResponse(user, now = new Date()) {
       shopStressRelief: derivedStats.shopStressRelief,
       passiveExpMultiplier: derivedStats.passiveExpMultiplier,
       clickExpMultiplier: derivedStats.clickExpMultiplier,
+      typingExpMultiplier: derivedStats.typingExpMultiplier,
       maxStaminaBonus: derivedStats.maxStaminaBonus,
       adventureStaminaMultiplier: derivedStats.adventureStaminaMultiplier
     },
-    shopPrices: getShopPricesForUser(user)
+    shopPrices: getShopPricesForUser(user),
+    skills: buildSkillDetails(user, now)
   };
 }
 
@@ -5298,7 +5408,8 @@ app.post('/api/action/work', async (req, res) => {
       checkLevelUp(user);
       reconcileTitles(user, now);
       user.gameState.lastActionTime = now;
-      const workDrop = applyWorkDrop(user);
+      const workDrops = applyWorkDrops(user, 1);
+      const workDrop = workDrops[0] || null;
       if (workDrop?.text) {
         queueNotification(user, 'work_drop', workDrop.text);
       }
@@ -5353,13 +5464,23 @@ app.post('/api/action/news-typing', async (req, res) => {
       let gainedExp = 0;
       if (!hadTooMuchStress) {
         const expMultiplier = (1 + derivedStats.expBonusPercent / 100);
-        gainedExp = Math.floor(getClickExp(user.gameState.level) * unitCount * expMultiplier * derivedStats.clickExpMultiplier);
+        gainedExp = Math.floor(
+          getClickExp(user.gameState.level)
+          * unitCount
+          * expMultiplier
+          * derivedStats.clickExpMultiplier
+          * derivedStats.typingExpMultiplier
+        );
         user.gameState.exp += gainedExp;
       }
 
       checkLevelUp(user);
       reconcileTitles(user, now);
       user.gameState.lastActionTime = now;
+      const typingDrops = applyWorkDrops(user, unitCount);
+      typingDrops.forEach((drop) => {
+        if (drop?.text) queueNotification(user, 'work_drop', drop.text);
+      });
 
       const nextPrompt = await getNewsTypingPrompt(prompt.id);
       const mutationResponse = await buildUserResponseWithGlobals(user, now);
@@ -5367,6 +5488,7 @@ app.post('/api/action/news-typing', async (req, res) => {
         gainedExp,
         unitCount,
         wordCount: unitCount,
+        dropCount: typingDrops.length,
         nextPrompt
       };
       return mutationResponse;
@@ -5375,6 +5497,68 @@ app.post('/api/action/news-typing', async (req, res) => {
     res.json(response);
   } catch (err) {
     console.error('News typing action error:', err);
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/skill/work-optimization', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+
+  try {
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      cleanupExpiredBuffs(user, now);
+      reconcileTitles(user, now);
+
+      const skillState = getWorkOptimizationSkillState(user, now);
+      if (!skillState.unlocked) {
+        throw createHttpError(403, `${WORK_OPTIMIZATION_UNLOCK_LEVEL}레벨부터 사용할 수 있는 스킬입니다.`);
+      }
+      if (!skillState.available) {
+        const remainingMinutes = Math.ceil(skillState.remainingMs / 60000);
+        throw createHttpError(400, `업무 최적화는 아직 재사용 대기 중입니다. 약 ${remainingMinutes}분 후 사용할 수 있습니다.`);
+      }
+
+      user.meta.lastWorkOptimizationAt = now;
+      setOrRefreshBuff(user, 'work_optimization_buff', WORK_OPTIMIZATION_DURATION_MS, { now });
+      queueNotification(user, 'skill_use', '<업무 최적화>를 사용했습니다. 온라인 유저들에게 1시간 경험치 2배 버프가 적용됩니다.');
+
+      const onlineSince = new Date(now.getTime() - ONLINE_THRESHOLD_MS);
+      const onlineTargets = await User.find({
+        _id: { $ne: user._id },
+        'meta.lastSeenAt': { $gte: onlineSince }
+      }).select('_id nickname username');
+
+      let deliveredCount = 1;
+      for (const target of onlineTargets) {
+        try {
+          await runUserMutationWithRetry(target._id, async (targetUser) => {
+            const targetNow = new Date();
+            cleanupExpiredBuffs(targetUser, targetNow);
+            setOrRefreshBuff(targetUser, 'work_optimization_buff', WORK_OPTIMIZATION_DURATION_MS, { now: targetNow });
+            queueNotification(targetUser, 'skill_buff', '누군가 <업무 최적화>를 사용했습니다! 1시간 동안 모든 획득 경험치가 2배가 됩니다.');
+            return null;
+          }, { conflictLabel: 'Work optimization target conflict' });
+          deliveredCount += 1;
+        } catch (err) {
+          console.error('Work optimization target skipped:', err);
+        }
+      }
+
+      const mutationResponse = await buildUserResponseWithGlobals(user, now);
+      mutationResponse.skillResult = {
+        name: '업무 최적화',
+        deliveredCount,
+        message: `업무 최적화 버프를 현재 온라인 유저 ${deliveredCount}명에게 적용했습니다.`
+      };
+      return mutationResponse;
+    }, { conflictLabel: 'Work optimization skill conflict' });
+
+    res.json(response);
+  } catch (err) {
+    console.error('Work optimization skill error:', err);
     res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
   }
 });
@@ -5489,8 +5673,7 @@ app.post('/api/action/adventure/resolve', async (req, res) => {
       const hasCatButlerTitle = user.titles?.unlocked?.includes('cat_butler');
 
       if (choice === 'yes') {
-        if (getInventoryQuantity(user, 'cat_tuna_can') > 0) {
-          removeItemFromInventory(user, 'cat_tuna_can', 1);
+        if (getCatTunaCanQuantity(user) > 0 && removeCatTunaCanFromInventory(user, 1)) {
           user.meta.catFoodGivenCount += 1;
           rewardText = `고양이에게 참치캔을 건넸습니다. 현재 총 ${user.meta.catFoodGivenCount}번 건네줬습니다.`;
 
@@ -6830,7 +7013,7 @@ app.post('/api/admin/gift', async (req, res) => {
     return res.status(400).json({ msg: '대상 지정 방식이 올바르지 않습니다.' });
   }
 
-  if (!['item', 'buff', 'package'].includes(giftType)) {
+  if (!['item', 'buff', 'package', 'title'].includes(giftType)) {
     return res.status(400).json({ msg: '선물 종류가 올바르지 않습니다.' });
   }
 
@@ -6844,6 +7027,10 @@ app.post('/api/admin/gift', async (req, res) => {
 
   if (giftType === 'package' && !SUPPORT_PACKAGE_DATA[giftId]) {
     return res.status(400).json({ msg: '존재하지 않는 패키지입니다.' });
+  }
+
+  if (giftType === 'title' && !TITLE_DATA[giftId]) {
+    return res.status(400).json({ msg: '존재하지 않는 칭호입니다.' });
   }
 
   try {
@@ -6869,9 +7056,14 @@ app.post('/api/admin/gift', async (req, res) => {
       } else if (giftType === 'buff') {
         setOrRefreshBuff(user, giftId, BUFF_DATA[giftId].durationMs);
         queueNotification(user, 'admin_gift', `운영자로부터 선물이 도착했습니다! <${BUFF_DATA[giftId].name}>`);
-      } else {
+      } else if (giftType === 'package') {
         const packageInfo = applySupportPackage(user, giftId);
         queueNotification(user, 'admin_gift', `운영자로부터 선물이 도착했습니다! <${packageInfo.name}>`);
+      } else {
+        const unlocked = unlockTitle(user, giftId);
+        if (!unlocked) {
+          queueNotification(user, 'admin_gift', `운영자가 <${TITLE_DATA[giftId].name}> 칭호를 다시 확인했습니다. 이미 보유 중입니다.`);
+        }
       }
 
       reconcileTitles(user, now);
