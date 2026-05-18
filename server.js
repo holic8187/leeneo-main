@@ -18,7 +18,8 @@ const ADMIN_PASSWORD = 'dinguree';
 let newsTypingCache = {
   fetchedAt: 0,
   prompts: [],
-  fallback: false
+  fallback: false,
+  stats: []
 };
 let newsTypingCursor = 0;
 const activeNewsTypingSubmissions = new Set();
@@ -35,8 +36,12 @@ const NEWS_TYPING_RSS_FEEDS = [
   'https://news.google.com/rss?hl=ko&gl=KR&ceid=KR:ko',
   'https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=ko&gl=KR&ceid=KR:ko',
   'https://news.google.com/rss/headlines/section/topic/TECHNOLOGY?hl=ko&gl=KR&ceid=KR:ko',
-  'https://news.naver.com/main/rss/news.naver?sid1=101',
-  'https://news.naver.com/main/rss/news.naver?sid1=105'
+  'https://www.yna.co.kr/rss/news.xml',
+  'https://www.hani.co.kr/rss/',
+  'https://rss.donga.com/total.xml',
+  'https://rss.etnews.com/Section901.xml',
+  'https://www.khan.co.kr/rss/rssdata/total_news.xml',
+  'https://www.mk.co.kr/rss/30000001/'
 ];
 const NEWS_TYPING_FETCH_TIMEOUT_MS = 8000;
 const NEWS_TYPING_FALLBACK_SENTENCES = [
@@ -3189,15 +3194,33 @@ async function fetchNewsTypingPrompts(force = false) {
   if (!force && cacheFresh) return newsTypingCache.prompts;
 
   const candidates = [];
+  const fetchStats = [];
   await Promise.allSettled(NEWS_TYPING_RSS_FEEDS.map(async (url) => {
-    const response = await fetchWithTimeout(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 IneoOfficeTypingGame/1.0'
-      }
-    });
-    if (!response.ok) throw new Error(`RSS fetch failed: ${response.status}`);
-    const xml = await response.text();
-    candidates.push(...parseRssTypingCandidates(xml));
+    try {
+      const response = await fetchWithTimeout(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 IneoOfficeTypingGame/1.0',
+          Accept: 'application/rss+xml, application/xml, text/xml, */*'
+        }
+      });
+      if (!response.ok) throw new Error(`RSS fetch failed: ${response.status}`);
+      const xml = await response.text();
+      const parsedCandidates = parseRssTypingCandidates(xml);
+      candidates.push(...parsedCandidates);
+      fetchStats.push({
+        url,
+        ok: true,
+        status: response.status,
+        itemCount: (String(xml).match(/<item\b/gi) || []).length,
+        candidateCount: parsedCandidates.length
+      });
+    } catch (err) {
+      fetchStats.push({
+        url,
+        ok: false,
+        error: err?.cause?.code || err?.message || String(err)
+      });
+    }
   }));
 
   const uniqueSentences = [...new Map(candidates
@@ -3216,14 +3239,20 @@ async function fetchNewsTypingPrompts(force = false) {
     newsTypingCache = {
       fetchedAt: now,
       prompts,
-      fallback: usingFallback
+      fallback: usingFallback,
+      stats: fetchStats
     };
+    if (usingFallback) {
+      console.warn('News typing RSS fallback used:', fetchStats);
+    }
   } else if (!newsTypingCache.prompts.length) {
     newsTypingCache = {
       fetchedAt: now,
       prompts: NEWS_TYPING_FALLBACK_SENTENCES.map(buildNewsTypingPrompt),
-      fallback: true
+      fallback: true,
+      stats: fetchStats
     };
+    console.warn('News typing RSS fallback used with empty prompt build:', fetchStats);
   }
 
   return newsTypingCache.prompts;

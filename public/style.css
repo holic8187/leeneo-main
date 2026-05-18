@@ -775,7 +775,7 @@ progress {
   top: 0;
   left: 0;
   height: 100%;
-  background: linear-gradient(90deg, #ff6b6b 0%, #c62828 100%);
+  background: linear-gradient(90deg, #7cc56b 0%, #2e7d32 100%);
   transition: width 1.05s cubic-bezier(0.22, 0.61, 0.36, 1);
   will-change: width;
   transform: translateZ(0);

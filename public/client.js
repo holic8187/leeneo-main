@@ -232,6 +232,23 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-18-1507-news-rss-source-fix',
+    time: '2026-05-18 15:07',
+    title: '뉴스 타이핑 RSS 소스 보강',
+    items: [
+      '응답하지 않는 뉴스 RSS 주소를 제거하고, 여러 국내 뉴스 RSS 소스를 추가해 실시간 헤드라인을 더 안정적으로 불러오도록 개선했습니다.',
+      '실시간 뉴스 후보를 하나도 얻지 못해 예비 문장으로 전환되는 경우, 서버 로그에 원인 확인용 RSS 상태가 남도록 보강했습니다.'
+    ]
+  },
+  {
+    id: '2026-05-18-1458-boss-hp-color',
+    time: '2026-05-18 14:58',
+    title: '보스 HP바 가시성 개선',
+    items: [
+      '보스 현재 HP바를 초록색으로 변경해, 빨간 피해 잔상이 더 또렷하게 보이도록 조정했습니다.'
+    ]
+  },
+  {
     id: '2026-05-18-1449-raid-hp-smooth-animation',
     time: '2026-05-18 14:49',
     title: '레이드 HP바 애니메이션 개선',
