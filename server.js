@@ -17,21 +17,28 @@ const ADMIN_PASSWORD = 'dinguree';
 
 let newsTypingCache = {
   fetchedAt: 0,
-  prompts: []
+  prompts: [],
+  fallback: false
 };
 let newsTypingCursor = 0;
+const activeNewsTypingSubmissions = new Set();
+const recentNewsTypingSubmissions = new Map();
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const BASE_DAILY_SALARY = 300000;
 const BASE_DAILY_PASSIVE_EXP = 400;
 const BASE_CLICK_EXP = 5;
 const NEWS_TYPING_CACHE_TTL_MS = 10 * 60 * 1000;
+const NEWS_TYPING_FALLBACK_CACHE_TTL_MS = 30 * 1000;
+const NEWS_TYPING_DUPLICATE_WINDOW_MS = 7000;
 const NEWS_TYPING_RSS_FEEDS = [
   'https://news.google.com/rss?hl=ko&gl=KR&ceid=KR:ko',
   'https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=ko&gl=KR&ceid=KR:ko',
-  'https://news.google.com/rss/headlines/section/topic/TECHNOLOGY?hl=ko&gl=KR&ceid=KR:ko'
+  'https://news.google.com/rss/headlines/section/topic/TECHNOLOGY?hl=ko&gl=KR&ceid=KR:ko',
+  'https://news.naver.com/main/rss/news.naver?sid1=101',
+  'https://news.naver.com/main/rss/news.naver?sid1=105'
 ];
-const NEWS_TYPING_FETCH_TIMEOUT_MS = 3500;
+const NEWS_TYPING_FETCH_TIMEOUT_MS = 8000;
 const NEWS_TYPING_FALLBACK_SENTENCES = [
   '오늘 국내 주요 기업들이 신규 서비스 출시 계획을 공개했다.',
   '시장 전문가들은 이번 주 경제 지표 발표에 주목하고 있다.',
@@ -64,6 +71,7 @@ const RAID_PARTY_SIZE = 5;
 const RAID_ACTION_DELAY_MS = 2000;
 const RAID_COUNTDOWN_SECONDS = 3;
 const RAID_COUNTDOWN_BUFFER_MS = 2000;
+const RAID_INITIAL_READY_MS = 5000;
 const RAID_DAILY_LIMIT = 1;
 const RAID_MULTI_HIT_DAMAGE_MULTIPLIER = 0.9;
 const RAID_SPECIAL_REWARD_CHANCE = 0.05;
@@ -735,9 +743,9 @@ const CARD_ENHANCE_BORDER_COLORS = {
 const CARD_ENHANCE_RULES = {
   ineo_diet: { hits: { 0: 7, 1: 8, 3: 10, 5: 11 }, cooldown: { 0: 5, 2: 4, 4: 3 } },
   gangnam_style: { critBonus: { 0: 0.1, 1: 0.15, 3: 0.2 }, shield: { 0: 10, 2: 15, 5: 20 }, cooldown: { 0: 3, 4: 2 } },
-  delegate_lee: { multiplierPerLevel: { 0: 20, 1: 25, 3: 30, 4: 35 }, cooldown: { 0: 4, 2: 3, 5: 2 } },
+  delegate_lee: { multiplierPerLevel: { 0: 20, 1: 25, 3: 30, 4: 35 }, cooldown: { 0: 6, 2: 5, 5: 4 } },
   celine_tears: { attackBonusPercent: { 0: 0.3, 1: 0.4, 4: 0.5 }, expireDamagePerLevel: { 0: 50, 3: 60, 5: 65 }, cooldown: { 0: 3, 2: 2 } },
-  strawberry_latte: { shield: { 0: 20, 1: 25, 3: 30, 4: 35 }, shieldTurns: { 5: 1 }, cooldown: { 0: 4, 2: 3 } },
+  strawberry_latte: { shield: { 0: 20, 1: 25, 3: 30, 4: 35, 5: 40 }, shieldTurns: { 5: 1 }, cooldown: { 0: 4, 2: 3 } },
   rebuttal: { heal: { 0: 10, 1: 15, 2: 20, 4: 25 }, includeSelf: { 0: 0, 3: 1 }, cooldown: { 0: 4, 5: 3 } },
   parking_master: { hits: { 0: 2, 2: 3, 4: 4, 5: 5 }, cooldown: { 0: 5, 1: 4, 3: 3 } },
   tissue_box: { turns: { 0: 1, 2: 2 }, counterDamageMultiplier: { 0: 0.8, 1: 0.9, 4: 1, 5: 1.2 }, cooldown: { 0: 4, 3: 3 } },
@@ -1820,7 +1828,7 @@ function ensureUserDefaults(user) {
   user.gameState.exp = Number(user.gameState.exp ?? 0);
   user.gameState.stamina = Number(user.gameState.stamina ?? 10);
   user.gameState.maxStamina = Number(user.gameState.maxStamina ?? 10);
-  user.gameState.stress = Number(user.gameState.stress ?? 0);
+  user.gameState.stress = clampStressValue(user.gameState.stress ?? 0);
   user.gameState.moneyCarry = Number(user.gameState.moneyCarry ?? 0);
   user.gameState.passiveExpCarry = Number(user.gameState.passiveExpCarry ?? 0);
   user.gameState.lastActionTime = user.gameState.lastActionTime || new Date();
@@ -3177,7 +3185,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = NEWS_TYPING_FETCH
 async function fetchNewsTypingPrompts(force = false) {
   const now = Date.now();
   const cacheFresh = newsTypingCache.prompts.length
-    && now - newsTypingCache.fetchedAt < NEWS_TYPING_CACHE_TTL_MS;
+    && now - newsTypingCache.fetchedAt < (newsTypingCache.fallback ? NEWS_TYPING_FALLBACK_CACHE_TTL_MS : NEWS_TYPING_CACHE_TTL_MS);
   if (!force && cacheFresh) return newsTypingCache.prompts;
 
   const candidates = [];
@@ -3199,23 +3207,47 @@ async function fetchNewsTypingPrompts(force = false) {
     .map((sentence) => [normalizeNewsTypingAnswer(sentence), sentence])).values()]
     .slice(0, 120);
 
-  const prompts = (uniqueSentences.length ? uniqueSentences : NEWS_TYPING_FALLBACK_SENTENCES)
+  const usingFallback = uniqueSentences.length === 0;
+  const prompts = (usingFallback ? [...NEWS_TYPING_FALLBACK_SENTENCES].sort(() => Math.random() - 0.5) : uniqueSentences)
     .map(buildNewsTypingPrompt)
     .filter((prompt) => prompt.text && prompt.unitCount > 0);
 
   if (prompts.length) {
     newsTypingCache = {
       fetchedAt: now,
-      prompts
+      prompts,
+      fallback: usingFallback
     };
   } else if (!newsTypingCache.prompts.length) {
     newsTypingCache = {
       fetchedAt: now,
-      prompts: NEWS_TYPING_FALLBACK_SENTENCES.map(buildNewsTypingPrompt)
+      prompts: NEWS_TYPING_FALLBACK_SENTENCES.map(buildNewsTypingPrompt),
+      fallback: true
     };
   }
 
   return newsTypingCache.prompts;
+}
+
+function cleanupNewsTypingSubmissionGuards(now = Date.now()) {
+  for (const [key, expiresAt] of recentNewsTypingSubmissions.entries()) {
+    if (expiresAt <= now) recentNewsTypingSubmissions.delete(key);
+  }
+}
+
+function reserveNewsTypingSubmission(userId, promptId) {
+  cleanupNewsTypingSubmissionGuards();
+  const key = `${userId}:${promptId}`;
+  if (activeNewsTypingSubmissions.has(key) || (recentNewsTypingSubmissions.get(key) || 0) > Date.now()) {
+    return null;
+  }
+  activeNewsTypingSubmissions.add(key);
+  return key;
+}
+
+function markNewsTypingSubmissionSettled(key) {
+  if (!key) return;
+  recentNewsTypingSubmissions.set(key, Date.now() + NEWS_TYPING_DUPLICATE_WINDOW_MS);
 }
 
 async function getNewsTypingPrompt(afterId = null) {
@@ -4324,6 +4356,7 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
     bossPatternIndex: activeBattle.bossPatternIndex,
     nextActionAt: activeBattle.nextActionAt,
     countdownEndsAt: activeBattle.countdownEndsAt || null,
+    readyEndsAt: activeBattle.readyEndsAt || null,
     isParticipant: viewerUserId ? isRaidUserParticipant(activeBattle, viewerUserId) : false,
     participants: activeBattle.participants.map((participant, index) => {
       const card = getParticipantCard(participant);
@@ -4582,9 +4615,20 @@ async function advanceRaidState(now = new Date()) {
 
     if (activeBattle.phase === 'countdown') {
       if (now.getTime() < new Date(activeBattle.countdownEndsAt).getTime()) return;
+      activeBattle.phase = 'ready';
+      activeBattle.readyEndsAt = new Date(now.getTime() + RAID_INITIAL_READY_MS);
+      activeBattle.nextActionAt = activeBattle.readyEndsAt;
+      activeBattle.logs.push('레이드가 시작되었습니다. 5초 동안 첫 행동을 준비하세요.');
+      bumpRaidVersion();
+      continue;
+    }
+
+    if (activeBattle.phase === 'ready') {
+      if (now.getTime() < new Date(activeBattle.readyEndsAt || activeBattle.nextActionAt).getTime()) return;
       activeBattle.phase = 'active';
+      activeBattle.readyEndsAt = null;
       activeBattle.nextActionAt = new Date(now.getTime() + RAID_ACTION_DELAY_MS);
-      activeBattle.logs.push('레이드가 시작되었습니다.');
+      activeBattle.logs.push('전투 행동을 시작합니다.');
       bumpRaidVersion();
       continue;
     }
@@ -4853,6 +4897,20 @@ function calculateDerivedStats(user, now = new Date()) {
   };
 }
 
+function clampStressValue(value) {
+  const stress = Number(value);
+  if (!Number.isFinite(stress)) return 0;
+  return Number(Math.min(100, Math.max(0, stress)).toFixed(4));
+}
+
+function setUserStress(user, value) {
+  user.gameState.stress = clampStressValue(value);
+}
+
+function addUserStress(user, amount) {
+  setUserStress(user, Number(user.gameState.stress || 0) + Number(amount || 0));
+}
+
 function getRequiredExp(level) {
   return Math.floor(1000 * Math.pow(1.1, level - 1));
 }
@@ -5046,12 +5104,12 @@ function calculateOfflineGains(user, now = new Date()) {
 
   if (!derivedStats.noStress) {
     const gainedStress = elapsedSeconds * IDLE_STRESS_PER_SECOND * derivedStats.stressMultiplier;
-    user.gameState.stress = Number(Math.min(100, user.gameState.stress + gainedStress).toFixed(2));
+    addUserStress(user, gainedStress);
   }
 
   if (derivedStats.hourlyStressRelief > 0) {
     const stressRelief = (derivedStats.hourlyStressRelief / 3600) * elapsedSeconds;
-    user.gameState.stress = Number(Math.max(0, user.gameState.stress - stressRelief).toFixed(2));
+    addUserStress(user, -stressRelief);
   }
 
   const rawMoneyGain =
@@ -5322,7 +5380,7 @@ function applyAdventureReward(user, reward, now = new Date()) {
 
   if (reward.type === 'stress') {
     const beforeStress = user.gameState.stress;
-    user.gameState.stress = Number(Math.min(100, Math.max(0, user.gameState.stress + reward.amount)).toFixed(2));
+    addUserStress(user, reward.amount);
     const actualDelta = Number((user.gameState.stress - beforeStress).toFixed(2));
     if (actualDelta === 0) return '스트레스는 변하지 않았습니다.';
     return actualDelta > 0
@@ -5509,11 +5567,11 @@ app.post('/api/action/work', async (req, res) => {
 
       if (!derivedStats.noStress) {
         const clickStressGain = CLICK_STRESS_GAIN * derivedStats.stressMultiplier;
-        user.gameState.stress = Number(Math.min(100, user.gameState.stress + clickStressGain).toFixed(2));
+        addUserStress(user, clickStressGain);
       }
 
       if (derivedStats.clickStressRelief > 0) {
-        user.gameState.stress = Number(Math.max(0, user.gameState.stress - derivedStats.clickStressRelief).toFixed(2));
+        addUserStress(user, -derivedStats.clickStressRelief);
       }
 
       if (!hadTooMuchStress) {
@@ -5547,6 +5605,7 @@ app.post('/api/action/news-typing', async (req, res) => {
   const { userId, promptId, answer } = req.body;
   if (!userId || !promptId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
 
+  let submissionKey = null;
   try {
     const prompt = await findNewsTypingPrompt(promptId);
     if (!prompt) {
@@ -5557,6 +5616,11 @@ app.post('/api/action/news-typing', async (req, res) => {
     const normalizedPromptText = normalizeNewsTypingAnswer(prompt.text);
     if (normalizedAnswer !== normalizedPromptText) {
       return res.status(400).json({ msg: '문장이 정확히 일치하지 않습니다.' });
+    }
+
+    submissionKey = reserveNewsTypingSubmission(userId, promptId);
+    if (!submissionKey) {
+      return res.status(429).json({ msg: '이미 정산 중인 문장입니다. 잠시만 기다려주세요.' });
     }
 
     const response = await runUserMutationWithRetry(userId, async (user) => {
@@ -5570,11 +5634,11 @@ app.post('/api/action/news-typing', async (req, res) => {
       const clickStressGain = CLICK_STRESS_GAIN * unitCount * derivedStats.stressMultiplier;
 
       if (!derivedStats.noStress) {
-        user.gameState.stress = Number(Math.min(100, user.gameState.stress + clickStressGain).toFixed(2));
+        addUserStress(user, clickStressGain);
       }
 
       if (derivedStats.clickStressRelief > 0) {
-        user.gameState.stress = Number(Math.max(0, user.gameState.stress - derivedStats.clickStressRelief * unitCount).toFixed(2));
+        addUserStress(user, -(derivedStats.clickStressRelief * unitCount));
       }
 
       let gainedExp = 0;
@@ -5610,10 +5674,13 @@ app.post('/api/action/news-typing', async (req, res) => {
       return mutationResponse;
     }, { conflictLabel: 'News typing action conflict' });
 
+    markNewsTypingSubmissionSettled(submissionKey);
     res.json(response);
   } catch (err) {
     console.error('News typing action error:', err);
     res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
+  } finally {
+    if (submissionKey) activeNewsTypingSubmissions.delete(submissionKey);
   }
 });
 
@@ -5907,7 +5974,7 @@ app.post('/api/action/nap', async (req, res) => {
       }
 
       user.gameState.stamina -= 3;
-      user.gameState.stress = Number(Math.max(0, user.gameState.stress - 30).toFixed(2));
+      addUserStress(user, -30);
       user.gameState.lastActionTime = now;
 
       return buildUserResponseWithGlobals(user, now);
@@ -5953,7 +6020,7 @@ app.post('/api/action/side-job', async (req, res) => {
       const staminaBefore = Number(user.gameState.stamina || 0);
 
       user.gameState.stamina = Number(Math.max(0, Number(user.gameState.stamina || 0) - 1).toFixed(2));
-      user.gameState.stress = Number(Math.min(100, stressBefore + 40).toFixed(2));
+      setUserStress(user, stressBefore + 40);
       user.gameState.money = moneyBefore + gainedMoney;
       user.gameState.lastActionTime = now;
 
@@ -6109,7 +6176,7 @@ app.post('/api/shop/buy', async (req, res) => {
 
     const derivedStats = calculateDerivedStats(user, now);
     if (derivedStats.shopStressRelief > 0) {
-      user.gameState.stress = Number(Math.max(0, user.gameState.stress - derivedStats.shopStressRelief).toFixed(2));
+      addUserStress(user, -derivedStats.shopStressRelief);
     }
 
     reconcileTitles(user, now);
@@ -6164,7 +6231,7 @@ app.post('/api/inventory/use', async (req, res) => {
       user.gameState.stamina = Math.min(getEffectiveMaxStamina(user, now), user.gameState.stamina + useQuantity);
       queueNotification(user, 'item_use', `박카스를 ${useQuantity}병 마셨습니다. 행동력이 ${useQuantity} 회복되었습니다.`);
     } else if (itemId === 'hot6') {
-      user.gameState.stress = Number(Math.max(0, user.gameState.stress - (10 * useQuantity)).toFixed(2));
+      addUserStress(user, -(10 * useQuantity));
       setOrRefreshBuff(user, 'hot6_buff', HOT6_DURATION_MS * useQuantity, { now, stackDuration: true });
       queueNotification(user, 'item_use', `핫식스를 ${useQuantity}병 사용했습니다. 스트레스가 ${10 * useQuantity} 감소하고 버프 시간이 누적되었습니다.`);
     } else if (itemId === 'tylenol') {
@@ -7075,6 +7142,7 @@ app.post('/api/raid/start', async (req, res) => {
       participants,
       phase: 'countdown',
       countdownEndsAt: new Date(now.getTime() + countdownDurationMs),
+      readyEndsAt: null,
       nextActionAt: new Date(now.getTime() + countdownDurationMs),
       turnIndex: 0,
       bossPatternIndex: 0,

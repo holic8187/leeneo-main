@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>네오상사 거래명세서</title>
-  <link rel="stylesheet" href="style.css?v=29">
+  <link rel="stylesheet" href="style.css?v=31">
 </head>
 <body>
   <div id="login-screen">
@@ -646,6 +646,10 @@
       </div>
     </div>
     <div class="raid-screen-body">
+      <div id="raidReadyCountdownOverlay" class="raid-ready-countdown hidden">
+        <div class="raid-ready-label">전투 준비</div>
+        <div id="raidReadyCountdownNumber" class="raid-ready-number">5</div>
+      </div>
       <div id="raidBossArea" class="raid-boss-area">
         <div id="raidBossPortrait" class="raid-boss-portrait">
           <div id="raidBossAvatar" class="raid-boss-avatar">트름녀</div>
@@ -672,6 +676,6 @@
     </div>
   </div>
 
-  <script src="client.js?v=92"></script>
+  <script src="client.js?v=95"></script>
 </body>
 </html>

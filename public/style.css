@@ -618,6 +618,38 @@ progress {
   gap: 12px;
   grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
   align-items: start;
+  position: relative;
+}
+
+.raid-ready-countdown {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  pointer-events: none;
+  color: #ffd400;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+}
+
+.raid-ready-countdown.hidden {
+  display: none;
+}
+
+.raid-ready-label {
+  padding: 4px 10px;
+  background: rgba(0, 96, 32, 0.88);
+  border: 1px solid #0b7d2a;
+  font-weight: 800;
+}
+
+.raid-ready-number {
+  margin-top: 6px;
+  font-size: 72px;
+  line-height: 1;
+  font-weight: 900;
 }
 
 .raid-boss-area {
@@ -732,7 +764,7 @@ progress {
   left: 0;
   height: 100%;
   background: linear-gradient(90deg, #ff9b9b 0%, #d94b4b 100%);
-  transition: width 0.42s linear;
+  transition: width 0.8s linear;
   z-index: 1;
 }
 
@@ -742,7 +774,7 @@ progress {
   left: 0;
   height: 100%;
   background: linear-gradient(90deg, #ff6b6b 0%, #c62828 100%);
-  transition: width 0.42s linear;
+  transition: width 0.8s linear;
   z-index: 2;
 }
 
@@ -807,7 +839,7 @@ progress {
   left: 0;
   height: 100%;
   background: linear-gradient(90deg, #7cc56b 0%, #2e7d32 100%);
-  transition: width 0.42s linear;
+  transition: width 0.8s linear;
   z-index: 2;
 }
 
@@ -816,7 +848,7 @@ progress {
   top: 0;
   height: 100%;
   background: linear-gradient(90deg, #ffe680 0%, #f2c94c 100%);
-  transition: left 0.42s linear, width 0.42s linear;
+  transition: left 0.8s linear, width 0.8s linear;
   z-index: 3;
 }
 
@@ -1179,6 +1211,21 @@ progress {
 
 .enhance-modal-panel {
   width: min(1080px, calc(100vw - 40px));
+}
+
+#equipmentEnhanceModal .enhance-modal-panel {
+  box-sizing: border-box;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  padding-bottom: 48px;
+  overscroll-behavior: contain;
+}
+
+#equipmentEnhanceSourceList,
+#equipmentEnhanceScrollList {
+  max-height: min(360px, 34vh);
+  padding: 0 4px 30px 0;
+  scroll-padding-bottom: 30px;
 }
 
 .enhance-top-row {

@@ -63,7 +63,7 @@ const ITEM_DATA = {
 const CARD_DATA = {
   ineo_diet: { name: '이네오의 다이어트 선언', grade: 'S', color: '#c62828', skillName: '다이어트 선언', skillDesc: '돌아오는 턴에 기본 공격을 총 10회 합니다. 각 공격은 기본 공격 피해의 90%로 적용되며 크리티컬이 적용될 수 있습니다.', cooldown: 3, targetType: null },
   gangnam_style: { name: '일 중에 몰래 듣는 강남스타일', grade: 'S', color: '#c62828', skillName: '강남스타일', skillDesc: '1턴 동안 모든 팀원에게 크리티컬률 20%와 흥겨움 버프를 부여하고, 보호막 10을 제공합니다. 흥겨움 동안 기본 공격 횟수가 2배가 됩니다.', cooldown: 2, targetType: null },
-  delegate_lee: { name: '이것 좀 대신 해줘 이대리', grade: 'S', color: '#c62828', skillName: '이것 좀 대신 해줘', skillDesc: '현재 입장한 파티원의 전체 레벨 합 x 30의 데미지를 1회 가합니다.', cooldown: 2, targetType: null },
+  delegate_lee: { name: '이것 좀 대신 해줘 이대리', grade: 'S', color: '#c62828', skillName: '이것 좀 대신 해줘', skillDesc: '현재 입장한 파티원의 전체 레벨 합 x 30의 데미지를 1회 가합니다.', cooldown: 6, targetType: null },
   celine_tears: { name: '구마의 눈물 젖은 셀린느', grade: 'S', color: '#c62828', skillName: '셀린느', skillDesc: '1턴 동안 <셀린느> 버프를 얻어 공격력이 50% 증가하고, 버프가 끝날 때 자신의 레벨 x 60 피해를 입힙니다.', cooldown: 2, targetType: null },
   strawberry_latte: { name: '딸기라떼', grade: 'A', color: '#f9a825', skillName: '딸기라떼', skillDesc: '다음 턴까지 지속되는 보호막 40을 파티원 전원에게 제공합니다.', cooldown: 2, targetType: null },
   rebuttal: { name: '반박', grade: 'A', color: '#f9a825', skillName: '반박', skillDesc: '파티원 전체의 HP를 20 회복합니다.', cooldown: 2, targetType: null },
@@ -195,6 +195,8 @@ let raidCountdownVisible = false;
 let raidCountdownTicker = null;
 let raidCountdownEndsAtMs = 0;
 let raidCountdownDisplayStartMs = 0;
+let raidReadyTicker = null;
+let raidReadyEndsAtMs = 0;
 let cardFusionSelection = [];
 let selectedEnhanceCardKey = null;
 let selectedEquipmentEnhanceId = null;
@@ -212,10 +214,12 @@ let userMutationInFlightCount = 0;
 let loginRequestSerial = 0;
 let currentNewsTypingPrompt = null;
 let newsTypingLoading = false;
+let newsTypingSubmitting = false;
 let raidBarAnimationState = {
   bossHpRatio: null,
   participantHpRatios: {}
 };
+let lastRenderedRaidBattleId = null;
 const recentNotificationKeys = new Map();
 const BGM_MUTED_STORAGE_KEY = 'ineoBgmMuted';
 const RAID_BOSS_PORTRAIT_STORAGE_KEY = 'ineoRaidBossPortraitEnabled';
@@ -227,6 +231,26 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-05-18-1445-patch-note-per-user-equipment-scroll',
+    time: '2026-05-18 14:45',
+    title: '패치노트 표시와 장비 강화창 개선',
+    items: [
+      '새 패치 배포 후 패치노트가 브라우저 단위가 아니라 계정별로 1회 표시되도록 변경했습니다.',
+      '장비 강화창의 스크롤 영역을 조정해 맨 아래 장비와 주문서도 끝까지 확인할 수 있게 했습니다.'
+    ]
+  },
+  {
+    id: '2026-05-18-1430-raid-news-typing-stability',
+    time: '2026-05-18 14:30',
+    title: '레이드 준비 시간과 뉴스 타이핑 안정화',
+    items: [
+      '뉴스 타이핑 문장을 더 자주 실시간 RSS에서 다시 가져오도록 보강하고, 같은 문장을 Enter 연타로 중복 정산할 수 없게 막았습니다.',
+      '딸기라떼 5강 보호막을 40으로 조정하고, 이것 좀 대신 해줘 이대리의 쿨타임을 강화 단계별로 2턴씩 늘렸습니다.',
+      '레이드 입장 직후 전투 화면 중앙에 5초 준비 카운트다운을 추가하고, HP 감소 연출이 더 안정적으로 보이도록 조정했습니다.',
+      '스트레스 수치가 100까지 정상적으로 누적되도록 스트레스 계산을 보정했습니다.'
+    ]
+  },
   {
     id: '2026-05-18-fragment-shop-marketplace-raid-rewards',
     time: '2026-05-18 00:00',
@@ -567,14 +591,17 @@ function animateRaidBarLayers(root) {
   const trailDelayMs = Number(root.dataset.trailDelayMs || 420);
   const endShieldLeft = Number(root.dataset.endShieldLeft || endHpRatio);
 
+  hpFill.getBoundingClientRect();
   requestAnimationFrame(() => {
-    hpFill.style.width = `${endHpRatio}%`;
-    if (shieldFill) {
-      shieldFill.style.left = `${endShieldLeft}%`;
-    }
-    window.setTimeout(() => {
-      hpTrail.style.width = `${endTrailRatio}%`;
-    }, trailDelayMs);
+    requestAnimationFrame(() => {
+      hpFill.style.width = `${endHpRatio}%`;
+      if (shieldFill) {
+        shieldFill.style.left = `${endShieldLeft}%`;
+      }
+      window.setTimeout(() => {
+        hpTrail.style.width = `${endTrailRatio}%`;
+      }, trailDelayMs);
+    });
   });
 }
 
@@ -594,6 +621,7 @@ function clearIntervals() {
   if (syncInterval) clearInterval(syncInterval);
   if (raidPollInterval) clearInterval(raidPollInterval);
   if (raidCountdownTicker) clearInterval(raidCountdownTicker);
+  if (raidReadyTicker) clearInterval(raidReadyTicker);
   animationInterval = null;
   updateInterval = null;
   rankingInterval = null;
@@ -602,6 +630,8 @@ function clearIntervals() {
   raidCountdownTicker = null;
   raidCountdownEndsAtMs = 0;
   raidCountdownDisplayStartMs = 0;
+  raidReadyTicker = null;
+  raidReadyEndsAtMs = 0;
 }
 
 function clearSessions() {
@@ -819,6 +849,12 @@ function getLatestPatchNoteId() {
   return PATCH_NOTES[0]?.id || '';
 }
 
+function getPatchNotesStorageKey() {
+  const user = getStoredUser();
+  const userKey = user?._id || user?.username || 'guest';
+  return `${PATCH_NOTES_STORAGE_KEY}:${userKey}`;
+}
+
 function isAnyModalOpen() {
   return Array.from(document.querySelectorAll('.modal-overlay'))
     .some((element) => !element.classList.contains('hidden'));
@@ -860,7 +896,7 @@ function openPatchNotesModal({ markSeen = true } = {}) {
   showModal('patchNotesModal');
   if (markSeen) {
     const latestId = getLatestPatchNoteId();
-    if (latestId) localStorage.setItem(PATCH_NOTES_STORAGE_KEY, latestId);
+    if (latestId) localStorage.setItem(getPatchNotesStorageKey(), latestId);
   }
 }
 
@@ -870,7 +906,7 @@ function closePatchNotesModal() {
 
 function maybeShowPatchNotesOnce(attempt = 0) {
   const latestId = getLatestPatchNoteId();
-  if (!latestId || localStorage.getItem(PATCH_NOTES_STORAGE_KEY) === latestId) return;
+  if (!latestId || localStorage.getItem(getPatchNotesStorageKey()) === latestId) return;
 
   if (isAnyModalOpen() && attempt < 20) {
     setTimeout(() => maybeShowPatchNotesOnce(attempt + 1), 1000);
@@ -1136,6 +1172,7 @@ function handleLogoutClick() {
     bossHpRatio: null,
     participantHpRatios: {}
   };
+  lastRenderedRaidBattleId = null;
   clearIntervals();
   closeDecisionModal();
   hideModal('patchNotesModal');
@@ -1247,6 +1284,7 @@ async function handleNewsTypingKeydown(event) {
 }
 
 async function handleNewsTypingSubmit() {
+  if (newsTypingSubmitting) return;
   const user = getStoredUser();
   if (!user?._id) return handleLogoutClick();
 
@@ -1265,6 +1303,8 @@ async function handleNewsTypingSubmit() {
     return;
   }
 
+  newsTypingSubmitting = true;
+  if (input) input.disabled = true;
   try {
     const data = await runWithUserMutation(() => postJson(`${API_URL}/api/action/news-typing`, {
       userId: user._id,
@@ -1282,6 +1322,8 @@ async function handleNewsTypingSubmit() {
   } catch (err) {
     if (statusEl) statusEl.textContent = err.message || '문장이 정확히 일치하지 않습니다.';
   } finally {
+    newsTypingSubmitting = false;
+    if (input) input.disabled = false;
     window.setTimeout(() => {
       const latestInput = document.getElementById('newsTypingInput');
       if (latestInput) latestInput.focus();
@@ -2242,6 +2284,8 @@ function closeRaidLobby() {
 function handleRaidBackClick() {
   document.getElementById('raid-screen').classList.add('hidden');
   document.getElementById('game-screen').classList.remove('hidden');
+  document.getElementById('raidReadyCountdownOverlay')?.classList.add('hidden');
+  stopRaidReadyTicker();
   startBgm('normal');
 }
 
@@ -2936,6 +2980,14 @@ window.handleMarketplaceCancel = handleMarketplaceCancel;
 function renderRaidBattle(raidState, user) {
   const battle = raidState?.activeBattle;
   if (!battle) return;
+  if (lastRenderedRaidBattleId !== battle.battleId) {
+    raidBarAnimationState = {
+      bossHpRatio: null,
+      participantHpRatios: {}
+    };
+    lastRenderedRaidBattleId = battle.battleId;
+  }
+  updateRaidReadyCountdown(battle);
   updateRaidBossPortraitToggleButtons();
   const participantCount = battle.participants?.length || 0;
   const currentTurnIndex = Number(battle.currentTurnIndex || 0);
@@ -2977,7 +3029,7 @@ function renderRaidBattle(raidState, user) {
         data-end-hp-ratio="${bossAnimation.endHpRatio}"
         data-end-trail-ratio="${bossAnimation.endTrailRatio}"
         data-end-shield-left="${bossAnimation.endHpRatio}"
-        data-trail-delay-ms="420"
+        data-trail-delay-ms="800"
       >
         <div class="raid-boss-bar-trail" data-raid-bar-trail style="width:${bossAnimation.startTrailRatio}%"></div>
         <div id="raidBossHpFill" class="raid-boss-bar-fill" data-raid-bar-current style="width:${bossAnimation.startHpRatio}%"></div>
@@ -3042,7 +3094,7 @@ function renderRaidBattle(raidState, user) {
               data-end-hp-ratio="${hpAnimation.endHpRatio}"
               data-end-trail-ratio="${hpAnimation.endTrailRatio}"
               data-end-shield-left="${hpAnimation.endHpRatio}"
-              data-trail-delay-ms="420"
+              data-trail-delay-ms="800"
             >
               <div class="raid-hp-trail-fill" data-raid-bar-trail style="width:${hpAnimation.startTrailRatio}%"></div>
               <div class="raid-hp-fill" data-raid-bar-current style="width:${hpAnimation.startHpRatio}%"></div>
@@ -3061,6 +3113,48 @@ function renderRaidBattle(raidState, user) {
   });
 }
 
+
+function stopRaidReadyTicker() {
+  if (raidReadyTicker) clearInterval(raidReadyTicker);
+  raidReadyTicker = null;
+  raidReadyEndsAtMs = 0;
+}
+
+function renderRaidReadyCountdownNumber() {
+  const overlay = document.getElementById('raidReadyCountdownOverlay');
+  const numberEl = document.getElementById('raidReadyCountdownNumber');
+  if (!overlay || !numberEl || !raidReadyEndsAtMs) return;
+
+  const remainingMs = raidReadyEndsAtMs - Date.now();
+  const displayValue = Math.max(1, Math.ceil(remainingMs / 1000));
+  numberEl.textContent = String(displayValue);
+  if (remainingMs <= 0) {
+    overlay.classList.add('hidden');
+    stopRaidReadyTicker();
+  }
+}
+
+function updateRaidReadyCountdown(battle) {
+  const overlay = document.getElementById('raidReadyCountdownOverlay');
+  if (!overlay) return;
+
+  const readyEndsAtMs = battle?.phase === 'ready' && battle.readyEndsAt
+    ? new Date(battle.readyEndsAt).getTime()
+    : 0;
+  if (!readyEndsAtMs || readyEndsAtMs <= Date.now()) {
+    overlay.classList.add('hidden');
+    stopRaidReadyTicker();
+    return;
+  }
+
+  overlay.classList.remove('hidden');
+  if (raidReadyEndsAtMs !== readyEndsAtMs) {
+    stopRaidReadyTicker();
+    raidReadyEndsAtMs = readyEndsAtMs;
+    raidReadyTicker = setInterval(renderRaidReadyCountdownNumber, 150);
+  }
+  renderRaidReadyCountdownNumber();
+}
 
 function stopRaidCountdownTicker() {
   if (raidCountdownTicker) clearInterval(raidCountdownTicker);
@@ -3103,7 +3197,7 @@ function updateRaidCountdown(raidState, user) {
     return;
   }
 
-  if (battle?.phase === 'active' && isParticipant) {
+  if (['ready', 'active'].includes(battle?.phase) && isParticipant) {
     hideModal('raidCountdownOverlay');
     raidCountdownVisible = false;
     stopRaidCountdownTicker();
@@ -3141,7 +3235,7 @@ async function pollRaidState() {
     updateRaidLobbyUI(latestRaidState, currentUser);
     updateRaidCountdown(latestRaidState, currentUser);
 
-    if (latestRaidState?.activeBattle?.phase === 'active' && latestRaidState.activeBattle.isParticipant) {
+    if (['ready', 'active'].includes(latestRaidState?.activeBattle?.phase) && latestRaidState.activeBattle.isParticipant) {
       hideModal('raidLobbyModal');
       showRaidScreen();
       renderRaidBattle(latestRaidState, currentUser);
