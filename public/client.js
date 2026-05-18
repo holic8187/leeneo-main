@@ -207,6 +207,8 @@ let equipmentListPage = 1;
 let equipmentSortMode = 'acquired';
 let equipmentDismantleSelection = new Set();
 let equipmentDismantleSortMode = 'acquired';
+let cardGradeFilter = 'all';
+let cardSortMode = 'grade';
 let marketplaceState = { itemType: 'scroll', view: 'active', sort: 'time_desc', data: { active: [], mine: [] } };
 let marketplaceRegisterState = { itemType: 'scroll', selected: null };
 let raidBattleLogPinnedToBottom = true;
@@ -231,6 +233,15 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-05-18-1527-card-filter-sort',
+    time: '2026-05-18 15:27',
+    title: '카드 목록 분류와 정렬 추가',
+    items: [
+      '가방의 카드 목록에 전체/S/A/B/C 등급별 보기 버튼을 추가했습니다.',
+      '카드 목록을 기본 등급순, 강화 높은 순, 강화 낮은 순으로 정렬할 수 있게 했습니다.'
+    ]
+  },
   {
     id: '2026-05-18-1507-news-rss-source-fix',
     time: '2026-05-18 15:07',
@@ -2528,6 +2539,63 @@ function getSortedEquipmentDetails(equipments, sortMode = equipmentSortMode) {
   return indexed.map(({ equipment }) => equipment);
 }
 
+function getCardGradeOrder(grade) {
+  return ({ S: 0, A: 1, B: 2, C: 3 })[grade] ?? 9;
+}
+
+function getCardSortLabel() {
+  const labels = {
+    grade: '등급순',
+    enhance_desc: '강화 높은 순',
+    enhance_asc: '강화 낮은 순',
+    name: '이름순'
+  };
+  return labels[cardSortMode] || labels.grade;
+}
+
+function getFilteredSortedCardDetails(user) {
+  const cards = (user?.cardVariantDetails || [])
+    .filter((card) => Number(card.quantity || 0) > 0)
+    .filter((card) => cardGradeFilter === 'all' || card.grade === cardGradeFilter);
+
+  return cards.sort((a, b) => {
+    if (cardSortMode === 'enhance_desc') {
+      return Number(b.enhancementLevel || 0) - Number(a.enhancementLevel || 0)
+        || getCardGradeOrder(a.grade) - getCardGradeOrder(b.grade)
+        || String(a.baseName || a.name || '').localeCompare(String(b.baseName || b.name || ''), 'ko');
+    }
+
+    if (cardSortMode === 'enhance_asc') {
+      return Number(a.enhancementLevel || 0) - Number(b.enhancementLevel || 0)
+        || getCardGradeOrder(a.grade) - getCardGradeOrder(b.grade)
+        || String(a.baseName || a.name || '').localeCompare(String(b.baseName || b.name || ''), 'ko');
+    }
+
+    if (cardSortMode === 'name') {
+      return String(a.baseName || a.name || '').localeCompare(String(b.baseName || b.name || ''), 'ko')
+        || Number(a.enhancementLevel || 0) - Number(b.enhancementLevel || 0);
+    }
+
+    return getCardGradeOrder(a.grade) - getCardGradeOrder(b.grade)
+      || String(a.baseName || a.name || '').localeCompare(String(b.baseName || b.name || ''), 'ko')
+      || Number(a.enhancementLevel || 0) - Number(b.enhancementLevel || 0);
+  });
+}
+
+function updateCardFilterControls() {
+  document.querySelectorAll('[data-card-grade-filter]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.cardGradeFilter === cardGradeFilter);
+  });
+  document.querySelectorAll('[data-card-sort-mode]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.cardSortMode === cardSortMode);
+  });
+  const status = document.getElementById('cardFilterStatus');
+  if (status) {
+    const gradeText = cardGradeFilter === 'all' ? '전체 등급' : `${cardGradeFilter}등급`;
+    status.textContent = `${gradeText} / ${getCardSortLabel()}`;
+  }
+}
+
 function renderEquipmentPager(totalCount, currentPage, totalPages) {
   const pager = document.getElementById('equipmentPager');
   if (!pager) return;
@@ -2545,6 +2613,16 @@ function renderEquipmentPager(totalCount, currentPage, totalPages) {
 function handleEquipmentSortChange(mode) {
   equipmentSortMode = mode;
   equipmentListPage = 1;
+  updateInventoryUI(getStoredUser());
+}
+
+function handleCardGradeFilterChange(grade) {
+  cardGradeFilter = ['all', 'S', 'A', 'B', 'C'].includes(grade) ? grade : 'all';
+  updateInventoryUI(getStoredUser());
+}
+
+function handleCardSortChange(mode) {
+  cardSortMode = ['grade', 'enhance_desc', 'enhance_asc', 'name'].includes(mode) ? mode : 'grade';
   updateInventoryUI(getStoredUser());
 }
 
@@ -3091,6 +3169,8 @@ window.handleToggleEquipmentEquip = handleToggleEquipmentEquip;
 window.handleOpenEquipmentEnhanceFor = handleOpenEquipmentEnhanceFor;
 window.handleEquipmentEnhanceSelect = handleEquipmentEnhanceSelect;
 window.handleEquipmentScrollSelect = handleEquipmentScrollSelect;
+window.handleCardGradeFilterChange = handleCardGradeFilterChange;
+window.handleCardSortChange = handleCardSortChange;
 window.handleEquipmentSortChange = handleEquipmentSortChange;
 window.handleEquipmentPageChange = handleEquipmentPageChange;
 window.handleEquipmentDismantleSelect = handleEquipmentDismantleSelect;
@@ -4282,9 +4362,10 @@ function updateInventoryUI(user) {
   }
 
   cardList.innerHTML = '';
-  const cardDetails = (user.cardVariantDetails || []).filter((card) => Number(card.quantity || 0) > 0);
+  updateCardFilterControls();
+  const cardDetails = getFilteredSortedCardDetails(user);
   if (!cardDetails.length) {
-    cardList.innerHTML = '<tr><td colspan="5">아직 보유한 카드가 없습니다.</td></tr>';
+    cardList.innerHTML = '<tr><td colspan="5">조건에 맞는 보유 카드가 없습니다.</td></tr>';
   } else {
     cardDetails.forEach((card) => {
       const actionText = card.equipped ? '해제' : '장착';

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>네오상사 거래명세서</title>
-  <link rel="stylesheet" href="style.css?v=33">
+  <link rel="stylesheet" href="style.css?v=34">
 </head>
 <body>
   <div id="login-screen">
@@ -281,6 +281,18 @@
                   <button id="openEnhanceModalBtn" class="mini-btn">카드 강화</button>
                   <button id="openFusionModalBtn" class="mini-btn">카드 합성</button>
                 </div>
+                <div class="card-actions card-filter-controls">
+                  <button class="mini-btn" data-card-grade-filter="all" onclick="handleCardGradeFilterChange('all')">전체보기</button>
+                  <button class="mini-btn" data-card-grade-filter="S" onclick="handleCardGradeFilterChange('S')">S급보기</button>
+                  <button class="mini-btn" data-card-grade-filter="A" onclick="handleCardGradeFilterChange('A')">A급보기</button>
+                  <button class="mini-btn" data-card-grade-filter="B" onclick="handleCardGradeFilterChange('B')">B급보기</button>
+                  <button class="mini-btn" data-card-grade-filter="C" onclick="handleCardGradeFilterChange('C')">C급보기</button>
+                  <button class="mini-btn" data-card-sort-mode="grade" onclick="handleCardSortChange('grade')">등급순</button>
+                  <button class="mini-btn" data-card-sort-mode="enhance_desc" onclick="handleCardSortChange('enhance_desc')">강화 높은 순</button>
+                  <button class="mini-btn" data-card-sort-mode="enhance_asc" onclick="handleCardSortChange('enhance_asc')">강화 낮은 순</button>
+                  <button class="mini-btn" data-card-sort-mode="name" onclick="handleCardSortChange('name')">이름순</button>
+                </div>
+                <div id="cardFilterStatus" class="menu-note card-filter-status">전체 등급 / 등급순</div>
                 <table class="inner-table">
                   <thead>
                     <tr>
@@ -676,6 +688,6 @@
     </div>
   </div>
 
-  <script src="client.js?v=98"></script>
+  <script src="client.js?v=99"></script>
 </body>
 </html>

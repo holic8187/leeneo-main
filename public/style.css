@@ -1067,6 +1067,21 @@ progress {
   justify-content: flex-end;
 }
 
+.card-filter-controls {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.card-filter-controls .mini-btn.active {
+  background: #dff0e5;
+  border-color: #5a9f68;
+  font-weight: 700;
+}
+
+.card-filter-status {
+  margin: -4px 0 10px;
+}
+
 .equipment-controls {
   flex-wrap: wrap;
 }
