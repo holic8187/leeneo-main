@@ -2123,8 +2123,6 @@ function buildMarketplaceListingDetail(listing, currentUserId = null) {
   const plainListing = listing.toObject ? listing.toObject() : listing;
   return {
     id: String(plainListing._id),
-    sellerId: String(plainListing.sellerId),
-    sellerName: plainListing.sellerName || '익명 직원',
     itemType: plainListing.itemType,
     itemId: plainListing.itemId,
     itemName: plainListing.itemName,
@@ -2133,8 +2131,6 @@ function buildMarketplaceListingDetail(listing, currentUserId = null) {
     equipment: plainListing.equipmentSnapshot || null,
     price: Number(plainListing.price || 0),
     status: plainListing.status,
-    buyerId: plainListing.buyerId ? String(plainListing.buyerId) : null,
-    buyerName: plainListing.buyerName || '',
     createdAt: plainListing.createdAt,
     soldAt: plainListing.soldAt,
     settledAt: plainListing.settledAt,

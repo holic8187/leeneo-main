@@ -2477,7 +2477,7 @@ function renderMarketplace() {
       : '내 판매완료';
   const listings = getMarketplaceListingsForView();
   statusEl.textContent = `${typeLabel} / ${viewLabel} / ${formatNumber(listings.length)}개`;
-  listEl.innerHTML = listings.length ? '' : '<tr><td colspan="6">표시할 물품이 없습니다.</td></tr>';
+  listEl.innerHTML = listings.length ? '' : '<tr><td colspan="5">표시할 물품이 없습니다.</td></tr>';
 
   listings.forEach((listing) => {
     const isMine = Boolean(listing.mine);
@@ -2494,14 +2494,10 @@ function renderMarketplace() {
         ? `<button class="mini-btn" onclick="handleMarketplaceCancel('${listing.id}')">회수</button>`
         : '-';
     const quantityText = Number(listing.quantity || 1) > 1 ? ` x${formatNumber(listing.quantity)}` : '';
-    const traderName = marketplaceState.view === 'sold'
-      ? (listing.buyerName ? `구매자: ${listing.buyerName}` : '구매자: -')
-      : (listing.sellerName || '-');
     listEl.insertAdjacentHTML('beforeend', `
       <tr class="${isMine ? 'market-listing-owned' : ''}">
         <td>${escapeHtml(listing.itemName || listing.itemId)}${quantityText}</td>
         <td>${escapeHtml(listing.description || '')}</td>
-        <td>${escapeHtml(traderName)}</td>
         <td>${formatNumber(listing.price)}원</td>
         <td>${escapeHtml(statusText)}</td>
         <td>${actionHtml}</td>
