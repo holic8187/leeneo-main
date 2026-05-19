@@ -111,7 +111,7 @@ const PVP_MIN_LEVEL = 50;
 const PVP_ACCEPT_MS = 5000;
 const PVP_BAN_TURN_MS = 30000;
 const PVP_PICK_TURN_MS = 30000;
-const PVP_BATTLE_TURN_MS = 15000;
+const PVP_BATTLE_TURN_MS = 30000;
 const PVP_START_COUNTDOWN_MS = 5000;
 const PVP_BANS_PER_PLAYER = 3;
 const PVP_PICKS_PER_PLAYER = 5;
@@ -5550,6 +5550,20 @@ function getPvpCriticalChance(player) {
   return Math.min(1, baseChance + bonus);
 }
 
+function performPvpCounterAttack(counterActor, target, battle) {
+  if (!counterActor || !target || counterActor.hp <= 0 || target.hp <= 0) return;
+  if (counterActor.basicAttackLockTurns > 0) return;
+  const counterBuff = (counterActor.buffs || []).find((buff) => buff.id === 'counter' && (Number(buff.turns || 0) > 0 || Number(buff.count || 0) > 0));
+  if (!counterBuff) return;
+
+  const baseDamage = Math.max(1, Math.floor((counterActor.level / 2) * 20 * (1 + getPvpAttackBonus(counterActor)) * (1 + Number(counterActor.basicAttackEquipmentBonusPercent || 0))));
+  const critical = Math.random() < getPvpCriticalChance(counterActor);
+  const damage = Math.max(1, Math.floor(baseDamage * Number(counterBuff.value || 1) * (critical ? 1.5 : 1)));
+  applyPvpDamage(target, damage, battle);
+  incrementPvpOvertimeRageStacks(target);
+  battle.logs.push(`${counterActor.displayName}의 반격! ${target.displayName}에게 ${damage.toLocaleString()} 피해를 입혔습니다.${critical ? ' (치명타)' : ''}`);
+}
+
 function performPvpBasicAttack(actor, target, battle) {
   if (actor.basicAttackLockTurns > 0) {
     battle.logs.push(`${actor.displayName}은(는) 기본 공격을 할 수 없습니다.`);
@@ -5567,6 +5581,8 @@ function performPvpBasicAttack(actor, target, battle) {
     applyPvpDamage(target, damage, battle);
     incrementPvpOvertimeRageStacks(target);
     battle.logs.push(`${actor.displayName}의 기본 공격 ${index + 1}타! ${target.displayName}에게 ${damage.toLocaleString()} 피해를 입혔습니다.${critical ? ' (치명타)' : ''}`);
+    if (target.hp > 0) performPvpCounterAttack(target, actor, battle);
+    if (actor.hp <= 0 || target.hp <= 0) break;
   }
 }
 
@@ -5675,7 +5691,7 @@ async function advancePvpState(now = new Date()) {
     executePvpTurn(pvpState.battle, now);
   }
 
-  if (pvpState.battle?.phase === 'finished' && pvpState.battle.finishedAt && now.getTime() - new Date(pvpState.battle.finishedAt).getTime() > 60000) {
+  if (pvpState.battle?.phase === 'finished' && pvpState.battle.finishedAt && now.getTime() - new Date(pvpState.battle.finishedAt).getTime() > 20000) {
     pvpState.battle = null;
     bumpPvpVersion();
   }
@@ -8940,6 +8956,31 @@ app.post('/api/pvp/plan-skill', async (req, res) => {
     res.json({ pvp: await buildPvpStateResponse(user, now) });
   } catch (err) {
     console.error('PVP skill plan error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/pvp/end-turn', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+
+  try {
+    const now = new Date();
+    await advancePvpState(now);
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    ensureUserDefaults(user);
+    const battle = pvpState.battle;
+    if (!battle || battle.phase !== 'active') return res.status(400).json({ msg: '진행 중인 개인면담이 없습니다.' });
+    const player = getPvpPlayer(battle, userId);
+    if (!player) return res.status(403).json({ msg: '개인면담 참가자가 아닙니다.' });
+    if (battle.currentUserId !== String(userId)) return res.status(400).json({ msg: '아직 내 차례가 아닙니다.' });
+
+    player.plannedCardIndex = null;
+    executePvpTurn(battle, now);
+    res.json({ pvp: await buildPvpStateResponse(user, now) });
+  } catch (err) {
+    console.error('PVP end turn error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
   }
 });

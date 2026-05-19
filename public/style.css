@@ -994,6 +994,23 @@ progress {
   background: #fff6f6;
 }
 
+.pvp-battle-panel.active-turn {
+  border: 2px solid #ffd400;
+  box-shadow: 0 0 0 3px rgba(255, 212, 0, 0.24);
+}
+
+.pvp-turn-timer {
+  margin-top: 8px;
+  font-size: 30px;
+  line-height: 1;
+  color: #ffd400;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.38);
+}
+
+.pvp-turn-timer.urgent {
+  color: #ff6b6b;
+}
+
 .pvp-hp-row {
   display: grid;
   grid-template-columns: 90px 1fr 82px;
@@ -1015,7 +1032,19 @@ progress {
   inset: 0 auto 0 0;
   height: 100%;
   background: linear-gradient(90deg, #7cc56b 0%, #2e7d32 100%);
-  transition: width 0.55s ease;
+  transition: width 1.05s cubic-bezier(0.22, 0.61, 0.36, 1);
+  will-change: width;
+  z-index: 2;
+}
+
+.pvp-hp-trail-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  height: 100%;
+  background: linear-gradient(90deg, #ff9b9b 0%, #d94b4b 100%);
+  transition: width 1.05s cubic-bezier(0.22, 0.61, 0.36, 1);
+  will-change: width;
+  z-index: 1;
 }
 
 .pvp-shield-fill {
@@ -1026,6 +1055,15 @@ progress {
   background: rgba(255, 212, 0, 0.55);
   transition: width 0.55s ease;
   z-index: 2;
+}
+
+.pvp-hp-bar .raid-shield-fill {
+  background: rgba(255, 212, 0, 0.66);
+}
+
+.pvp-hp-bar .raid-loss-indicator {
+  right: 4px;
+  top: -18px;
 }
 
 .pvp-effect-list,
