@@ -816,6 +816,237 @@ progress {
   font-weight: 800;
 }
 
+.marketplace-entry-btn {
+  position: relative;
+}
+
+.marketplace-entry-btn.has-pending::after {
+  content: "";
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #d32f2f;
+  border: 1px solid #ffffff;
+}
+
+.raid-boss-effect-list {
+  margin-top: 6px;
+  min-height: 24px;
+}
+
+.pvp-entry-btn {
+  background: #f8fbff;
+}
+
+.pvp-screen {
+  position: relative;
+  margin-top: 10px;
+  padding: 12px;
+}
+
+.pvp-phase-status {
+  margin: 10px 0;
+  padding: 10px;
+  border: var(--excel-border);
+  background: #eef7ee;
+  font-weight: 800;
+  text-align: center;
+}
+
+.pvp-draft-view {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr) 190px;
+  gap: 12px;
+  align-items: start;
+}
+
+.pvp-side-panel,
+.pvp-battle-panel {
+  border: var(--excel-border);
+  background: #fbfbfb;
+  padding: 10px;
+  min-height: 180px;
+}
+
+.pvp-side-panel.enemy {
+  background: #fff7f7;
+}
+
+.pvp-side-name {
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.pvp-pick-list,
+.pvp-ban-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.pvp-mini-card,
+.pvp-card-choice {
+  border: var(--excel-border);
+  background: #ffffff;
+  padding: 8px;
+  text-align: left;
+}
+
+.pvp-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+  max-height: 470px;
+  overflow-y: auto;
+  padding: 8px;
+  border: var(--excel-border);
+  background: #f7f9fb;
+}
+
+.pvp-card-choice {
+  cursor: pointer;
+  min-height: 120px;
+  position: relative;
+}
+
+.pvp-card-choice.selected {
+  outline: 3px solid #1d4ed8;
+}
+
+.pvp-card-choice.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: #eeeeee;
+}
+
+.pvp-card-choice.banned::after {
+  content: "X";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(198, 40, 40, 0.82);
+  font-size: 58px;
+  font-weight: 900;
+  pointer-events: none;
+}
+
+.pvp-card-grade {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.pvp-card-name {
+  margin-top: 6px;
+  font-weight: 800;
+}
+
+.pvp-card-desc {
+  margin-top: 4px;
+  color: #555555;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.pvp-draft-timer {
+  margin-bottom: 8px;
+  padding: 8px;
+  text-align: center;
+  font-size: 26px;
+  font-weight: 900;
+  border: var(--excel-border);
+  background: #111827;
+  color: #ffd400;
+}
+
+.pvp-action-row {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.pvp-battle-view {
+  display: grid;
+  gap: 10px;
+}
+
+.pvp-battle-panel.enemy {
+  background: #fff6f6;
+}
+
+.pvp-hp-row {
+  display: grid;
+  grid-template-columns: 90px 1fr 82px;
+  gap: 8px;
+  align-items: center;
+  margin: 6px 0;
+}
+
+.pvp-hp-bar {
+  height: 18px;
+  border: var(--excel-border);
+  background: #e8e8e8;
+  position: relative;
+  overflow: hidden;
+}
+
+.pvp-hp-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  height: 100%;
+  background: linear-gradient(90deg, #7cc56b 0%, #2e7d32 100%);
+  transition: width 0.55s ease;
+}
+
+.pvp-shield-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: rgba(255, 212, 0, 0.55);
+  transition: width 0.55s ease;
+  z-index: 2;
+}
+
+.pvp-effect-list,
+.pvp-card-button-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.pvp-card-skill-btn {
+  border: var(--excel-border);
+  background: #f8fbff;
+  padding: 7px 9px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.pvp-card-skill-btn.planned {
+  border-color: #1d4ed8;
+  background: #dbeafe;
+  font-weight: 800;
+}
+
+.pvp-card-skill-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pvp-battle-log {
+  max-height: 180px;
+}
+
 .raid-participant-panel h4 {
   margin: 0 0 6px;
 }

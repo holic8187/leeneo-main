@@ -99,6 +99,16 @@ const RAID_BOSS_ID_HOI = 'hoi_msj_50';
 const RAID_BOSS_ROTATION_IDS = [RAID_BOSS_ID, RAID_BOSS_ID_BALD_MANAGER, RAID_BOSS_ID_HOI];
 const RAID_BOSS_ROTATION_START_KEY = '2026-05-11';
 const RAID_POLL_VERSION_EMPTY = 0;
+const PVP_MIN_LEVEL = 50;
+const PVP_ACCEPT_MS = 5000;
+const PVP_BAN_TURN_MS = 30000;
+const PVP_PICK_TURN_MS = 30000;
+const PVP_BATTLE_TURN_MS = 15000;
+const PVP_START_COUNTDOWN_MS = 5000;
+const PVP_BANS_PER_PLAYER = 3;
+const PVP_PICKS_PER_PLAYER = 5;
+const PVP_MAX_HP = 300;
+const PVP_POLL_VERSION_EMPTY = 0;
 const PEN_SHOP_ITEM_IDS = ['pen_monami', 'pen_jetstream', 'pen_applepencil'];
 const REWARD_PEN_ITEM_IDS = ['reward_pen_monami', 'reward_pen_jetstream', 'reward_pen_applepencil'];
 const PEN_REWARD_ITEM_MAP = {
@@ -733,6 +743,31 @@ const CARD_DATA = {
     effectType: 'copy_ally_skill',
     copyEffectMultiplier: 0.5,
     targetType: null
+  },
+  neo_self_esteem: {
+    id: 'neo_self_esteem',
+    name: '네오의 자존감',
+    grade: 'A',
+    rate: 0.008,
+    skillName: '자존감',
+    skillDesc: '자신에게 <자존감> 버프를 1회 부여합니다. 자존감 보유 중 디버프를 받으면 상대에게 반사하고 자존감은 사라집니다.',
+    cooldown: 5,
+    effectType: 'self_debuff_reflect',
+    selfEsteemCount: 1,
+    enhanceDisabled: true,
+    targetType: null
+  },
+  gossip: {
+    id: 'gossip',
+    name: '뒷담화',
+    grade: 'B',
+    rate: 0.0428571429,
+    skillName: '뒷담화',
+    skillDesc: '상대방의 버프 1개 또는 횟수형 버프 1회를 랜덤으로 제거합니다.',
+    cooldown: 8,
+    effectType: 'remove_enemy_buff',
+    removeBuffCount: 1,
+    targetType: null
   }
 };
 
@@ -787,7 +822,8 @@ const CARD_ENHANCE_RULES = {
   sunscreen: { targets: { 0: 3, 2: 4, 3: 99 }, negateHitCount: { 0: 1, 4: 2 }, includeSelf: { 0: 0, 3: 1 }, cooldown: { 0: 6, 1: 5, 5: 4 } },
   trial_and_growth: { multiplierPerStatus: { 0: 5, 1: 5, 2: 6, 3: 7, 4: 7, 5: 8 }, cooldown: { 0: 5, 1: 4, 4: 3 } },
   precise_strike: { multiplierPerLevel: { 0: 40, 2: 45, 3: 50, 4: 55 }, cooldown: { 0: 5, 1: 4, 5: 3 } },
-  umbrella_copy: { copyEffectMultiplier: { 0: 0.5, 2: 0.6, 3: 0.7 }, canSelectCopyTarget: { 4: 1 }, cooldown: { 0: 6, 1: 5, 5: 4 } }
+  umbrella_copy: { copyEffectMultiplier: { 0: 0.5, 2: 0.6, 3: 0.7 }, canSelectCopyTarget: { 4: 1 }, cooldown: { 0: 6, 1: 5, 5: 4 } },
+  gossip: { removeBuffCount: { 0: 1, 5: 2 }, cooldown: { 0: 8, 1: 7, 2: 6, 3: 5, 4: 4 } }
 };
 
 const SUPPORT_PACKAGE_DATA = {
@@ -1619,6 +1655,13 @@ let raidState = {
   nextDayForcedBossId: null
 };
 
+let pvpState = {
+  version: PVP_POLL_VERSION_EMPTY,
+  queue: [],
+  match: null,
+  battle: null
+};
+
 if (!MONGO_URI) {
   console.error('MONGO_URI is not configured in .env.');
   process.exit(1);
@@ -2250,6 +2293,11 @@ async function buildMarketplaceResponse(userId) {
   };
 }
 
+async function getMarketplaceSoldPendingCount(userId) {
+  if (!userId) return 0;
+  return MarketplaceListing.countDocuments({ sellerId: userId, status: 'sold' });
+}
+
 function getCardEnhancementStepValue(stepMap, level, fallbackValue) {
   if (!stepMap || typeof stepMap !== 'object') return fallbackValue;
   const normalizedLevel = normalizeCardEnhancementLevel(level);
@@ -2346,6 +2394,10 @@ function getCardDurationText(cardId, enhancementLevel = 0) {
       return '즉시 / 사용 시 자신의 디버프 제거';
     case 'umbrella_copy':
       return '즉시 / 복사한 카드 효과는 반감';
+    case 'neo_self_esteem':
+      return '1회';
+    case 'gossip':
+      return '즉시';
     default:
       return '즉시';
   }
@@ -2414,6 +2466,10 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
       return `자신의 레벨 x ${card.multiplierPerLevel}의 데미지를 1회 주며, 방어막을 무시하고 HP에 직접 피해를 입힙니다.`;
     case 'umbrella_copy':
       return `${card.canSelectCopyTarget ? '선택한' : '랜덤'} 파티원 1명의 카드 효과를 ${Math.round(Number(card.copyEffectMultiplier || 0.5) * 100)}%만 적용해 따라 합니다.`;
+    case 'neo_self_esteem':
+      return '자신에게 <자존감> 버프를 1회 부여합니다. 자존감 보유 중 디버프를 받으면 상대에게 반사하고 자존감은 사라집니다. 강화할 수 없는 카드입니다.';
+    case 'gossip':
+      return `상대방의 버프 1개 또는 횟수형 버프 ${card.removeBuffCount || 1}회를 랜덤으로 제거합니다.`;
     default:
       return card.skillDesc || '';
   }
@@ -2716,6 +2772,7 @@ function buildCardVariantDetails(user) {
       const resolved = getCardDefinition(card.id, 0);
       const equipped = user.equippedCardId === card.id && Number(user.equippedCardLevel || 0) === 0;
       const nextPreview = getCardDefinition(card.id, 1);
+      const canEnhanceCard = !card.enhanceDisabled;
       variants.push({
         cardId: card.id,
         enhancementLevel: 0,
@@ -2730,11 +2787,11 @@ function buildCardVariantDetails(user) {
         skillDesc: buildCardSkillDescription(card.id, 0),
         cooldown: resolved.cooldown,
         durationText: getCardDurationText(card.id, 0),
-        canEnhance: true,
-        availableEnhanceQuantity: baseQuantity,
-        enhanceSuccessRate: getCardEnhancementSuccessRate(0),
-        enhanceCost: getCardEnhancementCost(card.id, 0),
-        nextEnhancementPreview: nextPreview ? {
+        canEnhance: canEnhanceCard,
+        availableEnhanceQuantity: canEnhanceCard ? baseQuantity : 0,
+        enhanceSuccessRate: canEnhanceCard ? getCardEnhancementSuccessRate(0) : 0,
+        enhanceCost: canEnhanceCard ? getCardEnhancementCost(card.id, 0) : 0,
+        nextEnhancementPreview: canEnhanceCard && nextPreview ? {
           enhancementLevel: 1,
           name: nextPreview.displayName,
           skillName: nextPreview.skillName,
@@ -2752,6 +2809,7 @@ function buildCardVariantDetails(user) {
     .forEach((entry) => {
       const resolved = getCardDefinition(entry.cardId, entry.level);
       const normalizedLevel = normalizeCardEnhancementLevel(entry.level);
+      const canEnhanceCard = !CARD_DATA[entry.cardId].enhanceDisabled;
       const equipped = user.equippedCardId === entry.cardId && Number(user.equippedCardLevel || 0) === normalizedLevel;
       const nextLevel = Math.min(5, normalizedLevel + 1);
       const nextPreview = normalizedLevel < 5 ? getCardDefinition(entry.cardId, nextLevel) : null;
@@ -2769,11 +2827,11 @@ function buildCardVariantDetails(user) {
         skillDesc: buildCardSkillDescription(entry.cardId, normalizedLevel),
         cooldown: resolved.cooldown,
         durationText: getCardDurationText(entry.cardId, normalizedLevel),
-        canEnhance: normalizedLevel < 5,
-        availableEnhanceQuantity: Number(entry.quantity),
-        enhanceSuccessRate: normalizedLevel < 5 ? getCardEnhancementSuccessRate(normalizedLevel) : 0,
-        enhanceCost: normalizedLevel < 5 ? getCardEnhancementCost(entry.cardId, normalizedLevel) : 0,
-        nextEnhancementPreview: nextPreview ? {
+        canEnhance: canEnhanceCard && normalizedLevel < 5,
+        availableEnhanceQuantity: canEnhanceCard && normalizedLevel < 5 ? Number(entry.quantity) : 0,
+        enhanceSuccessRate: canEnhanceCard && normalizedLevel < 5 ? getCardEnhancementSuccessRate(normalizedLevel) : 0,
+        enhanceCost: canEnhanceCard && normalizedLevel < 5 ? getCardEnhancementCost(entry.cardId, normalizedLevel) : 0,
+        nextEnhancementPreview: canEnhanceCard && nextPreview ? {
           enhancementLevel: nextLevel,
           name: nextPreview.displayName,
           skillName: nextPreview.skillName,
@@ -2974,6 +3032,7 @@ function createRaidParticipantFromUser(user) {
     nextHitDamageTakenMultiplier: 1,
     negateHitCount: 0,
     debuffImmuneCount: 0,
+    selfEsteemCount: 0,
     attackBonusTurns: 0,
     attackBonusPercent: 0,
     perHitBonusTurns: 0,
@@ -3702,6 +3761,7 @@ function buildRaidParticipantStatusEffects(participant) {
   if (Number(participant.counterTurns || 0) > 0) effects.push({ type: 'buff', name: '반격', turns: Number(participant.counterTurns || 0), desc: '보스에게 피격당하면 기본 공격으로 반격' });
   if (Number(participant.negateHitCount || 0) > 0) effects.push({ type: 'buff', name: '피격 무효', count: Number(participant.negateHitCount || 0), desc: '다음 피격을 무효화' });
   if (Number(participant.debuffImmuneCount || 0) > 0) effects.push({ type: 'buff', name: '디버프 무효', count: Number(participant.debuffImmuneCount || 0), desc: '다음 디버프를 무효화' });
+  if (Number(participant.selfEsteemCount || 0) > 0) effects.push({ type: 'buff', name: '자존감', count: Number(participant.selfEsteemCount || 0), desc: '다음 디버프를 반사합니다. 보스에게는 디버프 무효처럼 작동합니다.' });
   if (Number(participant.critBonusTurns || 0) > 0) effects.push({ type: 'buff', name: '크리티컬 상승', turns: Number(participant.critBonusTurns || 0), desc: `치명타 확률 +${Math.round(Number(participant.critBonusValue || 0) * 100)}%` });
   if (Number(participant.hypeTurns || 0) > 0) effects.push({ type: 'buff', name: '흥겨움', turns: Number(participant.hypeTurns || 0), desc: '기본 공격 횟수 2배' });
   if (Number(participant.attackBonusTurns || 0) > 0) effects.push({ type: 'buff', name: '공격력 상승', turns: Number(participant.attackBonusTurns || 0), desc: `공격력 +${Math.round(Number(participant.attackBonusPercent || 0) * 100)}%` });
@@ -3712,6 +3772,28 @@ function buildRaidParticipantStatusEffects(participant) {
   if (participant.sojuRewardBuff) effects.push({ type: 'buff', name: '소주각?', desc: `전투 승리 시 전리품 ${Number(participant.sojuRewardMultiplier || 1).toFixed(1)}배` });
   if (participant.lottoRewardBuff) effects.push({ type: 'buff', name: '이번엔 될거같아', desc: `전투 승리 시 ${formatCardPercentText(participant.lottoRewardSuccessChance || 0.5)} 확률로 전리품 3배 또는 보상 없음` });
   if (participant.hoiRewardBuff) effects.push({ type: 'buff', name: 'HOI 특수기믹', desc: `전투 승리 시 전리품 ${Number(participant.hoiRewardMultiplier || 1).toFixed(1)}배` });
+  return effects;
+}
+
+function buildRaidBossStatusEffects(battle) {
+  const effects = [];
+  if (!battle) return effects;
+  if (Number(battle.bossShield || 0) > 0) {
+    effects.push({
+      type: 'buff',
+      name: '보호막',
+      turns: Number(battle.bossShieldTurns || 0) || null,
+      desc: `남은 보호막 ${Number(battle.bossShield || 0).toLocaleString()}`
+    });
+  }
+  if (Number(battle.bossNegateHits || 0) > 0) {
+    effects.push({
+      type: 'buff',
+      name: '난 그건 싫은데?',
+      count: Number(battle.bossNegateHits || 0),
+      desc: '피격 시 데미지를 입지 않고 1회씩 사라집니다.'
+    });
+  }
   return effects;
 }
 
@@ -4159,6 +4241,25 @@ function useRaidCardSkill(participant, battle) {
     const debuffGuardCount = scaleCount(card.debuffImmuneCount || 0);
     target.debuffImmuneCount += debuffGuardCount;
     logText = `${participant.displayName}(이)가 ${card.name}로 ${target.displayName}에게 디버프 무효 ${debuffGuardCount}회를 부여했습니다.`;
+  } else if (card.effectType === 'self_debuff_reflect') {
+    participant.selfEsteemCount += scaleCount(card.selfEsteemCount || 1);
+    logText = `${participant.displayName}(이)가 ${card.name}로 <자존감> 버프를 얻었습니다.`;
+  } else if (card.effectType === 'remove_enemy_buff') {
+    const removeCount = scaleCount(card.removeBuffCount || 1);
+    const candidates = [];
+    if (Number(battle.bossNegateHits || 0) > 0) candidates.push('negate');
+    if (Number(battle.bossShield || 0) > 0) candidates.push('shield');
+    const targetBuff = candidates[Math.floor(Math.random() * candidates.length)];
+    if (targetBuff === 'negate') {
+      battle.bossNegateHits = Math.max(0, Number(battle.bossNegateHits || 0) - removeCount);
+      logText = `${participant.displayName}(이)가 ${card.name}로 보스의 피격 무효를 ${removeCount}회 제거했습니다.`;
+    } else if (targetBuff === 'shield') {
+      battle.bossShield = 0;
+      battle.bossShieldTurns = 0;
+      logText = `${participant.displayName}(이)가 ${card.name}로 보스의 보호막을 제거했습니다.`;
+    } else {
+      logText = `${participant.displayName}(이)가 ${card.name}를 사용했지만 제거할 보스 버프가 없었습니다.`;
+    }
   }
 
   participant.plannedTargetUserId = null;
@@ -4491,6 +4592,10 @@ function performRaidBasicAttack(participant, battle) {
 }
 
 function applyRaidDebuffImmunity(target) {
+  if (target.selfEsteemCount > 0) {
+    target.selfEsteemCount -= 1;
+    return true;
+  }
   if (target.debuffImmuneCount > 0) {
     target.debuffImmuneCount -= 1;
     return true;
@@ -4768,6 +4873,7 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
     bossMaxHp: activeBattle.bossMaxHp,
     bossShield: activeBattle.bossShield || 0,
     bossLastHpLoss: activeBattle.bossLastHpLoss || 0,
+    bossStatusEffects: buildRaidBossStatusEffects(activeBattle),
     phase: activeBattle.phase,
     currentTurnIndex: activeBattle.turnIndex,
     bossPatternIndex: activeBattle.bossPatternIndex,
@@ -4890,6 +4996,716 @@ async function buildRaidStateResponse(user, now = new Date()) {
     activeBattle: buildRaidBattleSnapshot(raidState.activeBattle, user._id)
   };
 }
+
+function bumpPvpVersion() {
+  pvpState.version = (Number(pvpState.version || 0) + 1) % Number.MAX_SAFE_INTEGER;
+}
+
+function getCardGradeOrderValue(grade) {
+  return ({ S: 0, A: 1, B: 2, C: 3 }[grade] ?? 9);
+}
+
+function getAllPvpBanCards() {
+  return Object.values(CARD_DATA)
+    .slice()
+    .sort((a, b) => getCardGradeOrderValue(a.grade) - getCardGradeOrderValue(b.grade) || a.name.localeCompare(b.name, 'ko'))
+    .map((card) => {
+      const previewLevel = card.enhanceDisabled ? 0 : 5;
+      const resolved = getCardDefinition(card.id, previewLevel);
+      return {
+        cardId: card.id,
+        name: resolved?.displayName || card.name,
+        baseName: card.name,
+        grade: card.grade,
+        color: CARD_GRADE_COLORS[card.grade] || '#666666',
+        skillName: resolved?.skillName || card.skillName,
+        skillDesc: buildCardSkillDescription(card.id, previewLevel),
+        cooldown: Number(resolved?.cooldown || 0),
+        durationText: getCardDurationText(card.id, previewLevel),
+        passiveOnly: Boolean(resolved?.passiveOnly),
+        enhancementLevel: previewLevel
+      };
+    });
+}
+
+function getOwnedPvpPickCards(user) {
+  return buildCardVariantDetails(user)
+    .filter((entry) => Number(entry.quantity || 0) > 0)
+    .map((entry) => ({
+      cardId: entry.cardId,
+      enhancementLevel: normalizeCardEnhancementLevel(entry.enhancementLevel || 0),
+      name: entry.name,
+      baseName: entry.baseName,
+      grade: entry.grade,
+      color: entry.color,
+      borderColor: entry.borderColor,
+      skillName: entry.skillName,
+      skillDesc: entry.skillDesc,
+      cooldown: Number(entry.cooldown || 0),
+      durationText: entry.durationText,
+      targetType: entry.targetType || null,
+      passiveOnly: Boolean(entry.passiveOnly)
+    }));
+}
+
+function getPvpPlayer(matchOrBattle, userId) {
+  return matchOrBattle?.players?.find((player) => String(player.userId) === String(userId)) || null;
+}
+
+function getPvpOpponent(matchOrBattle, userId) {
+  return matchOrBattle?.players?.find((player) => String(player.userId) !== String(userId)) || null;
+}
+
+function getPvpBannedCardIds(match) {
+  const banned = [];
+  Object.values(match?.bans || {}).forEach((list) => {
+    banned.push(...(Array.isArray(list) ? list : []));
+  });
+  return banned;
+}
+
+function getPvpPickedCardIds(match) {
+  const picked = [];
+  Object.values(match?.picks || {}).forEach((list) => {
+    (Array.isArray(list) ? list : []).forEach((entry) => picked.push(entry.cardId));
+  });
+  return picked;
+}
+
+function getPvpTurnPlayerId(match) {
+  return match?.turnUserId || match?.players?.[0]?.userId || null;
+}
+
+function advancePvpDraftTurn(match, now = new Date()) {
+  const currentUserId = getPvpTurnPlayerId(match);
+  const currentIndex = Math.max(0, match.players.findIndex((player) => player.userId === currentUserId));
+  const nextPlayer = match.players[(currentIndex + 1) % match.players.length];
+  match.turnUserId = nextPlayer.userId;
+  match.turnEndsAt = new Date(now.getTime() + (match.phase === 'ban' ? PVP_BAN_TURN_MS : PVP_PICK_TURN_MS));
+}
+
+function startPvpPickPhase(match, now = new Date()) {
+  match.phase = 'pick';
+  match.turnUserId = match.players[0].userId;
+  match.turnEndsAt = new Date(now.getTime() + PVP_PICK_TURN_MS);
+}
+
+async function autoBanPvpCard(match, userId, now = new Date()) {
+  const bannedSet = new Set(getPvpBannedCardIds(match));
+  const pickedSet = new Set(getPvpPickedCardIds(match));
+  const candidates = getAllPvpBanCards().filter((card) => !bannedSet.has(card.cardId) && !pickedSet.has(card.cardId));
+  if (!candidates.length) return;
+  const card = candidates[Math.floor(Math.random() * candidates.length)];
+  match.bans[userId].push(card.cardId);
+  match.logs.push(`${getPvpPlayer(match, userId)?.displayName || '플레이어'}의 시간이 초과되어 ${card.baseName}이(가) 자동 금지되었습니다.`);
+  if (match.players.every((player) => (match.bans[player.userId] || []).length >= PVP_BANS_PER_PLAYER)) {
+    startPvpPickPhase(match, now);
+  } else {
+    advancePvpDraftTurn(match, now);
+  }
+}
+
+async function autoPickPvpCard(match, userId, now = new Date()) {
+  match.pickDone = match.pickDone || {};
+  const user = await User.findById(userId);
+  if (!user) return;
+  ensureUserDefaults(user);
+  const bannedSet = new Set(getPvpBannedCardIds(match));
+  const pickedSet = new Set(getPvpPickedCardIds(match));
+  const candidates = getOwnedPvpPickCards(user).filter((card) => !bannedSet.has(card.cardId) && !pickedSet.has(card.cardId));
+  if (candidates.length) {
+    const card = candidates[Math.floor(Math.random() * candidates.length)];
+    match.picks[userId].push({ cardId: card.cardId, enhancementLevel: card.enhancementLevel });
+    match.logs.push(`${getPvpPlayer(match, userId)?.displayName || '플레이어'}의 시간이 초과되어 ${card.baseName}이(가) 자동 선택되었습니다.`);
+    if ((match.picks[userId] || []).length >= PVP_PICKS_PER_PLAYER) {
+      match.pickDone[userId] = true;
+    }
+  } else {
+    match.logs.push(`${getPvpPlayer(match, userId)?.displayName || '플레이어'}의 시간이 초과되었지만 선택 가능한 카드가 없었습니다.`);
+    match.pickDone[userId] = true;
+  }
+
+  if (match.players.every((player) => (match.picks[player.userId] || []).length >= PVP_PICKS_PER_PLAYER || match.pickDone?.[player.userId])) {
+    match.phase = 'starting';
+    match.startsAt = new Date(now.getTime() + PVP_START_COUNTDOWN_MS);
+  } else {
+    advancePvpDraftTurn(match, now);
+  }
+}
+
+function createPvpParticipantFromUser(user, match, picks) {
+  const equippedEquipment = getEquippedEquipment(user);
+  const equippedCardEffect = equippedEquipment?.equipmentType === EQUIPMENT_TYPE_CARD ? equippedEquipment : null;
+  const equippedBasicAttack = equippedEquipment?.equipmentType === EQUIPMENT_TYPE_ATTACK ? equippedEquipment : null;
+  return {
+    userId: String(user._id),
+    displayName: user.nickname || user.username,
+    level: 1,
+    maxHp: PVP_MAX_HP,
+    hp: PVP_MAX_HP,
+    shield: 0,
+    lastHpLoss: 0,
+    lastShieldLoss: 0,
+    basicAttackEquipmentBonusPercent: Number(equippedBasicAttack?.statValue || 0) / 100,
+    cardEffectEquipmentBonusPercent: Number(equippedCardEffect?.statValue || 0) / 100,
+    plannedCardIndex: null,
+    basicAttackLockTurns: 0,
+    actionLockTurns: 0,
+    buffs: [],
+    debuffs: [],
+    cards: (picks || []).map((pick, index) => {
+      const card = getCardDefinition(pick.cardId, pick.enhancementLevel || 0);
+      return {
+        slotIndex: index,
+        cardId: pick.cardId,
+        enhancementLevel: normalizeCardEnhancementLevel(pick.enhancementLevel || 0),
+        cooldownRemaining: 0,
+        name: card?.displayName || CARD_DATA[pick.cardId]?.name || pick.cardId,
+        baseName: CARD_DATA[pick.cardId]?.name || pick.cardId,
+        grade: card?.grade || CARD_DATA[pick.cardId]?.grade || null,
+        color: CARD_GRADE_COLORS[card?.grade || CARD_DATA[pick.cardId]?.grade] || '#666666',
+        borderColor: card?.borderColor || '',
+        skillName: card?.skillName || '',
+        skillDesc: card ? buildCardSkillDescription(card.id, card.enhancementLevel || 0) : '',
+        durationText: card ? getCardDurationText(card.id, card.enhancementLevel || 0) : '',
+        passiveOnly: Boolean(card?.passiveOnly)
+      };
+    })
+  };
+}
+
+async function createPvpBattleFromMatch(match, now = new Date()) {
+  const userIds = match.players.map((player) => player.userId);
+  const users = await User.find({ _id: { $in: userIds } });
+  const userMap = new Map(users.map((user) => [String(user._id), user]));
+  const players = match.players.map((player) => {
+    const user = userMap.get(player.userId);
+    if (!user) return null;
+    ensureUserDefaults(user);
+    return createPvpParticipantFromUser(user, match, match.picks[player.userId] || []);
+  }).filter(Boolean);
+
+  const battle = {
+    battleId: crypto.randomUUID(),
+    phase: 'active',
+    players,
+    firstUserId: match.players[0].userId,
+    currentUserId: match.players[0].userId,
+    turnNumber: 1,
+    turnEndsAt: new Date(now.getTime() + PVP_BATTLE_TURN_MS),
+    logs: ['개인면담이 시작되었습니다.'],
+    winnerUserId: null,
+    loserUserId: null,
+    finishedAt: null
+  };
+  applyPvpBattleStartPassives(battle);
+  return battle;
+}
+
+function applyPvpBattleStartPassives(battle) {
+  battle.players.forEach((player) => {
+    player.cards.forEach((cardEntry) => {
+      const card = getCardDefinition(cardEntry.cardId, cardEntry.enhancementLevel);
+      if (!card) return;
+      if (card.effectType === 'passive_rotation_amp') {
+        addPvpBuff(player, {
+          id: 'rotation_amp_passive',
+          name: '소개팅 상대',
+          desc: `자신의 카드 효과 x${Number(card.amplifyMultiplier || 1).toFixed(1)}`,
+          value: Number(card.amplifyMultiplier || 1),
+          turns: 999
+        });
+      }
+    });
+  });
+}
+
+function addPvpBuff(player, buff) {
+  const existing = player.buffs.find((entry) => entry.id === buff.id);
+  if (existing && (Number(existing.count || 0) > 0 || Number(buff.count || 0) > 0)) {
+    existing.count = Number(existing.count || 0) + Number(buff.count || 0);
+    existing.turns = Math.max(Number(existing.turns || 0), Number(buff.turns || 0));
+    return existing;
+  }
+  if (existing && !buff.stackDistinct) {
+    existing.turns = Math.max(Number(existing.turns || 0), Number(buff.turns || 0));
+    existing.value = Math.max(Number(existing.value || 0), Number(buff.value || 0));
+    existing.desc = buff.desc || existing.desc;
+    return existing;
+  }
+  player.buffs.push({ ...buff });
+  return buff;
+}
+
+function addPvpDebuff(target, debuff, source, battle) {
+  const selfEsteem = target.buffs.find((buff) => buff.id === 'self_esteem' && Number(buff.count || 0) > 0);
+  if (selfEsteem && source) {
+    selfEsteem.count -= 1;
+    if (selfEsteem.count <= 0) {
+      target.buffs = target.buffs.filter((buff) => buff !== selfEsteem);
+    }
+    source.debuffs.push({ ...debuff });
+    battle.logs.push(`${target.displayName}의 자존감이 ${debuff.name} 디버프를 ${source.displayName}에게 반사했습니다.`);
+    return false;
+  }
+
+  const guard = target.buffs.find((buff) => buff.id === 'debuff_guard' && Number(buff.count || 0) > 0);
+  if (guard) {
+    guard.count -= 1;
+    if (guard.count <= 0) target.buffs = target.buffs.filter((buff) => buff !== guard);
+    battle.logs.push(`${target.displayName}이(가) 디버프를 막아냈습니다.`);
+    return false;
+  }
+
+  target.debuffs.push({ ...debuff });
+  return true;
+}
+
+function getPvpBuffValue(player, id, fallback = 0) {
+  return player.buffs
+    .filter((buff) => buff.id === id)
+    .reduce((max, buff) => Math.max(max, Number(buff.value || fallback)), fallback);
+}
+
+function getPvpAttackBonus(player) {
+  return player.buffs
+    .filter((buff) => ['attack_bonus', 'celine', 'damage_multiplier'].includes(buff.id))
+    .reduce((sum, buff) => {
+      if (buff.id === 'damage_multiplier') return sum + (Number(buff.value || 1) - 1);
+      return sum + Number(buff.value || 0);
+    }, 0);
+}
+
+function getPvpCardEffectMultiplier(player) {
+  const equipmentMultiplier = 1 + Number(player.cardEffectEquipmentBonusPercent || 0);
+  const ampBuff = getPvpBuffValue(player, 'rotation_amp_passive', 1);
+  return equipmentMultiplier * Math.max(1, ampBuff);
+}
+
+function applyPvpDamage(target, amount, battle, options = {}) {
+  if (!target || target.hp <= 0) return 0;
+  const negateBuff = target.buffs.find((buff) => buff.id === 'negate_hit' && Number(buff.count || 0) > 0);
+  if (!options.ignoreNegate && negateBuff) {
+    negateBuff.count -= 1;
+    if (negateBuff.count <= 0) target.buffs = target.buffs.filter((buff) => buff !== negateBuff);
+    target.lastHpLoss = 0;
+    target.lastShieldLoss = 0;
+    battle.logs.push(`${target.displayName}의 피격 무효가 공격을 막았습니다.`);
+    return 0;
+  }
+
+  let remaining = Math.max(0, Math.floor(Number(amount || 0)));
+  let shieldLoss = 0;
+  if (!options.ignoreShield && Number(target.shield || 0) > 0) {
+    shieldLoss = Math.min(Number(target.shield || 0), remaining);
+    target.shield -= shieldLoss;
+    remaining -= shieldLoss;
+  }
+  target.hp = Math.max(0, Number(target.hp || 0) - remaining);
+  target.lastHpLoss = remaining;
+  target.lastShieldLoss = shieldLoss;
+  return remaining;
+}
+
+function healPvpTarget(target, amount) {
+  const previousHp = Number(target.hp || 0);
+  target.hp = Math.min(Number(target.maxHp || PVP_MAX_HP), previousHp + Math.max(0, Math.floor(Number(amount || 0))));
+  return Number(target.hp || 0) - previousHp;
+}
+
+function getPvpCardDefinitionFromSlot(player, slotIndex) {
+  const cardEntry = player.cards?.[Number(slotIndex)];
+  if (!cardEntry) return null;
+  return getCardDefinition(cardEntry.cardId, cardEntry.enhancementLevel || 0);
+}
+
+function removeRandomPvpBuff(target, removeCount = 1) {
+  const removable = target.buffs.filter((buff) => buff.id !== 'rotation_amp_passive');
+  if (!removable.length) return null;
+  const buff = removable[Math.floor(Math.random() * removable.length)];
+  const count = Math.max(1, Number(removeCount || 1));
+  if (Number(buff.count || 0) > 0) {
+    buff.count -= count;
+    if (buff.count <= 0) target.buffs = target.buffs.filter((entry) => entry !== buff);
+  } else {
+    target.buffs = target.buffs.filter((entry) => entry !== buff);
+  }
+  return buff.name;
+}
+
+function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
+  const card = options.cardOverride || getPvpCardDefinitionFromSlot(actor, slotIndex);
+  const cardEntry = actor.cards?.[Number(slotIndex)];
+  if (!card || card.passiveOnly) return false;
+  if (!options.ignoreCooldown && cardEntry && Number(cardEntry.cooldownRemaining || 0) > 0) return false;
+  if (actor.actionLockTurns > 0) return false;
+
+  const valueMultiplier = getPvpCardEffectMultiplier(actor) * Number(options.effectMultiplier || 1);
+  const scaleFlat = (value) => Math.max(0, Math.floor(Number(value || 0) * valueMultiplier));
+  const scalePercent = (value) => Number((Number(value || 0) * valueMultiplier).toFixed(4));
+  const scaleCount = (value) => Math.max(1, Math.ceil(Number(value || 0) * Number(options.effectMultiplier || 1)));
+  const cardLabel = card.name || card.displayName || card.skillName;
+
+  battle.logs.push(`${actor.displayName}이(가) ${cardLabel} 스킬을 사용했습니다.`);
+
+  if (card.effectType === 'self_debuff_reflect') {
+    addPvpBuff(actor, {
+      id: 'self_esteem',
+      name: '자존감',
+      count: Number(card.selfEsteemCount || 1),
+      desc: '다음 디버프를 상대에게 반사합니다.'
+    });
+  } else if (card.effectType === 'remove_enemy_buff') {
+    const removed = removeRandomPvpBuff(target, card.removeBuffCount || 1);
+    battle.logs.push(removed ? `${target.displayName}의 ${removed} 버프가 제거되었습니다.` : `${target.displayName}에게 제거할 버프가 없습니다.`);
+  } else if (card.effectType === 'self_multi_hit') {
+    actor.extraHits = Math.max(Number(actor.extraHits || 0), scaleCount(card.hits) - 1);
+    actor.multiHitDamageMultiplier = 0.9;
+  } else if (card.effectType === 'self_fixed_multi_hit') {
+    const hits = Math.max(1, Number(card.hits || 1));
+    const damage = Math.max(1, scaleFlat(actor.level * Number(card.damagePerLevel || 0) * 0.9));
+    for (let index = 0; index < hits; index += 1) {
+      applyPvpDamage(target, damage, battle);
+      battle.logs.push(`${cardLabel} ${index + 1}타! ${target.displayName}에게 ${damage.toLocaleString()} 피해를 입혔습니다.`);
+    }
+  } else if (card.effectType === 'party_level_blast') {
+    const totalLevels = battle.players.reduce((sum, player) => sum + Number(player.level || 0), 0);
+    const damage = scaleFlat(totalLevels * Number(card.multiplierPerLevel || 0));
+    applyPvpDamage(target, damage, battle);
+    battle.logs.push(`${target.displayName}에게 ${damage.toLocaleString()} 피해를 입혔습니다.`);
+  } else if (card.effectType === 'direct_hp_strike') {
+    const damage = scaleFlat(actor.level * Number(card.multiplierPerLevel || 0));
+    applyPvpDamage(target, damage, battle, { ignoreShield: true });
+    battle.logs.push(`${target.displayName}의 보호막을 무시하고 ${damage.toLocaleString()} 피해를 입혔습니다.`);
+  } else if (card.effectType === 'party_hype_crit') {
+    addPvpBuff(actor, { id: 'crit_bonus', name: '크리티컬 상승', turns: Number(card.turns || 1), value: scalePercent(card.critBonus), desc: `치명타 확률 +${Math.round(scalePercent(card.critBonus) * 100)}%` });
+    addPvpBuff(actor, { id: 'hype', name: '흥겨움', turns: Number(card.hypeTurns || 1), desc: '기본 공격 횟수 2배' });
+    actor.shield += scaleFlat(card.shield || 0);
+  } else if (card.effectType === 'party_shield' || card.effectType === 'random_shield') {
+    actor.shield += scaleFlat(card.shield || 0);
+  } else if (card.effectType === 'party_heal' || card.effectType === 'target_heal') {
+    const healed = healPvpTarget(actor, scaleFlat(card.heal || 0));
+    battle.logs.push(`${actor.displayName}의 HP가 ${healed.toLocaleString()} 회복되었습니다.`);
+  } else if (card.effectType === 'party_crit_bonus') {
+    addPvpBuff(actor, { id: 'crit_bonus', name: '크리티컬 상승', turns: Number(card.turns || 1), value: scalePercent(card.critBonus), desc: `치명타 확률 +${Math.round(scalePercent(card.critBonus) * 100)}%` });
+  } else if (card.effectType === 'self_celine_buff') {
+    addPvpBuff(actor, { id: 'celine', name: '셀린느', turns: Number(card.turns || 1), value: scalePercent(card.attackBonusPercent), expireDamage: scaleFlat(actor.level * Number(card.expireDamagePerLevel || 0)), desc: `공격력 +${Math.round(scalePercent(card.attackBonusPercent) * 100)}%, 종료 시 피해` });
+  } else if (card.effectType === 'self_counter') {
+    addPvpBuff(actor, { id: 'counter', name: '반격', turns: Number(card.turns || 1), value: Number(card.counterDamageMultiplier || 1), desc: '피격 시 반격' });
+  } else if (card.effectType === 'random_ally_sacrifice_buff') {
+    applyPvpDamage(actor, Number(card.selfDamage || 0), battle, { ignoreNegate: true });
+    addPvpBuff(actor, { id: 'damage_multiplier', name: '피해 증폭', turns: 1, value: Number(card.damageMultiplier || 2), desc: `다음 피해 x${Number(card.damageMultiplier || 2).toFixed(1)}` });
+  } else if (card.effectType === 'party_cleanse') {
+    actor.debuffs = [];
+  } else if (card.effectType === 'self_bonus_damage') {
+    actor.extraDamage = scaleFlat(actor.level * Number(card.bonusPerLevel || 0));
+  } else if (card.effectType === 'self_per_hit_bonus') {
+    actor.perHitBonusDamage = scaleFlat(actor.level * Number(card.bonusPerLevel || 0));
+    actor.perHitBonusTurns = 1;
+  } else if (card.effectType === 'target_pair_guard_buff') {
+    addPvpBuff(actor, { id: 'negate_hit', name: '피격 무효', count: scaleCount(card.negateHitCount || 0), desc: '피격 무효' });
+    addPvpBuff(actor, { id: 'debuff_guard', name: '디버프 무효', count: scaleCount(card.debuffImmuneCount || 1), desc: '디버프 무효' });
+    addPvpBuff(actor, { id: 'attack_bonus', name: '공격력 상승', turns: Number(card.turns || 1), value: scalePercent(card.attackBonusPercent), desc: `공격력 +${Math.round(scalePercent(card.attackBonusPercent) * 100)}%` });
+  } else if (card.effectType === 'random_party_negate_hit' || card.effectType === 'party_negate_hit_by_level') {
+    addPvpBuff(actor, { id: 'negate_hit', name: '피격 무효', count: scaleCount(card.negateHitCount || 1), desc: '피격 무효' });
+  } else if (card.effectType === 'random_party_attack_buff' || card.effectType === 'target_attack_buff') {
+    addPvpBuff(actor, { id: 'attack_bonus', name: '공격력 상승', turns: Number(card.turns || 1), value: scalePercent(card.attackBonusPercent), desc: `공격력 +${Math.round(scalePercent(card.attackBonusPercent) * 100)}%` });
+  } else if (card.effectType === 'target_debuff_guard') {
+    addPvpBuff(actor, { id: 'debuff_guard', name: '디버프 무효', count: scaleCount(card.debuffImmuneCount || 1), desc: '디버프 무효' });
+  } else if (card.effectType === 'self_status_blast') {
+    const statusCount = actor.buffs.length + actor.debuffs.length;
+    const hits = Math.max(1, Number(card.hits || 1));
+    const damage = scaleFlat(statusCount * actor.level * Number(card.multiplierPerStatus || 0));
+    for (let index = 0; index < hits; index += 1) {
+      applyPvpDamage(target, damage, battle);
+      battle.logs.push(`${cardLabel} ${index + 1}타! ${target.displayName}에게 ${damage.toLocaleString()} 피해를 입혔습니다.`);
+    }
+    actor.debuffs = [];
+  } else if (card.effectType === 'copy_ally_skill') {
+    const opponentCards = target.cards
+      .map((entry, index) => ({ entry, index, card: getCardDefinition(entry.cardId, entry.enhancementLevel) }))
+      .filter((entry) => entry.card && !entry.card.passiveOnly && entry.card.id !== 'umbrella_copy');
+    const source = opponentCards[Math.floor(Math.random() * opponentCards.length)];
+    if (source) {
+      battle.logs.push(`${actor.displayName}이(가) 상대의 ${source.card.name} 효과를 복사했습니다.`);
+      applyPvpCardSkill(actor, target, battle, slotIndex, {
+        cardOverride: source.card,
+        effectMultiplier: Number(card.copyEffectMultiplier || 0.5),
+        ignoreCooldown: true
+      });
+    }
+  }
+
+  if (cardEntry && !options.ignoreCooldown) {
+    cardEntry.cooldownRemaining = Number(card.cooldown || 0) + 1;
+  }
+  return true;
+}
+
+function getPvpCriticalChance(player) {
+  const baseChance = 0.1;
+  const bonus = player.buffs
+    .filter((buff) => buff.id === 'crit_bonus')
+    .reduce((sum, buff) => sum + Number(buff.value || 0), 0);
+  return Math.min(1, baseChance + bonus);
+}
+
+function performPvpBasicAttack(actor, target, battle) {
+  if (actor.basicAttackLockTurns > 0) {
+    battle.logs.push(`${actor.displayName}은(는) 기본 공격을 할 수 없습니다.`);
+    return;
+  }
+  let hitCount = 1 + Number(actor.extraHits || 0);
+  if (actor.buffs.some((buff) => buff.id === 'hype')) hitCount *= 2;
+  const hitMultiplier = Number(actor.multiHitDamageMultiplier || 1);
+  const baseDamage = Math.max(1, Math.floor((actor.level / 2) * 20 * (1 + getPvpAttackBonus(actor)) * (1 + Number(actor.basicAttackEquipmentBonusPercent || 0))));
+  for (let index = 0; index < hitCount; index += 1) {
+    const critical = Math.random() < getPvpCriticalChance(actor);
+    let damage = Math.floor(baseDamage * hitMultiplier * (critical ? 1.5 : 1));
+    if (actor.perHitBonusTurns > 0) damage += Number(actor.perHitBonusDamage || 0);
+    if (index === 0 && actor.extraDamage > 0) damage += Number(actor.extraDamage || 0);
+    applyPvpDamage(target, damage, battle);
+    battle.logs.push(`${actor.displayName}의 기본 공격 ${index + 1}타! ${target.displayName}에게 ${damage.toLocaleString()} 피해를 입혔습니다.${critical ? ' (치명타)' : ''}`);
+  }
+}
+
+function tickPvpPlayerEndOfTurn(player, battle) {
+  player.cards.forEach((card) => {
+    if (Number(card.cooldownRemaining || 0) > 0) card.cooldownRemaining -= 1;
+  });
+  player.buffs.forEach((buff) => {
+    if (Number(buff.turns || 0) > 0 && Number(buff.turns || 0) < 900) {
+      buff.turns -= 1;
+      if (buff.turns <= 0 && buff.id === 'celine' && Number(buff.expireDamage || 0) > 0) {
+        const target = getPvpOpponent(battle, player.userId);
+        if (target) {
+          applyPvpDamage(target, Number(buff.expireDamage || 0), battle);
+          battle.logs.push(`${player.displayName}의 셀린느가 종료되며 ${target.displayName}에게 ${Number(buff.expireDamage || 0).toLocaleString()} 피해를 입혔습니다.`);
+        }
+      }
+    }
+  });
+  player.debuffs.forEach((debuff) => {
+    if (Number(debuff.turns || 0) > 0) debuff.turns -= 1;
+  });
+  player.buffs = player.buffs.filter((buff) => Number(buff.turns || 0) > 0 || Number(buff.count || 0) > 0 || Number(buff.turns || 0) >= 900);
+  player.debuffs = player.debuffs.filter((debuff) => Number(debuff.turns || 0) > 0 || Number(debuff.count || 0) > 0);
+  if (player.basicAttackLockTurns > 0) player.basicAttackLockTurns -= 1;
+  if (player.actionLockTurns > 0) player.actionLockTurns -= 1;
+  player.extraHits = 0;
+  player.multiHitDamageMultiplier = 1;
+  player.extraDamage = 0;
+  if (player.perHitBonusTurns > 0) {
+    player.perHitBonusTurns -= 1;
+    if (player.perHitBonusTurns <= 0) player.perHitBonusDamage = 0;
+  }
+  player.plannedCardIndex = null;
+}
+
+function executePvpTurn(battle, now = new Date()) {
+  const actor = getPvpPlayer(battle, battle.currentUserId);
+  const target = getPvpOpponent(battle, battle.currentUserId);
+  if (!actor || !target || battle.winnerUserId) return;
+
+  actor.lastHpLoss = 0;
+  actor.lastShieldLoss = 0;
+  target.lastHpLoss = 0;
+  target.lastShieldLoss = 0;
+
+  if (actor.hp <= 0) {
+    battle.logs.push(`${actor.displayName}은(는) 전투불능입니다.`);
+  } else {
+    const plannedIndex = Number.isInteger(actor.plannedCardIndex) ? actor.plannedCardIndex : null;
+    if (plannedIndex !== null) {
+      const used = applyPvpCardSkill(actor, target, battle, plannedIndex);
+      if (!used) {
+        battle.logs.push(`${actor.displayName}의 예약 스킬은 사용할 수 없어 기본 공격만 진행합니다.`);
+      }
+    }
+    performPvpBasicAttack(actor, target, battle);
+  }
+
+  tickPvpPlayerEndOfTurn(actor, battle);
+  if (target.hp <= 0) {
+    battle.winnerUserId = actor.userId;
+    battle.loserUserId = target.userId;
+    battle.phase = 'finished';
+    battle.finishedAt = now;
+    battle.logs.push(`${actor.displayName}의 승리입니다.`);
+    bumpPvpVersion();
+    return;
+  }
+
+  battle.currentUserId = target.userId;
+  battle.turnNumber += 1;
+  battle.turnEndsAt = new Date(now.getTime() + PVP_BATTLE_TURN_MS);
+  bumpPvpVersion();
+}
+
+async function advancePvpState(now = new Date()) {
+  if (pvpState.match) {
+    const match = pvpState.match;
+    if (match.phase === 'accept') {
+      if (now.getTime() >= new Date(match.acceptEndsAt).getTime()) {
+        const acceptedPlayers = match.players.filter((player) => match.accepted[player.userId]);
+        pvpState.match = null;
+        acceptedPlayers.forEach((player) => {
+          if (!pvpState.queue.some((entry) => entry.userId === player.userId)) {
+            pvpState.queue.push(player);
+          }
+        });
+        bumpPvpVersion();
+      }
+    } else if (['ban', 'pick'].includes(match.phase) && now.getTime() >= new Date(match.turnEndsAt).getTime()) {
+      if (match.phase === 'ban') {
+        await autoBanPvpCard(match, match.turnUserId, now);
+      } else {
+        await autoPickPvpCard(match, match.turnUserId, now);
+      }
+      bumpPvpVersion();
+    } else if (match.phase === 'starting' && now.getTime() >= new Date(match.startsAt).getTime()) {
+      pvpState.battle = await createPvpBattleFromMatch(match, now);
+      pvpState.match = null;
+      bumpPvpVersion();
+    }
+  }
+
+  if (pvpState.battle?.phase === 'active' && now.getTime() >= new Date(pvpState.battle.turnEndsAt).getTime()) {
+    executePvpTurn(pvpState.battle, now);
+  }
+
+  if (pvpState.battle?.phase === 'finished' && pvpState.battle.finishedAt && now.getTime() - new Date(pvpState.battle.finishedAt).getTime() > 60000) {
+    pvpState.battle = null;
+    bumpPvpVersion();
+  }
+}
+
+function buildPvpEffectsSnapshot(player) {
+  const normalizeEffect = (effect, type) => ({
+    type,
+    id: effect.id,
+    name: effect.name,
+    turns: Number(effect.turns || 0),
+    count: Number(effect.count || 0),
+    desc: effect.desc || ''
+  });
+  return [
+    ...(player.buffs || []).map((effect) => normalizeEffect(effect, 'buff')),
+    ...(player.debuffs || []).map((effect) => normalizeEffect(effect, 'debuff'))
+  ];
+}
+
+function buildPvpBattleSnapshot(battle, viewerUserId = null) {
+  if (!battle) return null;
+  return {
+    battleId: battle.battleId,
+    phase: battle.phase,
+    currentUserId: battle.currentUserId,
+    firstUserId: battle.firstUserId,
+    turnNumber: battle.turnNumber,
+    turnEndsAt: battle.turnEndsAt,
+    winnerUserId: battle.winnerUserId,
+    loserUserId: battle.loserUserId,
+    finishedAt: battle.finishedAt,
+    isParticipant: Boolean(viewerUserId && battle.players.some((player) => player.userId === String(viewerUserId))),
+    players: battle.players.map((player) => ({
+      userId: player.userId,
+      displayName: player.displayName,
+      isSelf: viewerUserId ? player.userId === String(viewerUserId) : false,
+      hp: player.hp,
+      maxHp: player.maxHp,
+      shield: player.shield,
+      lastHpLoss: player.lastHpLoss || 0,
+      lastShieldLoss: player.lastShieldLoss || 0,
+      plannedCardIndex: Number.isInteger(player.plannedCardIndex) ? player.plannedCardIndex : null,
+      statusEffects: buildPvpEffectsSnapshot(player),
+      cards: player.cards.map((card, index) => ({
+        ...card,
+        slotIndex: index,
+        cooldownRemaining: Number(card.cooldownRemaining || 0)
+      }))
+    })),
+    recentLogs: battle.logs.slice(-20).reverse()
+  };
+}
+
+async function buildPvpStateResponse(user, now = new Date()) {
+  await advancePvpState(now);
+  const userId = user?._id ? String(user._id) : null;
+  const match = pvpState.match;
+  const matchPayload = match ? {
+    matchId: match.matchId,
+    phase: match.phase,
+    players: match.players,
+    accepted: match.accepted,
+    acceptEndsAt: match.acceptEndsAt,
+    turnUserId: match.turnUserId,
+    turnEndsAt: match.turnEndsAt,
+    startsAt: match.startsAt || null,
+    bans: match.bans,
+    picks: match.picks,
+    bannedCardIds: getPvpBannedCardIds(match),
+    pickedCardIds: getPvpPickedCardIds(match),
+    allCards: getAllPvpBanCards(),
+    ownedCards: getOwnedPvpPickCards(user),
+    logs: match.logs.slice(-8),
+    isParticipant: Boolean(userId && match.players.some((player) => player.userId === userId)),
+    isMyTurn: Boolean(userId && match.turnUserId === userId)
+  } : null;
+
+  return {
+    version: pvpState.version,
+    minLevel: PVP_MIN_LEVEL,
+    canQueue: Boolean(user && user.gameState.level >= PVP_MIN_LEVEL && !pvpState.battle && !pvpState.match),
+    isQueued: Boolean(userId && pvpState.queue.some((entry) => entry.userId === userId)),
+    queueCount: pvpState.queue.length,
+    hasActiveSession: Boolean(pvpState.match || pvpState.battle),
+    match: matchPayload,
+    battle: buildPvpBattleSnapshot(pvpState.battle, userId)
+  };
+}
+
+function createPvpQueueEntry(user) {
+  return {
+    userId: String(user._id),
+    displayName: user.nickname || user.username
+  };
+}
+
+function removePvpQueueUser(userId) {
+  pvpState.queue = pvpState.queue.filter((entry) => entry.userId !== String(userId));
+}
+
+function startPvpAcceptMatch(playerA, playerB, now = new Date()) {
+  pvpState.match = {
+    matchId: crypto.randomUUID(),
+    phase: 'accept',
+    players: [playerA, playerB],
+    accepted: {
+      [playerA.userId]: false,
+      [playerB.userId]: false
+    },
+    acceptEndsAt: new Date(now.getTime() + PVP_ACCEPT_MS),
+    turnUserId: playerA.userId,
+    turnEndsAt: null,
+    startsAt: null,
+    bans: {
+      [playerA.userId]: [],
+      [playerB.userId]: []
+    },
+    picks: {
+      [playerA.userId]: [],
+      [playerB.userId]: []
+    },
+    pickDone: {
+      [playerA.userId]: false,
+      [playerB.userId]: false
+    },
+    logs: ['매칭이 성사되었습니다. 5초 안에 입장해주세요.']
+  };
+  bumpPvpVersion();
+}
+
 
 async function finalizeRaidBattle(activeBattle, now = new Date()) {
   if (!activeBattle || activeBattle.finalized) return;
@@ -5668,6 +6484,7 @@ function buildUserResponse(user, now = new Date()) {
 async function buildUserResponseWithGlobals(user, now = new Date()) {
   const response = buildUserResponse(user, now);
   response.global = getGlobalState(now);
+  response.marketplaceSoldPendingCount = await getMarketplaceSoldPendingCount(user._id);
   return response;
 }
 
@@ -7301,6 +8118,9 @@ app.post('/api/cards/enhance', async (req, res) => {
     if (!CARD_DATA[cardId]) {
       return res.status(400).json({ msg: '존재하지 않는 카드입니다.' });
     }
+    if (CARD_DATA[cardId].enhanceDisabled) {
+      return res.status(400).json({ msg: '이 카드는 강화할 수 없습니다.' });
+    }
     if (currentLevel >= 5) {
       return res.status(400).json({ msg: '이미 최대 강화 단계입니다.' });
     }
@@ -7797,6 +8617,233 @@ app.post('/api/raid/set-target', async (req, res) => {
   }
 });
 
+app.post('/api/pvp/state', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    ensureUserDefaults(user);
+    const pvp = await buildPvpStateResponse(user, new Date());
+    res.json({ pvp });
+  } catch (err) {
+    console.error('PVP state error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/pvp/queue', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+
+  try {
+    const now = new Date();
+    await advancePvpState(now);
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    ensureUserDefaults(user);
+
+    if (user.gameState.level < PVP_MIN_LEVEL) {
+      return res.status(400).json({ msg: '개인면담 입장은 50레벨부터 가능합니다.' });
+    }
+    if (pvpState.battle || pvpState.match) {
+      return res.status(400).json({ msg: '이미 개인면담이 진행 중입니다. 관전으로 참여해주세요.' });
+    }
+    if (pvpState.queue.some((entry) => entry.userId === String(userId))) {
+      return res.json({ pvp: await buildPvpStateResponse(user, now) });
+    }
+
+    const entry = createPvpQueueEntry(user);
+    const opponentIndex = pvpState.queue.findIndex((queued) => queued.userId !== entry.userId);
+    if (opponentIndex >= 0) {
+      const opponent = pvpState.queue.splice(opponentIndex, 1)[0];
+      startPvpAcceptMatch(opponent, entry, now);
+    } else {
+      pvpState.queue.push(entry);
+      bumpPvpVersion();
+    }
+
+    res.json({ pvp: await buildPvpStateResponse(user, now) });
+  } catch (err) {
+    console.error('PVP queue error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/pvp/accept', async (req, res) => {
+  const { userId, accept } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+
+  try {
+    const now = new Date();
+    await advancePvpState(now);
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    ensureUserDefaults(user);
+
+    const match = pvpState.match;
+    if (!match || match.phase !== 'accept' || !getPvpPlayer(match, userId)) {
+      return res.status(400).json({ msg: '수락할 개인면담 매칭이 없습니다.' });
+    }
+
+    if (!accept) {
+      pvpState.match = null;
+      removePvpQueueUser(userId);
+      bumpPvpVersion();
+      return res.json({ pvp: await buildPvpStateResponse(user, now) });
+    }
+
+    match.accepted[String(userId)] = true;
+    if (match.players.every((player) => match.accepted[player.userId])) {
+      match.phase = 'ban';
+      match.turnUserId = match.players[0].userId;
+      match.turnEndsAt = new Date(now.getTime() + PVP_BAN_TURN_MS);
+      match.logs.push('밴픽을 시작합니다. 먼저 각자 3장씩 금지합니다.');
+    }
+    bumpPvpVersion();
+    res.json({ pvp: await buildPvpStateResponse(user, now) });
+  } catch (err) {
+    console.error('PVP accept error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/pvp/ban', async (req, res) => {
+  const { userId, cardId } = req.body;
+  if (!userId || !cardId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+
+  try {
+    const now = new Date();
+    await advancePvpState(now);
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    ensureUserDefaults(user);
+    const match = pvpState.match;
+    if (!match || match.phase !== 'ban') return res.status(400).json({ msg: '현재 금지 단계가 아닙니다.' });
+    if (match.turnUserId !== String(userId)) return res.status(400).json({ msg: '아직 내 차례가 아닙니다.' });
+    if (!CARD_DATA[cardId]) return res.status(400).json({ msg: '존재하지 않는 카드입니다.' });
+    if (getPvpBannedCardIds(match).includes(cardId) || getPvpPickedCardIds(match).includes(cardId)) {
+      return res.status(400).json({ msg: '이미 선택할 수 없는 카드입니다.' });
+    }
+    if ((match.bans[String(userId)] || []).length >= PVP_BANS_PER_PLAYER) {
+      return res.status(400).json({ msg: '이미 금지할 카드를 모두 골랐습니다.' });
+    }
+
+    match.bans[String(userId)].push(cardId);
+    match.logs.push(`${getPvpPlayer(match, userId).displayName}이(가) ${CARD_DATA[cardId].name}을(를) 금지했습니다.`);
+    if (match.players.every((player) => (match.bans[player.userId] || []).length >= PVP_BANS_PER_PLAYER)) {
+      startPvpPickPhase(match, now);
+    } else {
+      advancePvpDraftTurn(match, now);
+    }
+    bumpPvpVersion();
+    res.json({ pvp: await buildPvpStateResponse(user, now) });
+  } catch (err) {
+    console.error('PVP ban error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/pvp/pick', async (req, res) => {
+  const { userId, cardId, enhancementLevel } = req.body;
+  if (!userId || !cardId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+
+  try {
+    const now = new Date();
+    await advancePvpState(now);
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    ensureUserDefaults(user);
+    const match = pvpState.match;
+    if (!match || match.phase !== 'pick') return res.status(400).json({ msg: '현재 선택 단계가 아닙니다.' });
+    if (match.turnUserId !== String(userId)) return res.status(400).json({ msg: '아직 내 차례가 아닙니다.' });
+    if (!CARD_DATA[cardId]) return res.status(400).json({ msg: '존재하지 않는 카드입니다.' });
+    if (getPvpBannedCardIds(match).includes(cardId) || getPvpPickedCardIds(match).includes(cardId)) {
+      return res.status(400).json({ msg: '이미 선택할 수 없는 카드입니다.' });
+    }
+    const level = normalizeCardEnhancementLevel(enhancementLevel || 0);
+    if (getOwnedCardVariantQuantity(user, cardId, level) <= 0) {
+      return res.status(400).json({ msg: '해당 카드를 보유하고 있지 않습니다.' });
+    }
+    if ((match.picks[String(userId)] || []).length >= PVP_PICKS_PER_PLAYER) {
+      return res.status(400).json({ msg: '이미 카드를 모두 선택했습니다.' });
+    }
+
+    match.pickDone = match.pickDone || {};
+    match.picks[String(userId)].push({ cardId, enhancementLevel: level });
+    match.logs.push(`${getPvpPlayer(match, userId).displayName}이(가) ${getCardDisplayName(cardId, level)}을(를) 선택했습니다.`);
+    if ((match.picks[String(userId)] || []).length >= PVP_PICKS_PER_PLAYER) {
+      match.pickDone[String(userId)] = true;
+    }
+    if (match.players.every((player) => (match.picks[player.userId] || []).length >= PVP_PICKS_PER_PLAYER || match.pickDone?.[player.userId])) {
+      match.phase = 'starting';
+      match.startsAt = new Date(now.getTime() + PVP_START_COUNTDOWN_MS);
+      match.logs.push('전투가 곧 시작됩니다.');
+    } else {
+      advancePvpDraftTurn(match, now);
+    }
+    bumpPvpVersion();
+    res.json({ pvp: await buildPvpStateResponse(user, now) });
+  } catch (err) {
+    console.error('PVP pick error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/pvp/plan-skill', async (req, res) => {
+  const { userId, cardIndex } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+
+  try {
+    const now = new Date();
+    await advancePvpState(now);
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    ensureUserDefaults(user);
+    const battle = pvpState.battle;
+    if (!battle || battle.phase !== 'active') return res.status(400).json({ msg: '진행 중인 개인면담이 없습니다.' });
+    const player = getPvpPlayer(battle, userId);
+    if (!player) return res.status(403).json({ msg: '개인면담 참가자가 아닙니다.' });
+
+    const index = Number(cardIndex);
+    if (!Number.isInteger(index) || index < 0 || index >= player.cards.length) {
+      player.plannedCardIndex = null;
+    } else {
+      player.plannedCardIndex = index;
+    }
+
+    if (battle.currentUserId === String(userId)) {
+      executePvpTurn(battle, now);
+    } else {
+      bumpPvpVersion();
+    }
+    res.json({ pvp: await buildPvpStateResponse(user, now) });
+  } catch (err) {
+    console.error('PVP skill plan error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/pvp/cancel', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    removePvpQueueUser(userId);
+    if (pvpState.match?.phase === 'accept' && getPvpPlayer(pvpState.match, userId)) {
+      pvpState.match = null;
+    }
+    bumpPvpVersion();
+    res.json({ pvp: await buildPvpStateResponse(user, new Date()) });
+  } catch (err) {
+    console.error('PVP cancel error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
 app.post('/api/action/shout', async (req, res) => {
   const { userId, message } = req.body;
   if (!userId || !message) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
@@ -7863,7 +8910,8 @@ app.post('/api/sync', async (req, res) => {
         return res.json({
           user: buildGameStateResponse(latestUser, now),
           notifications: Array.isArray(latestUser.pendingNotifications) ? [...latestUser.pendingNotifications] : [],
-          global: getGlobalState(now)
+          global: getGlobalState(now),
+          marketplaceSoldPendingCount: await getMarketplaceSoldPendingCount(latestUser._id)
         });
       } catch (reloadErr) {
         console.error('Sync conflict recovery error:', reloadErr);

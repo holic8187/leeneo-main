@@ -187,10 +187,19 @@ let rankingInterval;
 let syncInterval;
 let animationInterval;
 let raidPollInterval;
+let pvpPollInterval;
 let modalResolver = null;
 let latestGlobalState = { activeShoutText: '', activeShoutKey: '' };
 let lastRenderedShoutKey = '';
 let latestRaidState = null;
+let latestPvpState = null;
+let selectedPvpCardId = null;
+let selectedPvpEnhancementLevel = 0;
+let pvpAcceptTicker = null;
+let pvpDraftTicker = null;
+let pvpStartTicker = null;
+let lastPvpResultShownBattleId = null;
+let lastPvpLogSignature = '';
 let raidCountdownVisible = false;
 let raidCountdownTicker = null;
 let raidCountdownEndsAtMs = 0;
@@ -231,11 +240,23 @@ const RAID_BOSS_PORTRAIT_STORAGE_KEY = 'ineoRaidBossPortraitEnabled';
 const BGM_VOLUME = 0.16;
 const BGM_TRACKS = {
   normal: 'bgm.mp3',
-  raid: 'raid-bgm.mp3'
+  raid: 'raid-bgm.mp3',
+  pvp: 'pvp-bgm.mp3'
 };
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-05-19-pvp-interview-alpha',
+    time: '2026-05-19 20:10',
+    title: '개인면담 1대1 모드 1차 추가',
+    items: [
+      '신규 카드 네오의 자존감, 뒷담화를 추가했습니다.',
+      '50레벨부터 입장 가능한 개인면담 매칭, 밴픽, 1대1 전투, 관전 화면을 1차로 추가했습니다.',
+      '거래소에 정산 대기 판매가 있으면 사내 번개장터 버튼에 빨간 알림점이 표시됩니다.',
+      '회의 전투 화면에서 보스의 보호막과 피격 무효 같은 버프 상태도 확인할 수 있게 했습니다.'
+    ]
+  },
   {
     id: '2026-05-19-anti-automation-marketplace',
     time: '2026-05-19 19:05',
@@ -483,6 +504,13 @@ function setupEventListeners() {
   bindClick('sideJobBtn', handleSideJobClick);
   bindClick('workOptimizationSkillBtn', handleWorkOptimizationSkillClick);
   bindClick('raidLobbyBtn', openRaidLobby);
+  bindClick('pvpLobbyBtn', handlePvpLobbyClick);
+  bindClick('pvpAcceptBtn', () => handlePvpAccept(true));
+  bindClick('pvpDeclineBtn', () => handlePvpAccept(false));
+  bindClick('pvpBackBtn', handlePvpBackClick);
+  bindClick('pvpDraftActionBtn', handlePvpDraftAction);
+  bindClick('pvpBgmToggleBtn', handleBgmToggleClick);
+  bindClick('pvpPatchNotesBtn', () => openPatchNotesModal({ markSeen: true }));
   bindClick('fragmentShopBtn', openFragmentShopModal);
   bindClick('fragmentShopCloseBtn', closeFragmentShopModal);
   bindClick('marketplaceBtn', openMarketplaceModal);
@@ -772,19 +800,27 @@ function clearIntervals() {
   if (rankingInterval) clearInterval(rankingInterval);
   if (syncInterval) clearInterval(syncInterval);
   if (raidPollInterval) clearInterval(raidPollInterval);
+  if (pvpPollInterval) clearInterval(pvpPollInterval);
   if (raidCountdownTicker) clearInterval(raidCountdownTicker);
   if (raidReadyTicker) clearInterval(raidReadyTicker);
+  if (pvpAcceptTicker) clearInterval(pvpAcceptTicker);
+  if (pvpDraftTicker) clearInterval(pvpDraftTicker);
+  if (pvpStartTicker) clearInterval(pvpStartTicker);
   if (newsTypingCanvasTimer) clearInterval(newsTypingCanvasTimer);
   animationInterval = null;
   updateInterval = null;
   rankingInterval = null;
   syncInterval = null;
   raidPollInterval = null;
+  pvpPollInterval = null;
   raidCountdownTicker = null;
   raidCountdownEndsAtMs = 0;
   raidCountdownDisplayStartMs = 0;
   raidReadyTicker = null;
   raidReadyEndsAtMs = 0;
+  pvpAcceptTicker = null;
+  pvpDraftTicker = null;
+  pvpStartTicker = null;
   newsTypingCanvasTimer = null;
 }
 
@@ -880,6 +916,31 @@ function handleBgmToggleClick() {
   updateBgmToggleButton();
 }
 
+function playPvpSfx(type = 'hit') {
+  if (isBgmMuted()) return;
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) return;
+  const context = new AudioContext();
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  const presets = {
+    skill: { frequency: 660, endFrequency: 880, duration: 0.12, gain: 0.035 },
+    hit: { frequency: 180, endFrequency: 120, duration: 0.08, gain: 0.045 },
+    result: { frequency: 523, endFrequency: 784, duration: 0.18, gain: 0.04 }
+  };
+  const preset = presets[type] || presets.hit;
+  oscillator.type = type === 'hit' ? 'square' : 'sine';
+  oscillator.frequency.setValueAtTime(preset.frequency, context.currentTime);
+  oscillator.frequency.exponentialRampToValueAtTime(preset.endFrequency, context.currentTime + preset.duration);
+  gain.gain.setValueAtTime(preset.gain, context.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + preset.duration);
+  oscillator.connect(gain);
+  gain.connect(context.destination);
+  oscillator.start();
+  oscillator.stop(context.currentTime + preset.duration);
+  setTimeout(() => context.close().catch(() => {}), Math.ceil((preset.duration + 0.05) * 1000));
+}
+
 function formatNumber(value, decimals = 0) {
   return Number(value || 0).toLocaleString('ko-KR', {
     minimumFractionDigits: decimals,
@@ -904,6 +965,10 @@ function escapeHtml(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value);
 }
 
 function setText(id, value) {
@@ -1216,6 +1281,8 @@ function hideAllScreens() {
   document.getElementById('admin-screen').classList.add('hidden');
   const raidScreen = document.getElementById('raid-screen');
   if (raidScreen) raidScreen.classList.add('hidden');
+  const pvpScreen = document.getElementById('pvp-screen');
+  if (pvpScreen) pvpScreen.classList.add('hidden');
 }
 
 async function handleLoginClick(event) {
@@ -2511,7 +2578,9 @@ function updateLocalUserState(data, options = {}) {
   }
   if (latestUser) {
     updateRaidButton(latestUser, latestRaidState);
+    updatePvpButton(latestUser, latestPvpState);
   }
+  updateMarketplacePendingDot(data.marketplaceSoldPendingCount);
   showNotifications(data.notifications);
 }
 
@@ -2559,6 +2628,7 @@ function showGameScreen(user) {
   hideAllScreens();
   document.getElementById('game-screen').classList.remove('hidden');
   document.getElementById('raid-screen').classList.add('hidden');
+  document.getElementById('pvp-screen')?.classList.add('hidden');
   updateShoutBanner(latestGlobalState);
   updateGameUI(user);
   loadNewsTypingPrompt();
@@ -2603,6 +2673,7 @@ function handleRaidBackClick() {
 function showRaidScreen() {
   document.getElementById('game-screen').classList.add('hidden');
   document.getElementById('raid-screen').classList.remove('hidden');
+  document.getElementById('pvp-screen')?.classList.add('hidden');
   startBgm('raid');
 }
 
@@ -2638,6 +2709,379 @@ function updateRaidButton(user, raidState) {
       ? `현재 ${raidState.queuedSlotIndex + 1}번 슬롯에서 대기 중입니다. 오늘 남은 입장 가능 횟수 ${remainingEntries}회`
       : `보스 레이드 대기열에 참가할 수 있습니다. 오늘 남은 입장 가능 횟수 ${remainingEntries}회`;
   }
+}
+
+function updateMarketplacePendingDot(count) {
+  const button = document.getElementById('marketplaceBtn');
+  if (!button) return;
+  const numericCount = Math.max(0, Number(count || 0));
+  button.classList.toggle('has-pending', numericCount > 0);
+  if (numericCount > 0) {
+    button.title = `정산 대기 판매 ${numericCount}건`;
+  } else {
+    button.removeAttribute('title');
+  }
+}
+
+function updatePvpButton(user, pvpState) {
+  const button = document.getElementById('pvpLobbyBtn');
+  if (!button || !user) return;
+  const level = Number(user.gameState?.level || 1);
+  const battle = pvpState?.battle;
+  const match = pvpState?.match;
+  const isParticipant = Boolean(battle?.isParticipant || match?.isParticipant);
+  button.classList.toggle('waiting', Boolean(pvpState?.isQueued || isParticipant));
+
+  if (battle || match) {
+    button.disabled = false;
+    button.textContent = isParticipant ? '개인면담 진행중' : '개인면담 관전하기';
+    return;
+  }
+
+  if (pvpState?.isQueued) {
+    button.disabled = false;
+    button.textContent = '개인면담 입장 대기중';
+    return;
+  }
+
+  button.textContent = '개인면담';
+  button.disabled = level < 50;
+  button.title = level < 50 ? '50레벨부터 입장 가능합니다. 관전은 진행 중일 때 가능합니다.' : '';
+}
+
+function showPvpScreen() {
+  document.getElementById('game-screen')?.classList.add('hidden');
+  document.getElementById('raid-screen')?.classList.add('hidden');
+  document.getElementById('pvp-screen')?.classList.remove('hidden');
+  startBgm('pvp');
+}
+
+function handlePvpBackClick() {
+  document.getElementById('pvp-screen')?.classList.add('hidden');
+  document.getElementById('game-screen')?.classList.remove('hidden');
+  document.getElementById('pvpCountdownOverlay')?.classList.add('hidden');
+  startBgm('normal');
+}
+
+async function handlePvpLobbyClick() {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+
+  if (latestPvpState?.battle || latestPvpState?.match) {
+    showPvpScreen();
+    renderPvpState(latestPvpState, user);
+    pollPvpState();
+    return;
+  }
+
+  if (Number(user.gameState?.level || 1) < 50) {
+    alert('개인면담 입장은 50레벨부터 가능합니다. 진행 중인 개인면담은 레벨과 상관없이 관전할 수 있습니다.');
+    return;
+  }
+
+  try {
+    const data = await postJson(`${API_URL}/api/pvp/queue`, { userId: user._id });
+    latestPvpState = data.pvp;
+    updatePvpButton(user, latestPvpState);
+    updatePvpMatchModal(latestPvpState);
+    renderPvpState(latestPvpState, user);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handlePvpAccept(accept) {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+  try {
+    const data = await postJson(`${API_URL}/api/pvp/accept`, { userId: user._id, accept });
+    latestPvpState = data.pvp;
+    hideModal('pvpMatchModal');
+    if (accept) showPvpScreen();
+    updatePvpButton(user, latestPvpState);
+    renderPvpState(latestPvpState, user);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function pollPvpState() {
+  const user = getStoredUser();
+  if (!user?._id) return;
+  try {
+    const data = await postJson(`${API_URL}/api/pvp/state`, { userId: user._id });
+    latestPvpState = data.pvp;
+    updatePvpButton(user, latestPvpState);
+    updatePvpMatchModal(latestPvpState);
+    if (!document.getElementById('pvp-screen')?.classList.contains('hidden')) {
+      renderPvpState(latestPvpState, user);
+    }
+  } catch (err) {
+    console.error('PVP state poll failed:', err);
+  }
+}
+
+function updatePvpMatchModal(pvpState) {
+  const user = getStoredUser();
+  const match = pvpState?.match;
+  const isParticipant = Boolean(match?.isParticipant);
+  if (!match || match.phase !== 'accept' || !isParticipant) {
+    hideModal('pvpMatchModal');
+    if (pvpAcceptTicker) clearInterval(pvpAcceptTicker);
+    pvpAcceptTicker = null;
+    return;
+  }
+
+  const accepted = Boolean(match.accepted?.[user._id]);
+  const acceptBtn = document.getElementById('pvpAcceptBtn');
+  if (acceptBtn) acceptBtn.disabled = accepted;
+  setText('pvpMatchText', accepted ? '상대의 입장을 기다리는 중입니다.' : '매칭 성공! 5초 안에 입장하기를 눌러주세요.');
+  showModal('pvpMatchModal');
+
+  const render = () => {
+    const remaining = Math.max(0, Math.ceil((new Date(match.acceptEndsAt).getTime() - Date.now()) / 1000));
+    setText('pvpAcceptCountdown', String(remaining));
+  };
+  if (!pvpAcceptTicker) pvpAcceptTicker = setInterval(render, 150);
+  render();
+}
+
+function renderPvpState(pvpState, user) {
+  if (!pvpState) return;
+  if (pvpState.match) {
+    renderPvpDraft(pvpState.match, user);
+  } else if (pvpState.battle) {
+    renderPvpBattle(pvpState.battle, user);
+  } else {
+    document.getElementById('pvpDraftView')?.classList.remove('hidden');
+    document.getElementById('pvpBattleView')?.classList.add('hidden');
+    setText('pvpPhaseStatus', pvpState.isQueued ? `개인면담 대기열에 등록되었습니다. 현재 대기 ${pvpState.queueCount || 1}명` : '진행 중인 개인면담이 없습니다.');
+  }
+}
+
+function getPvpPerspectivePlayers(players = [], userId) {
+  const self = players.find((player) => String(player.userId) === String(userId)) || players[0] || null;
+  const enemy = players.find((player) => !self || String(player.userId) !== String(self.userId)) || null;
+  return { self, enemy };
+}
+
+function renderPvpSidePanel(panelId, player, match, userId) {
+  const panel = document.getElementById(panelId);
+  if (!panel) return;
+  if (!player) {
+    panel.innerHTML = '<div class="pvp-side-name">대기 중</div>';
+    return;
+  }
+  const bans = (match.bans?.[player.userId] || []).map((cardId) => {
+    const card = match.allCards?.find((entry) => entry.cardId === cardId);
+    return card?.baseName || card?.name || CARD_DATA[cardId]?.name || cardId;
+  });
+  const picks = (match.picks?.[player.userId] || []).map((pick) => {
+    const card = match.ownedCards?.find((entry) => entry.cardId === pick.cardId && Number(entry.enhancementLevel || 0) === Number(pick.enhancementLevel || 0))
+      || match.allCards?.find((entry) => entry.cardId === pick.cardId)
+      || {};
+    return `${card.baseName || CARD_DATA[pick.cardId]?.name || pick.cardId}${pick.enhancementLevel ? ` +${pick.enhancementLevel}` : ''}`;
+  });
+  panel.innerHTML = `
+    <div class="pvp-side-name">${escapeHtml(player.userId === String(userId) ? '내 진영' : '상대 진영')} - ${escapeHtml(player.displayName || '')}</div>
+    <strong>금지 카드</strong>
+    <div class="pvp-ban-list">${bans.map((name) => `<div class="pvp-mini-card">${escapeHtml(name)}</div>`).join('') || '<div class="menu-note">아직 없음</div>'}</div>
+    <strong>선택 카드</strong>
+    <div class="pvp-pick-list">${picks.map((name) => `<div class="pvp-mini-card">${escapeHtml(name)}</div>`).join('') || '<div class="menu-note">아직 없음</div>'}</div>
+  `;
+}
+
+function renderPvpDraft(match, user) {
+  showPvpScreen();
+  document.getElementById('pvpDraftView')?.classList.remove('hidden');
+  document.getElementById('pvpBattleView')?.classList.add('hidden');
+  const phaseText = match.phase === 'ban' ? '1. 금지' : match.phase === 'pick' ? '2. 선택' : match.phase === 'starting' ? '전투 시작 준비' : '입장 확인';
+  const myTurn = match.isMyTurn;
+  setText('pvpPhaseStatus', `${phaseText} - ${myTurn ? '내 차례입니다.' : '상대 차례입니다.'}`);
+
+  const { self, enemy } = getPvpPerspectivePlayers(match.players || [], user._id);
+  renderPvpSidePanel('pvpMyPanel', self, match, user._id);
+  renderPvpSidePanel('pvpEnemyPanel', enemy, match, user._id);
+  renderPvpDraftTimer(match);
+  renderPvpCountdown(match);
+
+  const bannedSet = new Set(match.bannedCardIds || []);
+  const pickedSet = new Set(match.pickedCardIds || []);
+  const isBan = match.phase === 'ban';
+  const cards = isBan ? (match.allCards || []) : (match.ownedCards || []);
+  const grid = document.getElementById('pvpCardGrid');
+  if (!grid) return;
+  grid.innerHTML = cards.map((card) => {
+    const disabled = !myTurn || bannedSet.has(card.cardId) || pickedSet.has(card.cardId) || match.phase === 'starting' || match.phase === 'accept';
+    const selected = selectedPvpCardId === card.cardId && Number(selectedPvpEnhancementLevel || 0) === Number(card.enhancementLevel || 0);
+    return `
+      <button class="pvp-card-choice ${selected ? 'selected' : ''} ${disabled ? 'disabled' : ''} ${bannedSet.has(card.cardId) ? 'banned' : ''}"
+        ${disabled ? 'disabled' : ''}
+        onclick="handlePvpCardSelect('${escapeAttr(card.cardId)}', ${Number(card.enhancementLevel || 0)})">
+        <span class="pvp-card-grade" style="background:${escapeAttr(card.color || '#666666')}">${escapeHtml(card.grade || '')}</span>
+        <div class="pvp-card-name">${escapeHtml(card.name || card.baseName || card.cardId)}</div>
+        <div class="pvp-card-desc">${escapeHtml(card.skillDesc || '')}</div>
+        <div class="menu-note">쿨타임 ${formatNumber(card.cooldown || 0)}턴 / ${escapeHtml(card.durationText || '')}</div>
+      </button>
+    `;
+  }).join('');
+
+  const actionBtn = document.getElementById('pvpDraftActionBtn');
+  if (actionBtn) {
+    actionBtn.textContent = isBan ? '금지하기' : '선택하기';
+    actionBtn.disabled = !myTurn || !selectedPvpCardId || match.phase === 'starting';
+  }
+}
+
+function renderPvpDraftTimer(match) {
+  const timerEl = document.getElementById('pvpDraftTimer');
+  if (!timerEl) return;
+  const targetAt = match.phase === 'starting' ? match.startsAt : match.turnEndsAt;
+  const render = () => {
+    const remaining = targetAt ? Math.max(0, Math.ceil((new Date(targetAt).getTime() - Date.now()) / 1000)) : 0;
+    timerEl.textContent = match.phase === 'starting' ? `시작 ${remaining}` : String(remaining);
+  };
+  if (pvpDraftTicker) clearInterval(pvpDraftTicker);
+  pvpDraftTicker = setInterval(render, 200);
+  render();
+}
+
+function renderPvpCountdown(match) {
+  const overlay = document.getElementById('pvpCountdownOverlay');
+  if (!overlay) return;
+  if (match.phase !== 'starting' || !match.startsAt) {
+    overlay.classList.add('hidden');
+    return;
+  }
+  overlay.classList.remove('hidden');
+  const render = () => {
+    const remaining = Math.max(1, Math.ceil((new Date(match.startsAt).getTime() - Date.now()) / 1000));
+    setText('pvpCountdownNumber', String(remaining));
+  };
+  if (pvpStartTicker) clearInterval(pvpStartTicker);
+  pvpStartTicker = setInterval(render, 150);
+  render();
+}
+
+function handlePvpCardSelect(cardId, enhancementLevel = 0) {
+  selectedPvpCardId = cardId;
+  selectedPvpEnhancementLevel = Number(enhancementLevel || 0);
+  renderPvpState(latestPvpState, getStoredUser());
+}
+
+async function handlePvpDraftAction() {
+  const user = getStoredUser();
+  if (!user?._id || !selectedPvpCardId || !latestPvpState?.match) return;
+  const endpoint = latestPvpState.match.phase === 'ban' ? 'ban' : 'pick';
+  try {
+    const data = await postJson(`${API_URL}/api/pvp/${endpoint}`, {
+      userId: user._id,
+      cardId: selectedPvpCardId,
+      enhancementLevel: selectedPvpEnhancementLevel
+    });
+    latestPvpState = data.pvp;
+    selectedPvpCardId = null;
+    selectedPvpEnhancementLevel = 0;
+    renderPvpState(latestPvpState, user);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+function renderPvpBattle(battle, user) {
+  showPvpScreen();
+  document.getElementById('pvpDraftView')?.classList.add('hidden');
+  document.getElementById('pvpBattleView')?.classList.remove('hidden');
+  document.getElementById('pvpCountdownOverlay')?.classList.add('hidden');
+  const { self, enemy } = getPvpPerspectivePlayers(battle.players || [], user._id);
+  const current = (battle.players || []).find((player) => player.userId === battle.currentUserId);
+  setText('pvpPhaseStatus', battle.phase === 'finished' ? '개인면담 종료' : `현재 턴 ${formatNumber(battle.turnNumber || 1)}`);
+  setText('pvpBattleTurnLabel', `현재 턴 ${formatNumber(battle.turnNumber || 1)}`);
+  setText('pvpBattleTurnActor', current ? `${current.displayName} 행동` : '행동 대기');
+  renderPvpBattlePanel('pvpEnemyBattlePanel', enemy, false, battle);
+  renderPvpBattlePanel('pvpMyBattlePanel', self, true, battle);
+  renderPvpBattleLog(battle);
+  maybeShowPvpResult(battle, user);
+}
+
+function renderPvpBattlePanel(panelId, player, isSelfPanel, battle) {
+  const panel = document.getElementById(panelId);
+  if (!panel || !player) return;
+  const hpRatio = player.maxHp > 0 ? Math.max(0, Math.min(100, (player.hp / player.maxHp) * 100)) : 0;
+  const shieldRatio = player.maxHp > 0 ? Math.max(0, Math.min(100, (player.shield / player.maxHp) * 100)) : 0;
+  const effects = (player.statusEffects || []).map((effect) => `
+    <div class="raid-effect-badge ${effect.type === 'debuff' ? 'raid-effect-debuff' : 'raid-effect-buff'}" title="${escapeAttr(effect.desc || '')}">
+      <div class="raid-effect-name">${escapeHtml(effect.name)}${effect.turns ? ` (${formatNumber(effect.turns)}턴)` : ''}${effect.count ? ` (${formatNumber(effect.count)}회)` : ''}</div>
+      ${effect.desc ? `<div class="raid-effect-desc">${escapeHtml(effect.desc)}</div>` : ''}
+    </div>
+  `).join('');
+  const cardButtons = (player.cards || []).map((card, index) => {
+    const disabled = !isSelfPanel || battle.phase === 'finished' || card.passiveOnly || Number(card.cooldownRemaining || 0) > 0;
+    const planned = Number(player.plannedCardIndex) === index;
+    return `
+      <button class="pvp-card-skill-btn ${planned ? 'planned' : ''}" ${disabled ? 'disabled' : ''} title="${escapeAttr(card.skillDesc || '')}" onclick="handlePvpPlanSkill(${index})">
+        ${escapeHtml(card.name || card.baseName || '')}
+        ${card.cooldownRemaining ? `<br>쿨 ${formatNumber(card.cooldownRemaining)}` : ''}
+      </button>
+    `;
+  }).join('');
+  panel.innerHTML = `
+    <strong>${escapeHtml(player.displayName || '')}</strong>
+    <div class="pvp-hp-row">
+      <span>HP</span>
+      <div class="pvp-hp-bar">
+        <div class="pvp-hp-fill" style="width:${hpRatio}%"></div>
+        <div class="pvp-shield-fill" style="width:${shieldRatio}%"></div>
+      </div>
+      <span>${formatNumber(player.hp)} / ${formatNumber(player.maxHp)}</span>
+    </div>
+    <div class="menu-note">보호막 ${formatNumber(player.shield || 0)}</div>
+    <div class="pvp-effect-list">${effects || '<span class="muted-text">버프 / 디버프 없음</span>'}</div>
+    <div class="pvp-card-button-list">${cardButtons}</div>
+  `;
+}
+
+function renderPvpBattleLog(battle) {
+  const log = document.getElementById('pvpBattleLog');
+  if (!log) return;
+  const latestLine = (battle.recentLogs || [])[0] || '';
+  const nextSignature = `${battle.battleId}:${latestLine}`;
+  if (latestLine && lastPvpLogSignature && lastPvpLogSignature !== nextSignature) {
+    playPvpSfx(latestLine.includes('스킬') ? 'skill' : latestLine.includes('피해') ? 'hit' : 'skill');
+  }
+  if (latestLine) lastPvpLogSignature = nextSignature;
+  log.innerHTML = (battle.recentLogs || [])
+    .map((line, index) => `<div class="raid-log-line ${index === 0 ? 'latest' : ''}">${escapeHtml(line)}</div>`)
+    .join('');
+}
+
+async function handlePvpPlanSkill(index) {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+  try {
+    const data = await postJson(`${API_URL}/api/pvp/plan-skill`, {
+      userId: user._id,
+      cardIndex: index
+    });
+    latestPvpState = data.pvp;
+    renderPvpState(latestPvpState, user);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+function maybeShowPvpResult(battle, user) {
+  if (!battle || battle.phase !== 'finished' || !battle.isParticipant) return;
+  if (lastPvpResultShownBattleId === battle.battleId) return;
+  lastPvpResultShownBattleId = battle.battleId;
+  const won = String(battle.winnerUserId) === String(user._id);
+  playPvpSfx('result');
+  alert(won ? 'WIN! 개인면담에서 승리했습니다.' : 'LOSE! 개인면담에서 패배했습니다.');
+  setTimeout(() => {
+    if (!document.getElementById('pvp-screen')?.classList.contains('hidden')) {
+      handlePvpBackClick();
+    }
+  }, 10000);
 }
 
 
@@ -2838,6 +3282,7 @@ async function loadMarketplaceData() {
   if (!user?._id) return;
   const data = await getJson(`${API_URL}/api/marketplace?userId=${encodeURIComponent(user._id)}`);
   marketplaceState.data = data.marketplace || { active: [], mine: [] };
+  updateMarketplacePendingDot((marketplaceState.data.mine || []).filter((listing) => listing.status === 'sold').length);
   renderMarketplace();
 }
 
@@ -3445,6 +3890,8 @@ window.handleMarketplaceRegisterSortChange = handleMarketplaceRegisterSortChange
 window.handleMarketplaceRegisterSelect = handleMarketplaceRegisterSelect;
 window.handleMarketplaceBuy = handleMarketplaceBuy;
 window.handleMarketplaceCancel = handleMarketplaceCancel;
+window.handlePvpCardSelect = handlePvpCardSelect;
+window.handlePvpPlanSkill = handlePvpPlanSkill;
 
 
 function renderRaidBattle(raidState, user) {
@@ -3466,6 +3913,17 @@ function renderRaidBattle(raidState, user) {
   setText('raidScreenBossName', battle.bossName);
   setText('raidBossTitle', battle.bossName);
   setText('raidBossHpText', `${formatNumber(battle.bossHp)} / ${formatNumber(battle.bossMaxHp)}`);
+  const bossEffectList = document.getElementById('raidBossEffectList');
+  if (bossEffectList) {
+    bossEffectList.innerHTML = (battle.bossStatusEffects || [])
+      .map((effect) => `
+        <div class="raid-effect-badge ${effect.type === 'debuff' ? 'raid-effect-debuff' : 'raid-effect-buff'}" title="${escapeAttr(effect.desc || '')}">
+          <div class="raid-effect-name">${escapeHtml(effect.name)}${effect.turns ? ` (${formatNumber(effect.turns)}턴)` : ''}${effect.count ? ` (${formatNumber(effect.count)}회)` : ''}</div>
+          ${effect.desc ? `<div class="raid-effect-desc">${escapeHtml(effect.desc)}</div>` : ''}
+        </div>
+      `)
+      .join('') || '<span class="muted-text">보스 버프 / 디버프 없음</span>';
+  }
 
   const bossPortrait = document.getElementById('raidBossPortrait');
   renderRaidBossPortrait(bossPortrait, battle.bossPortrait, battle.bossName);
@@ -4095,6 +4553,9 @@ function startPeriodicUpdates() {
 
   pollRaidState();
   raidPollInterval = setInterval(pollRaidState, 3000);
+
+  pollPvpState();
+  pvpPollInterval = setInterval(pollPvpState, 3000);
 }
 
 function startAnimation() {
