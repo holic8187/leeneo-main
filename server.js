@@ -24,6 +24,8 @@ let newsTypingCache = {
 let newsTypingCursor = 0;
 const activeNewsTypingSubmissions = new Set();
 const recentNewsTypingSubmissions = new Map();
+const newsTypingIpActivity = new Map();
+const workClickIpActivity = new Map();
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const BASE_DAILY_SALARY = 300000;
@@ -32,6 +34,17 @@ const BASE_CLICK_EXP = 5;
 const NEWS_TYPING_CACHE_TTL_MS = 10 * 60 * 1000;
 const NEWS_TYPING_FALLBACK_CACHE_TTL_MS = 30 * 1000;
 const NEWS_TYPING_DUPLICATE_WINDOW_MS = 7000;
+const NEWS_TYPING_ANTICHEAT_INTERVAL_LIMIT = 16;
+const NEWS_TYPING_ANTICHEAT_SPEED_LIMIT = 16;
+const NEWS_TYPING_ANTICHEAT_MIN_SUBMIT_MS = 1400;
+const NEWS_TYPING_ANTICHEAT_IP_WINDOW_MS = 60 * 1000;
+const NEWS_TYPING_ANTICHEAT_COOLDOWN_MS = 45 * 1000;
+const WORK_CLICK_ANTICHEAT_INTERVAL_LIMIT = 20;
+const WORK_CLICK_ANTICHEAT_MIN_INTERVAL_MS = 120;
+const WORK_CLICK_ANTICHEAT_IP_WINDOW_MS = 30 * 1000;
+const WORK_CLICK_ANTICHEAT_COOLDOWN_MS = 15 * 1000;
+const ADVENTURE_COOLDOWN_MS = 2500;
+const MARKETPLACE_TRADEABLE_ITEM_IDS = ['raid_entry_ticket', 'hagendaz'];
 const NEWS_TYPING_RSS_FEEDS = [
   'https://news.google.com/rss?hl=ko&gl=KR&ceid=KR:ko',
   'https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=ko&gl=KR&ceid=KR:ko',
@@ -1710,6 +1723,22 @@ const userSchema = new mongoose.Schema({
     lastTitleChangeDayKey: { type: String, default: null },
     lastWorkOptimizationAt: { type: Date, default: null },
     workOptimizationSkillNotified: { type: Boolean, default: false },
+    newsTypingAntiCheat: {
+      lastSubmittedAt: { type: Date, default: null },
+      intervalsMs: { type: [Number], default: [] },
+      speedSamples: { type: [Number], default: [] },
+      suspiciousScore: { type: Number, default: 0 },
+      penaltyUntil: { type: Date, default: null },
+      lastIp: { type: String, default: '' }
+    },
+    workClickAntiCheat: {
+      lastSubmittedAt: { type: Date, default: null },
+      intervalsMs: { type: [Number], default: [] },
+      suspiciousScore: { type: Number, default: 0 },
+      penaltyUntil: { type: Date, default: null },
+      lastIp: { type: String, default: '' }
+    },
+    lastAdventureAt: { type: Date, default: null },
     lastAdventureLog: { type: String, default: '' }
   },
   pendingAdventure: {
@@ -1730,7 +1759,7 @@ const User = mongoose.model('User', userSchema);
 const marketplaceListingSchema = new mongoose.Schema({
   sellerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   sellerName: { type: String, default: '' },
-  itemType: { type: String, enum: ['equipment', 'scroll'], required: true },
+  itemType: { type: String, enum: ['equipment', 'scroll', 'item'], required: true },
   itemId: { type: String, required: true },
   itemName: { type: String, required: true },
   description: { type: String, default: '' },
@@ -1919,6 +1948,22 @@ function ensureUserDefaults(user) {
       lastTitleChangeDayKey: null,
       lastWorkOptimizationAt: null,
       workOptimizationSkillNotified: false,
+      newsTypingAntiCheat: {
+        lastSubmittedAt: null,
+        intervalsMs: [],
+        speedSamples: [],
+        suspiciousScore: 0,
+        penaltyUntil: null,
+        lastIp: ''
+      },
+      workClickAntiCheat: {
+        lastSubmittedAt: null,
+        intervalsMs: [],
+        suspiciousScore: 0,
+        penaltyUntil: null,
+        lastIp: ''
+      },
+      lastAdventureAt: null,
       lastAdventureLog: ''
     };
   }
@@ -1934,6 +1979,43 @@ function ensureUserDefaults(user) {
   user.meta.lastTitleChangeDayKey = user.meta.lastTitleChangeDayKey || null;
   user.meta.lastWorkOptimizationAt = user.meta.lastWorkOptimizationAt || null;
   user.meta.workOptimizationSkillNotified = Boolean(user.meta.workOptimizationSkillNotified);
+  if (!user.meta.newsTypingAntiCheat || typeof user.meta.newsTypingAntiCheat !== 'object') {
+    user.meta.newsTypingAntiCheat = {
+      lastSubmittedAt: null,
+      intervalsMs: [],
+      speedSamples: [],
+      suspiciousScore: 0,
+      penaltyUntil: null,
+      lastIp: ''
+    };
+  }
+  user.meta.newsTypingAntiCheat.lastSubmittedAt = user.meta.newsTypingAntiCheat.lastSubmittedAt || null;
+  user.meta.newsTypingAntiCheat.intervalsMs = Array.isArray(user.meta.newsTypingAntiCheat.intervalsMs)
+    ? user.meta.newsTypingAntiCheat.intervalsMs.slice(-NEWS_TYPING_ANTICHEAT_INTERVAL_LIMIT).map((value) => Number(value) || 0).filter((value) => value > 0)
+    : [];
+  user.meta.newsTypingAntiCheat.speedSamples = Array.isArray(user.meta.newsTypingAntiCheat.speedSamples)
+    ? user.meta.newsTypingAntiCheat.speedSamples.slice(-NEWS_TYPING_ANTICHEAT_INTERVAL_LIMIT).map((value) => Number(value) || 0).filter((value) => value > 0)
+    : [];
+  user.meta.newsTypingAntiCheat.suspiciousScore = Math.max(0, Number(user.meta.newsTypingAntiCheat.suspiciousScore ?? 0));
+  user.meta.newsTypingAntiCheat.penaltyUntil = user.meta.newsTypingAntiCheat.penaltyUntil || null;
+  user.meta.newsTypingAntiCheat.lastIp = user.meta.newsTypingAntiCheat.lastIp || '';
+  if (!user.meta.workClickAntiCheat || typeof user.meta.workClickAntiCheat !== 'object') {
+    user.meta.workClickAntiCheat = {
+      lastSubmittedAt: null,
+      intervalsMs: [],
+      suspiciousScore: 0,
+      penaltyUntil: null,
+      lastIp: ''
+    };
+  }
+  user.meta.workClickAntiCheat.lastSubmittedAt = user.meta.workClickAntiCheat.lastSubmittedAt || null;
+  user.meta.workClickAntiCheat.intervalsMs = Array.isArray(user.meta.workClickAntiCheat.intervalsMs)
+    ? user.meta.workClickAntiCheat.intervalsMs.slice(-WORK_CLICK_ANTICHEAT_INTERVAL_LIMIT).map((value) => Number(value) || 0).filter((value) => value > 0)
+    : [];
+  user.meta.workClickAntiCheat.suspiciousScore = Math.max(0, Number(user.meta.workClickAntiCheat.suspiciousScore ?? 0));
+  user.meta.workClickAntiCheat.penaltyUntil = user.meta.workClickAntiCheat.penaltyUntil || null;
+  user.meta.workClickAntiCheat.lastIp = user.meta.workClickAntiCheat.lastIp || '';
+  user.meta.lastAdventureAt = user.meta.lastAdventureAt || null;
   user.meta.lastAdventureLog = user.meta.lastAdventureLog || '';
 
   if (!user.pendingAdventure || typeof user.pendingAdventure !== 'object') {
@@ -3151,13 +3233,123 @@ function getNewsTypingUnitCount(text = '') {
   return normalizeNewsTypingAnswer(text).replace(/\s/g, '').length;
 }
 
+function createSeededRandom(seedText = '') {
+  let seed = 0;
+  String(seedText).split('').forEach((char) => {
+    seed = ((seed << 5) - seed + char.charCodeAt(0)) >>> 0;
+  });
+  return () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 0x100000000;
+  };
+}
+
+function pickNewsTypingRevealRange(text, random) {
+  const matches = [...String(text).matchAll(/[\uAC00-\uD7A3A-Za-z0-9]{2,}/g)];
+  if (!matches.length) return null;
+  const candidates = matches.filter((match) => match[0].length <= 8);
+  const pool = candidates.length ? candidates : matches;
+  const picked = pool[Math.floor(random() * pool.length)];
+  return {
+    start: picked.index,
+    end: picked.index + picked[0].length
+  };
+}
+
+function buildNewsTypingDisplaySegments(text, seed) {
+  const random = createSeededRandom(seed);
+  const ruleRoll = random();
+  const fakeChars = ['※', '★', 'x', '0', 'ㄱ', '7', '?'];
+  const revealRange = pickNewsTypingRevealRange(text, random);
+  const fakeStyle = ruleRoll < 0.34 ? 'red' : ruleRoll < 0.68 ? 'gray' : 'paren';
+  const instructionParts = [
+    '캔버스에 그려진 문장을 직접 입력해주세요.',
+    '옅은 회색 취소선 또는 빨간 글자는 입력하지 않습니다.',
+    '가려진 단어는 문장 영역을 클릭하면 확인할 수 있습니다.'
+  ];
+  if (fakeStyle === 'paren') {
+    instructionParts.push('괄호 안 보조문구도 입력하지 않습니다.');
+  }
+
+  const segments = [];
+  let targetBuffer = '';
+  let revealedBuffer = '';
+  let nonSpaceCount = 0;
+  const flushTarget = () => {
+    if (targetBuffer) {
+      segments.push({ text: targetBuffer, role: 'target' });
+      targetBuffer = '';
+    }
+  };
+  const flushReveal = () => {
+    if (revealedBuffer) {
+      segments.push({ text: revealedBuffer, role: 'target', reveal: true });
+      revealedBuffer = '';
+    }
+  };
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const isRevealChar = revealRange && index >= revealRange.start && index < revealRange.end && /\S/.test(char);
+    if (isRevealChar) {
+      flushTarget();
+      revealedBuffer += char;
+    } else {
+      flushReveal();
+      targetBuffer += char;
+    }
+
+    if (/\S/.test(char)) {
+      nonSpaceCount += 1;
+      const shouldInsertFake = nonSpaceCount > 0 && nonSpaceCount % (5 + Math.floor(random() * 5)) === 0 && random() < 0.55;
+      if (shouldInsertFake) {
+        flushTarget();
+        flushReveal();
+        const fakeText = fakeStyle === 'paren'
+          ? `(${fakeChars[Math.floor(random() * fakeChars.length)]})`
+          : fakeChars[Math.floor(random() * fakeChars.length)];
+        segments.push({
+          text: fakeText,
+          role: 'decoy',
+          style: fakeStyle
+        });
+      }
+    }
+  }
+  flushTarget();
+  flushReveal();
+
+  return {
+    segments,
+    instruction: instructionParts.join(' ')
+  };
+}
+
+function buildClientNewsTypingPrompt(prompt) {
+  if (!prompt) return null;
+  return {
+    id: prompt.id,
+    unitCount: prompt.unitCount,
+    wordCount: prompt.wordCount,
+    displaySegments: Array.isArray(prompt.displaySegments) ? prompt.displaySegments : [{ text: prompt.text || '', role: 'target' }],
+    instruction: prompt.instruction || '캔버스에 그려진 문장을 직접 입력해주세요. 표시된 제외 규칙을 지켜주세요.',
+    canvasSeed: prompt.canvasSeed || prompt.id
+  };
+}
+
 function buildNewsTypingPrompt(text) {
   const normalizedText = sanitizeNewsTypingSentence(text);
+  const id = crypto.createHash('sha1').update(normalizedText).digest('hex').slice(0, 16);
+  const canvasSeed = crypto.createHash('sha1').update(`${normalizedText}:canvas-v2`).digest('hex').slice(0, 16);
+  const display = buildNewsTypingDisplaySegments(normalizedText, canvasSeed);
   return {
-    id: crypto.createHash('sha1').update(normalizedText).digest('hex').slice(0, 16),
+    id,
     text: normalizedText,
     unitCount: getNewsTypingUnitCount(normalizedText),
-    wordCount: getNewsTypingUnitCount(normalizedText)
+    wordCount: getNewsTypingUnitCount(normalizedText),
+    displaySegments: display.segments,
+    instruction: display.instruction,
+    canvasSeed
   };
 }
 
@@ -3277,6 +3469,202 @@ function reserveNewsTypingSubmission(userId, promptId) {
 function markNewsTypingSubmissionSettled(key) {
   if (!key) return;
   recentNewsTypingSubmissions.set(key, Date.now() + NEWS_TYPING_DUPLICATE_WINDOW_MS);
+}
+
+function getRequestIp(req) {
+  const forwardedFor = req.headers['x-forwarded-for'];
+  if (typeof forwardedFor === 'string' && forwardedFor.trim()) {
+    return forwardedFor.split(',')[0].trim();
+  }
+  return req.ip || req.socket?.remoteAddress || '';
+}
+
+function updateNewsTypingIpActivity(ip, userId, nowMs, isFast) {
+  if (!ip) return { busyIp: false, multiAccountIp: false };
+  const existing = newsTypingIpActivity.get(ip) || [];
+  const nextEntries = existing
+    .filter((entry) => nowMs - entry.at <= NEWS_TYPING_ANTICHEAT_IP_WINDOW_MS)
+    .concat([{ at: nowMs, userId: String(userId), isFast: Boolean(isFast) }]);
+  newsTypingIpActivity.set(ip, nextEntries);
+
+  for (const [storedIp, entries] of newsTypingIpActivity.entries()) {
+    const freshEntries = entries.filter((entry) => nowMs - entry.at <= NEWS_TYPING_ANTICHEAT_IP_WINDOW_MS);
+    if (freshEntries.length) newsTypingIpActivity.set(storedIp, freshEntries);
+    else newsTypingIpActivity.delete(storedIp);
+  }
+
+  const accountCount = new Set(nextEntries.map((entry) => entry.userId)).size;
+  const fastCount = nextEntries.filter((entry) => entry.isFast).length;
+  return {
+    busyIp: nextEntries.length >= 24 || fastCount >= 10,
+    multiAccountIp: accountCount >= 3 && nextEntries.length >= 12
+  };
+}
+
+function updateWorkClickIpActivity(ip, userId, nowMs, isFast) {
+  if (!ip) return { busyIp: false, multiAccountIp: false };
+  const existing = workClickIpActivity.get(ip) || [];
+  const nextEntries = existing
+    .filter((entry) => nowMs - entry.at <= WORK_CLICK_ANTICHEAT_IP_WINDOW_MS)
+    .concat([{ at: nowMs, userId: String(userId), isFast: Boolean(isFast) }]);
+  workClickIpActivity.set(ip, nextEntries);
+
+  for (const [storedIp, entries] of workClickIpActivity.entries()) {
+    const freshEntries = entries.filter((entry) => nowMs - entry.at <= WORK_CLICK_ANTICHEAT_IP_WINDOW_MS);
+    if (freshEntries.length) workClickIpActivity.set(storedIp, freshEntries);
+    else workClickIpActivity.delete(storedIp);
+  }
+
+  const accountCount = new Set(nextEntries.map((entry) => entry.userId)).size;
+  const fastCount = nextEntries.filter((entry) => entry.isFast).length;
+  return {
+    busyIp: nextEntries.length >= 80 || fastCount >= 35,
+    multiAccountIp: accountCount >= 3 && nextEntries.length >= 45
+  };
+}
+
+function getNewsTypingCoefficientOfVariation(values) {
+  const samples = values.filter((value) => Number.isFinite(value) && value > 0);
+  if (samples.length < 6) return 1;
+  const average = samples.reduce((sum, value) => sum + value, 0) / samples.length;
+  if (!average) return 1;
+  const variance = samples.reduce((sum, value) => sum + ((value - average) ** 2), 0) / samples.length;
+  return Math.sqrt(variance) / average;
+}
+
+function applyWorkClickAntiCheat(user, { now, ip }) {
+  ensureUserDefaults(user);
+  const state = user.meta.workClickAntiCheat;
+  const nowMs = now.getTime();
+  const penaltyUntilMs = state.penaltyUntil ? new Date(state.penaltyUntil).getTime() : 0;
+  if (penaltyUntilMs > nowMs) {
+    const remainingSeconds = Math.ceil((penaltyUntilMs - nowMs) / 1000);
+    throw createHttpError(429, `서류작업 클릭 쿨타임 중입니다. ${remainingSeconds}초 후 다시 시도해주세요.`);
+  }
+
+  const lastSubmittedAtMs = state.lastSubmittedAt ? new Date(state.lastSubmittedAt).getTime() : 0;
+  const intervalMs = lastSubmittedAtMs ? Math.max(0, nowMs - lastSubmittedAtMs) : 0;
+  const isTooFast = intervalMs > 0 && intervalMs < WORK_CLICK_ANTICHEAT_MIN_INTERVAL_MS;
+  const ipSignals = updateWorkClickIpActivity(ip, user._id, nowMs, isTooFast);
+  const nextIntervals = intervalMs > 0
+    ? state.intervalsMs.concat(intervalMs).slice(-WORK_CLICK_ANTICHEAT_INTERVAL_LIMIT)
+    : state.intervalsMs.slice(-WORK_CLICK_ANTICHEAT_INTERVAL_LIMIT);
+  const recentIntervals = nextIntervals.slice(-14);
+  const averageInterval = recentIntervals.length
+    ? recentIntervals.reduce((sum, value) => sum + value, 0) / recentIntervals.length
+    : 0;
+  const intervalVariation = getNewsTypingCoefficientOfVariation(recentIntervals);
+  const suspiciouslyEven = recentIntervals.length >= 10 && averageInterval < 850 && intervalVariation < 0.08;
+  const suspiciouslyFast = recentIntervals.length >= 8 && averageInterval < 180;
+
+  let score = Math.max(0, Number(state.suspiciousScore || 0));
+  score = Math.max(0, score - 0.18);
+  if (isTooFast) score += 1.9;
+  if (suspiciouslyFast) score += 1.6;
+  if (suspiciouslyEven) score += 1.4;
+  if (ipSignals.busyIp) score += 1.2;
+  if (ipSignals.multiAccountIp) score += 1;
+
+  let rewardMultiplier = 1;
+  let warning = '';
+  if (score >= 12) {
+    state.penaltyUntil = new Date(nowMs + WORK_CLICK_ANTICHEAT_COOLDOWN_MS);
+    score = 8;
+    rewardMultiplier = 0;
+    warning = '서류작업 매크로 의심 패턴이 감지되어 짧은 쿨타임이 적용되었습니다.';
+  } else if (score >= 8) {
+    rewardMultiplier = 0.25;
+    warning = '서류작업 매크로 의심 패턴이 감지되어 클릭 보상이 25%만 적용됩니다.';
+  } else if (score >= 5) {
+    rewardMultiplier = 0.5;
+    warning = '서류작업 매크로 의심 패턴이 감지되어 클릭 보상이 50%만 적용됩니다.';
+  } else if (score >= 3) {
+    rewardMultiplier = 0.75;
+    warning = '클릭 간격이 매우 빠르거나 일정해 클릭 보상이 일부 감소했습니다.';
+  } else {
+    state.penaltyUntil = null;
+  }
+
+  state.lastSubmittedAt = now;
+  state.intervalsMs = nextIntervals;
+  state.suspiciousScore = Number(score.toFixed(2));
+  state.lastIp = ip || state.lastIp || '';
+
+  return {
+    rewardMultiplier,
+    warning,
+    suspiciousScore: state.suspiciousScore
+  };
+}
+
+function applyNewsTypingAntiCheat(user, { now, unitCount, ip }) {
+  ensureUserDefaults(user);
+  const state = user.meta.newsTypingAntiCheat;
+  const nowMs = now.getTime();
+  const penaltyUntilMs = state.penaltyUntil ? new Date(state.penaltyUntil).getTime() : 0;
+  if (penaltyUntilMs > nowMs) {
+    const remainingSeconds = Math.ceil((penaltyUntilMs - nowMs) / 1000);
+    throw createHttpError(429, `타이핑 보상 쿨타임 중입니다. ${remainingSeconds}초 후 다시 시도해주세요.`);
+  }
+
+  const lastSubmittedAtMs = state.lastSubmittedAt ? new Date(state.lastSubmittedAt).getTime() : 0;
+  const intervalMs = lastSubmittedAtMs ? Math.max(0, nowMs - lastSubmittedAtMs) : 0;
+  const minHumanMs = Math.max(NEWS_TYPING_ANTICHEAT_MIN_SUBMIT_MS, unitCount * 75);
+  const speed = intervalMs > 0 ? unitCount / (intervalMs / 1000) : 0;
+  const isFast = intervalMs > 0 && (intervalMs < minHumanMs || speed > NEWS_TYPING_ANTICHEAT_SPEED_LIMIT);
+  const ipSignals = updateNewsTypingIpActivity(ip, user._id, nowMs, isFast);
+
+  const nextIntervals = intervalMs > 0
+    ? state.intervalsMs.concat(intervalMs).slice(-NEWS_TYPING_ANTICHEAT_INTERVAL_LIMIT)
+    : state.intervalsMs.slice(-NEWS_TYPING_ANTICHEAT_INTERVAL_LIMIT);
+  const nextSpeeds = speed > 0
+    ? state.speedSamples.concat(Number(speed.toFixed(2))).slice(-NEWS_TYPING_ANTICHEAT_INTERVAL_LIMIT)
+    : state.speedSamples.slice(-NEWS_TYPING_ANTICHEAT_INTERVAL_LIMIT);
+  const intervalVariation = getNewsTypingCoefficientOfVariation(nextIntervals.slice(-10));
+  const speedVariation = getNewsTypingCoefficientOfVariation(nextSpeeds.slice(-10));
+  const suspiciouslyEven = nextIntervals.length >= 8
+    && intervalVariation < 0.08
+    && speedVariation < 0.12
+    && (nextIntervals.reduce((sum, value) => sum + value, 0) / nextIntervals.length) < 9000;
+
+  let score = Math.max(0, Number(state.suspiciousScore || 0));
+  score = Math.max(0, score - 0.35);
+  if (isFast) score += 2.2;
+  if (suspiciouslyEven) score += 1.6;
+  if (ipSignals.busyIp) score += 1.4;
+  if (ipSignals.multiAccountIp) score += 1.2;
+
+  let rewardMultiplier = 1;
+  let warning = '';
+  if (score >= 12) {
+    state.penaltyUntil = new Date(nowMs + NEWS_TYPING_ANTICHEAT_COOLDOWN_MS);
+    score = 8;
+    warning = '자동 입력 의심 패턴이 감지되어 타이핑 보상 쿨타임이 적용되었습니다.';
+    rewardMultiplier = 0;
+  } else if (score >= 8) {
+    rewardMultiplier = 0.35;
+    warning = '자동 입력 의심 패턴이 감지되어 타이핑 보상이 35%만 적용됩니다.';
+  } else if (score >= 5) {
+    rewardMultiplier = 0.6;
+    warning = '자동 입력 의심 패턴이 감지되어 타이핑 보상이 60%만 적용됩니다.';
+  } else if (score >= 3) {
+    rewardMultiplier = 0.8;
+    warning = '입력 속도가 매우 빨라 타이핑 보상이 일부 감소했습니다.';
+  } else {
+    state.penaltyUntil = null;
+  }
+
+  state.lastSubmittedAt = now;
+  state.intervalsMs = nextIntervals;
+  state.speedSamples = nextSpeeds;
+  state.suspiciousScore = Number(score.toFixed(2));
+  state.lastIp = ip || state.lastIp || '';
+
+  return {
+    rewardMultiplier,
+    warning,
+    suspiciousScore: state.suspiciousScore
+  };
 }
 
 async function getNewsTypingPrompt(afterId = null) {
@@ -5573,11 +5961,11 @@ app.get('/api/news-typing/prompt', async (req, res) => {
   try {
     const prompt = await getNewsTypingPrompt(req.query.afterId || null);
     if (!prompt) return res.status(503).json({ msg: '뉴스 문장을 불러오지 못했습니다.' });
-    res.json({ prompt });
+    res.json({ prompt: buildClientNewsTypingPrompt(prompt) });
   } catch (err) {
     console.error('News typing prompt error:', err);
     const fallbackPrompt = NEWS_TYPING_FALLBACK_SENTENCES.map(buildNewsTypingPrompt)[0];
-    res.json({ prompt: fallbackPrompt });
+    res.json({ prompt: buildClientNewsTypingPrompt(fallbackPrompt) });
   }
 });
 
@@ -5586,6 +5974,7 @@ app.post('/api/action/work', async (req, res) => {
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
+    const requestIp = getRequestIp(req);
     const response = await runUserMutationWithRetry(userId, async (user) => {
       const now = new Date();
       calculateOfflineGains(user, now);
@@ -5593,6 +5982,7 @@ app.post('/api/action/work', async (req, res) => {
 
       const derivedStats = calculateDerivedStats(user, now);
       const hadTooMuchStress = user.gameState.stress >= 100;
+      const antiCheat = applyWorkClickAntiCheat(user, { now, ip: requestIp });
 
       if (!derivedStats.noStress) {
         const clickStressGain = CLICK_STRESS_GAIN * derivedStats.stressMultiplier;
@@ -5605,13 +5995,14 @@ app.post('/api/action/work', async (req, res) => {
 
       if (!hadTooMuchStress) {
         const expMultiplier = (1 + derivedStats.expBonusPercent / 100);
-        user.gameState.exp += Math.floor(getClickExp(user.gameState.level) * expMultiplier * derivedStats.clickExpMultiplier);
+        user.gameState.exp += Math.floor(getClickExp(user.gameState.level) * expMultiplier * derivedStats.clickExpMultiplier * antiCheat.rewardMultiplier);
       }
 
       checkLevelUp(user);
       reconcileTitles(user, now);
       user.gameState.lastActionTime = now;
-      const workDrops = applyWorkDrops(user, 1);
+      const dropAttempts = antiCheat.rewardMultiplier >= 1 || Math.random() < antiCheat.rewardMultiplier ? 1 : 0;
+      const workDrops = applyWorkDrops(user, dropAttempts);
       const workDrop = workDrops[0] || null;
       if (workDrop?.text) {
         queueNotification(user, 'work_drop', workDrop.text);
@@ -5620,6 +6011,10 @@ app.post('/api/action/work', async (req, res) => {
       if (workDrop) {
         response.workDrop = workDrop;
       }
+      response.workAntiCheat = {
+        rewardMultiplier: antiCheat.rewardMultiplier,
+        warning: antiCheat.warning
+      };
       return response;
     }, { conflictLabel: 'Work action conflict' });
 
@@ -5652,6 +6047,7 @@ app.post('/api/action/news-typing', async (req, res) => {
       return res.status(429).json({ msg: '이미 정산 중인 문장입니다. 잠시만 기다려주세요.' });
     }
 
+    const requestIp = getRequestIp(req);
     const response = await runUserMutationWithRetry(userId, async (user) => {
       const now = new Date();
       calculateOfflineGains(user, now);
@@ -5660,6 +6056,7 @@ app.post('/api/action/news-typing', async (req, res) => {
       const derivedStats = calculateDerivedStats(user, now);
       const hadTooMuchStress = user.gameState.stress >= 100;
       const unitCount = Math.max(1, Number(prompt.unitCount || getNewsTypingUnitCount(prompt.text)));
+      const antiCheat = applyNewsTypingAntiCheat(user, { now, unitCount, ip: requestIp });
       const clickStressGain = CLICK_STRESS_GAIN * unitCount * derivedStats.stressMultiplier;
 
       if (!derivedStats.noStress) {
@@ -5679,6 +6076,7 @@ app.post('/api/action/news-typing', async (req, res) => {
           * expMultiplier
           * derivedStats.clickExpMultiplier
           * derivedStats.typingExpMultiplier
+          * antiCheat.rewardMultiplier
         );
         user.gameState.exp += gainedExp;
       }
@@ -5686,7 +6084,8 @@ app.post('/api/action/news-typing', async (req, res) => {
       checkLevelUp(user);
       reconcileTitles(user, now);
       user.gameState.lastActionTime = now;
-      const typingDrops = applyWorkDrops(user, unitCount);
+      const typingDropAttempts = Math.max(0, Math.floor(unitCount * antiCheat.rewardMultiplier));
+      const typingDrops = applyWorkDrops(user, typingDropAttempts);
       typingDrops.forEach((drop) => {
         if (drop?.text) queueNotification(user, 'work_drop', drop.text);
       });
@@ -5698,7 +6097,11 @@ app.post('/api/action/news-typing', async (req, res) => {
         unitCount,
         wordCount: unitCount,
         dropCount: typingDrops.length,
-        nextPrompt
+        nextPrompt: buildClientNewsTypingPrompt(nextPrompt),
+        antiCheat: {
+          rewardMultiplier: antiCheat.rewardMultiplier,
+          warning: antiCheat.warning
+        }
       };
       return mutationResponse;
     }, { conflictLabel: 'News typing action conflict' });
@@ -5826,6 +6229,13 @@ app.post('/api/action/adventure', async (req, res) => {
         throw createHttpError(400, '진행 중인 모험 선택지가 남아 있습니다. 먼저 결과를 선택해주세요.');
       }
 
+      const lastAdventureAtMs = user.meta.lastAdventureAt ? new Date(user.meta.lastAdventureAt).getTime() : 0;
+      const elapsedAdventureMs = lastAdventureAtMs ? now.getTime() - lastAdventureAtMs : ADVENTURE_COOLDOWN_MS;
+      if (elapsedAdventureMs < ADVENTURE_COOLDOWN_MS) {
+        const remainingTenths = Math.ceil((ADVENTURE_COOLDOWN_MS - elapsedAdventureMs) / 100) / 10;
+        throw createHttpError(429, `모험 준비 중입니다. ${remainingTenths.toFixed(1)}초 후 다시 시도해주세요.`);
+      }
+
       const staminaCost = getAdventureStaminaCost(user, now);
       if (user.gameState.stamina < staminaCost) {
         throw createHttpError(400, `행동력이 부족합니다. (필요: ${staminaCost})`);
@@ -5833,6 +6243,7 @@ app.post('/api/action/adventure', async (req, res) => {
 
       user.gameState.stamina = Number((user.gameState.stamina - staminaCost).toFixed(2));
       user.gameState.lastActionTime = now;
+      user.meta.lastAdventureAt = now;
 
       const event = rollAdventureEvent();
       const eventTitle = `${event.location} / ${event.actor}`;
@@ -6498,7 +6909,7 @@ app.post('/api/marketplace/list', async (req, res) => {
   const listingPrice = Math.max(1, Math.floor(Number(price) || 0));
   const listingQuantity = Math.max(1, Math.floor(Number(quantity) || 1));
 
-  if (!userId || !['equipment', 'scroll'].includes(itemType) || !itemId) {
+  if (!userId || !['equipment', 'scroll', 'item'].includes(itemType) || !itemId) {
     return res.status(400).json({ msg: '등록할 물품 정보가 부족합니다.' });
   }
   if (listingPrice <= 0) {
@@ -6535,7 +6946,7 @@ app.post('/api/marketplace/list', async (req, res) => {
         if (user.equippedEquipment?.cardEffect === itemId) user.equippedEquipment.cardEffect = null;
         if (user.equippedEquipment?.basicAttack === itemId) user.equippedEquipment.basicAttack = null;
         normalizeSingleEquippedEquipment(user);
-      } else {
+      } else if (itemType === 'scroll') {
         const itemInfo = ITEM_DATA[itemId];
         if (!itemInfo || !getEquipmentScrollRule(itemId)) {
           throw createHttpError(400, '거래소에 등록할 수 없는 주문서입니다.');
@@ -6547,6 +6958,25 @@ app.post('/api/marketplace/list', async (req, res) => {
           sellerId: user._id,
           sellerName: buildDisplayName(user),
           itemType: 'scroll',
+          itemId,
+          itemName: itemInfo.name,
+          description: itemInfo.desc || itemInfo.hoverDesc || '',
+          quantity: listingQuantity,
+          equipmentSnapshot: null,
+          price: listingPrice
+        };
+      } else {
+        const itemInfo = ITEM_DATA[itemId];
+        if (!itemInfo || !MARKETPLACE_TRADEABLE_ITEM_IDS.includes(itemId)) {
+          throw createHttpError(400, '거래소에 등록할 수 없는 아이템입니다.');
+        }
+        if (!removeItemFromInventory(user, itemId, listingQuantity)) {
+          throw createHttpError(400, '등록할 아이템 수량이 부족합니다.');
+        }
+        listingPayload = {
+          sellerId: user._id,
+          sellerName: buildDisplayName(user),
+          itemType: 'item',
           itemId,
           itemName: itemInfo.name,
           description: itemInfo.desc || itemInfo.hoverDesc || '',

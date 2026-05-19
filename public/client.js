@@ -210,13 +210,16 @@ let equipmentDismantleSortMode = 'acquired';
 let cardGradeFilter = 'all';
 let cardSortMode = 'grade';
 let marketplaceState = { itemType: 'scroll', view: 'active', sort: 'time_desc', data: { active: [], mine: [] } };
-let marketplaceRegisterState = { itemType: 'scroll', selected: null };
+let marketplaceRegisterState = { itemType: 'scroll', selected: null, sort: 'acquired' };
 let raidBattleLogPinnedToBottom = true;
 let userMutationInFlightCount = 0;
 let loginRequestSerial = 0;
 let currentNewsTypingPrompt = null;
 let newsTypingLoading = false;
 let newsTypingSubmitting = false;
+let newsTypingCanvasTimer = null;
+let newsTypingCanvasFrame = 0;
+let newsTypingRevealActive = false;
 let raidBarAnimationState = {
   bossHpRatio: null,
   participantHpRatios: {}
@@ -233,6 +236,17 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-05-19-anti-automation-marketplace',
+    time: '2026-05-19 19:05',
+    title: '자동 입력 방어와 번개장터 확장',
+    items: [
+      '뉴스 타이핑 문장을 일반 텍스트가 아닌 캔버스 이미지로 표시하고, 제외 글자/클릭 확인 단어/미세 흔들림 규칙을 추가했습니다.',
+      '뉴스 타이핑과 서류작업 클릭에 비정상적으로 빠르거나 일정한 반복 패턴이 감지되면 보상 감점 또는 짧은 쿨타임이 적용됩니다.',
+      '회의 추가 입장권과 하겐다즈를 사내 번개장터에서 유저끼리 거래할 수 있게 했습니다.',
+      '번개장터 등록 창에 장비/주문서/아이템 필터와 정렬 기능을 추가하고, 모험에는 짧은 재시도 대기시간을 적용했습니다.'
+    ]
+  },
   {
     id: '2026-05-18-1527-card-filter-sort',
     time: '2026-05-18 15:27',
@@ -760,6 +774,7 @@ function clearIntervals() {
   if (raidPollInterval) clearInterval(raidPollInterval);
   if (raidCountdownTicker) clearInterval(raidCountdownTicker);
   if (raidReadyTicker) clearInterval(raidReadyTicker);
+  if (newsTypingCanvasTimer) clearInterval(newsTypingCanvasTimer);
   animationInterval = null;
   updateInterval = null;
   rankingInterval = null;
@@ -770,6 +785,7 @@ function clearIntervals() {
   raidCountdownDisplayStartMs = 0;
   raidReadyTicker = null;
   raidReadyEndsAtMs = 0;
+  newsTypingCanvasTimer = null;
 }
 
 function clearSessions() {
@@ -1350,6 +1366,10 @@ async function handleClickWork() {
   try {
     const data = await runWithUserMutation(() => postJson(`${API_URL}/api/action/work`, { userId: user._id }));
     updateLocalUserState(data);
+    if (data.workAntiCheat?.warning) {
+      const statusEl = document.getElementById('newsTypingStatus');
+      if (statusEl) statusEl.textContent = data.workAntiCheat.warning;
+    }
   } catch (err) {
     alert(err.message);
   } finally {
@@ -1370,7 +1390,144 @@ function setupNewsTypingInput() {
     prompt.addEventListener('copy', (event) => event.preventDefault());
     prompt.addEventListener('cut', (event) => event.preventDefault());
     prompt.addEventListener('contextmenu', (event) => event.preventDefault());
+    prompt.addEventListener('click', () => {
+      if (!currentNewsTypingPrompt) return;
+      newsTypingRevealActive = true;
+      drawNewsTypingCanvas();
+      const input = document.getElementById('newsTypingInput');
+      if (input) input.focus();
+    });
   }
+}
+
+function createClientSeededRandom(seedText = '') {
+  let seed = 0;
+  String(seedText).split('').forEach((char) => {
+    seed = ((seed << 5) - seed + char.charCodeAt(0)) >>> 0;
+  });
+  return () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 0x100000000;
+  };
+}
+
+function getNewsTypingDisplaySegments(prompt = currentNewsTypingPrompt) {
+  if (Array.isArray(prompt?.displaySegments) && prompt.displaySegments.length) {
+    return prompt.displaySegments;
+  }
+  if (prompt?.text) return [{ text: prompt.text, role: 'target' }];
+  return [];
+}
+
+function layoutNewsTypingCanvasChars(ctx, segments, width, frame) {
+  const seed = currentNewsTypingPrompt?.canvasSeed || currentNewsTypingPrompt?.id || 'news';
+  const maxWidth = Math.max(220, width - 20);
+  const lineHeight = 26;
+  const chars = [];
+  let x = 10;
+  let y = 26;
+  let charIndex = 0;
+
+  segments.forEach((segment) => {
+    const text = String(segment.text || '');
+    for (const char of text) {
+      const hidden = Boolean(segment.reveal && !newsTypingRevealActive && /\S/.test(char));
+      const drawChar = hidden ? '■' : char;
+      const measure = ctx.measureText(drawChar === ' ' ? '  ' : drawChar);
+      const charWidth = Math.max(5, measure.width + 1);
+      if (x + charWidth > maxWidth && char !== ' ') {
+        x = 10;
+        y += lineHeight;
+      }
+      const random = createClientSeededRandom(`${seed}:${frame}:${charIndex}`);
+      chars.push({
+        char: drawChar,
+        x,
+        y,
+        role: segment.role || 'target',
+        style: segment.style || '',
+        hidden,
+        jitterX: (random() - 0.5) * 1.8,
+        jitterY: (random() - 0.5) * 2.2,
+        rotate: (random() - 0.5) * 0.08,
+        width: charWidth
+      });
+      x += charWidth;
+      charIndex += 1;
+    }
+  });
+
+  return {
+    chars,
+    height: Math.max(64, y + lineHeight)
+  };
+}
+
+function drawNewsTypingCanvas() {
+  const promptEl = document.getElementById('newsTypingPrompt');
+  const canvas = document.getElementById('newsTypingCanvas');
+  if (!promptEl || !canvas || !currentNewsTypingPrompt) return;
+
+  const segments = getNewsTypingDisplaySegments();
+  const cssWidth = Math.max(260, promptEl.clientWidth - 24);
+  const ratio = window.devicePixelRatio || 1;
+  const fontSize = 16;
+  const font = `700 ${fontSize}px "Malgun Gothic", "Apple SD Gothic Neo", sans-serif`;
+
+  canvas.style.width = `${cssWidth}px`;
+  let ctx = canvas.getContext('2d');
+  ctx.font = font;
+  const layout = layoutNewsTypingCanvasChars(ctx, segments, cssWidth, newsTypingCanvasFrame);
+
+  canvas.width = Math.ceil(cssWidth * ratio);
+  canvas.height = Math.ceil(layout.height * ratio);
+  canvas.style.height = `${layout.height}px`;
+  ctx = canvas.getContext('2d');
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, cssWidth, layout.height);
+  ctx.font = font;
+  ctx.textBaseline = 'alphabetic';
+
+  const finalLayout = layoutNewsTypingCanvasChars(ctx, segments, cssWidth, newsTypingCanvasFrame);
+  finalLayout.chars.forEach((entry) => {
+    ctx.save();
+    ctx.translate(entry.x + entry.jitterX, entry.y + entry.jitterY);
+    ctx.rotate(entry.rotate);
+
+    if (entry.hidden) {
+      ctx.fillStyle = '#fff8cf';
+      ctx.strokeStyle = '#b5a55b';
+      ctx.lineWidth = 1;
+      ctx.fillRect(-1, -16, Math.max(12, entry.width), 20);
+      ctx.strokeRect(-1, -16, Math.max(12, entry.width), 20);
+      ctx.fillStyle = '#8a7a1c';
+    } else if (entry.role === 'decoy' && entry.style === 'red') {
+      ctx.fillStyle = '#c62828';
+    } else if (entry.role === 'decoy') {
+      ctx.fillStyle = '#9a9a9a';
+    } else {
+      ctx.fillStyle = '#111';
+    }
+
+    ctx.fillText(entry.char, 0, 0);
+    if (entry.role === 'decoy') {
+      ctx.strokeStyle = entry.style === 'red' ? '#c62828' : '#8f8f8f';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(0, -7);
+      ctx.lineTo(Math.max(8, entry.width), -7);
+      ctx.stroke();
+    }
+    ctx.restore();
+  });
+}
+
+function startNewsTypingCanvasMotion() {
+  if (newsTypingCanvasTimer) clearInterval(newsTypingCanvasTimer);
+  newsTypingCanvasTimer = setInterval(() => {
+    newsTypingCanvasFrame += 1;
+    drawNewsTypingCanvas();
+  }, 2500);
 }
 
 function renderNewsTypingPrompt(prompt) {
@@ -1379,14 +1536,29 @@ function renderNewsTypingPrompt(prompt) {
   const statusEl = document.getElementById('newsTypingStatus');
   if (!promptEl) return;
 
-  if (!currentNewsTypingPrompt?.text) {
+  const segments = getNewsTypingDisplaySegments(currentNewsTypingPrompt);
+  if (!currentNewsTypingPrompt?.id || !segments.length) {
+    if (newsTypingCanvasTimer) clearInterval(newsTypingCanvasTimer);
+    newsTypingCanvasTimer = null;
     promptEl.textContent = '뉴스 문장을 불러오지 못했습니다.';
     if (statusEl) statusEl.textContent = '잠시 후 다시 시도해주세요.';
     return;
   }
 
-  promptEl.textContent = currentNewsTypingPrompt.text;
+  newsTypingRevealActive = false;
+  newsTypingCanvasFrame = 0;
+  promptEl.textContent = '';
+  const instructionEl = document.createElement('div');
+  instructionEl.className = 'news-typing-instruction';
+  instructionEl.textContent = currentNewsTypingPrompt.instruction || '캔버스에 그려진 문장을 직접 입력해주세요. 빨간 글자와 취소선 글자는 제외합니다.';
+  const canvas = document.createElement('canvas');
+  canvas.id = 'newsTypingCanvas';
+  canvas.className = 'news-typing-canvas';
+  canvas.setAttribute('aria-label', '뉴스 타자 문장 캔버스');
+  promptEl.append(instructionEl, canvas);
   promptEl.dataset.promptId = currentNewsTypingPrompt.id || '';
+  drawNewsTypingCanvas();
+  startNewsTypingCanvasMotion();
   if (statusEl && !statusEl.dataset.locked) {
     statusEl.textContent = `현재 문장 ${formatNumber(currentNewsTypingPrompt.unitCount || currentNewsTypingPrompt.wordCount || 0)}타 · Enter로 제출`;
   }
@@ -1453,7 +1625,8 @@ async function handleNewsTypingSubmit() {
     const result = data.newsTypingResult || {};
     if (statusEl) {
       const dropText = result.dropCount > 0 ? ` / 장비·주문서 ${formatNumber(result.dropCount)}개 획득` : '';
-      statusEl.textContent = `${formatNumber(result.unitCount || result.wordCount || 0)}타 정산 완료: +${formatNumber(result.gainedExp || 0)} EXP${dropText}`;
+      const warningText = result.antiCheat?.warning ? ` / ${result.antiCheat.warning}` : '';
+      statusEl.textContent = `${formatNumber(result.unitCount || result.wordCount || 0)}타 정산 완료: +${formatNumber(result.gainedExp || 0)} EXP${dropText}${warningText}`;
     }
     if (input) input.value = '';
     renderNewsTypingPrompt(result.nextPrompt);
@@ -2681,7 +2854,7 @@ function closeMarketplaceModal() {
 }
 
 function openMarketplaceRegisterModal() {
-  marketplaceRegisterState = { itemType: marketplaceState.itemType || 'scroll', selected: null };
+  marketplaceRegisterState = { itemType: marketplaceState.itemType || 'scroll', selected: null, sort: 'acquired' };
   renderMarketplaceRegisterModal();
   showModal('marketplaceRegisterModal');
 }
@@ -2718,7 +2891,11 @@ function renderMarketplace() {
   const statusEl = document.getElementById('marketplaceStatus');
   if (!listEl || !statusEl) return;
 
-  const typeLabel = marketplaceState.itemType === 'equipment' ? '장비' : '주문서';
+  const typeLabel = marketplaceState.itemType === 'equipment'
+    ? '장비'
+    : marketplaceState.itemType === 'item'
+      ? '아이템'
+      : '주문서';
   const viewLabel = marketplaceState.view === 'active'
     ? '전체 판매중'
     : marketplaceState.view === 'mine'
@@ -2770,11 +2947,48 @@ function handleMarketplaceSortChange(sort) {
   renderMarketplace();
 }
 
+function getMarketplaceRegisterSortLabel() {
+  if (marketplaceRegisterState.sort === 'enhance_desc') return '강화 높은순';
+  if (marketplaceRegisterState.sort === 'enhance_asc') return '강화 낮은순';
+  if (marketplaceRegisterState.sort === 'name') return '이름순';
+  return '획득순';
+}
+
+function sortMarketplaceRegisterEntries(entries) {
+  const sortMode = marketplaceRegisterState.sort || 'acquired';
+  return [...entries].sort((left, right) => {
+    if (sortMode === 'enhance_desc') {
+      return Number(right.enhanceLevel || right.upgradeRank || 0) - Number(left.enhanceLevel || left.upgradeRank || 0);
+    }
+    if (sortMode === 'enhance_asc') {
+      return Number(left.enhanceLevel || left.upgradeRank || 0) - Number(right.enhanceLevel || right.upgradeRank || 0);
+    }
+    if (sortMode === 'name') {
+      return String(left.name || '').localeCompare(String(right.name || ''), 'ko');
+    }
+    return Number(left.index || 0) - Number(right.index || 0);
+  });
+}
+
+function getMarketplaceTradeableItems(user) {
+  return ['raid_entry_ticket', 'hagendaz']
+    .map((itemId, index) => ({
+      itemType: 'item',
+      itemId,
+      index,
+      quantity: getInventoryQuantityFromUser(user, itemId),
+      itemInfo: ITEM_DATA[itemId] || {},
+      name: ITEM_DATA[itemId]?.name || itemId
+    }))
+    .filter((entry) => entry.quantity > 0);
+}
+
 function renderMarketplaceRegisterModal() {
   const user = getStoredUser();
   const listEl = document.getElementById('marketplaceRegisterList');
   const selectionEl = document.getElementById('marketplaceRegisterSelection');
   const quantityInput = document.getElementById('marketplaceRegisterQuantity');
+  const sortControlsEl = document.getElementById('marketplaceRegisterSortControls');
   if (!listEl || !selectionEl || !quantityInput) return;
 
   const selected = marketplaceRegisterState.selected;
@@ -2782,11 +2996,34 @@ function renderMarketplaceRegisterModal() {
     ? `선택됨: ${selected.name}${selected.quantity > 1 ? ` x${formatNumber(selected.quantity)}` : ''}`
     : '등록할 물품을 선택하세요.';
   quantityInput.disabled = marketplaceRegisterState.itemType === 'equipment';
-  if (marketplaceRegisterState.itemType === 'equipment') quantityInput.value = '1';
+  if (marketplaceRegisterState.itemType === 'equipment') {
+    quantityInput.max = '1';
+    quantityInput.value = '1';
+  }
+  if (sortControlsEl) {
+    sortControlsEl.innerHTML = marketplaceRegisterState.itemType === 'item'
+      ? `
+        <button class="mini-btn ${marketplaceRegisterState.sort === 'acquired' ? 'active' : ''}" onclick="handleMarketplaceRegisterSortChange('acquired')">획득순</button>
+        <button class="mini-btn ${marketplaceRegisterState.sort === 'name' ? 'active' : ''}" onclick="handleMarketplaceRegisterSortChange('name')">이름순</button>
+        <span class="menu-note">현재 ${getMarketplaceRegisterSortLabel()}</span>
+      `
+      : `
+        <button class="mini-btn ${marketplaceRegisterState.sort === 'acquired' ? 'active' : ''}" onclick="handleMarketplaceRegisterSortChange('acquired')">획득순</button>
+        <button class="mini-btn ${marketplaceRegisterState.sort === 'enhance_desc' ? 'active' : ''}" onclick="handleMarketplaceRegisterSortChange('enhance_desc')">강화 높은순</button>
+        <button class="mini-btn ${marketplaceRegisterState.sort === 'enhance_asc' ? 'active' : ''}" onclick="handleMarketplaceRegisterSortChange('enhance_asc')">강화 낮은순</button>
+        <button class="mini-btn ${marketplaceRegisterState.sort === 'name' ? 'active' : ''}" onclick="handleMarketplaceRegisterSortChange('name')">이름순</button>
+        <span class="menu-note">현재 ${getMarketplaceRegisterSortLabel()}</span>
+      `;
+  }
 
   listEl.innerHTML = '';
   if (marketplaceRegisterState.itemType === 'equipment') {
-    const equipments = user?.equipmentDetails || [];
+    const equipments = sortMarketplaceRegisterEntries((user?.equipmentDetails || []).map((equipment, index) => ({
+      ...equipment,
+      index,
+      name: equipment.name || '',
+      upgradeRank: Number(equipment.upgradesUsed || (7 - Number(equipment.upgradesLeft || 7)) || 0)
+    })));
     listEl.innerHTML = equipments.length ? '' : '<div class="modal-note">등록 가능한 장비가 없습니다.</div>';
     equipments.forEach((equipment) => {
       listEl.insertAdjacentHTML('beforeend', `
@@ -2799,9 +3036,24 @@ function renderMarketplaceRegisterModal() {
     return;
   }
 
-  const scrollEntries = getEquipmentScrollItemIds()
-    .map((itemId) => ({ itemId, quantity: getInventoryQuantityFromUser(user, itemId), itemInfo: ITEM_DATA[itemId] || {} }))
-    .filter((entry) => entry.quantity > 0);
+  if (marketplaceRegisterState.itemType === 'item') {
+    const itemEntries = sortMarketplaceRegisterEntries(getMarketplaceTradeableItems(user));
+    quantityInput.disabled = false;
+    listEl.innerHTML = itemEntries.length ? '' : '<div class="modal-note">등록 가능한 아이템이 없습니다.</div>';
+    itemEntries.forEach((entry) => {
+      listEl.insertAdjacentHTML('beforeend', `
+        <button class="fusion-source-card ${selected?.itemId === entry.itemId ? 'selected' : ''}" onclick="handleMarketplaceRegisterSelect('item', '${entry.itemId}')">
+          <strong>${escapeHtml(entry.itemInfo.name || entry.itemId)} x${formatNumber(entry.quantity)}</strong><br>
+          <span>${escapeHtml(entry.itemInfo.desc || entry.itemInfo.hoverDesc || '')}</span>
+        </button>
+      `);
+    });
+    return;
+  }
+
+  const scrollEntries = sortMarketplaceRegisterEntries(getEquipmentScrollItemIds()
+    .map((itemId, index) => ({ itemType: 'scroll', itemId, index, quantity: getInventoryQuantityFromUser(user, itemId), itemInfo: ITEM_DATA[itemId] || {}, name: ITEM_DATA[itemId]?.name || itemId }))
+    .filter((entry) => entry.quantity > 0));
   listEl.innerHTML = scrollEntries.length ? '' : '<div class="modal-note">등록 가능한 주문서가 없습니다.</div>';
   scrollEntries.forEach((entry) => {
     listEl.insertAdjacentHTML('beforeend', `
@@ -2814,7 +3066,17 @@ function renderMarketplaceRegisterModal() {
 }
 
 function handleMarketplaceRegisterTypeChange(itemType) {
-  marketplaceRegisterState = { itemType, selected: null };
+  const nextSort = itemType === 'item' && ['enhance_desc', 'enhance_asc'].includes(marketplaceRegisterState.sort)
+    ? 'acquired'
+    : marketplaceRegisterState.sort || 'acquired';
+  marketplaceRegisterState = { itemType, selected: null, sort: nextSort };
+  const quantityInput = document.getElementById('marketplaceRegisterQuantity');
+  if (quantityInput) quantityInput.value = '1';
+  renderMarketplaceRegisterModal();
+}
+
+function handleMarketplaceRegisterSortChange(sort) {
+  marketplaceRegisterState.sort = sort;
   renderMarketplaceRegisterModal();
 }
 
@@ -3179,6 +3441,7 @@ window.handleMarketplaceTypeChange = handleMarketplaceTypeChange;
 window.handleMarketplaceViewChange = handleMarketplaceViewChange;
 window.handleMarketplaceSortChange = handleMarketplaceSortChange;
 window.handleMarketplaceRegisterTypeChange = handleMarketplaceRegisterTypeChange;
+window.handleMarketplaceRegisterSortChange = handleMarketplaceRegisterSortChange;
 window.handleMarketplaceRegisterSelect = handleMarketplaceRegisterSelect;
 window.handleMarketplaceBuy = handleMarketplaceBuy;
 window.handleMarketplaceCancel = handleMarketplaceCancel;

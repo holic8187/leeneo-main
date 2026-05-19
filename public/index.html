@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>네오상사 거래명세서</title>
-  <link rel="stylesheet" href="style.css?v=34">
+  <link rel="stylesheet" href="style.css?v=35">
 </head>
 <body>
   <div id="login-screen">
@@ -505,6 +505,7 @@
       <div class="market-toolbar">
         <button class="mini-btn" onclick="handleMarketplaceTypeChange('scroll')">주문서 탭</button>
         <button class="mini-btn" onclick="handleMarketplaceTypeChange('equipment')">장비 탭</button>
+        <button class="mini-btn" onclick="handleMarketplaceTypeChange('item')">아이템 탭</button>
         <button class="mini-btn" onclick="handleMarketplaceViewChange('active')">전체 판매중</button>
         <button class="mini-btn" onclick="handleMarketplaceViewChange('mine')">등록중인 물품</button>
         <button class="mini-btn" onclick="handleMarketplaceViewChange('sold')">판매완료</button>
@@ -539,11 +540,13 @@
   <div id="marketplaceRegisterModal" class="modal-overlay hidden">
     <div class="excel-sheet modal-panel marketplace-modal-panel">
       <h3>물품 등록</h3>
-      <p class="menu-note">보유 장비 또는 주문서를 선택한 뒤 판매 가격을 입력하세요. 등록 시 물품은 가방에서 빠집니다.</p>
+      <p class="menu-note">보유 장비, 주문서, 거래 가능 아이템을 선택한 뒤 판매 가격을 입력하세요. 등록 시 물품은 가방에서 빠집니다.</p>
       <div class="market-toolbar">
         <button class="mini-btn" onclick="handleMarketplaceRegisterTypeChange('scroll')">주문서</button>
         <button class="mini-btn" onclick="handleMarketplaceRegisterTypeChange('equipment')">장비</button>
+        <button class="mini-btn" onclick="handleMarketplaceRegisterTypeChange('item')">아이템</button>
       </div>
+      <div id="marketplaceRegisterSortControls" class="market-toolbar"></div>
       <div id="marketplaceRegisterSelection" class="modal-note">등록할 물품을 선택하세요.</div>
       <div class="stock-controls marketplace-register-controls">
         <input type="number" id="marketplaceRegisterQuantity" min="1" step="1" value="1" placeholder="수량">
@@ -688,6 +691,6 @@
     </div>
   </div>
 
-  <script src="client.js?v=99"></script>
+  <script src="client.js?v=100"></script>
 </body>
 </html>
