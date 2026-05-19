@@ -317,14 +317,21 @@ progress {
 }
 
 .side-entry-btn {
-  left: 92px;
   background: #eef7f0;
   color: #1f5f38;
   border-color: #8fbc9a;
 }
 
-.marketplace-entry-btn {
+.pvp-entry-btn {
+  left: 92px;
+}
+
+#fragmentShopBtn {
   left: 176px;
+}
+
+.marketplace-entry-btn {
+  left: 268px;
   background: #fff8d8;
   color: #6f4d00;
   border-color: #d9b74c;
@@ -817,7 +824,7 @@ progress {
 }
 
 .marketplace-entry-btn {
-  position: relative;
+  position: absolute;
 }
 
 .marketplace-entry-btn.has-pending::after {
@@ -830,6 +837,11 @@ progress {
   border-radius: 999px;
   background: #d32f2f;
   border: 1px solid #ffffff;
+}
+
+.new-card-result {
+  color: #d32f2f;
+  font-weight: 800;
 }
 
 .raid-boss-effect-list {

@@ -35,16 +35,24 @@ const NEWS_TYPING_CACHE_TTL_MS = 10 * 60 * 1000;
 const NEWS_TYPING_FALLBACK_CACHE_TTL_MS = 30 * 1000;
 const NEWS_TYPING_DUPLICATE_WINDOW_MS = 7000;
 const NEWS_TYPING_ANTICHEAT_INTERVAL_LIMIT = 16;
-const NEWS_TYPING_ANTICHEAT_SPEED_LIMIT = 16;
-const NEWS_TYPING_ANTICHEAT_MIN_SUBMIT_MS = 1400;
+const NEWS_TYPING_ANTICHEAT_SPEED_LIMIT = 32;
+const NEWS_TYPING_ANTICHEAT_MIN_SUBMIT_MS = 650;
 const NEWS_TYPING_ANTICHEAT_IP_WINDOW_MS = 60 * 1000;
-const NEWS_TYPING_ANTICHEAT_COOLDOWN_MS = 45 * 1000;
+const NEWS_TYPING_ANTICHEAT_COOLDOWN_MS = 15 * 1000;
 const WORK_CLICK_ANTICHEAT_INTERVAL_LIMIT = 20;
-const WORK_CLICK_ANTICHEAT_MIN_INTERVAL_MS = 120;
+const WORK_CLICK_ANTICHEAT_MIN_INTERVAL_MS = 55;
 const WORK_CLICK_ANTICHEAT_IP_WINDOW_MS = 30 * 1000;
-const WORK_CLICK_ANTICHEAT_COOLDOWN_MS = 15 * 1000;
+const WORK_CLICK_ANTICHEAT_COOLDOWN_MS = 7 * 1000;
 const ADVENTURE_COOLDOWN_MS = 2500;
 const MARKETPLACE_TRADEABLE_ITEM_IDS = ['raid_entry_ticket', 'hagendaz'];
+const MARKETPLACE_FEE_RATE = 0.1;
+const CARD_DRAW_GRADE_RATES = [
+  { grade: 'S', rate: 0.005 },
+  { grade: 'A', rate: 0.035 },
+  { grade: 'B', rate: 0.31 },
+  { grade: 'C', rate: 0.65 }
+];
+const CARD_GRADE_SORT_ORDER = { S: 0, A: 1, B: 2, C: 3 };
 const NEWS_TYPING_RSS_FEEDS = [
   'https://news.google.com/rss?hl=ko&gl=KR&ceid=KR:ko',
   'https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=ko&gl=KR&ceid=KR:ko',
@@ -721,6 +729,18 @@ const CARD_DATA = {
     hits: 3,
     multiplierPerStatus: 5
   },
+  hoi_overtime: {
+    id: 'hoi_overtime',
+    name: '호이의 매일하는 야근',
+    grade: 'S',
+    rate: 0.00025,
+    skillName: '매일하는 야근',
+    skillDesc: '사용 시 상대에게 <야근> 디버프를 겁니다. 야근 중 기본 공격에 피격당할 때마다 <내면의 분노>가 쌓이고, 재사용 시 스택을 소진해 피해를 줍니다.',
+    cooldown: 5,
+    effectType: 'overtime_rage',
+    rageDamagePerStackPerLevel: 5,
+    targetType: null
+  },
   precise_strike: {
     id: 'precise_strike',
     name: '정곡찌르기',
@@ -821,6 +841,7 @@ const CARD_ENHANCE_RULES = {
   rooftop_pigeons: { damagePerLevel: { 0: 5, 1: 6, 2: 7, 3: 8, 4: 9, 5: 10 } },
   sunscreen: { targets: { 0: 3, 2: 4, 3: 99 }, negateHitCount: { 0: 1, 4: 2 }, includeSelf: { 0: 0, 3: 1 }, cooldown: { 0: 6, 1: 5, 5: 4 } },
   trial_and_growth: { multiplierPerStatus: { 0: 5, 1: 5, 2: 6, 3: 7, 4: 7, 5: 8 }, cooldown: { 0: 5, 1: 4, 4: 3 } },
+  hoi_overtime: { rageDamagePerStackPerLevel: { 0: 5, 1: 6, 2: 7, 3: 8, 4: 9 }, cooldown: { 0: 5, 5: 4 } },
   precise_strike: { multiplierPerLevel: { 0: 40, 2: 45, 3: 50, 4: 55 }, cooldown: { 0: 5, 1: 4, 5: 3 } },
   umbrella_copy: { copyEffectMultiplier: { 0: 0.5, 2: 0.6, 3: 0.7 }, canSelectCopyTarget: { 4: 1 }, cooldown: { 0: 6, 1: 5, 5: 4 } },
   gossip: { removeBuffCount: { 0: 1, 5: 2 }, cooldown: { 0: 8, 1: 7, 2: 6, 3: 5, 4: 4 } }
@@ -1812,6 +1833,7 @@ const marketplaceListingSchema = new mongoose.Schema({
   status: { type: String, enum: ['active', 'sold', 'settling', 'settled', 'cancelled'], default: 'active' },
   buyerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   buyerName: { type: String, default: '' },
+  settlementToken: { type: String, default: '' },
   createdAt: { type: Date, default: Date.now },
   soldAt: { type: Date, default: null },
   settledAt: { type: Date, default: null }
@@ -2283,7 +2305,7 @@ async function buildMarketplaceResponse(userId) {
   const myListings = userId
     ? await MarketplaceListing.find({
         sellerId: userId,
-        status: { $in: ['active', 'sold', 'settling', 'settled'] }
+        status: { $in: ['active', 'sold', 'settling'] }
       }).sort({ createdAt: -1 }).limit(300)
     : [];
 
@@ -2392,6 +2414,8 @@ function getCardDurationText(cardId, enhancementLevel = 0) {
       return '1회';
     case 'trial_and_growth':
       return '즉시 / 사용 시 자신의 디버프 제거';
+    case 'hoi_overtime':
+      return '재사용 시 즉시';
     case 'umbrella_copy':
       return '즉시 / 복사한 카드 효과는 반감';
     case 'neo_self_esteem':
@@ -2462,6 +2486,8 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
       return `${card.includeSelf ? '자신 포함 ' : ''}${card.targets >= 99 ? '파티 전원' : `랜덤 팀원 ${card.targets}인`}에게 피격 무효 ${card.negateHitCount}회를 부여합니다.`;
     case 'trial_and_growth':
       return `현재 자신이 가진 버프/디버프 총 갯수 x 레벨 x ${card.multiplierPerStatus}의 피해를 ${card.hits}회 주고, 자신의 모든 디버프를 제거합니다.`;
+    case 'hoi_overtime':
+      return `상대에게 <야근>을 적용합니다. 야근 중 기본 공격 피격마다 <내면의 분노>가 쌓이며, 재사용 시 스택 x 레벨 x ${card.rageDamagePerStackPerLevel} 피해를 주고 야근과 스택을 소진합니다.`;
     case 'precise_strike':
       return `자신의 레벨 x ${card.multiplierPerLevel}의 데미지를 1회 주며, 방어막을 무시하고 HP에 직접 피해를 입힙니다.`;
     case 'umbrella_copy':
@@ -2671,6 +2697,13 @@ function getEnhancedCardQuantity(user, cardId, level) {
 function getOwnedCardVariantQuantity(user, cardId, level = 0) {
   const normalizedLevel = normalizeCardEnhancementLevel(level);
   return normalizedLevel <= 0 ? getCardQuantity(user, cardId) : getEnhancedCardQuantity(user, cardId, normalizedLevel);
+}
+
+function getTotalOwnedCardQuantity(user, cardId) {
+  return getCardQuantity(user, cardId)
+    + (user.enhancedCards || [])
+      .filter((card) => card.cardId === cardId)
+      .reduce((sum, card) => sum + Math.max(0, Number(card.quantity) || 0), 0);
 }
 
 function addItemToInventory(user, itemId, amount = 1) {
@@ -3319,12 +3352,11 @@ function buildNewsTypingDisplaySegments(text, seed) {
   const random = createSeededRandom(seed);
   const ruleRoll = random();
   const fakeChars = ['※', '★', 'x', '0', 'ㄱ', '7', '?'];
-  const revealRange = pickNewsTypingRevealRange(text, random);
+  const revealRange = null;
   const fakeStyle = ruleRoll < 0.34 ? 'red' : ruleRoll < 0.68 ? 'gray' : 'paren';
   const instructionParts = [
     '캔버스에 그려진 문장을 직접 입력해주세요.',
-    '옅은 회색 취소선 또는 빨간 글자는 입력하지 않습니다.',
-    '가려진 단어는 문장 영역을 클릭하면 확인할 수 있습니다.'
+    '옅은 회색 취소선 또는 빨간 글자는 입력하지 않습니다.'
   ];
   if (fakeStyle === 'paren') {
     instructionParts.push('괄호 안 보조문구도 입력하지 않습니다.');
@@ -3555,8 +3587,8 @@ function updateNewsTypingIpActivity(ip, userId, nowMs, isFast) {
   const accountCount = new Set(nextEntries.map((entry) => entry.userId)).size;
   const fastCount = nextEntries.filter((entry) => entry.isFast).length;
   return {
-    busyIp: nextEntries.length >= 24 || fastCount >= 10,
-    multiAccountIp: accountCount >= 3 && nextEntries.length >= 12
+    busyIp: nextEntries.length >= 48 || fastCount >= 26,
+    multiAccountIp: accountCount >= 4 && nextEntries.length >= 28
   };
 }
 
@@ -3577,8 +3609,8 @@ function updateWorkClickIpActivity(ip, userId, nowMs, isFast) {
   const accountCount = new Set(nextEntries.map((entry) => entry.userId)).size;
   const fastCount = nextEntries.filter((entry) => entry.isFast).length;
   return {
-    busyIp: nextEntries.length >= 80 || fastCount >= 35,
-    multiAccountIp: accountCount >= 3 && nextEntries.length >= 45
+    busyIp: nextEntries.length >= 140 || fastCount >= 75,
+    multiAccountIp: accountCount >= 4 && nextEntries.length >= 90
   };
 }
 
@@ -3608,38 +3640,38 @@ function applyWorkClickAntiCheat(user, { now, ip }) {
   const nextIntervals = intervalMs > 0
     ? state.intervalsMs.concat(intervalMs).slice(-WORK_CLICK_ANTICHEAT_INTERVAL_LIMIT)
     : state.intervalsMs.slice(-WORK_CLICK_ANTICHEAT_INTERVAL_LIMIT);
-  const recentIntervals = nextIntervals.slice(-14);
+  const recentIntervals = nextIntervals.slice(-18);
   const averageInterval = recentIntervals.length
     ? recentIntervals.reduce((sum, value) => sum + value, 0) / recentIntervals.length
     : 0;
   const intervalVariation = getNewsTypingCoefficientOfVariation(recentIntervals);
-  const suspiciouslyEven = recentIntervals.length >= 10 && averageInterval < 850 && intervalVariation < 0.08;
-  const suspiciouslyFast = recentIntervals.length >= 8 && averageInterval < 180;
+  const suspiciouslyEven = recentIntervals.length >= 16 && averageInterval < 520 && intervalVariation < 0.035;
+  const suspiciouslyFast = recentIntervals.length >= 12 && averageInterval < 90;
 
   let score = Math.max(0, Number(state.suspiciousScore || 0));
-  score = Math.max(0, score - 0.18);
-  if (isTooFast) score += 1.9;
-  if (suspiciouslyFast) score += 1.6;
-  if (suspiciouslyEven) score += 1.4;
-  if (ipSignals.busyIp) score += 1.2;
-  if (ipSignals.multiAccountIp) score += 1;
+  score = Math.max(0, score - 0.32);
+  if (isTooFast) score += 0.9;
+  if (suspiciouslyFast) score += 0.9;
+  if (suspiciouslyEven) score += 0.8;
+  if (ipSignals.busyIp) score += 0.6;
+  if (ipSignals.multiAccountIp) score += 0.5;
 
   let rewardMultiplier = 1;
   let warning = '';
-  if (score >= 12) {
+  if (score >= 18) {
     state.penaltyUntil = new Date(nowMs + WORK_CLICK_ANTICHEAT_COOLDOWN_MS);
-    score = 8;
+    score = 12;
     rewardMultiplier = 0;
     warning = '서류작업 매크로 의심 패턴이 감지되어 짧은 쿨타임이 적용되었습니다.';
-  } else if (score >= 8) {
-    rewardMultiplier = 0.25;
-    warning = '서류작업 매크로 의심 패턴이 감지되어 클릭 보상이 25%만 적용됩니다.';
-  } else if (score >= 5) {
+  } else if (score >= 13) {
     rewardMultiplier = 0.5;
     warning = '서류작업 매크로 의심 패턴이 감지되어 클릭 보상이 50%만 적용됩니다.';
-  } else if (score >= 3) {
+  } else if (score >= 9) {
     rewardMultiplier = 0.75;
     warning = '클릭 간격이 매우 빠르거나 일정해 클릭 보상이 일부 감소했습니다.';
+  } else if (score >= 6) {
+    rewardMultiplier = 0.9;
+    warning = '클릭 간격이 비정상적으로 빨라 클릭 보상이 소폭 감소했습니다.';
   } else {
     state.penaltyUntil = null;
   }
@@ -3668,7 +3700,7 @@ function applyNewsTypingAntiCheat(user, { now, unitCount, ip }) {
 
   const lastSubmittedAtMs = state.lastSubmittedAt ? new Date(state.lastSubmittedAt).getTime() : 0;
   const intervalMs = lastSubmittedAtMs ? Math.max(0, nowMs - lastSubmittedAtMs) : 0;
-  const minHumanMs = Math.max(NEWS_TYPING_ANTICHEAT_MIN_SUBMIT_MS, unitCount * 75);
+  const minHumanMs = Math.max(NEWS_TYPING_ANTICHEAT_MIN_SUBMIT_MS, unitCount * 35);
   const speed = intervalMs > 0 ? unitCount / (intervalMs / 1000) : 0;
   const isFast = intervalMs > 0 && (intervalMs < minHumanMs || speed > NEWS_TYPING_ANTICHEAT_SPEED_LIMIT);
   const ipSignals = updateNewsTypingIpActivity(ip, user._id, nowMs, isFast);
@@ -3679,36 +3711,41 @@ function applyNewsTypingAntiCheat(user, { now, unitCount, ip }) {
   const nextSpeeds = speed > 0
     ? state.speedSamples.concat(Number(speed.toFixed(2))).slice(-NEWS_TYPING_ANTICHEAT_INTERVAL_LIMIT)
     : state.speedSamples.slice(-NEWS_TYPING_ANTICHEAT_INTERVAL_LIMIT);
-  const intervalVariation = getNewsTypingCoefficientOfVariation(nextIntervals.slice(-10));
-  const speedVariation = getNewsTypingCoefficientOfVariation(nextSpeeds.slice(-10));
-  const suspiciouslyEven = nextIntervals.length >= 8
-    && intervalVariation < 0.08
-    && speedVariation < 0.12
-    && (nextIntervals.reduce((sum, value) => sum + value, 0) / nextIntervals.length) < 9000;
+  const recentIntervals = nextIntervals.slice(-12);
+  const recentSpeeds = nextSpeeds.slice(-12);
+  const intervalVariation = getNewsTypingCoefficientOfVariation(recentIntervals);
+  const speedVariation = getNewsTypingCoefficientOfVariation(recentSpeeds);
+  const averageInterval = recentIntervals.length
+    ? recentIntervals.reduce((sum, value) => sum + value, 0) / recentIntervals.length
+    : 0;
+  const suspiciouslyEven = recentIntervals.length >= 12
+    && intervalVariation < 0.035
+    && speedVariation < 0.07
+    && averageInterval < 4500;
 
   let score = Math.max(0, Number(state.suspiciousScore || 0));
-  score = Math.max(0, score - 0.35);
-  if (isFast) score += 2.2;
-  if (suspiciouslyEven) score += 1.6;
-  if (ipSignals.busyIp) score += 1.4;
-  if (ipSignals.multiAccountIp) score += 1.2;
+  score = Math.max(0, score - 0.55);
+  if (isFast) score += 0.9;
+  if (suspiciouslyEven) score += 0.8;
+  if (ipSignals.busyIp) score += 0.6;
+  if (ipSignals.multiAccountIp) score += 0.5;
 
   let rewardMultiplier = 1;
   let warning = '';
-  if (score >= 12) {
+  if (score >= 18) {
     state.penaltyUntil = new Date(nowMs + NEWS_TYPING_ANTICHEAT_COOLDOWN_MS);
-    score = 8;
+    score = 12;
     warning = '자동 입력 의심 패턴이 감지되어 타이핑 보상 쿨타임이 적용되었습니다.';
     rewardMultiplier = 0;
-  } else if (score >= 8) {
-    rewardMultiplier = 0.35;
-    warning = '자동 입력 의심 패턴이 감지되어 타이핑 보상이 35%만 적용됩니다.';
-  } else if (score >= 5) {
-    rewardMultiplier = 0.6;
-    warning = '자동 입력 의심 패턴이 감지되어 타이핑 보상이 60%만 적용됩니다.';
-  } else if (score >= 3) {
-    rewardMultiplier = 0.8;
+  } else if (score >= 13) {
+    rewardMultiplier = 0.5;
+    warning = '자동 입력 의심 패턴이 감지되어 타이핑 보상이 50%만 적용됩니다.';
+  } else if (score >= 9) {
+    rewardMultiplier = 0.75;
     warning = '입력 속도가 매우 빨라 타이핑 보상이 일부 감소했습니다.';
+  } else if (score >= 6) {
+    rewardMultiplier = 0.9;
+    warning = '입력 속도가 비정상적으로 빨라 타이핑 보상이 소폭 감소했습니다.';
   } else {
     state.penaltyUntil = null;
   }
@@ -3794,6 +3831,14 @@ function buildRaidBossStatusEffects(battle) {
       desc: '피격 시 데미지를 입지 않고 1회씩 사라집니다.'
     });
   }
+  (battle.bossOvertimeDebuffs || []).forEach((entry) => {
+    effects.push({
+      type: 'debuff',
+      name: `야근: ${entry.displayName || '알 수 없음'}`,
+      count: Number(entry.stacks || 0),
+      desc: `기본 공격에 피격될 때마다 내면의 분노가 쌓입니다. 현재 ${Number(entry.stacks || 0).toLocaleString()}스택`
+    });
+  });
   return effects;
 }
 
@@ -3810,16 +3855,19 @@ function buildDisplayName(user) {
 }
 
 function rollCardDraw() {
-  const cards = Object.values(CARD_DATA);
-  const totalWeight = cards.reduce((sum, card) => sum + Number(card.rate || 0), 0);
-  if (totalWeight <= 0) return cards[cards.length - 1];
-  const roll = Math.random() * totalWeight;
+  const roll = Math.random();
   let cumulative = 0;
-  for (const card of cards) {
-    cumulative += Number(card.rate || 0);
-    if (roll <= cumulative) return card;
+  let selectedGrade = 'C';
+  for (const entry of CARD_DRAW_GRADE_RATES) {
+    cumulative += Number(entry.rate || 0);
+    if (roll < cumulative) {
+      selectedGrade = entry.grade;
+      break;
+    }
   }
-  return cards[cards.length - 1];
+  const pool = Object.values(CARD_DATA).filter((card) => card.grade === selectedGrade);
+  if (!pool.length) return Object.values(CARD_DATA).find((card) => card.grade === 'C') || Object.values(CARD_DATA)[0];
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 function getRaidRecoveryMultiplier(target) {
@@ -4130,6 +4178,23 @@ function useRaidCardSkill(participant, battle) {
       steps,
       delayUnits: Math.max(1, steps.length)
     };
+  } else if (card.effectType === 'overtime_rage') {
+    battle.bossOvertimeDebuffs = Array.isArray(battle.bossOvertimeDebuffs) ? battle.bossOvertimeDebuffs : [];
+    const existing = battle.bossOvertimeDebuffs.find((entry) => entry.userId === participant.userId);
+    if (existing) {
+      const stacks = Math.max(0, Number(existing.stacks || 0));
+      const damage = scaleFlat(stacks * participant.level * Number(card.rageDamagePerStackPerLevel || 0));
+      if (damage > 0) applyRaidDamageToBoss(battle, damage);
+      battle.bossOvertimeDebuffs = battle.bossOvertimeDebuffs.filter((entry) => entry !== existing);
+      logText = `${participant.displayName}(이)가 ${card.name}로 내면의 분노 ${stacks.toLocaleString()}스택을 폭발시켜 ${damage.toLocaleString()} 피해를 입혔습니다.`;
+    } else {
+      battle.bossOvertimeDebuffs.push({
+        userId: participant.userId,
+        displayName: participant.displayName,
+        stacks: 0
+      });
+      logText = `${participant.displayName}(이)가 ${card.name}로 보스에게 <야근>을 적용했습니다.`;
+    }
   } else if (card.effectType === 'direct_hp_strike') {
     const damage = scaleFlat(participant.level * Number(card.multiplierPerLevel || 0));
     if (Number(battle.bossNegateHits || 0) > 0) {
@@ -4399,6 +4464,13 @@ function applyRaidDamageToBoss(battle, damage) {
   return remainingDamage;
 }
 
+function incrementRaidOvertimeRageStacks(battle) {
+  if (!Array.isArray(battle?.bossOvertimeDebuffs)) return;
+  battle.bossOvertimeDebuffs.forEach((entry) => {
+    entry.stacks = Math.max(0, Number(entry.stacks || 0)) + 1;
+  });
+}
+
 function normalizeRaidActionResult(result) {
   if (!result) {
     return { logs: [], delayUnits: 0 };
@@ -4482,6 +4554,7 @@ function executeNextRaidSequenceStep(battle) {
         hitDamage = Math.floor(hitDamage * participant.damageMultiplierValue);
       }
       applyRaidDamageToBoss(battle, hitDamage);
+      incrementRaidOvertimeRageStacks(battle);
       battle.logs.push(`${participant.displayName}의 기본 공격 ${step.hitIndex + 1}타! ${hitDamage.toLocaleString()} 피해를 입혔습니다.${isCritical ? ' (치명타)' : ''}`);
     }
   } else if (step.type === 'player_fixed_skill_hit') {
@@ -4521,6 +4594,7 @@ function performRaidCounterAttack(participant, battle) {
     damage = Math.floor(damage * participant.damageMultiplierValue);
   }
   applyRaidDamageToBoss(battle, damage);
+  incrementRaidOvertimeRageStacks(battle);
   return `${participant.displayName}의 반격! ${damage.toLocaleString()} 피해를 입혔습니다.${isCritical ? ' (치명타)' : ''}`;
 }
 
@@ -5333,6 +5407,15 @@ function removeRandomPvpBuff(target, removeCount = 1) {
   return buff.name;
 }
 
+function incrementPvpOvertimeRageStacks(target) {
+  (target?.debuffs || [])
+    .filter((debuff) => debuff.id === 'overtime')
+    .forEach((debuff) => {
+      debuff.count = Math.max(0, Number(debuff.count || 0)) + 1;
+      debuff.desc = `기본 공격에 피격될 때마다 내면의 분노가 쌓입니다. 현재 ${Number(debuff.count || 0).toLocaleString()}스택`;
+    });
+}
+
 function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
   const card = options.cardOverride || getPvpCardDefinitionFromSlot(actor, slotIndex);
   const cardEntry = actor.cards?.[Number(slotIndex)];
@@ -5421,6 +5504,23 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
       battle.logs.push(`${cardLabel} ${index + 1}타! ${target.displayName}에게 ${damage.toLocaleString()} 피해를 입혔습니다.`);
     }
     actor.debuffs = [];
+  } else if (card.effectType === 'overtime_rage') {
+    const existing = target.debuffs.find((debuff) => debuff.id === 'overtime' && debuff.sourceUserId === actor.userId);
+    if (existing) {
+      const stacks = Math.max(0, Number(existing.count || 0));
+      const damage = scaleFlat(stacks * actor.level * Number(card.rageDamagePerStackPerLevel || 0));
+      if (damage > 0) applyPvpDamage(target, damage, battle);
+      target.debuffs = target.debuffs.filter((debuff) => debuff !== existing);
+      battle.logs.push(`${target.displayName}의 내면의 분노 ${stacks.toLocaleString()}스택이 폭발해 ${damage.toLocaleString()} 피해를 입었습니다.`);
+    } else {
+      addPvpDebuff(target, {
+        id: 'overtime',
+        name: '야근',
+        sourceUserId: actor.userId,
+        count: 0,
+        desc: '기본 공격에 피격될 때마다 내면의 분노가 쌓입니다. 현재 0스택'
+      }, actor, battle);
+    }
   } else if (card.effectType === 'copy_ally_skill') {
     const opponentCards = target.cards
       .map((entry, index) => ({ entry, index, card: getCardDefinition(entry.cardId, entry.enhancementLevel) }))
@@ -5465,6 +5565,7 @@ function performPvpBasicAttack(actor, target, battle) {
     if (actor.perHitBonusTurns > 0) damage += Number(actor.perHitBonusDamage || 0);
     if (index === 0 && actor.extraDamage > 0) damage += Number(actor.extraDamage || 0);
     applyPvpDamage(target, damage, battle);
+    incrementPvpOvertimeRageStacks(target);
     battle.logs.push(`${actor.displayName}의 기본 공격 ${index + 1}타! ${target.displayName}에게 ${damage.toLocaleString()} 피해를 입혔습니다.${critical ? ' (치명타)' : ''}`);
   }
 }
@@ -5489,7 +5590,7 @@ function tickPvpPlayerEndOfTurn(player, battle) {
     if (Number(debuff.turns || 0) > 0) debuff.turns -= 1;
   });
   player.buffs = player.buffs.filter((buff) => Number(buff.turns || 0) > 0 || Number(buff.count || 0) > 0 || Number(buff.turns || 0) >= 900);
-  player.debuffs = player.debuffs.filter((debuff) => Number(debuff.turns || 0) > 0 || Number(debuff.count || 0) > 0);
+  player.debuffs = player.debuffs.filter((debuff) => debuff.id === 'overtime' || Number(debuff.turns || 0) > 0 || Number(debuff.count || 0) > 0);
   if (player.basicAttackLockTurns > 0) player.basicAttackLockTurns -= 1;
   if (player.actionLockTurns > 0) player.actionLockTurns -= 1;
   player.extraHits = 0;
@@ -7944,48 +8045,58 @@ app.post('/api/marketplace/settle', async (req, res) => {
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   let claimIds = [];
+  const settlementToken = `settle-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  let settlementMoneySaved = false;
   try {
+    await MarketplaceListing.updateMany(
+      { sellerId: userId, status: 'settling', $or: [{ settlementToken: '' }, { settlementToken: null }, { settlementToken: { $exists: false } }] },
+      { $set: { status: 'sold' }, $unset: { settlementToken: '' } }
+    );
     const soldListings = await MarketplaceListing.find({ sellerId: userId, status: 'sold' });
     claimIds = soldListings.map((listing) => listing._id);
     if (!claimIds.length) return res.status(400).json({ msg: '정산할 판매 금액이 없습니다.' });
 
     await MarketplaceListing.updateMany(
       { _id: { $in: claimIds }, sellerId: userId, status: 'sold' },
-      { $set: { status: 'settling' } }
+      { $set: { status: 'settling', settlementToken } }
     );
-    const claimedListings = await MarketplaceListing.find({ _id: { $in: claimIds }, sellerId: userId, status: 'settling' });
-    const settleAmount = claimedListings.reduce((sum, listing) => sum + Number(listing.price || 0), 0);
-    if (settleAmount <= 0) throw createHttpError(400, '정산할 금액이 없습니다.');
+    const claimedListings = await MarketplaceListing.find({ _id: { $in: claimIds }, sellerId: userId, status: 'settling', settlementToken });
+    claimIds = claimedListings.map((listing) => listing._id);
+    const grossAmount = claimedListings.reduce((sum, listing) => sum + Number(listing.price || 0), 0);
+    const feeAmount = Math.floor(grossAmount * MARKETPLACE_FEE_RATE);
+    const settleAmount = Math.max(0, grossAmount - feeAmount);
+    if (settleAmount <= 0 || !claimIds.length) throw createHttpError(400, '정산할 금액이 없습니다.');
 
     const response = await runUserMutationWithRetry(userId, async (user) => {
       const now = new Date();
       calculateOfflineGains(user, now);
       ensureUserDefaults(user);
       user.gameState.money += settleAmount;
-      queueNotification(user, 'marketplace_settle', `사내 번개장터 판매 대금 ${settleAmount.toLocaleString()}원을 정산받았습니다.`);
+      queueNotification(user, 'marketplace_settle', `사내 번개장터 판매 대금 ${settleAmount.toLocaleString()}원을 정산받았습니다. (수수료 ${feeAmount.toLocaleString()}원)`);
       user.gameState.lastActionTime = now;
       return null;
     }, {
       conflictLabel: 'Marketplace settle conflict',
       afterSave: async (user) => {
+        settlementMoneySaved = true;
         const now = new Date();
         await MarketplaceListing.updateMany(
-          { _id: { $in: claimIds }, sellerId: userId, status: 'settling' },
-          { $set: { status: 'settled', settledAt: now } }
+          { _id: { $in: claimIds }, sellerId: userId, status: 'settling', settlementToken },
+          { $set: { status: 'settled', settledAt: now }, $unset: { settlementToken: '' } }
         );
         const response = await buildUserResponseWithGlobals(user, now);
         response.marketplace = await buildMarketplaceResponse(user._id);
-        response.marketplaceResult = { message: `${settleAmount.toLocaleString()}원을 정산했습니다.` };
+        response.marketplaceResult = { message: `${settleAmount.toLocaleString()}원을 정산했습니다. (판매가 ${grossAmount.toLocaleString()}원 - 수수료 ${feeAmount.toLocaleString()}원)` };
         return response;
       }
     });
 
     res.json(response);
   } catch (err) {
-    if (claimIds.length) {
+    if (claimIds.length && !settlementMoneySaved) {
       await MarketplaceListing.updateMany(
-        { _id: { $in: claimIds }, status: 'settling' },
-        { $set: { status: 'sold' } }
+        { _id: { $in: claimIds }, status: 'settling', settlementToken },
+        { $set: { status: 'sold' }, $unset: { settlementToken: '' } }
       ).catch((revertErr) => console.error('Marketplace settle revert failed:', revertErr));
     }
     console.error('Marketplace settle error:', err);
@@ -8010,14 +8121,21 @@ app.post('/api/cards/draw', async (req, res) => {
       const results = [];
       for (let drawIndex = 0; drawIndex < drawCount; drawIndex += 1) {
         const card = rollCardDraw();
+        const isNew = getTotalOwnedCardQuantity(user, card.id) <= 0;
         addCardToCollection(user, card.id, 1);
         results.push({
           id: card.id,
           name: card.name,
           grade: card.grade,
-          color: CARD_GRADE_COLORS[card.grade]
+          color: CARD_GRADE_COLORS[card.grade],
+          isNew
         });
       }
+      results.sort((left, right) => {
+        const gradeDiff = (CARD_GRADE_SORT_ORDER[left.grade] ?? 99) - (CARD_GRADE_SORT_ORDER[right.grade] ?? 99);
+        if (gradeDiff !== 0) return gradeDiff;
+        return String(left.name || '').localeCompare(String(right.name || ''), 'ko');
+      });
 
       user.gameState.lastActionTime = now;
       const response = await buildUserResponseWithGlobals(user, now);
@@ -8418,6 +8536,7 @@ app.post('/api/raid/start', async (req, res) => {
       bossShield: 0,
       bossShieldTurns: 0,
       bossLastHpLoss: 0,
+      bossOvertimeDebuffs: [],
       participants,
       phase: 'countdown',
       countdownEndsAt: new Date(now.getTime() + countdownDurationMs),

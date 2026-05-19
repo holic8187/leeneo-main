@@ -228,7 +228,6 @@ let newsTypingLoading = false;
 let newsTypingSubmitting = false;
 let newsTypingCanvasTimer = null;
 let newsTypingCanvasFrame = 0;
-let newsTypingRevealActive = false;
 let raidBarAnimationState = {
   bossHpRatio: null,
   participantHpRatios: {}
@@ -246,6 +245,28 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-05-19-gacha-marketplace-overtime-card',
+    time: '2026-05-19 13:47',
+    title: '뽑기 확률, 번개장터, 신규 카드 조정',
+    items: [
+      '회의 참석 오른쪽에 개인면담, 파편 상점, 사내 번개장터 버튼이 차례대로 보이도록 배치를 조정했습니다.',
+      '카드 뽑기를 등급 선결정 방식으로 변경하고 확률을 S 0.5%, A 3.5%, B 31%, C 65%로 조정했습니다.',
+      '뽑기 결과는 높은 등급 순으로 표시되며, 새로 획득한 카드는 빨간색 NEW 표시가 붙습니다.',
+      '사내 번개장터 정산 중복 방지 처리를 강화하고 정산 수수료 10%를 적용했습니다.',
+      '신규 S등급 카드 <호이의 매일하는 야근>을 추가했습니다.'
+    ]
+  },
+  {
+    id: '2026-05-19-anticheat-marketplace-typing-tune',
+    time: '2026-05-19 13:47',
+    title: '봇 감지 완화와 거래소 정산 개선',
+    items: [
+      '뉴스 타이핑과 서류작업 클릭의 봇 감지 기준을 완화해 정상 플레이가 과하게 감점되지 않도록 조정했습니다.',
+      '사내 번개장터에서 정산 완료한 판매 물품은 판매완료 목록에서 사라지도록 변경했습니다.',
+      '뉴스 타이핑 문장에서 클릭해야 가려진 글자가 보이는 규칙을 제거했습니다.'
+    ]
+  },
   {
     id: '2026-05-19-pvp-interview-alpha',
     time: '2026-05-19 20:10',
@@ -1457,13 +1478,6 @@ function setupNewsTypingInput() {
     prompt.addEventListener('copy', (event) => event.preventDefault());
     prompt.addEventListener('cut', (event) => event.preventDefault());
     prompt.addEventListener('contextmenu', (event) => event.preventDefault());
-    prompt.addEventListener('click', () => {
-      if (!currentNewsTypingPrompt) return;
-      newsTypingRevealActive = true;
-      drawNewsTypingCanvas();
-      const input = document.getElementById('newsTypingInput');
-      if (input) input.focus();
-    });
   }
 }
 
@@ -1498,7 +1512,7 @@ function layoutNewsTypingCanvasChars(ctx, segments, width, frame) {
   segments.forEach((segment) => {
     const text = String(segment.text || '');
     for (const char of text) {
-      const hidden = Boolean(segment.reveal && !newsTypingRevealActive && /\S/.test(char));
+      const hidden = false;
       const drawChar = hidden ? '■' : char;
       const measure = ctx.measureText(drawChar === ' ' ? '  ' : drawChar);
       const charWidth = Math.max(5, measure.width + 1);
@@ -1612,7 +1626,6 @@ function renderNewsTypingPrompt(prompt) {
     return;
   }
 
-  newsTypingRevealActive = false;
   newsTypingCanvasFrame = 0;
   promptEl.textContent = '';
   const instructionEl = document.createElement('div');
@@ -2474,9 +2487,15 @@ async function handleCardDraw() {
     }));
     updateLocalUserState(data);
     const results = (data.drawResults || [])
-      .map((card) => `[${card.grade}] ${card.name}`)
+      .map((card) => {
+        const label = `[${card.grade}] ${escapeHtml(card.name)}`;
+        return card.isNew ? `<span class="new-card-result">${label} (NEW)</span>` : label;
+      })
       .join(', ');
-    setText('cardDrawStatus', results ? `이번 뽑기 결과: ${results}` : '뽑기 결과가 없습니다.');
+    const statusEl = document.getElementById('cardDrawStatus');
+    if (statusEl) {
+      statusEl.innerHTML = results ? `이번 뽑기 결과: ${results}` : '뽑기 결과가 없습니다.';
+    }
   } catch (err) {
     alert(err.message);
   }
@@ -3317,7 +3336,7 @@ function getMarketplaceListingsForView() {
   const filtered = source.filter((listing) => {
     if (listing.itemType !== marketplaceState.itemType) return false;
     if (marketplaceState.view === 'mine') return listing.status === 'active';
-    if (marketplaceState.view === 'sold') return ['sold', 'settling', 'settled'].includes(listing.status);
+    if (marketplaceState.view === 'sold') return ['sold', 'settling'].includes(listing.status);
     return listing.status === 'active';
   });
 
