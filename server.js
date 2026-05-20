@@ -739,8 +739,8 @@ const CARD_DATA = {
     grade: 'S',
     rate: 0.00025,
     skillName: '매일하는 야근',
-    skillDesc: '사용 시 상대에게 <야근> 디버프를 겁니다. 야근 중 기본 공격에 피격당할 때마다 <내면의 분노>가 쌓이고, 재사용 시 스택을 소진해 피해를 줍니다.',
-    cooldown: 5,
+    skillDesc: '사용 시 상대에게 <야근> 디버프를 겁니다. 야근 중 기본 공격에 피격당할 때마다 <내면의 분노>가 쌓이고, 자신의 턴에 재사용하면 스택을 소진해 피해를 준 뒤 쿨타임이 시작됩니다.',
+    cooldown: 4,
     effectType: 'overtime_rage',
     rageDamagePerStackPerLevel: 5,
     targetType: null
@@ -801,7 +801,7 @@ const CARD_DATA = {
     rate: 0.008,
     skillName: '육아휴직',
     skillDesc: '모든 파티원들의 남은 스킬 쿨타임을 1턴 줄여줍니다. 개인면담에서는 자신의 모든 카드의 남은 쿨타임을 1턴 줄입니다.',
-    cooldown: 8,
+    cooldown: 9,
     effectType: 'party_cooldown_reduce',
     cooldownReduce: 1,
     targetType: null
@@ -883,11 +883,11 @@ const CARD_ENHANCE_RULES = {
   rooftop_pigeons: { damagePerLevel: { 0: 5, 1: 6, 2: 7, 3: 8, 4: 9, 5: 10 } },
   sunscreen: { targets: { 0: 3, 2: 4, 3: 99 }, negateHitCount: { 0: 1, 4: 2 }, includeSelf: { 0: 0, 3: 1 }, cooldown: { 0: 6, 1: 5, 5: 4 } },
   trial_and_growth: { multiplierPerStatus: { 0: 5, 1: 5, 2: 6, 3: 7, 4: 7, 5: 8 }, cooldown: { 0: 5, 1: 4, 4: 3 } },
-  hoi_overtime: { rageDamagePerStackPerLevel: { 0: 5, 1: 6, 2: 7, 3: 8, 4: 9 }, cooldown: { 0: 5, 5: 4 } },
+  hoi_overtime: { rageDamagePerStackPerLevel: { 0: 5, 1: 6, 2: 7, 3: 8, 4: 9 }, cooldown: { 0: 4, 5: 3 } },
   precise_strike: { multiplierPerLevel: { 0: 40, 2: 45, 3: 50, 4: 55 }, cooldown: { 0: 5, 1: 4, 5: 3 } },
   umbrella_copy: { copyEffectMultiplier: { 0: 0.5, 2: 0.6, 3: 0.7 }, canSelectCopyTarget: { 4: 1 }, cooldown: { 0: 6, 1: 5, 5: 4 } },
   neo_pesticide: { damagePerLevel: { 0: 10, 2: 11, 4: 12, 5: 15 }, cooldown: { 0: 7, 1: 6, 3: 5 } },
-  mond_parental_leave: { cooldown: { 0: 8, 2: 7, 4: 6 } },
+  mond_parental_leave: { cooldown: { 0: 9, 1: 8, 3: 7, 5: 6 } },
   jor_bongo: { breadCount: { 0: 6, 1: 7, 2: 8, 3: 9, 4: 10 }, cooldown: { 0: 5, 5: 4 } },
   gossip: { removeBuffCount: { 0: 1, 5: 2 }, cooldown: { 0: 8, 1: 7, 2: 6, 3: 5, 4: 4 } }
 };
@@ -2500,7 +2500,7 @@ function getCardDurationText(cardId, enhancementLevel = 0) {
     case 'trial_and_growth':
       return '즉시 / 사용 시 자신의 디버프 제거';
     case 'hoi_overtime':
-      return '재사용 시 즉시';
+      return '첫 사용은 쿨타임 없음 / 재사용 시 즉시 폭발 후 쿨타임';
     case 'umbrella_copy':
       return '즉시 / 복사한 카드 효과는 반감';
     case 'neo_pesticide':
@@ -2578,7 +2578,7 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
     case 'trial_and_growth':
       return `현재 자신이 가진 버프/디버프 총 갯수 x 레벨 x ${card.multiplierPerStatus}의 피해를 ${card.hits}회 주고, 자신의 모든 디버프를 제거합니다.`;
     case 'hoi_overtime':
-      return `상대에게 <야근>을 적용합니다. 야근 중 기본 공격 피격마다 <내면의 분노>가 쌓이며, 재사용 시 스택 x 레벨 x ${card.rageDamagePerStackPerLevel} 피해를 주고 야근과 스택을 소진합니다.`;
+      return `상대에게 <야근>을 적용합니다. 첫 사용은 쿨타임이 돌지 않고, 야근 중 기본 공격 피격마다 <내면의 분노>가 쌓입니다. 이후 자신의 턴에 재사용하면 스택 x 레벨 x ${card.rageDamagePerStackPerLevel} 피해를 주고 야근과 스택을 소진한 뒤 쿨타임이 시작됩니다.`;
     case 'precise_strike':
       return `자신의 레벨 x ${card.multiplierPerLevel}의 데미지를 1회 주며, 방어막을 무시하고 HP에 직접 피해를 입힙니다.`;
     case 'umbrella_copy':
@@ -4125,7 +4125,10 @@ function useRaidCardSkill(participant, battle) {
     return `${participant.displayName}은(는) 침묵 상태라 스킬을 사용할 수 없습니다.`;
   }
 
-  if (!participant.plannedSkill || participant.skillCooldown > 0) {
+  battle.bossOvertimeDebuffs = Array.isArray(battle.bossOvertimeDebuffs) ? battle.bossOvertimeDebuffs : [];
+  const canResolveOvertime = card.effectType === 'overtime_rage'
+    && battle.bossOvertimeDebuffs.some((entry) => entry.userId === participant.userId);
+  if (!participant.plannedSkill || (participant.skillCooldown > 0 && !canResolveOvertime)) {
     return null;
   }
 
@@ -4337,7 +4340,6 @@ function useRaidCardSkill(participant, battle) {
       delayUnits: Math.max(1, steps.length)
     };
   } else if (card.effectType === 'overtime_rage') {
-    battle.bossOvertimeDebuffs = Array.isArray(battle.bossOvertimeDebuffs) ? battle.bossOvertimeDebuffs : [];
     const existing = battle.bossOvertimeDebuffs.find((entry) => entry.userId === participant.userId);
     if (existing) {
       const stacks = Math.max(0, Number(existing.stacks || 0));
@@ -4352,6 +4354,7 @@ function useRaidCardSkill(participant, battle) {
         stacks: 0
       });
       logText = `${participant.displayName}(이)가 ${card.name}로 보스에게 <야근>을 적용했습니다.`;
+      participant.skillCooldown = 0;
     }
   } else if (card.effectType === 'poison_debuff') {
     battle.bossPoisonDebuffs = Array.isArray(battle.bossPoisonDebuffs) ? battle.bossPoisonDebuffs : [];
@@ -5773,7 +5776,9 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
   const card = options.cardOverride || getPvpCardDefinitionFromSlot(actor, slotIndex);
   const cardEntry = actor.cards?.[Number(slotIndex)];
   if (!card || card.passiveOnly) return false;
-  if (!options.ignoreCooldown && cardEntry && Number(cardEntry.cooldownRemaining || 0) > 0) return false;
+  const canResolveOvertime = card.effectType === 'overtime_rage'
+    && (target.debuffs || []).some((debuff) => debuff.id === 'overtime' && debuff.sourceUserId === actor.userId);
+  if (!options.ignoreCooldown && !canResolveOvertime && cardEntry && Number(cardEntry.cooldownRemaining || 0) > 0) return false;
   if (actor.actionLockTurns > 0) return false;
 
   const valueMultiplier = getPvpCardEffectMultiplier(actor) * Number(options.effectMultiplier || 1);
@@ -5909,6 +5914,9 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
         count: 0,
         desc: '기본 공격에 피격될 때마다 내면의 분노가 쌓입니다. 현재 0스택'
       }, actor, battle);
+      if (cardEntry && !options.ignoreCooldown) {
+        cardEntry.cooldownRemaining = 0;
+      }
     }
   } else if (card.effectType === 'poison_debuff') {
     const applied = addPvpDebuff(target, {
@@ -5937,7 +5945,7 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
     }
   }
 
-  if (cardEntry && !options.ignoreCooldown) {
+  if (cardEntry && !options.ignoreCooldown && (card.effectType !== 'overtime_rage' || canResolveOvertime)) {
     cardEntry.cooldownRemaining = Number(card.cooldown || 0) + 1;
   }
   return true;

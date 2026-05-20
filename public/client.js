@@ -253,6 +253,16 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-21-hoi-overtime-parental-leave',
+    time: '2026-05-21 20:10',
+    title: '야근 폭발 구조와 육아휴직 쿨타임 조정',
+    items: [
+      '<호이의 매일하는 야근>은 첫 사용 시 쿨타임이 돌지 않고, 이후 자신의 턴에 재사용해 폭발시킨 뒤 쿨타임이 시작되도록 변경했습니다.',
+      '<호이의 매일하는 야근>의 쿨타임을 전체 강화 구간에서 1턴 줄였습니다.',
+      '<몬드의 육아휴직> 쿨타임을 +0 9턴, +1~2 8턴, +3~4 7턴, +5 6턴으로 조정했습니다.'
+    ]
+  },
+  {
     id: '2026-05-20-marketplace-expiry-fusion-guard',
     time: '2026-05-20 19:35',
     title: '번개장터 만료/회수 및 합성 보호 패치',
@@ -3385,12 +3395,16 @@ function renderPvpBattlePanel(panelId, player, isSelfPanel, battle) {
     </div>
   `).join('');
   const cardButtons = (player.cards || []).map((card, index) => {
-    const disabled = !isSelfPanel || battle.phase === 'finished' || card.passiveOnly || Number(card.cooldownRemaining || 0) > 0;
+    const opponent = (battle.players || []).find((entry) => String(entry.userId) !== String(player.userId));
+    const canResolveOvertime = card.cardId === 'hoi_overtime'
+      && (opponent?.statusEffects || []).some((effect) => effect.id === 'overtime');
+    const coolingDown = Number(card.cooldownRemaining || 0) > 0;
+    const disabled = !isSelfPanel || battle.phase === 'finished' || card.passiveOnly || (coolingDown && !canResolveOvertime);
     const planned = Number(player.plannedCardIndex) === index;
     return `
       <button class="pvp-card-skill-btn ${planned ? 'planned' : ''}" ${disabled ? 'disabled' : ''} title="${escapeAttr(card.skillDesc || '')}" onclick="handlePvpPlanSkill(${index})">
         ${escapeHtml(card.name || card.baseName || '')}
-        ${card.cooldownRemaining ? `<br>쿨 ${formatNumber(card.cooldownRemaining)}` : ''}
+        ${coolingDown ? `<br>${canResolveOvertime ? '폭발 가능' : `쿨 ${formatNumber(card.cooldownRemaining)}`}` : ''}
       </button>
     `;
   }).join('');
