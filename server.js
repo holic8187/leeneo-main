@@ -5485,7 +5485,7 @@ function getPvpBuffValue(player, id, fallback = 0) {
 
 function getPvpAttackBonus(player) {
   return player.buffs
-    .filter((buff) => ['attack_bonus', 'celine', 'damage_multiplier'].includes(buff.id))
+    .filter((buff) => ['attack_bonus', 'celine', 'damage_multiplier'].includes(buff.id) && !buff.pendingActivation)
     .reduce((sum, buff) => {
       if (buff.id === 'damage_multiplier') return sum + (Number(buff.value || 1) - 1);
       return sum + Number(buff.value || 0);
@@ -5663,10 +5663,20 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
   } else if (card.effectType === 'self_celine_buff') {
     addPvpBuff(actor, { id: 'celine', name: '셀린느', turns: Number(card.turns || 1), value: scalePercent(card.attackBonusPercent), expireDamage: scaleFlat(actor.level * Number(card.expireDamagePerLevel || 0)), desc: `공격력 +${Math.round(scalePercent(card.attackBonusPercent) * 100)}%, 종료 시 피해` });
   } else if (card.effectType === 'self_counter') {
-    addPvpBuff(actor, { id: 'counter', name: '반격', turns: Number(card.turns || 1), value: Number(card.counterDamageMultiplier || 1), desc: '피격 시 반격' });
+    addPvpBuff(actor, { id: 'counter', name: '반격', turns: Number(card.turns || 1) + 1, value: Number(card.counterDamageMultiplier || 1), desc: '피격 시 반격' });
+    battle.logs.push(`${actor.displayName}이(가) ${Number(card.turns || 1)}턴 동안 반격 태세에 들어갔습니다.`);
   } else if (card.effectType === 'random_ally_sacrifice_buff') {
-    applyPvpDamage(actor, Number(card.selfDamage || 0), battle, { ignoreNegate: true });
-    addPvpBuff(actor, { id: 'damage_multiplier', name: '피해 증폭', turns: 1, value: Number(card.damageMultiplier || 2), desc: `다음 피해 x${Number(card.damageMultiplier || 2).toFixed(1)}` });
+    const selfDamage = applyPvpDamage(actor, Number(card.selfDamage || 0), battle, { ignoreNegate: true });
+    const damageMultiplier = Number(card.damageMultiplier || 2);
+    addPvpBuff(actor, {
+      id: 'damage_multiplier',
+      name: '피해 증폭',
+      turns: 1,
+      value: damageMultiplier,
+      pendingActivation: true,
+      desc: `다음 자신의 공격 피해 x${damageMultiplier.toFixed(1)}`
+    });
+    battle.logs.push(`${actor.displayName}의 HP가 ${selfDamage.toLocaleString()} 감소하고, 다음 자신의 공격 피해가 ${damageMultiplier.toFixed(1)}배가 됩니다.`);
   } else if (card.effectType === 'party_cleanse') {
     actor.debuffs = [];
   } else if (card.effectType === 'self_bonus_damage') {
@@ -5748,7 +5758,7 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
 function getPvpCriticalChance(player) {
   const baseChance = 0.1;
   const bonus = player.buffs
-    .filter((buff) => buff.id === 'crit_bonus')
+    .filter((buff) => buff.id === 'crit_bonus' && !buff.pendingActivation)
     .reduce((sum, buff) => sum + Number(buff.value || 0), 0);
   return Math.min(1, baseChance + bonus);
 }
@@ -5756,7 +5766,7 @@ function getPvpCriticalChance(player) {
 function performPvpCounterAttack(counterActor, target, battle) {
   if (!counterActor || !target || counterActor.hp <= 0 || target.hp <= 0) return;
   if (counterActor.basicAttackLockTurns > 0) return;
-  const counterBuff = (counterActor.buffs || []).find((buff) => buff.id === 'counter' && (Number(buff.turns || 0) > 0 || Number(buff.count || 0) > 0));
+  const counterBuff = (counterActor.buffs || []).find((buff) => buff.id === 'counter' && !buff.pendingActivation && (Number(buff.turns || 0) > 0 || Number(buff.count || 0) > 0));
   if (!counterBuff) return;
 
   const baseDamage = Math.max(1, Math.floor((counterActor.level / 2) * 20 * (1 + getPvpAttackBonus(counterActor)) * (1 + Number(counterActor.basicAttackEquipmentBonusPercent || 0))));
@@ -5774,7 +5784,7 @@ function performPvpBasicAttack(actor, target, battle) {
     return;
   }
   let hitCount = 1 + Number(actor.extraHits || 0);
-  if (actor.buffs.some((buff) => buff.id === 'hype')) hitCount *= 2;
+  if (actor.buffs.some((buff) => buff.id === 'hype' && !buff.pendingActivation)) hitCount *= 2;
   const hitMultiplier = Number(actor.multiHitDamageMultiplier || 1);
   const baseDamage = Math.max(1, Math.floor((actor.level / 2) * 20 * (1 + getPvpAttackBonus(actor)) * (1 + Number(actor.basicAttackEquipmentBonusPercent || 0))));
   for (let index = 0; index < hitCount; index += 1) {
@@ -5796,6 +5806,10 @@ function tickPvpPlayerEndOfTurn(player, battle) {
     if (Number(card.cooldownRemaining || 0) > 0) card.cooldownRemaining -= 1;
   });
   player.buffs.forEach((buff) => {
+    if (buff.pendingActivation) {
+      buff.pendingActivation = false;
+      return;
+    }
     if (Number(buff.turns || 0) > 0 && Number(buff.turns || 0) < 900) {
       buff.turns -= 1;
       if (buff.turns <= 0 && buff.id === 'celine' && Number(buff.expireDamage || 0) > 0) {
@@ -5939,10 +5953,10 @@ function buildPvpEffectsSnapshot(player) {
   const normalizeEffect = (effect, type) => ({
     type,
     id: effect.id,
-    name: effect.name,
+    name: effect.pendingActivation ? `${effect.name} 준비` : effect.name,
     turns: Number(effect.turns || 0),
     count: Number(effect.count || 0),
-    desc: effect.desc || ''
+    desc: `${effect.desc || ''}${effect.pendingActivation ? ' (다음 자신의 턴부터 적용)' : ''}`
   });
   return [
     ...(player.buffs || []).map((effect) => normalizeEffect(effect, 'buff')),

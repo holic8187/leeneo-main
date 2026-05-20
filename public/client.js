@@ -251,6 +251,15 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-20-pvp-buff-fix',
+    time: '2026-05-20 17:45',
+    title: '개인면담 버프 적용 보정',
+    items: [
+      '개인면담에서 <심심이의 소개팅> 사용 시 피해 증폭 버프가 다음 자신의 공격용 버프로 표시되도록 수정했습니다.',
+      '개인면담에서 반격 버프가 자기 턴 종료와 동시에 사라지지 않고 상대 공격에 정상 반응하도록 조정했습니다.'
+    ]
+  },
+  {
     id: '2026-05-20-pvp-accept-pick-order',
     time: '2026-05-20 17:20',
     title: '개인면담 매칭과 픽 순서 조정',
