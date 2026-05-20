@@ -195,6 +195,8 @@ let latestRaidState = null;
 let latestPvpState = null;
 let selectedPvpCardId = null;
 let selectedPvpEnhancementLevel = 0;
+let pvpDraftContextKey = '';
+let pvpDraftSubmitting = false;
 let pvpAcceptTicker = null;
 let pvpDraftTicker = null;
 let pvpStartTicker = null;
@@ -250,6 +252,26 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-05-20-pvp-draft-confirm-fix',
+    time: '2026-05-20 18:45',
+    title: '개인면담 밴픽 선택 안정화',
+    items: [
+      '개인면담 밴픽에서 턴/단계가 바뀌면 이전 선택 카드가 남지 않도록 정리했습니다.',
+      '밴/픽 확정 시 현재 화면에서 클릭해둔 카드만 서버에 전달되도록 검증을 강화했습니다.',
+      '자동 밴/픽은 제한시간이 끝난 뒤 서버 전송 유예까지 지난 경우에만 진행되도록 조정했습니다.'
+    ]
+  },
+  {
+    id: '2026-05-20-new-cards-work-optimization',
+    time: '2026-05-20 18:20',
+    title: '신규 카드와 업무 최적화 조정',
+    items: [
+      '신규 B등급 카드 <죠르의 봉고차>를 추가했습니다. 빵 버프는 피격 시 HP를 회복하고 1개씩 소모됩니다.',
+      '신규 A등급 카드 <몬드의 육아휴직>을 추가했습니다. 레이드에서는 파티원 스킬 쿨타임을, 개인면담에서는 자신의 카드 쿨타임을 줄입니다.',
+      '<업무 최적화> 스킬 재사용 대기시간을 5시간에서 7시간으로 조정했습니다.'
+    ]
+  },
   {
     id: '2026-05-20-pvp-buff-fix',
     time: '2026-05-20 17:45',
@@ -3068,6 +3090,20 @@ function renderPvpDraft(match, user) {
   document.getElementById('pvpBattleView')?.classList.add('hidden');
   if (pvpTurnTicker) clearInterval(pvpTurnTicker);
   pvpTurnTicker = null;
+  const draftContextKey = [
+    match.matchId || '',
+    match.phase || '',
+    match.turnUserId || '',
+    Number(match.pickTurnIndex || 0),
+    (match.bannedCardIds || []).join(','),
+    (match.pickedCardIds || []).join(',')
+  ].join('|');
+  if (pvpDraftContextKey !== draftContextKey) {
+    selectedPvpCardId = null;
+    selectedPvpEnhancementLevel = 0;
+    pvpDraftSubmitting = false;
+    pvpDraftContextKey = draftContextKey;
+  }
   const phaseText = match.phase === 'ban' ? '1. 금지' : match.phase === 'pick' ? '2. 선택' : match.phase === 'starting' ? '전투 시작 준비' : '입장 확인';
   const myTurn = match.isMyTurn;
   setText('pvpPhaseStatus', `${phaseText} - ${myTurn ? '내 차례입니다.' : '상대 차례입니다.'}`);
@@ -3083,10 +3119,26 @@ function renderPvpDraft(match, user) {
   const pickedSet = new Set(match.pickedCardIds || []);
   const isBan = match.phase === 'ban';
   const cards = isBan ? (match.allCards || []) : (match.ownedCards || []);
+  const draftDeadlineMs = match.turnEndsAt ? new Date(match.turnEndsAt).getTime() : 0;
+  const draftExpired = Boolean(draftDeadlineMs && Date.now() >= draftDeadlineMs);
+  const isCardSelectable = (card) => myTurn
+    && !draftExpired
+    && !bannedSet.has(card.cardId)
+    && !pickedSet.has(card.cardId)
+    && match.phase !== 'starting'
+    && match.phase !== 'accept';
+  if (selectedPvpCardId && !cards.some((card) => (
+    isCardSelectable(card)
+    && selectedPvpCardId === card.cardId
+    && Number(selectedPvpEnhancementLevel || 0) === Number(card.enhancementLevel || 0)
+  ))) {
+    selectedPvpCardId = null;
+    selectedPvpEnhancementLevel = 0;
+  }
   const grid = document.getElementById('pvpCardGrid');
   if (!grid) return;
   grid.innerHTML = cards.map((card) => {
-    const disabled = !myTurn || bannedSet.has(card.cardId) || pickedSet.has(card.cardId) || match.phase === 'starting' || match.phase === 'accept';
+    const disabled = !isCardSelectable(card);
     const selected = selectedPvpCardId === card.cardId && Number(selectedPvpEnhancementLevel || 0) === Number(card.enhancementLevel || 0);
     return `
       <button class="pvp-card-choice ${selected ? 'selected' : ''} ${disabled ? 'disabled' : ''} ${bannedSet.has(card.cardId) ? 'banned' : ''}"
@@ -3103,7 +3155,7 @@ function renderPvpDraft(match, user) {
   const actionBtn = document.getElementById('pvpDraftActionBtn');
   if (actionBtn) {
     actionBtn.textContent = isBan ? '금지하기' : '선택하기';
-    actionBtn.disabled = !myTurn || !selectedPvpCardId || match.phase === 'starting';
+    actionBtn.disabled = !myTurn || draftExpired || !selectedPvpCardId || match.phase === 'starting' || pvpDraftSubmitting;
   }
 }
 
@@ -3138,6 +3190,20 @@ function renderPvpCountdown(match) {
 }
 
 function handlePvpCardSelect(cardId, enhancementLevel = 0) {
+  const match = latestPvpState?.match;
+  if (!match || !match.isMyTurn || match.phase === 'starting' || match.phase === 'accept') return;
+  const deadlineMs = match.turnEndsAt ? new Date(match.turnEndsAt).getTime() : 0;
+  if (deadlineMs && Date.now() >= deadlineMs) return;
+  const bannedSet = new Set(match.bannedCardIds || []);
+  const pickedSet = new Set(match.pickedCardIds || []);
+  const cards = match.phase === 'ban' ? (match.allCards || []) : (match.ownedCards || []);
+  const available = cards.some((card) => (
+    card.cardId === cardId
+    && Number(card.enhancementLevel || 0) === Number(enhancementLevel || 0)
+    && !bannedSet.has(card.cardId)
+    && !pickedSet.has(card.cardId)
+  ));
+  if (!available) return;
   selectedPvpCardId = cardId;
   selectedPvpEnhancementLevel = Number(enhancementLevel || 0);
   renderPvpState(latestPvpState, getStoredUser());
@@ -3146,18 +3212,39 @@ function handlePvpCardSelect(cardId, enhancementLevel = 0) {
 async function handlePvpDraftAction() {
   const user = getStoredUser();
   if (!user?._id || !selectedPvpCardId || !latestPvpState?.match) return;
-  const endpoint = latestPvpState.match.phase === 'ban' ? 'ban' : 'pick';
+  const match = latestPvpState.match;
+  if (pvpDraftSubmitting || !match.isMyTurn || !['ban', 'pick'].includes(match.phase)) return;
+  const deadlineMs = match.turnEndsAt ? new Date(match.turnEndsAt).getTime() : 0;
+  if (deadlineMs && Date.now() >= deadlineMs) return;
+  const bannedSet = new Set(match.bannedCardIds || []);
+  const pickedSet = new Set(match.pickedCardIds || []);
+  const cards = match.phase === 'ban' ? (match.allCards || []) : (match.ownedCards || []);
+  const selectedStillAvailable = cards.some((card) => (
+    card.cardId === selectedPvpCardId
+    && Number(card.enhancementLevel || 0) === Number(selectedPvpEnhancementLevel || 0)
+    && !bannedSet.has(card.cardId)
+    && !pickedSet.has(card.cardId)
+  ));
+  if (!selectedStillAvailable) return;
+  const endpoint = match.phase === 'ban' ? 'ban' : 'pick';
+  pvpDraftSubmitting = true;
+  renderPvpState(latestPvpState, user);
   try {
     const data = await postJson(`${API_URL}/api/pvp/${endpoint}`, {
       userId: user._id,
       cardId: selectedPvpCardId,
-      enhancementLevel: selectedPvpEnhancementLevel
+      enhancementLevel: selectedPvpEnhancementLevel,
+      matchId: match.matchId,
+      phase: match.phase
     });
     latestPvpState = data.pvp;
     selectedPvpCardId = null;
     selectedPvpEnhancementLevel = 0;
+    pvpDraftSubmitting = false;
     renderPvpState(latestPvpState, user);
   } catch (err) {
+    pvpDraftSubmitting = false;
+    renderPvpState(latestPvpState, user);
     alert(err.message);
   }
 }

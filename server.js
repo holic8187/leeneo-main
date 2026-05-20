@@ -82,7 +82,7 @@ const CONFIDENCE_DURATION_MS = 60 * 60 * 1000;
 const FATIGUE_DURATION_MS = 4 * 60 * 60 * 1000;
 const CAT_GRATITUDE_DURATION_MS = 60 * 60 * 1000;
 const WORK_OPTIMIZATION_DURATION_MS = 60 * 60 * 1000;
-const WORK_OPTIMIZATION_COOLDOWN_MS = 5 * 60 * 60 * 1000;
+const WORK_OPTIMIZATION_COOLDOWN_MS = 7 * 60 * 60 * 1000;
 const WORK_OPTIMIZATION_UNLOCK_LEVEL = 200;
 const SHOUT_COOLDOWN_MS = 10 * 60 * 1000;
 const SHOUT_VISIBLE_DURATION_MS = 36 * 1000;
@@ -113,6 +113,7 @@ const PVP_BAN_TURN_MS = 30000;
 const PVP_PICK_TURN_MS = 30000;
 const PVP_BATTLE_TURN_MS = 30000;
 const PVP_START_COUNTDOWN_MS = 5000;
+const PVP_DRAFT_AUTO_GRACE_MS = 1200;
 const PVP_BANS_PER_PLAYER = 3;
 const PVP_PICKS_PER_PLAYER = 5;
 const PVP_PICK_SEQUENCE_INDICES = [0, 1, 1, 0, 0, 1, 1, 0, 0, 1];
@@ -792,6 +793,31 @@ const CARD_DATA = {
     enhanceDisabled: true,
     targetType: null
   },
+  mond_parental_leave: {
+    id: 'mond_parental_leave',
+    name: '몬드의 육아휴직',
+    grade: 'A',
+    rate: 0.008,
+    skillName: '육아휴직',
+    skillDesc: '모든 파티원들의 남은 스킬 쿨타임을 1턴 줄여줍니다. 개인면담에서는 자신의 모든 카드의 남은 쿨타임을 1턴 줄입니다.',
+    cooldown: 8,
+    effectType: 'party_cooldown_reduce',
+    cooldownReduce: 1,
+    targetType: null
+  },
+  jor_bongo: {
+    id: 'jor_bongo',
+    name: '죠르의 봉고차',
+    grade: 'B',
+    rate: 0.0428571429,
+    skillName: '봉고차',
+    skillDesc: '파티원들에게 랜덤으로 <빵> 버프를 나눠줍니다. 빵을 가진 상태에서 1회 피격 시 HP 5를 회복하고 빵 1개가 사라집니다.',
+    cooldown: 5,
+    effectType: 'party_bread_buff',
+    breadCount: 6,
+    breadHeal: 5,
+    targetType: null
+  },
   gossip: {
     id: 'gossip',
     name: '뒷담화',
@@ -860,6 +886,8 @@ const CARD_ENHANCE_RULES = {
   precise_strike: { multiplierPerLevel: { 0: 40, 2: 45, 3: 50, 4: 55 }, cooldown: { 0: 5, 1: 4, 5: 3 } },
   umbrella_copy: { copyEffectMultiplier: { 0: 0.5, 2: 0.6, 3: 0.7 }, canSelectCopyTarget: { 4: 1 }, cooldown: { 0: 6, 1: 5, 5: 4 } },
   neo_pesticide: { damagePerLevel: { 0: 10, 2: 11, 4: 12, 5: 15 }, cooldown: { 0: 7, 1: 6, 3: 5 } },
+  mond_parental_leave: { cooldown: { 0: 8, 2: 7, 4: 6 } },
+  jor_bongo: { breadCount: { 0: 6, 1: 7, 2: 8, 3: 9, 4: 10 }, cooldown: { 0: 5, 5: 4 } },
   gossip: { removeBuffCount: { 0: 1, 5: 2 }, cooldown: { 0: 8, 1: 7, 2: 6, 3: 5, 4: 4 } }
 };
 
@@ -2440,6 +2468,10 @@ function getCardDurationText(cardId, enhancementLevel = 0) {
       return `${card.turns || 2}턴`;
     case 'neo_self_esteem':
       return '1회';
+    case 'mond_parental_leave':
+      return '즉시';
+    case 'jor_bongo':
+      return '1회';
     case 'gossip':
       return '즉시';
     default:
@@ -2516,6 +2548,10 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
       return `상대에게 ${card.turns || 2}턴 동안 <중독>을 적용합니다. 중독 중 공격할 때마다 스킬 시전자의 레벨 x ${card.damagePerLevel} 피해를 입습니다. 다단 타격은 매 타마다 적용됩니다.`;
     case 'neo_self_esteem':
       return '자신에게 <자존감> 버프를 1회 부여합니다. 자존감 보유 중 디버프를 받으면 상대에게 반사하고 자존감은 사라집니다. 강화할 수 없는 카드입니다.';
+    case 'mond_parental_leave':
+      return `파티원 전원의 남은 스킬 쿨타임을 ${card.cooldownReduce || 1}턴 줄입니다. 개인면담에서는 자신의 모든 카드 쿨타임을 줄입니다.`;
+    case 'jor_bongo':
+      return `파티원들에게 <빵> ${card.breadCount}개를 랜덤 분배합니다. 빵 보유자는 피격 1회당 HP ${card.breadHeal}를 회복하고 빵 1개를 소모합니다.`;
     case 'gossip':
       return `상대방의 버프 1개 또는 횟수형 버프 ${card.removeBuffCount || 1}회를 랜덤으로 제거합니다.`;
     default:
@@ -3123,6 +3159,7 @@ function createRaidParticipantFromUser(user) {
     negateHitCount: 0,
     debuffImmuneCount: 0,
     selfEsteemCount: 0,
+    breadCount: 0,
     attackBonusTurns: 0,
     attackBonusPercent: 0,
     perHitBonusTurns: 0,
@@ -3856,6 +3893,7 @@ function buildRaidParticipantStatusEffects(participant) {
   if (Number(participant.negateHitCount || 0) > 0) effects.push({ type: 'buff', name: '피격 무효', count: Number(participant.negateHitCount || 0), desc: '다음 피격을 무효화' });
   if (Number(participant.debuffImmuneCount || 0) > 0) effects.push({ type: 'buff', name: '디버프 무효', count: Number(participant.debuffImmuneCount || 0), desc: '다음 디버프를 무효화' });
   if (Number(participant.selfEsteemCount || 0) > 0) effects.push({ type: 'buff', name: '자존감', count: Number(participant.selfEsteemCount || 0), desc: '다음 디버프를 반사합니다. 보스에게는 디버프 무효처럼 작동합니다.' });
+  if (Number(participant.breadCount || 0) > 0) effects.push({ type: 'buff', name: '빵', count: Number(participant.breadCount || 0), desc: '피격 시 HP 5 회복 후 1개 소모' });
   if (Number(participant.critBonusTurns || 0) > 0) effects.push({ type: 'buff', name: '크리티컬 상승', turns: Number(participant.critBonusTurns || 0), desc: `치명타 확률 +${Math.round(Number(participant.critBonusValue || 0) * 100)}%` });
   if (Number(participant.hypeTurns || 0) > 0) effects.push({ type: 'buff', name: '흥겨움', turns: Number(participant.hypeTurns || 0), desc: '기본 공격 횟수 2배' });
   if (Number(participant.attackBonusTurns || 0) > 0) effects.push({ type: 'buff', name: '공격력 상승', turns: Number(participant.attackBonusTurns || 0), desc: `공격력 +${Math.round(Number(participant.attackBonusPercent || 0) * 100)}%` });
@@ -4155,6 +4193,22 @@ function useRaidCardSkill(participant, battle) {
       : [...aliveAllies].sort(() => Math.random() - 0.5).slice(0, Math.min(card.targets || aliveAllies.length, aliveAllies.length));
     targets.forEach((ally) => cleanseRaidTarget(ally));
     logText = `${participant.displayName}(이)가 ${card.name}로 ${targets.length >= aliveAllies.length ? '파티 전원' : targets.map((ally) => ally.displayName).join(', ')}의 모든 디버프를 제거했습니다.`;
+  } else if (card.effectType === 'party_bread_buff') {
+    const aliveAllies = getAliveRaidParticipants(battle);
+    const breadCount = scaleCount(card.breadCount || 0);
+    for (let index = 0; index < breadCount; index += 1) {
+      const target = aliveAllies[Math.floor(Math.random() * aliveAllies.length)];
+      if (target) target.breadCount = Number(target.breadCount || 0) + 1;
+    }
+    logText = `${participant.displayName}(이)가 ${card.name}로 파티원들에게 빵 ${breadCount}개를 나눠줬습니다.`;
+  } else if (card.effectType === 'party_cooldown_reduce') {
+    const aliveAllies = getAliveRaidParticipants(battle);
+    const reduceAmount = scaleCount(card.cooldownReduce || 1);
+    aliveAllies.forEach((ally) => {
+      if (ally.userId === participant.userId) return;
+      ally.skillCooldown = Math.max(0, Number(ally.skillCooldown || 0) - reduceAmount);
+    });
+    logText = `${participant.displayName}(이)가 ${card.name}로 파티원들의 남은 스킬 쿨타임을 ${reduceAmount}턴 줄였습니다.`;
   } else if (card.effectType === 'target_heal') {
     const selectedTargetId = participant.plannedTargetUserId;
     const target = getRaidParticipant(battle, selectedTargetId) || getAliveRaidParticipants(battle)[0] || participant;
@@ -4354,6 +4408,21 @@ function useRaidCardSkill(participant, battle) {
           }
         });
         logText = `${participant.displayName}(이)가 ${sourceParticipant.displayName}의 ${copiedCard.name}를 흉내 내 흥겨움과 보호막 ${totalAppliedShield.toLocaleString()}을 부여했습니다.`;
+      } else if (copiedCard.effectType === 'party_bread_buff') {
+        const aliveAllies = getAliveRaidParticipants(battle);
+        const breadCount = Math.max(1, Math.ceil(Number(copiedCard.breadCount || 0) * copyScale));
+        for (let index = 0; index < breadCount; index += 1) {
+          const target = aliveAllies[Math.floor(Math.random() * aliveAllies.length)];
+          if (target) target.breadCount = Number(target.breadCount || 0) + 1;
+        }
+        logText = `${participant.displayName}(이)가 ${sourceParticipant.displayName}의 ${copiedCard.name}를 흉내 내 빵 ${breadCount}개를 나눠줬습니다.`;
+      } else if (copiedCard.effectType === 'party_cooldown_reduce') {
+        const reduceAmount = Math.max(1, Math.ceil(Number(copiedCard.cooldownReduce || 1) * copyScale));
+        getAliveRaidParticipants(battle).forEach((ally) => {
+          if (ally.userId === participant.userId) return;
+          ally.skillCooldown = Math.max(0, Number(ally.skillCooldown || 0) - reduceAmount);
+        });
+        logText = `${participant.displayName}(이)가 ${sourceParticipant.displayName}의 ${copiedCard.name}를 흉내 내 파티원들의 남은 스킬 쿨타임을 ${reduceAmount}턴 줄였습니다.`;
       } else if (copiedCard.effectType === 'random_party_negate_hit' || copiedCard.effectType === 'party_negate_hit_by_level') {
         const targets = getAliveRaidParticipants(battle).sort(() => Math.random() - 0.5).slice(0, Math.max(1, Math.floor((Number(copiedCard.targets || 1) || 1) * copyScale)));
         targets.forEach((target) => {
@@ -4703,6 +4772,14 @@ function performRaidCounterAttack(participant, battle) {
   return `${participant.displayName}의 반격! ${damage.toLocaleString()} 피해를 입혔습니다.${isCritical ? ' (치명타)' : ''}`;
 }
 
+function consumeRaidBreadBuff(target, battle) {
+  if (!target || !battle || target.hp <= 0 || Number(target.breadCount || 0) <= 0) return 0;
+  target.breadCount = Math.max(0, Number(target.breadCount || 0) - 1);
+  const healed = healRaidTarget(target, 5);
+  battle.logs.push(`${target.displayName}의 <빵>이 발동해 HP ${healed.toLocaleString()}를 회복했습니다. (남은 빵 ${Number(target.breadCount || 0).toLocaleString()}개)`);
+  return healed;
+}
+
 function applyRaidDamage(target, damage, options = {}) {
   if (!target || target.hp <= 0) return 0;
   if ((options.allowNegate ?? true) && target.negateHitCount > 0) {
@@ -4729,6 +4806,10 @@ function applyRaidDamage(target, damage, options = {}) {
   target.hp = Math.max(0, target.hp - remainingDamage);
   target.lastShieldLoss = blocked;
   target.lastHpLoss = remainingDamage;
+
+  if (!options.skipBread && options.source === 'boss' && options.battle && (blocked > 0 || remainingDamage > 0)) {
+    consumeRaidBreadBuff(target, options.battle);
+  }
 
   if (options.source === 'boss' && options.battle && target.counterTurns > 0 && target.hp > 0) {
     options.battle.logs.push(performRaidCounterAttack(target, options.battle));
@@ -5304,6 +5385,11 @@ function startPvpPickPhase(match, now = new Date()) {
   match.turnEndsAt = new Date(now.getTime() + PVP_PICK_TURN_MS);
 }
 
+function isPvpDraftTurnTimedOut(match, now = new Date(), graceMs = 0) {
+  if (!match?.turnEndsAt) return false;
+  return now.getTime() >= new Date(match.turnEndsAt).getTime() + Math.max(0, Number(graceMs || 0));
+}
+
 async function autoBanPvpCard(match, userId, now = new Date()) {
   const bannedSet = new Set(getPvpBannedCardIds(match));
   const pickedSet = new Set(getPvpPickedCardIds(match));
@@ -5517,6 +5603,17 @@ function getPvpCardEffectMultiplier(player) {
   return equipmentMultiplier * Math.max(1, ampBuff);
 }
 
+function consumePvpBreadBuff(target, battle) {
+  if (!target || !battle || target.hp <= 0) return 0;
+  const breadBuff = (target.buffs || []).find((buff) => buff.id === 'bread' && Number(buff.count || 0) > 0);
+  if (!breadBuff) return 0;
+  breadBuff.count = Math.max(0, Number(breadBuff.count || 0) - 1);
+  if (breadBuff.count <= 0) target.buffs = target.buffs.filter((buff) => buff !== breadBuff);
+  const healed = healPvpTarget(target, Number(breadBuff.heal || 5));
+  battle.logs.push(`${target.displayName}의 <빵>이 발동해 HP ${healed.toLocaleString()}를 회복했습니다.`);
+  return healed;
+}
+
 function applyPvpDamage(target, amount, battle, options = {}) {
   if (!target || target.hp <= 0) return 0;
   const negateBuff = target.buffs.find((buff) => buff.id === 'negate_hit' && Number(buff.count || 0) > 0);
@@ -5543,6 +5640,9 @@ function applyPvpDamage(target, amount, battle, options = {}) {
   target.hp = Math.max(0, Number(target.hp || 0) - remaining);
   target.lastHpLoss = remaining;
   target.lastShieldLoss = shieldLoss;
+  if (!options.skipBread && battle && (shieldLoss > 0 || remaining > 0)) {
+    consumePvpBreadBuff(target, battle);
+  }
   return remaining;
 }
 
@@ -5583,7 +5683,7 @@ function triggerPvpPoisonOnAttack(actor, battle) {
   poisonDebuffs.forEach((debuff) => {
     const damage = Math.max(1, Math.floor(Number(debuff.sourceLevel || 1) * Number(debuff.damagePerLevel || 10)));
     if (damage > 0) {
-      applyPvpDamage(actor, damage, battle, { ignoreNegate: true });
+      applyPvpDamage(actor, damage, battle, { ignoreNegate: true, skipBread: true });
       totalDamage += damage;
       battle.logs.push(`${actor.displayName}이(가) 중독으로 ${damage.toLocaleString()} 피해를 입었습니다.`);
     }
@@ -5685,7 +5785,7 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
     addPvpBuff(actor, { id: 'counter', name: '반격', turns: Number(card.turns || 1) + 1, value: Number(card.counterDamageMultiplier || 1), desc: '피격 시 반격' });
     battle.logs.push(`${actor.displayName}이(가) ${Number(card.turns || 1)}턴 동안 반격 태세에 들어갔습니다.`);
   } else if (card.effectType === 'random_ally_sacrifice_buff') {
-    const selfDamage = applyPvpDamage(actor, Number(card.selfDamage || 0), battle, { ignoreNegate: true });
+    const selfDamage = applyPvpDamage(actor, Number(card.selfDamage || 0), battle, { ignoreNegate: true, skipBread: true });
     const damageMultiplier = Number(card.damageMultiplier || 2);
     addPvpBuff(actor, {
       id: 'damage_multiplier',
@@ -5698,6 +5798,23 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
     battle.logs.push(`${actor.displayName}의 HP가 ${selfDamage.toLocaleString()} 감소하고, 다음 자신의 공격 피해가 ${damageMultiplier.toFixed(1)}배가 됩니다.`);
   } else if (card.effectType === 'party_cleanse') {
     actor.debuffs = [];
+  } else if (card.effectType === 'party_bread_buff') {
+    const breadCount = scaleCount(card.breadCount || 0);
+    const breadHeal = Number(card.breadHeal || 5);
+    addPvpBuff(actor, {
+      id: 'bread',
+      name: '빵',
+      count: breadCount,
+      heal: breadHeal,
+      desc: `피격 시 HP ${breadHeal} 회복 후 1개 소모`
+    });
+    battle.logs.push(`${actor.displayName}이(가) 빵 ${breadCount}개를 챙겼습니다.`);
+  } else if (card.effectType === 'party_cooldown_reduce') {
+    const reduceAmount = scaleCount(card.cooldownReduce || 1);
+    actor.cards.forEach((entry) => {
+      entry.cooldownRemaining = Math.max(0, Number(entry.cooldownRemaining || 0) - reduceAmount);
+    });
+    battle.logs.push(`${actor.displayName}의 모든 카드 남은 쿨타임이 ${reduceAmount}턴 감소했습니다.`);
   } else if (card.effectType === 'self_bonus_damage') {
     actor.extraDamage = scaleFlat(actor.level * Number(card.bonusPerLevel || 0));
   } else if (card.effectType === 'self_per_hit_bonus') {
@@ -5943,7 +6060,7 @@ async function advancePvpState(now = new Date()) {
         });
         bumpPvpVersion();
       }
-    } else if (['ban', 'pick'].includes(match.phase) && now.getTime() >= new Date(match.turnEndsAt).getTime()) {
+    } else if (['ban', 'pick'].includes(match.phase) && isPvpDraftTurnTimedOut(match, now, PVP_DRAFT_AUTO_GRACE_MS)) {
       if (match.phase === 'ban') {
         await autoBanPvpCard(match, match.turnUserId, now);
       } else {
@@ -9136,18 +9253,27 @@ app.post('/api/pvp/accept', async (req, res) => {
 });
 
 app.post('/api/pvp/ban', async (req, res) => {
-  const { userId, cardId } = req.body;
+  const { userId, cardId, matchId, phase } = req.body;
   if (!userId || !cardId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
 
   try {
     const now = new Date();
-    await advancePvpState(now);
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
     ensureUserDefaults(user);
-    const match = pvpState.match;
+    let match = pvpState.match;
+    if (!match || match.phase !== 'ban' || match.turnUserId !== String(userId)) {
+      await advancePvpState(now);
+      match = pvpState.match;
+    }
     if (!match || match.phase !== 'ban') return res.status(400).json({ msg: '현재 금지 단계가 아닙니다.' });
+    if (matchId && match.matchId !== matchId) return res.status(400).json({ msg: '이미 지난 개인면담 선택입니다. 화면을 다시 확인해주세요.' });
+    if (phase && phase !== 'ban') return res.status(400).json({ msg: '이미 지난 금지 요청입니다. 화면을 다시 확인해주세요.' });
     if (match.turnUserId !== String(userId)) return res.status(400).json({ msg: '아직 내 차례가 아닙니다.' });
+    if (isPvpDraftTurnTimedOut(match, now, PVP_DRAFT_AUTO_GRACE_MS)) {
+      await advancePvpState(now);
+      return res.status(400).json({ msg: '시간이 초과되어 자동 진행되었습니다.' });
+    }
     if (!CARD_DATA[cardId]) return res.status(400).json({ msg: '존재하지 않는 카드입니다.' });
     if (getPvpBannedCardIds(match).includes(cardId) || getPvpPickedCardIds(match).includes(cardId)) {
       return res.status(400).json({ msg: '이미 선택할 수 없는 카드입니다.' });
@@ -9172,18 +9298,27 @@ app.post('/api/pvp/ban', async (req, res) => {
 });
 
 app.post('/api/pvp/pick', async (req, res) => {
-  const { userId, cardId, enhancementLevel } = req.body;
+  const { userId, cardId, enhancementLevel, matchId, phase } = req.body;
   if (!userId || !cardId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
 
   try {
     const now = new Date();
-    await advancePvpState(now);
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
     ensureUserDefaults(user);
-    const match = pvpState.match;
+    let match = pvpState.match;
+    if (!match || match.phase !== 'pick' || match.turnUserId !== String(userId)) {
+      await advancePvpState(now);
+      match = pvpState.match;
+    }
     if (!match || match.phase !== 'pick') return res.status(400).json({ msg: '현재 선택 단계가 아닙니다.' });
+    if (matchId && match.matchId !== matchId) return res.status(400).json({ msg: '이미 지난 개인면담 선택입니다. 화면을 다시 확인해주세요.' });
+    if (phase && phase !== 'pick') return res.status(400).json({ msg: '이미 지난 선택 요청입니다. 화면을 다시 확인해주세요.' });
     if (match.turnUserId !== String(userId)) return res.status(400).json({ msg: '아직 내 차례가 아닙니다.' });
+    if (isPvpDraftTurnTimedOut(match, now, PVP_DRAFT_AUTO_GRACE_MS)) {
+      await advancePvpState(now);
+      return res.status(400).json({ msg: '시간이 초과되어 자동 진행되었습니다.' });
+    }
     if (!CARD_DATA[cardId]) return res.status(400).json({ msg: '존재하지 않는 카드입니다.' });
     if (getPvpBannedCardIds(match).includes(cardId) || getPvpPickedCardIds(match).includes(cardId)) {
       return res.status(400).json({ msg: '이미 선택할 수 없는 카드입니다.' });
