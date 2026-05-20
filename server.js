@@ -5431,6 +5431,25 @@ function applyPvpBattleStartPassives(battle) {
           value: Number(card.amplifyMultiplier || 1),
           turns: 999
         });
+        battle.logs.push(`${player.displayName}의 ${card.name} 효과로 카드 효과가 증폭됩니다.`);
+      } else if (card.effectType === 'passive_party_reward') {
+        addPvpBuff(player, {
+          id: 'soju_reward',
+          name: '소주각?',
+          desc: `개인면담 승리 보상 x${Number(card.rewardMultiplier || 1).toFixed(1)}`,
+          value: Number(card.rewardMultiplier || 1),
+          turns: 999
+        });
+        battle.logs.push(`${player.displayName}의 야채곱창이 <소주각?> 버프를 부여했습니다.`);
+      } else if (card.effectType === 'passive_party_lotto') {
+        addPvpBuff(player, {
+          id: 'lotto_reward',
+          name: '이번엔 될거같아',
+          desc: `개인면담 승리 시 ${formatCardPercentText(card.successChance || 0.5)} 확률로 보상 3배 또는 보상 없음`,
+          value: Number(card.successChance || 0.5),
+          turns: 999
+        });
+        battle.logs.push(`${player.displayName}의 모래의 로또번호가 <이번엔 될거같아> 버프를 부여했습니다.`);
       }
     });
   });
