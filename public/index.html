@@ -407,7 +407,7 @@
   <div id="fusionModal" class="modal-overlay hidden">
     <div class="excel-sheet modal-panel fusion-modal-panel">
       <h3>카드 합성</h3>
-      <p class="menu-note">같은 등급 카드 5장을 등록하면 합성할 수 있습니다. 등록된 카드를 누르면 리스트에서 빠집니다.</p>
+      <p class="menu-note">같은 등급 카드 5장을 등록하면 합성할 수 있습니다. 등록된 카드를 누르면 리스트에서 빠집니다. +5강 카드는 합성 재료로 사용할 수 없습니다.</p>
       <div class="fusion-top-row">
         <div>
           <h4>합성 리스트</h4>
@@ -415,6 +415,7 @@
         </div>
         <div class="fusion-side-actions">
           <div id="fusionProbabilityText" class="menu-note">등급별 합성 확률을 확인하세요.</div>
+          <div id="fusionBulkControls" class="fusion-bulk-controls"></div>
           <button id="confirmFusionBtn" class="menu-action-btn">합성하기</button>
           <button id="closeFusionModalBtn" class="mini-btn">닫기</button>
         </div>
@@ -510,7 +511,7 @@
         <button class="mini-btn" onclick="handleMarketplaceTypeChange('item')">아이템 탭</button>
         <button class="mini-btn" onclick="handleMarketplaceViewChange('active')">전체 판매중</button>
         <button class="mini-btn" onclick="handleMarketplaceViewChange('mine')">등록중인 물품</button>
-        <button class="mini-btn" onclick="handleMarketplaceViewChange('sold')">판매완료</button>
+        <button class="mini-btn" onclick="handleMarketplaceViewChange('sold')">판매완료/회수</button>
       </div>
       <div class="market-toolbar">
         <button class="mini-btn" onclick="handleMarketplaceSortChange('price_asc')">가격 낮은순</button>
@@ -587,6 +588,14 @@
         <div class="support-package-card">
           <strong>박카스 100개 패키지 - 6,000원</strong>
           <div class="menu-note">박카스 100개</div>
+        </div>
+        <div class="support-package-card">
+          <strong>명함 패키지 1 - 5,000원</strong>
+          <div class="menu-note">명함 80개</div>
+        </div>
+        <div class="support-package-card">
+          <strong>명함 패키지 2 - 10,000원</strong>
+          <div class="menu-note">명함 170개</div>
         </div>
         <div class="support-package-card">
           <strong>초초부자패키지 - 7,000원</strong>
@@ -758,6 +767,6 @@
     </div>
   </div>
 
-  <script src="client.js?v=107"></script>
+  <script src="client.js?v=109"></script>
 </body>
 </html>

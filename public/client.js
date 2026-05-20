@@ -253,6 +253,26 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-20-marketplace-expiry-fusion-guard',
+    time: '2026-05-20 19:35',
+    title: '번개장터 만료/회수 및 합성 보호 패치',
+    items: [
+      '사내 번개장터 물품은 등록 후 48시간이 지나면 구매 목록에서 숨겨지고, 판매자는 판매완료/회수 탭에서 회수할 수 있습니다.',
+      '카드 합성 재료는 +4강 이하 카드만 등록할 수 있도록 클라이언트와 서버 검증을 함께 강화했습니다.',
+      '개인면담에서 피격 무효가 중독 피해에도 정상 적용되도록 피해 처리 예외를 정리했습니다.'
+    ]
+  },
+  {
+    id: '2026-05-20-package-fusion-pvp-pick',
+    time: '2026-05-20 19:10',
+    title: '명함 패키지와 카드 합성/개인면담 개선',
+    items: [
+      '지갑전사 탭에 명함 패키지 1, 명함 패키지 2를 추가했습니다.',
+      '카드 합성에서 강화 카드도 재료로 사용할 수 있게 하고, C/B/A급 일괄 등록 버튼을 추가했습니다.',
+      '개인면담 픽 과정에서는 같은 카드 종류가 여러 강화 단계로 있을 때 가장 높은 강화 단계만 표시되도록 변경했습니다.'
+    ]
+  },
+  {
     id: '2026-05-20-pvp-draft-confirm-fix',
     time: '2026-05-20 18:45',
     title: '개인면담 밴픽 선택 안정화',
@@ -2098,19 +2118,33 @@ function getFusionProbabilityText(grade = null) {
 
 function getFusionSelectionCountMap() {
   const counts = new Map();
-  cardFusionSelection.forEach((cardId) => {
-    counts.set(cardId, (counts.get(cardId) || 0) + 1);
+  cardFusionSelection.forEach((cardKey) => {
+    counts.set(cardKey, (counts.get(cardKey) || 0) + 1);
   });
   return counts;
 }
 
 function getFusionOwnedCards(user) {
-  return (user.cardDetails || []).filter((card) => Number(card.quantity || 0) > 0);
+  return (user.cardVariantDetails || [])
+    .filter((card) => Number(card.quantity || 0) > 0 && Number(card.enhancementLevel || 0) < 5)
+    .map((card) => ({
+      ...card,
+      id: getCardVariantKey(card.cardId, card.enhancementLevel || 0)
+    }));
 }
 
-function getFusionCardInfo(user, cardId) {
-  return getFusionOwnedCards(user).find((card) => card.id === cardId)
-    || (CARD_DATA[cardId] ? { id: cardId, ...CARD_DATA[cardId] } : null);
+function getFusionCardInfo(user, cardKey) {
+  const normalizedKey = String(cardKey || '').includes('::') ? cardKey : getCardVariantKey(cardKey, 0);
+  const parsed = parseCardVariantKey(normalizedKey);
+  return getFusionOwnedCards(user).find((card) => card.id === normalizedKey)
+    || (CARD_DATA[parsed.cardId] ? {
+      ...CARD_DATA[parsed.cardId],
+      id: normalizedKey,
+      cardId: parsed.cardId,
+      enhancementLevel: parsed.enhancementLevel,
+      name: parsed.enhancementLevel > 0 ? `${CARD_DATA[parsed.cardId].name} +${parsed.enhancementLevel}` : CARD_DATA[parsed.cardId].name,
+      baseName: CARD_DATA[parsed.cardId].name
+    } : null);
 }
 
 function getLockedFusionGrade(user) {
@@ -2148,6 +2182,7 @@ function renderCardFusionModal(user) {
   const slotList = document.getElementById('fusionSlotList');
   const sourceList = document.getElementById('fusionSourceList');
   const probabilityText = document.getElementById('fusionProbabilityText');
+  const bulkControls = document.getElementById('fusionBulkControls');
   const confirmButton = document.getElementById('confirmFusionBtn');
   if (!slotList || !sourceList || !probabilityText || !confirmButton) return;
 
@@ -2157,11 +2192,21 @@ function renderCardFusionModal(user) {
   const ownedCards = getFusionOwnedCards(user)
     .sort((a, b) => {
       const gradeOrder = { S: 0, A: 1, B: 2, C: 3 };
-      return (gradeOrder[a.grade] ?? 9) - (gradeOrder[b.grade] ?? 9) || a.name.localeCompare(b.name, 'ko');
+      return (gradeOrder[a.grade] ?? 9) - (gradeOrder[b.grade] ?? 9)
+        || String(a.baseName || a.name || '').localeCompare(String(b.baseName || b.name || ''), 'ko')
+        || Number(a.enhancementLevel || 0) - Number(b.enhancementLevel || 0);
     });
 
   probabilityText.textContent = getFusionProbabilityText(lockedGrade);
   confirmButton.disabled = cardFusionSelection.length !== 5;
+  if (bulkControls) {
+    bulkControls.innerHTML = `
+      <div class="menu-note">등급별 자동 등록</div>
+      <button class="mini-btn" onclick="handleCardFusionAutoFill('C')" ${lockedGrade && lockedGrade !== 'C' ? 'disabled' : ''}>C급 일괄 등록</button>
+      <button class="mini-btn" onclick="handleCardFusionAutoFill('B')" ${lockedGrade && lockedGrade !== 'B' ? 'disabled' : ''}>B급 일괄 등록</button>
+      <button class="mini-btn" onclick="handleCardFusionAutoFill('A')" ${lockedGrade && lockedGrade !== 'A' ? 'disabled' : ''}>A급 일괄 등록</button>
+    `;
+  }
 
   slotList.innerHTML = '';
   for (let index = 0; index < 5; index += 1) {
@@ -2174,7 +2219,7 @@ function renderCardFusionModal(user) {
       continue;
     }
 
-    const card = ownedCards.find((entry) => entry.id === cardId) || CARD_DATA[cardId];
+    const card = ownedCards.find((entry) => entry.id === cardId) || getFusionCardInfo(user, cardId);
     slotList.insertAdjacentHTML(
       'beforeend',
       `
@@ -2201,6 +2246,7 @@ function renderCardFusionModal(user) {
     const available = Math.max(0, Number(card.quantity || 0) - alreadySelected);
     const disabled = available <= 0 || (lockedGrade && lockedGrade !== card.grade);
     const qtyInputId = `fusion-qty-${card.id}`;
+    const levelText = Number(card.enhancementLevel || 0) > 0 ? ` +${Number(card.enhancementLevel || 0)}` : '';
     const actionHtml = available <= 0
       ? '<span class="muted-text">등록 완료</span>'
       : available === 1
@@ -2212,7 +2258,7 @@ function renderCardFusionModal(user) {
       `
         <div class="fusion-source-card ${disabled ? 'disabled' : ''}">
           <div class="fusion-card-head">
-            <span class="fusion-card-name">${escapeHtml(card.name)}</span>
+            <span class="fusion-card-name">${escapeHtml(card.baseName || card.name)}${levelText}</span>
             <span class="grade-badge" style="background:${escapeHtml(card.color)}">${escapeHtml(card.grade)}</span>
           </div>
           <div class="fusion-card-meta">
@@ -2477,6 +2523,47 @@ function handleCardFusionAdd(cardId, inputId = null) {
   renderCardFusionModal(user);
 }
 
+function handleCardFusionAutoFill(grade) {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+
+  normalizeCardFusionSelection(user);
+  const lockedGrade = getLockedFusionGrade(user);
+  if (lockedGrade && lockedGrade !== grade) {
+    alert('이미 다른 등급 카드가 등록되어 있습니다.');
+    return;
+  }
+
+  const selectedCounts = getFusionSelectionCountMap();
+  const remainingSlots = 5 - cardFusionSelection.length;
+  if (remainingSlots <= 0) {
+    alert('합성 리스트가 이미 가득 찼습니다.');
+    return;
+  }
+
+  const candidates = getFusionOwnedCards(user)
+    .filter((card) => card.grade === grade && card.grade !== 'S')
+    .sort((a, b) => Number(a.enhancementLevel || 0) - Number(b.enhancementLevel || 0)
+      || String(a.baseName || a.name || '').localeCompare(String(b.baseName || b.name || ''), 'ko'));
+
+  let added = 0;
+  for (const card of candidates) {
+    const used = selectedCounts.get(card.id) || 0;
+    const available = Math.max(0, Number(card.quantity || 0) - used);
+    for (let index = 0; index < available && cardFusionSelection.length < 5; index += 1) {
+      cardFusionSelection.push(card.id);
+      selectedCounts.set(card.id, (selectedCounts.get(card.id) || 0) + 1);
+      added += 1;
+    }
+    if (cardFusionSelection.length >= 5) break;
+  }
+
+  if (added <= 0) {
+    alert(`${grade}급 합성 재료로 등록할 카드가 없습니다.`);
+  }
+  renderCardFusionModal(user);
+}
+
 function handleCardFusionSlotRemove(index) {
   if (index < 0 || index >= cardFusionSelection.length) return;
   cardFusionSelection.splice(index, 1);
@@ -2499,6 +2586,7 @@ async function handleCardFusionConfirm() {
   try {
     const data = await postJson(`${API_URL}/api/cards/fuse`, {
       userId: user._id,
+      cards: cardFusionSelection.map(parseCardVariantKey),
       cardIds: [...cardFusionSelection]
     });
     cardFusionSelection = [];
@@ -3626,6 +3714,20 @@ function closeMarketplaceRegisterModal() {
   showModal('marketplaceModal');
 }
 
+function formatMarketplaceRemaining(ms) {
+  const remaining = Math.max(0, Math.floor(Number(ms || 0)));
+  if (remaining <= 0) return '회수 가능';
+  const hours = Math.floor(remaining / (60 * 60 * 1000));
+  const minutes = Math.floor((remaining % (60 * 60 * 1000)) / (60 * 1000));
+  if (hours >= 24) {
+    const days = Math.floor(hours / 24);
+    const restHours = hours % 24;
+    return `${days}일 ${restHours}시간`;
+  }
+  if (hours > 0) return `${hours}시간 ${minutes}분`;
+  return `${Math.max(1, minutes)}분`;
+}
+
 function getMarketplaceListingsForView() {
   const data = marketplaceState.data || { active: [], mine: [] };
   const source = marketplaceState.view === 'active'
@@ -3634,7 +3736,7 @@ function getMarketplaceListingsForView() {
   const filtered = source.filter((listing) => {
     if (listing.itemType !== marketplaceState.itemType) return false;
     if (marketplaceState.view === 'mine') return listing.status === 'active';
-    if (marketplaceState.view === 'sold') return ['sold', 'settling'].includes(listing.status);
+    if (marketplaceState.view === 'sold') return ['sold', 'settling', 'expired'].includes(listing.status);
     return listing.status === 'active';
   });
 
@@ -3662,7 +3764,7 @@ function renderMarketplace() {
     ? '전체 판매중'
     : marketplaceState.view === 'mine'
       ? '내 등록중'
-      : '내 판매완료';
+      : '내 판매완료/회수';
   const listings = getMarketplaceListingsForView();
   statusEl.textContent = `${typeLabel} / ${viewLabel} / ${formatNumber(listings.length)}개`;
   listEl.innerHTML = listings.length ? '' : '<tr><td colspan="5">표시할 물품이 없습니다.</td></tr>';
@@ -3670,17 +3772,21 @@ function renderMarketplace() {
   listings.forEach((listing) => {
     const isMine = Boolean(listing.mine);
     const statusText = listing.status === 'active'
-      ? '판매중'
-      : listing.status === 'settled'
-        ? '정산완료'
-        : listing.status === 'settling'
-          ? '정산중'
-          : `판매완료 (${formatMarketDate(listing.soldAt)})`;
+      ? `판매중 / 회수까지 ${formatMarketplaceRemaining(listing.remainingMs)}`
+      : listing.status === 'expired'
+        ? `기간 만료 / ${formatMarketplaceRemaining(0)}`
+        : listing.status === 'settled'
+          ? '정산완료'
+          : listing.status === 'settling'
+            ? '정산중'
+            : `판매완료 (${formatMarketDate(listing.soldAt)})`;
     const actionHtml = marketplaceState.view === 'active'
       ? `<button class="mini-btn" onclick="handleMarketplaceBuy('${listing.id}')" ${isMine ? 'disabled' : ''}>구매</button>`
       : marketplaceState.view === 'mine'
         ? `<button class="mini-btn" onclick="handleMarketplaceCancel('${listing.id}')">회수</button>`
-        : '-';
+        : listing.status === 'expired'
+          ? `<button class="mini-btn" onclick="handleMarketplaceCancel('${listing.id}')">회수</button>`
+          : '-';
     const quantityText = Number(listing.quantity || 1) > 1 ? ` x${formatNumber(listing.quantity)}` : '';
     listEl.insertAdjacentHTML('beforeend', `
       <tr class="${isMine ? 'market-listing-owned' : ''}">
@@ -5214,6 +5320,7 @@ window.handleUseItem = handleUseItem;
 window.handleToggleTitle = handleToggleTitle;
 window.handleToggleCardEquip = handleToggleCardEquip;
 window.handleCardFusionAdd = handleCardFusionAdd;
+window.handleCardFusionAutoFill = handleCardFusionAutoFill;
 window.handleCardFusionSlotRemove = handleCardFusionSlotRemove;
 window.handleRaidSlotClick = handleRaidSlotClick;
 window.handleRaidSkillToggle = handleRaidSkillToggle;

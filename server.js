@@ -46,6 +46,7 @@ const WORK_CLICK_ANTICHEAT_COOLDOWN_MS = 7 * 1000;
 const ADVENTURE_COOLDOWN_MS = 2500;
 const MARKETPLACE_TRADEABLE_ITEM_IDS = ['raid_entry_ticket', 'hagendaz'];
 const MARKETPLACE_FEE_RATE = 0.1;
+const MARKETPLACE_LISTING_TTL_MS = 48 * 60 * 60 * 1000;
 const CARD_DRAW_GRADE_RATES = [
   { grade: 'S', rate: 0.005 },
   { grade: 'A', rate: 0.035 },
@@ -939,6 +940,22 @@ const SUPPORT_PACKAGE_DATA = {
     price: 6000,
     rewards: [
       { itemId: 'bacchus', quantity: 100 }
+    ]
+  },
+  business_card_80: {
+    id: 'business_card_80',
+    name: '명함 패키지 1',
+    price: 5000,
+    rewards: [
+      { itemId: 'business_card', quantity: 80 }
+    ]
+  },
+  business_card_170: {
+    id: 'business_card_170',
+    name: '명함 패키지 2',
+    price: 10000,
+    rewards: [
+      { itemId: 'business_card', quantity: 170 }
     ]
   },
   ultra_rich: {
@@ -1876,13 +1893,14 @@ const marketplaceListingSchema = new mongoose.Schema({
   quantity: { type: Number, default: 1 },
   equipmentSnapshot: { type: mongoose.Schema.Types.Mixed, default: null },
   price: { type: Number, required: true },
-  status: { type: String, enum: ['active', 'sold', 'settling', 'settled', 'cancelled'], default: 'active' },
+  status: { type: String, enum: ['active', 'sold', 'settling', 'settled', 'cancelled', 'expired'], default: 'active' },
   buyerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   buyerName: { type: String, default: '' },
   settlementToken: { type: String, default: '' },
   createdAt: { type: Date, default: Date.now },
   soldAt: { type: Date, default: null },
-  settledAt: { type: Date, default: null }
+  settledAt: { type: Date, default: null },
+  expiredAt: { type: Date, default: null }
 });
 
 marketplaceListingSchema.index({ status: 1, itemType: 1, createdAt: -1 });
@@ -2325,8 +2343,23 @@ function buildEquipmentDetails(user) {
   }));
 }
 
-function buildMarketplaceListingDetail(listing, currentUserId = null) {
+function getMarketplaceListingExpiresAt(listing) {
+  const createdAt = listing?.createdAt ? new Date(listing.createdAt) : new Date();
+  return new Date(createdAt.getTime() + MARKETPLACE_LISTING_TTL_MS);
+}
+
+async function expireMarketplaceListings(now = new Date()) {
+  const cutoff = new Date(now.getTime() - MARKETPLACE_LISTING_TTL_MS);
+  await MarketplaceListing.updateMany(
+    { status: 'active', createdAt: { $lte: cutoff } },
+    { $set: { status: 'expired', expiredAt: now } }
+  );
+}
+
+function buildMarketplaceListingDetail(listing, currentUserId = null, now = new Date()) {
   const plainListing = listing.toObject ? listing.toObject() : listing;
+  const expiresAt = getMarketplaceListingExpiresAt(plainListing);
+  const remainingMs = Math.max(0, expiresAt.getTime() - now.getTime());
   return {
     id: String(plainListing._id),
     itemType: plainListing.itemType,
@@ -2338,26 +2371,32 @@ function buildMarketplaceListingDetail(listing, currentUserId = null) {
     price: Number(plainListing.price || 0),
     status: plainListing.status,
     createdAt: plainListing.createdAt,
+    expiresAt,
+    remainingMs,
     soldAt: plainListing.soldAt,
     settledAt: plainListing.settledAt,
+    expiredAt: plainListing.expiredAt,
+    recallable: plainListing.status === 'expired',
     mine: currentUserId ? String(plainListing.sellerId) === String(currentUserId) : false
   };
 }
 
-async function buildMarketplaceResponse(userId) {
-  const activeListings = await MarketplaceListing.find({ status: 'active' })
+async function buildMarketplaceResponse(userId, now = new Date()) {
+  await expireMarketplaceListings(now);
+  const cutoff = new Date(now.getTime() - MARKETPLACE_LISTING_TTL_MS);
+  const activeListings = await MarketplaceListing.find({ status: 'active', createdAt: { $gt: cutoff } })
     .sort({ createdAt: -1 })
     .limit(300);
   const myListings = userId
     ? await MarketplaceListing.find({
         sellerId: userId,
-        status: { $in: ['active', 'sold', 'settling'] }
+        status: { $in: ['active', 'sold', 'settling', 'expired'] }
       }).sort({ createdAt: -1 }).limit(300)
     : [];
 
   return {
-    active: activeListings.map((listing) => buildMarketplaceListingDetail(listing, userId)),
-    mine: myListings.map((listing) => buildMarketplaceListingDetail(listing, userId))
+    active: activeListings.map((listing) => buildMarketplaceListingDetail(listing, userId, now)),
+    mine: myListings.map((listing) => buildMarketplaceListingDetail(listing, userId, now))
   };
 }
 
@@ -5293,9 +5332,17 @@ function getAllPvpBanCards() {
 }
 
 function getOwnedPvpPickCards(user) {
-  return buildCardVariantDetails(user)
+  const highestByCardId = new Map();
+  buildCardVariantDetails(user)
     .filter((entry) => Number(entry.quantity || 0) > 0)
-    .map((entry) => ({
+    .forEach((entry) => {
+      const current = highestByCardId.get(entry.cardId);
+      if (!current || Number(entry.enhancementLevel || 0) > Number(current.enhancementLevel || 0)) {
+        highestByCardId.set(entry.cardId, entry);
+      }
+    });
+
+  return [...highestByCardId.values()].map((entry) => ({
       cardId: entry.cardId,
       enhancementLevel: normalizeCardEnhancementLevel(entry.enhancementLevel || 0),
       name: entry.name,
@@ -5683,9 +5730,11 @@ function triggerPvpPoisonOnAttack(actor, battle) {
   poisonDebuffs.forEach((debuff) => {
     const damage = Math.max(1, Math.floor(Number(debuff.sourceLevel || 1) * Number(debuff.damagePerLevel || 10)));
     if (damage > 0) {
-      applyPvpDamage(actor, damage, battle, { ignoreNegate: true, skipBread: true });
-      totalDamage += damage;
-      battle.logs.push(`${actor.displayName}이(가) 중독으로 ${damage.toLocaleString()} 피해를 입었습니다.`);
+      const dealt = applyPvpDamage(actor, damage, battle, { skipBread: true });
+      totalDamage += dealt;
+      if (dealt > 0) {
+        battle.logs.push(`${actor.displayName}이(가) 중독으로 ${dealt.toLocaleString()} 피해를 입었습니다.`);
+      }
     }
   });
   return totalDamage;
@@ -5821,7 +5870,10 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
     actor.perHitBonusDamage = scaleFlat(actor.level * Number(card.bonusPerLevel || 0));
     actor.perHitBonusTurns = 1;
   } else if (card.effectType === 'target_pair_guard_buff') {
-    addPvpBuff(actor, { id: 'negate_hit', name: '피격 무효', count: scaleCount(card.negateHitCount || 0), desc: '피격 무효' });
+    const negateHitCount = Number(card.negateHitCount || 0) > 0 ? scaleCount(card.negateHitCount) : 0;
+    if (negateHitCount > 0) {
+      addPvpBuff(actor, { id: 'negate_hit', name: '피격 무효', count: negateHitCount, desc: '피격 무효' });
+    }
     addPvpBuff(actor, { id: 'debuff_guard', name: '디버프 무효', count: scaleCount(card.debuffImmuneCount || 1), desc: '디버프 무효' });
     addPvpBuff(actor, { id: 'attack_bonus', name: '공격력 상승', turns: Number(card.turns || 1), value: scalePercent(card.attackBonusPercent), desc: `공격력 +${Math.round(scalePercent(card.attackBonusPercent) * 100)}%` });
   } else if (card.effectType === 'random_party_negate_hit' || card.effectType === 'party_negate_hit_by_level') {
@@ -8222,8 +8274,9 @@ app.post('/api/equipment/dismantle', async (req, res) => {
 app.get('/api/marketplace', async (req, res) => {
   const { userId } = req.query;
   try {
+    const now = new Date();
     res.json({
-      marketplace: await buildMarketplaceResponse(userId || null)
+      marketplace: await buildMarketplaceResponse(userId || null, now)
     });
   } catch (err) {
     console.error('Marketplace load error:', err);
@@ -8321,7 +8374,7 @@ app.post('/api/marketplace/list', async (req, res) => {
         await MarketplaceListing.create(result.listingPayload);
         const now = new Date();
         const response = await buildUserResponseWithGlobals(user, now);
-        response.marketplace = await buildMarketplaceResponse(user._id);
+        response.marketplace = await buildMarketplaceResponse(user._id, now);
         response.marketplaceResult = { message: '물품을 거래소에 등록했습니다.' };
         return response;
       }
@@ -8341,16 +8394,25 @@ app.post('/api/marketplace/buy', async (req, res) => {
   let reservedListing = null;
   try {
     const now = new Date();
+    await expireMarketplaceListings(now);
+    const cutoff = new Date(now.getTime() - MARKETPLACE_LISTING_TTL_MS);
     const currentListing = await MarketplaceListing.findById(listingId);
     if (!currentListing || currentListing.status !== 'active') {
       return res.status(404).json({ msg: '이미 판매되었거나 존재하지 않는 물품입니다.' });
+    }
+    if (new Date(currentListing.createdAt || 0).getTime() <= cutoff.getTime()) {
+      await MarketplaceListing.updateOne(
+        { _id: listingId, status: 'active' },
+        { $set: { status: 'expired', expiredAt: now } }
+      );
+      return res.status(410).json({ msg: '판매 시간이 만료되어 구매할 수 없습니다.' });
     }
     if (String(currentListing.sellerId) === String(userId)) {
       return res.status(400).json({ msg: '내가 등록한 물품은 구매할 수 없습니다.' });
     }
 
     reservedListing = await MarketplaceListing.findOneAndUpdate(
-      { _id: listingId, status: 'active' },
+      { _id: listingId, status: 'active', createdAt: { $gt: cutoff } },
       { $set: { status: 'sold', buyerId: userId, soldAt: now } },
       { new: true }
     );
@@ -8380,7 +8442,7 @@ app.post('/api/marketplace/buy', async (req, res) => {
         reservedListing.buyerName = buildDisplayName(user);
         await reservedListing.save();
         const response = await buildUserResponseWithGlobals(user, now);
-        response.marketplace = await buildMarketplaceResponse(user._id);
+        response.marketplace = await buildMarketplaceResponse(user._id, now);
         response.marketplaceResult = { message: `${reservedListing.itemName}을(를) 구매했습니다.` };
         return response;
       }
@@ -8404,9 +8466,19 @@ app.post('/api/marketplace/cancel', async (req, res) => {
   if (!userId || !listingId) return res.status(400).json({ msg: '취소 정보가 부족합니다.' });
 
   let cancelledListing = null;
+  let previousStatus = 'active';
   try {
+    const now = new Date();
+    await expireMarketplaceListings(now);
+    const targetListing = await MarketplaceListing.findOne(
+      { _id: listingId, sellerId: userId, status: { $in: ['active', 'expired'] } }
+    );
+    if (!targetListing) {
+      return res.status(404).json({ msg: '취소할 등록 물품을 찾을 수 없습니다.' });
+    }
+    previousStatus = targetListing.status;
     cancelledListing = await MarketplaceListing.findOneAndUpdate(
-      { _id: listingId, sellerId: userId, status: 'active' },
+      { _id: listingId, sellerId: userId, status: previousStatus },
       { $set: { status: 'cancelled' } },
       { new: true }
     );
@@ -8430,7 +8502,7 @@ app.post('/api/marketplace/cancel', async (req, res) => {
       afterSave: async (user) => {
         const now = new Date();
         const response = await buildUserResponseWithGlobals(user, now);
-        response.marketplace = await buildMarketplaceResponse(user._id);
+        response.marketplace = await buildMarketplaceResponse(user._id, now);
         response.marketplaceResult = { message: '등록 물품을 회수했습니다.' };
         return response;
       }
@@ -8441,7 +8513,7 @@ app.post('/api/marketplace/cancel', async (req, res) => {
     if (cancelledListing?._id) {
       await MarketplaceListing.updateOne(
         { _id: cancelledListing._id, status: 'cancelled' },
-        { $set: { status: 'active' } }
+        { $set: { status: previousStatus } }
       ).catch((revertErr) => console.error('Marketplace cancel revert failed:', revertErr));
     }
     console.error('Marketplace cancel error:', err);
@@ -8494,7 +8566,7 @@ app.post('/api/marketplace/settle', async (req, res) => {
           { $set: { status: 'settled', settledAt: now }, $unset: { settlementToken: '' } }
         );
         const response = await buildUserResponseWithGlobals(user, now);
-        response.marketplace = await buildMarketplaceResponse(user._id);
+        response.marketplace = await buildMarketplaceResponse(user._id, now);
         response.marketplaceResult = { message: `${settleAmount.toLocaleString()}원을 정산했습니다. (판매가 ${grossAmount.toLocaleString()}원 - 수수료 ${feeAmount.toLocaleString()}원)` };
         return response;
       }
@@ -8560,9 +8632,22 @@ app.post('/api/cards/draw', async (req, res) => {
 });
 
 app.post('/api/cards/fuse', async (req, res) => {
-  const { userId, cardIds } = req.body;
+  const { userId, cardIds, cards } = req.body;
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
-  if (!Array.isArray(cardIds) || cardIds.length !== 5) {
+  const requestedCards = Array.isArray(cards)
+    ? cards.map((entry) => ({
+      cardId: String(entry?.cardId || ''),
+      enhancementLevel: normalizeCardEnhancementLevel(entry?.enhancementLevel || 0)
+    }))
+    : (Array.isArray(cardIds) ? cardIds.map((entry) => {
+      const [cardId, levelText] = String(entry || '').split('::');
+      return {
+        cardId,
+        enhancementLevel: normalizeCardEnhancementLevel(levelText || 0)
+      };
+    }) : []);
+
+  if (requestedCards.length !== 5) {
     return res.status(400).json({ msg: '합성에는 카드 5장이 필요합니다.' });
   }
 
@@ -8575,7 +8660,9 @@ app.post('/api/cards/fuse', async (req, res) => {
 
     const quantityMap = new Map();
     let sourceGrade = null;
-    for (const cardId of cardIds) {
+    for (const entry of requestedCards) {
+      const cardId = entry.cardId;
+      const enhancementLevel = normalizeCardEnhancementLevel(entry.enhancementLevel || 0);
       const cardInfo = CARD_DATA[cardId];
       if (!cardInfo) {
         return res.status(400).json({ msg: '존재하지 않는 카드가 포함되어 있습니다.' });
@@ -8583,22 +8670,35 @@ app.post('/api/cards/fuse', async (req, res) => {
       if (cardInfo.grade === 'S') {
         return res.status(400).json({ msg: 'S등급 카드는 합성할 수 없습니다.' });
       }
+      if (enhancementLevel >= 5) {
+        return res.status(400).json({ msg: '5강 카드는 합성 재료로 사용할 수 없습니다.' });
+      }
       if (!sourceGrade) {
         sourceGrade = cardInfo.grade;
       } else if (sourceGrade !== cardInfo.grade) {
         return res.status(400).json({ msg: '같은 등급 카드만 합성할 수 있습니다.' });
       }
-      quantityMap.set(cardId, (quantityMap.get(cardId) || 0) + 1);
+      const variantKey = `${cardId}::${enhancementLevel}`;
+      quantityMap.set(variantKey, {
+        cardId,
+        enhancementLevel,
+        amount: (quantityMap.get(variantKey)?.amount || 0) + 1
+      });
     }
 
-    for (const [cardId, amount] of quantityMap.entries()) {
-      if (getCardQuantity(user, cardId) < amount) {
+    for (const { cardId, enhancementLevel, amount } of quantityMap.values()) {
+      if (getOwnedCardVariantQuantity(user, cardId, enhancementLevel) < amount) {
         return res.status(400).json({ msg: '보유 카드 수량이 부족합니다.' });
       }
     }
 
-    for (const [cardId, amount] of quantityMap.entries()) {
-      removeCardFromCollection(user, cardId, amount);
+    for (const { cardId, enhancementLevel, amount } of quantityMap.values()) {
+      const removed = enhancementLevel > 0
+        ? removeEnhancedCard(user, cardId, enhancementLevel, amount)
+        : removeCardFromCollection(user, cardId, amount);
+      if (!removed) {
+        return res.status(400).json({ msg: '보유 카드 수량이 부족합니다.' });
+      }
     }
 
     const resultGrade = getFusionOutcomeGrade(sourceGrade);
@@ -9324,8 +9424,9 @@ app.post('/api/pvp/pick', async (req, res) => {
       return res.status(400).json({ msg: '이미 선택할 수 없는 카드입니다.' });
     }
     const level = normalizeCardEnhancementLevel(enhancementLevel || 0);
-    if (getOwnedCardVariantQuantity(user, cardId, level) <= 0) {
-      return res.status(400).json({ msg: '해당 카드를 보유하고 있지 않습니다.' });
+    const pickableCard = getOwnedPvpPickCards(user).find((card) => card.cardId === cardId);
+    if (!pickableCard || Number(pickableCard.enhancementLevel || 0) !== level) {
+      return res.status(400).json({ msg: '개인면담에서는 보유 중인 가장 높은 강화 단계 카드만 선택할 수 있습니다.' });
     }
     if ((match.picks[String(userId)] || []).length >= PVP_PICKS_PER_PLAYER) {
       return res.status(400).json({ msg: '이미 카드를 모두 선택했습니다.' });
