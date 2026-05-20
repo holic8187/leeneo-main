@@ -200,7 +200,9 @@ let pvpDraftTicker = null;
 let pvpStartTicker = null;
 let pvpTurnTicker = null;
 let pvpResultReturnTimer = null;
+let pvpSpectatorReturnTimer = null;
 let lastPvpResultShownBattleId = null;
+let lastPvpSpectatorReturnBattleId = null;
 let lastPvpLogSignature = '';
 let pvpHpAnimationRatios = {};
 let raidCountdownVisible = false;
@@ -248,6 +250,28 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-05-20-pvp-accept-pick-order',
+    time: '2026-05-20 17:20',
+    title: '개인면담 매칭과 픽 순서 조정',
+    items: [
+      '개인면담 매칭 수락 대기 시간을 5초로 유지하고, 한 명이 취소하면 양쪽 모두 대기 상태가 풀리도록 조정했습니다.',
+      '개인면담 픽 순서를 1P-2P-2P-1P-1P-2P-2P-1P-1P-2P 방식으로 변경했습니다.',
+      '개인면담 관전자는 승패가 결정되면 자동으로 메인 화면으로 돌아가도록 조정했습니다.'
+    ]
+  },
+  {
+    id: '2026-05-20-pvp-raid-spectator-poison',
+    time: '2026-05-20 16:30',
+    title: '개인면담 안내와 회의 관전 개선',
+    items: [
+      '개인면담 화면에 레벨 보정, 기본 공격력, 밴픽 규칙, 강화/장비 적용 안내를 추가했습니다.',
+      '개인면담과 회의 전투 화면에 실시간 관전자 목록을 표시합니다.',
+      '개인면담에서 실드형 카드가 상대 턴 종료 후 정리되도록 조정했습니다.',
+      '신규 A급 카드 <네오의 특제 농약>을 추가했습니다.',
+      '개인면담 승리 보상으로 회의 추가 입장권 1장을 지급합니다.'
+    ]
+  },
   {
     id: '2026-05-19-pvp-battle-usability',
     time: '2026-05-19 17:48',
@@ -865,6 +889,7 @@ function clearIntervals() {
   if (pvpStartTicker) clearInterval(pvpStartTicker);
   if (pvpTurnTicker) clearInterval(pvpTurnTicker);
   if (pvpResultReturnTimer) clearTimeout(pvpResultReturnTimer);
+  if (pvpSpectatorReturnTimer) clearTimeout(pvpSpectatorReturnTimer);
   if (newsTypingCanvasTimer) clearInterval(newsTypingCanvasTimer);
   animationInterval = null;
   updateInterval = null;
@@ -882,6 +907,7 @@ function clearIntervals() {
   pvpStartTicker = null;
   pvpTurnTicker = null;
   pvpResultReturnTimer = null;
+  pvpSpectatorReturnTimer = null;
   newsTypingCanvasTimer = null;
 }
 
@@ -2712,8 +2738,16 @@ function showGameScreen(user) {
 }
 
 function openRaidLobby() {
+  const user = getStoredUser();
+  if (latestRaidState?.activeBattle) {
+    hideModal('raidLobbyModal');
+    showRaidScreen();
+    renderRaidBattle(latestRaidState, user);
+    pollRaidState();
+    return;
+  }
   showModal('raidLobbyModal');
-  updateRaidLobbyUI(latestRaidState, getStoredUser());
+  updateRaidLobbyUI(latestRaidState, user);
   pollRaidState();
 }
 
@@ -2725,6 +2759,7 @@ function handleRaidBackClick() {
   document.getElementById('raid-screen').classList.add('hidden');
   document.getElementById('game-screen').classList.remove('hidden');
   document.getElementById('raidReadyCountdownOverlay')?.classList.add('hidden');
+  hideSpectatorPanel('raidSpectatorPanel');
   stopRaidReadyTicker();
   startBgm('normal');
 }
@@ -2751,6 +2786,19 @@ function updateRaidButton(user, raidState) {
   const queued = Number.isInteger(raidState?.queuedSlotIndex) && raidState.queuedSlotIndex >= 0;
   const remainingEntries = Number(raidState?.remainingEntries ?? 0);
   const queuedCount = (raidState?.slots || []).filter(Boolean).length;
+
+  if (raidState?.activeBattle) {
+    const isParticipant = Boolean(raidState.activeBattle.isParticipant);
+    const participantCount = raidState.activeBattle.participants?.length || 0;
+    button.classList.toggle('waiting', isParticipant);
+    button.disabled = false;
+    button.textContent = isParticipant ? '회의 진행중' : '회의 관전하기';
+    hint.textContent = isParticipant
+      ? '진행 중인 회의로 돌아갈 수 있습니다.'
+      : '이미 시작된 회의는 레벨과 관계없이 관전할 수 있습니다.';
+    if (queueCountEl) queueCountEl.textContent = `현재 회의 진행중 ${participantCount}/5`;
+    return;
+  }
 
   button.classList.toggle('waiting', queued);
   if (queueCountEl) queueCountEl.textContent = `현재 입장 대기중 ${queuedCount}/5`;
@@ -2821,8 +2869,11 @@ function handlePvpBackClick() {
   document.getElementById('pvp-screen')?.classList.add('hidden');
   document.getElementById('game-screen')?.classList.remove('hidden');
   document.getElementById('pvpCountdownOverlay')?.classList.add('hidden');
+  hideSpectatorPanel('pvpSpectatorPanel');
   if (pvpTurnTicker) clearInterval(pvpTurnTicker);
+  if (pvpSpectatorReturnTimer) clearTimeout(pvpSpectatorReturnTimer);
   pvpTurnTicker = null;
+  pvpSpectatorReturnTimer = null;
   startBgm('normal');
 }
 
@@ -2873,8 +2924,13 @@ async function handlePvpAccept(accept) {
     const data = await postJson(`${API_URL}/api/pvp/accept`, { userId: user._id, accept });
     latestPvpState = data.pvp;
     hideModal('pvpMatchModal');
-    if (accept) showPvpScreen();
+    if (accept) {
+      showPvpScreen();
+    } else {
+      handlePvpBackClick();
+    }
     updatePvpButton(user, latestPvpState);
+    updatePvpMatchModal(latestPvpState);
     renderPvpState(latestPvpState, user);
   } catch (err) {
     alert(err.message);
@@ -2885,8 +2941,20 @@ async function pollPvpState() {
   const user = getStoredUser();
   if (!user?._id) return;
   try {
-    const data = await postJson(`${API_URL}/api/pvp/state`, { userId: user._id });
+    const pvpScreenOpen = !document.getElementById('pvp-screen')?.classList.contains('hidden');
+    const viewing = pvpScreenOpen && Boolean(latestPvpState?.match || latestPvpState?.battle);
+    const previousPvpState = latestPvpState;
+    const data = await postJson(`${API_URL}/api/pvp/state`, { userId: user._id, viewing });
     latestPvpState = data.pvp;
+    const acceptWasCancelled = previousPvpState?.match?.phase === 'accept'
+      && previousPvpState.match.isParticipant
+      && !latestPvpState?.match
+      && !latestPvpState?.battle
+      && !latestPvpState?.isQueued;
+    if (acceptWasCancelled) {
+      hideModal('pvpMatchModal');
+      if (pvpScreenOpen) handlePvpBackClick();
+    }
     updatePvpButton(user, latestPvpState);
     updatePvpMatchModal(latestPvpState);
     if (!document.getElementById('pvp-screen')?.classList.contains('hidden')) {
@@ -2895,6 +2963,21 @@ async function pollPvpState() {
   } catch (err) {
     console.error('PVP state poll failed:', err);
   }
+}
+
+function renderSpectatorPanel(panelId, listId, spectators = []) {
+  const panel = document.getElementById(panelId);
+  const list = document.getElementById(listId);
+  if (!panel || !list) return;
+  panel.classList.remove('hidden');
+  const normalized = Array.isArray(spectators) ? spectators : [];
+  list.innerHTML = normalized.length
+    ? normalized.map((spectator) => `<span class="spectator-chip">${escapeHtml(spectator.displayName || spectator.nickname || spectator.username || '관전자')}</span>`).join('')
+    : '<span class="muted-text">없음</span>';
+}
+
+function hideSpectatorPanel(panelId) {
+  document.getElementById(panelId)?.classList.add('hidden');
 }
 
 function updatePvpMatchModal(pvpState) {
@@ -2933,6 +3016,7 @@ function renderPvpState(pvpState, user) {
     pvpTurnTicker = null;
     document.getElementById('pvpDraftView')?.classList.remove('hidden');
     document.getElementById('pvpBattleView')?.classList.add('hidden');
+    hideSpectatorPanel('pvpSpectatorPanel');
     setText('pvpPhaseStatus', pvpState.isQueued ? `개인면담 대기열에 등록되었습니다. 현재 대기 ${pvpState.queueCount || 1}명` : '진행 중인 개인면담이 없습니다.');
   }
 }
@@ -2982,6 +3066,7 @@ function renderPvpDraft(match, user) {
   const { self, enemy } = getPvpPerspectivePlayers(match.players || [], user._id);
   renderPvpSidePanel('pvpMyPanel', self, match, user._id);
   renderPvpSidePanel('pvpEnemyPanel', enemy, match, user._id);
+  renderSpectatorPanel('pvpSpectatorPanel', 'pvpSpectatorList', match.spectators || []);
   renderPvpDraftTimer(match);
   renderPvpCountdown(match);
 
@@ -3092,10 +3177,13 @@ function renderPvpBattle(battle, user) {
   setText('pvpBattleTurnActor', current ? `${current.displayName} 행동` : '행동 대기');
   updatePvpTurnTimer();
   if (!pvpTurnTicker) pvpTurnTicker = setInterval(updatePvpTurnTimer, 200);
+  const canControlSelf = Boolean(battle.isParticipant && self && String(self.userId) === String(user._id));
   renderPvpBattlePanel('pvpEnemyBattlePanel', enemy, false, battle);
-  renderPvpBattlePanel('pvpMyBattlePanel', self, true, battle);
+  renderPvpBattlePanel('pvpMyBattlePanel', self, canControlSelf, battle);
+  renderSpectatorPanel('pvpSpectatorPanel', 'pvpSpectatorList', battle.spectators || []);
   renderPvpBattleLog(battle);
   maybeShowPvpResult(battle, user);
+  maybeReturnPvpSpectatorAfterFinish(battle);
 }
 
 function renderPvpBattlePanel(panelId, player, isSelfPanel, battle) {
@@ -3137,6 +3225,7 @@ function renderPvpBattlePanel(panelId, player, isSelfPanel, battle) {
       <span>${formatNumber(player.hp)} / ${formatNumber(player.maxHp)}</span>
     </div>
     <div class="menu-note">보호막 ${formatNumber(player.shield || 0)}</div>
+    <div class="pvp-effect-title">버프 / 디버프</div>
     <div class="pvp-effect-list">${effects || '<span class="muted-text">버프 / 디버프 없음</span>'}</div>
     <div class="pvp-card-button-list">${basicOnlyButton}${cardButtons}</div>
   `;
@@ -3202,6 +3291,18 @@ function maybeShowPvpResult(battle, user) {
       handlePvpBackClick();
     }
   }, 10000);
+}
+
+function maybeReturnPvpSpectatorAfterFinish(battle) {
+  if (!battle || battle.phase !== 'finished' || battle.isParticipant) return;
+  if (lastPvpSpectatorReturnBattleId === battle.battleId) return;
+  lastPvpSpectatorReturnBattleId = battle.battleId;
+  if (pvpSpectatorReturnTimer) clearTimeout(pvpSpectatorReturnTimer);
+  pvpSpectatorReturnTimer = setTimeout(() => {
+    if (!document.getElementById('pvp-screen')?.classList.contains('hidden')) {
+      handlePvpBackClick();
+    }
+  }, 1500);
 }
 
 
@@ -4045,6 +4146,7 @@ function renderRaidBattle(raidState, user) {
       `)
       .join('') || '<span class="muted-text">보스 버프 / 디버프 없음</span>';
   }
+  renderSpectatorPanel('raidSpectatorPanel', 'raidSpectatorList', battle.spectators || []);
 
   const bossPortrait = document.getElementById('raidBossPortrait');
   renderRaidBossPortrait(bossPortrait, battle.bossPortrait, battle.bossName);
@@ -4276,7 +4378,9 @@ async function pollRaidState() {
   if (userMutationInFlightCount > 0) return;
 
   try {
-    const data = await postJson(`${API_URL}/api/raid/state`, { userId: user._id });
+    const raidScreenOpen = !document.getElementById('raid-screen')?.classList.contains('hidden');
+    const viewing = raidScreenOpen && Boolean(latestRaidState?.activeBattle);
+    const data = await postJson(`${API_URL}/api/raid/state`, { userId: user._id, viewing });
     latestRaidState = data.raid;
     if (data.user) {
       updateLocalUserState(data, { force: false });
@@ -4286,7 +4390,9 @@ async function pollRaidState() {
     updateRaidLobbyUI(latestRaidState, currentUser);
     updateRaidCountdown(latestRaidState, currentUser);
 
-    if (['ready', 'active'].includes(latestRaidState?.activeBattle?.phase) && latestRaidState.activeBattle.isParticipant) {
+    const shouldRenderBattle = ['countdown', 'ready', 'active'].includes(latestRaidState?.activeBattle?.phase)
+      && (latestRaidState.activeBattle.isParticipant || raidScreenOpen);
+    if (shouldRenderBattle) {
       hideModal('raidLobbyModal');
       showRaidScreen();
       renderRaidBattle(latestRaidState, currentUser);

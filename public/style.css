@@ -645,6 +645,44 @@ progress {
   position: relative;
 }
 
+.spectator-panel {
+  border: 1px solid #91a7d0;
+  background: rgba(248, 251, 255, 0.96);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  padding: 8px;
+  font-size: 12px;
+  z-index: 12;
+}
+
+.spectator-panel.hidden {
+  display: none;
+}
+
+.spectator-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.spectator-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid #b7c8e8;
+  background: #ffffff;
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
+.raid-spectator-panel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 170px;
+}
+
 .raid-ready-countdown {
   position: absolute;
   inset: 0;
@@ -868,6 +906,30 @@ progress {
   text-align: center;
 }
 
+.pvp-spectator-panel {
+  position: absolute;
+  top: 54px;
+  right: 12px;
+  width: 180px;
+}
+
+.pvp-rule-note {
+  display: grid;
+  gap: 3px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 1px solid #b7c8e8;
+  background: #f7fbff;
+  color: #1f2937;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.pvp-rule-note strong {
+  font-size: 13px;
+  color: #0d47a1;
+}
+
 .pvp-draft-view {
   display: grid;
   grid-template-columns: 190px minmax(0, 1fr) 190px;
@@ -1072,6 +1134,39 @@ progress {
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 8px;
+}
+
+.pvp-effect-list {
+  min-height: 42px;
+  padding: 8px;
+  border: 1px solid #d0d7de;
+  background: #fffdf0;
+}
+
+.pvp-effect-title {
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #5f4300;
+}
+
+.pvp-battle-panel .raid-effect-badge {
+  padding: 5px 7px;
+  border-radius: 6px;
+  border: 1px solid #c8d2e3;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+.pvp-battle-panel .raid-effect-name {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.pvp-battle-panel .raid-effect-desc {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.25;
 }
 
 .pvp-card-skill-btn {

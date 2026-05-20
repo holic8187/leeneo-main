@@ -108,15 +108,17 @@ const RAID_BOSS_ROTATION_IDS = [RAID_BOSS_ID, RAID_BOSS_ID_BALD_MANAGER, RAID_BO
 const RAID_BOSS_ROTATION_START_KEY = '2026-05-11';
 const RAID_POLL_VERSION_EMPTY = 0;
 const PVP_MIN_LEVEL = 50;
-const PVP_ACCEPT_MS = 5000;
+const PVP_ACCEPT_MS = 5 * 1000;
 const PVP_BAN_TURN_MS = 30000;
 const PVP_PICK_TURN_MS = 30000;
 const PVP_BATTLE_TURN_MS = 30000;
 const PVP_START_COUNTDOWN_MS = 5000;
 const PVP_BANS_PER_PLAYER = 3;
 const PVP_PICKS_PER_PLAYER = 5;
+const PVP_PICK_SEQUENCE_INDICES = [0, 1, 1, 0, 0, 1, 1, 0, 0, 1];
 const PVP_MAX_HP = 300;
 const PVP_POLL_VERSION_EMPTY = 0;
+const SPECTATOR_TTL_MS = 15000;
 const PEN_SHOP_ITEM_IDS = ['pen_monami', 'pen_jetstream', 'pen_applepencil'];
 const REWARD_PEN_ITEM_IDS = ['reward_pen_monami', 'reward_pen_jetstream', 'reward_pen_applepencil'];
 const PEN_REWARD_ITEM_MAP = {
@@ -764,6 +766,19 @@ const CARD_DATA = {
     copyEffectMultiplier: 0.5,
     targetType: null
   },
+  neo_pesticide: {
+    id: 'neo_pesticide',
+    name: '네오의 특제 농약',
+    grade: 'A',
+    rate: 0.008,
+    skillName: '특제 농약',
+    skillDesc: '상대에게 2턴 동안 <중독> 디버프를 적용합니다. 중독 중 공격할 때마다 스킬 시전자의 레벨 x 10 피해를 입습니다.',
+    cooldown: 7,
+    effectType: 'poison_debuff',
+    turns: 2,
+    damagePerLevel: 10,
+    targetType: null
+  },
   neo_self_esteem: {
     id: 'neo_self_esteem',
     name: '네오의 자존감',
@@ -844,6 +859,7 @@ const CARD_ENHANCE_RULES = {
   hoi_overtime: { rageDamagePerStackPerLevel: { 0: 5, 1: 6, 2: 7, 3: 8, 4: 9 }, cooldown: { 0: 5, 5: 4 } },
   precise_strike: { multiplierPerLevel: { 0: 40, 2: 45, 3: 50, 4: 55 }, cooldown: { 0: 5, 1: 4, 5: 3 } },
   umbrella_copy: { copyEffectMultiplier: { 0: 0.5, 2: 0.6, 3: 0.7 }, canSelectCopyTarget: { 4: 1 }, cooldown: { 0: 6, 1: 5, 5: 4 } },
+  neo_pesticide: { damagePerLevel: { 0: 10, 2: 11, 4: 12, 5: 15 }, cooldown: { 0: 7, 1: 6, 3: 5 } },
   gossip: { removeBuffCount: { 0: 1, 5: 2 }, cooldown: { 0: 8, 1: 7, 2: 6, 3: 5, 4: 4 } }
 };
 
@@ -1673,14 +1689,16 @@ let raidState = {
   manualBossOverrideDayKey: null,
   manualBossOverrideId: null,
   nextDayForcedBossDayKey: null,
-  nextDayForcedBossId: null
+  nextDayForcedBossId: null,
+  viewers: {}
 };
 
 let pvpState = {
   version: PVP_POLL_VERSION_EMPTY,
   queue: [],
   match: null,
-  battle: null
+  battle: null,
+  viewers: {}
 };
 
 if (!MONGO_URI) {
@@ -2418,6 +2436,8 @@ function getCardDurationText(cardId, enhancementLevel = 0) {
       return '재사용 시 즉시';
     case 'umbrella_copy':
       return '즉시 / 복사한 카드 효과는 반감';
+    case 'neo_pesticide':
+      return `${card.turns || 2}턴`;
     case 'neo_self_esteem':
       return '1회';
     case 'gossip':
@@ -2492,6 +2512,8 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
       return `자신의 레벨 x ${card.multiplierPerLevel}의 데미지를 1회 주며, 방어막을 무시하고 HP에 직접 피해를 입힙니다.`;
     case 'umbrella_copy':
       return `${card.canSelectCopyTarget ? '선택한' : '랜덤'} 파티원 1명의 카드 효과를 ${Math.round(Number(card.copyEffectMultiplier || 0.5) * 100)}%만 적용해 따라 합니다.`;
+    case 'neo_pesticide':
+      return `상대에게 ${card.turns || 2}턴 동안 <중독>을 적용합니다. 중독 중 공격할 때마다 스킬 시전자의 레벨 x ${card.damagePerLevel} 피해를 입습니다. 다단 타격은 매 타마다 적용됩니다.`;
     case 'neo_self_esteem':
       return '자신에게 <자존감> 버프를 1회 부여합니다. 자존감 보유 중 디버프를 받으면 상대에게 반사하고 자존감은 사라집니다. 강화할 수 없는 카드입니다.';
     case 'gossip':
@@ -2934,7 +2956,42 @@ function bumpRaidVersion() {
 
 function clearActiveRaidBattle() {
   raidState.activeBattle = null;
+  raidState.viewers = {};
   bumpRaidVersion();
+}
+
+function pruneViewerMap(viewerMap, now = new Date()) {
+  const source = viewerMap && typeof viewerMap === 'object' ? viewerMap : {};
+  const threshold = now.getTime() - SPECTATOR_TTL_MS;
+  Object.keys(source).forEach((userId) => {
+    const seenAt = new Date(source[userId]?.lastSeenAt || 0).getTime();
+    if (!Number.isFinite(seenAt) || seenAt < threshold) {
+      delete source[userId];
+    }
+  });
+  return source;
+}
+
+function registerViewer(viewerMap, user, now = new Date()) {
+  if (!viewerMap || !user?._id) return viewerMap;
+  viewerMap[String(user._id)] = {
+    userId: String(user._id),
+    displayName: user.nickname || user.username,
+    lastSeenAt: now
+  };
+  pruneViewerMap(viewerMap, now);
+  return viewerMap;
+}
+
+function buildSpectatorList(viewerMap, participantIds = [], now = new Date()) {
+  const participantSet = new Set((participantIds || []).map((entry) => String(entry)));
+  return Object.values(pruneViewerMap(viewerMap, now))
+    .filter((viewer) => viewer?.userId && !participantSet.has(String(viewer.userId)))
+    .sort((a, b) => String(a.displayName || '').localeCompare(String(b.displayName || ''), 'ko'))
+    .map((viewer) => ({
+      userId: viewer.userId,
+      displayName: viewer.displayName || '익명 관전자'
+    }));
 }
 
 function findQueuedRaidSlotIndex(userId) {
@@ -3839,6 +3896,14 @@ function buildRaidBossStatusEffects(battle) {
       desc: `기본 공격에 피격될 때마다 내면의 분노가 쌓입니다. 현재 ${Number(entry.stacks || 0).toLocaleString()}스택`
     });
   });
+  (battle.bossPoisonDebuffs || []).forEach((entry) => {
+    effects.push({
+      type: 'debuff',
+      name: `중독: ${entry.displayName || '알 수 없음'}`,
+      turns: Number(entry.turns || 0),
+      desc: `보스가 공격할 때마다 ${Number(entry.damage || 0).toLocaleString()} 피해`
+    });
+  });
   return effects;
 }
 
@@ -4195,6 +4260,23 @@ function useRaidCardSkill(participant, battle) {
       });
       logText = `${participant.displayName}(이)가 ${card.name}로 보스에게 <야근>을 적용했습니다.`;
     }
+  } else if (card.effectType === 'poison_debuff') {
+    battle.bossPoisonDebuffs = Array.isArray(battle.bossPoisonDebuffs) ? battle.bossPoisonDebuffs : [];
+    const damage = scaleFlat(participant.level * Number(card.damagePerLevel || 10));
+    const existing = battle.bossPoisonDebuffs.find((entry) => entry.userId === participant.userId);
+    if (existing) {
+      existing.turns = Math.max(Number(existing.turns || 0), Number(card.turns || 2));
+      existing.damage = Math.max(Number(existing.damage || 0), damage);
+      existing.displayName = participant.displayName;
+    } else {
+      battle.bossPoisonDebuffs.push({
+        userId: participant.userId,
+        displayName: participant.displayName,
+        turns: Number(card.turns || 2),
+        damage
+      });
+    }
+    logText = `${participant.displayName}(이)가 ${card.name}로 보스에게 <중독>을 적용했습니다. 보스가 공격할 때마다 ${damage.toLocaleString()} 피해를 받습니다.`;
   } else if (card.effectType === 'direct_hp_strike') {
     const damage = scaleFlat(participant.level * Number(card.multiplierPerLevel || 0));
     if (Number(battle.bossNegateHits || 0) > 0) {
@@ -4471,6 +4553,28 @@ function incrementRaidOvertimeRageStacks(battle) {
   });
 }
 
+function triggerRaidBossPoisonOnAttack(battle) {
+  if (!Array.isArray(battle?.bossPoisonDebuffs) || battle.bossHp <= 0) return 0;
+  let totalDamage = 0;
+  battle.bossPoisonDebuffs.forEach((entry) => {
+    const damage = Math.max(1, Math.floor(Number(entry.damage || 0)));
+    if (damage > 0) {
+      applyRaidDamageToBoss(battle, damage);
+      totalDamage += damage;
+      battle.logs.push(`${entry.displayName || '누군가'}의 중독 효과로 보스가 ${damage.toLocaleString()} 피해를 입었습니다.`);
+    }
+  });
+  return totalDamage;
+}
+
+function tickRaidBossPoisonDebuffs(battle) {
+  if (!Array.isArray(battle?.bossPoisonDebuffs)) return;
+  battle.bossPoisonDebuffs.forEach((entry) => {
+    entry.turns = Math.max(0, Number(entry.turns || 0) - 1);
+  });
+  battle.bossPoisonDebuffs = battle.bossPoisonDebuffs.filter((entry) => Number(entry.turns || 0) > 0);
+}
+
 function normalizeRaidActionResult(result) {
   if (!result) {
     return { logs: [], delayUnits: 0 };
@@ -4524,6 +4628,7 @@ function finalizeRaidSequence(battle) {
     }
     battle.turnIndex += 1;
   } else if (sequence.endTurnType === 'boss') {
+    tickRaidBossPoisonDebuffs(battle);
     battle.turnIndex = 0;
   }
 
@@ -4627,6 +4732,9 @@ function applyRaidDamage(target, damage, options = {}) {
 
   if (options.source === 'boss' && options.battle && target.counterTurns > 0 && target.hp > 0) {
     options.battle.logs.push(performRaidCounterAttack(target, options.battle));
+  }
+  if (options.source === 'boss' && options.battle) {
+    triggerRaidBossPoisonOnAttack(options.battle);
   }
 
   return remainingDamage;
@@ -4955,6 +5063,7 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
     countdownEndsAt: activeBattle.countdownEndsAt || null,
     readyEndsAt: activeBattle.readyEndsAt || null,
     isParticipant: viewerUserId ? isRaidUserParticipant(activeBattle, viewerUserId) : false,
+    spectators: buildSpectatorList(raidState.viewers, activeBattle.participants.map((participant) => participant.userId)),
     participants: activeBattle.participants.map((participant, index) => {
       const card = getParticipantCard(participant);
       return {
@@ -5150,17 +5259,48 @@ function getPvpTurnPlayerId(match) {
   return match?.turnUserId || match?.players?.[0]?.userId || null;
 }
 
+function getPvpPickTurnPlayerId(match) {
+  const pickTurnIndex = Math.max(0, Math.min(Number(match?.pickTurnIndex || 0), PVP_PICK_SEQUENCE_INDICES.length - 1));
+  const playerIndex = PVP_PICK_SEQUENCE_INDICES[pickTurnIndex] ?? 0;
+  return match?.players?.[playerIndex]?.userId || match?.players?.[0]?.userId || null;
+}
+
+function isPvpPickPhaseComplete(match) {
+  return match.players.every((player) => (
+    (match.picks[player.userId] || []).length >= PVP_PICKS_PER_PLAYER
+    || match.pickDone?.[player.userId]
+  ));
+}
+
 function advancePvpDraftTurn(match, now = new Date()) {
+  if (match.phase === 'pick') {
+    const maxIndex = PVP_PICK_SEQUENCE_INDICES.length - 1;
+    let guard = 0;
+    do {
+      match.pickTurnIndex = Math.min(maxIndex, Number(match.pickTurnIndex || 0) + 1);
+      match.turnUserId = getPvpPickTurnPlayerId(match);
+      guard += 1;
+    } while (
+      guard <= PVP_PICK_SEQUENCE_INDICES.length
+      && match.pickDone?.[match.turnUserId]
+      && !isPvpPickPhaseComplete(match)
+      && Number(match.pickTurnIndex || 0) < maxIndex
+    );
+    match.turnEndsAt = new Date(now.getTime() + PVP_PICK_TURN_MS);
+    return;
+  }
+
   const currentUserId = getPvpTurnPlayerId(match);
   const currentIndex = Math.max(0, match.players.findIndex((player) => player.userId === currentUserId));
   const nextPlayer = match.players[(currentIndex + 1) % match.players.length];
   match.turnUserId = nextPlayer.userId;
-  match.turnEndsAt = new Date(now.getTime() + (match.phase === 'ban' ? PVP_BAN_TURN_MS : PVP_PICK_TURN_MS));
+  match.turnEndsAt = new Date(now.getTime() + PVP_BAN_TURN_MS);
 }
 
 function startPvpPickPhase(match, now = new Date()) {
   match.phase = 'pick';
-  match.turnUserId = match.players[0].userId;
+  match.pickTurnIndex = 0;
+  match.turnUserId = getPvpPickTurnPlayerId(match);
   match.turnEndsAt = new Date(now.getTime() + PVP_PICK_TURN_MS);
 }
 
@@ -5199,7 +5339,7 @@ async function autoPickPvpCard(match, userId, now = new Date()) {
     match.pickDone[userId] = true;
   }
 
-  if (match.players.every((player) => (match.picks[player.userId] || []).length >= PVP_PICKS_PER_PLAYER || match.pickDone?.[player.userId])) {
+  if (isPvpPickPhaseComplete(match)) {
     match.phase = 'starting';
     match.startsAt = new Date(now.getTime() + PVP_START_COUNTDOWN_MS);
   } else {
@@ -5218,6 +5358,8 @@ function createPvpParticipantFromUser(user, match, picks) {
     maxHp: PVP_MAX_HP,
     hp: PVP_MAX_HP,
     shield: 0,
+    tempShieldAmount: 0,
+    shieldExpiresAfterUserId: null,
     lastHpLoss: 0,
     lastShieldLoss: 0,
     basicAttackEquipmentBonusPercent: Number(equippedBasicAttack?.statValue || 0) / 100,
@@ -5374,6 +5516,10 @@ function applyPvpDamage(target, amount, battle, options = {}) {
     shieldLoss = Math.min(Number(target.shield || 0), remaining);
     target.shield -= shieldLoss;
     remaining -= shieldLoss;
+    if (Number(target.tempShieldAmount || 0) > 0) {
+      target.tempShieldAmount = Math.max(0, Number(target.tempShieldAmount || 0) - shieldLoss);
+      if (target.tempShieldAmount <= 0) target.shieldExpiresAfterUserId = null;
+    }
   }
   target.hp = Math.max(0, Number(target.hp || 0) - remaining);
   target.lastHpLoss = remaining;
@@ -5385,6 +5531,45 @@ function healPvpTarget(target, amount) {
   const previousHp = Number(target.hp || 0);
   target.hp = Math.min(Number(target.maxHp || PVP_MAX_HP), previousHp + Math.max(0, Math.floor(Number(amount || 0))));
   return Number(target.hp || 0) - previousHp;
+}
+
+function grantPvpTemporaryShield(target, amount, expiresAfterUserId) {
+  if (!target || target.hp <= 0) return 0;
+  const shieldAmount = Math.max(0, Math.floor(Number(amount || 0)));
+  if (shieldAmount <= 0) return 0;
+  target.shield = Number(target.shield || 0) + shieldAmount;
+  target.tempShieldAmount = Number(target.tempShieldAmount || 0) + shieldAmount;
+  target.shieldExpiresAfterUserId = String(expiresAfterUserId || '');
+  return shieldAmount;
+}
+
+function clearPvpShieldsExpiredByUserTurn(battle, userId) {
+  if (!battle?.players?.length) return;
+  battle.players.forEach((player) => {
+    if (player.shieldExpiresAfterUserId !== String(userId)) return;
+    const remainingTempShield = Number(player.tempShieldAmount || 0);
+    if (remainingTempShield > 0) {
+      player.shield = Math.max(0, Number(player.shield || 0) - remainingTempShield);
+    }
+    player.tempShieldAmount = 0;
+    player.shieldExpiresAfterUserId = null;
+  });
+}
+
+function triggerPvpPoisonOnAttack(actor, battle) {
+  if (!actor || actor.hp <= 0 || !battle) return 0;
+  const poisonDebuffs = (actor.debuffs || []).filter((debuff) => debuff.id === 'poison');
+  if (!poisonDebuffs.length) return 0;
+  let totalDamage = 0;
+  poisonDebuffs.forEach((debuff) => {
+    const damage = Math.max(1, Math.floor(Number(debuff.sourceLevel || 1) * Number(debuff.damagePerLevel || 10)));
+    if (damage > 0) {
+      applyPvpDamage(actor, damage, battle, { ignoreNegate: true });
+      totalDamage += damage;
+      battle.logs.push(`${actor.displayName}이(가) 중독으로 ${damage.toLocaleString()} 피해를 입었습니다.`);
+    }
+  });
+  return totalDamage;
 }
 
 function getPvpCardDefinitionFromSlot(player, slotIndex) {
@@ -5450,22 +5635,26 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
     for (let index = 0; index < hits; index += 1) {
       applyPvpDamage(target, damage, battle);
       battle.logs.push(`${cardLabel} ${index + 1}타! ${target.displayName}에게 ${damage.toLocaleString()} 피해를 입혔습니다.`);
+      triggerPvpPoisonOnAttack(actor, battle);
+      if (actor.hp <= 0 || target.hp <= 0) break;
     }
   } else if (card.effectType === 'party_level_blast') {
     const totalLevels = battle.players.reduce((sum, player) => sum + Number(player.level || 0), 0);
     const damage = scaleFlat(totalLevels * Number(card.multiplierPerLevel || 0));
     applyPvpDamage(target, damage, battle);
     battle.logs.push(`${target.displayName}에게 ${damage.toLocaleString()} 피해를 입혔습니다.`);
+    triggerPvpPoisonOnAttack(actor, battle);
   } else if (card.effectType === 'direct_hp_strike') {
     const damage = scaleFlat(actor.level * Number(card.multiplierPerLevel || 0));
     applyPvpDamage(target, damage, battle, { ignoreShield: true });
     battle.logs.push(`${target.displayName}의 보호막을 무시하고 ${damage.toLocaleString()} 피해를 입혔습니다.`);
+    triggerPvpPoisonOnAttack(actor, battle);
   } else if (card.effectType === 'party_hype_crit') {
     addPvpBuff(actor, { id: 'crit_bonus', name: '크리티컬 상승', turns: Number(card.turns || 1), value: scalePercent(card.critBonus), desc: `치명타 확률 +${Math.round(scalePercent(card.critBonus) * 100)}%` });
     addPvpBuff(actor, { id: 'hype', name: '흥겨움', turns: Number(card.hypeTurns || 1), desc: '기본 공격 횟수 2배' });
-    actor.shield += scaleFlat(card.shield || 0);
+    grantPvpTemporaryShield(actor, scaleFlat(card.shield || 0), target.userId);
   } else if (card.effectType === 'party_shield' || card.effectType === 'random_shield') {
-    actor.shield += scaleFlat(card.shield || 0);
+    grantPvpTemporaryShield(actor, scaleFlat(card.shield || 0), target.userId);
   } else if (card.effectType === 'party_heal' || card.effectType === 'target_heal') {
     const healed = healPvpTarget(actor, scaleFlat(card.heal || 0));
     battle.logs.push(`${actor.displayName}의 HP가 ${healed.toLocaleString()} 회복되었습니다.`);
@@ -5502,6 +5691,8 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
     for (let index = 0; index < hits; index += 1) {
       applyPvpDamage(target, damage, battle);
       battle.logs.push(`${cardLabel} ${index + 1}타! ${target.displayName}에게 ${damage.toLocaleString()} 피해를 입혔습니다.`);
+      triggerPvpPoisonOnAttack(actor, battle);
+      if (actor.hp <= 0 || target.hp <= 0) break;
     }
     actor.debuffs = [];
   } else if (card.effectType === 'overtime_rage') {
@@ -5521,6 +5712,18 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
         desc: '기본 공격에 피격될 때마다 내면의 분노가 쌓입니다. 현재 0스택'
       }, actor, battle);
     }
+  } else if (card.effectType === 'poison_debuff') {
+    const applied = addPvpDebuff(target, {
+      id: 'poison',
+      name: '중독',
+      sourceUserId: actor.userId,
+      sourceDisplayName: actor.displayName,
+      sourceLevel: actor.level,
+      damagePerLevel: Number(card.damagePerLevel || 10),
+      turns: Number(card.turns || 2),
+      desc: `공격할 때마다 ${actor.displayName}의 레벨 x ${Number(card.damagePerLevel || 10)} 피해를 받습니다.`
+    }, actor, battle);
+    battle.logs.push(applied ? `${target.displayName}이(가) 중독되었습니다.` : `${target.displayName}이(가) 중독을 막았습니다.`);
   } else if (card.effectType === 'copy_ally_skill') {
     const opponentCards = target.cards
       .map((entry, index) => ({ entry, index, card: getCardDefinition(entry.cardId, entry.enhancementLevel) }))
@@ -5562,6 +5765,7 @@ function performPvpCounterAttack(counterActor, target, battle) {
   applyPvpDamage(target, damage, battle);
   incrementPvpOvertimeRageStacks(target);
   battle.logs.push(`${counterActor.displayName}의 반격! ${target.displayName}에게 ${damage.toLocaleString()} 피해를 입혔습니다.${critical ? ' (치명타)' : ''}`);
+  triggerPvpPoisonOnAttack(counterActor, battle);
 }
 
 function performPvpBasicAttack(actor, target, battle) {
@@ -5581,6 +5785,7 @@ function performPvpBasicAttack(actor, target, battle) {
     applyPvpDamage(target, damage, battle);
     incrementPvpOvertimeRageStacks(target);
     battle.logs.push(`${actor.displayName}의 기본 공격 ${index + 1}타! ${target.displayName}에게 ${damage.toLocaleString()} 피해를 입혔습니다.${critical ? ' (치명타)' : ''}`);
+    triggerPvpPoisonOnAttack(actor, battle);
     if (target.hp > 0) performPvpCounterAttack(target, actor, battle);
     if (actor.hp <= 0 || target.hp <= 0) break;
   }
@@ -5619,7 +5824,25 @@ function tickPvpPlayerEndOfTurn(player, battle) {
   player.plannedCardIndex = null;
 }
 
-function executePvpTurn(battle, now = new Date()) {
+async function grantPvpVictoryReward(winnerUserId, battle) {
+  if (!winnerUserId || battle?.victoryRewardGranted) return;
+  battle.victoryRewardGranted = true;
+  try {
+    await withUserMutationLock(winnerUserId, async () => {
+      const user = await User.findById(winnerUserId);
+      if (!user) return;
+      ensureUserDefaults(user);
+      addItemToInventory(user, 'raid_entry_ticket', 1);
+      queueNotification(user, 'pvp_victory_reward', '개인면담 승리 보상으로 회의 추가 입장권 1장을 획득했습니다!');
+      await user.save();
+    });
+  } catch (err) {
+    battle.victoryRewardGranted = false;
+    console.error('PVP victory reward error:', err);
+  }
+}
+
+async function executePvpTurn(battle, now = new Date()) {
   const actor = getPvpPlayer(battle, battle.currentUserId);
   const target = getPvpOpponent(battle, battle.currentUserId);
   if (!actor || !target || battle.winnerUserId) return;
@@ -5639,16 +5862,30 @@ function executePvpTurn(battle, now = new Date()) {
         battle.logs.push(`${actor.displayName}의 예약 스킬은 사용할 수 없어 기본 공격만 진행합니다.`);
       }
     }
-    performPvpBasicAttack(actor, target, battle);
+    if (actor.hp > 0 && target.hp > 0) {
+      performPvpBasicAttack(actor, target, battle);
+    }
   }
 
   tickPvpPlayerEndOfTurn(actor, battle);
+  clearPvpShieldsExpiredByUserTurn(battle, actor.userId);
+  if (actor.hp <= 0) {
+    battle.winnerUserId = target.userId;
+    battle.loserUserId = actor.userId;
+    battle.phase = 'finished';
+    battle.finishedAt = now;
+    battle.logs.push(`${target.displayName}의 승리입니다.`);
+    await grantPvpVictoryReward(target.userId, battle);
+    bumpPvpVersion();
+    return;
+  }
   if (target.hp <= 0) {
     battle.winnerUserId = actor.userId;
     battle.loserUserId = target.userId;
     battle.phase = 'finished';
     battle.finishedAt = now;
     battle.logs.push(`${actor.displayName}의 승리입니다.`);
+    await grantPvpVictoryReward(actor.userId, battle);
     bumpPvpVersion();
     return;
   }
@@ -5688,11 +5925,12 @@ async function advancePvpState(now = new Date()) {
   }
 
   if (pvpState.battle?.phase === 'active' && now.getTime() >= new Date(pvpState.battle.turnEndsAt).getTime()) {
-    executePvpTurn(pvpState.battle, now);
+    await executePvpTurn(pvpState.battle, now);
   }
 
   if (pvpState.battle?.phase === 'finished' && pvpState.battle.finishedAt && now.getTime() - new Date(pvpState.battle.finishedAt).getTime() > 20000) {
     pvpState.battle = null;
+    pvpState.viewers = {};
     bumpPvpVersion();
   }
 }
@@ -5725,6 +5963,7 @@ function buildPvpBattleSnapshot(battle, viewerUserId = null) {
     loserUserId: battle.loserUserId,
     finishedAt: battle.finishedAt,
     isParticipant: Boolean(viewerUserId && battle.players.some((player) => player.userId === String(viewerUserId))),
+    spectators: buildSpectatorList(pvpState.viewers, battle.players.map((player) => player.userId)),
     players: battle.players.map((player) => ({
       userId: player.userId,
       displayName: player.displayName,
@@ -5761,11 +6000,13 @@ async function buildPvpStateResponse(user, now = new Date()) {
     startsAt: match.startsAt || null,
     bans: match.bans,
     picks: match.picks,
+    pickTurnIndex: match.pickTurnIndex || 0,
     bannedCardIds: getPvpBannedCardIds(match),
     pickedCardIds: getPvpPickedCardIds(match),
     allCards: getAllPvpBanCards(),
     ownedCards: getOwnedPvpPickCards(user),
     logs: match.logs.slice(-8),
+    spectators: buildSpectatorList(pvpState.viewers, match.players.map((player) => player.userId)),
     isParticipant: Boolean(userId && match.players.some((player) => player.userId === userId)),
     isMyTurn: Boolean(userId && match.turnUserId === userId)
   } : null;
@@ -5818,6 +6059,7 @@ function startPvpAcceptMatch(playerA, playerB, now = new Date()) {
       [playerA.userId]: false,
       [playerB.userId]: false
     },
+    pickTurnIndex: 0,
     logs: ['매칭이 성사되었습니다. 5초 안에 입장해주세요.']
   };
   bumpPvpVersion();
@@ -6086,6 +6328,7 @@ async function advanceRaidState(now = new Date()) {
       } else {
         appendRaidActionLogs(activeBattle, bossResult);
         clearRoundShieldEffects(activeBattle);
+        tickRaidBossPoisonDebuffs(activeBattle);
         activeBattle.turnIndex = 0;
         activeBattle.nextActionAt = new Date(now.getTime() + RAID_ACTION_DELAY_MS);
       }
@@ -8358,7 +8601,7 @@ app.post('/api/cards/equip', async (req, res) => {
 });
 
 app.post('/api/raid/state', async (req, res) => {
-  const { userId } = req.body;
+  const { userId, viewing } = req.body;
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
@@ -8366,6 +8609,11 @@ app.post('/api/raid/state', async (req, res) => {
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
     ensureUserDefaults(user);
     const now = new Date();
+    if (viewing && raidState.activeBattle && !isRaidUserParticipant(raidState.activeBattle, userId)) {
+      registerViewer(raidState.viewers, user, now);
+    } else {
+      pruneViewerMap(raidState.viewers, now);
+    }
     const raid = await buildRaidStateResponse(user, now);
     res.json({
       raid,
@@ -8553,6 +8801,7 @@ app.post('/api/raid/start', async (req, res) => {
       bossShieldTurns: 0,
       bossLastHpLoss: 0,
       bossOvertimeDebuffs: [],
+      bossPoisonDebuffs: [],
       participants,
       phase: 'countdown',
       countdownEndsAt: new Date(now.getTime() + countdownDurationMs),
@@ -8645,6 +8894,7 @@ app.post('/api/raid/cancel-countdown', async (req, res) => {
     }
 
     raidState.activeBattle = null;
+    raidState.viewers = {};
     bumpRaidVersion();
 
     const raid = await buildRaidStateResponse(user, new Date());
@@ -8753,14 +9003,22 @@ app.post('/api/raid/set-target', async (req, res) => {
 });
 
 app.post('/api/pvp/state', async (req, res) => {
-  const { userId } = req.body;
+  const { userId, viewing } = req.body;
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
     ensureUserDefaults(user);
-    const pvp = await buildPvpStateResponse(user, new Date());
+    const now = new Date();
+    const activePvp = pvpState.match || pvpState.battle;
+    const isParticipant = activePvp?.players?.some((player) => player.userId === String(userId));
+    if (viewing && activePvp && !isParticipant) {
+      registerViewer(pvpState.viewers, user, now);
+    } else {
+      pruneViewerMap(pvpState.viewers, now);
+    }
+    const pvp = await buildPvpStateResponse(user, now);
     res.json({ pvp });
   } catch (err) {
     console.error('PVP state error:', err);
@@ -8823,8 +9081,8 @@ app.post('/api/pvp/accept', async (req, res) => {
     }
 
     if (!accept) {
+      match.players.forEach((player) => removePvpQueueUser(player.userId));
       pvpState.match = null;
-      removePvpQueueUser(userId);
       bumpPvpVersion();
       return res.json({ pvp: await buildPvpStateResponse(user, now) });
     }
@@ -8911,7 +9169,7 @@ app.post('/api/pvp/pick', async (req, res) => {
     if ((match.picks[String(userId)] || []).length >= PVP_PICKS_PER_PLAYER) {
       match.pickDone[String(userId)] = true;
     }
-    if (match.players.every((player) => (match.picks[player.userId] || []).length >= PVP_PICKS_PER_PLAYER || match.pickDone?.[player.userId])) {
+    if (isPvpPickPhaseComplete(match)) {
       match.phase = 'starting';
       match.startsAt = new Date(now.getTime() + PVP_START_COUNTDOWN_MS);
       match.logs.push('전투가 곧 시작됩니다.');
@@ -8949,7 +9207,7 @@ app.post('/api/pvp/plan-skill', async (req, res) => {
     }
 
     if (battle.currentUserId === String(userId)) {
-      executePvpTurn(battle, now);
+      await executePvpTurn(battle, now);
     } else {
       bumpPvpVersion();
     }
@@ -8977,7 +9235,7 @@ app.post('/api/pvp/end-turn', async (req, res) => {
     if (battle.currentUserId !== String(userId)) return res.status(400).json({ msg: '아직 내 차례가 아닙니다.' });
 
     player.plannedCardIndex = null;
-    executePvpTurn(battle, now);
+    await executePvpTurn(battle, now);
     res.json({ pvp: await buildPvpStateResponse(user, now) });
   } catch (err) {
     console.error('PVP end turn error:', err);
@@ -8994,6 +9252,7 @@ app.post('/api/pvp/cancel', async (req, res) => {
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
     removePvpQueueUser(userId);
     if (pvpState.match?.phase === 'accept' && getPvpPlayer(pvpState.match, userId)) {
+      pvpState.match.players.forEach((player) => removePvpQueueUser(player.userId));
       pvpState.match = null;
     }
     bumpPvpVersion();

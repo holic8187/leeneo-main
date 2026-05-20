@@ -667,6 +667,10 @@
         <div class="raid-ready-label">전투 준비</div>
         <div id="raidReadyCountdownNumber" class="raid-ready-number">5</div>
       </div>
+      <div id="raidSpectatorPanel" class="spectator-panel raid-spectator-panel hidden">
+        <strong>관전자</strong>
+        <div id="raidSpectatorList" class="spectator-list">없음</div>
+      </div>
       <div id="raidBossArea" class="raid-boss-area">
         <div id="raidBossPortrait" class="raid-boss-portrait">
           <div id="raidBossAvatar" class="raid-boss-avatar">트름녀</div>
@@ -716,6 +720,10 @@
       </div>
     </div>
     <div id="pvpPhaseStatus" class="pvp-phase-status">대기 중</div>
+    <div id="pvpSpectatorPanel" class="spectator-panel pvp-spectator-panel hidden">
+      <strong>관전자</strong>
+      <div id="pvpSpectatorList" class="spectator-list">없음</div>
+    </div>
     <div id="pvpCountdownOverlay" class="raid-ready-countdown hidden">
       <div class="raid-ready-label">개인면담 시작</div>
       <div id="pvpCountdownNumber" class="raid-ready-number">5</div>
@@ -723,6 +731,13 @@
     <div id="pvpDraftView" class="pvp-draft-view">
       <div id="pvpMyPanel" class="pvp-side-panel"></div>
       <div class="pvp-center-panel">
+        <div class="pvp-rule-note">
+          <strong>개인면담 규칙</strong>
+          <span>양쪽 레벨은 1로 보정되고 기본 공격력은 10입니다.</span>
+          <span>밴 3장, 픽 5장을 서로 번갈아 진행합니다.</span>
+          <span>밴은 전체 카드에서 가능하고, 픽은 내가 보유한 카드만 가능합니다.</span>
+          <span>카드 강화 단계와 착용 장비 효과는 그대로 적용됩니다.</span>
+        </div>
         <div id="pvpDraftTimer" class="pvp-draft-timer">30</div>
         <div id="pvpCardGrid" class="pvp-card-grid"></div>
         <div class="pvp-action-row">
@@ -743,6 +758,6 @@
     </div>
   </div>
 
-  <script src="client.js?v=102"></script>
+  <script src="client.js?v=104"></script>
 </body>
 </html>
