@@ -253,6 +253,16 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-21-pvp-pick-sequence-hotfix',
+    time: '2026-05-21 20:35',
+    title: '개인면담 픽 순서 긴급 수정',
+    items: [
+      '개인면담 픽 단계가 1P-2P-2P-1P-1P-2P-2P-1P-1P-2P 순서표를 끝까지 소모하면 즉시 전투 카운트다운으로 넘어가도록 수정했습니다.',
+      '마지막 픽 순서에서 2P 턴이 고정되어 5장을 초과 선택하거나 자동 선택이 반복될 수 있던 문제를 차단했습니다.',
+      '이미 5장을 고른 플레이어에게 자동 픽이 추가로 들어가지 않도록 서버 검증을 보강했습니다.'
+    ]
+  },
+  {
     id: '2026-05-21-hoi-overtime-parental-leave',
     time: '2026-05-21 20:10',
     title: '야근 폭발 구조와 육아휴직 쿨타임 조정',

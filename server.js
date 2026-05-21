@@ -5391,7 +5391,8 @@ function getPvpTurnPlayerId(match) {
 }
 
 function getPvpPickTurnPlayerId(match) {
-  const pickTurnIndex = Math.max(0, Math.min(Number(match?.pickTurnIndex || 0), PVP_PICK_SEQUENCE_INDICES.length - 1));
+  const pickTurnIndex = Number(match?.pickTurnIndex || 0);
+  if (pickTurnIndex < 0 || pickTurnIndex >= PVP_PICK_SEQUENCE_INDICES.length) return null;
   const playerIndex = PVP_PICK_SEQUENCE_INDICES[pickTurnIndex] ?? 0;
   return match?.players?.[playerIndex]?.userId || match?.players?.[0]?.userId || null;
 }
@@ -5405,19 +5406,24 @@ function isPvpPickPhaseComplete(match) {
 
 function advancePvpDraftTurn(match, now = new Date()) {
   if (match.phase === 'pick') {
-    const maxIndex = PVP_PICK_SEQUENCE_INDICES.length - 1;
+    match.pickDone = match.pickDone || {};
     let guard = 0;
-    do {
-      match.pickTurnIndex = Math.min(maxIndex, Number(match.pickTurnIndex || 0) + 1);
-      match.turnUserId = getPvpPickTurnPlayerId(match);
+    match.pickTurnIndex = Number(match.pickTurnIndex || 0) + 1;
+
+    while (match.pickTurnIndex < PVP_PICK_SEQUENCE_INDICES.length && guard <= PVP_PICK_SEQUENCE_INDICES.length) {
+      const nextUserId = getPvpPickTurnPlayerId(match);
+      const alreadyFull = nextUserId && (match.picks[nextUserId] || []).length >= PVP_PICKS_PER_PLAYER;
+      if (nextUserId && !match.pickDone[nextUserId] && !alreadyFull) {
+        match.turnUserId = nextUserId;
+        match.turnEndsAt = new Date(now.getTime() + PVP_PICK_TURN_MS);
+        return;
+      }
+      if (nextUserId && alreadyFull) match.pickDone[nextUserId] = true;
+      match.pickTurnIndex += 1;
       guard += 1;
-    } while (
-      guard <= PVP_PICK_SEQUENCE_INDICES.length
-      && match.pickDone?.[match.turnUserId]
-      && !isPvpPickPhaseComplete(match)
-      && Number(match.pickTurnIndex || 0) < maxIndex
-    );
-    match.turnEndsAt = new Date(now.getTime() + PVP_PICK_TURN_MS);
+    }
+
+    startPvpBattleCountdown(match, now);
     return;
   }
 
@@ -5433,6 +5439,16 @@ function startPvpPickPhase(match, now = new Date()) {
   match.pickTurnIndex = 0;
   match.turnUserId = getPvpPickTurnPlayerId(match);
   match.turnEndsAt = new Date(now.getTime() + PVP_PICK_TURN_MS);
+}
+
+function startPvpBattleCountdown(match, now = new Date()) {
+  if (!match || match.phase === 'starting') return;
+  match.phase = 'starting';
+  match.turnUserId = null;
+  match.turnEndsAt = null;
+  match.pickTurnIndex = Math.max(Number(match.pickTurnIndex || 0), PVP_PICK_SEQUENCE_INDICES.length);
+  match.startsAt = new Date(now.getTime() + PVP_START_COUNTDOWN_MS);
+  match.logs.push('전투가 곧 시작됩니다.');
 }
 
 function isPvpDraftTurnTimedOut(match, now = new Date(), graceMs = 0) {
@@ -5457,6 +5473,17 @@ async function autoBanPvpCard(match, userId, now = new Date()) {
 
 async function autoPickPvpCard(match, userId, now = new Date()) {
   match.pickDone = match.pickDone || {};
+  match.picks[userId] = match.picks[userId] || [];
+  if (match.pickDone[userId] || (match.picks[userId] || []).length >= PVP_PICKS_PER_PLAYER) {
+    match.pickDone[userId] = true;
+    if (isPvpPickPhaseComplete(match)) {
+      startPvpBattleCountdown(match, now);
+    } else {
+      advancePvpDraftTurn(match, now);
+    }
+    return;
+  }
+
   const user = await User.findById(userId);
   if (!user) return;
   ensureUserDefaults(user);
@@ -5476,8 +5503,7 @@ async function autoPickPvpCard(match, userId, now = new Date()) {
   }
 
   if (isPvpPickPhaseComplete(match)) {
-    match.phase = 'starting';
-    match.startsAt = new Date(now.getTime() + PVP_START_COUNTDOWN_MS);
+    startPvpBattleCountdown(match, now);
   } else {
     advancePvpDraftTurn(match, now);
   }
@@ -9447,9 +9473,7 @@ app.post('/api/pvp/pick', async (req, res) => {
       match.pickDone[String(userId)] = true;
     }
     if (isPvpPickPhaseComplete(match)) {
-      match.phase = 'starting';
-      match.startsAt = new Date(now.getTime() + PVP_START_COUNTDOWN_MS);
-      match.logs.push('전투가 곧 시작됩니다.');
+      startPvpBattleCountdown(match, now);
     } else {
       advancePvpDraftTurn(match, now);
     }
