@@ -61,6 +61,8 @@ const ITEM_DATA = {
 };
 
 const CARD_DATA = {
+  mingu_champion: { name: '제 1회 면담대회 우승자 밍구의 품격', grade: 'S', color: '#c62828', skillName: '챔피언의 품격', skillDesc: '지정한 파티원 1인에게 보호막 20과 <챔피언의 가호>를, 상대에게 <눈부심>을 부여합니다.', cooldown: 7, targetType: 'ally', specialStyle: 'champion' },
+  winter_subordinate: { name: '겨울 부장의 부하직원 육성', grade: 'S', color: '#c62828', skillName: '부하직원 육성', skillDesc: '파티원 중 가장 레벨이 낮은 1명을 2턴 동안 현재 레벨보다 높게 간주합니다.', cooldown: 8, targetType: null },
   ineo_diet: { name: '이네오의 다이어트 선언', grade: 'S', color: '#c62828', skillName: '다이어트 선언', skillDesc: '돌아오는 턴에 기본 공격을 총 10회 합니다. 각 공격은 기본 공격 피해의 90%로 적용되며 크리티컬이 적용될 수 있습니다.', cooldown: 3, targetType: null },
   gangnam_style: { name: '일 중에 몰래 듣는 강남스타일', grade: 'S', color: '#c62828', skillName: '강남스타일', skillDesc: '1턴 동안 모든 팀원에게 크리티컬률 20%와 흥겨움 버프를 부여하고, 보호막 10을 제공합니다. 흥겨움 동안 기본 공격 횟수가 2배가 됩니다.', cooldown: 2, targetType: null },
   delegate_lee: { name: '이것 좀 대신 해줘 이대리', grade: 'S', color: '#c62828', skillName: '이것 좀 대신 해줘', skillDesc: '현재 입장한 파티원의 전체 레벨 합 x 30의 데미지를 1회 가합니다.', cooldown: 6, targetType: null },
@@ -184,6 +186,7 @@ animations[2] = [
 
 let updateInterval;
 let rankingInterval;
+let rankingMode = 'level';
 let syncInterval;
 let animationInterval;
 let raidPollInterval;
@@ -195,6 +198,7 @@ let latestRaidState = null;
 let latestPvpState = null;
 let selectedPvpCardId = null;
 let selectedPvpEnhancementLevel = 0;
+let pvpBetTargetUserId = null;
 let pvpDraftContextKey = '';
 let pvpDraftSubmitting = false;
 let pvpAcceptTicker = null;
@@ -253,6 +257,17 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-05-21-pvp-ranking-betting-new-s-cards',
+    time: '2026-05-21 22:20',
+    title: '개인면담 랭킹/배팅 및 신규 S카드 추가',
+    items: [
+      '실시간 랭킹을 레벨 순위와 개인면담 순위 탭으로 나누고, 개인면담 점수는 첫 경기 후 1000점 기준으로 승패에 따라 변동되도록 추가했습니다.',
+      '개인면담 관전자는 밴픽 종료 전까지 참가자에게 배팅할 수 있으며, 적중 시 배팅금의 1.3배를 지급받습니다.',
+      '신규 S등급 카드 <제 1회 면담대회 우승자 밍구의 품격>, <겨울 부장의 부하직원 육성>을 추가했습니다.',
+      '반격 버프가 다단 타격을 맞을 때 매 타격마다 반격하도록 개인면담 전투 처리를 보강했습니다.'
+    ]
+  },
   {
     id: '2026-05-21-pvp-server-timer-lock',
     time: '2026-05-21 21:35',
@@ -670,8 +685,13 @@ function setupEventListeners() {
   bindClick('pvpDeclineBtn', () => handlePvpAccept(false));
   bindClick('pvpBackBtn', handlePvpBackClick);
   bindClick('pvpDraftActionBtn', handlePvpDraftAction);
+  bindClick('pvpBetBtn', openPvpBetModal);
+  bindClick('pvpBetCancelBtn', closePvpBetModal);
+  bindClick('pvpBetConfirmBtn', handlePvpBetConfirm);
   bindClick('pvpBgmToggleBtn', handleBgmToggleClick);
   bindClick('pvpPatchNotesBtn', () => openPatchNotesModal({ markSeen: true }));
+  bindClick('rankingLevelTab', () => setRankingMode('level'));
+  bindClick('rankingPvpTab', () => setRankingMode('pvp'));
   bindClick('fragmentShopBtn', openFragmentShopModal);
   bindClick('fragmentShopCloseBtn', closeFragmentShopModal);
   bindClick('marketplaceBtn', openMarketplaceModal);
@@ -2311,7 +2331,7 @@ function renderCardFusionModal(user) {
     sourceList.insertAdjacentHTML(
       'beforeend',
       `
-        <div class="fusion-source-card ${disabled ? 'disabled' : ''}">
+        <div class="fusion-source-card ${card.specialStyle === 'champion' ? 'champion-card' : ''} ${disabled ? 'disabled' : ''}">
           <div class="fusion-card-head">
             <span class="fusion-card-name">${escapeHtml(card.baseName || card.name)}${levelText}</span>
             <span class="grade-badge" style="background:${escapeHtml(card.color)}">${escapeHtml(card.grade)}</span>
@@ -2380,7 +2400,7 @@ function renderCardEnhanceModal(user) {
     previewPane.innerHTML = '현재 효과와 강화 후 미리보기가 여기에 표시됩니다.';
     confirmButton.disabled = true;
   } else {
-    selectedCardEl.className = 'enhance-selected-card selected';
+    selectedCardEl.className = `enhance-selected-card selected ${selectedCard.specialStyle === 'champion' ? 'champion-card' : ''}`;
     selectedCardEl.style.borderColor = selectedCard.borderColor || '#d0d0d0';
     selectedCardEl.innerHTML = `
       <div class="fusion-card-head">
@@ -2437,7 +2457,7 @@ function renderCardEnhanceModal(user) {
     sourceList.insertAdjacentHTML(
       'beforeend',
       `
-        <div class="fusion-source-card enhance-source-card ${selected ? 'selected' : ''} ${disabled ? 'unavailable' : ''}" style="border-color:${escapeHtml(card.borderColor || '#d0d0d0')}" onclick="handleCardEnhanceSelect('${card.cardId}', ${Number(card.enhancementLevel || 0)})">
+        <div class="fusion-source-card enhance-source-card ${card.specialStyle === 'champion' ? 'champion-card' : ''} ${selected ? 'selected' : ''} ${disabled ? 'unavailable' : ''}" style="border-color:${escapeHtml(card.borderColor || '#d0d0d0')}" onclick="handleCardEnhanceSelect('${card.cardId}', ${Number(card.enhancementLevel || 0)})">
           <div class="fusion-card-head">
             <span class="fusion-card-name">${escapeHtml(card.name)}</span>
             <span class="grade-badge" style="background:${escapeHtml(card.color || '#666666')}">${escapeHtml(card.grade)}</span>
@@ -3229,14 +3249,17 @@ function renderPvpSidePanel(panelId, player, match, userId) {
     const card = match.ownedCards?.find((entry) => entry.cardId === pick.cardId && Number(entry.enhancementLevel || 0) === Number(pick.enhancementLevel || 0))
       || match.allCards?.find((entry) => entry.cardId === pick.cardId)
       || {};
-    return `${card.baseName || CARD_DATA[pick.cardId]?.name || pick.cardId}${pick.enhancementLevel ? ` +${pick.enhancementLevel}` : ''}`;
+    return {
+      name: `${card.baseName || CARD_DATA[pick.cardId]?.name || pick.cardId}${pick.enhancementLevel ? ` +${pick.enhancementLevel}` : ''}`,
+      specialStyle: card.specialStyle || CARD_DATA[pick.cardId]?.specialStyle || ''
+    };
   });
   panel.innerHTML = `
     <div class="pvp-side-name">${escapeHtml(player.userId === String(userId) ? '내 진영' : '상대 진영')} - ${escapeHtml(player.displayName || '')}</div>
     <strong>금지 카드</strong>
     <div class="pvp-ban-list">${bans.map((name) => `<div class="pvp-mini-card">${escapeHtml(name)}</div>`).join('') || '<div class="menu-note">아직 없음</div>'}</div>
     <strong>선택 카드</strong>
-    <div class="pvp-pick-list">${picks.map((name) => `<div class="pvp-mini-card">${escapeHtml(name)}</div>`).join('') || '<div class="menu-note">아직 없음</div>'}</div>
+    <div class="pvp-pick-list">${picks.map((pick) => `<div class="pvp-mini-card ${pick.specialStyle === 'champion' ? 'champion-card' : ''}">${escapeHtml(pick.name)}</div>`).join('') || '<div class="menu-note">아직 없음</div>'}</div>
   `;
 }
 
@@ -3262,7 +3285,11 @@ function renderPvpDraft(match, user) {
   }
   const phaseText = match.phase === 'ban' ? '1. 금지' : match.phase === 'pick' ? '2. 선택' : match.phase === 'starting' ? '전투 시작 준비' : '입장 확인';
   const myTurn = match.isMyTurn;
-  setText('pvpPhaseStatus', `${phaseText} - ${myTurn ? '내 차례입니다.' : '상대 차례입니다.'}`);
+  const turnPlayer = (match.players || []).find((player) => player.userId === match.turnUserId);
+  const turnText = match.isParticipant
+    ? (myTurn ? '내 차례입니다.' : '상대 차례입니다.')
+    : `${turnPlayer?.displayName || '플레이어'}의 차례입니다.`;
+  setText('pvpPhaseStatus', `${phaseText} - ${turnText}`);
 
   const { self, enemy } = getPvpPerspectivePlayers(match.players || [], user._id);
   renderPvpSidePanel('pvpMyPanel', self, match, user._id);
@@ -3294,7 +3321,7 @@ function renderPvpDraft(match, user) {
     const disabled = !isCardSelectable(card);
     const selected = selectedPvpCardId === card.cardId && Number(selectedPvpEnhancementLevel || 0) === Number(card.enhancementLevel || 0);
     return `
-      <button class="pvp-card-choice ${selected ? 'selected' : ''} ${disabled ? 'disabled' : ''} ${bannedSet.has(card.cardId) ? 'banned' : ''}"
+      <button class="pvp-card-choice ${card.specialStyle === 'champion' ? 'champion-card' : ''} ${selected ? 'selected' : ''} ${disabled ? 'disabled' : ''} ${bannedSet.has(card.cardId) ? 'banned' : ''}"
         ${disabled ? 'disabled' : ''}
         onclick="handlePvpCardSelect('${escapeAttr(card.cardId)}', ${Number(card.enhancementLevel || 0)})">
         <span class="pvp-card-grade" style="background:${escapeAttr(card.color || '#666666')}">${escapeHtml(card.grade || '')}</span>
@@ -3309,6 +3336,12 @@ function renderPvpDraft(match, user) {
   if (actionBtn) {
     actionBtn.textContent = isBan ? '금지하기' : '선택하기';
     actionBtn.disabled = !myTurn || !selectedPvpCardId || match.phase === 'starting' || pvpDraftSubmitting;
+  }
+  const betBtn = document.getElementById('pvpBetBtn');
+  if (betBtn) {
+    const canBet = Boolean(match.canBet && !match.currentBet && ['ban', 'pick'].includes(match.phase));
+    betBtn.classList.toggle('hidden', !canBet);
+    betBtn.disabled = !canBet;
   }
 }
 
@@ -3405,6 +3438,64 @@ async function handlePvpDraftAction() {
     if (!err.pvp || !syncOnlyMessages.includes(err.message)) {
       alert(err.message);
     }
+  }
+}
+
+function openPvpBetModal() {
+  const match = latestPvpState?.match;
+  if (!match?.canBet || match.currentBet) return;
+  pvpBetTargetUserId = null;
+  const choices = document.getElementById('pvpBetChoices');
+  const amountInput = document.getElementById('pvpBetAmountInput');
+  const status = document.getElementById('pvpBetStatus');
+  if (amountInput) amountInput.value = '';
+  if (status) status.textContent = '배팅할 참가자와 금액을 선택해주세요.';
+  if (choices) {
+    choices.innerHTML = (match.players || []).map((player) => `
+      <button type="button" class="pvp-bet-choice" onclick="handlePvpBetTargetSelect('${escapeAttr(player.userId)}')">
+        ${escapeHtml(player.displayName || '플레이어')}
+      </button>
+    `).join('');
+  }
+  showModal('pvpBetModal');
+}
+
+function closePvpBetModal() {
+  pvpBetTargetUserId = null;
+  hideModal('pvpBetModal');
+}
+
+function handlePvpBetTargetSelect(userId) {
+  pvpBetTargetUserId = String(userId || '');
+  document.querySelectorAll('.pvp-bet-choice').forEach((button) => {
+    button.classList.toggle('selected', button.getAttribute('onclick')?.includes(pvpBetTargetUserId));
+  });
+}
+
+async function handlePvpBetConfirm() {
+  const user = getStoredUser();
+  const match = latestPvpState?.match;
+  const amount = Math.floor(Number(document.getElementById('pvpBetAmountInput')?.value) || 0);
+  if (!user?._id || !match) return;
+  if (!pvpBetTargetUserId) return alert('배팅할 참가자를 선택해주세요.');
+  if (!Number.isFinite(amount) || amount <= 0) return alert('배팅 금액을 입력해주세요.');
+
+  try {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/pvp/bet`, {
+      userId: user._id,
+      targetUserId: pvpBetTargetUserId,
+      amount
+    }));
+    updateLocalUserState(data);
+    latestPvpState = data.pvp;
+    closePvpBetModal();
+    renderPvpState(latestPvpState, getStoredUser());
+  } catch (err) {
+    if (err.pvp) {
+      latestPvpState = err.pvp;
+      renderPvpState(latestPvpState, user);
+    }
+    alert(err.message);
   }
 }
 
@@ -3543,7 +3634,9 @@ function maybeShowPvpResult(battle, user) {
   lastPvpResultShownBattleId = battle.battleId;
   const won = String(battle.winnerUserId) === String(user._id);
   playPvpSfx('result');
-  alert(won ? 'WIN! 개인면담에서 승리했습니다.' : 'LOSE! 개인면담에서 패배했습니다.');
+  const ratingDelta = won ? battle.ratingChange?.winnerDelta : battle.ratingChange?.loserDelta;
+  const ratingText = Number.isFinite(Number(ratingDelta)) ? `\n점수 변동: ${ratingDelta > 0 ? '+' : ''}${formatNumber(ratingDelta)}점` : '';
+  alert(`${won ? 'WIN! 개인면담에서 승리했습니다.' : 'LOSE! 개인면담에서 패배했습니다.'}${ratingText}`);
   if (pvpResultReturnTimer) clearTimeout(pvpResultReturnTimer);
   pvpResultReturnTimer = setTimeout(() => {
     if (!document.getElementById('pvp-screen')?.classList.contains('hidden')) {
@@ -5009,26 +5102,39 @@ async function updateRankingUI() {
 
   try {
     const rankingData = await getJson(`${API_URL}/api/ranking`);
+    const entries = Array.isArray(rankingData)
+      ? rankingData
+      : (rankingMode === 'pvp' ? (rankingData.pvp || []) : (rankingData.level || []));
+    const valueHeader = document.getElementById('rankingValueHeader');
+    if (valueHeader) valueHeader.textContent = rankingMode === 'pvp' ? '면담 점수' : '레벨';
+    document.getElementById('rankingLevelTab')?.classList.toggle('active', rankingMode === 'level');
+    document.getElementById('rankingPvpTab')?.classList.toggle('active', rankingMode === 'pvp');
     rankingListBody.innerHTML = '';
 
-    if (rankingData.length === 0) {
+    if (entries.length === 0) {
       rankingListBody.innerHTML = '<tr><td colspan="3" class="center-text">랭킹 정보가 없습니다.</td></tr>';
       return;
     }
 
-    rankingData.forEach((entry, index) => {
+    entries.forEach((entry, index) => {
       let rankClass = '';
       if (index === 0) rankClass = 'rank-1';
       if (index === 1) rankClass = 'rank-2';
       if (index === 2) rankClass = 'rank-3';
+      const valueText = rankingMode === 'pvp'
+        ? (Number(entry.pvpStats?.played || 0) > 0 ? `${formatNumber(entry.pvpStats.rating)}점` : '---점')
+        : formatNumber(entry.gameState?.level || 0);
+      const titleText = rankingMode === 'pvp'
+        ? `전적 ${formatNumber(entry.pvpStats?.wins || 0)}승 ${formatNumber(entry.pvpStats?.losses || 0)}패`
+        : `현재 경험치 ${formatNumber(entry.gameState?.exp || 0)}`;
 
       rankingListBody.insertAdjacentHTML(
         'beforeend',
         `
-          <tr class="${rankClass}" title="현재 경험치 ${formatNumber(entry.gameState.exp)}">
+          <tr class="${rankClass}" title="${escapeAttr(titleText)}">
             <td class="center-text">${index + 1}</td>
             <td><span class="online-dot ${entry.isOnline ? 'online' : 'offline'}"></span>${escapeHtml(entry.displayName || entry.nickname)}</td>
-            <td class="center-text">${formatNumber(entry.gameState.level)}</td>
+            <td class="center-text">${escapeHtml(valueText)}</td>
           </tr>
         `
       );
@@ -5036,6 +5142,11 @@ async function updateRankingUI() {
   } catch {
     rankingListBody.innerHTML = '<tr><td colspan="3" class="center-text error-text">랭킹 로딩 실패</td></tr>';
   }
+}
+
+function setRankingMode(mode) {
+  rankingMode = mode === 'pvp' ? 'pvp' : 'level';
+  updateRankingUI();
 }
 
 function startPeriodicUpdates() {
@@ -5602,7 +5713,7 @@ function updateInventoryUI(user) {
         'beforeend',
         `
           <tr>
-            <td><span class="card-name-chip" style="border-color:${escapeHtml(card.borderColor || 'transparent')}">${escapeHtml(card.name)}</span></td>
+            <td><span class="card-name-chip ${card.specialStyle === 'champion' ? 'champion-card' : ''}" style="border-color:${escapeHtml(card.borderColor || 'transparent')}">${escapeHtml(card.name)}</span></td>
             <td><span class="grade-badge" style="background:${escapeHtml(card.color || '#666666')}">${escapeHtml(card.grade)}</span></td>
             <td>${formatNumber(card.quantity)}장 보유</td>
             <td>

@@ -377,13 +377,17 @@
 
       <div class="workspace-side">
         <div class="status-bar ranking-title">실시간 랭킹</div>
+        <div class="ranking-tabs">
+          <button id="rankingLevelTab" class="mini-btn active" type="button">레벨 순위</button>
+          <button id="rankingPvpTab" class="mini-btn" type="button">개인면담 순위</button>
+        </div>
         <div class="ranking-list">
           <table class="inner-table">
             <thead>
               <tr>
                 <th class="rank-col">순위</th>
                 <th>닉네임</th>
-                <th class="level-col">레벨</th>
+                <th id="rankingValueHeader" class="level-col">레벨</th>
               </tr>
             </thead>
             <tbody id="ranking-list-body">
@@ -719,6 +723,21 @@
     </div>
   </div>
 
+  <div id="pvpBetModal" class="modal-overlay hidden">
+    <div class="excel-sheet modal-panel pvp-bet-modal-panel">
+      <h3>개인면담 배팅</h3>
+      <p class="menu-note">밴픽이 끝나기 전까지만 배팅할 수 있습니다. 내가 건 사람이 승리하면 배팅금의 1.3배를 받고, 패배하면 배팅금은 몰수됩니다.</p>
+      <div id="pvpBetChoices" class="pvp-bet-choices"></div>
+      <label class="input-label" for="pvpBetAmountInput">배팅 금액</label>
+      <input id="pvpBetAmountInput" type="number" min="1" step="1000" placeholder="금액 입력">
+      <div id="pvpBetStatus" class="menu-note"></div>
+      <div class="modal-actions">
+        <button id="pvpBetCancelBtn" class="mini-btn">닫기</button>
+        <button id="pvpBetConfirmBtn" class="mini-btn">배팅하기</button>
+      </div>
+    </div>
+  </div>
+
   <div id="pvp-screen" class="hidden excel-sheet pvp-screen">
     <div class="status-bar status-top">
       <button id="pvpBackBtn" class="mini-btn">뒤로가기</button>
@@ -750,6 +769,7 @@
         <div id="pvpDraftTimer" class="pvp-draft-timer">30</div>
         <div id="pvpCardGrid" class="pvp-card-grid"></div>
         <div class="pvp-action-row">
+          <button id="pvpBetBtn" class="mini-btn hidden">배팅하기</button>
           <button id="pvpDraftActionBtn" class="mini-btn" disabled>선택</button>
         </div>
       </div>
@@ -767,6 +787,6 @@
     </div>
   </div>
 
-  <script src="client.js?v=114"></script>
+  <script src="client.js?v=115"></script>
 </body>
 </html>
