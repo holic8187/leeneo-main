@@ -258,6 +258,14 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-21-mingu-raid-profile-style',
+    time: '2026-05-21 22:45',
+    title: '밍구 카드 보스전 프로필 연출 추가',
+    items: [
+      '<제 1회 면담대회 우승자 밍구의 품격> 카드를 장착한 상태로 보스 대기/전투 화면에 들어가면 참가자 프로필에도 검정 배경, 주황 글씨, 금색 발광 테두리가 표시되도록 변경했습니다.'
+    ]
+  },
+  {
     id: '2026-05-21-pvp-ranking-betting-new-s-cards',
     time: '2026-05-21 22:20',
     title: '개인면담 랭킹/배팅 및 신규 S카드 추가',
@@ -4596,10 +4604,15 @@ function renderRaidBattle(raidState, user) {
       participantCard = createRaidParticipantCardElement(participant.userId);
     }
     participantList.appendChild(participantCard);
+    const isChampionCard = participant.equippedCardSpecialStyle === 'champion';
     participantCard.classList.toggle('active-turn', isActiveParticipant);
+    participantCard.classList.toggle('champion-card', isChampionCard);
+    participantCard.classList.toggle('raid-champion-profile', isChampionCard);
     participantCard.querySelector('[data-raid-participant-name]').textContent = participant.displayName || '';
     participantCard.querySelector('[data-raid-participant-level]').textContent = `Lv.${formatNumber(participant.level)}`;
-    participantCard.querySelector('[data-raid-participant-card]').textContent = participant.equippedCardName || '장착 카드 없음';
+    const equippedCardEl = participantCard.querySelector('[data-raid-participant-card]');
+    equippedCardEl.textContent = participant.equippedCardName || '장착 카드 없음';
+    equippedCardEl.classList.toggle('champion-card', isChampionCard);
     participantCard.querySelector('[data-raid-participant-status]').textContent = `HP ${formatNumber(participant.hp)} / ${formatNumber(participant.maxHp)}`;
     participantCard.querySelector('[data-raid-participant-shield-text]').textContent = `보호막 ${formatNumber(participant.shield || 0)}`;
 
@@ -5875,11 +5888,11 @@ function updateRaidLobbyUI(raidState, user) {
     slotGrid.insertAdjacentHTML(
       'beforeend',
       `
-        <button class="raid-slot ${slot ? '' : 'empty'} ${isSelf ? 'self' : ''}" onclick="handleRaidSlotClick(${index})">
+        <button class="raid-slot ${slot ? '' : 'empty'} ${isSelf ? 'self' : ''} ${slot?.equippedCardSpecialStyle === 'champion' ? 'champion-card raid-champion-profile' : ''}" onclick="handleRaidSlotClick(${index})">
           ${slot
             ? `<div class="raid-slot-name"><span class="raid-name-chip" style="border-color:${escapeHtml(slot.equippedCardBorderColor || 'transparent')}">${escapeHtml(slot.displayName)}</span></div>
                <div>Lv.${formatNumber(slot.level)}</div>
-               <div class="raid-slot-card" title="${escapeHtml(cardTooltip)}">${escapeHtml(slot.equippedCardName || '장착 카드 없음')}</div>`
+               <div class="raid-slot-card ${slot.equippedCardSpecialStyle === 'champion' ? 'champion-card' : ''}" title="${escapeHtml(cardTooltip)}">${escapeHtml(slot.equippedCardName || '장착 카드 없음')}</div>`
             : `<div class="raid-slot-name">${index + 1}번 슬롯</div><div>클릭해 참가 대기</div>`}
         </button>
       `

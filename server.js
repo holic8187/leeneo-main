@@ -3212,7 +3212,8 @@ function buildQueuedSlotSnapshot(user) {
     equippedCardCooldown: Number(equippedCard?.cooldown || 0),
     equippedCardPassiveOnly: Boolean(equippedCard?.passiveOnly),
     equippedCardEnhancementLevel: Number(equippedCard?.enhancementLevel || 0),
-    equippedCardBorderColor: equippedCard?.borderColor || ''
+    equippedCardBorderColor: equippedCard?.borderColor || '',
+    equippedCardSpecialStyle: equippedCard?.specialStyle || ''
   };
 }
 
@@ -5337,6 +5338,7 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
         equippedCardName: card?.displayName || card?.name || '장착 카드 없음',
         equippedCardGrade: card?.grade || null,
         equippedCardBorderColor: card?.borderColor || '',
+        equippedCardSpecialStyle: card?.specialStyle || '',
         skillName: card?.skillName || '',
         skillDesc: card ? buildCardSkillDescription(card.id, card.enhancementLevel || 0) : '',
         targetType: card?.targetType || null,

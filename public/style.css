@@ -1264,6 +1264,24 @@ progress {
   box-shadow: 0 0 0 2px rgba(198, 40, 40, 0.12);
 }
 
+.raid-participant-card.raid-champion-profile {
+  background: #111111;
+  color: #ffb347;
+  border-color: #f6c453 !important;
+  box-shadow: 0 0 12px rgba(246, 196, 83, 0.8), inset 0 0 10px rgba(255, 179, 71, 0.18);
+}
+
+.raid-participant-card.raid-champion-profile.active-turn {
+  border-color: #f6c453 !important;
+  box-shadow: 0 0 14px rgba(246, 196, 83, 0.95), 0 0 0 2px rgba(198, 40, 40, 0.22), inset 0 0 10px rgba(255, 179, 71, 0.2);
+}
+
+.raid-participant-card.raid-champion-profile .menu-note,
+.raid-participant-card.raid-champion-profile .raid-status-text,
+.raid-participant-card.raid-champion-profile .raid-shield-text {
+  color: #ffd799;
+}
+
 .raid-participant-header {
   display: flex;
   justify-content: space-between;
