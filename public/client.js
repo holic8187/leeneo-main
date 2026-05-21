@@ -253,6 +253,15 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-21-pvp-draft-deadline-server-time',
+    time: '2026-05-21 20:50',
+    title: '개인면담 픽 제한시간 판정 수정',
+    items: [
+      '개인면담 밴픽에서 브라우저 시간 차이 때문에 1~2초 일찍 선택 버튼이 막힐 수 있던 클라이언트 만료 판정을 제거했습니다.',
+      '밴/픽 제한시간은 서버가 최종 판정하며, 0초가 지난 뒤에는 즉시 자동 밴/픽으로 진행되도록 조정했습니다.'
+    ]
+  },
+  {
     id: '2026-05-21-pvp-pick-sequence-hotfix',
     time: '2026-05-21 20:35',
     title: '개인면담 픽 순서 긴급 수정',
@@ -3227,10 +3236,7 @@ function renderPvpDraft(match, user) {
   const pickedSet = new Set(match.pickedCardIds || []);
   const isBan = match.phase === 'ban';
   const cards = isBan ? (match.allCards || []) : (match.ownedCards || []);
-  const draftDeadlineMs = match.turnEndsAt ? new Date(match.turnEndsAt).getTime() : 0;
-  const draftExpired = Boolean(draftDeadlineMs && Date.now() >= draftDeadlineMs);
   const isCardSelectable = (card) => myTurn
-    && !draftExpired
     && !bannedSet.has(card.cardId)
     && !pickedSet.has(card.cardId)
     && match.phase !== 'starting'
@@ -3263,7 +3269,7 @@ function renderPvpDraft(match, user) {
   const actionBtn = document.getElementById('pvpDraftActionBtn');
   if (actionBtn) {
     actionBtn.textContent = isBan ? '금지하기' : '선택하기';
-    actionBtn.disabled = !myTurn || draftExpired || !selectedPvpCardId || match.phase === 'starting' || pvpDraftSubmitting;
+    actionBtn.disabled = !myTurn || !selectedPvpCardId || match.phase === 'starting' || pvpDraftSubmitting;
   }
 }
 
@@ -3300,8 +3306,6 @@ function renderPvpCountdown(match) {
 function handlePvpCardSelect(cardId, enhancementLevel = 0) {
   const match = latestPvpState?.match;
   if (!match || !match.isMyTurn || match.phase === 'starting' || match.phase === 'accept') return;
-  const deadlineMs = match.turnEndsAt ? new Date(match.turnEndsAt).getTime() : 0;
-  if (deadlineMs && Date.now() >= deadlineMs) return;
   const bannedSet = new Set(match.bannedCardIds || []);
   const pickedSet = new Set(match.pickedCardIds || []);
   const cards = match.phase === 'ban' ? (match.allCards || []) : (match.ownedCards || []);
@@ -3322,8 +3326,6 @@ async function handlePvpDraftAction() {
   if (!user?._id || !selectedPvpCardId || !latestPvpState?.match) return;
   const match = latestPvpState.match;
   if (pvpDraftSubmitting || !match.isMyTurn || !['ban', 'pick'].includes(match.phase)) return;
-  const deadlineMs = match.turnEndsAt ? new Date(match.turnEndsAt).getTime() : 0;
-  if (deadlineMs && Date.now() >= deadlineMs) return;
   const bannedSet = new Set(match.bannedCardIds || []);
   const pickedSet = new Set(match.pickedCardIds || []);
   const cards = match.phase === 'ban' ? (match.allCards || []) : (match.ownedCards || []);
