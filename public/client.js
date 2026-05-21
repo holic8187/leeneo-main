@@ -203,6 +203,7 @@ let pvpStartTicker = null;
 let pvpTurnTicker = null;
 let pvpResultReturnTimer = null;
 let pvpSpectatorReturnTimer = null;
+let pvpServerClockOffsetMs = 0;
 let lastPvpResultShownBattleId = null;
 let lastPvpSpectatorReturnBattleId = null;
 let lastPvpLogSignature = '';
@@ -252,6 +253,16 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-05-21-pvp-server-timer-lock',
+    time: '2026-05-21 21:35',
+    title: '개인면담 타이머/자동선택 안정화',
+    items: [
+      '개인면담 타이머를 서버 시간 기준으로 보정해서 PC별 시간 차이로 선택 가능 시간이 어긋나는 문제를 줄였습니다.',
+      '동시에 여러 유저 화면에서 자동 선택 요청이 들어와도 같은 턴이 여러 번 처리되지 않도록 서버 진행 락을 추가했습니다.',
+      '자동 픽 처리 중 직접 픽이 먼저 들어온 경우, 뒤늦게 돌아온 자동 픽이 추가로 들어가지 않도록 검증을 보강했습니다.'
+    ]
+  },
   {
     id: '2026-05-21-pvp-draft-turn-sync-pick-time',
     time: '2026-05-21 21:15',
@@ -3144,6 +3155,7 @@ function hideSpectatorPanel(panelId) {
 }
 
 function updatePvpMatchModal(pvpState) {
+  syncPvpServerClock(pvpState);
   const user = getStoredUser();
   const match = pvpState?.match;
   const isParticipant = Boolean(match?.isParticipant);
@@ -3161,15 +3173,27 @@ function updatePvpMatchModal(pvpState) {
   showModal('pvpMatchModal');
 
   const render = () => {
-    const remaining = Math.max(0, Math.ceil((new Date(match.acceptEndsAt).getTime() - Date.now()) / 1000));
+    const remaining = Math.max(0, Math.ceil((new Date(match.acceptEndsAt).getTime() - getPvpNowMs()) / 1000));
     setText('pvpAcceptCountdown', String(remaining));
   };
   if (!pvpAcceptTicker) pvpAcceptTicker = setInterval(render, 150);
   render();
 }
 
+function syncPvpServerClock(pvpState) {
+  const serverNowMs = pvpState?.serverNow ? new Date(pvpState.serverNow).getTime() : NaN;
+  if (Number.isFinite(serverNowMs)) {
+    pvpServerClockOffsetMs = serverNowMs - Date.now();
+  }
+}
+
+function getPvpNowMs() {
+  return Date.now() + pvpServerClockOffsetMs;
+}
+
 function renderPvpState(pvpState, user) {
   if (!pvpState) return;
+  syncPvpServerClock(pvpState);
   if (pvpState.match) {
     renderPvpDraft(pvpState.match, user);
   } else if (pvpState.battle) {
@@ -3293,7 +3317,7 @@ function renderPvpDraftTimer(match) {
   if (!timerEl) return;
   const targetAt = match.phase === 'starting' ? match.startsAt : match.turnEndsAt;
   const render = () => {
-    const remaining = targetAt ? Math.max(0, Math.ceil((new Date(targetAt).getTime() - Date.now()) / 1000)) : 0;
+    const remaining = targetAt ? Math.max(0, Math.ceil((new Date(targetAt).getTime() - getPvpNowMs()) / 1000)) : 0;
     timerEl.textContent = match.phase === 'starting' ? `시작 ${remaining}` : String(remaining);
   };
   if (pvpDraftTicker) clearInterval(pvpDraftTicker);
@@ -3310,7 +3334,7 @@ function renderPvpCountdown(match) {
   }
   overlay.classList.remove('hidden');
   const render = () => {
-    const remaining = Math.max(1, Math.ceil((new Date(match.startsAt).getTime() - Date.now()) / 1000));
+    const remaining = Math.max(1, Math.ceil((new Date(match.startsAt).getTime() - getPvpNowMs()) / 1000));
     setText('pvpCountdownNumber', String(remaining));
   };
   if (pvpStartTicker) clearInterval(pvpStartTicker);
@@ -3391,7 +3415,7 @@ function updatePvpTurnTimer() {
     if (timer) timer.textContent = '';
     return;
   }
-  const remaining = Math.max(0, Math.ceil((new Date(battle.turnEndsAt).getTime() - Date.now()) / 1000));
+  const remaining = Math.max(0, Math.ceil((new Date(battle.turnEndsAt).getTime() - getPvpNowMs()) / 1000));
   timer.textContent = String(remaining);
   timer.classList.toggle('urgent', remaining <= 5);
 }

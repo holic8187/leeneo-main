@@ -1746,6 +1746,7 @@ let pvpState = {
   battle: null,
   viewers: {}
 };
+let pvpAdvanceQueue = Promise.resolve();
 
 if (!MONGO_URI) {
   console.error('MONGO_URI is not configured in .env.');
@@ -5457,6 +5458,17 @@ function isPvpDraftTurnTimedOut(match, now = new Date(), graceMs = 0) {
   return now.getTime() >= new Date(match.turnEndsAt).getTime() + Math.max(0, Number(graceMs || 0));
 }
 
+function getPvpDraftTurnKey(match) {
+  if (!match) return '';
+  return [
+    match.matchId || '',
+    match.phase || '',
+    match.turnUserId || '',
+    Number(match.pickTurnIndex || 0),
+    match.turnEndsAt ? new Date(match.turnEndsAt).getTime() : 0
+  ].join('|');
+}
+
 async function autoBanPvpCard(match, userId, now = new Date()) {
   const bannedSet = new Set(getPvpBannedCardIds(match));
   const pickedSet = new Set(getPvpPickedCardIds(match));
@@ -5473,6 +5485,7 @@ async function autoBanPvpCard(match, userId, now = new Date()) {
 }
 
 async function autoPickPvpCard(match, userId, now = new Date()) {
+  const turnKey = getPvpDraftTurnKey(match);
   match.pickDone = match.pickDone || {};
   match.picks[userId] = match.picks[userId] || [];
   if (match.pickDone[userId] || (match.picks[userId] || []).length >= PVP_PICKS_PER_PLAYER) {
@@ -5488,6 +5501,14 @@ async function autoPickPvpCard(match, userId, now = new Date()) {
   const user = await User.findById(userId);
   if (!user) return;
   ensureUserDefaults(user);
+  if (
+    pvpState.match !== match
+    || match.phase !== 'pick'
+    || match.turnUserId !== String(userId)
+    || getPvpDraftTurnKey(match) !== turnKey
+  ) {
+    return;
+  }
   const bannedSet = new Set(getPvpBannedCardIds(match));
   const pickedSet = new Set(getPvpPickedCardIds(match));
   const candidates = getOwnedPvpPickCards(user).filter((card) => !bannedSet.has(card.cardId) && !pickedSet.has(card.cardId));
@@ -6133,7 +6154,7 @@ async function executePvpTurn(battle, now = new Date()) {
   bumpPvpVersion();
 }
 
-async function advancePvpState(now = new Date()) {
+async function advancePvpStateUnlocked(now = new Date()) {
   if (pvpState.match) {
     const match = pvpState.match;
     if (match.phase === 'accept') {
@@ -6170,6 +6191,14 @@ async function advancePvpState(now = new Date()) {
     pvpState.viewers = {};
     bumpPvpVersion();
   }
+}
+
+async function advancePvpState(now = new Date()) {
+  const run = pvpAdvanceQueue.then(() => advancePvpStateUnlocked(now));
+  pvpAdvanceQueue = run.catch((err) => {
+    console.error('PVP advance lock error:', err);
+  });
+  return run;
 }
 
 function buildPvpEffectsSnapshot(player) {
@@ -6224,6 +6253,7 @@ function buildPvpBattleSnapshot(battle, viewerUserId = null) {
 
 async function buildPvpStateResponse(user, now = new Date()) {
   await advancePvpState(now);
+  const responseNow = new Date();
   const userId = user?._id ? String(user._id) : null;
   const match = pvpState.match;
   const matchPayload = match ? {
@@ -6250,6 +6280,7 @@ async function buildPvpStateResponse(user, now = new Date()) {
 
   return {
     version: pvpState.version,
+    serverNow: responseNow.toISOString(),
     minLevel: PVP_MIN_LEVEL,
     canQueue: Boolean(user && user.gameState.level >= PVP_MIN_LEVEL && !pvpState.battle && !pvpState.match),
     isQueued: Boolean(userId && pvpState.queue.some((entry) => entry.userId === userId)),
