@@ -111,10 +111,11 @@ const RAID_POLL_VERSION_EMPTY = 0;
 const PVP_MIN_LEVEL = 50;
 const PVP_ACCEPT_MS = 5 * 1000;
 const PVP_BAN_TURN_MS = 30000;
-const PVP_PICK_TURN_MS = 30000;
+const PVP_PICK_TURN_MS = 45000;
 const PVP_BATTLE_TURN_MS = 30000;
 const PVP_START_COUNTDOWN_MS = 5000;
 const PVP_DRAFT_AUTO_GRACE_MS = 0;
+const PVP_DRAFT_SUBMIT_GRACE_MS = 1500;
 const PVP_BANS_PER_PLAYER = 3;
 const PVP_PICKS_PER_PLAYER = 5;
 const PVP_PICK_SEQUENCE_INDICES = [0, 1, 1, 0, 0, 1, 1, 0, 0, 1];
@@ -6259,6 +6260,13 @@ async function buildPvpStateResponse(user, now = new Date()) {
   };
 }
 
+async function sendPvpStateError(res, user, now, status, msg) {
+  return res.status(status).json({
+    msg,
+    pvp: await buildPvpStateResponse(user, now)
+  });
+}
+
 function createPvpQueueEntry(user) {
   return {
     userId: String(user._id),
@@ -9396,24 +9404,24 @@ app.post('/api/pvp/ban', async (req, res) => {
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
     ensureUserDefaults(user);
     let match = pvpState.match;
-    if (!match || match.phase !== 'ban' || match.turnUserId !== String(userId)) {
+    if (!match || match.phase !== 'ban') {
       await advancePvpState(now);
       match = pvpState.match;
     }
-    if (!match || match.phase !== 'ban') return res.status(400).json({ msg: '현재 금지 단계가 아닙니다.' });
-    if (matchId && match.matchId !== matchId) return res.status(400).json({ msg: '이미 지난 개인면담 선택입니다. 화면을 다시 확인해주세요.' });
-    if (phase && phase !== 'ban') return res.status(400).json({ msg: '이미 지난 금지 요청입니다. 화면을 다시 확인해주세요.' });
-    if (match.turnUserId !== String(userId)) return res.status(400).json({ msg: '아직 내 차례가 아닙니다.' });
-    if (isPvpDraftTurnTimedOut(match, now, PVP_DRAFT_AUTO_GRACE_MS)) {
+    if (!match || match.phase !== 'ban') return sendPvpStateError(res, user, now, 400, '현재 금지 단계가 아닙니다.');
+    if (matchId && match.matchId !== matchId) return sendPvpStateError(res, user, now, 400, '이미 지난 개인면담 선택입니다. 화면을 다시 확인해주세요.');
+    if (phase && phase !== 'ban') return sendPvpStateError(res, user, now, 400, '이미 지난 금지 요청입니다. 화면을 다시 확인해주세요.');
+    if (match.turnUserId !== String(userId)) return sendPvpStateError(res, user, now, 400, '아직 내 차례가 아닙니다.');
+    if (isPvpDraftTurnTimedOut(match, now, PVP_DRAFT_SUBMIT_GRACE_MS)) {
       await advancePvpState(now);
-      return res.status(400).json({ msg: '시간이 초과되어 자동 진행되었습니다.' });
+      return sendPvpStateError(res, user, now, 400, '시간이 초과되어 자동 진행되었습니다.');
     }
-    if (!CARD_DATA[cardId]) return res.status(400).json({ msg: '존재하지 않는 카드입니다.' });
+    if (!CARD_DATA[cardId]) return sendPvpStateError(res, user, now, 400, '존재하지 않는 카드입니다.');
     if (getPvpBannedCardIds(match).includes(cardId) || getPvpPickedCardIds(match).includes(cardId)) {
-      return res.status(400).json({ msg: '이미 선택할 수 없는 카드입니다.' });
+      return sendPvpStateError(res, user, now, 400, '이미 선택할 수 없는 카드입니다.');
     }
     if ((match.bans[String(userId)] || []).length >= PVP_BANS_PER_PLAYER) {
-      return res.status(400).json({ msg: '이미 금지할 카드를 모두 골랐습니다.' });
+      return sendPvpStateError(res, user, now, 400, '이미 금지할 카드를 모두 골랐습니다.');
     }
 
     match.bans[String(userId)].push(cardId);
@@ -9441,29 +9449,29 @@ app.post('/api/pvp/pick', async (req, res) => {
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
     ensureUserDefaults(user);
     let match = pvpState.match;
-    if (!match || match.phase !== 'pick' || match.turnUserId !== String(userId)) {
+    if (!match || match.phase !== 'pick') {
       await advancePvpState(now);
       match = pvpState.match;
     }
-    if (!match || match.phase !== 'pick') return res.status(400).json({ msg: '현재 선택 단계가 아닙니다.' });
-    if (matchId && match.matchId !== matchId) return res.status(400).json({ msg: '이미 지난 개인면담 선택입니다. 화면을 다시 확인해주세요.' });
-    if (phase && phase !== 'pick') return res.status(400).json({ msg: '이미 지난 선택 요청입니다. 화면을 다시 확인해주세요.' });
-    if (match.turnUserId !== String(userId)) return res.status(400).json({ msg: '아직 내 차례가 아닙니다.' });
-    if (isPvpDraftTurnTimedOut(match, now, PVP_DRAFT_AUTO_GRACE_MS)) {
+    if (!match || match.phase !== 'pick') return sendPvpStateError(res, user, now, 400, '현재 선택 단계가 아닙니다.');
+    if (matchId && match.matchId !== matchId) return sendPvpStateError(res, user, now, 400, '이미 지난 개인면담 선택입니다. 화면을 다시 확인해주세요.');
+    if (phase && phase !== 'pick') return sendPvpStateError(res, user, now, 400, '이미 지난 선택 요청입니다. 화면을 다시 확인해주세요.');
+    if (match.turnUserId !== String(userId)) return sendPvpStateError(res, user, now, 400, '아직 내 차례가 아닙니다.');
+    if (isPvpDraftTurnTimedOut(match, now, PVP_DRAFT_SUBMIT_GRACE_MS)) {
       await advancePvpState(now);
-      return res.status(400).json({ msg: '시간이 초과되어 자동 진행되었습니다.' });
+      return sendPvpStateError(res, user, now, 400, '시간이 초과되어 자동 진행되었습니다.');
     }
-    if (!CARD_DATA[cardId]) return res.status(400).json({ msg: '존재하지 않는 카드입니다.' });
+    if (!CARD_DATA[cardId]) return sendPvpStateError(res, user, now, 400, '존재하지 않는 카드입니다.');
     if (getPvpBannedCardIds(match).includes(cardId) || getPvpPickedCardIds(match).includes(cardId)) {
-      return res.status(400).json({ msg: '이미 선택할 수 없는 카드입니다.' });
+      return sendPvpStateError(res, user, now, 400, '이미 선택할 수 없는 카드입니다.');
     }
     const level = normalizeCardEnhancementLevel(enhancementLevel || 0);
     const pickableCard = getOwnedPvpPickCards(user).find((card) => card.cardId === cardId);
     if (!pickableCard || Number(pickableCard.enhancementLevel || 0) !== level) {
-      return res.status(400).json({ msg: '개인면담에서는 보유 중인 가장 높은 강화 단계 카드만 선택할 수 있습니다.' });
+      return sendPvpStateError(res, user, now, 400, '개인면담에서는 보유 중인 가장 높은 강화 단계 카드만 선택할 수 있습니다.');
     }
     if ((match.picks[String(userId)] || []).length >= PVP_PICKS_PER_PLAYER) {
-      return res.status(400).json({ msg: '이미 카드를 모두 선택했습니다.' });
+      return sendPvpStateError(res, user, now, 400, '이미 카드를 모두 선택했습니다.');
     }
 
     match.pickDone = match.pickDone || {};

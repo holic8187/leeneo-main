@@ -253,6 +253,16 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-21-pvp-draft-turn-sync-pick-time',
+    time: '2026-05-21 21:15',
+    title: '개인면담 밴픽 턴 동기화 보강',
+    items: [
+      '개인면담 밴/픽 선택 실패 시 서버의 최신 상태를 즉시 화면에 반영하도록 수정했습니다.',
+      '화면상 내 차례처럼 보이는데 서버에서는 내 차례가 아니라고 판단되는 상태 엇갈림을 줄였습니다.',
+      '픽 단계 제한시간을 30초에서 45초로 늘렸습니다.'
+    ]
+  },
+  {
     id: '2026-05-21-pvp-draft-deadline-server-time',
     time: '2026-05-21 20:50',
     title: '개인면담 픽 제한시간 판정 수정',
@@ -1410,6 +1420,11 @@ async function postJson(url, body, headers = {}) {
     body: JSON.stringify(body)
   });
   const data = await res.json();
+  if (!res.ok && data && typeof data === 'object') {
+    const error = new Error(data.msg || '요청 처리에 실패했습니다.');
+    Object.assign(error, data);
+    throw error;
+  }
   if (!res.ok) throw new Error(data.msg || '요청 처리에 실패했습니다.');
   return data;
 }
@@ -3354,8 +3369,18 @@ async function handlePvpDraftAction() {
     renderPvpState(latestPvpState, user);
   } catch (err) {
     pvpDraftSubmitting = false;
+    if (err.pvp) {
+      latestPvpState = err.pvp;
+      selectedPvpCardId = null;
+      selectedPvpEnhancementLevel = 0;
+      updatePvpButton(user, latestPvpState);
+      updatePvpMatchModal(latestPvpState);
+    }
     renderPvpState(latestPvpState, user);
-    alert(err.message);
+    const syncOnlyMessages = ['아직 내 차례가 아닙니다.', '시간이 초과되어 자동 진행되었습니다.'];
+    if (!err.pvp || !syncOnlyMessages.includes(err.message)) {
+      alert(err.message);
+    }
   }
 }
 
