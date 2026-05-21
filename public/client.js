@@ -258,6 +258,15 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-22-mingu-blue-aura',
+    time: '2026-05-22 00:20',
+    title: '밍구 카드 푸른 오라 연출 추가',
+    items: [
+      '<제 1회 면담대회 우승자 밍구의 품격> 카드가 보이는 화면에 은은한 푸른 아우라 애니메이션을 추가했습니다.',
+      '보스 대기/전투 프로필, 개인면담 카드, 가방/강화/합성 카드 표시에도 같은 특수 연출이 적용됩니다.'
+    ]
+  },
+  {
     id: '2026-05-21-mingu-raid-profile-style',
     time: '2026-05-21 22:45',
     title: '밍구 카드 보스전 프로필 연출 추가',
