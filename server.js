@@ -94,6 +94,29 @@ const RICH_THRESHOLD = 5000000;
 const BEAST_HEART_UNLOCK_THRESHOLD = 2000000;
 const TITLE_CHANGE_LIMIT_DAYS = 1;
 const RAID_MIN_LEVEL = 10;
+const RAID_NORMAL_MIN_LEVEL = 10;
+const RAID_NORMAL_MAX_LEVEL = 150;
+const RAID_HARD_MIN_LEVEL = 150;
+const RAID_MODE_NORMAL = 'normal';
+const RAID_MODE_HARD = 'hard';
+const RAID_MODE_CONFIG = {
+  [RAID_MODE_NORMAL]: {
+    id: RAID_MODE_NORMAL,
+    label: '노멀',
+    minLevel: RAID_NORMAL_MIN_LEVEL,
+    maxLevel: RAID_NORMAL_MAX_LEVEL,
+    hpMultiplier: 1,
+    rewardMultiplier: 1
+  },
+  [RAID_MODE_HARD]: {
+    id: RAID_MODE_HARD,
+    label: '하드',
+    minLevel: RAID_HARD_MIN_LEVEL,
+    maxLevel: Infinity,
+    hpMultiplier: 2,
+    rewardMultiplier: 1.5
+  }
+};
 const RAID_PARTY_SIZE = 5;
 const RAID_ACTION_DELAY_MS = 2000;
 const RAID_COUNTDOWN_SECONDS = 3;
@@ -1024,6 +1047,27 @@ const DAILY_SHOP_PURCHASE_LIMITS = {
   hot6: 5
 };
 
+const FRAGMENT_SHOP_ITEMS = {
+  raid_entry_ticket: {
+    id: 'raid_entry_ticket',
+    itemId: 'raid_entry_ticket',
+    name: '회의 추가 입장권 1장',
+    cost: 50,
+    quantity: 1,
+    dailyLimit: 1,
+    countField: 'dailyFragmentRaidTicketPurchases'
+  },
+  business_card_bundle: {
+    id: 'business_card_bundle',
+    itemId: 'business_card',
+    name: '명함 10장',
+    cost: 30,
+    quantity: 10,
+    dailyLimit: 2,
+    countField: 'dailyFragmentBusinessCardPurchases'
+  }
+};
+
 const EQUIPMENT_SCROLL_RULES = {
   scroll_card_005: { equipmentType: EQUIPMENT_TYPE_CARD, addValue: 0.5, successRate: 1 },
   scroll_card_01: { equipmentType: EQUIPMENT_TYPE_CARD, addValue: 1, successRate: 0.6 },
@@ -1762,17 +1806,26 @@ const ADMIN_GIFT_CATALOG = {
 };
 
 let activeShouts = [];
+function createRaidRoomState() {
+  return {
+    slots: Array(RAID_PARTY_SIZE).fill(null),
+    queuedBossId: null,
+    countdown: null,
+    activeBattle: null,
+    viewers: {}
+  };
+}
+
 let raidState = {
   version: RAID_POLL_VERSION_EMPTY,
-  slots: Array(RAID_PARTY_SIZE).fill(null),
-  queuedBossId: null,
-  countdown: null,
-  activeBattle: null,
+  modes: {
+    [RAID_MODE_NORMAL]: createRaidRoomState(),
+    [RAID_MODE_HARD]: createRaidRoomState()
+  },
   manualBossOverrideDayKey: null,
   manualBossOverrideId: null,
   nextDayForcedBossDayKey: null,
-  nextDayForcedBossId: null,
-  viewers: {}
+  nextDayForcedBossId: null
 };
 
 let pvpState = {
@@ -1879,6 +1932,8 @@ const userSchema = new mongoose.Schema({
     dailyBusinessCardPurchases: { type: Number, default: 0 },
     dailyBacchusPurchases: { type: Number, default: 0 },
     dailyHot6Purchases: { type: Number, default: 0 },
+    dailyFragmentRaidTicketPurchases: { type: Number, default: 0 },
+    dailyFragmentBusinessCardPurchases: { type: Number, default: 0 },
     lastShoppingAddictQualifiedDayKey: { type: String, default: null }
   },
   meta: {
@@ -1988,27 +2043,67 @@ function getCurrentRaidBoss(now = new Date()) {
   return RAID_BOSS_DATA[getCurrentRaidBossId(now)] || RAID_BOSS_DATA[RAID_BOSS_ID];
 }
 
-function hasQueuedRaidUsers() {
-  return raidState.slots.some(Boolean);
+function normalizeRaidMode(mode) {
+  return mode === RAID_MODE_HARD ? RAID_MODE_HARD : RAID_MODE_NORMAL;
 }
 
-function syncQueuedRaidBoss(now = new Date()) {
-  if (!hasQueuedRaidUsers()) {
-    raidState.queuedBossId = null;
+function ensureRaidRooms() {
+  if (!raidState.modes || typeof raidState.modes !== 'object') {
+    raidState.modes = {
+      [RAID_MODE_NORMAL]: createRaidRoomState(),
+      [RAID_MODE_HARD]: createRaidRoomState()
+    };
+  }
+  [RAID_MODE_NORMAL, RAID_MODE_HARD].forEach((mode) => {
+    if (!raidState.modes[mode]) raidState.modes[mode] = createRaidRoomState();
+    if (!Array.isArray(raidState.modes[mode].slots)) raidState.modes[mode].slots = Array(RAID_PARTY_SIZE).fill(null);
+    if (!raidState.modes[mode].viewers || typeof raidState.modes[mode].viewers !== 'object') raidState.modes[mode].viewers = {};
+  });
+}
+
+function getRaidRoom(mode = RAID_MODE_NORMAL) {
+  ensureRaidRooms();
+  return raidState.modes[normalizeRaidMode(mode)];
+}
+
+function findRaidRoomWithParticipant(userId) {
+  ensureRaidRooms();
+  return [RAID_MODE_NORMAL, RAID_MODE_HARD]
+    .map((mode) => ({ mode, room: getRaidRoom(mode) }))
+    .find(({ room }) => room.activeBattle && isRaidUserParticipant(room.activeBattle, userId)) || null;
+}
+
+function getRaidModeConfig(mode = RAID_MODE_NORMAL) {
+  return RAID_MODE_CONFIG[normalizeRaidMode(mode)] || RAID_MODE_CONFIG[RAID_MODE_NORMAL];
+}
+
+function getRaidModeFromBattle(activeBattle) {
+  return normalizeRaidMode(activeBattle?.mode || RAID_MODE_NORMAL);
+}
+
+function hasQueuedRaidUsers(mode = RAID_MODE_NORMAL) {
+  return getRaidRoom(mode).slots.some(Boolean);
+}
+
+function syncQueuedRaidBoss(now = new Date(), mode = RAID_MODE_NORMAL) {
+  const room = getRaidRoom(mode);
+  if (!hasQueuedRaidUsers(mode)) {
+    room.queuedBossId = null;
     return null;
   }
 
-  if (!RAID_BOSS_DATA[raidState.queuedBossId]) {
-    raidState.queuedBossId = getCurrentRaidBossId(now);
+  if (!RAID_BOSS_DATA[room.queuedBossId]) {
+    room.queuedBossId = getCurrentRaidBossId(now);
   }
-  return RAID_BOSS_DATA[raidState.queuedBossId] || getCurrentRaidBoss(now);
+  return RAID_BOSS_DATA[room.queuedBossId] || getCurrentRaidBoss(now);
 }
 
-function getRaidLobbyBoss(now = new Date()) {
-  if (raidState.activeBattle?.bossId && RAID_BOSS_DATA[raidState.activeBattle.bossId]) {
-    return RAID_BOSS_DATA[raidState.activeBattle.bossId];
+function getRaidLobbyBoss(now = new Date(), mode = RAID_MODE_NORMAL) {
+  const room = getRaidRoom(mode);
+  if (room.activeBattle?.bossId && RAID_BOSS_DATA[room.activeBattle.bossId]) {
+    return RAID_BOSS_DATA[room.activeBattle.bossId];
   }
-  return syncQueuedRaidBoss(now) || getCurrentRaidBoss(now);
+  return syncQueuedRaidBoss(now, mode) || getCurrentRaidBoss(now);
 }
 
 function getAlternateRaidBossId(selectedBossId) {
@@ -2104,6 +2199,8 @@ function ensureUserDefaults(user) {
       dailyBusinessCardPurchases: 0,
       dailyBacchusPurchases: 0,
       dailyHot6Purchases: 0,
+      dailyFragmentRaidTicketPurchases: 0,
+      dailyFragmentBusinessCardPurchases: 0,
       lastShoppingAddictQualifiedDayKey: null
     };
   }
@@ -2112,6 +2209,8 @@ function ensureUserDefaults(user) {
   user.shopState.dailyBusinessCardPurchases = Number(user.shopState.dailyBusinessCardPurchases ?? 0);
   user.shopState.dailyBacchusPurchases = Number(user.shopState.dailyBacchusPurchases ?? 0);
   user.shopState.dailyHot6Purchases = Number(user.shopState.dailyHot6Purchases ?? 0);
+  user.shopState.dailyFragmentRaidTicketPurchases = Number(user.shopState.dailyFragmentRaidTicketPurchases ?? 0);
+  user.shopState.dailyFragmentBusinessCardPurchases = Number(user.shopState.dailyFragmentBusinessCardPurchases ?? 0);
   user.shopState.lastShoppingAddictQualifiedDayKey = user.shopState.lastShoppingAddictQualifiedDayKey || null;
 
   if (!user.meta) {
@@ -3096,9 +3195,10 @@ function bumpRaidVersion() {
   raidState.version += 1;
 }
 
-function clearActiveRaidBattle() {
-  raidState.activeBattle = null;
-  raidState.viewers = {};
+function clearActiveRaidBattle(mode = RAID_MODE_NORMAL) {
+  const room = getRaidRoom(mode);
+  room.activeBattle = null;
+  room.viewers = {};
   bumpRaidVersion();
 }
 
@@ -3136,17 +3236,21 @@ function buildSpectatorList(viewerMap, participantIds = [], now = new Date()) {
     }));
 }
 
-function findQueuedRaidSlotIndex(userId) {
-  return raidState.slots.findIndex((slotUserId) => String(slotUserId) === String(userId));
+function findQueuedRaidSlotIndex(userId, mode = RAID_MODE_NORMAL) {
+  return getRaidRoom(mode).slots.findIndex((slotUserId) => String(slotUserId) === String(userId));
 }
 
-function clearQueuedRaidUser(userId) {
-  const slotIndex = findQueuedRaidSlotIndex(userId);
-  if (slotIndex >= 0) {
-    raidState.slots[slotIndex] = null;
-    syncQueuedRaidBoss(new Date());
-    bumpRaidVersion();
-  }
+function clearQueuedRaidUser(userId, mode = null) {
+  const modes = mode ? [normalizeRaidMode(mode)] : [RAID_MODE_NORMAL, RAID_MODE_HARD];
+  modes.forEach((entryMode) => {
+    const room = getRaidRoom(entryMode);
+    const slotIndex = findQueuedRaidSlotIndex(userId, entryMode);
+    if (slotIndex >= 0) {
+      room.slots[slotIndex] = null;
+      syncQueuedRaidBoss(new Date(), entryMode);
+      bumpRaidVersion();
+    }
+  });
 }
 
 function syncRaidEntryState(user, now = new Date()) {
@@ -3196,6 +3300,20 @@ function getRaidBossRewardRatio(level) {
   if (level >= 50) return 0.2;
   if (level <= 10) return 1;
   return Math.max(0.2, 1 - ((level - 10) * 0.02));
+}
+
+function isRaidLevelEligible(level, mode = RAID_MODE_NORMAL) {
+  const numericLevel = Number(level || 0);
+  const config = getRaidModeConfig(mode);
+  return numericLevel >= config.minLevel && numericLevel <= config.maxLevel;
+}
+
+function getRaidLevelRequirementText(mode = RAID_MODE_NORMAL) {
+  const config = getRaidModeConfig(mode);
+  if (Number.isFinite(config.maxLevel)) {
+    return `${config.minLevel}~${config.maxLevel}레벨`;
+  }
+  return `${config.minLevel}레벨 이상`;
 }
 
 function buildQueuedSlotSnapshot(user) {
@@ -4102,17 +4220,26 @@ function getRaidRecoveryMultiplier(target) {
     : 1;
 }
 
-function getRaidLobbySummary(now = new Date()) {
-  const boss = getRaidLobbyBoss(now);
+function getRaidLobbySummary(now = new Date(), mode = RAID_MODE_NORMAL) {
+  const normalizedMode = normalizeRaidMode(mode);
+  const modeConfig = getRaidModeConfig(normalizedMode);
+  const boss = getRaidLobbyBoss(now, normalizedMode);
+  const maxHp = Math.round(Number(boss.maxHp || 0) * Number(modeConfig.hpMultiplier || 1));
   return {
+    mode: normalizedMode,
+    modeLabel: modeConfig.label,
     bossId: boss.id,
     bossName: boss.name,
     bossPortrait: boss.portrait || '',
     bossImageLabel: boss.imageLabel || boss.name,
-    maxHp: boss.maxHp,
-    minLevel: RAID_MIN_LEVEL,
+    maxHp,
+    minLevel: modeConfig.minLevel,
+    maxLevel: Number.isFinite(modeConfig.maxLevel) ? modeConfig.maxLevel : null,
+    rewardMultiplier: modeConfig.rewardMultiplier,
     skillsText: boss.skillsText || [],
-    rewardsText: boss.rewardsText
+    rewardsText: normalizedMode === RAID_MODE_HARD
+      ? [...(boss.rewardsText || []), '하드 모드 보상: 노멀 보상의 1.5배']
+      : boss.rewardsText
   };
 }
 
@@ -5288,6 +5415,8 @@ function performRaidBossAction(battle) {
 function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
   if (!activeBattle) return null;
   const bossData = RAID_BOSS_DATA[activeBattle.bossId] || RAID_BOSS_DATA[RAID_BOSS_ID];
+  const battleMode = getRaidModeFromBattle(activeBattle);
+  const room = getRaidRoom(battleMode);
   const sanitizedLogs = activeBattle.logs.slice(-8).map((line) => {
     let normalized = String(line || '');
     activeBattle.participants.forEach((participant) => {
@@ -5299,6 +5428,8 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
   });
   return {
     battleId: activeBattle.battleId,
+    mode: battleMode,
+    modeLabel: getRaidModeConfig(battleMode).label,
     bossId: activeBattle.bossId,
     bossName: bossData.name,
     bossPortrait: bossData.portrait || '',
@@ -5315,7 +5446,7 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
     countdownEndsAt: activeBattle.countdownEndsAt || null,
     readyEndsAt: activeBattle.readyEndsAt || null,
     isParticipant: viewerUserId ? isRaidUserParticipant(activeBattle, viewerUserId) : false,
-    spectators: buildSpectatorList(raidState.viewers, activeBattle.participants.map((participant) => participant.userId)),
+    spectators: buildSpectatorList(room.viewers, activeBattle.participants.map((participant) => participant.userId)),
     participants: activeBattle.participants.map((participant, index) => {
       const card = getParticipantCard(participant);
       return {
@@ -5390,21 +5521,42 @@ function applyRaidBattleStartPassives(activeBattle) {
   }
 }
 
-async function buildRaidStateResponse(user, now = new Date()) {
+function buildRaidModeStatus(user, mode = RAID_MODE_NORMAL, now = new Date()) {
+  const room = getRaidRoom(mode);
+  const slots = room.slots || Array(RAID_PARTY_SIZE).fill(null);
+  const slotIndex = findQueuedRaidSlotIndex(user._id, mode);
+  const config = getRaidModeConfig(mode);
+  return {
+    mode,
+    label: config.label,
+    queuedCount: slots.filter(Boolean).length,
+    queuedSlotIndex: slotIndex,
+    hasActiveBattle: Boolean(room.activeBattle),
+    isParticipant: room.activeBattle ? isRaidUserParticipant(room.activeBattle, user._id) : false,
+    participantCount: room.activeBattle?.participants?.length || 0,
+    minLevel: config.minLevel,
+    maxLevel: Number.isFinite(config.maxLevel) ? config.maxLevel : null,
+    levelEligible: isRaidLevelEligible(user.gameState.level, mode)
+  };
+}
+
+async function buildRaidStateResponse(user, now = new Date(), mode = RAID_MODE_NORMAL) {
   try {
     await advanceRaidState(now);
   } catch (err) {
     console.error('Raid state reconciliation error:', err);
-    clearActiveRaidBattle();
+    [RAID_MODE_NORMAL, RAID_MODE_HARD].forEach((entryMode) => clearActiveRaidBattle(entryMode));
   }
 
-  const queuedUserIds = raidState.slots.filter(Boolean);
+  const normalizedMode = normalizeRaidMode(mode);
+  const room = getRaidRoom(normalizedMode);
+  const queuedUserIds = room.slots.filter(Boolean);
   const queuedUsers = queuedUserIds.length
     ? await User.find({ _id: { $in: queuedUserIds } }).select('nickname username gameState.level equippedCardId equippedCardLevel cards enhancedCards titles')
     : [];
   const queuedMap = new Map(queuedUsers.map((queuedUser) => [String(queuedUser._id), queuedUser]));
 
-  const slots = raidState.slots.map((slotUserId) => {
+  const slots = room.slots.map((slotUserId) => {
     if (!slotUserId) return null;
     const queuedUser = queuedMap.get(String(slotUserId));
     if (!queuedUser) return null;
@@ -5412,24 +5564,32 @@ async function buildRaidStateResponse(user, now = new Date()) {
     return buildQueuedSlotSnapshot(queuedUser);
   });
 
-  const slotIndex = findQueuedRaidSlotIndex(user._id);
+  const slotIndex = findQueuedRaidSlotIndex(user._id, normalizedMode);
   return {
     version: raidState.version,
-    lobby: getRaidLobbySummary(now),
+    mode: normalizedMode,
+    modes: [RAID_MODE_NORMAL, RAID_MODE_HARD].map((entryMode) => buildRaidModeStatus(user, entryMode, now)),
+    lobby: getRaidLobbySummary(now, normalizedMode),
     slots,
     queuedSlotIndex: slotIndex,
     todayUsed: isRaidAlreadyUsedToday(user, now),
     remainingEntries: getRaidRemainingEntries(user, now),
-    minLevelMet: user.gameState.level >= RAID_MIN_LEVEL,
-    canStart: slotIndex === slots.findIndex(Boolean) && slotIndex !== -1 && !raidState.activeBattle,
-    countdown: raidState.activeBattle?.phase === 'countdown'
+    minLevelMet: isRaidLevelEligible(user.gameState.level, normalizedMode),
+    levelRequirementText: getRaidLevelRequirementText(normalizedMode),
+    canStart: slotIndex === slots.findIndex(Boolean) && slotIndex !== -1 && !room.activeBattle,
+    countdown: room.activeBattle?.phase === 'countdown'
       ? {
           active: true,
-          endsAt: raidState.activeBattle.countdownEndsAt,
-          participantIds: raidState.activeBattle.participants.map((participant) => participant.userId)
+          mode: normalizedMode,
+          endsAt: room.activeBattle.countdownEndsAt,
+          participantIds: room.activeBattle.participants.map((participant) => participant.userId)
         }
       : null,
-    activeBattle: buildRaidBattleSnapshot(raidState.activeBattle, user._id)
+    activeBattle: buildRaidBattleSnapshot(room.activeBattle, user._id),
+    activeBattles: {
+      [RAID_MODE_NORMAL]: buildRaidBattleSnapshot(getRaidRoom(RAID_MODE_NORMAL).activeBattle, user._id),
+      [RAID_MODE_HARD]: buildRaidBattleSnapshot(getRaidRoom(RAID_MODE_HARD).activeBattle, user._id)
+    }
   };
 }
 
@@ -6339,8 +6499,13 @@ async function finalizePvpBattleOutcome(winnerUserId, loserUserId, battle) {
       user.pvpStats.rating = winnerNewRating;
       user.pvpStats.played += 1;
       user.pvpStats.wins += 1;
+      const expReward = Math.floor(getRequiredExp(user.gameState.level) * 0.05);
+      const fragmentReward = Math.floor(Math.random() * 5) + 1;
+      user.gameState.exp += expReward;
+      checkLevelUp(user);
       addItemToInventory(user, 'raid_entry_ticket', 1);
-      queueNotification(user, 'pvp_victory_reward', `개인면담 승리! +${delta}점, 회의 추가 입장권 1장을 획득했습니다.`);
+      addItemToInventory(user, 'equipment_fragment', fragmentReward);
+      queueNotification(user, 'pvp_victory_reward', `개인면담 승리! +${delta}점, 회의 추가 입장권 1장, 경험치 ${expReward.toLocaleString()}, 장비 파편 ${fragmentReward}개를 획득했습니다.`);
       await user.save();
     });
     await withUserMutationLock(loserUserId, async () => {
@@ -6610,6 +6775,8 @@ function startPvpAcceptMatch(playerA, playerB, now = new Date()) {
 async function finalizeRaidBattle(activeBattle, now = new Date()) {
   if (!activeBattle || activeBattle.finalized) return;
   activeBattle.finalizing = true;
+  const battleMode = getRaidModeFromBattle(activeBattle);
+  const modeRewardMultiplier = Number(getRaidModeConfig(battleMode).rewardMultiplier || 1);
   const participantIds = activeBattle.participants.map((participant) => participant.userId);
   const raidSpecialRewardType = Math.random() < RAID_SPECIAL_REWARD_CHANCE
     ? (Math.random() < 0.5 ? 'equipment' : 'scroll')
@@ -6641,8 +6808,11 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
 
     if (activeBattle.winner === 'players') {
       const rewardRatio = getRaidBossRewardRatio(participant.level);
-      let rewardMultiplier = 1;
+      let rewardMultiplier = modeRewardMultiplier;
       const rewardNotes = [];
+      if (modeRewardMultiplier !== 1) {
+        rewardNotes.push(`${getRaidModeConfig(battleMode).label} 모드 보상 ${modeRewardMultiplier.toFixed(1)}배`);
+      }
       if (participant.sojuRewardBuff) {
         rewardMultiplier *= Number(participant.sojuRewardMultiplier || 1);
         rewardNotes.push(`소주각? 적용으로 전리품 ${Number(participant.sojuRewardMultiplier || 1).toFixed(1)}배`);
@@ -6735,15 +6905,16 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
   }
 
   activeBattle.finalized = true;
-  clearActiveRaidBattle();
+  clearActiveRaidBattle(battleMode);
 }
 
-async function advanceRaidState(now = new Date()) {
-  const activeBattle = raidState.activeBattle;
+async function advanceRaidRoomState(mode = RAID_MODE_NORMAL, now = new Date()) {
+  const room = getRaidRoom(mode);
+  const activeBattle = room.activeBattle;
   if (!activeBattle) return;
 
   let safety = 0;
-  while (raidState.activeBattle && safety < 500) {
+  while (room.activeBattle && safety < 500) {
     safety += 1;
 
     if (activeBattle.phase === 'countdown') {
@@ -6886,11 +7057,16 @@ async function advanceRaidState(now = new Date()) {
     bumpRaidVersion();
   }
 
-  if (raidState.activeBattle?.winner) {
-    if (raidState.activeBattle.finalizing || raidState.activeBattle.finalized) return;
-    raidState.activeBattle.finalizing = true;
-    await finalizeRaidBattle(raidState.activeBattle, now);
+  if (room.activeBattle?.winner) {
+    if (room.activeBattle.finalizing || room.activeBattle.finalized) return;
+    room.activeBattle.finalizing = true;
+    await finalizeRaidBattle(room.activeBattle, now);
   }
+}
+
+async function advanceRaidState(now = new Date()) {
+  await advanceRaidRoomState(RAID_MODE_NORMAL, now);
+  await advanceRaidRoomState(RAID_MODE_HARD, now);
 }
 
 function unlockTitle(user, titleId) {
@@ -6918,7 +7094,31 @@ function syncDailyShopState(user, now = new Date()) {
     user.shopState.dailyBusinessCardPurchases = 0;
     user.shopState.dailyBacchusPurchases = 0;
     user.shopState.dailyHot6Purchases = 0;
+    user.shopState.dailyFragmentRaidTicketPurchases = 0;
+    user.shopState.dailyFragmentBusinessCardPurchases = 0;
   }
+}
+
+function buildFragmentShopState(user, now = new Date()) {
+  syncDailyShopState(user, now);
+  const ownedFragments = getInventoryQuantity(user, 'equipment_fragment');
+  return {
+    fragments: ownedFragments,
+    items: Object.values(FRAGMENT_SHOP_ITEMS).map((entry) => {
+      const purchased = Math.max(0, Number(user.shopState?.[entry.countField] || 0));
+      return {
+        id: entry.id,
+        itemId: entry.itemId,
+        name: entry.name,
+        cost: entry.cost,
+        quantity: entry.quantity,
+        dailyLimit: entry.dailyLimit,
+        purchasedToday: purchased,
+        remainingToday: Math.max(0, entry.dailyLimit - purchased),
+        canBuy: ownedFragments >= entry.cost && purchased < entry.dailyLimit
+      };
+    })
+  };
 }
 
 function getShoppingDaysWithoutBigSpend(user, now = new Date()) {
@@ -8362,6 +8562,53 @@ app.post('/api/shop/buy', async (req, res) => {
   }
 });
 
+app.post('/api/fragment-shop/buy', async (req, res) => {
+  const { userId, shopItemId } = req.body;
+  if (!userId || !shopItemId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+
+  const shopItem = FRAGMENT_SHOP_ITEMS[shopItemId];
+  if (!shopItem) return res.status(400).json({ msg: '존재하지 않는 파편 상점 항목입니다.' });
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+
+    const now = new Date();
+    calculateOfflineGains(user, now);
+    syncDailyShopState(user, now);
+
+    const purchasedToday = Math.max(0, Number(user.shopState?.[shopItem.countField] || 0));
+    if (purchasedToday >= shopItem.dailyLimit) {
+      return res.status(400).json({ msg: '오늘은 해당 항목을 더 이상 구매할 수 없습니다.' });
+    }
+    if (getInventoryQuantity(user, 'equipment_fragment') < shopItem.cost) {
+      return res.status(400).json({ msg: '장비 파편이 부족합니다.' });
+    }
+    if (!removeItemFromInventory(user, 'equipment_fragment', shopItem.cost)) {
+      return res.status(400).json({ msg: '장비 파편이 부족합니다.' });
+    }
+
+    addItemToInventory(user, shopItem.itemId, shopItem.quantity);
+    user.shopState[shopItem.countField] = purchasedToday + 1;
+    user.gameState.lastActionTime = now;
+
+    const response = await buildUserResponseWithGlobals(user, now);
+    response.fragmentShop = buildFragmentShopState(user, now);
+    response.fragmentShopPurchase = {
+      shopItemId: shopItem.id,
+      itemId: shopItem.itemId,
+      itemName: ITEM_DATA[shopItem.itemId]?.name || shopItem.name,
+      quantity: shopItem.quantity,
+      cost: shopItem.cost
+    };
+    await user.save();
+    res.json(response);
+  } catch (err) {
+    console.error('Fragment shop buy error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
 app.post('/api/inventory/use', async (req, res) => {
   const { userId, itemId, quantity } = req.body;
   if (!userId || !itemId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
@@ -9163,18 +9410,20 @@ app.post('/api/cards/equip', async (req, res) => {
       return res.status(400).json({ msg: '보유하지 않은 카드입니다.' });
     }
 
-    const queuedSlotIndex = findQueuedRaidSlotIndex(user._id);
-    if (queuedSlotIndex >= 0 && cardId) {
-      const otherQueuedUserIds = raidState.slots
-        .filter(Boolean)
-        .filter((slotUserId) => String(slotUserId) !== String(user._id));
-      if (otherQueuedUserIds.length) {
-        const duplicateCardUser = await User.findOne({
-          _id: { $in: otherQueuedUserIds },
-          equippedCardId: cardId
-        }).select('nickname username');
-        if (duplicateCardUser) {
-          return res.status(400).json({ msg: '같은 카드를 든 참가자가 이미 대기 중이라 교체할 수 없습니다.' });
+    for (const mode of [RAID_MODE_NORMAL, RAID_MODE_HARD]) {
+      const queuedSlotIndex = findQueuedRaidSlotIndex(user._id, mode);
+      if (queuedSlotIndex >= 0 && cardId) {
+        const otherQueuedUserIds = getRaidRoom(mode).slots
+          .filter(Boolean)
+          .filter((slotUserId) => String(slotUserId) !== String(user._id));
+        if (otherQueuedUserIds.length) {
+          const duplicateCardUser = await User.findOne({
+            _id: { $in: otherQueuedUserIds },
+            equippedCardId: cardId
+          }).select('nickname username');
+          if (duplicateCardUser) {
+            return res.status(400).json({ msg: '같은 카드를 든 참가자가 이미 대기 중이라 교체할 수 없습니다.' });
+          }
         }
       }
     }
@@ -9196,7 +9445,7 @@ app.post('/api/cards/equip', async (req, res) => {
 });
 
 app.post('/api/raid/state', async (req, res) => {
-  const { userId, viewing } = req.body;
+  const { userId, viewing, mode } = req.body;
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
@@ -9204,12 +9453,14 @@ app.post('/api/raid/state', async (req, res) => {
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
     ensureUserDefaults(user);
     const now = new Date();
-    if (viewing && raidState.activeBattle && !isRaidUserParticipant(raidState.activeBattle, userId)) {
-      registerViewer(raidState.viewers, user, now);
+    const normalizedMode = normalizeRaidMode(mode);
+    const room = getRaidRoom(normalizedMode);
+    if (viewing && room.activeBattle && !isRaidUserParticipant(room.activeBattle, userId)) {
+      registerViewer(room.viewers, user, now);
     } else {
-      pruneViewerMap(raidState.viewers, now);
+      pruneViewerMap(room.viewers, now);
     }
-    const raid = await buildRaidStateResponse(user, now);
+    const raid = await buildRaidStateResponse(user, now, normalizedMode);
     res.json({
       raid,
       user: buildGameStateResponse(user, now),
@@ -9223,7 +9474,7 @@ app.post('/api/raid/state', async (req, res) => {
 });
 
 app.post('/api/raid/toggle-slot', async (req, res) => {
-  const { userId, slotIndex } = req.body;
+  const { userId, slotIndex, mode } = req.body;
   const targetSlot = Math.max(0, Math.min(RAID_PARTY_SIZE - 1, Math.floor(Number(slotIndex))));
   if (!userId || Number.isNaN(targetSlot)) {
     return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
@@ -9235,25 +9486,27 @@ app.post('/api/raid/toggle-slot', async (req, res) => {
     ensureUserDefaults(user);
     const now = new Date();
     calculateOfflineGains(user, now);
+    const normalizedMode = normalizeRaidMode(mode);
+    const room = getRaidRoom(normalizedMode);
 
-    if (raidState.activeBattle) {
-      return res.status(400).json({ msg: '이미 레이드가 진행 중입니다.' });
+    if (room.activeBattle) {
+      return res.status(400).json({ msg: '이미 해당 모드의 레이드가 진행 중입니다.' });
     }
-    if (user.gameState.level < RAID_MIN_LEVEL) {
-      return res.status(400).json({ msg: `레이드는 ${RAID_MIN_LEVEL}레벨부터 입장할 수 있습니다.` });
+    if (!isRaidLevelEligible(user.gameState.level, normalizedMode)) {
+      return res.status(400).json({ msg: `${getRaidModeConfig(normalizedMode).label} 레이드는 ${getRaidLevelRequirementText(normalizedMode)}만 입장할 수 있습니다.` });
     }
     if (isRaidAlreadyUsedToday(user, now)) {
       return res.status(400).json({ msg: '오늘은 이미 레이드에 입장했습니다. 내일 다시 시도해주세요.' });
     }
 
-    const existingSlot = findQueuedRaidSlotIndex(user._id);
+    const existingSlot = findQueuedRaidSlotIndex(user._id, normalizedMode);
     if (existingSlot === targetSlot) {
-      raidState.slots[targetSlot] = null;
-      syncQueuedRaidBoss(now);
+      room.slots[targetSlot] = null;
+      syncQueuedRaidBoss(now, normalizedMode);
       bumpRaidVersion();
     } else {
       if (user.equippedCardId) {
-        const queuedOtherUserIds = raidState.slots
+        const queuedOtherUserIds = room.slots
           .filter(Boolean)
           .filter((slotUserId) => String(slotUserId) !== String(user._id));
         if (queuedOtherUserIds.length) {
@@ -9266,18 +9519,18 @@ app.post('/api/raid/toggle-slot', async (req, res) => {
           }
         }
       }
-      if (raidState.slots[targetSlot] && String(raidState.slots[targetSlot]) !== String(user._id)) {
+      if (room.slots[targetSlot] && String(room.slots[targetSlot]) !== String(user._id)) {
         return res.status(400).json({ msg: '이미 다른 플레이어가 대기 중인 슬롯입니다.' });
       }
       if (existingSlot >= 0) {
-        raidState.slots[existingSlot] = null;
+        room.slots[existingSlot] = null;
       }
-      raidState.slots[targetSlot] = String(user._id);
-      syncQueuedRaidBoss(now);
+      room.slots[targetSlot] = String(user._id);
+      syncQueuedRaidBoss(now, normalizedMode);
       bumpRaidVersion();
     }
 
-    const raid = await buildRaidStateResponse(user, now);
+    const raid = await buildRaidStateResponse(user, now, normalizedMode);
     res.json({ raid });
   } catch (err) {
     console.error('Raid slot toggle error:', err);
@@ -9286,10 +9539,12 @@ app.post('/api/raid/toggle-slot', async (req, res) => {
 });
 
 app.post('/api/raid/start', async (req, res) => {
-  const { userId } = req.body;
+  const { userId, mode } = req.body;
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   const consumedUsers = [];
+  const normalizedMode = normalizeRaidMode(mode);
+  const room = getRaidRoom(normalizedMode);
   try {
     const starter = await User.findById(userId);
     if (!starter) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
@@ -9303,20 +9558,20 @@ app.post('/api/raid/start', async (req, res) => {
       clearActiveRaidBattle();
     }
 
-    if (raidState.activeBattle) {
-      if (isRaidUserParticipant(raidState.activeBattle, userId)) {
-        const raid = await buildRaidStateResponse(starter, now);
+    if (room.activeBattle) {
+      if (isRaidUserParticipant(room.activeBattle, userId)) {
+        const raid = await buildRaidStateResponse(starter, now, normalizedMode);
         return res.json({ raid, resumed: true });
       }
-      return res.status(400).json({ msg: '이미 레이드가 진행 중입니다.' });
+      return res.status(400).json({ msg: '이미 해당 모드의 레이드가 진행 중입니다.' });
     }
 
-    const leftMostIndex = raidState.slots.findIndex(Boolean);
-    if (leftMostIndex === -1 || String(raidState.slots[leftMostIndex]) !== String(userId)) {
+    const leftMostIndex = room.slots.findIndex(Boolean);
+    if (leftMostIndex === -1 || String(room.slots[leftMostIndex]) !== String(userId)) {
       return res.status(403).json({ msg: '가장 왼쪽 슬롯의 플레이어만 입장 버튼을 누를 수 있습니다.' });
     }
 
-    const participantIds = raidState.slots.filter(Boolean);
+    const participantIds = room.slots.filter(Boolean);
     if (participantIds.length < 2) {
       return res.status(400).json({ msg: '회의는 혼자 할 수 없습니다!' });
     }
@@ -9330,8 +9585,8 @@ app.post('/api/raid/start', async (req, res) => {
       if (!user) continue;
       ensureUserDefaults(user);
       calculateOfflineGains(user, now);
-      if (user.gameState.level < RAID_MIN_LEVEL) {
-        return res.status(400).json({ msg: `${user.nickname || user.username} 님의 레벨이 부족합니다.` });
+      if (!isRaidLevelEligible(user.gameState.level, normalizedMode)) {
+        return res.status(400).json({ msg: `${user.nickname || user.username} 님은 ${getRaidModeConfig(normalizedMode).label} 레이드 입장 기준(${getRaidLevelRequirementText(normalizedMode)})에 맞지 않습니다.` });
       }
       participants.push(createRaidParticipantFromUser(user));
       participantUsers.push(user);
@@ -9346,8 +9601,8 @@ app.post('/api/raid/start', async (req, res) => {
     }
 
     if (participants.length < 2) {
-      raidState.slots = raidState.slots.map((slotUserId) => (userMap.has(String(slotUserId)) ? slotUserId : null));
-      syncQueuedRaidBoss(now);
+      room.slots = room.slots.map((slotUserId) => (userMap.has(String(slotUserId)) ? slotUserId : null));
+      syncQueuedRaidBoss(now, normalizedMode);
       bumpRaidVersion();
       return res.status(400).json({ msg: '참여 가능한 파티원이 2명 이상 있어야 합니다.' });
     }
@@ -9370,8 +9625,8 @@ app.post('/api/raid/start', async (req, res) => {
 
         ensureUserDefaults(latestUser);
         calculateOfflineGains(latestUser, now);
-        if (latestUser.gameState.level < RAID_MIN_LEVEL) {
-          throw createHttpError(400, `${latestUser.nickname || latestUser.username} 님의 레벨이 부족합니다.`);
+        if (!isRaidLevelEligible(latestUser.gameState.level, normalizedMode)) {
+          throw createHttpError(400, `${latestUser.nickname || latestUser.username} 님은 ${getRaidModeConfig(normalizedMode).label} 레이드 입장 기준(${getRaidLevelRequirementText(normalizedMode)})에 맞지 않습니다.`);
         }
         if (!consumeRaidEntry(latestUser, now)) {
           throw createHttpError(400, `${latestUser.nickname || latestUser.username} 님은 오늘 이미 레이드에 참여했습니다.`);
@@ -9386,12 +9641,15 @@ app.post('/api/raid/start', async (req, res) => {
 
     const countdownDurationMs = (RAID_COUNTDOWN_SECONDS * 1000) + RAID_COUNTDOWN_BUFFER_MS;
 
-    const currentBoss = syncQueuedRaidBoss(now) || getCurrentRaidBoss(now);
-    raidState.activeBattle = {
+    const currentBoss = syncQueuedRaidBoss(now, normalizedMode) || getCurrentRaidBoss(now);
+    const modeConfig = getRaidModeConfig(normalizedMode);
+    const bossMaxHp = Math.round(Number(currentBoss.maxHp || 0) * Number(modeConfig.hpMultiplier || 1));
+    room.activeBattle = {
       battleId: `raid-${Date.now()}`,
+      mode: normalizedMode,
       bossId: currentBoss.id,
-      bossHp: currentBoss.maxHp,
-      bossMaxHp: currentBoss.maxHp,
+      bossHp: bossMaxHp,
+      bossMaxHp,
       bossShield: 0,
       bossShieldTurns: 0,
       bossLastHpLoss: 0,
@@ -9407,27 +9665,35 @@ app.post('/api/raid/start', async (req, res) => {
       logs: ['레이드가 곧 시작됩니다. 3, 2, 1'],
       winner: null
     };
-    applyRaidBattleStartPassives(raidState.activeBattle);
-    raidState.slots = Array(RAID_PARTY_SIZE).fill(null);
-    raidState.queuedBossId = null;
+    applyRaidBattleStartPassives(room.activeBattle);
+    room.slots = Array(RAID_PARTY_SIZE).fill(null);
+    room.queuedBossId = null;
     bumpRaidVersion();
 
     const responseUser = participantUsers.find((entry) => String(entry._id) === String(userId)) || starter;
     const raid = {
       version: raidState.version,
-      lobby: getRaidLobbySummary(now),
+      mode: normalizedMode,
+      modes: [RAID_MODE_NORMAL, RAID_MODE_HARD].map((entryMode) => buildRaidModeStatus(responseUser, entryMode, now)),
+      lobby: getRaidLobbySummary(now, normalizedMode),
       slots: Array(RAID_PARTY_SIZE).fill(null),
       queuedSlotIndex: -1,
       todayUsed: isRaidAlreadyUsedToday(responseUser, now),
       remainingEntries: getRaidRemainingEntries(responseUser, now),
-      minLevelMet: responseUser.gameState.level >= RAID_MIN_LEVEL,
+      minLevelMet: isRaidLevelEligible(responseUser.gameState.level, normalizedMode),
+      levelRequirementText: getRaidLevelRequirementText(normalizedMode),
       canStart: false,
       countdown: {
         active: true,
-        endsAt: raidState.activeBattle.countdownEndsAt,
-        participantIds: raidState.activeBattle.participants.map((participant) => participant.userId)
+        mode: normalizedMode,
+        endsAt: room.activeBattle.countdownEndsAt,
+        participantIds: room.activeBattle.participants.map((participant) => participant.userId)
       },
-      activeBattle: buildRaidBattleSnapshot(raidState.activeBattle, userId)
+      activeBattle: buildRaidBattleSnapshot(room.activeBattle, userId),
+      activeBattles: {
+        [RAID_MODE_NORMAL]: buildRaidBattleSnapshot(getRaidRoom(RAID_MODE_NORMAL).activeBattle, userId),
+        [RAID_MODE_HARD]: buildRaidBattleSnapshot(getRaidRoom(RAID_MODE_HARD).activeBattle, userId)
+      }
     };
     res.json({ raid });
   } catch (err) {
@@ -9441,25 +9707,27 @@ app.post('/api/raid/start', async (req, res) => {
       }
     }
     if (
-      raidState.activeBattle
-      && raidState.activeBattle.phase === 'countdown'
-      && raidState.activeBattle.participants?.some((participant) => String(participant.userId) === String(userId))
+      room.activeBattle
+      && room.activeBattle.phase === 'countdown'
+      && room.activeBattle.participants?.some((participant) => String(participant.userId) === String(userId))
     ) {
-      clearActiveRaidBattle();
+      clearActiveRaidBattle(normalizedMode);
     }
     res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
   }
 });
 
 app.post('/api/raid/cancel-countdown', async (req, res) => {
-  const { userId } = req.body;
+  const { userId, mode } = req.body;
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
 
-    const activeBattle = raidState.activeBattle;
+    const normalizedMode = normalizeRaidMode(mode);
+    const room = getRaidRoom(normalizedMode);
+    const activeBattle = room.activeBattle;
     if (!activeBattle || activeBattle.phase !== 'countdown') {
       return res.status(400).json({ msg: '입장 카운트다운 중인 레이드가 없습니다.' });
     }
@@ -9473,13 +9741,13 @@ app.post('/api/raid/cancel-countdown', async (req, res) => {
     const users = await User.find({ _id: { $in: participantIds } });
     const userMap = new Map(users.map((entry) => [String(entry._id), entry]));
 
-    raidState.slots = Array(RAID_PARTY_SIZE).fill(null);
+    room.slots = Array(RAID_PARTY_SIZE).fill(null);
     activeBattle.participants.forEach((participant, index) => {
       if (index < RAID_PARTY_SIZE) {
-        raidState.slots[index] = String(participant.userId);
+        room.slots[index] = String(participant.userId);
       }
     });
-    raidState.queuedBossId = activeBattle.bossId;
+    room.queuedBossId = activeBattle.bossId;
 
     for (const participantId of participantIds) {
       const participantUser = userMap.get(String(participantId));
@@ -9488,11 +9756,11 @@ app.post('/api/raid/cancel-countdown', async (req, res) => {
       await participantUser.save();
     }
 
-    raidState.activeBattle = null;
-    raidState.viewers = {};
+    room.activeBattle = null;
+    room.viewers = {};
     bumpRaidVersion();
 
-    const raid = await buildRaidStateResponse(user, new Date());
+    const raid = await buildRaidStateResponse(user, new Date(), normalizedMode);
     res.json({ raid, cancelled: true });
   } catch (err) {
     console.error('Raid countdown cancel error:', err);
@@ -9506,11 +9774,13 @@ app.post('/api/raid/plan-skill', async (req, res) => {
 
   try {
     await advanceRaidState(new Date());
-    if (!raidState.activeBattle || raidState.activeBattle.phase === 'finished') {
+    const located = findRaidRoomWithParticipant(userId);
+    const activeBattle = located?.room?.activeBattle;
+    if (!activeBattle || activeBattle.phase === 'finished') {
       return res.status(400).json({ msg: '진행 중인 레이드가 없습니다.' });
     }
 
-    const participant = getRaidParticipant(raidState.activeBattle, userId);
+    const participant = getRaidParticipant(activeBattle, userId);
     if (!participant) {
       return res.status(403).json({ msg: '현재 레이드 참가자가 아닙니다.' });
     }
@@ -9524,7 +9794,7 @@ app.post('/api/raid/plan-skill', async (req, res) => {
     }
 
     if ((card.targetType === 'ally' || card.targetType === 'ally_pair') && targetUserId) {
-      const selectableTargets = getSelectableRaidTargets(raidState.activeBattle);
+      const selectableTargets = getSelectableRaidTargets(activeBattle);
       if (!selectableTargets.includes(String(targetUserId))) {
         return res.status(400).json({ msg: '선택할 수 없는 대상입니다.' });
       }
@@ -9548,7 +9818,7 @@ app.post('/api/raid/plan-skill', async (req, res) => {
 
     participant.plannedSkill = Boolean(useSkill);
     bumpRaidVersion();
-    res.json({ raid: buildRaidBattleSnapshot(raidState.activeBattle, userId) });
+    res.json({ raid: buildRaidBattleSnapshot(activeBattle, userId) });
   } catch (err) {
     console.error('Raid skill plan error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
@@ -9561,11 +9831,13 @@ app.post('/api/raid/set-target', async (req, res) => {
 
   try {
     await advanceRaidState(new Date());
-    if (!raidState.activeBattle || raidState.activeBattle.phase === 'finished') {
+    const located = findRaidRoomWithParticipant(userId);
+    const activeBattle = located?.room?.activeBattle;
+    if (!activeBattle || activeBattle.phase === 'finished') {
       return res.status(400).json({ msg: '진행 중인 레이드가 없습니다.' });
     }
 
-    const participant = getRaidParticipant(raidState.activeBattle, userId);
+    const participant = getRaidParticipant(activeBattle, userId);
     if (!participant) {
       return res.status(403).json({ msg: '현재 레이드 참가자가 아닙니다.' });
     }
@@ -9575,7 +9847,7 @@ app.post('/api/raid/set-target', async (req, res) => {
       return res.status(400).json({ msg: '대상을 선택하는 스킬이 아닙니다.' });
     }
 
-    const selectableTargets = getSelectableRaidTargets(raidState.activeBattle);
+    const selectableTargets = getSelectableRaidTargets(activeBattle);
     if (!selectableTargets.includes(String(targetUserId))) {
       return res.status(400).json({ msg: '선택할 수 없는 대상입니다.' });
     }
@@ -9590,7 +9862,7 @@ app.post('/api/raid/set-target', async (req, res) => {
     }
 
     bumpRaidVersion();
-    res.json({ raid: buildRaidBattleSnapshot(raidState.activeBattle, userId) });
+    res.json({ raid: buildRaidBattleSnapshot(activeBattle, userId) });
   } catch (err) {
     console.error('Raid target set error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
@@ -10320,7 +10592,10 @@ app.post('/api/admin/set-raid-boss', async (req, res) => {
     return res.status(400).json({ msg: '변경할 보스가 올바르지 않습니다.' });
   }
 
-  if (raidState.activeBattle || raidState.slots.some(Boolean)) {
+  if ([RAID_MODE_NORMAL, RAID_MODE_HARD].some((mode) => {
+    const room = getRaidRoom(mode);
+    return room.activeBattle || room.slots.some(Boolean);
+  })) {
     return res.status(400).json({ msg: '현재 진행 중이거나 대기 중인 레이드가 있어 보스를 변경할 수 없습니다.' });
   }
 

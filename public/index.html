@@ -498,7 +498,7 @@
     <div class="excel-sheet modal-panel marketplace-modal-panel">
       <h3>파편 상점</h3>
       <p id="fragmentShopCount" class="menu-note">현재 보유 파편: 0개</p>
-      <div class="modal-note">구매 항목은 추후 업데이트 예정입니다.</div>
+      <div id="fragmentShopItems" class="fragment-shop-list"></div>
       <div class="modal-buttons">
         <button id="fragmentShopCloseBtn" class="mini-btn">닫기</button>
       </div>
@@ -630,6 +630,10 @@
   <div id="raidLobbyModal" class="modal-overlay hidden">
     <div class="excel-sheet modal-panel raid-modal-panel">
       <h3>오늘의 회의 참석</h3>
+      <div class="raid-mode-tabs">
+        <button id="raidModeNormalBtn" class="mini-btn raid-mode-tab active" data-raid-mode="normal">노멀 모드</button>
+        <button id="raidModeHardBtn" class="mini-btn raid-mode-tab" data-raid-mode="hard">하드 모드</button>
+      </div>
       <div class="raid-lobby-grid">
         <div>
           <h4 id="raidBossName">오늘의 보스 정보</h4>

@@ -195,6 +195,7 @@ let modalResolver = null;
 let latestGlobalState = { activeShoutText: '', activeShoutKey: '' };
 let lastRenderedShoutKey = '';
 let latestRaidState = null;
+let selectedRaidMode = 'normal';
 let latestPvpState = null;
 let selectedPvpCardId = null;
 let selectedPvpEnhancementLevel = 0;
@@ -257,6 +258,24 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-05-22-pvp-victory-exp-fragments',
+    time: '2026-05-22 01:30',
+    title: '개인면담 승리 보상 추가',
+    items: [
+      '개인면담 승리 시 기존 회의 추가 입장권에 더해 현재 레벨 경험치통의 5% 경험치와 장비 파편 1~5개를 추가 지급합니다.'
+    ]
+  },
+  {
+    id: '2026-05-22-fragment-shop-raid-hard-mode',
+    time: '2026-05-22 01:10',
+    title: '파편 상점과 하드 레이드 추가',
+    items: [
+      '파편 상점에 회의 추가 입장권과 명함 묶음 구매 항목을 추가했습니다.',
+      '보스 레이드를 노멀/하드 모드로 분리하고, 하드 모드는 150레벨 이상 입장 및 노멀 보상 1.5배로 적용했습니다.',
+      '노멀/하드 레이드는 각각 별도 대기열과 전투 방으로 진행되며, 회의 창에서 모드를 선택할 수 있습니다.'
+    ]
+  },
   {
     id: '2026-05-22-raid-spectator-bottom',
     time: '2026-05-22 00:35',
@@ -727,6 +746,8 @@ function setupEventListeners() {
   bindClick('marketplaceSettleBtn', handleMarketplaceSettle);
   bindClick('raidLobbyCloseBtn', closeRaidLobby);
   bindClick('raidStartBtn', handleRaidStartClick);
+  bindClick('raidModeNormalBtn', () => handleRaidModeChange('normal'));
+  bindClick('raidModeHardBtn', () => handleRaidModeChange('hard'));
   bindClick('raidCountdownCancelBtn', handleRaidCountdownCancelClick);
   bindClick('raidBackBtn', handleRaidBackClick);
   bindClick('cardDrawBtn', handleCardDraw);
@@ -2958,7 +2979,11 @@ function showGameScreen(user) {
 
 function openRaidLobby() {
   const user = getStoredUser();
-  if (latestRaidState?.activeBattle) {
+  const activeModes = latestRaidState?.activeBattles || {};
+  const participantMode = Object.entries(activeModes).find(([, battle]) => battle?.isParticipant)?.[0];
+  if (participantMode) {
+    selectedRaidMode = participantMode;
+    latestRaidState.activeBattle = activeModes[participantMode];
     hideModal('raidLobbyModal');
     showRaidScreen();
     renderRaidBattle(latestRaidState, user);
@@ -2990,6 +3015,12 @@ function showRaidScreen() {
   startBgm('raid');
 }
 
+function handleRaidModeChange(mode) {
+  selectedRaidMode = mode === 'hard' ? 'hard' : 'normal';
+  updateRaidLobbyUI(latestRaidState, getStoredUser());
+  pollRaidState();
+}
+
 function updateRaidButton(user, raidState) {
   const button = document.getElementById('raidLobbyBtn');
   const hint = document.getElementById('raidEntryHint');
@@ -3001,38 +3032,41 @@ function updateRaidButton(user, raidState) {
   }
 
   const todayUsed = Boolean(raidState?.todayUsed);
-  const minLevelMet = Boolean(raidState?.minLevelMet);
-  const queued = Number.isInteger(raidState?.queuedSlotIndex) && raidState.queuedSlotIndex >= 0;
   const remainingEntries = Number(raidState?.remainingEntries ?? 0);
-  const queuedCount = (raidState?.slots || []).filter(Boolean).length;
+  const modes = Array.isArray(raidState?.modes) ? raidState.modes : [];
+  const selectedStatus = modes.find((entry) => entry.mode === selectedRaidMode) || null;
+  const anyActive = modes.some((entry) => entry.hasActiveBattle);
+  const participantStatus = modes.find((entry) => entry.isParticipant);
+  const queuedStatus = modes.find((entry) => Number.isInteger(entry.queuedSlotIndex) && entry.queuedSlotIndex >= 0);
+  const queuedCountText = modes.length
+    ? modes.map((entry) => `${entry.label || entry.mode} ${formatNumber(entry.queuedCount || 0)}/5`).join(' / ')
+    : `현재 입장 대기중 ${(raidState?.slots || []).filter(Boolean).length}/5`;
 
-  if (raidState?.activeBattle) {
-    const isParticipant = Boolean(raidState.activeBattle.isParticipant);
-    const participantCount = raidState.activeBattle.participants?.length || 0;
-    button.classList.toggle('waiting', isParticipant);
+  if (anyActive) {
+    button.classList.toggle('waiting', Boolean(participantStatus));
     button.disabled = false;
-    button.textContent = isParticipant ? '회의 진행중' : '회의 관전하기';
-    hint.textContent = isParticipant
-      ? '진행 중인 회의로 돌아갈 수 있습니다.'
-      : '이미 시작된 회의는 레벨과 관계없이 관전할 수 있습니다.';
-    if (queueCountEl) queueCountEl.textContent = `현재 회의 진행중 ${participantCount}/5`;
+    button.textContent = participantStatus ? '회의 진행중' : '회의 관전/참석';
+    hint.textContent = participantStatus
+      ? `${participantStatus.label || ''} 회의가 진행 중입니다. 버튼을 누르면 전투 화면으로 돌아갑니다.`
+      : '진행 중인 회의 관전 또는 다른 모드 대기열 입장이 가능합니다.';
+    if (queueCountEl) queueCountEl.textContent = `진행/대기: ${queuedCountText}`;
     return;
   }
 
-  button.classList.toggle('waiting', queued);
-  if (queueCountEl) queueCountEl.textContent = `현재 입장 대기중 ${queuedCount}/5`;
-  button.textContent = queued ? '회의 참석 대기중' : '회의 참석';
+  button.classList.toggle('waiting', Boolean(queuedStatus));
+  if (queueCountEl) queueCountEl.textContent = `현재 입장 대기중 ${queuedCountText}`;
+  button.textContent = queuedStatus ? '회의 참석 대기중' : '회의 참석';
 
   if (todayUsed) {
     button.disabled = true;
     hint.textContent = '오늘은 이미 보스 레이드에 입장했습니다.';
-  } else if (!minLevelMet) {
-    button.disabled = true;
-    hint.textContent = '보스 레이드는 10레벨부터 입장할 수 있습니다.';
+  } else if (selectedStatus && !selectedStatus.levelEligible) {
+    button.disabled = false;
+    hint.textContent = `${selectedStatus.label} 모드 입장 기준: ${selectedStatus.maxLevel ? `${selectedStatus.minLevel}~${selectedStatus.maxLevel}레벨` : `${selectedStatus.minLevel}레벨 이상`}`;
   } else {
     button.disabled = false;
-    hint.textContent = queued
-      ? `현재 ${raidState.queuedSlotIndex + 1}번 슬롯에서 대기 중입니다. 오늘 남은 입장 가능 횟수 ${remainingEntries}회`
+    hint.textContent = queuedStatus
+      ? `${queuedStatus.label} ${queuedStatus.queuedSlotIndex + 1}번 슬롯에서 대기 중입니다. 오늘 남은 입장 가능 횟수 ${remainingEntries}회`
       : `보스 레이드 대기열에 참가할 수 있습니다. 오늘 남은 입장 가능 횟수 ${remainingEntries}회`;
   }
 }
@@ -3859,13 +3893,75 @@ function openSupportModal() {
 
 function openFragmentShopModal() {
   const user = getStoredUser();
-  const count = getInventoryQuantityFromUser(user, 'equipment_fragment');
-  setText('fragmentShopCount', `현재 보유 파편: ${formatNumber(count)}개`);
+  renderFragmentShopModal(user);
   showModal('fragmentShopModal');
 }
 
 function closeFragmentShopModal() {
   hideModal('fragmentShopModal');
+}
+
+function renderFragmentShopModal(user = getStoredUser()) {
+  const count = getInventoryQuantityFromUser(user, 'equipment_fragment');
+  const list = document.getElementById('fragmentShopItems');
+  setText('fragmentShopCount', `현재 보유 파편: ${formatNumber(count)}개`);
+  if (!list) return;
+  const shopState = user?.shopState || {};
+  const items = [
+    {
+      id: 'raid_entry_ticket',
+      name: '회의 추가 입장권 1장',
+      cost: 50,
+      dailyLimit: 1,
+      purchasedToday: Number(shopState.dailyFragmentRaidTicketPurchases || 0),
+      desc: '파편 50개로 구매합니다. 1일 1회 구매 가능합니다.'
+    },
+    {
+      id: 'business_card_bundle',
+      name: '명함 10장',
+      cost: 30,
+      dailyLimit: 2,
+      purchasedToday: Number(shopState.dailyFragmentBusinessCardPurchases || 0),
+      desc: '파편 30개로 구매합니다. 1일 2회 구매 가능합니다.'
+    }
+  ];
+  list.innerHTML = items.map((item) => {
+    const remaining = Math.max(0, item.dailyLimit - item.purchasedToday);
+    const disabled = count < item.cost || remaining <= 0;
+    const status = remaining > 0
+      ? `오늘 남은 구매 가능: ${formatNumber(remaining)}/${formatNumber(item.dailyLimit)}`
+      : '오늘 구매 한도 도달';
+    return `
+      <div class="fragment-shop-item">
+        <div>
+          <strong>${escapeHtml(item.name)}</strong>
+          <div class="menu-note">${escapeHtml(item.desc)}</div>
+          <div class="menu-note">${escapeHtml(status)}</div>
+        </div>
+        <button class="mini-btn" ${disabled ? 'disabled' : ''} onclick="handleFragmentShopBuy('${item.id}')">
+          파편 ${formatNumber(item.cost)}개 구매
+        </button>
+      </div>
+    `;
+  }).join('');
+}
+
+async function handleFragmentShopBuy(shopItemId) {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+  try {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/fragment-shop/buy`, {
+      userId: user._id,
+      shopItemId
+    }));
+    updateLocalUserState(data);
+    if (data.fragmentShopPurchase) {
+      alert(`${data.fragmentShopPurchase.itemName} ${formatNumber(data.fragmentShopPurchase.quantity)}개를 구매했습니다.`);
+    }
+    renderFragmentShopModal(data.user || getStoredUser());
+  } catch (err) {
+    alert(err.message);
+  }
 }
 
 function formatMarketDate(value) {
@@ -4506,6 +4602,7 @@ window.handleMarketplaceRegisterSortChange = handleMarketplaceRegisterSortChange
 window.handleMarketplaceRegisterSelect = handleMarketplaceRegisterSelect;
 window.handleMarketplaceBuy = handleMarketplaceBuy;
 window.handleMarketplaceCancel = handleMarketplaceCancel;
+window.handleFragmentShopBuy = handleFragmentShopBuy;
 window.handlePvpCardSelect = handlePvpCardSelect;
 window.handlePvpPlanSkill = handlePvpPlanSkill;
 window.handlePvpBasicOnlyTurn = handlePvpBasicOnlyTurn;
@@ -4527,7 +4624,7 @@ function renderRaidBattle(raidState, user) {
   const currentTurnIndex = Number(battle.currentTurnIndex || 0);
   const isBossTurn = currentTurnIndex >= participantCount;
 
-  setText('raidScreenBossName', battle.bossName);
+  setText('raidScreenBossName', `${battle.modeLabel ? `${battle.modeLabel} ` : ''}${battle.bossName}`);
   setText('raidBossTitle', battle.bossName);
   setText('raidBossHpText', `${formatNumber(battle.bossHp)} / ${formatNumber(battle.bossMaxHp)}`);
   const bossEffectList = document.getElementById('raidBossEffectList');
@@ -4780,8 +4877,9 @@ async function pollRaidState() {
   try {
     const raidScreenOpen = !document.getElementById('raid-screen')?.classList.contains('hidden');
     const viewing = raidScreenOpen && Boolean(latestRaidState?.activeBattle);
-    const data = await postJson(`${API_URL}/api/raid/state`, { userId: user._id, viewing });
+    const data = await postJson(`${API_URL}/api/raid/state`, { userId: user._id, viewing, mode: selectedRaidMode });
     latestRaidState = data.raid;
+    if (latestRaidState?.mode) selectedRaidMode = latestRaidState.mode;
     if (data.user) {
       updateLocalUserState(data, { force: false });
     }
@@ -4811,9 +4909,11 @@ async function handleRaidSlotClick(slotIndex) {
   try {
     const data = await postJson(`${API_URL}/api/raid/toggle-slot`, {
       userId: user._id,
-      slotIndex
+      slotIndex,
+      mode: selectedRaidMode
     });
     latestRaidState = data.raid;
+    if (latestRaidState?.mode) selectedRaidMode = latestRaidState.mode;
     updateRaidButton(user, latestRaidState);
     updateRaidLobbyUI(latestRaidState, user);
   } catch (err) {
@@ -4826,8 +4926,18 @@ async function handleRaidStartClick() {
   if (!user?._id) return handleLogoutClick();
 
   try {
-    const data = await postJson(`${API_URL}/api/raid/start`, { userId: user._id });
+    const selectedBattle = latestRaidState?.activeBattle || latestRaidState?.activeBattles?.[selectedRaidMode];
+    if (selectedBattle && !selectedBattle.isParticipant) {
+      latestRaidState.activeBattle = selectedBattle;
+      hideModal('raidLobbyModal');
+      showRaidScreen();
+      renderRaidBattle(latestRaidState, user);
+      pollRaidState();
+      return;
+    }
+    const data = await postJson(`${API_URL}/api/raid/start`, { userId: user._id, mode: selectedRaidMode });
     latestRaidState = data.raid;
+    if (latestRaidState?.mode) selectedRaidMode = latestRaidState.mode;
     updateRaidLobbyUI(latestRaidState, user);
     updateRaidCountdown(latestRaidState, user);
   } catch (err) {
@@ -4842,8 +4952,9 @@ async function handleRaidCountdownCancelClick() {
   try {
     const button = document.getElementById('raidCountdownCancelBtn');
     if (button) button.disabled = true;
-    const data = await postJson(`${API_URL}/api/raid/cancel-countdown`, { userId: user._id });
+    const data = await postJson(`${API_URL}/api/raid/cancel-countdown`, { userId: user._id, mode: selectedRaidMode });
     latestRaidState = data.raid;
+    if (latestRaidState?.mode) selectedRaidMode = latestRaidState.mode;
     hideModal('raidCountdownOverlay');
     raidCountdownVisible = false;
     updateRaidButton(user, latestRaidState);
@@ -5863,6 +5974,9 @@ function updateShopUI(user) {
 
 function updateRaidLobbyUI(raidState, user) {
   updateRaidBossPortraitToggleButtons();
+  document.querySelectorAll('[data-raid-mode]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.raidMode === selectedRaidMode);
+  });
   const slotGrid = document.getElementById('raidSlotGrid');
   const rewardList = document.getElementById('raidRewardList');
   const skillList = document.getElementById('raidBossSkillList');
@@ -5873,8 +5987,10 @@ function updateRaidLobbyUI(raidState, user) {
   if (!slotGrid || !rewardList || !skillList || !bossName || !bossDesc || !startBtn) return;
 
   const lobby = raidState?.lobby;
-  bossName.textContent = lobby ? `오늘의 보스 정보: ${lobby.bossName}` : '오늘의 보스 정보';
-  bossDesc.textContent = lobby ? `${lobby.bossName} / 보스 HP ${formatNumber(lobby.maxHp || 60000)} / 최소 레벨 ${lobby.minLevel}` : '';
+  const selectedBattle = raidState?.activeBattle || raidState?.activeBattles?.[selectedRaidMode];
+  const maxLevelText = lobby?.maxLevel ? ` / 최대 레벨 ${formatNumber(lobby.maxLevel)}` : '';
+  bossName.textContent = lobby ? `${lobby.modeLabel || ''} 오늘의 보스 정보: ${lobby.bossName}` : '오늘의 보스 정보';
+  bossDesc.textContent = lobby ? `${lobby.bossName} / 보스 HP ${formatNumber(lobby.maxHp || 60000)} / 최소 레벨 ${formatNumber(lobby.minLevel)}${maxLevelText}` : '';
   renderRaidBossPortrait(bossPortrait, lobby?.bossPortrait, lobby?.bossName, {
     imageClass: 'raid-lobby-boss-img',
     fallbackClass: 'raid-lobby-boss-fallback'
@@ -5891,7 +6007,21 @@ function updateRaidLobbyUI(raidState, user) {
   });
 
   slotGrid.innerHTML = '';
-  const slots = raidState?.slots || Array(5).fill(null);
+  const slots = selectedBattle
+    ? [
+        ...(selectedBattle.participants || []).map((participant) => ({
+          ...participant,
+          displayName: participant.displayName,
+          equippedCardName: participant.equippedCardName,
+          equippedCardSkillName: participant.skillName,
+          equippedCardSkillDesc: participant.skillDesc,
+          equippedCardSpecialStyle: participant.equippedCardSpecialStyle,
+          equippedCardBorderColor: participant.equippedCardBorderColor,
+          equippedCardCooldown: participant.skillCooldown
+        })),
+        ...Array(5).fill(null)
+      ].slice(0, 5)
+    : (raidState?.slots || Array(5).fill(null));
   slots.forEach((slot, index) => {
     const isSelf = slot?.userId && user && String(slot.userId) === String(user._id);
     const cardTooltip = slot
@@ -5916,5 +6046,6 @@ function updateRaidLobbyUI(raidState, user) {
     );
   });
 
-  startBtn.disabled = !raidState?.canStart;
+  startBtn.textContent = selectedBattle ? '관전하기' : '입장';
+  startBtn.disabled = selectedBattle ? false : !raidState?.canStart;
 }

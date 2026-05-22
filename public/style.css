@@ -342,6 +342,40 @@ progress {
   left: 176px;
 }
 
+.fragment-shop-list {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.fragment-shop-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px;
+  border: var(--excel-border);
+  background: #fbfbfb;
+}
+
+.fragment-shop-item strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.raid-mode-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+
+.raid-mode-tab.active {
+  border-color: #2f75b5;
+  background: #e9f3ff;
+  color: #174c7c;
+  font-weight: bold;
+}
+
 .marketplace-entry-btn {
   left: 268px;
   background: #fff8d8;
