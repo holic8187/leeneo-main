@@ -689,10 +689,9 @@ progress {
 }
 
 .raid-spectator-panel {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  width: 170px;
+  grid-column: 1 / -1;
+  position: static;
+  width: auto;
 }
 
 .raid-ready-countdown {

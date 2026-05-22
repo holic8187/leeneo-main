@@ -258,6 +258,14 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-22-raid-spectator-bottom',
+    time: '2026-05-22 00:35',
+    title: '레이드 관전자 위치 조정',
+    items: [
+      '보스 레이드 전투 화면의 관전자 목록을 상단 오버레이가 아니라 참가 플레이어 목록 아래쪽에 표시되도록 변경했습니다.'
+    ]
+  },
+  {
     id: '2026-05-22-mingu-blue-aura',
     time: '2026-05-22 00:20',
     title: '밍구 카드 푸른 오라 연출 추가',
