@@ -287,6 +287,106 @@ progress {
   width: 60px;
 }
 
+.ranking-name-cell {
+  position: relative;
+  display: table-cell;
+  min-width: 120px;
+  vertical-align: middle;
+  overflow: hidden;
+}
+
+.ranking-name-cell .online-dot,
+.ranking-name-cell .ranking-display-name,
+.ranking-name-cell .ranking-emblem-icon {
+  position: relative;
+  z-index: 1;
+}
+
+.ranking-display-name {
+  display: inline-block;
+  max-width: 150px;
+  vertical-align: middle;
+}
+
+.ranking-emblem-icon {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  width: 28px;
+  height: 28px;
+  transform: translateY(-50%);
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .35));
+  pointer-events: none;
+}
+
+.emblem-neo-office-ledger {
+  color: #2c1700;
+  font-weight: 700;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(255, 255, 255, .75), transparent 26%),
+    linear-gradient(100deg, #fff1a6 0%, #ffd85a 36%, #bb7a16 68%, #fff4b8 100%);
+  box-shadow: inset 0 0 0 1px rgba(120, 71, 0, .5), inset 0 0 16px rgba(255, 255, 255, .45);
+}
+
+.emblem-neo-office-ledger::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, .42) 44%, transparent 60%);
+  transform: translateX(-120%);
+  animation: emblem-sheen 3.4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes emblem-sheen {
+  0%, 52% { transform: translateX(-120%); }
+  78%, 100% { transform: translateX(120%); }
+}
+
+.emblem-preview-cell {
+  display: inline-block;
+  width: 190px;
+  min-height: 30px;
+  padding: 7px 38px 7px 10px;
+  border: 1px solid rgba(120, 71, 0, .35);
+}
+
+.emblem-shop-item {
+  grid-template-columns: minmax(190px, 1fr) 1.5fr auto;
+  align-items: center;
+}
+
+.emblem-shop-preview {
+  position: relative;
+  min-height: 34px;
+  padding: 8px 42px 8px 10px;
+  border: 1px solid rgba(120, 71, 0, .35);
+  overflow: hidden;
+}
+
+.emblem-preview-icon {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  width: 30px;
+  height: 30px;
+  transform: translateY(-50%);
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .35));
+  z-index: 1;
+}
+
+.shop-modal-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.shop-modal-tabs .mini-btn.active {
+  background: #e2f0d9;
+  border-color: #70ad47;
+  font-weight: 700;
+}
+
 .animation-cell {
   height: 210px;
   text-align: center;

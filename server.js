@@ -155,6 +155,16 @@ const PEN_REWARD_ITEM_MAP = {
   pen_jetstream: 'reward_pen_jetstream',
   pen_applepencil: 'reward_pen_applepencil'
 };
+const EMBLEM_DATA = {
+  neo_office_ledger: {
+    id: 'neo_office_ledger',
+    name: '네오상사 결재휘장',
+    price: 100000000000,
+    desc: '랭킹 닉네임 칸에 회사 결재판 느낌의 전용 배경과 휘장 아이콘을 표시합니다.',
+    imageUrl: '/assets/emblems/neo-office-ledger.svg',
+    className: 'emblem-neo-office-ledger'
+  }
+};
 const EQUIPMENT_DROP_CHANCE = 0.0005;
 const ADVENTURE_SCROLL_DROP_CHANCE = 0.005;
 const EQUIPMENT_TYPE_CARD = 'card_effect';
@@ -1922,6 +1932,10 @@ const userSchema = new mongoose.Schema({
     unlocked: { type: [String], default: [] },
     equipped: { type: String, default: null }
   },
+  emblems: {
+    unlocked: { type: [String], default: [] },
+    equipped: { type: String, default: null }
+  },
   pendingStockInvestment: {
     amount: { type: Number, default: 0 },
     investedOn: { type: String, default: null }
@@ -2184,6 +2198,14 @@ function ensureUserDefaults(user) {
   if (!Array.isArray(user.titles.unlocked)) user.titles.unlocked = [];
   if (!Object.prototype.hasOwnProperty.call(user.titles, 'equipped')) {
     user.titles.equipped = null;
+  }
+  if (!user.emblems) {
+    user.emblems = { unlocked: [], equipped: null };
+  }
+  if (!Array.isArray(user.emblems.unlocked)) user.emblems.unlocked = [];
+  user.emblems.unlocked = [...new Set(user.emblems.unlocked.filter((emblemId) => EMBLEM_DATA[emblemId]))];
+  if (!EMBLEM_DATA[user.emblems.equipped]) {
+    user.emblems.equipped = null;
   }
 
   if (!user.pendingStockInvestment || typeof user.pendingStockInvestment !== 'object') {
@@ -2838,6 +2860,7 @@ function buildUserPersistenceSnapshot(user) {
     equippedCardLevel: normalizeCardEnhancementLevel(user.equippedCardLevel || 0),
     buffs: toPlainMongoValue(user.buffs),
     titles: toPlainMongoValue(user.titles),
+    emblems: toPlainMongoValue(user.emblems),
     pendingStockInvestment: toPlainMongoValue(user.pendingStockInvestment),
     shopState: toPlainMongoValue(user.shopState),
     meta: toPlainMongoValue(user.meta),
@@ -7508,6 +7531,47 @@ function buildTitleDetails(user, now = new Date()) {
     });
 }
 
+function getEmblemPublicDetail(emblemId, extra = {}) {
+  const emblem = EMBLEM_DATA[emblemId];
+  if (!emblem) return null;
+  return {
+    id: emblem.id,
+    name: emblem.name,
+    price: emblem.price,
+    desc: emblem.desc,
+    imageUrl: emblem.imageUrl,
+    className: emblem.className,
+    ...extra
+  };
+}
+
+function getEquippedEmblemDetail(user) {
+  return getEmblemPublicDetail(user?.emblems?.equipped);
+}
+
+function buildEmblemDetails(user) {
+  ensureUserDefaults(user);
+  return user.emblems.unlocked
+    .filter((emblemId) => EMBLEM_DATA[emblemId])
+    .map((emblemId) => getEmblemPublicDetail(emblemId, {
+      equipped: user.emblems.equipped === emblemId
+    }));
+}
+
+function buildEmblemShopState(user) {
+  ensureUserDefaults(user);
+  return {
+    items: Object.values(EMBLEM_DATA).map((emblem) => {
+      const owned = user.emblems.unlocked.includes(emblem.id);
+      return getEmblemPublicDetail(emblem.id, {
+        owned,
+        equipped: user.emblems.equipped === emblem.id,
+        canBuy: !owned && Number(user.gameState?.money || 0) >= emblem.price
+      });
+    })
+  };
+}
+
 function buildGameStateResponse(user, now = new Date()) {
   const derivedStats = calculateDerivedStats(user, now);
   const gameState = user.gameState.toObject ? user.gameState.toObject() : { ...user.gameState };
@@ -7544,9 +7608,13 @@ function buildGameStateResponse(user, now = new Date()) {
     buffs: user.buffs,
     titles: user.titles,
     titleDetails: buildTitleDetails(user, now),
+    emblems: user.emblems,
+    emblemDetails: buildEmblemDetails(user),
+    emblemShop: buildEmblemShopState(user),
     pendingStockInvestment: user.pendingStockInvestment,
     pendingAdventure: user.pendingAdventure,
     shopState: user.shopState,
+    fragmentShop: buildFragmentShopState(user, now),
     meta: {
       loginCount: user.meta.loginCount,
       lastShoutAt: user.meta.lastShoutAt,
@@ -8606,6 +8674,80 @@ app.post('/api/fragment-shop/buy', async (req, res) => {
   } catch (err) {
     console.error('Fragment shop buy error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/emblem-shop/buy', async (req, res) => {
+  const { userId, emblemId } = req.body;
+  if (!userId || !emblemId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+
+  const emblem = EMBLEM_DATA[emblemId];
+  if (!emblem) return res.status(400).json({ msg: '존재하지 않는 휘장입니다.' });
+
+  try {
+    await withUserMutationLock(userId, async () => {
+      const user = await User.findById(userId);
+      if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      ensureUserDefaults(user);
+
+      if (user.emblems.unlocked.includes(emblemId)) {
+        return res.status(400).json({ msg: '이미 보유 중인 휘장입니다.' });
+      }
+      if (Number(user.gameState.money || 0) < emblem.price) {
+        return res.status(400).json({ msg: '잔고가 부족합니다.' });
+      }
+
+      user.gameState.money -= emblem.price;
+      user.emblems.unlocked.push(emblemId);
+      if (!user.emblems.equipped) user.emblems.equipped = emblemId;
+      user.gameState.lastActionTime = now;
+
+      const response = await buildUserResponseWithGlobals(user, now);
+      response.emblemShopPurchase = {
+        emblemId,
+        emblemName: emblem.name,
+        price: emblem.price
+      };
+      await user.save();
+      res.json(response);
+    });
+  } catch (err) {
+    console.error('Emblem shop buy error:', err);
+    if (!res.headersSent) res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/emblem/toggle', async (req, res) => {
+  const { userId, emblemId } = req.body;
+  if (!userId || !emblemId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+  if (!EMBLEM_DATA[emblemId]) return res.status(400).json({ msg: '존재하지 않는 휘장입니다.' });
+
+  try {
+    await withUserMutationLock(userId, async () => {
+      const user = await User.findById(userId);
+      if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      ensureUserDefaults(user);
+
+      if (!user.emblems.unlocked.includes(emblemId)) {
+        return res.status(400).json({ msg: '보유하지 않은 휘장입니다.' });
+      }
+
+      user.emblems.equipped = user.emblems.equipped === emblemId ? null : emblemId;
+      user.gameState.lastActionTime = now;
+
+      const response = await buildUserResponseWithGlobals(user, now);
+      await user.save();
+      res.json(response);
+    });
+  } catch (err) {
+    console.error('Emblem toggle error:', err);
+    if (!res.headersSent) res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
   }
 });
 
@@ -10286,11 +10428,12 @@ app.get('/api/ranking', async (req, res) => {
     const rankingUsers = await User.find({ nickname: { $ne: null } })
       .sort({ 'gameState.level': -1, 'gameState.exp': -1 })
       .limit(20)
-      .select('nickname username gameState.level gameState.exp titles meta.lastSeenAt pvpStats');
+      .select('nickname username gameState.level gameState.exp titles emblems meta.lastSeenAt pvpStats');
 
     const levelRanking = rankingUsers.map((user) => ({
       nickname: user.nickname,
       displayName: buildDisplayName(user),
+      equippedEmblem: getEquippedEmblemDetail(user),
       gameState: {
         level: user.gameState.level,
         exp: user.gameState.exp
@@ -10299,11 +10442,12 @@ app.get('/api/ranking', async (req, res) => {
     }));
 
     const pvpUsers = await User.find({ nickname: { $ne: null } })
-      .select('nickname username titles meta.lastSeenAt pvpStats');
+      .select('nickname username titles emblems meta.lastSeenAt pvpStats');
     const pvpRanking = pvpUsers
       .map((user) => ({
         nickname: user.nickname,
         displayName: buildDisplayName(user),
+        equippedEmblem: getEquippedEmblemDetail(user),
         pvpStats: {
           rating: Math.round(Number(user.pvpStats?.rating ?? PVP_RATING_BASE)),
           played: Math.max(0, Math.floor(Number(user.pvpStats?.played || 0))),

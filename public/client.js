@@ -187,6 +187,7 @@ animations[2] = [
 let updateInterval;
 let rankingInterval;
 let rankingMode = 'level';
+let shopModalMode = 'fragment';
 let syncInterval;
 let animationInterval;
 let raidPollInterval;
@@ -258,6 +259,16 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-05-22-emblem-shop',
+    time: '2026-05-22 02:10',
+    title: '휘장 상점과 랭킹 닉네임 연출 추가',
+    items: [
+      '파편 상점 버튼을 상점으로 변경하고, 상점 팝업 안에 파편 상점과 일반 상점 탭을 분리했습니다.',
+      '일반 상점에 1000억원으로 구매 가능한 네오상사 결재휘장을 추가했습니다.',
+      '가방에 휘장 탭을 추가하고, 장착한 휘장은 랭킹 닉네임 칸 배경과 아이콘으로 표시되도록 했습니다.'
+    ]
+  },
   {
     id: '2026-05-22-hard-raid-hp-180k',
     time: '2026-05-22 01:45',
@@ -745,6 +756,8 @@ function setupEventListeners() {
   bindClick('rankingLevelTab', () => setRankingMode('level'));
   bindClick('rankingPvpTab', () => setRankingMode('pvp'));
   bindClick('fragmentShopBtn', openFragmentShopModal);
+  bindClick('fragmentShopTabBtn', () => handleShopModalTabChange('fragment'));
+  bindClick('generalShopTabBtn', () => handleShopModalTabChange('general'));
   bindClick('fragmentShopCloseBtn', closeFragmentShopModal);
   bindClick('marketplaceBtn', openMarketplaceModal);
   bindClick('marketplaceCloseBtn', closeMarketplaceModal);
@@ -2872,6 +2885,22 @@ async function handleToggleTitle(titleId) {
   }
 }
 
+async function handleToggleEmblem(emblemId) {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+
+  try {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/emblem/toggle`, {
+      userId: user._id,
+      emblemId
+    }));
+    updateLocalUserState(data);
+    updateRankingUI();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
 function updateLocalUserState(data, options = {}) {
   if (!data?.user) return;
   const mergedOptions = {
@@ -3901,7 +3930,7 @@ function openSupportModal() {
 
 function openFragmentShopModal() {
   const user = getStoredUser();
-  renderFragmentShopModal(user);
+  renderShopModal(user);
   showModal('fragmentShopModal');
 }
 
@@ -3909,7 +3938,22 @@ function closeFragmentShopModal() {
   hideModal('fragmentShopModal');
 }
 
-function renderFragmentShopModal(user = getStoredUser()) {
+function handleShopModalTabChange(mode) {
+  shopModalMode = mode === 'general' ? 'general' : 'fragment';
+  renderShopModal(getStoredUser());
+}
+
+function renderShopModal(user = getStoredUser()) {
+  const isGeneral = shopModalMode === 'general';
+  document.getElementById('fragmentShopTabBtn')?.classList.toggle('active', !isGeneral);
+  document.getElementById('generalShopTabBtn')?.classList.toggle('active', isGeneral);
+  document.getElementById('fragmentShopPanel')?.classList.toggle('hidden', isGeneral);
+  document.getElementById('generalShopPanel')?.classList.toggle('hidden', !isGeneral);
+  renderFragmentShopModal(user);
+  renderGeneralShopModal(user);
+}
+
+function renderFragmentShopModalLegacy(user = getStoredUser()) {
   const count = getInventoryQuantityFromUser(user, 'equipment_fragment');
   const list = document.getElementById('fragmentShopItems');
   setText('fragmentShopCount', `현재 보유 파편: ${formatNumber(count)}개`);
@@ -3954,6 +3998,72 @@ function renderFragmentShopModal(user = getStoredUser()) {
   }).join('');
 }
 
+function renderFragmentShopModal(user = getStoredUser()) {
+  const count = getInventoryQuantityFromUser(user, 'equipment_fragment');
+  const list = document.getElementById('fragmentShopItems');
+  setText('fragmentShopCount', `현재 보유 파편: ${formatNumber(count)}개`);
+  if (!list) return;
+
+  const items = user?.fragmentShop?.items || [
+    { id: 'raid_entry_ticket', name: '회의 추가 입장권 1장', cost: 50, dailyLimit: 1, purchasedToday: Number(user?.shopState?.dailyFragmentRaidTicketPurchases || 0), remainingToday: Math.max(0, 1 - Number(user?.shopState?.dailyFragmentRaidTicketPurchases || 0)) },
+    { id: 'business_card_bundle', name: '명함 10장', cost: 30, dailyLimit: 2, purchasedToday: Number(user?.shopState?.dailyFragmentBusinessCardPurchases || 0), remainingToday: Math.max(0, 2 - Number(user?.shopState?.dailyFragmentBusinessCardPurchases || 0)) }
+  ];
+
+  list.innerHTML = items.map((item) => {
+    const remaining = Math.max(0, Number(item.remainingToday ?? (Number(item.dailyLimit || 0) - Number(item.purchasedToday || 0))));
+    const disabled = count < Number(item.cost || 0) || remaining <= 0;
+    const status = remaining > 0
+      ? `오늘 남은 구매 가능: ${formatNumber(remaining)}/${formatNumber(item.dailyLimit || 0)}`
+      : '오늘 구매 한도 도달';
+    return `
+      <div class="fragment-shop-item">
+        <div>
+          <strong>${escapeHtml(item.name)}</strong>
+          <div class="menu-note">파편 ${formatNumber(item.cost || 0)}개로 구매합니다.</div>
+          <div class="menu-note">${escapeHtml(status)}</div>
+        </div>
+        <button class="mini-btn" ${disabled ? 'disabled' : ''} onclick="handleFragmentShopBuy('${item.id}')">
+          파편 ${formatNumber(item.cost || 0)}개 구매
+        </button>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderGeneralShopModal(user = getStoredUser()) {
+  const list = document.getElementById('generalShopItems');
+  if (!list) return;
+  const items = user?.emblemShop?.items || [];
+  if (!items.length) {
+    list.innerHTML = '<div class="menu-note">판매 중인 일반 상점 상품이 없습니다.</div>';
+    return;
+  }
+
+  list.innerHTML = items.map((item) => {
+    const disabled = item.owned || !item.canBuy;
+    const status = item.owned
+      ? (item.equipped ? '보유 중 / 장착 중' : '보유 중')
+      : `가격 ${formatNumber(item.price)}원`;
+    return `
+      <div class="fragment-shop-item emblem-shop-item">
+        <div class="emblem-shop-preview ${escapeHtml(item.className || '')}">
+          <span class="online-dot online"></span>
+          <span class="emblem-preview-name">사원 닉네임</span>
+          ${item.imageUrl ? `<img src="${escapeAttr(item.imageUrl)}" alt="" class="emblem-preview-icon">` : ''}
+        </div>
+        <div class="emblem-shop-info">
+          <strong>${escapeHtml(item.name)}</strong>
+          <div class="menu-note">${escapeHtml(item.desc || '')}</div>
+          <div class="menu-note">${escapeHtml(status)}</div>
+        </div>
+        <button class="mini-btn" ${disabled ? 'disabled' : ''} onclick="handleEmblemShopBuy('${item.id}')">
+          ${item.owned ? '구매 완료' : '구매'}
+        </button>
+      </div>
+    `;
+  }).join('');
+}
+
 async function handleFragmentShopBuy(shopItemId) {
   const user = getStoredUser();
   if (!user?._id) return handleLogoutClick();
@@ -3966,7 +4076,26 @@ async function handleFragmentShopBuy(shopItemId) {
     if (data.fragmentShopPurchase) {
       alert(`${data.fragmentShopPurchase.itemName} ${formatNumber(data.fragmentShopPurchase.quantity)}개를 구매했습니다.`);
     }
-    renderFragmentShopModal(data.user || getStoredUser());
+    renderShopModal(data.user || getStoredUser());
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleEmblemShopBuy(emblemId) {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+  try {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/emblem-shop/buy`, {
+      userId: user._id,
+      emblemId
+    }));
+    updateLocalUserState(data);
+    if (data.emblemShopPurchase) {
+      alert(`${data.emblemShopPurchase.emblemName} 휘장을 구매했습니다.`);
+    }
+    renderShopModal(data.user || getStoredUser());
+    updateRankingUI();
   } catch (err) {
     alert(err.message);
   }
@@ -4611,6 +4740,8 @@ window.handleMarketplaceRegisterSelect = handleMarketplaceRegisterSelect;
 window.handleMarketplaceBuy = handleMarketplaceBuy;
 window.handleMarketplaceCancel = handleMarketplaceCancel;
 window.handleFragmentShopBuy = handleFragmentShopBuy;
+window.handleEmblemShopBuy = handleEmblemShopBuy;
+window.handleToggleEmblem = handleToggleEmblem;
 window.handlePvpCardSelect = handlePvpCardSelect;
 window.handlePvpPlanSkill = handlePvpPlanSkill;
 window.handlePvpBasicOnlyTurn = handlePvpBasicOnlyTurn;
@@ -5277,12 +5408,22 @@ async function updateRankingUI() {
         ? `전적 ${formatNumber(entry.pvpStats?.wins || 0)}승 ${formatNumber(entry.pvpStats?.losses || 0)}패`
         : `현재 경험치 ${formatNumber(entry.gameState?.exp || 0)}`;
 
+      const emblem = entry.equippedEmblem || null;
+      const emblemClass = emblem?.className ? String(emblem.className).replace(/[^a-zA-Z0-9_-]/g, '') : '';
+      const emblemIcon = emblem?.imageUrl
+        ? `<img src="${escapeAttr(emblem.imageUrl)}" alt="" class="ranking-emblem-icon" title="${escapeAttr(emblem.name || '')}">`
+        : '';
+
       rankingListBody.insertAdjacentHTML(
         'beforeend',
         `
           <tr class="${rankClass}" title="${escapeAttr(titleText)}">
             <td class="center-text">${index + 1}</td>
-            <td><span class="online-dot ${entry.isOnline ? 'online' : 'offline'}"></span>${escapeHtml(entry.displayName || entry.nickname)}</td>
+            <td class="ranking-name-cell ${escapeHtml(emblemClass)}">
+              <span class="online-dot ${entry.isOnline ? 'online' : 'offline'}"></span>
+              <span class="ranking-display-name">${escapeHtml(entry.displayName || entry.nickname)}</span>
+              ${emblemIcon}
+            </td>
             <td class="center-text">${escapeHtml(valueText)}</td>
           </tr>
         `
@@ -5790,8 +5931,9 @@ function updateSpecialActionButtons(user) {
 function updateInventoryUI(user) {
   const inventoryList = document.getElementById('inventory-list');
   const titleList = document.getElementById('title-list');
+  const emblemList = document.getElementById('emblem-list');
   const cardList = document.getElementById('card-list');
-  if (!inventoryList || !titleList || !cardList) return;
+  if (!inventoryList || !titleList || !emblemList || !cardList) return;
 
   inventoryList.innerHTML = '';
   const inventoryMap = new Map();
@@ -5844,6 +5986,32 @@ function updateInventoryUI(user) {
             <td title="${escapeHtml(title.unlockDesc || '')}">${escapeHtml(title.name)}</td>
             <td title="${escapeHtml(title.unlockDesc || '')}">${escapeHtml(title.desc)}</td>
             <td><button class="mini-btn" onclick="handleToggleTitle('${title.id}')">${title.equipped ? '해제' : '장착'}</button></td>
+          </tr>
+        `
+      );
+    });
+  }
+
+  emblemList.innerHTML = '';
+  const emblemDetails = user.emblemDetails || [];
+  if (!emblemDetails.length) {
+    emblemList.innerHTML = '<tr><td colspan="4">아직 보유한 휘장이 없습니다.</td></tr>';
+  } else {
+    emblemDetails.forEach((emblem) => {
+      emblemList.insertAdjacentHTML(
+        'beforeend',
+        `
+          <tr class="${emblem.equipped ? 'equipped-title-row' : ''}">
+            <td>
+              <div class="ranking-name-cell emblem-preview-cell ${escapeHtml(emblem.className || '')}">
+                <span class="online-dot online"></span>
+                <span class="ranking-display-name">닉네임</span>
+                ${emblem.imageUrl ? `<img src="${escapeAttr(emblem.imageUrl)}" alt="" class="ranking-emblem-icon">` : ''}
+              </div>
+            </td>
+            <td>${escapeHtml(emblem.name)}</td>
+            <td>${escapeHtml(emblem.desc || '')}</td>
+            <td><button class="mini-btn" onclick="handleToggleEmblem('${emblem.id}')">${emblem.equipped ? '해제' : '장착'}</button></td>
           </tr>
         `
       );

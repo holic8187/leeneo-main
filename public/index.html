@@ -147,7 +147,7 @@
             <td colspan="10" class="animation-cell animation-host">
               <button id="raidLobbyBtn" class="raid-entry-btn">회의 참석</button>
               <button id="pvpLobbyBtn" class="raid-entry-btn side-entry-btn pvp-entry-btn">개인면담</button>
-              <button id="fragmentShopBtn" class="raid-entry-btn side-entry-btn">파편 상점</button>
+              <button id="fragmentShopBtn" class="raid-entry-btn side-entry-btn">상점</button>
               <button id="marketplaceBtn" class="raid-entry-btn side-entry-btn marketplace-entry-btn">사내 번개장터</button>
               <div id="raidEntryHint" class="raid-entry-hint">10레벨부터 입장 가능</div>
               <div id="anim-display" class="anim-display-text">(업무 중..)</div>
@@ -275,6 +275,19 @@
                     </tr>
                   </thead>
                   <tbody id="title-list"></tbody>
+                </table>
+
+                <h4 class="section-gap">휘장</h4>
+                <table class="inner-table">
+                  <thead>
+                    <tr>
+                      <th>미리보기</th>
+                      <th>휘장명</th>
+                      <th>설명</th>
+                      <th>장착</th>
+                    </tr>
+                  </thead>
+                  <tbody id="emblem-list"></tbody>
                 </table>
 
                 <h4 class="section-gap">카드</h4>
@@ -496,9 +509,19 @@
 
   <div id="fragmentShopModal" class="modal-overlay hidden">
     <div class="excel-sheet modal-panel marketplace-modal-panel">
-      <h3>파편 상점</h3>
-      <p id="fragmentShopCount" class="menu-note">현재 보유 파편: 0개</p>
-      <div id="fragmentShopItems" class="fragment-shop-list"></div>
+      <h3>상점</h3>
+      <div class="shop-modal-tabs">
+        <button id="fragmentShopTabBtn" class="mini-btn active" type="button">파편 상점</button>
+        <button id="generalShopTabBtn" class="mini-btn" type="button">일반 상점</button>
+      </div>
+      <div id="fragmentShopPanel">
+        <p id="fragmentShopCount" class="menu-note">현재 보유 파편: 0개</p>
+        <div id="fragmentShopItems" class="fragment-shop-list"></div>
+      </div>
+      <div id="generalShopPanel" class="hidden">
+        <p class="menu-note">일반 상점은 보유 재산을 소모해 외형 아이템을 구매합니다.</p>
+        <div id="generalShopItems" class="fragment-shop-list"></div>
+      </div>
       <div class="modal-buttons">
         <button id="fragmentShopCloseBtn" class="mini-btn">닫기</button>
       </div>
