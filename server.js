@@ -113,7 +113,7 @@ const RAID_MODE_CONFIG = {
     label: '하드',
     minLevel: RAID_HARD_MIN_LEVEL,
     maxLevel: Infinity,
-    hpMultiplier: 2,
+    hpMultiplier: 3,
     rewardMultiplier: 1.5
   }
 };

@@ -259,6 +259,14 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-22-hard-raid-hp-180k',
+    time: '2026-05-22 01:45',
+    title: '하드 회의 보스 체력 상향',
+    items: [
+      '하드 모드 보스의 체력을 기존 120,000에서 180,000으로 상향했습니다.'
+    ]
+  },
+  {
     id: '2026-05-22-pvp-victory-exp-fragments',
     time: '2026-05-22 01:30',
     title: '개인면담 승리 보상 추가',
