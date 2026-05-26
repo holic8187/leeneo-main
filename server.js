@@ -158,11 +158,12 @@ const PEN_REWARD_ITEM_MAP = {
 const EMBLEM_DATA = {
   neo_office_ledger: {
     id: 'neo_office_ledger',
-    name: '네오상사 결재휘장',
+    name: '사원증',
     price: 100000000000,
-    desc: '랭킹 닉네임 칸에 회사 결재판 느낌의 전용 배경과 휘장 아이콘을 표시합니다.',
-    imageUrl: '/assets/emblems/neo-office-ledger.svg',
-    className: 'emblem-neo-office-ledger'
+    desc: '랭킹 닉네임 칸에 회사 사원증 느낌의 전용 배경과 휘장 아이콘을 표시합니다. 보유 효과: 획득하는 모든 경험치 +1%',
+    imageUrl: '',
+    className: 'emblem-neo-office-ledger',
+    effects: { expBonus: 1 }
   }
 };
 const EQUIPMENT_DROP_CHANCE = 0.0005;
@@ -6522,7 +6523,8 @@ async function finalizePvpBattleOutcome(winnerUserId, loserUserId, battle) {
       user.pvpStats.rating = winnerNewRating;
       user.pvpStats.played += 1;
       user.pvpStats.wins += 1;
-      const expReward = Math.floor(getRequiredExp(user.gameState.level) * 0.05);
+      const expMultiplier = 1 + calculateDerivedStats(user, new Date()).expBonusPercent / 100;
+      const expReward = Math.floor(getRequiredExp(user.gameState.level) * 0.05 * expMultiplier);
       const fragmentReward = Math.floor(Math.random() * 5) + 1;
       user.gameState.exp += expReward;
       checkLevelUp(user);
@@ -6853,7 +6855,8 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
           rewardNotes.push('이번엔 될거같아 실패로 보상 없음');
         }
       }
-      const expReward = Math.floor(getRequiredExp(participant.level) * rewardRatio * rewardMultiplier);
+      const expBonusMultiplier = 1 + calculateDerivedStats(user, now).expBonusPercent / 100;
+      const expReward = Math.floor(getRequiredExp(participant.level) * rewardRatio * rewardMultiplier * expBonusMultiplier);
       const businessCards = Math.max(0, Math.round((sharedBaseRewards?.businessCards || 0) * rewardMultiplier));
       const bacchus = Math.max(0, Math.round((sharedBaseRewards?.bacchus || 0) * rewardMultiplier));
       const monami = Math.max(0, Math.round((sharedBaseRewards?.monami || 0) * rewardMultiplier));
@@ -7190,6 +7193,22 @@ function calculateItemStats(inventory = []) {
   return stats;
 }
 
+function calculateEmblemStats(emblems = {}) {
+  const stats = {
+    expBonus: 0
+  };
+
+  const unlocked = Array.isArray(emblems?.unlocked) ? [...new Set(emblems.unlocked)] : [];
+  unlocked.forEach((emblemId) => {
+    const effects = EMBLEM_DATA[emblemId]?.effects;
+    if (!effects) return;
+    stats.expBonus += Number(effects.expBonus || 0);
+  });
+
+  stats.expBonus = Number(stats.expBonus.toFixed(2));
+  return stats;
+}
+
 function getActiveBuffEffects(user, now = new Date()) {
   const effects = {
     expBonusAdd: 0,
@@ -7223,11 +7242,13 @@ function calculateDerivedStats(user, now = new Date()) {
   cleanupExpiredBuffs(user, now);
 
   const itemStats = calculateItemStats(user.inventory);
+  const emblemStats = calculateEmblemStats(user.emblems);
   const titleDef = getEquippedTitleDefinition(user);
   const titleEffects = titleDef?.effects || {};
   const activeBuffEffects = getActiveBuffEffects(user, now);
 
   const moneyBonusPercent = itemStats.moneyBonus + (titleEffects.moneyBonus || 0);
+  const expBonusPercent = itemStats.expBonus + emblemStats.expBonus;
   const titleStressMultiplier = titleEffects.titleStressMultiplier || 1;
   const passiveExpMultiplier = Math.max(0, 1 + activeBuffEffects.expBonusAdd + activeBuffEffects.passiveExpBonusAdd);
   const clickExpMultiplier = Math.max(0, 1 + activeBuffEffects.expBonusAdd + activeBuffEffects.clickExpBonusAdd);
@@ -7239,7 +7260,9 @@ function calculateDerivedStats(user, now = new Date()) {
     moneyBonusPercent: Number(moneyBonusPercent.toFixed(2)),
     itemMoneyBonusPercent: itemStats.moneyBonus,
     titleMoneyBonusPercent: Number((titleEffects.moneyBonus || 0).toFixed(2)),
-    expBonusPercent: itemStats.expBonus,
+    expBonusPercent: Number(expBonusPercent.toFixed(2)),
+    itemExpBonusPercent: itemStats.expBonus,
+    emblemExpBonusPercent: emblemStats.expBonus,
     stressMultiplier: finalStressMultiplier,
     stressReductionPercent: Number(((1 - finalStressMultiplier) * 100).toFixed(2)),
     clickStressRelief: Number((itemStats.clickStressRelief + activeBuffEffects.clickStressRelief).toFixed(2)),
@@ -7633,6 +7656,8 @@ function buildGameStateResponse(user, now = new Date()) {
       itemMoneyBonus: derivedStats.itemMoneyBonusPercent,
       titleMoneyBonus: derivedStats.titleMoneyBonusPercent,
       expBonus: derivedStats.expBonusPercent,
+      itemExpBonus: derivedStats.itemExpBonusPercent,
+      emblemExpBonus: derivedStats.emblemExpBonusPercent,
       stressMultiplier: derivedStats.stressMultiplier,
       stressReduction: derivedStats.stressReductionPercent,
       clickStressRelief: derivedStats.clickStressRelief,

@@ -320,12 +320,13 @@ progress {
 }
 
 .emblem-neo-office-ledger {
-  color: #2c1700;
-  font-weight: 700;
+  color: #fff5c8;
+  font-weight: 800;
   background:
-    radial-gradient(circle at 20% 20%, rgba(255, 255, 255, .75), transparent 26%),
-    linear-gradient(100deg, #fff1a6 0%, #ffd85a 36%, #bb7a16 68%, #fff4b8 100%);
-  box-shadow: inset 0 0 0 1px rgba(120, 71, 0, .5), inset 0 0 16px rgba(255, 255, 255, .45);
+    linear-gradient(90deg, rgba(8, 8, 8, .68) 0%, rgba(30, 18, 0, .22) 38%, rgba(7, 7, 7, .62) 100%),
+    url('/assets/emblems/employee-card-banner.jpg') center center / cover no-repeat;
+  box-shadow: inset 0 0 0 1px rgba(255, 218, 132, .58), inset 0 0 20px rgba(255, 225, 132, .2);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .95), 0 0 8px rgba(255, 210, 112, .55);
 }
 
 .emblem-neo-office-ledger::after {
@@ -336,6 +337,11 @@ progress {
   transform: translateX(-120%);
   animation: emblem-sheen 3.4s ease-in-out infinite;
   pointer-events: none;
+}
+
+.emblem-neo-office-ledger .ranking-emblem-icon,
+.emblem-neo-office-ledger .emblem-preview-icon {
+  display: none;
 }
 
 @keyframes emblem-sheen {
