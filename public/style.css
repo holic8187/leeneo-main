@@ -269,6 +269,7 @@ progress {
 
 .ranking-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   margin: 4px 6px 6px;
 }
@@ -277,6 +278,15 @@ progress {
   background: #e2f0d9;
   border-color: #70ad47;
   font-weight: 700;
+}
+
+.ranking-emblem-toggle {
+  margin-left: auto;
+}
+
+.ranking-emblem-toggle.off {
+  background: #f2f2f2;
+  color: #666;
 }
 
 .rank-col {

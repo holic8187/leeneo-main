@@ -252,6 +252,7 @@ let lastRenderedRaidBattleId = null;
 const recentNotificationKeys = new Map();
 const BGM_MUTED_STORAGE_KEY = 'ineoBgmMuted';
 const RAID_BOSS_PORTRAIT_STORAGE_KEY = 'ineoRaidBossPortraitEnabled';
+const RANKING_EMBLEMS_STORAGE_KEY = 'ineoRankingEmblemsEnabled';
 const BGM_VOLUME = 0.16;
 const BGM_TRACKS = {
   normal: 'bgm.mp3',
@@ -261,6 +262,15 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-05-26-ranking-emblem-toggle',
+    time: '2026-05-26 13:20',
+    title: '랭킹 휘장 표시 토글',
+    items: [
+      '랭킹 탭에 휘장 켜기/끄기 버튼을 추가했습니다.',
+      '휘장을 끄면 랭킹에 표시되는 모든 휘장 배경과 아이콘이 숨겨져 더 조용한 화면으로 볼 수 있습니다.'
+    ]
+  },
   {
     id: '2026-05-26-normal-raid-high-level-entry',
     time: '2026-05-26 13:05',
@@ -818,6 +828,7 @@ function setupEventListeners() {
   bindClick('pvpPatchNotesBtn', () => openPatchNotesModal({ markSeen: true }));
   bindClick('rankingLevelTab', () => setRankingMode('level'));
   bindClick('rankingPvpTab', () => setRankingMode('pvp'));
+  bindClick('rankingEmblemToggleBtn', handleRankingEmblemToggle);
   bindClick('fragmentShopBtn', openFragmentShopModal);
   bindClick('fragmentShopTabBtn', () => handleShopModalTabChange('fragment'));
   bindClick('generalShopTabBtn', () => handleShopModalTabChange('general'));
@@ -1374,6 +1385,27 @@ function renderRaidBossPortrait(element, portraitSrc, bossName, options = {}) {
   if (element.dataset.portraitKey === key) return;
   element.dataset.portraitKey = key;
   element.innerHTML = buildRaidBossPortraitHtml(effectivePortraitSrc, bossName, options);
+}
+
+function isRankingEmblemsEnabled() {
+  return localStorage.getItem(RANKING_EMBLEMS_STORAGE_KEY) !== 'false';
+}
+
+function updateRankingEmblemToggleButton() {
+  const button = document.getElementById('rankingEmblemToggleBtn');
+  if (!button) return;
+  const enabled = isRankingEmblemsEnabled();
+  button.textContent = enabled ? '휘장 끄기' : '휘장 켜기';
+  button.classList.toggle('off', !enabled);
+  button.setAttribute('aria-pressed', String(enabled));
+  button.title = enabled ? '랭킹 휘장 배경과 아이콘 숨기기' : '랭킹 휘장 다시 표시하기';
+}
+
+function handleRankingEmblemToggle() {
+  const nextEnabled = !isRankingEmblemsEnabled();
+  localStorage.setItem(RANKING_EMBLEMS_STORAGE_KEY, nextEnabled ? 'true' : 'false');
+  updateRankingEmblemToggleButton();
+  updateRankingUI();
 }
 
 function getBusinessCardCount(user) {
@@ -5605,6 +5637,8 @@ async function syncUserState() {
 async function updateRankingUI() {
   const rankingListBody = document.getElementById('ranking-list-body');
   if (!rankingListBody) return;
+  const showRankingEmblems = isRankingEmblemsEnabled();
+  updateRankingEmblemToggleButton();
 
   try {
     const rankingData = await getJson(`${API_URL}/api/ranking`);
@@ -5634,9 +5668,9 @@ async function updateRankingUI() {
         ? `전적 ${formatNumber(entry.pvpStats?.wins || 0)}승 ${formatNumber(entry.pvpStats?.losses || 0)}패`
         : `현재 경험치 ${formatNumber(entry.gameState?.exp || 0)}`;
 
-      const emblem = entry.equippedEmblem || null;
+      const emblem = showRankingEmblems ? (entry.equippedEmblem || null) : null;
       const emblemClass = emblem?.className ? String(emblem.className).replace(/[^a-zA-Z0-9_-]/g, '') : '';
-      const emblemIcon = emblem?.imageUrl
+      const emblemIcon = showRankingEmblems && emblem?.imageUrl
         ? `<img src="${escapeAttr(emblem.imageUrl)}" alt="" class="ranking-emblem-icon" title="${escapeAttr(emblem.name || '')}">`
         : '';
 
