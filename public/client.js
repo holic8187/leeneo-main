@@ -262,6 +262,15 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-26-normal-raid-high-level-entry',
+    time: '2026-05-26 13:05',
+    title: '노멀 회의 입장 제한 완화',
+    items: [
+      '150레벨 이상 유저도 노멀 보스에 참가할 수 있게 변경했습니다.',
+      '대신 150레벨 이상 유저가 노멀 보스에 참가하면 기본 보상은 1/3로 지급됩니다.'
+    ]
+  },
+  {
     id: '2026-05-26-potato-rehab-card-balance',
     time: '2026-05-26 12:35',
     title: '카드 밸런스와 신규 S카드',

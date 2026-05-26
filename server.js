@@ -96,7 +96,8 @@ const BEAST_HEART_UNLOCK_THRESHOLD = 2000000;
 const TITLE_CHANGE_LIMIT_DAYS = 1;
 const RAID_MIN_LEVEL = 10;
 const RAID_NORMAL_MIN_LEVEL = 10;
-const RAID_NORMAL_MAX_LEVEL = 150;
+const RAID_NORMAL_HIGH_LEVEL_REWARD_THRESHOLD = 150;
+const RAID_NORMAL_HIGH_LEVEL_REWARD_MULTIPLIER = 1 / 3;
 const RAID_HARD_MIN_LEVEL = 150;
 const RAID_MODE_NORMAL = 'normal';
 const RAID_MODE_HARD = 'hard';
@@ -105,7 +106,7 @@ const RAID_MODE_CONFIG = {
     id: RAID_MODE_NORMAL,
     label: '노멀',
     minLevel: RAID_NORMAL_MIN_LEVEL,
-    maxLevel: RAID_NORMAL_MAX_LEVEL,
+    maxLevel: Infinity,
     hpMultiplier: 1,
     rewardMultiplier: 1
   },
@@ -3423,6 +3424,15 @@ function getRaidLevelRequirementText(mode = RAID_MODE_NORMAL) {
   return `${config.minLevel}레벨 이상`;
 }
 
+function getRaidParticipantRewardMultiplierByLevel(level, mode = RAID_MODE_NORMAL) {
+  const normalizedMode = normalizeRaidMode(mode);
+  const numericLevel = Number(level || 0);
+  if (normalizedMode === RAID_MODE_NORMAL && numericLevel >= RAID_NORMAL_HIGH_LEVEL_REWARD_THRESHOLD) {
+    return RAID_NORMAL_HIGH_LEVEL_REWARD_MULTIPLIER;
+  }
+  return 1;
+}
+
 function buildQueuedSlotSnapshot(user) {
   const equippedCard = getEquippedCardInfo(user);
   return {
@@ -4348,7 +4358,7 @@ function getRaidLobbySummary(now = new Date(), mode = RAID_MODE_NORMAL) {
     skillsText: boss.skillsText || [],
     rewardsText: normalizedMode === RAID_MODE_HARD
       ? [...(boss.rewardsText || []), '하드 모드 보상: 노멀 보상의 1.5배']
-      : boss.rewardsText
+      : [...(boss.rewardsText || []), '150레벨 이상 유저가 노멀 모드에 참가하면 기본 보상은 1/3로 지급됩니다.']
   };
 }
 
@@ -7072,6 +7082,11 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
       const derivedStats = calculateDerivedStats(user, now);
       if (modeRewardMultiplier !== 1) {
         rewardNotes.push(`${getRaidModeConfig(battleMode).label} 모드 보상 ${modeRewardMultiplier.toFixed(1)}배`);
+      }
+      const levelRewardMultiplier = getRaidParticipantRewardMultiplierByLevel(participant.level, battleMode);
+      if (levelRewardMultiplier !== 1) {
+        rewardMultiplier *= levelRewardMultiplier;
+        rewardNotes.push(`${RAID_NORMAL_HIGH_LEVEL_REWARD_THRESHOLD}레벨 이상 노멀 참여 보정으로 기본 보상 1/3`);
       }
       if (derivedStats.raidRewardBonusPercent > 0) {
         const emblemRewardMultiplier = 1 + derivedStats.raidRewardBonusPercent / 100;
