@@ -63,6 +63,7 @@ const ITEM_DATA = {
 const CARD_DATA = {
   mingu_champion: { name: '제 1회 면담대회 우승자 밍구의 품격', grade: 'S', color: '#c62828', skillName: '챔피언의 품격', skillDesc: '지정한 파티원 1인에게 보호막 20과 <챔피언의 가호>를, 상대에게 <눈부심>을 부여합니다.', cooldown: 7, targetType: 'ally', specialStyle: 'champion' },
   winter_subordinate: { name: '겨울 부장의 부하직원 육성', grade: 'S', color: '#c62828', skillName: '부하직원 육성', skillDesc: '파티원 중 가장 레벨이 낮은 1명을 2턴 동안 현재 레벨보다 높게 간주합니다.', cooldown: 8, targetType: null },
+  potato_rehab: { name: '감자의 재활훈련', grade: 'S', color: '#c62828', skillName: '재활훈련', skillDesc: '보스전에서 현재 데미지의 고정 피해를 1회 입힙니다. 한 판당 1회만 사용할 수 있고, 이 스킬로 처치하면 데미지가 영구적으로 10% 증가합니다. 개인면담에서는 선택할 수 없습니다.', cooldown: 0, targetType: null },
   ineo_diet: { name: '이네오의 다이어트 선언', grade: 'S', color: '#c62828', skillName: '다이어트 선언', skillDesc: '돌아오는 턴에 기본 공격을 총 10회 합니다. 각 공격은 기본 공격 피해의 90%로 적용되며 크리티컬이 적용될 수 있습니다.', cooldown: 3, targetType: null },
   gangnam_style: { name: '일 중에 몰래 듣는 강남스타일', grade: 'S', color: '#c62828', skillName: '강남스타일', skillDesc: '1턴 동안 모든 팀원에게 크리티컬률 20%와 흥겨움 버프를 부여하고, 보호막 10을 제공합니다. 흥겨움 동안 기본 공격 횟수가 2배가 됩니다.', cooldown: 2, targetType: null },
   delegate_lee: { name: '이것 좀 대신 해줘 이대리', grade: 'S', color: '#c62828', skillName: '이것 좀 대신 해줘', skillDesc: '현재 입장한 파티원의 전체 레벨 합 x 30의 데미지를 1회 가합니다.', cooldown: 6, targetType: null },
@@ -260,6 +261,16 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-05-26-potato-rehab-card-balance',
+    time: '2026-05-26 12:35',
+    title: '카드 밸런스와 신규 S카드',
+    items: [
+      '<겨울 부장의 부하직원 육성>의 레벨 보정 수치를 전 강화 구간에서 10 낮췄습니다.',
+      '신규 S등급 카드 <감자의 재활훈련>을 추가했습니다. 보스전에서 한 판당 1회 고정 피해를 주고, 처치에 성공하면 카드 데미지가 영구적으로 10% 증가합니다.',
+      '<감자의 재활훈련>은 강화할 수 없고 개인면담 밴픽/선택 목록에는 표시되지 않습니다.'
+    ]
+  },
   {
     id: '2026-05-26-pvp-normal-ranked-mode',
     time: '2026-05-26 12:10',
@@ -6039,11 +6050,14 @@ function buildRaidSkillControls(participant, participants) {
   const needsSecondaryTarget = participant.targetType === 'ally_pair';
   const missingPrimaryTarget = needsPrimaryTarget && !participant.plannedTargetUserId;
   const missingSecondaryTarget = needsSecondaryTarget && !participant.plannedTargetUserId2;
+  const onceUsed = Boolean(participant.oncePerBattleUsed);
   const toggleDisabled = participant.plannedSkill
-    ? isDead
-    : (isDead || missingPrimaryTarget || missingSecondaryTarget);
+    ? (isDead || onceUsed)
+    : (isDead || onceUsed || missingPrimaryTarget || missingSecondaryTarget);
   const targetDisabled = isDead;
-  const statusText = silenced
+  const statusText = onceUsed
+    ? '이번 전투 사용 완료'
+    : silenced
     ? `침묵 ${formatNumber(participant.silenceTurns)}턴`
     : (participant.skillCooldown > 0 ? `쿨다운 ${formatNumber(participant.skillCooldown)}턴` : '예약 가능');
 

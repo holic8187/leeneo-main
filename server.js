@@ -54,6 +54,7 @@ const CARD_DRAW_GRADE_RATES = [
   { grade: 'C', rate: 0.65 }
 ];
 const CARD_GRADE_SORT_ORDER = { S: 0, A: 1, B: 2, C: 3 };
+const POTATO_REHAB_BASE_DAMAGE = 200;
 const NEWS_TYPING_RSS_FEEDS = [
   'https://news.google.com/rss?hl=ko&gl=KR&ceid=KR:ko',
   'https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=ko&gl=KR&ceid=KR:ko',
@@ -830,7 +831,22 @@ const CARD_DATA = {
     effectType: 'lowest_level_buff',
     targetType: null,
     turns: 2,
-    levelBonus: 10
+    levelBonus: 0
+  },
+  potato_rehab: {
+    id: 'potato_rehab',
+    name: '감자의 재활훈련',
+    grade: 'S',
+    rate: 0.00025,
+    skillName: '재활훈련',
+    skillDesc: '보스전에서 현재 데미지의 고정 피해를 1회 입힙니다. 한 판당 1회만 사용할 수 있고, 이 스킬로 적을 처치하면 데미지가 영구적으로 10% 증가합니다.',
+    cooldown: 0,
+    effectType: 'potato_rehab_fixed_damage',
+    targetType: null,
+    fixedDamage: POTATO_REHAB_BASE_DAMAGE,
+    enhanceDisabled: true,
+    pvpDisabled: true,
+    oncePerBattle: true
   },
   precise_strike: {
     id: 'precise_strike',
@@ -972,7 +988,7 @@ const CARD_ENHANCE_RULES = {
   trial_and_growth: { multiplierPerStatus: { 0: 5, 1: 5, 2: 6, 3: 7, 4: 7, 5: 8 }, cooldown: { 0: 5, 1: 4, 4: 3 } },
   hoi_overtime: { rageDamagePerStackPerLevel: { 0: 5, 1: 6, 2: 7, 3: 8, 4: 9 }, cooldown: { 0: 4, 5: 3 } },
   mingu_champion: { attackBonusPercent: { 0: 0.1, 3: 0.15, 5: 0.2 }, cooldown: { 0: 7, 2: 6, 4: 5 } },
-  winter_subordinate: { levelBonus: { 0: 10, 1: 15, 3: 20, 5: 25 }, cooldown: { 0: 8, 2: 7, 4: 6 } },
+  winter_subordinate: { levelBonus: { 0: 0, 1: 5, 3: 10, 5: 15 }, cooldown: { 0: 8, 2: 7, 4: 6 } },
   precise_strike: { multiplierPerLevel: { 0: 40, 2: 45, 3: 50, 4: 55 }, cooldown: { 0: 5, 1: 4, 5: 3 } },
   umbrella_copy: { copyEffectMultiplier: { 0: 0.5, 2: 0.6, 3: 0.7 }, canSelectCopyTarget: { 4: 1 }, cooldown: { 0: 6, 1: 5, 5: 4 } },
   neo_pesticide: { damagePerLevel: { 0: 10, 2: 11, 4: 12, 5: 15 }, cooldown: { 0: 7, 1: 6, 3: 5 } },
@@ -2017,7 +2033,8 @@ const userSchema = new mongoose.Schema({
       lastIp: { type: String, default: '' }
     },
     lastAdventureAt: { type: Date, default: null },
-    lastAdventureLog: { type: String, default: '' }
+    lastAdventureLog: { type: String, default: '' },
+    potatoRehabDamage: { type: Number, default: POTATO_REHAB_BASE_DAMAGE }
   },
   pendingAdventure: {
     eventId: { type: String, default: null },
@@ -2305,7 +2322,8 @@ function ensureUserDefaults(user) {
         lastIp: ''
       },
       lastAdventureAt: null,
-      lastAdventureLog: ''
+      lastAdventureLog: '',
+      potatoRehabDamage: POTATO_REHAB_BASE_DAMAGE
     };
   }
   user.meta.loginCount = Number(user.meta.loginCount ?? 0);
@@ -2358,6 +2376,10 @@ function ensureUserDefaults(user) {
   user.meta.workClickAntiCheat.lastIp = user.meta.workClickAntiCheat.lastIp || '';
   user.meta.lastAdventureAt = user.meta.lastAdventureAt || null;
   user.meta.lastAdventureLog = user.meta.lastAdventureLog || '';
+  user.meta.potatoRehabDamage = Math.max(
+    POTATO_REHAB_BASE_DAMAGE,
+    Math.floor(Number(user.meta.potatoRehabDamage || POTATO_REHAB_BASE_DAMAGE))
+  );
 
   if (!user.pendingAdventure || typeof user.pendingAdventure !== 'object') {
     user.pendingAdventure = {
@@ -2720,6 +2742,8 @@ function getCardDurationText(cardId, enhancementLevel = 0) {
       return `챔피언의 가호 ${card.turns || 2}턴 / 눈부심 ${card.blindTurns || 1}턴`;
     case 'winter_subordinate':
       return `${card.turns || 2}턴`;
+    case 'potato_rehab':
+      return '보스전 1회 / 면담 선택 불가';
     case 'umbrella_copy':
       return '즉시 / 복사한 카드 효과는 반감';
     case 'neo_pesticide':
@@ -2802,6 +2826,8 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
       return `지정한 파티원 1인에게 보호막 ${card.shield}, ${card.turns}턴 동안 <챔피언의 가호>를 부여하고 상대에게 ${card.blindTurns}턴 동안 <눈부심>을 부여합니다. 챔피언의 가호: 공격력 +${Math.round(Number(card.attackBonusPercent || 0) * 100)}%, 크리티컬 확률 +${Math.round(Number(card.critBonus || 0) * 100)}%. 눈부심: 모든 공격 명중률 ${Math.round(Number(card.blindMissChance || 0.3) * 100)}% 감소.`;
     case 'winter_subordinate':
       return `파티원 중 가장 레벨이 낮은 1명에게 ${card.turns}턴 동안 <부하직원>을 부여합니다. 부하직원은 현재 레벨보다 +${card.levelBonus} 높게 간주되어 레벨 기반 공격력과 스킬에 적용됩니다.`;
+    case 'potato_rehab':
+      return `보스전에서 현재 데미지 ${Number(card.fixedDamage || POTATO_REHAB_BASE_DAMAGE).toLocaleString()}의 고정 피해를 1회 입힙니다. 한 판당 1회만 사용 가능하며, 이 스킬로 적을 처치하면 데미지가 영구적으로 10% 증가합니다. 개인면담에서는 선택할 수 없고 강화할 수 없습니다.`;
     case 'precise_strike':
       return `자신의 레벨 x ${card.multiplierPerLevel}의 데미지를 1회 주며, 방어막을 무시하고 HP에 직접 피해를 입힙니다.`;
     case 'umbrella_copy':
@@ -2819,6 +2845,24 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
     default:
       return card.skillDesc || '';
   }
+}
+
+function getPotatoRehabDamage(source) {
+  const rawDamage = source?.potatoRehabDamage ?? source?.meta?.potatoRehabDamage;
+  return Math.max(POTATO_REHAB_BASE_DAMAGE, Math.floor(Number(rawDamage || POTATO_REHAB_BASE_DAMAGE)));
+}
+
+function buildUserCardSkillDescription(user, cardId, enhancementLevel = 0) {
+  if (cardId !== 'potato_rehab') return buildCardSkillDescription(cardId, enhancementLevel);
+  const damage = getPotatoRehabDamage(user);
+  return `보스전에서 현재 데미지 ${damage.toLocaleString()}의 고정 피해를 1회 입힙니다. 한 판당 1회만 사용 가능하며, 이 스킬로 적을 처치하면 데미지가 영구적으로 10% 증가합니다. 개인면담에서는 선택할 수 없고 강화할 수 없습니다.`;
+}
+
+function buildRaidParticipantCardSkillDescription(participant, card) {
+  if (!card) return '';
+  if (card.id !== 'potato_rehab') return buildCardSkillDescription(card.id, card.enhancementLevel || 0);
+  const damage = getPotatoRehabDamage(participant);
+  return `보스전에서 현재 데미지 ${damage.toLocaleString()}의 고정 피해를 1회 입힙니다. 한 판당 1회만 사용 가능하며, 이 스킬로 적을 처치하면 데미지가 영구적으로 10% 증가합니다.`;
 }
 
 function queueNotification(user, type, text) {
@@ -3111,7 +3155,7 @@ function buildCardDetails(user) {
     enhancementLevel: 0,
     displayName: getCardDisplayName(card.id, 0),
     skillName: card.skillName,
-    skillDesc: buildCardSkillDescription(card.id, 0),
+    skillDesc: buildUserCardSkillDescription(user, card.id, 0),
     cooldown: getCardDefinition(card.id, 0)?.cooldown ?? card.cooldown,
     durationText: getCardDurationText(card.id, 0),
     targetType: card.targetType || null,
@@ -3139,7 +3183,7 @@ function buildCardVariantDetails(user) {
         quantity: baseQuantity,
         equipped,
         skillName: resolved.skillName,
-        skillDesc: buildCardSkillDescription(card.id, 0),
+        skillDesc: buildUserCardSkillDescription(user, card.id, 0),
         cooldown: resolved.cooldown,
         durationText: getCardDurationText(card.id, 0),
         specialStyle: CARD_DATA[card.id].specialStyle || '',
@@ -3151,7 +3195,7 @@ function buildCardVariantDetails(user) {
           enhancementLevel: 1,
           name: nextPreview.displayName,
           skillName: nextPreview.skillName,
-          skillDesc: buildCardSkillDescription(card.id, 1),
+          skillDesc: buildUserCardSkillDescription(user, card.id, 1),
           cooldown: nextPreview.cooldown,
           durationText: getCardDurationText(card.id, 1),
           borderColor: nextPreview.borderColor,
@@ -3181,7 +3225,7 @@ function buildCardVariantDetails(user) {
         quantity: Number(entry.quantity),
         equipped,
         skillName: resolved.skillName,
-        skillDesc: buildCardSkillDescription(entry.cardId, normalizedLevel),
+        skillDesc: buildUserCardSkillDescription(user, entry.cardId, normalizedLevel),
         cooldown: resolved.cooldown,
         durationText: getCardDurationText(entry.cardId, normalizedLevel),
         specialStyle: CARD_DATA[entry.cardId].specialStyle || '',
@@ -3193,7 +3237,7 @@ function buildCardVariantDetails(user) {
           enhancementLevel: nextLevel,
           name: nextPreview.displayName,
           skillName: nextPreview.skillName,
-          skillDesc: buildCardSkillDescription(entry.cardId, nextLevel),
+          skillDesc: buildUserCardSkillDescription(user, entry.cardId, nextLevel),
           cooldown: nextPreview.cooldown,
           durationText: getCardDurationText(entry.cardId, nextLevel),
           borderColor: nextPreview.borderColor,
@@ -3389,7 +3433,7 @@ function buildQueuedSlotSnapshot(user) {
     equippedCardName: equippedCard?.displayName || equippedCard?.name || '장착 카드 없음',
     equippedCardGrade: equippedCard?.grade || null,
     equippedCardSkillName: equippedCard?.skillName || '',
-    equippedCardSkillDesc: equippedCard ? buildCardSkillDescription(equippedCard.id, equippedCard.enhancementLevel || 0) : '',
+    equippedCardSkillDesc: equippedCard ? buildUserCardSkillDescription(user, equippedCard.id, equippedCard.enhancementLevel || 0) : '',
     equippedCardCooldown: Number(equippedCard?.cooldown || 0),
     equippedCardPassiveOnly: Boolean(equippedCard?.passiveOnly),
     equippedCardEnhancementLevel: Number(equippedCard?.enhancementLevel || 0),
@@ -3424,6 +3468,8 @@ function createRaidParticipantFromUser(user) {
     skillCooldown: 0,
     equippedCardId: user.equippedCardId || null,
     equippedCardLevel: normalizeCardEnhancementLevel(user.equippedCardLevel || 0),
+    potatoRehabDamage: getPotatoRehabDamage(user),
+    potatoRehabUsed: false,
     extraHits: 0,
     multiHitDamageMultiplier: 1,
     extraDamage: 0,
@@ -4405,6 +4451,11 @@ function useRaidCardSkill(participant, battle) {
     return null;
   }
 
+  if (card.effectType === 'potato_rehab_fixed_damage' && participant.potatoRehabUsed) {
+    participant.plannedSkill = false;
+    return `${participant.displayName}은(는) 이번 전투에서 ${card.name}을(를) 이미 사용했습니다.`;
+  }
+
   const ampMultiplier = getRaidCardEffectAmpMultiplier(participant);
   const equipmentMultiplier = 1 + Number(participant.cardEffectEquipmentBonusPercent || 0);
   const totalValueMultiplier = ampMultiplier * equipmentMultiplier;
@@ -4492,6 +4543,18 @@ function useRaidCardSkill(participant, battle) {
     const damage = scaleFlat(totalLevels * Number(card.multiplierPerLevel || 0));
     applyRaidDamageToBoss(battle, damage);
     logText = `${participant.displayName}(이)가 ${card.name}로 ${damage.toLocaleString()} 피해를 가했습니다.`;
+  } else if (card.effectType === 'potato_rehab_fixed_damage') {
+    const damage = getPotatoRehabDamage(participant);
+    const beforeBossHp = Number(battle.bossHp || 0);
+    const dealtDamage = applyRaidDamageToBoss(battle, damage);
+    participant.potatoRehabUsed = true;
+    if (beforeBossHp > 0 && Number(battle.bossHp || 0) <= 0) {
+      battle.potatoRehabKillUserIds = Array.isArray(battle.potatoRehabKillUserIds) ? battle.potatoRehabKillUserIds : [];
+      if (!battle.potatoRehabKillUserIds.includes(participant.userId)) {
+        battle.potatoRehabKillUserIds.push(participant.userId);
+      }
+    }
+    logText = `${participant.displayName}(이)가 ${card.name}로 ${dealtDamage.toLocaleString()} 고정 피해를 입혔습니다.`;
   } else if (card.effectType === 'random_ally_sacrifice_buff') {
     const aliveAllies = getAliveRaidParticipants(battle);
     if (aliveAllies.length > 0) {
@@ -5534,9 +5597,11 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
         equippedCardBorderColor: card?.borderColor || '',
         equippedCardSpecialStyle: card?.specialStyle || '',
         skillName: card?.skillName || '',
-        skillDesc: card ? buildCardSkillDescription(card.id, card.enhancementLevel || 0) : '',
+        skillDesc: card ? buildRaidParticipantCardSkillDescription(participant, card) : '',
         targetType: card?.targetType || null,
         passiveOnly: Boolean(card?.passiveOnly),
+        oncePerBattle: Boolean(card?.oncePerBattle),
+        oncePerBattleUsed: Boolean(card?.oncePerBattle && participant.potatoRehabUsed),
         statusEffects: buildRaidParticipantStatusEffects(participant),
         isSelf: viewerUserId ? participant.userId === String(viewerUserId) : false
       };
@@ -5707,6 +5772,7 @@ function getCardGradeOrderValue(grade) {
 
 function getAllPvpBanCards() {
   return Object.values(CARD_DATA)
+    .filter((card) => !card.pvpDisabled)
     .slice()
     .sort((a, b) => getCardGradeOrderValue(a.grade) - getCardGradeOrderValue(b.grade) || a.name.localeCompare(b.name, 'ko'))
     .map((card) => {
@@ -5732,7 +5798,7 @@ function getAllPvpBanCards() {
 function getOwnedPvpPickCards(user) {
   const highestByCardId = new Map();
   buildCardVariantDetails(user)
-    .filter((entry) => Number(entry.quantity || 0) > 0)
+    .filter((entry) => Number(entry.quantity || 0) > 0 && !CARD_DATA[entry.cardId]?.pvpDisabled)
     .forEach((entry) => {
       const current = highestByCardId.get(entry.cardId);
       if (!current || Number(entry.enhancementLevel || 0) > Number(current.enhancementLevel || 0)) {
@@ -7066,6 +7132,16 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
         'raid_reward',
         `보스 레이드 승리! ${rewardSummaryText}${rewardNotes.length ? ` (${rewardNotes.join(', ')})` : ''}`
       );
+      if ((activeBattle.potatoRehabKillUserIds || []).includes(participant.userId)) {
+        const previousDamage = getPotatoRehabDamage(user);
+        const nextDamage = Math.max(previousDamage + 1, Math.round(previousDamage * 1.1));
+        user.meta.potatoRehabDamage = nextDamage;
+        queueNotification(
+          user,
+          'potato_rehab_growth',
+          `<감자의 재활훈련>으로 보스를 처치했습니다! 카드 데미지가 ${previousDamage.toLocaleString()}에서 ${nextDamage.toLocaleString()}로 영구 증가했습니다.`
+        );
+      }
     } else {
       queueNotification(user, 'raid_fail', '보스 레이드에서 패배했습니다. 이번에는 보상을 획득하지 못했습니다.');
     }
@@ -10021,6 +10097,7 @@ app.post('/api/raid/start', async (req, res) => {
       bossShield: 0,
       bossShieldTurns: 0,
       bossLastHpLoss: 0,
+      potatoRehabKillUserIds: [],
       bossOvertimeDebuffs: [],
       bossPoisonDebuffs: [],
       participants,
@@ -10159,6 +10236,9 @@ app.post('/api/raid/plan-skill', async (req, res) => {
     }
     if (card.passiveOnly) {
       return res.status(400).json({ msg: '이 카드는 액티브 스킬이 없습니다.' });
+    }
+    if (useSkill && card.oncePerBattle && participant.potatoRehabUsed) {
+      return res.status(400).json({ msg: '이 카드는 이번 전투에서 이미 사용했습니다.' });
     }
 
     if ((card.targetType === 'ally' || card.targetType === 'ally_pair') && targetUserId) {
@@ -10373,6 +10453,7 @@ app.post('/api/pvp/ban', async (req, res) => {
       return sendPvpStateError(res, user, now, 400, '시간이 초과되어 자동 진행되었습니다.', pvpMode);
     }
     if (!CARD_DATA[cardId]) return sendPvpStateError(res, user, now, 400, '존재하지 않는 카드입니다.', pvpMode);
+    if (CARD_DATA[cardId].pvpDisabled) return sendPvpStateError(res, user, now, 400, '개인면담에서 사용할 수 없는 카드입니다.', pvpMode);
     if (getPvpBannedCardIds(match).includes(cardId) || getPvpPickedCardIds(match).includes(cardId)) {
       return sendPvpStateError(res, user, now, 400, '이미 선택할 수 없는 카드입니다.', pvpMode);
     }
@@ -10420,6 +10501,7 @@ app.post('/api/pvp/pick', async (req, res) => {
       return sendPvpStateError(res, user, now, 400, '시간이 초과되어 자동 진행되었습니다.', pvpMode);
     }
     if (!CARD_DATA[cardId]) return sendPvpStateError(res, user, now, 400, '존재하지 않는 카드입니다.', pvpMode);
+    if (CARD_DATA[cardId].pvpDisabled) return sendPvpStateError(res, user, now, 400, '개인면담에서 사용할 수 없는 카드입니다.', pvpMode);
     if (getPvpBannedCardIds(match).includes(cardId) || getPvpPickedCardIds(match).includes(cardId)) {
       return sendPvpStateError(res, user, now, 400, '이미 선택할 수 없는 카드입니다.', pvpMode);
     }
