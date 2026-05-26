@@ -163,7 +163,19 @@ const EMBLEM_DATA = {
     desc: '랭킹 닉네임 칸에 회사 사원증 느낌의 전용 배경과 휘장 아이콘을 표시합니다. 보유 효과: 획득하는 모든 경험치 +1%',
     imageUrl: '',
     className: 'emblem-neo-office-ledger',
+    shopType: 'money',
     effects: { expBonus: 1 }
+  },
+  cat_butler: {
+    id: 'cat_butler',
+    name: '집사',
+    price: 0,
+    fragmentCost: 10000,
+    desc: '랭킹 닉네임 칸에 고양이 집사 느낌의 전용 배경을 표시합니다. 보유 효과: 보스 클리어 보상 +5%',
+    imageUrl: '',
+    className: 'emblem-cat-butler',
+    shopType: 'fragment',
+    effects: { raidRewardBonus: 5 }
   }
 };
 const EQUIPMENT_DROP_CHANCE = 0.0005;
@@ -290,8 +302,8 @@ const ITEM_DATA = {
     price: 0,
     type: 'special',
     shopHidden: true,
-    desc: '장비 분해로 획득하는 재화',
-    hoverDesc: '장비를 분해하면 획득할 수 있습니다. 추후 전용 상점에서 사용할 예정입니다.'
+    desc: '장비 분해와 일부 보상으로 획득하는 재화',
+    hoverDesc: '상점의 파편 상점 탭에서 회의 추가 입장권, 명함, 휘장 등을 구매할 때 사용합니다.'
   },
   scroll_card_005: {
     name: '주문서: 카드 효과 +0.5%',
@@ -1076,6 +1088,15 @@ const FRAGMENT_SHOP_ITEMS = {
     quantity: 10,
     dailyLimit: 2,
     countField: 'dailyFragmentBusinessCardPurchases'
+  },
+  cat_butler_emblem: {
+    id: 'cat_butler_emblem',
+    emblemId: 'cat_butler',
+    name: '집사 휘장',
+    cost: 10000,
+    quantity: 1,
+    dailyLimit: 1,
+    countField: 'dailyFragmentCatButlerEmblemPurchases'
   }
 };
 
@@ -1949,6 +1970,7 @@ const userSchema = new mongoose.Schema({
     dailyHot6Purchases: { type: Number, default: 0 },
     dailyFragmentRaidTicketPurchases: { type: Number, default: 0 },
     dailyFragmentBusinessCardPurchases: { type: Number, default: 0 },
+    dailyFragmentCatButlerEmblemPurchases: { type: Number, default: 0 },
     lastShoppingAddictQualifiedDayKey: { type: String, default: null }
   },
   meta: {
@@ -2224,6 +2246,7 @@ function ensureUserDefaults(user) {
       dailyHot6Purchases: 0,
       dailyFragmentRaidTicketPurchases: 0,
       dailyFragmentBusinessCardPurchases: 0,
+      dailyFragmentCatButlerEmblemPurchases: 0,
       lastShoppingAddictQualifiedDayKey: null
     };
   }
@@ -2234,6 +2257,7 @@ function ensureUserDefaults(user) {
   user.shopState.dailyHot6Purchases = Number(user.shopState.dailyHot6Purchases ?? 0);
   user.shopState.dailyFragmentRaidTicketPurchases = Number(user.shopState.dailyFragmentRaidTicketPurchases ?? 0);
   user.shopState.dailyFragmentBusinessCardPurchases = Number(user.shopState.dailyFragmentBusinessCardPurchases ?? 0);
+  user.shopState.dailyFragmentCatButlerEmblemPurchases = Number(user.shopState.dailyFragmentCatButlerEmblemPurchases ?? 0);
   user.shopState.lastShoppingAddictQualifiedDayKey = user.shopState.lastShoppingAddictQualifiedDayKey || null;
 
   if (!user.meta) {
@@ -6835,8 +6859,14 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
       const rewardRatio = getRaidBossRewardRatio(participant.level);
       let rewardMultiplier = modeRewardMultiplier;
       const rewardNotes = [];
+      const derivedStats = calculateDerivedStats(user, now);
       if (modeRewardMultiplier !== 1) {
         rewardNotes.push(`${getRaidModeConfig(battleMode).label} 모드 보상 ${modeRewardMultiplier.toFixed(1)}배`);
+      }
+      if (derivedStats.raidRewardBonusPercent > 0) {
+        const emblemRewardMultiplier = 1 + derivedStats.raidRewardBonusPercent / 100;
+        rewardMultiplier *= emblemRewardMultiplier;
+        rewardNotes.push(`휘장 효과로 보스 보상 ${emblemRewardMultiplier.toFixed(2)}배`);
       }
       if (participant.sojuRewardBuff) {
         rewardMultiplier *= Number(participant.sojuRewardMultiplier || 1);
@@ -6855,7 +6885,7 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
           rewardNotes.push('이번엔 될거같아 실패로 보상 없음');
         }
       }
-      const expBonusMultiplier = 1 + calculateDerivedStats(user, now).expBonusPercent / 100;
+      const expBonusMultiplier = 1 + derivedStats.expBonusPercent / 100;
       const expReward = Math.floor(getRequiredExp(participant.level) * rewardRatio * rewardMultiplier * expBonusMultiplier);
       const businessCards = Math.max(0, Math.round((sharedBaseRewards?.businessCards || 0) * rewardMultiplier));
       const bacchus = Math.max(0, Math.round((sharedBaseRewards?.bacchus || 0) * rewardMultiplier));
@@ -7122,26 +7152,34 @@ function syncDailyShopState(user, now = new Date()) {
     user.shopState.dailyHot6Purchases = 0;
     user.shopState.dailyFragmentRaidTicketPurchases = 0;
     user.shopState.dailyFragmentBusinessCardPurchases = 0;
+    user.shopState.dailyFragmentCatButlerEmblemPurchases = 0;
   }
 }
 
 function buildFragmentShopState(user, now = new Date()) {
+  ensureUserDefaults(user);
   syncDailyShopState(user, now);
   const ownedFragments = getInventoryQuantity(user, 'equipment_fragment');
   return {
     fragments: ownedFragments,
     items: Object.values(FRAGMENT_SHOP_ITEMS).map((entry) => {
       const purchased = Math.max(0, Number(user.shopState?.[entry.countField] || 0));
+      const isEmblem = Boolean(entry.emblemId);
+      const owned = isEmblem && user.emblems.unlocked.includes(entry.emblemId);
       return {
         id: entry.id,
         itemId: entry.itemId,
+        emblemId: entry.emblemId || null,
+        type: isEmblem ? 'emblem' : 'item',
         name: entry.name,
+        desc: isEmblem ? (EMBLEM_DATA[entry.emblemId]?.desc || '') : (entry.desc || ''),
         cost: entry.cost,
         quantity: entry.quantity,
         dailyLimit: entry.dailyLimit,
         purchasedToday: purchased,
         remainingToday: Math.max(0, entry.dailyLimit - purchased),
-        canBuy: ownedFragments >= entry.cost && purchased < entry.dailyLimit
+        owned,
+        canBuy: ownedFragments >= entry.cost && purchased < entry.dailyLimit && !owned
       };
     })
   };
@@ -7195,7 +7233,8 @@ function calculateItemStats(inventory = []) {
 
 function calculateEmblemStats(emblems = {}) {
   const stats = {
-    expBonus: 0
+    expBonus: 0,
+    raidRewardBonus: 0
   };
 
   const unlocked = Array.isArray(emblems?.unlocked) ? [...new Set(emblems.unlocked)] : [];
@@ -7203,9 +7242,11 @@ function calculateEmblemStats(emblems = {}) {
     const effects = EMBLEM_DATA[emblemId]?.effects;
     if (!effects) return;
     stats.expBonus += Number(effects.expBonus || 0);
+    stats.raidRewardBonus += Number(effects.raidRewardBonus || 0);
   });
 
   stats.expBonus = Number(stats.expBonus.toFixed(2));
+  stats.raidRewardBonus = Number(stats.raidRewardBonus.toFixed(2));
   return stats;
 }
 
@@ -7263,6 +7304,7 @@ function calculateDerivedStats(user, now = new Date()) {
     expBonusPercent: Number(expBonusPercent.toFixed(2)),
     itemExpBonusPercent: itemStats.expBonus,
     emblemExpBonusPercent: emblemStats.expBonus,
+    raidRewardBonusPercent: emblemStats.raidRewardBonus,
     stressMultiplier: finalStressMultiplier,
     stressReductionPercent: Number(((1 - finalStressMultiplier) * 100).toFixed(2)),
     clickStressRelief: Number((itemStats.clickStressRelief + activeBuffEffects.clickStressRelief).toFixed(2)),
@@ -7584,7 +7626,7 @@ function buildEmblemDetails(user) {
 function buildEmblemShopState(user) {
   ensureUserDefaults(user);
   return {
-    items: Object.values(EMBLEM_DATA).map((emblem) => {
+    items: Object.values(EMBLEM_DATA).filter((emblem) => emblem.shopType !== 'fragment').map((emblem) => {
       const owned = user.emblems.unlocked.includes(emblem.id);
       return getEmblemPublicDetail(emblem.id, {
         owned,
@@ -7658,6 +7700,7 @@ function buildGameStateResponse(user, now = new Date()) {
       expBonus: derivedStats.expBonusPercent,
       itemExpBonus: derivedStats.itemExpBonusPercent,
       emblemExpBonus: derivedStats.emblemExpBonusPercent,
+      raidRewardBonus: derivedStats.raidRewardBonusPercent,
       stressMultiplier: derivedStats.stressMultiplier,
       stressReduction: derivedStats.stressReductionPercent,
       clickStressRelief: derivedStats.clickStressRelief,
@@ -8592,6 +8635,7 @@ app.post('/api/shop/buy', async (req, res) => {
 
     const now = new Date();
     calculateOfflineGains(user, now);
+    ensureUserDefaults(user);
     syncDailyShopState(user, now);
 
     const remainingDailyPurchases = getRemainingDailyShopPurchases(user, itemId);
@@ -8668,11 +8712,17 @@ app.post('/api/fragment-shop/buy', async (req, res) => {
 
     const now = new Date();
     calculateOfflineGains(user, now);
+    ensureUserDefaults(user);
     syncDailyShopState(user, now);
 
     const purchasedToday = Math.max(0, Number(user.shopState?.[shopItem.countField] || 0));
     if (purchasedToday >= shopItem.dailyLimit) {
       return res.status(400).json({ msg: '오늘은 해당 항목을 더 이상 구매할 수 없습니다.' });
+    }
+    if (shopItem.emblemId) {
+      if (user.emblems.unlocked.includes(shopItem.emblemId)) {
+        return res.status(400).json({ msg: '이미 보유 중인 휘장입니다.' });
+      }
     }
     if (getInventoryQuantity(user, 'equipment_fragment') < shopItem.cost) {
       return res.status(400).json({ msg: '장비 파편이 부족합니다.' });
@@ -8681,7 +8731,12 @@ app.post('/api/fragment-shop/buy', async (req, res) => {
       return res.status(400).json({ msg: '장비 파편이 부족합니다.' });
     }
 
-    addItemToInventory(user, shopItem.itemId, shopItem.quantity);
+    if (shopItem.emblemId) {
+      user.emblems.unlocked.push(shopItem.emblemId);
+      if (!user.emblems.equipped) user.emblems.equipped = shopItem.emblemId;
+    } else {
+      addItemToInventory(user, shopItem.itemId, shopItem.quantity);
+    }
     user.shopState[shopItem.countField] = purchasedToday + 1;
     user.gameState.lastActionTime = now;
 
@@ -8690,7 +8745,8 @@ app.post('/api/fragment-shop/buy', async (req, res) => {
     response.fragmentShopPurchase = {
       shopItemId: shopItem.id,
       itemId: shopItem.itemId,
-      itemName: ITEM_DATA[shopItem.itemId]?.name || shopItem.name,
+      emblemId: shopItem.emblemId || null,
+      itemName: shopItem.emblemId ? EMBLEM_DATA[shopItem.emblemId]?.name : (ITEM_DATA[shopItem.itemId]?.name || shopItem.name),
       quantity: shopItem.quantity,
       cost: shopItem.cost
     };
@@ -8708,6 +8764,7 @@ app.post('/api/emblem-shop/buy', async (req, res) => {
 
   const emblem = EMBLEM_DATA[emblemId];
   if (!emblem) return res.status(400).json({ msg: '존재하지 않는 휘장입니다.' });
+  if (emblem.shopType === 'fragment') return res.status(400).json({ msg: '해당 휘장은 파편 상점에서 구매할 수 있습니다.' });
 
   try {
     await withUserMutationLock(userId, async () => {
@@ -10537,12 +10594,16 @@ app.post('/api/admin/gift', async (req, res) => {
     return res.status(400).json({ msg: '대상 지정 방식이 올바르지 않습니다.' });
   }
 
-  if (!['item', 'buff', 'package', 'title'].includes(giftType)) {
+  if (!['item', 'buff', 'package', 'title', 'fragment'].includes(giftType)) {
     return res.status(400).json({ msg: '선물 종류가 올바르지 않습니다.' });
   }
 
   if (giftType === 'item' && !ITEM_DATA[giftId]) {
     return res.status(400).json({ msg: '존재하지 않는 아이템입니다.' });
+  }
+
+  if (giftType === 'fragment' && giftId !== 'equipment_fragment') {
+    return res.status(400).json({ msg: '존재하지 않는 파편입니다.' });
   }
 
   if (giftType === 'buff' && !BUFF_DATA[giftId]) {
@@ -10573,7 +10634,7 @@ app.post('/api/admin/gift', async (req, res) => {
       ensureUserDefaults(user);
       calculateOfflineGains(user, now);
 
-      if (giftType === 'item') {
+      if (giftType === 'item' || giftType === 'fragment') {
         const actualGiftItemId = getRewardVariantItemId(giftId);
         addItemToInventory(user, actualGiftItemId, giftQuantity);
         queueNotification(user, 'admin_gift', `운영자로부터 선물이 도착했습니다! <${ITEM_DATA[actualGiftItemId].name} ${giftQuantity}개>`);

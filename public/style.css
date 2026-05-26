@@ -355,6 +355,31 @@ progress {
   display: none;
 }
 
+.emblem-cat-butler {
+  color: #ffeaf7;
+  font-weight: 800;
+  background:
+    linear-gradient(90deg, rgba(12, 8, 18, .72) 0%, rgba(48, 18, 36, .18) 44%, rgba(9, 8, 15, .68) 100%),
+    url('/assets/emblems/butler-banner.jpg') center center / cover no-repeat;
+  box-shadow: inset 0 0 0 1px rgba(255, 160, 222, .66), inset 0 0 24px rgba(255, 120, 205, .28);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .96), 0 0 10px rgba(255, 145, 220, .7);
+}
+
+.emblem-cat-butler::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 0%, rgba(255, 210, 242, .44) 44%, transparent 60%);
+  transform: translateX(-120%);
+  animation: emblem-sheen 3.8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.emblem-cat-butler .ranking-emblem-icon,
+.emblem-cat-butler .emblem-preview-icon {
+  display: none;
+}
+
 @keyframes emblem-sheen {
   0%, 52% { transform: translateX(-120%); }
   78%, 100% { transform: translateX(120%); }

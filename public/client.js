@@ -55,8 +55,8 @@ const ITEM_DATA = {
   },
   equipment_fragment: {
     name: '장비 파편',
-    desc: '장비 분해로 획득하는 재화',
-    hoverDesc: '장비를 분해하면 획득할 수 있습니다. 추후 전용 상점에서 사용할 예정입니다.'
+    desc: '장비 분해와 일부 보상으로 획득하는 재화',
+    hoverDesc: '상점의 파편 상점 탭에서 회의 추가 입장권, 명함, 휘장 등을 구매할 때 사용합니다.'
   }
 };
 
@@ -259,6 +259,16 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-05-26-butler-emblem',
+    time: '2026-05-26 09:35',
+    title: '집사 휘장 추가',
+    items: [
+      '파편 상점에 장비 파편 10,000개로 구매 가능한 <집사> 휘장을 추가했습니다.',
+      '<집사> 휘장은 보유만 해도 보스 클리어 보상을 5% 증가시킵니다.',
+      '운영자 선물 기능에서 장비 파편을 바로 지급할 수 있게 했습니다.'
+    ]
+  },
   {
     id: '2026-05-26-emblem-owned-exp-effect',
     time: '2026-05-26 00:20',
@@ -4020,19 +4030,25 @@ function renderFragmentShopModal(user = getStoredUser()) {
 
   list.innerHTML = items.map((item) => {
     const remaining = Math.max(0, Number(item.remainingToday ?? (Number(item.dailyLimit || 0) - Number(item.purchasedToday || 0))));
-    const disabled = count < Number(item.cost || 0) || remaining <= 0;
-    const status = remaining > 0
+    const disabled = item.owned || item.canBuy === false || count < Number(item.cost || 0) || remaining <= 0;
+    const status = item.owned
+      ? '이미 보유 중'
+      : remaining > 0
       ? `오늘 남은 구매 가능: ${formatNumber(remaining)}/${formatNumber(item.dailyLimit || 0)}`
       : '오늘 구매 한도 도달';
+    const buttonLabel = item.owned
+      ? '보유 중'
+      : `파편 ${formatNumber(item.cost || 0)}개 구매`;
     return `
       <div class="fragment-shop-item">
         <div>
           <strong>${escapeHtml(item.name)}</strong>
+          ${item.desc ? `<div class="menu-note">${escapeHtml(item.desc)}</div>` : ''}
           <div class="menu-note">파편 ${formatNumber(item.cost || 0)}개로 구매합니다.</div>
           <div class="menu-note">${escapeHtml(status)}</div>
         </div>
         <button class="mini-btn" ${disabled ? 'disabled' : ''} onclick="handleFragmentShopBuy('${item.id}')">
-          파편 ${formatNumber(item.cost || 0)}개 구매
+          ${buttonLabel}
         </button>
       </div>
     `;
@@ -4083,7 +4099,12 @@ async function handleFragmentShopBuy(shopItemId) {
     }));
     updateLocalUserState(data);
     if (data.fragmentShopPurchase) {
-      alert(`${data.fragmentShopPurchase.itemName} ${formatNumber(data.fragmentShopPurchase.quantity)}개를 구매했습니다.`);
+      const purchase = data.fragmentShopPurchase;
+      if (purchase.emblemId) {
+        alert(`${purchase.itemName} 휘장을 구매했습니다.`);
+      } else {
+        alert(`${purchase.itemName} ${formatNumber(purchase.quantity)}개를 구매했습니다.`);
+      }
     }
     renderShopModal(data.user || getStoredUser());
   } catch (err) {
@@ -5565,7 +5586,9 @@ function renderAdminGiftOptions() {
       ? (session.giftCatalog.packages || [])
       : selectedType === 'title'
         ? (session.giftCatalog.titles || [])
-        : session.giftCatalog.items;
+        : selectedType === 'fragment'
+          ? [{ id: 'equipment_fragment', name: '장비 파편' }]
+          : session.giftCatalog.items;
 
   giftSelect.innerHTML = '';
   entries.forEach((entry) => {
