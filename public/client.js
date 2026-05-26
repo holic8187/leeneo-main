@@ -198,6 +198,7 @@ let lastRenderedShoutKey = '';
 let latestRaidState = null;
 let selectedRaidMode = 'normal';
 let latestPvpState = null;
+let selectedPvpMode = 'ranked';
 let selectedPvpCardId = null;
 let selectedPvpEnhancementLevel = 0;
 let pvpBetTargetUserId = null;
@@ -259,6 +260,17 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-05-26-pvp-normal-ranked-mode',
+    time: '2026-05-26 12:10',
+    title: '개인면담 일반/랭크 분리',
+    items: [
+      '개인면담 입장 시 일반전과 랭크전을 선택할 수 있게 했고, 두 모드는 대기열과 진행 상태가 따로 운영됩니다.',
+      '일반전은 밴 없이 픽만 진행하며 점수 변동 없이 승리 2.5%, 패배 1% 경험치 보상을 지급합니다.',
+      '랭크전 승리 보상에 박카스 1개를 추가하고, 랭크 패배 시에도 경험치통 2% 경험치를 지급합니다.',
+      '개인면담 1P/2P 순서는 대기열 입장 순서와 관계없이 무작위로 배정됩니다.'
+    ]
+  },
   {
     id: '2026-05-26-butler-emblem-refresh',
     time: '2026-05-26 11:35',
@@ -772,6 +784,9 @@ function setupEventListeners() {
   bindClick('workOptimizationSkillBtn', handleWorkOptimizationSkillClick);
   bindClick('raidLobbyBtn', openRaidLobby);
   bindClick('pvpLobbyBtn', handlePvpLobbyClick);
+  bindClick('pvpModeNormalBtn', () => handlePvpModeSelect('normal'));
+  bindClick('pvpModeRankedBtn', () => handlePvpModeSelect('ranked'));
+  bindClick('pvpModeCloseBtn', () => hideModal('pvpModeModal'));
   bindClick('pvpAcceptBtn', () => handlePvpAccept(true));
   bindClick('pvpDeclineBtn', () => handlePvpAccept(false));
   bindClick('pvpBackBtn', handlePvpBackClick);
@@ -3148,10 +3163,71 @@ function updateMarketplacePendingDot(count) {
   }
 }
 
+function getPvpModeLabel(mode) {
+  return mode === 'normal' ? '일반전' : '랭크';
+}
+
+function getPvpModeSummary(pvpState, mode = selectedPvpMode) {
+  return pvpState?.modes?.[mode] || null;
+}
+
+function getActivePvpModeFromState(pvpState, userId = null) {
+  const modes = pvpState?.modes || {};
+  const entries = ['ranked', 'normal'].map((mode) => [mode, modes[mode]]).filter(([, summary]) => summary);
+  const participant = entries.find(([, summary]) => summary.isParticipant || summary.isQueued);
+  if (participant) return participant[0];
+  const active = entries.find(([, summary]) => summary.hasActiveSession);
+  return active?.[0] || selectedPvpMode || 'ranked';
+}
+
+function updatePvpModeModal(pvpState = latestPvpState) {
+  const status = document.getElementById('pvpModeStatus');
+  if (!status) return;
+  const describe = (mode) => {
+    const summary = getPvpModeSummary(pvpState, mode);
+    if (!summary) return `${getPvpModeLabel(mode)}: 대기`;
+    if (summary.isQueued) return `${getPvpModeLabel(mode)}: 대기중 ${summary.queueCount || 1}명`;
+    if (summary.hasActiveSession) return `${getPvpModeLabel(mode)}: 진행중${summary.isParticipant ? ' / 참가중' : ' / 관전 가능'}`;
+    return `${getPvpModeLabel(mode)}: 대기 가능`;
+  };
+  status.textContent = `${describe('normal')} / ${describe('ranked')}`;
+}
+
 function updatePvpButton(user, pvpState) {
   const button = document.getElementById('pvpLobbyBtn');
   if (!button || !user) return;
   const level = Number(user.gameState?.level || 1);
+  const summaries = Object.values(pvpState?.modes || {});
+  const activeParticipant = summaries.find((summary) => summary?.isParticipant);
+  const queued = summaries.find((summary) => summary?.isQueued);
+  const activeSession = summaries.find((summary) => summary?.hasActiveSession);
+  button.classList.toggle('waiting', Boolean(queued || activeParticipant));
+
+  if (activeParticipant) {
+    button.disabled = false;
+    button.textContent = `${activeParticipant.label || '개인면담'} 진행중`;
+    button.title = '진행 중인 개인면담으로 돌아갑니다.';
+    return;
+  }
+
+  if (queued) {
+    button.disabled = false;
+    button.textContent = `${queued.label || '개인면담'} 대기중`;
+    button.title = '다시 누르면 대기열에서 취소합니다.';
+    return;
+  }
+
+  if (activeSession) {
+    button.disabled = false;
+    button.textContent = '개인면담 관전하기';
+    button.title = '진행 중인 개인면담은 레벨 제한 없이 관전할 수 있습니다.';
+    return;
+  }
+
+  button.textContent = '개인면담';
+  button.disabled = false;
+  button.title = level < 50 ? '입장은 50레벨부터 가능하지만, 진행 중인 개인면담은 관전할 수 있습니다.' : '';
+  return;
   const battle = pvpState?.battle;
   const match = pvpState?.match;
   const isParticipant = Boolean(battle?.isParticipant || match?.isParticipant);
@@ -3195,9 +3271,96 @@ function handlePvpBackClick() {
   startBgm('normal');
 }
 
+async function fetchPvpStateForMode(mode = selectedPvpMode, options = {}) {
+  const user = getStoredUser();
+  if (!user?._id) return null;
+  selectedPvpMode = mode === 'normal' ? 'normal' : 'ranked';
+  const data = await postJson(`${API_URL}/api/pvp/state`, {
+    userId: user._id,
+    mode: selectedPvpMode,
+    viewing: Boolean(options.viewing)
+  });
+  latestPvpState = data.pvp;
+  return latestPvpState;
+}
+
+function openPvpModeModal() {
+  updatePvpModeModal(latestPvpState);
+  showModal('pvpModeModal');
+}
+
+async function handlePvpModeSelect(mode) {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+  selectedPvpMode = mode === 'normal' ? 'normal' : 'ranked';
+  hideModal('pvpModeModal');
+
+  try {
+    await fetchPvpStateForMode(selectedPvpMode, { viewing: false });
+  } catch (err) {
+    console.error('PVP mode refresh failed:', err);
+  }
+
+  const summary = getPvpModeSummary(latestPvpState, selectedPvpMode);
+  if (summary?.hasActiveSession) {
+    await fetchPvpStateForMode(selectedPvpMode, { viewing: true });
+    showPvpScreen();
+    renderPvpState(latestPvpState, user);
+    pollPvpState();
+    return;
+  }
+
+  if (Number(user.gameState?.level || 1) < 50) {
+    alert('개인면담 입장은 50레벨부터 가능합니다. 진행 중인 개인면담은 레벨과 상관없이 관전할 수 있습니다.');
+    return;
+  }
+
+  try {
+    const data = await postJson(`${API_URL}/api/pvp/queue`, { userId: user._id, mode: selectedPvpMode });
+    latestPvpState = data.pvp;
+    updatePvpButton(user, latestPvpState);
+    updatePvpMatchModal(latestPvpState);
+    renderPvpState(latestPvpState, user);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
 async function handlePvpLobbyClick() {
   const user = getStoredUser();
   if (!user?._id) return handleLogoutClick();
+
+  const activeMode = getActivePvpModeFromState(latestPvpState, user._id);
+  const activeSummary = getPvpModeSummary(latestPvpState, activeMode);
+  if (activeSummary?.isParticipant) {
+    selectedPvpMode = activeMode;
+    try {
+      await fetchPvpStateForMode(selectedPvpMode, { viewing: !activeSummary.isParticipant });
+    } catch (err) {
+      console.error('PVP mode state load failed:', err);
+    }
+    showPvpScreen();
+    renderPvpState(latestPvpState, user);
+    pollPvpState();
+    return;
+  }
+
+  if (activeSummary?.isQueued) {
+    selectedPvpMode = activeMode;
+    try {
+      const data = await postJson(`${API_URL}/api/pvp/cancel`, { userId: user._id, mode: selectedPvpMode });
+      latestPvpState = data.pvp;
+      updatePvpButton(user, latestPvpState);
+      updatePvpMatchModal(latestPvpState);
+      renderPvpState(latestPvpState, user);
+    } catch (err) {
+      alert(err.message);
+    }
+    return;
+  }
+
+  openPvpModeModal();
+  return;
 
   if (latestPvpState?.battle || latestPvpState?.match) {
     showPvpScreen();
@@ -3208,7 +3371,7 @@ async function handlePvpLobbyClick() {
 
   if (latestPvpState?.isQueued) {
     try {
-      const data = await postJson(`${API_URL}/api/pvp/cancel`, { userId: user._id });
+      const data = await postJson(`${API_URL}/api/pvp/cancel`, { userId: user._id, mode: selectedPvpMode });
       latestPvpState = data.pvp;
       updatePvpButton(user, latestPvpState);
       updatePvpMatchModal(latestPvpState);
@@ -3225,7 +3388,7 @@ async function handlePvpLobbyClick() {
   }
 
   try {
-    const data = await postJson(`${API_URL}/api/pvp/queue`, { userId: user._id });
+    const data = await postJson(`${API_URL}/api/pvp/queue`, { userId: user._id, mode: selectedPvpMode });
     latestPvpState = data.pvp;
     updatePvpButton(user, latestPvpState);
     updatePvpMatchModal(latestPvpState);
@@ -3239,7 +3402,7 @@ async function handlePvpAccept(accept) {
   const user = getStoredUser();
   if (!user?._id) return handleLogoutClick();
   try {
-    const data = await postJson(`${API_URL}/api/pvp/accept`, { userId: user._id, accept });
+    const data = await postJson(`${API_URL}/api/pvp/accept`, { userId: user._id, accept, mode: selectedPvpMode });
     latestPvpState = data.pvp;
     hideModal('pvpMatchModal');
     if (accept) {
@@ -3262,7 +3425,7 @@ async function pollPvpState() {
     const pvpScreenOpen = !document.getElementById('pvp-screen')?.classList.contains('hidden');
     const viewing = pvpScreenOpen && Boolean(latestPvpState?.match || latestPvpState?.battle);
     const previousPvpState = latestPvpState;
-    const data = await postJson(`${API_URL}/api/pvp/state`, { userId: user._id, viewing });
+    const data = await postJson(`${API_URL}/api/pvp/state`, { userId: user._id, viewing, mode: selectedPvpMode });
     latestPvpState = data.pvp;
     const acceptWasCancelled = previousPvpState?.match?.phase === 'accept'
       && previousPvpState.match.isParticipant
@@ -3337,6 +3500,7 @@ function getPvpNowMs() {
 
 function renderPvpState(pvpState, user) {
   if (!pvpState) return;
+  if (pvpState.mode) selectedPvpMode = pvpState.mode === 'normal' ? 'normal' : 'ranked';
   syncPvpServerClock(pvpState);
   if (pvpState.match) {
     renderPvpDraft(pvpState.match, user);
@@ -3407,13 +3571,13 @@ function renderPvpDraft(match, user) {
     pvpDraftSubmitting = false;
     pvpDraftContextKey = draftContextKey;
   }
-  const phaseText = match.phase === 'ban' ? '1. 금지' : match.phase === 'pick' ? '2. 선택' : match.phase === 'starting' ? '전투 시작 준비' : '입장 확인';
+  const phaseText = match.phase === 'ban' ? '1. 금지' : match.phase === 'pick' ? (match.isRanked ? '2. 선택' : '카드 선택') : match.phase === 'starting' ? '전투 시작 준비' : '입장 확인';
   const myTurn = match.isMyTurn;
   const turnPlayer = (match.players || []).find((player) => player.userId === match.turnUserId);
   const turnText = match.isParticipant
     ? (myTurn ? '내 차례입니다.' : '상대 차례입니다.')
     : `${turnPlayer?.displayName || '플레이어'}의 차례입니다.`;
-  setText('pvpPhaseStatus', `${phaseText} - ${turnText}`);
+  setText('pvpPhaseStatus', `${match.modeLabel || '개인면담'} ${phaseText} - ${turnText}`);
 
   const { self, enemy } = getPvpPerspectivePlayers(match.players || [], user._id);
   renderPvpSidePanel('pvpMyPanel', self, match, user._id);
@@ -3541,7 +3705,8 @@ async function handlePvpDraftAction() {
       cardId: selectedPvpCardId,
       enhancementLevel: selectedPvpEnhancementLevel,
       matchId: match.matchId,
-      phase: match.phase
+      phase: match.phase,
+      mode: selectedPvpMode
     });
     latestPvpState = data.pvp;
     selectedPvpCardId = null;
@@ -3608,7 +3773,8 @@ async function handlePvpBetConfirm() {
     const data = await runWithUserMutation(() => postJson(`${API_URL}/api/pvp/bet`, {
       userId: user._id,
       targetUserId: pvpBetTargetUserId,
-      amount
+      amount,
+      mode: selectedPvpMode
     }));
     updateLocalUserState(data);
     latestPvpState = data.pvp;
@@ -3731,7 +3897,8 @@ async function handlePvpPlanSkill(index) {
   try {
     const data = await postJson(`${API_URL}/api/pvp/plan-skill`, {
       userId: user._id,
-      cardIndex: index
+      cardIndex: index,
+      mode: selectedPvpMode
     });
     latestPvpState = data.pvp;
     renderPvpState(latestPvpState, user);
@@ -3744,7 +3911,7 @@ async function handlePvpBasicOnlyTurn() {
   const user = getStoredUser();
   if (!user?._id) return handleLogoutClick();
   try {
-    const data = await postJson(`${API_URL}/api/pvp/end-turn`, { userId: user._id });
+    const data = await postJson(`${API_URL}/api/pvp/end-turn`, { userId: user._id, mode: selectedPvpMode });
     latestPvpState = data.pvp;
     renderPvpState(latestPvpState, user);
   } catch (err) {

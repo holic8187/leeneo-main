@@ -147,6 +147,12 @@ const PVP_RATING_BASE = 1000;
 const PVP_RATING_K = 30;
 const PVP_BET_PAYOUT_MULTIPLIER = 1.3;
 const PVP_POLL_VERSION_EMPTY = 0;
+const PVP_MODE_RANKED = 'ranked';
+const PVP_MODE_NORMAL = 'normal';
+const PVP_MODE_LABELS = {
+  [PVP_MODE_RANKED]: '랭크',
+  [PVP_MODE_NORMAL]: '일반'
+};
 const SPECTATOR_TTL_MS = 15000;
 const PEN_SHOP_ITEM_IDS = ['pen_monami', 'pen_jetstream', 'pen_applepencil'];
 const REWARD_PEN_ITEM_IDS = ['reward_pen_monami', 'reward_pen_jetstream', 'reward_pen_applepencil'];
@@ -1860,12 +1866,21 @@ let raidState = {
   nextDayForcedBossId: null
 };
 
+function createPvpModeState() {
+  return {
+    queue: [],
+    match: null,
+    battle: null,
+    viewers: {}
+  };
+}
+
 let pvpState = {
   version: PVP_POLL_VERSION_EMPTY,
-  queue: [],
-  match: null,
-  battle: null,
-  viewers: {}
+  modes: {
+    [PVP_MODE_RANKED]: createPvpModeState(),
+    [PVP_MODE_NORMAL]: createPvpModeState()
+  }
 };
 let pvpAdvanceQueue = Promise.resolve();
 
@@ -5645,6 +5660,47 @@ function bumpPvpVersion() {
   pvpState.version = (Number(pvpState.version || 0) + 1) % Number.MAX_SAFE_INTEGER;
 }
 
+function normalizePvpMode(mode) {
+  return mode === PVP_MODE_NORMAL ? PVP_MODE_NORMAL : PVP_MODE_RANKED;
+}
+
+function getPvpModeLabel(mode) {
+  return PVP_MODE_LABELS[normalizePvpMode(mode)] || PVP_MODE_LABELS[PVP_MODE_RANKED];
+}
+
+function getPvpModeState(mode = PVP_MODE_RANKED) {
+  const normalized = normalizePvpMode(mode);
+  if (!pvpState.modes) pvpState.modes = {};
+  if (!pvpState.modes[normalized]) pvpState.modes[normalized] = createPvpModeState();
+  return pvpState.modes[normalized];
+}
+
+function getPvpModeEntries() {
+  return [PVP_MODE_RANKED, PVP_MODE_NORMAL].map((mode) => [mode, getPvpModeState(mode)]);
+}
+
+function isRankedPvpMode(mode) {
+  return normalizePvpMode(mode) === PVP_MODE_RANKED;
+}
+
+function getPvpModeStateForMatch(match) {
+  return getPvpModeState(match?.mode || PVP_MODE_RANKED);
+}
+
+function getPvpModeStateForBattle(battle) {
+  return getPvpModeState(battle?.mode || PVP_MODE_RANKED);
+}
+
+function isUserInAnyPvpSession(userId) {
+  const normalizedUserId = String(userId || '');
+  if (!normalizedUserId) return false;
+  return getPvpModeEntries().some(([, modeState]) => (
+    modeState.queue.some((entry) => entry.userId === normalizedUserId)
+    || modeState.match?.players?.some((player) => player.userId === normalizedUserId)
+    || modeState.battle?.players?.some((player) => player.userId === normalizedUserId)
+  ));
+}
+
 function getCardGradeOrderValue(grade) {
   return ({ S: 0, A: 1, B: 2, C: 3 }[grade] ?? 9);
 }
@@ -5840,7 +5896,7 @@ async function autoPickPvpCard(match, userId, now = new Date()) {
   if (!user) return;
   ensureUserDefaults(user);
   if (
-    pvpState.match !== match
+    getPvpModeStateForMatch(match).match !== match
     || match.phase !== 'pick'
     || match.turnUserId !== String(userId)
     || getPvpDraftTurnKey(match) !== turnKey
@@ -5925,6 +5981,9 @@ async function createPvpBattleFromMatch(match, now = new Date()) {
 
   const battle = {
     battleId: crypto.randomUUID(),
+    mode: normalizePvpMode(match.mode),
+    modeLabel: getPvpModeLabel(match.mode),
+    isRanked: isRankedPvpMode(match.mode),
     phase: 'active',
     players,
     firstUserId: match.players[0].userId,
@@ -6534,6 +6593,35 @@ async function finalizePvpBattleOutcome(winnerUserId, loserUserId, battle) {
     if (!winnerSnapshot || !loserSnapshot) return;
     ensureUserDefaults(winnerSnapshot);
     ensureUserDefaults(loserSnapshot);
+    const ranked = isRankedPvpMode(battle?.mode);
+
+    if (!ranked) {
+      await withUserMutationLock(winnerUserId, async () => {
+        const user = await User.findById(winnerUserId);
+        if (!user) return;
+        ensureUserDefaults(user);
+        const expMultiplier = 1 + calculateDerivedStats(user, new Date()).expBonusPercent / 100;
+        const expReward = Math.floor(getRequiredExp(user.gameState.level) * 0.025 * expMultiplier);
+        user.gameState.exp += expReward;
+        checkLevelUp(user);
+        queueNotification(user, 'pvp_normal_victory_reward', `일반 개인면담 승리! 경험치 ${expReward.toLocaleString()}를 획득했습니다.`);
+        await user.save();
+      });
+      await withUserMutationLock(loserUserId, async () => {
+        const user = await User.findById(loserUserId);
+        if (!user) return;
+        ensureUserDefaults(user);
+        const expMultiplier = 1 + calculateDerivedStats(user, new Date()).expBonusPercent / 100;
+        const expReward = Math.floor(getRequiredExp(user.gameState.level) * 0.01 * expMultiplier);
+        user.gameState.exp += expReward;
+        checkLevelUp(user);
+        queueNotification(user, 'pvp_normal_defeat_reward', `일반 개인면담 패배 보상으로 경험치 ${expReward.toLocaleString()}를 획득했습니다.`);
+        await user.save();
+      });
+      battle.ratingChange = null;
+      return;
+    }
+
     const winnerOldRating = getPvpUserRating(winnerSnapshot);
     const loserOldRating = getPvpUserRating(loserSnapshot);
     const delta = calculatePvpRatingDelta(winnerOldRating, loserOldRating);
@@ -6554,7 +6642,8 @@ async function finalizePvpBattleOutcome(winnerUserId, loserUserId, battle) {
       checkLevelUp(user);
       addItemToInventory(user, 'raid_entry_ticket', 1);
       addItemToInventory(user, 'equipment_fragment', fragmentReward);
-      queueNotification(user, 'pvp_victory_reward', `개인면담 승리! +${delta}점, 회의 추가 입장권 1장, 경험치 ${expReward.toLocaleString()}, 장비 파편 ${fragmentReward}개를 획득했습니다.`);
+      addItemToInventory(user, 'bacchus', 1);
+      queueNotification(user, 'pvp_victory_reward', `랭크 개인면담 승리! +${delta}점, 회의 추가 입장권 1장, 박카스 1개, 경험치 ${expReward.toLocaleString()}, 장비 파편 ${fragmentReward}개를 획득했습니다.`);
       await user.save();
     });
     await withUserMutationLock(loserUserId, async () => {
@@ -6564,7 +6653,11 @@ async function finalizePvpBattleOutcome(winnerUserId, loserUserId, battle) {
       user.pvpStats.rating = loserNewRating;
       user.pvpStats.played += 1;
       user.pvpStats.losses += 1;
-      queueNotification(user, 'pvp_rating_loss', `개인면담 패배로 -${delta}점이 반영되었습니다.`);
+      const expMultiplier = 1 + calculateDerivedStats(user, new Date()).expBonusPercent / 100;
+      const expReward = Math.floor(getRequiredExp(user.gameState.level) * 0.02 * expMultiplier);
+      user.gameState.exp += expReward;
+      checkLevelUp(user);
+      queueNotification(user, 'pvp_rating_loss', `랭크 개인면담 패배로 -${delta}점이 반영되었습니다. 패배 보상으로 경험치 ${expReward.toLocaleString()}를 획득했습니다.`);
       await user.save();
     });
     battle.ratingChange = { winnerDelta: delta, loserDelta: -delta, winnerNewRating, loserNewRating };
@@ -6629,16 +6722,16 @@ async function executePvpTurn(battle, now = new Date()) {
   bumpPvpVersion();
 }
 
-async function advancePvpStateUnlocked(now = new Date()) {
-  if (pvpState.match) {
-    const match = pvpState.match;
+async function advancePvpModeStateUnlocked(mode, modeState, now = new Date()) {
+  if (modeState.match) {
+    const match = modeState.match;
     if (match.phase === 'accept') {
       if (now.getTime() >= new Date(match.acceptEndsAt).getTime()) {
         const acceptedPlayers = match.players.filter((player) => match.accepted[player.userId]);
-        pvpState.match = null;
+        modeState.match = null;
         acceptedPlayers.forEach((player) => {
-          if (!pvpState.queue.some((entry) => entry.userId === player.userId)) {
-            pvpState.queue.push(player);
+          if (!isUserInAnyPvpSession(player.userId)) {
+            modeState.queue.push(player);
           }
         });
         bumpPvpVersion();
@@ -6651,20 +6744,26 @@ async function advancePvpStateUnlocked(now = new Date()) {
       }
       bumpPvpVersion();
     } else if (match.phase === 'starting' && now.getTime() >= new Date(match.startsAt).getTime()) {
-      pvpState.battle = await createPvpBattleFromMatch(match, now);
-      pvpState.match = null;
+      modeState.battle = await createPvpBattleFromMatch(match, now);
+      modeState.match = null;
       bumpPvpVersion();
     }
   }
 
-  if (pvpState.battle?.phase === 'active' && now.getTime() >= new Date(pvpState.battle.turnEndsAt).getTime()) {
-    await executePvpTurn(pvpState.battle, now);
+  if (modeState.battle?.phase === 'active' && now.getTime() >= new Date(modeState.battle.turnEndsAt).getTime()) {
+    await executePvpTurn(modeState.battle, now);
   }
 
-  if (pvpState.battle?.phase === 'finished' && pvpState.battle.finishedAt && now.getTime() - new Date(pvpState.battle.finishedAt).getTime() > 20000) {
-    pvpState.battle = null;
-    pvpState.viewers = {};
+  if (modeState.battle?.phase === 'finished' && modeState.battle.finishedAt && now.getTime() - new Date(modeState.battle.finishedAt).getTime() > 20000) {
+    modeState.battle = null;
+    modeState.viewers = {};
     bumpPvpVersion();
+  }
+}
+
+async function advancePvpStateUnlocked(now = new Date()) {
+  for (const [mode, modeState] of getPvpModeEntries()) {
+    await advancePvpModeStateUnlocked(mode, modeState, now);
   }
 }
 
@@ -6693,8 +6792,12 @@ function buildPvpEffectsSnapshot(player) {
 
 function buildPvpBattleSnapshot(battle, viewerUserId = null) {
   if (!battle) return null;
+  const modeState = getPvpModeStateForBattle(battle);
   return {
     battleId: battle.battleId,
+    mode: normalizePvpMode(battle.mode),
+    modeLabel: getPvpModeLabel(battle.mode),
+    isRanked: isRankedPvpMode(battle.mode),
     phase: battle.phase,
     currentUserId: battle.currentUserId,
     firstUserId: battle.firstUserId,
@@ -6706,7 +6809,7 @@ function buildPvpBattleSnapshot(battle, viewerUserId = null) {
     ratingChange: battle.ratingChange || null,
     isParticipant: Boolean(viewerUserId && battle.players.some((player) => player.userId === String(viewerUserId))),
     currentBet: viewerUserId && battle.bets ? (battle.bets[viewerUserId] || null) : null,
-    spectators: buildSpectatorList(pvpState.viewers, battle.players.map((player) => player.userId)),
+    spectators: buildSpectatorList(modeState.viewers, battle.players.map((player) => player.userId)),
     players: battle.players.map((player) => ({
       userId: player.userId,
       displayName: player.displayName,
@@ -6728,13 +6831,35 @@ function buildPvpBattleSnapshot(battle, viewerUserId = null) {
   };
 }
 
-async function buildPvpStateResponse(user, now = new Date()) {
+function buildPvpModeSummary(mode, modeState, userId, user) {
+  const normalizedMode = normalizePvpMode(mode);
+  const participantInMatch = Boolean(userId && modeState.match?.players?.some((player) => player.userId === userId));
+  const participantInBattle = Boolean(userId && modeState.battle?.players?.some((player) => player.userId === userId));
+  const queued = Boolean(userId && modeState.queue.some((entry) => entry.userId === userId));
+  return {
+    mode: normalizedMode,
+    label: getPvpModeLabel(normalizedMode),
+    isRanked: isRankedPvpMode(normalizedMode),
+    canQueue: Boolean(user && user.gameState.level >= PVP_MIN_LEVEL && !modeState.battle && !modeState.match && !isUserInAnyPvpSession(userId)),
+    isQueued: queued,
+    queueCount: modeState.queue.length,
+    hasActiveSession: Boolean(modeState.match || modeState.battle),
+    isParticipant: participantInMatch || participantInBattle
+  };
+}
+
+async function buildPvpStateResponse(user, now = new Date(), requestedMode = PVP_MODE_RANKED) {
   await advancePvpState(now);
   const responseNow = new Date();
   const userId = user?._id ? String(user._id) : null;
-  const match = pvpState.match;
+  const selectedMode = normalizePvpMode(requestedMode);
+  const selectedModeState = getPvpModeState(selectedMode);
+  const match = selectedModeState.match;
   const matchPayload = match ? {
     matchId: match.matchId,
+    mode: normalizePvpMode(match.mode),
+    modeLabel: getPvpModeLabel(match.mode),
+    isRanked: isRankedPvpMode(match.mode),
     phase: match.phase,
     players: match.players,
     accepted: match.accepted,
@@ -6746,34 +6871,41 @@ async function buildPvpStateResponse(user, now = new Date()) {
     picks: match.picks,
     pickTurnIndex: match.pickTurnIndex || 0,
     currentBet: userId && match.bets ? (match.bets[userId] || null) : null,
-    canBet: Boolean(userId && !match.players.some((player) => player.userId === userId) && ['ban', 'pick'].includes(match.phase) && !(match.bets || {})[userId]),
+    canBet: Boolean(isRankedPvpMode(match.mode) && userId && !match.players.some((player) => player.userId === userId) && ['ban', 'pick'].includes(match.phase) && !(match.bets || {})[userId]),
     bannedCardIds: getPvpBannedCardIds(match),
     pickedCardIds: getPvpPickedCardIds(match),
     allCards: getAllPvpBanCards(),
     ownedCards: getOwnedPvpPickCards(user),
     logs: match.logs.slice(-8),
-    spectators: buildSpectatorList(pvpState.viewers, match.players.map((player) => player.userId)),
+    spectators: buildSpectatorList(selectedModeState.viewers, match.players.map((player) => player.userId)),
     isParticipant: Boolean(userId && match.players.some((player) => player.userId === userId)),
     isMyTurn: Boolean(userId && match.turnUserId === userId)
   } : null;
+  const modes = Object.fromEntries(getPvpModeEntries().map(([mode, modeState]) => [
+    mode,
+    buildPvpModeSummary(mode, modeState, userId, user)
+  ]));
 
   return {
     version: pvpState.version,
+    mode: selectedMode,
+    modeLabel: getPvpModeLabel(selectedMode),
+    modes,
     serverNow: responseNow.toISOString(),
     minLevel: PVP_MIN_LEVEL,
-    canQueue: Boolean(user && user.gameState.level >= PVP_MIN_LEVEL && !pvpState.battle && !pvpState.match),
-    isQueued: Boolean(userId && pvpState.queue.some((entry) => entry.userId === userId)),
-    queueCount: pvpState.queue.length,
-    hasActiveSession: Boolean(pvpState.match || pvpState.battle),
+    canQueue: modes[selectedMode]?.canQueue || false,
+    isQueued: modes[selectedMode]?.isQueued || false,
+    queueCount: modes[selectedMode]?.queueCount || 0,
+    hasActiveSession: modes[selectedMode]?.hasActiveSession || false,
     match: matchPayload,
-    battle: buildPvpBattleSnapshot(pvpState.battle, userId)
+    battle: buildPvpBattleSnapshot(selectedModeState.battle, userId)
   };
 }
 
-async function sendPvpStateError(res, user, now, status, msg) {
+async function sendPvpStateError(res, user, now, status, msg, mode = PVP_MODE_RANKED) {
   return res.status(status).json({
     msg,
-    pvp: await buildPvpStateResponse(user, now)
+    pvp: await buildPvpStateResponse(user, now, mode)
   });
 }
 
@@ -6784,38 +6916,50 @@ function createPvpQueueEntry(user) {
   };
 }
 
-function removePvpQueueUser(userId) {
-  pvpState.queue = pvpState.queue.filter((entry) => entry.userId !== String(userId));
+function removePvpQueueUser(userId, modeState = null) {
+  const normalizedUserId = String(userId);
+  if (modeState) {
+    modeState.queue = modeState.queue.filter((entry) => entry.userId !== normalizedUserId);
+    return;
+  }
+  getPvpModeEntries().forEach(([, state]) => {
+    state.queue = state.queue.filter((entry) => entry.userId !== normalizedUserId);
+  });
 }
 
-function startPvpAcceptMatch(playerA, playerB, now = new Date()) {
-  pvpState.match = {
+function startPvpAcceptMatch(modeState, mode, playerA, playerB, now = new Date()) {
+  const players = Math.random() < 0.5 ? [playerA, playerB] : [playerB, playerA];
+  const [firstPlayer, secondPlayer] = players;
+  modeState.match = {
     matchId: crypto.randomUUID(),
+    mode: normalizePvpMode(mode),
+    modeLabel: getPvpModeLabel(mode),
+    isRanked: isRankedPvpMode(mode),
     phase: 'accept',
-    players: [playerA, playerB],
+    players,
     accepted: {
-      [playerA.userId]: false,
-      [playerB.userId]: false
+      [firstPlayer.userId]: false,
+      [secondPlayer.userId]: false
     },
     acceptEndsAt: new Date(now.getTime() + PVP_ACCEPT_MS),
-    turnUserId: playerA.userId,
+    turnUserId: firstPlayer.userId,
     turnEndsAt: null,
     startsAt: null,
     bans: {
-      [playerA.userId]: [],
-      [playerB.userId]: []
+      [firstPlayer.userId]: [],
+      [secondPlayer.userId]: []
     },
     picks: {
-      [playerA.userId]: [],
-      [playerB.userId]: []
+      [firstPlayer.userId]: [],
+      [secondPlayer.userId]: []
     },
     bets: {},
     pickDone: {
-      [playerA.userId]: false,
-      [playerB.userId]: false
+      [firstPlayer.userId]: false,
+      [secondPlayer.userId]: false
     },
     pickTurnIndex: 0,
-    logs: ['매칭이 성사되었습니다. 5초 안에 입장해주세요.']
+    logs: [`${getPvpModeLabel(mode)} 개인면담 매칭이 성사되었습니다. 5초 안에 입장해주세요. 1P/2P 순서는 무작위로 배정되었습니다.`]
   };
   bumpPvpVersion();
 }
@@ -10094,7 +10238,7 @@ app.post('/api/raid/set-target', async (req, res) => {
 });
 
 app.post('/api/pvp/state', async (req, res) => {
-  const { userId, viewing } = req.body;
+  const { userId, viewing, mode } = req.body;
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
@@ -10102,14 +10246,16 @@ app.post('/api/pvp/state', async (req, res) => {
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
     ensureUserDefaults(user);
     const now = new Date();
-    const activePvp = pvpState.match || pvpState.battle;
+    const pvpMode = normalizePvpMode(mode);
+    const modeState = getPvpModeState(pvpMode);
+    const activePvp = modeState.match || modeState.battle;
     const isParticipant = activePvp?.players?.some((player) => player.userId === String(userId));
     if (viewing && activePvp && !isParticipant) {
-      registerViewer(pvpState.viewers, user, now);
+      registerViewer(modeState.viewers, user, now);
     } else {
-      pruneViewerMap(pvpState.viewers, now);
+      pruneViewerMap(modeState.viewers, now);
     }
-    const pvp = await buildPvpStateResponse(user, now);
+    const pvp = await buildPvpStateResponse(user, now, pvpMode);
     res.json({ pvp });
   } catch (err) {
     console.error('PVP state error:', err);
@@ -10118,12 +10264,14 @@ app.post('/api/pvp/state', async (req, res) => {
 });
 
 app.post('/api/pvp/queue', async (req, res) => {
-  const { userId } = req.body;
+  const { userId, mode } = req.body;
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
     const now = new Date();
     await advancePvpState(now);
+    const pvpMode = normalizePvpMode(mode);
+    const modeState = getPvpModeState(pvpMode);
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
     ensureUserDefaults(user);
@@ -10131,24 +10279,24 @@ app.post('/api/pvp/queue', async (req, res) => {
     if (user.gameState.level < PVP_MIN_LEVEL) {
       return res.status(400).json({ msg: '개인면담 입장은 50레벨부터 가능합니다.' });
     }
-    if (pvpState.battle || pvpState.match) {
-      return res.status(400).json({ msg: '이미 개인면담이 진행 중입니다. 관전으로 참여해주세요.' });
+    if (modeState.battle || modeState.match) {
+      return res.status(400).json({ msg: `이미 ${getPvpModeLabel(pvpMode)} 개인면담이 진행 중입니다. 관전으로 참여해주세요.` });
     }
-    if (pvpState.queue.some((entry) => entry.userId === String(userId))) {
-      return res.json({ pvp: await buildPvpStateResponse(user, now) });
+    if (isUserInAnyPvpSession(userId)) {
+      return res.json({ pvp: await buildPvpStateResponse(user, now, pvpMode) });
     }
 
     const entry = createPvpQueueEntry(user);
-    const opponentIndex = pvpState.queue.findIndex((queued) => queued.userId !== entry.userId);
+    const opponentIndex = modeState.queue.findIndex((queued) => queued.userId !== entry.userId);
     if (opponentIndex >= 0) {
-      const opponent = pvpState.queue.splice(opponentIndex, 1)[0];
-      startPvpAcceptMatch(opponent, entry, now);
+      const opponent = modeState.queue.splice(opponentIndex, 1)[0];
+      startPvpAcceptMatch(modeState, pvpMode, opponent, entry, now);
     } else {
-      pvpState.queue.push(entry);
+      modeState.queue.push(entry);
       bumpPvpVersion();
     }
 
-    res.json({ pvp: await buildPvpStateResponse(user, now) });
+    res.json({ pvp: await buildPvpStateResponse(user, now, pvpMode) });
   } catch (err) {
     console.error('PVP queue error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
@@ -10156,37 +10304,44 @@ app.post('/api/pvp/queue', async (req, res) => {
 });
 
 app.post('/api/pvp/accept', async (req, res) => {
-  const { userId, accept } = req.body;
+  const { userId, accept, mode } = req.body;
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
     const now = new Date();
     await advancePvpState(now);
+    const pvpMode = normalizePvpMode(mode);
+    const modeState = getPvpModeState(pvpMode);
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
     ensureUserDefaults(user);
 
-    const match = pvpState.match;
+    const match = modeState.match;
     if (!match || match.phase !== 'accept' || !getPvpPlayer(match, userId)) {
       return res.status(400).json({ msg: '수락할 개인면담 매칭이 없습니다.' });
     }
 
     if (!accept) {
       match.players.forEach((player) => removePvpQueueUser(player.userId));
-      pvpState.match = null;
+      modeState.match = null;
       bumpPvpVersion();
-      return res.json({ pvp: await buildPvpStateResponse(user, now) });
+      return res.json({ pvp: await buildPvpStateResponse(user, now, pvpMode) });
     }
 
     match.accepted[String(userId)] = true;
     if (match.players.every((player) => match.accepted[player.userId])) {
-      match.phase = 'ban';
-      match.turnUserId = match.players[0].userId;
-      match.turnEndsAt = new Date(now.getTime() + PVP_BAN_TURN_MS);
-      match.logs.push('밴픽을 시작합니다. 먼저 각자 3장씩 금지합니다.');
+      if (isRankedPvpMode(match.mode)) {
+        match.phase = 'ban';
+        match.turnUserId = match.players[0].userId;
+        match.turnEndsAt = new Date(now.getTime() + PVP_BAN_TURN_MS);
+        match.logs.push('랭크 밴픽을 시작합니다. 먼저 각자 3장씩 금지합니다.');
+      } else {
+        startPvpPickPhase(match, now);
+        match.logs.push('일반전 카드 선택을 시작합니다. 밴 없이 픽만 진행합니다.');
+      }
     }
     bumpPvpVersion();
-    res.json({ pvp: await buildPvpStateResponse(user, now) });
+    res.json({ pvp: await buildPvpStateResponse(user, now, pvpMode) });
   } catch (err) {
     console.error('PVP accept error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
@@ -10194,33 +10349,35 @@ app.post('/api/pvp/accept', async (req, res) => {
 });
 
 app.post('/api/pvp/ban', async (req, res) => {
-  const { userId, cardId, matchId, phase } = req.body;
+  const { userId, cardId, matchId, phase, mode } = req.body;
   if (!userId || !cardId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
 
   try {
     const now = new Date();
+    const pvpMode = normalizePvpMode(mode);
+    const modeState = getPvpModeState(pvpMode);
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
     ensureUserDefaults(user);
-    let match = pvpState.match;
+    let match = modeState.match;
     if (!match || match.phase !== 'ban') {
       await advancePvpState(now);
-      match = pvpState.match;
+      match = modeState.match;
     }
-    if (!match || match.phase !== 'ban') return sendPvpStateError(res, user, now, 400, '현재 금지 단계가 아닙니다.');
-    if (matchId && match.matchId !== matchId) return sendPvpStateError(res, user, now, 400, '이미 지난 개인면담 선택입니다. 화면을 다시 확인해주세요.');
-    if (phase && phase !== 'ban') return sendPvpStateError(res, user, now, 400, '이미 지난 금지 요청입니다. 화면을 다시 확인해주세요.');
-    if (match.turnUserId !== String(userId)) return sendPvpStateError(res, user, now, 400, '아직 내 차례가 아닙니다.');
+    if (!match || match.phase !== 'ban') return sendPvpStateError(res, user, now, 400, '현재 금지 단계가 아닙니다.', pvpMode);
+    if (matchId && match.matchId !== matchId) return sendPvpStateError(res, user, now, 400, '이미 지난 개인면담 선택입니다. 화면을 다시 확인해주세요.', pvpMode);
+    if (phase && phase !== 'ban') return sendPvpStateError(res, user, now, 400, '이미 지난 금지 요청입니다. 화면을 다시 확인해주세요.', pvpMode);
+    if (match.turnUserId !== String(userId)) return sendPvpStateError(res, user, now, 400, '아직 내 차례가 아닙니다.', pvpMode);
     if (isPvpDraftTurnTimedOut(match, now, PVP_DRAFT_SUBMIT_GRACE_MS)) {
       await advancePvpState(now);
-      return sendPvpStateError(res, user, now, 400, '시간이 초과되어 자동 진행되었습니다.');
+      return sendPvpStateError(res, user, now, 400, '시간이 초과되어 자동 진행되었습니다.', pvpMode);
     }
-    if (!CARD_DATA[cardId]) return sendPvpStateError(res, user, now, 400, '존재하지 않는 카드입니다.');
+    if (!CARD_DATA[cardId]) return sendPvpStateError(res, user, now, 400, '존재하지 않는 카드입니다.', pvpMode);
     if (getPvpBannedCardIds(match).includes(cardId) || getPvpPickedCardIds(match).includes(cardId)) {
-      return sendPvpStateError(res, user, now, 400, '이미 선택할 수 없는 카드입니다.');
+      return sendPvpStateError(res, user, now, 400, '이미 선택할 수 없는 카드입니다.', pvpMode);
     }
     if ((match.bans[String(userId)] || []).length >= PVP_BANS_PER_PLAYER) {
-      return sendPvpStateError(res, user, now, 400, '이미 금지할 카드를 모두 골랐습니다.');
+      return sendPvpStateError(res, user, now, 400, '이미 금지할 카드를 모두 골랐습니다.', pvpMode);
     }
 
     match.bans[String(userId)].push(cardId);
@@ -10231,7 +10388,7 @@ app.post('/api/pvp/ban', async (req, res) => {
       advancePvpDraftTurn(match, now);
     }
     bumpPvpVersion();
-    res.json({ pvp: await buildPvpStateResponse(user, now) });
+    res.json({ pvp: await buildPvpStateResponse(user, now, pvpMode) });
   } catch (err) {
     console.error('PVP ban error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
@@ -10239,38 +10396,40 @@ app.post('/api/pvp/ban', async (req, res) => {
 });
 
 app.post('/api/pvp/pick', async (req, res) => {
-  const { userId, cardId, enhancementLevel, matchId, phase } = req.body;
+  const { userId, cardId, enhancementLevel, matchId, phase, mode } = req.body;
   if (!userId || !cardId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
 
   try {
     const now = new Date();
+    const pvpMode = normalizePvpMode(mode);
+    const modeState = getPvpModeState(pvpMode);
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
     ensureUserDefaults(user);
-    let match = pvpState.match;
+    let match = modeState.match;
     if (!match || match.phase !== 'pick') {
       await advancePvpState(now);
-      match = pvpState.match;
+      match = modeState.match;
     }
-    if (!match || match.phase !== 'pick') return sendPvpStateError(res, user, now, 400, '현재 선택 단계가 아닙니다.');
-    if (matchId && match.matchId !== matchId) return sendPvpStateError(res, user, now, 400, '이미 지난 개인면담 선택입니다. 화면을 다시 확인해주세요.');
-    if (phase && phase !== 'pick') return sendPvpStateError(res, user, now, 400, '이미 지난 선택 요청입니다. 화면을 다시 확인해주세요.');
-    if (match.turnUserId !== String(userId)) return sendPvpStateError(res, user, now, 400, '아직 내 차례가 아닙니다.');
+    if (!match || match.phase !== 'pick') return sendPvpStateError(res, user, now, 400, '현재 선택 단계가 아닙니다.', pvpMode);
+    if (matchId && match.matchId !== matchId) return sendPvpStateError(res, user, now, 400, '이미 지난 개인면담 선택입니다. 화면을 다시 확인해주세요.', pvpMode);
+    if (phase && phase !== 'pick') return sendPvpStateError(res, user, now, 400, '이미 지난 선택 요청입니다. 화면을 다시 확인해주세요.', pvpMode);
+    if (match.turnUserId !== String(userId)) return sendPvpStateError(res, user, now, 400, '아직 내 차례가 아닙니다.', pvpMode);
     if (isPvpDraftTurnTimedOut(match, now, PVP_DRAFT_SUBMIT_GRACE_MS)) {
       await advancePvpState(now);
-      return sendPvpStateError(res, user, now, 400, '시간이 초과되어 자동 진행되었습니다.');
+      return sendPvpStateError(res, user, now, 400, '시간이 초과되어 자동 진행되었습니다.', pvpMode);
     }
-    if (!CARD_DATA[cardId]) return sendPvpStateError(res, user, now, 400, '존재하지 않는 카드입니다.');
+    if (!CARD_DATA[cardId]) return sendPvpStateError(res, user, now, 400, '존재하지 않는 카드입니다.', pvpMode);
     if (getPvpBannedCardIds(match).includes(cardId) || getPvpPickedCardIds(match).includes(cardId)) {
-      return sendPvpStateError(res, user, now, 400, '이미 선택할 수 없는 카드입니다.');
+      return sendPvpStateError(res, user, now, 400, '이미 선택할 수 없는 카드입니다.', pvpMode);
     }
     const level = normalizeCardEnhancementLevel(enhancementLevel || 0);
     const pickableCard = getOwnedPvpPickCards(user).find((card) => card.cardId === cardId);
     if (!pickableCard || Number(pickableCard.enhancementLevel || 0) !== level) {
-      return sendPvpStateError(res, user, now, 400, '개인면담에서는 보유 중인 가장 높은 강화 단계 카드만 선택할 수 있습니다.');
+      return sendPvpStateError(res, user, now, 400, '개인면담에서는 보유 중인 가장 높은 강화 단계 카드만 선택할 수 있습니다.', pvpMode);
     }
     if ((match.picks[String(userId)] || []).length >= PVP_PICKS_PER_PLAYER) {
-      return sendPvpStateError(res, user, now, 400, '이미 카드를 모두 선택했습니다.');
+      return sendPvpStateError(res, user, now, 400, '이미 카드를 모두 선택했습니다.', pvpMode);
     }
 
     match.pickDone = match.pickDone || {};
@@ -10285,7 +10444,7 @@ app.post('/api/pvp/pick', async (req, res) => {
       advancePvpDraftTurn(match, now);
     }
     bumpPvpVersion();
-    res.json({ pvp: await buildPvpStateResponse(user, now) });
+    res.json({ pvp: await buildPvpStateResponse(user, now, pvpMode) });
   } catch (err) {
     console.error('PVP pick error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
@@ -10293,7 +10452,7 @@ app.post('/api/pvp/pick', async (req, res) => {
 });
 
 app.post('/api/pvp/bet', async (req, res) => {
-  const { userId, targetUserId, amount } = req.body;
+  const { userId, targetUserId, amount, mode } = req.body;
   if (!userId || !targetUserId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
 
   const betAmount = Math.floor(Number(amount) || 0);
@@ -10302,25 +10461,31 @@ app.post('/api/pvp/bet', async (req, res) => {
   try {
     const now = new Date();
     await advancePvpState(now);
+    const pvpMode = normalizePvpMode(mode);
+    const modeState = getPvpModeState(pvpMode);
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
     ensureUserDefaults(user);
 
-    const match = pvpState.match;
+    if (!isRankedPvpMode(pvpMode)) {
+      return sendPvpStateError(res, user, now, 400, '배팅은 랭크 개인면담에서만 가능합니다.', pvpMode);
+    }
+
+    const match = modeState.match;
     if (!match || !['ban', 'pick'].includes(match.phase)) {
-      return sendPvpStateError(res, user, now, 400, '배팅은 밴픽이 끝나기 전까지만 가능합니다.');
+      return sendPvpStateError(res, user, now, 400, '배팅은 밴픽이 끝나기 전까지만 가능합니다.', pvpMode);
     }
     if (match.players.some((player) => player.userId === String(userId))) {
-      return sendPvpStateError(res, user, now, 400, '참가자는 배팅할 수 없습니다.');
+      return sendPvpStateError(res, user, now, 400, '참가자는 배팅할 수 없습니다.', pvpMode);
     }
     const target = match.players.find((player) => player.userId === String(targetUserId));
-    if (!target) return sendPvpStateError(res, user, now, 400, '배팅할 대상을 찾을 수 없습니다.');
+    if (!target) return sendPvpStateError(res, user, now, 400, '배팅할 대상을 찾을 수 없습니다.', pvpMode);
     match.bets = match.bets || {};
     if (match.bets[String(userId)]) {
-      return sendPvpStateError(res, user, now, 400, '이번 개인면담에는 이미 배팅했습니다.');
+      return sendPvpStateError(res, user, now, 400, '이번 개인면담에는 이미 배팅했습니다.', pvpMode);
     }
     if (user.gameState.money < betAmount) {
-      return sendPvpStateError(res, user, now, 400, '보유 금액이 부족합니다.');
+      return sendPvpStateError(res, user, now, 400, '보유 금액이 부족합니다.', pvpMode);
     }
 
     user.gameState.money -= betAmount;
@@ -10339,7 +10504,7 @@ app.post('/api/pvp/bet', async (req, res) => {
     res.json({
       user: buildGameStateResponse(user, now),
       notifications: consumeNotifications(user),
-      pvp: await buildPvpStateResponse(user, now)
+      pvp: await buildPvpStateResponse(user, now, pvpMode)
     });
   } catch (err) {
     console.error('PVP bet error:', err);
@@ -10348,16 +10513,18 @@ app.post('/api/pvp/bet', async (req, res) => {
 });
 
 app.post('/api/pvp/plan-skill', async (req, res) => {
-  const { userId, cardIndex } = req.body;
+  const { userId, cardIndex, mode } = req.body;
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
     const now = new Date();
     await advancePvpState(now);
+    const pvpMode = normalizePvpMode(mode);
+    const modeState = getPvpModeState(pvpMode);
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
     ensureUserDefaults(user);
-    const battle = pvpState.battle;
+    const battle = modeState.battle;
     if (!battle || battle.phase !== 'active') return res.status(400).json({ msg: '진행 중인 개인면담이 없습니다.' });
     const player = getPvpPlayer(battle, userId);
     if (!player) return res.status(403).json({ msg: '개인면담 참가자가 아닙니다.' });
@@ -10374,7 +10541,7 @@ app.post('/api/pvp/plan-skill', async (req, res) => {
     } else {
       bumpPvpVersion();
     }
-    res.json({ pvp: await buildPvpStateResponse(user, now) });
+    res.json({ pvp: await buildPvpStateResponse(user, now, pvpMode) });
   } catch (err) {
     console.error('PVP skill plan error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
@@ -10382,16 +10549,18 @@ app.post('/api/pvp/plan-skill', async (req, res) => {
 });
 
 app.post('/api/pvp/end-turn', async (req, res) => {
-  const { userId } = req.body;
+  const { userId, mode } = req.body;
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
     const now = new Date();
     await advancePvpState(now);
+    const pvpMode = normalizePvpMode(mode);
+    const modeState = getPvpModeState(pvpMode);
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
     ensureUserDefaults(user);
-    const battle = pvpState.battle;
+    const battle = modeState.battle;
     if (!battle || battle.phase !== 'active') return res.status(400).json({ msg: '진행 중인 개인면담이 없습니다.' });
     const player = getPvpPlayer(battle, userId);
     if (!player) return res.status(403).json({ msg: '개인면담 참가자가 아닙니다.' });
@@ -10399,7 +10568,7 @@ app.post('/api/pvp/end-turn', async (req, res) => {
 
     player.plannedCardIndex = null;
     await executePvpTurn(battle, now);
-    res.json({ pvp: await buildPvpStateResponse(user, now) });
+    res.json({ pvp: await buildPvpStateResponse(user, now, pvpMode) });
   } catch (err) {
     console.error('PVP end turn error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
@@ -10407,19 +10576,21 @@ app.post('/api/pvp/end-turn', async (req, res) => {
 });
 
 app.post('/api/pvp/cancel', async (req, res) => {
-  const { userId } = req.body;
+  const { userId, mode } = req.body;
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
+    const pvpMode = normalizePvpMode(mode);
+    const modeState = getPvpModeState(pvpMode);
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
-    removePvpQueueUser(userId);
-    if (pvpState.match?.phase === 'accept' && getPvpPlayer(pvpState.match, userId)) {
-      pvpState.match.players.forEach((player) => removePvpQueueUser(player.userId));
-      pvpState.match = null;
+    removePvpQueueUser(userId, modeState);
+    if (modeState.match?.phase === 'accept' && getPvpPlayer(modeState.match, userId)) {
+      modeState.match.players.forEach((player) => removePvpQueueUser(player.userId));
+      modeState.match = null;
     }
     bumpPvpVersion();
-    res.json({ pvp: await buildPvpStateResponse(user, new Date()) });
+    res.json({ pvp: await buildPvpStateResponse(user, new Date(), pvpMode) });
   } catch (err) {
     console.error('PVP cancel error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
