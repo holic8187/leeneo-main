@@ -252,7 +252,7 @@ progress {
 }
 
 .workspace-side {
-  width: 280px;
+  width: 340px;
   border-left: var(--excel-border);
   background: #fafafa;
 }
@@ -287,12 +287,20 @@ progress {
   width: 60px;
 }
 
+.nickname-col {
+  width: 220px;
+}
+
 .ranking-name-cell {
   position: relative;
   display: table-cell;
-  min-width: 120px;
+  width: 220px;
+  min-width: 220px;
+  height: 42px;
+  padding-right: 10px;
   vertical-align: middle;
   overflow: hidden;
+  white-space: nowrap;
 }
 
 .ranking-name-cell .online-dot,
@@ -304,8 +312,11 @@ progress {
 
 .ranking-display-name {
   display: inline-block;
-  max-width: 150px;
+  max-width: 190px;
   vertical-align: middle;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ranking-emblem-icon {
