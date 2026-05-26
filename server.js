@@ -170,7 +170,7 @@ const EMBLEM_DATA = {
     id: 'cat_butler',
     name: '집사',
     price: 0,
-    fragmentCost: 10000,
+    fragmentCost: 5000,
     desc: '랭킹 닉네임 칸에 고양이 집사 느낌의 전용 배경을 표시합니다. 보유 효과: 보스 클리어 보상 +5%',
     imageUrl: '',
     className: 'emblem-cat-butler',
@@ -1093,7 +1093,7 @@ const FRAGMENT_SHOP_ITEMS = {
     id: 'cat_butler_emblem',
     emblemId: 'cat_butler',
     name: '집사 휘장',
-    cost: 10000,
+    cost: 5000,
     quantity: 1,
     dailyLimit: 1,
     countField: 'dailyFragmentCatButlerEmblemPurchases'

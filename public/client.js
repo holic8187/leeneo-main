@@ -260,6 +260,15 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-26-butler-emblem-refresh',
+    time: '2026-05-26 11:35',
+    title: '집사 휘장 조정',
+    items: [
+      '<집사> 휘장 이미지를 새 버전으로 교체했습니다.',
+      '<집사> 휘장의 파편 상점 구매 가격을 장비 파편 10,000개에서 5,000개로 낮췄습니다.'
+    ]
+  },
+  {
     id: '2026-05-26-butler-emblem',
     time: '2026-05-26 09:35',
     title: '집사 휘장 추가',
