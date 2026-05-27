@@ -6790,7 +6790,7 @@ function getPvpCardDefinitionFromSlot(player, slotIndex) {
 }
 
 function removeRandomPvpBuff(target, removeCount = 1) {
-  const removable = target.buffs.filter((buff) => buff.id !== 'rotation_amp_passive');
+  const removable = target.buffs.filter(Boolean);
   if (!removable.length) return null;
   const buff = removable[Math.floor(Math.random() * removable.length)];
   const count = Math.max(1, Number(removeCount || 1));

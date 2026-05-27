@@ -264,6 +264,15 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-27-pvp-gossip-passive-removable',
+    time: '2026-05-27 14:35',
+    title: '뒷담화 제거 대상 재조정',
+    items: [
+      '개인면담에서 소개팅 상대, 소주각?, 이번엔 될거같아 같은 카드 패시브 버프도 뒷담화로 제거될 수 있도록 변경했습니다.',
+      '레이드 보스의 고유 패시브 효과는 뒷담화 제거 대상에 포함하지 않습니다.'
+    ]
+  },
+  {
     id: '2026-05-27-adventure-cooldown-half',
     time: '2026-05-27 14:05',
     title: '모험 재시도 대기시간 단축',
