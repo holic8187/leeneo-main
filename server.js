@@ -1148,6 +1148,7 @@ const RAID_BOSS_DATA = {
     imageLabel: '트름녀',
     portrait: 'assets/bosses/burp_queen.png',
     patternOrder: ['burp', 'ice', 'smack', 'shield'],
+    hardPassiveText: '패시브. 가시갑옷: 1회 피격당할 때마다 공격자에게 5 피해를 반사합니다.',
     skillsText: [
       '1. 트름하기: 파티 전체에게 30 피해',
       '2. 얼음씹기: 랜덤 3명에게 30 피해, 1턴 침묵',
@@ -1163,6 +1164,7 @@ const RAID_BOSS_DATA = {
     imageLabel: '대머리 김부장',
     portrait: 'assets/bosses/bald_manager.png',
     patternOrder: ['wig_search', 'mz', 'afterparty', 'sauna'],
+    hardPassiveText: '패시브. 매끈한 두피: 같은 플레이어 턴에 1회 타격당할 때마다 이후 받는 피해가 10%씩 곱연산으로 감소합니다. 새 턴이 시작되면 사라집니다.',
     skillsText: [
       '1. 내 가발 어디갔어?!: 랜덤 3명에게 20 피해, 2턴 동안 기본 공격/스킬 사용 불가',
       '2. 허허, 요즘 엠제트세대란..: 랜덤 4명에게 10 피해, 2턴 동안 회복량/실드 획득량 50% 감소',
@@ -1179,6 +1181,7 @@ const RAID_BOSS_DATA = {
     imageLabel: 'HOI-M.S.J-50',
     portrait: 'assets/bosses/hoi_msj_50.png',
     patternOrder: ['son_brag', 'son_mix', 'ass_hit', 'nail_clip', 'food_question'],
+    hardPassiveText: '패시브. 나 먼저 퇴근할게: 매 공격을 20% 확률로 회피합니다.',
     skillsText: [
       '1. 아들자랑 MK.1: 전원의 버프 제거, 제거된 버프 1개당 10 피해, 랜덤 2인에게 2턴 기본 공격 불가',
       '2. 아들이랑 엮기 MK.2: 자신 버프 1개당 6000 회복, 버프가 없으면 보호막 5000 획득',
@@ -4261,6 +4264,30 @@ function buildRaidParticipantStatusEffects(participant) {
 function buildRaidBossStatusEffects(battle) {
   const effects = [];
   if (!battle) return effects;
+  const isHardMode = getRaidModeFromBattle(battle) === RAID_MODE_HARD;
+  if (isHardMode && battle.bossId === RAID_BOSS_ID) {
+    effects.push({
+      type: 'buff',
+      name: '가시갑옷',
+      desc: '1회 피격당할 때마다 공격자에게 5 피해를 반사합니다.'
+    });
+  }
+  if (isHardMode && battle.bossId === RAID_BOSS_ID_BALD_MANAGER) {
+    const stacks = Math.max(0, Number(battle.bossSmoothScalpStacks || 0));
+    effects.push({
+      type: 'buff',
+      name: '매끈한 두피',
+      count: stacks || null,
+      desc: `같은 플레이어 턴에 피격될 때마다 이후 받는 피해가 10%씩 곱연산으로 감소합니다.${stacks > 0 ? ` 현재 피해 수령 ${Math.round(Math.pow(0.9, stacks) * 100)}%` : ''}`
+    });
+  }
+  if (isHardMode && battle.bossId === RAID_BOSS_ID_HOI) {
+    effects.push({
+      type: 'buff',
+      name: '나 먼저 퇴근할게',
+      desc: '매 공격을 20% 확률로 회피합니다.'
+    });
+  }
   if (Number(battle.bossShield || 0) > 0) {
     effects.push({
       type: 'buff',
@@ -4344,6 +4371,9 @@ function getRaidLobbySummary(now = new Date(), mode = RAID_MODE_NORMAL) {
   const modeConfig = getRaidModeConfig(normalizedMode);
   const boss = getRaidLobbyBoss(now, normalizedMode);
   const maxHp = Math.round(Number(boss.maxHp || 0) * Number(modeConfig.hpMultiplier || 1));
+  const skillsText = normalizedMode === RAID_MODE_HARD && boss.hardPassiveText
+    ? [boss.hardPassiveText, ...(boss.skillsText || [])]
+    : (boss.skillsText || []);
   return {
     mode: normalizedMode,
     modeLabel: modeConfig.label,
@@ -4355,7 +4385,7 @@ function getRaidLobbySummary(now = new Date(), mode = RAID_MODE_NORMAL) {
     minLevel: modeConfig.minLevel,
     maxLevel: Number.isFinite(modeConfig.maxLevel) ? modeConfig.maxLevel : null,
     rewardMultiplier: modeConfig.rewardMultiplier,
-    skillsText: boss.skillsText || [],
+    skillsText,
     rewardsText: normalizedMode === RAID_MODE_HARD
       ? [...(boss.rewardsText || []), '하드 모드 보상: 노멀 보상의 1.5배']
       : [...(boss.rewardsText || []), '150레벨 이상 유저가 노멀 모드에 참가하면 기본 보상은 1/3로 지급됩니다.']
@@ -4551,12 +4581,12 @@ function useRaidCardSkill(participant, battle) {
   } else if (card.effectType === 'party_level_blast') {
     const totalLevels = battle.participants.reduce((sum, member) => sum + Number(member.level || 0), 0);
     const damage = scaleFlat(totalLevels * Number(card.multiplierPerLevel || 0));
-    applyRaidDamageToBoss(battle, damage);
-    logText = `${participant.displayName}(이)가 ${card.name}로 ${damage.toLocaleString()} 피해를 가했습니다.`;
+    const dealtDamage = applyRaidDamageToBoss(battle, damage, { attacker: participant, skillName: card.name });
+    logText = `${participant.displayName}(이)가 ${card.name}로 ${dealtDamage.toLocaleString()} 피해를 가했습니다.`;
   } else if (card.effectType === 'potato_rehab_fixed_damage') {
     const damage = getPotatoRehabDamage(participant);
     const beforeBossHp = Number(battle.bossHp || 0);
-    const dealtDamage = applyRaidDamageToBoss(battle, damage);
+    const dealtDamage = applyRaidDamageToBoss(battle, damage, { attacker: participant, skillName: card.name });
     participant.potatoRehabUsed = true;
     if (beforeBossHp > 0 && Number(battle.bossHp || 0) <= 0) {
       battle.potatoRehabKillUserIds = Array.isArray(battle.potatoRehabKillUserIds) ? battle.potatoRehabKillUserIds : [];
@@ -4690,9 +4720,9 @@ function useRaidCardSkill(participant, battle) {
     if (existing) {
       const stacks = Math.max(0, Number(existing.stacks || 0));
       const damage = scaleFlat(stacks * getRaidEffectiveLevel(participant) * Number(card.rageDamagePerStackPerLevel || 0));
-      if (damage > 0) applyRaidDamageToBoss(battle, damage);
+      const dealtDamage = damage > 0 ? applyRaidDamageToBoss(battle, damage, { attacker: participant, skillName: card.name }) : 0;
       battle.bossOvertimeDebuffs = battle.bossOvertimeDebuffs.filter((entry) => entry !== existing);
-      logText = `${participant.displayName}(이)가 ${card.name}로 내면의 분노 ${stacks.toLocaleString()}스택을 폭발시켜 ${damage.toLocaleString()} 피해를 입혔습니다.`;
+      logText = `${participant.displayName}(이)가 ${card.name}로 내면의 분노 ${stacks.toLocaleString()}스택을 폭발시켜 ${dealtDamage.toLocaleString()} 피해를 입혔습니다.`;
     } else {
       battle.bossOvertimeDebuffs.push({
         userId: participant.userId,
@@ -4738,15 +4768,10 @@ function useRaidCardSkill(participant, battle) {
     logText = `${participant.displayName}(이)가 ${card.name}로 보스에게 <중독>을 적용했습니다. 보스가 공격할 때마다 ${damage.toLocaleString()} 피해를 받습니다.`;
   } else if (card.effectType === 'direct_hp_strike') {
     const damage = scaleFlat(getRaidEffectiveLevel(participant) * Number(card.multiplierPerLevel || 0));
-    if (Number(battle.bossNegateHits || 0) > 0) {
-      battle.bossNegateHits -= 1;
-      battle.bossLastHpLoss = 0;
-      logText = `${participant.displayName}(이)가 ${card.name}를 사용했지만 보스의 피격 무효에 막혔습니다.`;
-    } else {
-      battle.bossHp = Math.max(0, Number(battle.bossHp || 0) - damage);
-      battle.bossLastHpLoss = damage;
-      logText = `${participant.displayName}(이)가 ${card.name}로 방어막을 무시하고 ${damage.toLocaleString()} 피해를 입혔습니다.`;
-    }
+    const dealtDamage = applyRaidDamageToBoss(battle, damage, { attacker: participant, skillName: card.name, ignoreShield: true });
+    logText = dealtDamage > 0
+      ? `${participant.displayName}(이)가 ${card.name}로 방어막을 무시하고 ${dealtDamage.toLocaleString()} 피해를 입혔습니다.`
+      : `${participant.displayName}(이)가 ${card.name}를 사용했지만 피해를 입히지 못했습니다.`;
   } else if (card.effectType === 'copy_ally_skill') {
     const copyCandidates = getAliveRaidParticipants(battle).filter((entry) => entry.userId !== participant.userId && getParticipantCard(entry) && !getParticipantCard(entry).passiveOnly);
     const sourceParticipant = card.canSelectCopyTarget
@@ -4773,8 +4798,8 @@ function useRaidCardSkill(participant, battle) {
       } else if (copiedCard.effectType === 'party_level_blast') {
         const totalLevels = battle.participants.reduce((sum, member) => sum + Number(member.level || 0), 0);
         const damage = Math.max(1, Math.floor(totalLevels * Number(copiedCard.multiplierPerLevel || 0) * copyScale));
-        applyRaidDamageToBoss(battle, damage);
-        logText = `${participant.displayName}(이)가 ${sourceParticipant.displayName}의 ${copiedCard.name}를 흉내 내 ${damage.toLocaleString()} 피해를 입혔습니다.`;
+        const dealtDamage = applyRaidDamageToBoss(battle, damage, { attacker: participant, skillName: copiedCard.name });
+        logText = `${participant.displayName}(이)가 ${sourceParticipant.displayName}의 ${copiedCard.name}를 흉내 내 ${dealtDamage.toLocaleString()} 피해를 입혔습니다.`;
       } else if (copiedCard.effectType === 'self_multi_hit') {
         const hits = Math.max(1, Math.ceil(Number(copiedCard.hits || 1) * copyScale));
         participant.extraHits = Math.max(participant.extraHits, hits - 1);
@@ -4836,8 +4861,8 @@ function useRaidCardSkill(participant, battle) {
         logText = `${participant.displayName}(이)가 ${sourceParticipant.displayName}의 ${copiedCard.name}를 흉내 내 방어 버프를 부여했습니다.`;
       } else {
         const damage = Math.max(1, Math.floor(getRaidEffectiveLevel(participant) * 20 * copyScale));
-        applyRaidDamageToBoss(battle, damage);
-        logText = `${participant.displayName}(이)가 ${sourceParticipant.displayName}의 ${copiedCard.name}를 흉내 냈지만 절반 위력으로만 ${damage.toLocaleString()} 피해를 입혔습니다.`;
+        const dealtDamage = applyRaidDamageToBoss(battle, damage, { attacker: participant, skillName: copiedCard.name });
+        logText = `${participant.displayName}(이)가 ${sourceParticipant.displayName}의 ${copiedCard.name}를 흉내 냈지만 절반 위력으로만 ${dealtDamage.toLocaleString()} 피해를 입혔습니다.`;
       }
     }
   } else if (card.effectType === 'random_party_attack_buff') {
@@ -4954,8 +4979,8 @@ function tickRaidParticipantEndOfTurn(participant, battle) {
     if (participant.celineTurns <= 0) {
       const expireDamage = Number(participant.celineExpireDamage || 0);
       if (battle && expireDamage > 0 && battle.bossHp > 0) {
-        applyRaidDamageToBoss(battle, expireDamage);
-        battle.logs.push(`${participant.displayName}의 <셀린느> 버프가 종료되며 ${expireDamage.toLocaleString()} 피해를 입혔습니다.`);
+        const dealtDamage = applyRaidDamageToBoss(battle, expireDamage, { attacker: participant, skillName: '셀린느' });
+        battle.logs.push(`${participant.displayName}의 <셀린느> 버프가 종료되며 ${dealtDamage.toLocaleString()} 피해를 입혔습니다.`);
       }
       participant.celineExpireDamage = 0;
       participant.celineAttackBonusPercent = 0;
@@ -5019,20 +5044,60 @@ function getRaidAttackBonusPercent(participant) {
   return baseBonus + celineBonus + championBonus;
 }
 
-function applyRaidDamageToBoss(battle, damage) {
+function isHardRaidBattle(battle) {
+  return getRaidModeFromBattle(battle) === RAID_MODE_HARD;
+}
+
+function resetRaidBossTurnPassiveState(battle) {
+  if (!battle) return;
+  battle.bossSmoothScalpStacks = 0;
+}
+
+function applyHardRaidBossOnHitPassive(battle, attacker) {
+  if (!battle || !attacker || !isHardRaidBattle(battle)) return;
+  if (battle.bossId === RAID_BOSS_ID) {
+    const reflectedDamage = 5;
+    const dealt = applyRaidDamage(attacker, reflectedDamage, {
+      battle,
+      source: 'boss_passive',
+      allowCounter: false,
+      skipBread: true
+    });
+    battle.logs.push(`트름녀의 <가시갑옷>! ${attacker.displayName}에게 ${dealt.toLocaleString()} 피해를 반사했습니다.`);
+  } else if (battle.bossId === RAID_BOSS_ID_BALD_MANAGER) {
+    battle.bossSmoothScalpStacks = Math.max(0, Number(battle.bossSmoothScalpStacks || 0)) + 1;
+  }
+}
+
+function applyRaidDamageToBoss(battle, damage, options = {}) {
+  const attacker = options.attacker || null;
+  let incomingDamage = Math.max(0, Math.floor(Number(damage || 0)));
+  if (attacker && isHardRaidBattle(battle) && battle.bossId === RAID_BOSS_ID_HOI && Math.random() < 0.2) {
+    battle.bossLastHpLoss = 0;
+    battle.logs.push(`HOI-M.S.J-50의 <나 먼저 퇴근할게>! ${attacker.displayName}의 공격을 회피했습니다.`);
+    return 0;
+  }
+  if (attacker && isHardRaidBattle(battle) && battle.bossId === RAID_BOSS_ID_BALD_MANAGER) {
+    const stacks = Math.max(0, Number(battle.bossSmoothScalpStacks || 0));
+    if (stacks > 0) {
+      incomingDamage = Math.max(0, Math.floor(incomingDamage * Math.pow(0.9, stacks)));
+    }
+  }
   if (Number(battle.bossNegateHits || 0) > 0) {
     battle.bossNegateHits -= 1;
     battle.bossLastHpLoss = 0;
+    applyHardRaidBossOnHitPassive(battle, attacker);
     return 0;
   }
-  let remainingDamage = damage;
-  if (battle.bossShield > 0) {
+  let remainingDamage = incomingDamage;
+  if (!options.ignoreShield && battle.bossShield > 0) {
     const blocked = Math.min(battle.bossShield, remainingDamage);
     battle.bossShield -= blocked;
     remainingDamage -= blocked;
   }
   battle.bossHp = Math.max(0, battle.bossHp - remainingDamage);
   battle.bossLastHpLoss = remainingDamage;
+  applyHardRaidBossOnHitPassive(battle, attacker);
   return remainingDamage;
 }
 
@@ -5152,15 +5217,15 @@ function executeNextRaidSequenceStep(battle) {
       if (participant.damageMultiplierTurns > 0) {
         hitDamage = Math.floor(hitDamage * participant.damageMultiplierValue);
       }
-      applyRaidDamageToBoss(battle, hitDamage);
+      const dealtDamage = applyRaidDamageToBoss(battle, hitDamage, { attacker: participant, skillName: '기본 공격' });
       incrementRaidOvertimeRageStacks(battle);
-      battle.logs.push(`${participant.displayName}의 기본 공격 ${step.hitIndex + 1}타! ${hitDamage.toLocaleString()} 피해를 입혔습니다.${isCritical ? ' (치명타)' : ''}`);
+      battle.logs.push(`${participant.displayName}의 기본 공격 ${step.hitIndex + 1}타! ${dealtDamage.toLocaleString()} 피해를 입혔습니다.${isCritical ? ' (치명타)' : ''}`);
     }
   } else if (step.type === 'player_fixed_skill_hit') {
     const participant = getRaidParticipant(battle, step.userId);
     if (participant && participant.hp > 0 && battle.bossHp > 0) {
-      applyRaidDamageToBoss(battle, step.damage);
-      battle.logs.push(`${participant.displayName}의 ${step.skillName} ${step.hitIndex + 1}타! ${Number(step.damage || 0).toLocaleString()} 피해를 입혔습니다.`);
+      const dealtDamage = applyRaidDamageToBoss(battle, step.damage, { attacker: participant, skillName: step.skillName });
+      battle.logs.push(`${participant.displayName}의 ${step.skillName} ${step.hitIndex + 1}타! ${dealtDamage.toLocaleString()} 피해를 입혔습니다.`);
     }
   } else if (step.type === 'boss_random_hit') {
     const bossInfo = RAID_BOSS_DATA[battle.bossId] || RAID_BOSS_DATA[RAID_BOSS_ID];
@@ -5200,9 +5265,9 @@ function performRaidCounterAttack(participant, battle) {
   if (participant.damageMultiplierTurns > 0) {
     damage = Math.floor(damage * participant.damageMultiplierValue);
   }
-  applyRaidDamageToBoss(battle, damage);
+  const dealtDamage = applyRaidDamageToBoss(battle, damage, { attacker: participant, skillName: '반격' });
   incrementRaidOvertimeRageStacks(battle);
-  return `${participant.displayName}의 반격! ${damage.toLocaleString()} 피해를 입혔습니다.${isCritical ? ' (치명타)' : ''}`;
+  return `${participant.displayName}의 반격! ${dealtDamage.toLocaleString()} 피해를 입혔습니다.${isCritical ? ' (치명타)' : ''}`;
 }
 
 function consumeRaidBreadBuff(target, battle) {
@@ -5621,6 +5686,12 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
 }
 
 function applyRaidBattleStartPassives(activeBattle) {
+  if (isHardRaidBattle(activeBattle)) {
+    const bossInfo = RAID_BOSS_DATA[activeBattle.bossId] || RAID_BOSS_DATA[RAID_BOSS_ID];
+    if (bossInfo.hardPassiveText) {
+      activeBattle.logs.push(`${bossInfo.name} 하드 패시브 적용: ${bossInfo.hardPassiveText.replace(/^패시브\.\s*/, '')}`);
+    }
+  }
   const hoiBoosted = activeBattle.bossId === RAID_BOSS_ID_HOI
     ? activeBattle.participants.filter((participant) => participant.nickname === '호이')
     : [];
@@ -7264,6 +7335,7 @@ async function advanceRaidRoomState(mode = RAID_MODE_NORMAL, now = new Date()) {
 
     if (activeBattle.turnIndex < activeBattle.participants.length) {
       const participant = activeBattle.participants[activeBattle.turnIndex];
+      resetRaidBossTurnPassiveState(activeBattle);
       if (participant.hp > 0) {
         if (participant.actionLockTurns > 0) {
           activeBattle.logs.push(`${participant.displayName}님은 가발 찾는중.. 상태라 아무 행동도 할 수 없습니다.`);
@@ -7315,6 +7387,7 @@ async function advanceRaidRoomState(mode = RAID_MODE_NORMAL, now = new Date()) {
         activeBattle.nextActionAt = new Date(now.getTime() + RAID_ACTION_DELAY_MS);
       }
     } else {
+      resetRaidBossTurnPassiveState(activeBattle);
       const bossResult = performRaidBossAction(activeBattle);
       if (bossResult?.steps?.length) {
         queueRaidSequence(activeBattle, bossResult.steps, {
@@ -10112,6 +10185,7 @@ app.post('/api/raid/start', async (req, res) => {
       bossShield: 0,
       bossShieldTurns: 0,
       bossLastHpLoss: 0,
+      bossSmoothScalpStacks: 0,
       potatoRehabKillUserIds: [],
       bossOvertimeDebuffs: [],
       bossPoisonDebuffs: [],

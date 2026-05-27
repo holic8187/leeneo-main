@@ -263,6 +263,16 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-27-hard-boss-passives',
+    time: '2026-05-27 00:20',
+    title: '하드 보스 패시브 추가',
+    items: [
+      '하드 트름녀에게 피격 시 공격자에게 5 피해를 반사하는 <가시갑옷>을 추가했습니다.',
+      '하드 대머리 김부장에게 같은 플레이어 턴 안에서 피격될수록 이후 피해를 10%씩 곱연산으로 줄이는 <매끈한 두피>를 추가했습니다.',
+      '하드 HOI-M.S.J-50에게 매 공격을 20% 확률로 회피하는 <나 먼저 퇴근할게>를 추가하고, 보스 정보/전투 버프칸에 표시되도록 했습니다.'
+    ]
+  },
+  {
     id: '2026-05-26-ranking-emblem-toggle',
     time: '2026-05-26 13:20',
     title: '랭킹 휘장 표시 토글',
