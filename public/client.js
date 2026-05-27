@@ -264,6 +264,14 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-27-adventure-cooldown-half',
+    time: '2026-05-27 14:05',
+    title: '모험 재시도 대기시간 단축',
+    items: [
+      '모험하기 재시도 대기시간을 기존의 절반으로 줄였습니다.'
+    ]
+  },
+  {
     id: '2026-05-27-raid-queue-timeout-winter-nerf',
     time: '2026-05-27 13:45',
     title: '레이드 대기열 자동 퇴장과 겨부장 조정',
