@@ -818,7 +818,7 @@ const CARD_DATA = {
     grade: 'S',
     rate: 0.00025,
     skillName: '매일하는 야근',
-    skillDesc: '사용 시 상대에게 <야근> 디버프를 겁니다. 야근 중 기본 공격에 피격당할 때마다 <내면의 분노>가 쌓이고, 자신의 턴에 재사용하면 스택을 소진해 피해를 준 뒤 쿨타임이 시작됩니다.',
+    skillDesc: '사용 시 상대에게 <야근> 디버프를 겁니다. 야근 중 기본 공격에 피격당할 때마다 <내면의 분노>가 쌓이고, 자신의 턴에 재사용하면 스택을 소진해 피해를 준 뒤 쿨타임이 시작됩니다. 야근이 정화되면 폭발 재사용은 불가능해지고 즉시 쿨타임이 시작됩니다.',
     cooldown: 4,
     effectType: 'overtime_rage',
     rageDamagePerStackPerLevel: 5,
@@ -2948,7 +2948,7 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
     case 'trial_and_growth':
       return `현재 자신이 가진 버프/디버프 총 갯수 x 레벨 x ${card.multiplierPerStatus}의 피해를 ${card.hits}회 주고, 자신의 모든 디버프를 제거합니다.`;
     case 'hoi_overtime':
-      return `상대에게 <야근>을 적용합니다. 첫 사용은 쿨타임이 돌지 않고, 야근 중 기본 공격 피격마다 <내면의 분노>가 쌓입니다. 이후 자신의 턴에 재사용하면 스택 x 레벨 x ${card.rageDamagePerStackPerLevel} 피해를 주고 야근과 스택을 소진한 뒤 쿨타임이 시작됩니다.`;
+      return `상대에게 <야근>을 적용합니다. 첫 사용은 쿨타임이 돌지 않고, 야근 중 기본 공격 피격마다 <내면의 분노>가 쌓입니다. 이후 자신의 턴에 재사용하면 스택 x 레벨 x ${card.rageDamagePerStackPerLevel} 피해를 주고 야근과 스택을 소진한 뒤 쿨타임이 시작됩니다. 야근이 정화되면 폭발 재사용은 불가능해지고 즉시 쿨타임이 시작됩니다.`;
     case 'mingu_champion':
       return `지정한 파티원 1인에게 보호막 ${card.shield}, ${card.turns}턴 동안 <챔피언의 가호>를 부여하고 상대에게 ${card.blindTurns}턴 동안 <눈부심>을 부여합니다. 챔피언의 가호: 공격력 +${Math.round(Number(card.attackBonusPercent || 0) * 100)}%, 크리티컬 확률 +${Math.round(Number(card.critBonus || 0) * 100)}%. 눈부심: 모든 공격 명중률 ${Math.round(Number(card.blindMissChance || 0.3) * 100)}% 감소.`;
     case 'winter_subordinate':
@@ -6859,6 +6859,41 @@ function incrementPvpOvertimeRageStacks(target) {
     });
 }
 
+function startPvpOvertimeCooldownForSource(battle, sourceUserId) {
+  const source = getPvpPlayer(battle, sourceUserId);
+  if (!source?.cards?.length) return false;
+  const cardEntry = source.cards.find((entry) => entry.cardId === 'hoi_overtime');
+  if (!cardEntry) return false;
+  const card = getCardDefinition(cardEntry.cardId, cardEntry.enhancementLevel);
+  cardEntry.cooldownRemaining = Math.max(
+    Number(cardEntry.cooldownRemaining || 0),
+    Number(card?.cooldown || 0)
+  );
+  return true;
+}
+
+function handlePvpRemovedDebuffs(player, removedDebuffs = [], battle) {
+  if (!player || !battle || !removedDebuffs.length) return;
+  const overtimeSourceIds = [...new Set(
+    removedDebuffs
+      .filter((debuff) => debuff?.id === 'overtime' && debuff.sourceUserId)
+      .map((debuff) => String(debuff.sourceUserId))
+  )];
+  overtimeSourceIds.forEach((sourceUserId) => {
+    if (startPvpOvertimeCooldownForSource(battle, sourceUserId)) {
+      battle.logs.push(`${player.displayName}의 야근 디버프가 해제되어 호이의 매일하는 야근 쿨타임이 시작되었습니다.`);
+    }
+  });
+}
+
+function clearPvpDebuffs(player, battle) {
+  const removedDebuffs = Array.isArray(player?.debuffs) ? [...player.debuffs] : [];
+  if (!player) return [];
+  player.debuffs = [];
+  handlePvpRemovedDebuffs(player, removedDebuffs, battle);
+  return removedDebuffs;
+}
+
 function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
   const card = options.cardOverride || getPvpCardDefinitionFromSlot(actor, slotIndex);
   const cardEntry = actor.cards?.[Number(slotIndex)];
@@ -6944,7 +6979,7 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
     });
     battle.logs.push(`${actor.displayName}의 HP가 ${selfDamage.toLocaleString()} 감소하고, 다음 자신의 공격 피해가 ${damageMultiplier.toFixed(1)}배가 됩니다.`);
   } else if (card.effectType === 'party_cleanse') {
-    actor.debuffs = [];
+    clearPvpDebuffs(actor, battle);
   } else if (card.effectType === 'party_bread_buff') {
     const breadCount = scaleCount(card.breadCount || 0);
     const breadHeal = Number(card.breadHeal || 5);
@@ -6992,7 +7027,7 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
       if (target.hp > 0) performPvpCounterAttack(target, actor, battle);
       if (actor.hp <= 0 || target.hp <= 0) break;
     }
-    actor.debuffs = [];
+    clearPvpDebuffs(actor, battle);
   } else if (card.effectType === 'overtime_rage') {
     const existing = target.debuffs.find((debuff) => debuff.id === 'overtime' && debuff.sourceUserId === actor.userId);
     if (existing) {
@@ -7444,6 +7479,16 @@ function buildPvpPlayersForViewer(players = [], mode = PVP_MODE_RANKED, viewerUs
   }));
 }
 
+function buildPvpSpectatorsForViewer(viewerMap, players = [], mode = PVP_MODE_RANKED, viewerUserId = null, now = new Date()) {
+  const spectators = buildSpectatorList(viewerMap, players.map((player) => player.userId), now);
+  if (!isRankedPvpMode(mode) || !isPvpViewerParticipant(players, viewerUserId)) {
+    return spectators;
+  }
+  return spectators.length
+    ? [{ userId: 'ranked-spectator-count', displayName: `${spectators.length}명`, countOnly: true }]
+    : [];
+}
+
 function anonymizePvpTextForViewer(text, players = [], mode = PVP_MODE_RANKED, viewerUserId = null) {
   if (!text || !isRankedPvpMode(mode) || !isPvpViewerParticipant(players, viewerUserId)) {
     return text;
@@ -7477,7 +7522,7 @@ function buildPvpBattleSnapshot(battle, viewerUserId = null) {
     ratingChange: battle.ratingChange || null,
     isParticipant: viewerIsParticipant,
     currentBet: viewerUserId && battle.bets ? (battle.bets[viewerUserId] || null) : null,
-    spectators: buildSpectatorList(modeState.viewers, battle.players.map((player) => player.userId)),
+    spectators: buildPvpSpectatorsForViewer(modeState.viewers, battle.players, battle.mode, viewerUserId),
     players: battle.players.map((player) => ({
       userId: player.userId,
       displayName: getPvpDisplayNameForViewer(player, battle.players, battle.mode, viewerUserId),
@@ -7550,7 +7595,7 @@ async function buildPvpStateResponse(user, now = new Date(), requestedMode = PVP
     allCards: getAllPvpBanCards(),
     ownedCards: getOwnedPvpPickCards(user),
     logs: match.logs.slice(-8).map((log) => anonymizePvpTextForViewer(log, match.players, match.mode, userId)),
-    spectators: buildSpectatorList(selectedModeState.viewers, match.players.map((player) => player.userId)),
+    spectators: buildPvpSpectatorsForViewer(selectedModeState.viewers, match.players, match.mode, userId),
     isParticipant: Boolean(userId && match.players.some((player) => player.userId === userId)),
     isMyTurn: Boolean(userId && match.turnUserId === userId)
   } : null;
