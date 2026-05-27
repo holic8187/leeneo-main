@@ -113,6 +113,7 @@
       <div class="status-top-actions">
         <button id="bgmToggleBtn" class="mini-btn bgm-toggle-btn" aria-pressed="false">BGM 켜기</button>
         <button id="patchNotesBtn" class="mini-btn patch-notes-btn">패치노트</button>
+        <button id="mailboxBtn" class="mini-btn mailbox-btn">우편함</button>
         <button id="supportBtn" class="mini-btn support-btn">직장인은 지갑전사</button>
         <button id="logoutBtn" class="mini-btn">퇴근하기</button>
       </div>
@@ -530,6 +531,19 @@
     </div>
   </div>
 
+  <div id="mailboxModal" class="modal-overlay hidden">
+    <div class="excel-sheet modal-panel marketplace-modal-panel mailbox-modal-panel">
+      <h3>우편함</h3>
+      <p class="menu-note">운영자가 보낸 물품은 24시간 안에 수령하지 않으면 자동으로 사라집니다.</p>
+      <p id="mailboxStatus" class="menu-note">우편을 불러오는 중입니다.</p>
+      <div id="mailboxList" class="mailbox-list"></div>
+      <div class="modal-buttons">
+        <button id="mailboxClaimAllBtn" class="menu-action-btn">일괄 수령</button>
+        <button id="mailboxCloseBtn" class="mini-btn">닫기</button>
+      </div>
+    </div>
+  </div>
+
   <div id="marketplaceModal" class="modal-overlay hidden">
     <div class="excel-sheet modal-panel marketplace-modal-panel">
       <h3>사내 번개장터</h3>
@@ -674,6 +688,7 @@
         </div>
       </div>
       <h4>현재 대기중인 참여자 슬롯</h4>
+      <p id="raidQueueExpireHint" class="menu-note raid-queue-expire-hint"></p>
       <div id="raidSlotGrid" class="raid-slot-grid"></div>
       <div class="modal-buttons raid-modal-actions">
         <button id="raidLobbyCloseBtn" class="mini-btn">닫기</button>

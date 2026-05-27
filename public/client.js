@@ -62,7 +62,7 @@ const ITEM_DATA = {
 
 const CARD_DATA = {
   mingu_champion: { name: '제 1회 면담대회 우승자 밍구의 품격', grade: 'S', color: '#c62828', skillName: '챔피언의 품격', skillDesc: '지정한 파티원 1인에게 보호막 20과 <챔피언의 가호>를, 상대에게 <눈부심>을 부여합니다.', cooldown: 7, targetType: 'ally', specialStyle: 'champion' },
-  winter_subordinate: { name: '겨울 부장의 부하직원 육성', grade: 'S', color: '#c62828', skillName: '부하직원 육성', skillDesc: '파티원 중 가장 레벨이 낮은 1명을 2턴 동안 현재 레벨보다 높게 간주합니다.', cooldown: 8, targetType: null },
+  winter_subordinate: { name: '겨울 부장의 부하직원 육성', grade: 'S', color: '#c62828', skillName: '부하직원 육성', skillDesc: '파티원 중 가장 레벨이 낮은 1명을 2턴 동안 레벨 +1~+5로 간주합니다. +5강은 쿨타임이 7턴입니다.', cooldown: 8, targetType: null },
   potato_rehab: { name: '감자의 재활훈련', grade: 'S', color: '#c62828', skillName: '재활훈련', skillDesc: '보스전에서 현재 데미지의 고정 피해를 1회 입힙니다. 한 판당 1회만 사용할 수 있고, 이 스킬로 처치하면 데미지가 영구적으로 10% 증가합니다. 개인면담에서는 선택할 수 없습니다.', cooldown: 0, targetType: null },
   ineo_diet: { name: '이네오의 다이어트 선언', grade: 'S', color: '#c62828', skillName: '다이어트 선언', skillDesc: '돌아오는 턴에 기본 공격을 총 10회 합니다. 각 공격은 기본 공격 피해의 90%로 적용되며 크리티컬이 적용될 수 있습니다.', cooldown: 3, targetType: null },
   gangnam_style: { name: '일 중에 몰래 듣는 강남스타일', grade: 'S', color: '#c62828', skillName: '강남스타일', skillDesc: '1턴 동안 모든 팀원에게 크리티컬률 20%와 흥겨움 버프를 부여하고, 보호막 10을 제공합니다. 흥겨움 동안 기본 공격 횟수가 2배가 됩니다.', cooldown: 2, targetType: null },
@@ -236,6 +236,7 @@ let cardGradeFilter = 'all';
 let cardSortMode = 'grade';
 let marketplaceState = { itemType: 'scroll', view: 'active', sort: 'time_desc', data: { active: [], mine: [] } };
 let marketplaceRegisterState = { itemType: 'scroll', selected: null, sort: 'acquired' };
+let mailboxState = { mails: [] };
 let raidBattleLogPinnedToBottom = true;
 let userMutationInFlightCount = 0;
 let loginRequestSerial = 0;
@@ -262,6 +263,35 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-05-27-raid-queue-timeout-winter-nerf',
+    time: '2026-05-27 13:45',
+    title: '레이드 대기열 자동 퇴장과 겨부장 조정',
+    items: [
+      '보스 레이드 대기열에 입장한 뒤 10분이 지나면 자동으로 슬롯에서 퇴장되도록 변경했습니다.',
+      '보스 대기열 팝업에서 내 자동 퇴장까지 남은 시간을 확인할 수 있습니다.',
+      '<겨울 부장의 부하직원 육성>의 레벨 보정량을 +1~+5로 낮추고, +5강은 쿨타임 7턴으로 조정했습니다.'
+    ]
+  },
+  {
+    id: '2026-05-27-admin-mailbox',
+    time: '2026-05-27 13:10',
+    title: '운영자 우편함 추가',
+    items: [
+      '운영자 선물은 즉시 팝업/가방 지급 대신 우편함으로 도착하도록 변경했습니다.',
+      '우편함에 새 선물이 있으면 우상단 버튼에 빨간 점이 표시되고, 각 우편 또는 전체 우편을 직접 수령할 수 있습니다.',
+      '운영자 우편은 발송 후 24시간 안에 수령하지 않으면 자동으로 만료됩니다.'
+    ]
+  },
+  {
+    id: '2026-05-27-pvp-weekly-season-anonymous-ranked',
+    time: '2026-05-27 12:20',
+    title: '개인면담 주간 정산과 랭크 익명화',
+    items: [
+      '매주 월요일 랭크 개인면담 점수가 초기화되고, 지난주 순위에 따라 박카스와 명함 보상이 지급되도록 추가했습니다.',
+      '랭크 개인면담 참가자는 상대 닉네임이 <익명의 상대>로 보이도록 변경했습니다. 일반전과 관전 화면에서는 기존처럼 닉네임이 표시됩니다.'
+    ]
+  },
   {
     id: '2026-05-27-chunsik-art-emblem',
     time: '2026-05-27 11:45',
@@ -827,6 +857,9 @@ function setupEventListeners() {
   bindClick('patchNotesBtn', () => openPatchNotesModal({ markSeen: true }));
   bindClick('raidPatchNotesBtn', () => openPatchNotesModal({ markSeen: true }));
   bindClick('patchNotesCloseBtn', closePatchNotesModal);
+  bindClick('mailboxBtn', openMailboxModal);
+  bindClick('mailboxCloseBtn', closeMailboxModal);
+  bindClick('mailboxClaimAllBtn', handleMailboxClaimAll);
   bindClick('supportBtn', openSupportModal);
   bindClick('supportModalCloseBtn', closeSupportModal);
   bindClick('setNicknameBtn', handleSetNicknameClick);
@@ -1735,6 +1768,8 @@ function processLoginSuccess(data) {
   }
 
   showGameScreen(data.user);
+  updateMailboxPendingDot(data.adminMailPendingCount);
+  updateMarketplacePendingDot(data.marketplaceSoldPendingCount);
   showNotifications(data.notifications);
 }
 
@@ -3065,6 +3100,7 @@ function updateLocalUserState(data, options = {}) {
     updatePvpButton(latestUser, latestPvpState);
   }
   updateMarketplacePendingDot(data.marketplaceSoldPendingCount);
+  updateMailboxPendingDot(data.adminMailPendingCount);
   showNotifications(data.notifications);
 }
 
@@ -3239,6 +3275,113 @@ function updateMarketplacePendingDot(count) {
     button.title = `정산 대기 판매 ${numericCount}건`;
   } else {
     button.removeAttribute('title');
+  }
+}
+
+function updateMailboxPendingDot(count) {
+  const button = document.getElementById('mailboxBtn');
+  if (!button) return;
+  const numericCount = Math.max(0, Number(count || 0));
+  button.classList.toggle('has-pending', numericCount > 0);
+  if (numericCount > 0) {
+    button.title = `수령하지 않은 운영자 우편 ${numericCount}건`;
+  } else {
+    button.removeAttribute('title');
+  }
+}
+
+function formatMailRemaining(seconds) {
+  const totalSeconds = Math.max(0, Math.floor(Number(seconds || 0)));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  if (hours > 0) return `${hours}시간 ${minutes}분 남음`;
+  return `${minutes}분 남음`;
+}
+
+async function openMailboxModal() {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+
+  showModal('mailboxModal');
+  setText('mailboxStatus', '우편을 불러오는 중입니다.');
+  const listEl = document.getElementById('mailboxList');
+  if (listEl) listEl.innerHTML = '';
+
+  try {
+    const data = await getJson(`${API_URL}/api/mail?userId=${encodeURIComponent(user._id)}`);
+    mailboxState.mails = data.mails || [];
+    updateMailboxPendingDot(data.pendingCount);
+    renderMailboxModal();
+  } catch (err) {
+    setText('mailboxStatus', err.message || '우편함을 불러오지 못했습니다.');
+  }
+}
+
+function closeMailboxModal() {
+  hideModal('mailboxModal');
+}
+
+function renderMailboxModal() {
+  const listEl = document.getElementById('mailboxList');
+  const statusEl = document.getElementById('mailboxStatus');
+  const claimAllBtn = document.getElementById('mailboxClaimAllBtn');
+  if (!listEl || !statusEl || !claimAllBtn) return;
+
+  const mails = Array.isArray(mailboxState.mails) ? mailboxState.mails : [];
+  claimAllBtn.disabled = mails.length === 0;
+  statusEl.textContent = mails.length
+    ? `수령 가능한 우편 ${mails.length}건`
+    : '수령 가능한 우편이 없습니다.';
+
+  listEl.innerHTML = mails.map((mail) => `
+    <div class="mailbox-item">
+      <div>
+        <strong>${escapeHtml(mail.title || '운영자 우편')}</strong>
+        <p>${escapeHtml(mail.description || '')}</p>
+        <span class="menu-note">도착: ${escapeHtml(formatMarketDate(mail.createdAt))}</span>
+        <span class="menu-note">${escapeHtml(formatMailRemaining(mail.remainingSeconds))}</span>
+      </div>
+      <button class="mini-btn" onclick="handleMailboxClaim('${escapeAttr(mail.id)}')">수령</button>
+    </div>
+  `).join('');
+}
+
+async function handleMailboxClaim(mailId) {
+  const user = getStoredUser();
+  if (!user?._id || !mailId) return;
+
+  try {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/mail/claim`, {
+      userId: user._id,
+      mailId
+    }));
+    updateLocalUserState(data);
+    mailboxState.mails = data.mail?.mails || [];
+    updateMailboxPendingDot(data.adminMailPendingCount);
+    renderMailboxModal();
+    const message = data.mail?.messages?.[0];
+    if (message) alert(message);
+  } catch (err) {
+    alert(err.message);
+    openMailboxModal();
+  }
+}
+
+async function handleMailboxClaimAll() {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+
+  try {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/mail/claim-all`, {
+      userId: user._id
+    }));
+    updateLocalUserState(data);
+    mailboxState.mails = data.mail?.mails || [];
+    updateMailboxPendingDot(data.adminMailPendingCount);
+    renderMailboxModal();
+    alert(`${data.mail?.claimedCount || 0}건의 우편을 수령했습니다.`);
+  } catch (err) {
+    alert(err.message);
   }
 }
 
@@ -6452,10 +6595,12 @@ function updateRaidLobbyUI(raidState, user) {
   const bossDesc = document.getElementById('raidBossDesc');
   const bossPortrait = document.getElementById('raidLobbyBossPortrait');
   const startBtn = document.getElementById('raidStartBtn');
+  const queueExpireHint = document.getElementById('raidQueueExpireHint');
   if (!slotGrid || !rewardList || !skillList || !bossName || !bossDesc || !startBtn) return;
 
   const lobby = raidState?.lobby;
   const selectedBattle = raidState?.activeBattle || raidState?.activeBattles?.[selectedRaidMode];
+  const selectedModeStatus = (raidState?.modes || []).find((entry) => entry.mode === selectedRaidMode);
   const maxLevelText = lobby?.maxLevel ? ` / 최대 레벨 ${formatNumber(lobby.maxLevel)}` : '';
   bossName.textContent = lobby ? `${lobby.modeLabel || ''} 오늘의 보스 정보: ${lobby.bossName}` : '오늘의 보스 정보';
   bossDesc.textContent = lobby ? `${lobby.bossName} / 보스 HP ${formatNumber(lobby.maxHp || 60000)} / 최소 레벨 ${formatNumber(lobby.minLevel)}${maxLevelText}` : '';
@@ -6473,6 +6618,20 @@ function updateRaidLobbyUI(raidState, user) {
   (lobby?.skillsText || []).forEach((skillText) => {
     skillList.insertAdjacentHTML('beforeend', `<li>${escapeHtml(skillText)}</li>`);
   });
+
+  if (queueExpireHint) {
+    const queuedSlotIndex = Number(selectedModeStatus?.queuedSlotIndex ?? raidState?.queuedSlotIndex ?? -1);
+    const expiresAtMs = selectedModeStatus?.queueExpiresAt ? new Date(selectedModeStatus.queueExpiresAt).getTime() : 0;
+    const fallbackRemainingMs = Number(selectedModeStatus?.queueRemainingMs ?? raidState?.queueRemainingMs ?? 0);
+    const remainingMs = Number.isFinite(expiresAtMs) && expiresAtMs > 0
+      ? Math.max(0, expiresAtMs - Date.now())
+      : fallbackRemainingMs;
+    if (!selectedBattle && queuedSlotIndex >= 0 && remainingMs > 0) {
+      queueExpireHint.textContent = `대기열 자동 퇴장까지 ${formatDurationMs(remainingMs)} 남았습니다.`;
+    } else {
+      queueExpireHint.textContent = '대기열에 입장하면 10분 후 자동으로 슬롯에서 퇴장됩니다.';
+    }
+  }
 
   slotGrid.innerHTML = '';
   const slots = selectedBattle

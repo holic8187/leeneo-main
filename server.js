@@ -125,6 +125,7 @@ const RAID_COUNTDOWN_SECONDS = 3;
 const RAID_COUNTDOWN_BUFFER_MS = 2000;
 const RAID_INITIAL_READY_MS = 5000;
 const RAID_DAILY_LIMIT = 1;
+const RAID_QUEUE_TIMEOUT_MS = 10 * 60 * 1000;
 const RAID_MULTI_HIT_DAMAGE_MULTIPLIER = 0.9;
 const RAID_SPECIAL_REWARD_CHANCE = 0.05;
 const RAID_BOSS_ID = 'burp_queen';
@@ -151,10 +152,19 @@ const PVP_BET_PAYOUT_MULTIPLIER = 1.3;
 const PVP_POLL_VERSION_EMPTY = 0;
 const PVP_MODE_RANKED = 'ranked';
 const PVP_MODE_NORMAL = 'normal';
+const PVP_WEEKLY_SEASON_SETTING_KEY = 'pvp_weekly_season';
+const PVP_WEEKLY_SEASON_CHECK_INTERVAL_MS = 60 * 1000;
+const PVP_RANKED_ANONYMOUS_OPPONENT_NAME = '익명의 상대';
 const PVP_MODE_LABELS = {
   [PVP_MODE_RANKED]: '랭크',
   [PVP_MODE_NORMAL]: '일반'
 };
+const PVP_WEEKLY_REWARD_TIERS = [
+  { rank: 1, bacchus: 50, businessCards: 50 },
+  { rank: 2, bacchus: 30, businessCards: 30 },
+  { rank: 3, bacchus: 20, businessCards: 20 }
+];
+const PVP_WEEKLY_PARTICIPATION_REWARD = { bacchus: 10, businessCards: 10 };
 const SPECTATOR_TTL_MS = 15000;
 const PEN_SHOP_ITEM_IDS = ['pen_monami', 'pen_jetstream', 'pen_applepencil'];
 const REWARD_PEN_ITEM_IDS = ['reward_pen_monami', 'reward_pen_jetstream', 'reward_pen_applepencil'];
@@ -838,12 +848,12 @@ const CARD_DATA = {
     grade: 'S',
     rate: 0.00025,
     skillName: '부하직원 육성',
-    skillDesc: '파티원 중 가장 레벨이 낮은 1명을 2턴 동안 현재 레벨보다 높게 간주합니다.',
+    skillDesc: '파티원 중 가장 레벨이 낮은 1명을 2턴 동안 레벨 +1~+5로 간주합니다.',
     cooldown: 8,
     effectType: 'lowest_level_buff',
     targetType: null,
     turns: 2,
-    levelBonus: 0
+    levelBonus: 1
   },
   potato_rehab: {
     id: 'potato_rehab',
@@ -1000,7 +1010,7 @@ const CARD_ENHANCE_RULES = {
   trial_and_growth: { multiplierPerStatus: { 0: 5, 1: 5, 2: 6, 3: 7, 4: 7, 5: 8 }, cooldown: { 0: 5, 1: 4, 4: 3 } },
   hoi_overtime: { rageDamagePerStackPerLevel: { 0: 5, 1: 6, 2: 7, 3: 8, 4: 9 }, cooldown: { 0: 4, 5: 3 } },
   mingu_champion: { attackBonusPercent: { 0: 0.1, 3: 0.15, 5: 0.2 }, cooldown: { 0: 7, 2: 6, 4: 5 } },
-  winter_subordinate: { levelBonus: { 0: 0, 1: 5, 3: 10, 5: 15 }, cooldown: { 0: 8, 2: 7, 4: 6 } },
+  winter_subordinate: { levelBonus: { 0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 5 }, cooldown: { 0: 8, 5: 7 } },
   precise_strike: { multiplierPerLevel: { 0: 40, 2: 45, 3: 50, 4: 55 }, cooldown: { 0: 5, 1: 4, 5: 3 } },
   umbrella_copy: { copyEffectMultiplier: { 0: 0.5, 2: 0.6, 3: 0.7 }, canSelectCopyTarget: { 4: 1 }, cooldown: { 0: 6, 1: 5, 5: 4 } },
   neo_pesticide: { damagePerLevel: { 0: 10, 2: 11, 4: 12, 5: 15 }, cooldown: { 0: 7, 1: 6, 3: 5 } },
@@ -1878,6 +1888,7 @@ let activeShouts = [];
 function createRaidRoomState() {
   return {
     slots: Array(RAID_PARTY_SIZE).fill(null),
+    slotQueuedAt: Array(RAID_PARTY_SIZE).fill(null),
     queuedBossId: null,
     countdown: null,
     activeBattle: null,
@@ -1937,7 +1948,17 @@ app.get('/api/health', (req, res) => {
 });
 
 mongoose.connect(MONGO_URI)
-  .then(() => console.log('MongoDB connected'))
+  .then(() => {
+    console.log('MongoDB connected');
+    processWeeklyPvpSeasonIfNeeded(new Date(), { force: true }).catch((err) => {
+      console.error('Initial weekly PVP season check error:', err);
+    });
+    setInterval(() => {
+      processWeeklyPvpSeasonIfNeeded(new Date(), { force: true }).catch((err) => {
+        console.error('Weekly PVP season interval error:', err);
+      });
+    }, PVP_WEEKLY_SEASON_CHECK_INTERVAL_MS);
+  })
   .catch((err) => console.error('MongoDB connection error:', err));
 
 const userSchema = new mongoose.Schema({
@@ -1990,7 +2011,8 @@ const userSchema = new mongoose.Schema({
     rating: { type: Number, default: 1000 },
     played: { type: Number, default: 0 },
     wins: { type: Number, default: 0 },
-    losses: { type: Number, default: 0 }
+    losses: { type: Number, default: 0 },
+    lastWeeklyRewardWeekKey: { type: String, default: '' }
   },
   buffs: [{
     buffId: { type: String, required: true },
@@ -2091,12 +2113,51 @@ marketplaceListingSchema.index({ sellerId: 1, status: 1, createdAt: -1 });
 
 const MarketplaceListing = mongoose.model('MarketplaceListing', marketplaceListingSchema);
 
+const gameSettingSchema = new mongoose.Schema({
+  key: { type: String, required: true, unique: true },
+  value: { type: mongoose.Schema.Types.Mixed, default: {} },
+  updatedAt: { type: Date, default: Date.now }
+});
+
+const GameSetting = mongoose.model('GameSetting', gameSettingSchema);
+
+const adminMailSchema = new mongoose.Schema({
+  recipientId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  giftType: { type: String, enum: ['item', 'buff', 'package', 'title', 'fragment'], required: true },
+  giftId: { type: String, required: true },
+  quantity: { type: Number, default: 1 },
+  title: { type: String, required: true },
+  description: { type: String, default: '' },
+  payload: { type: mongoose.Schema.Types.Mixed, default: {} },
+  status: { type: String, enum: ['pending', 'claiming', 'claimed', 'expired'], default: 'pending' },
+  createdAt: { type: Date, default: Date.now },
+  expiresAt: { type: Date, required: true },
+  claimedAt: { type: Date, default: null }
+});
+
+adminMailSchema.index({ recipientId: 1, status: 1, createdAt: -1 });
+adminMailSchema.index({ expiresAt: 1, status: 1 });
+
+const AdminMail = mongoose.model('AdminMail', adminMailSchema);
+
 function getKSTDateKey(date = new Date()) {
   const kst = new Date(date.getTime() + KST_OFFSET_MS);
   const year = kst.getUTCFullYear();
   const month = String(kst.getUTCMonth() + 1).padStart(2, '0');
   const day = String(kst.getUTCDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function getKSTWeekStartKey(date = new Date()) {
+  const kst = new Date(date.getTime() + KST_OFFSET_MS);
+  const dayOfWeek = kst.getUTCDay();
+  const daysSinceMonday = (dayOfWeek + 6) % 7;
+  const mondayKstUtcMs = Date.UTC(
+    kst.getUTCFullYear(),
+    kst.getUTCMonth(),
+    kst.getUTCDate() - daysSinceMonday
+  );
+  return getKSTDateKey(new Date(mondayKstUtcMs - KST_OFFSET_MS));
 }
 
 function dateKeyToUtcMillis(dateKey) {
@@ -2141,6 +2202,10 @@ function ensureRaidRooms() {
   [RAID_MODE_NORMAL, RAID_MODE_HARD].forEach((mode) => {
     if (!raidState.modes[mode]) raidState.modes[mode] = createRaidRoomState();
     if (!Array.isArray(raidState.modes[mode].slots)) raidState.modes[mode].slots = Array(RAID_PARTY_SIZE).fill(null);
+    if (!Array.isArray(raidState.modes[mode].slotQueuedAt)) raidState.modes[mode].slotQueuedAt = Array(RAID_PARTY_SIZE).fill(null);
+    if (raidState.modes[mode].slotQueuedAt.length !== RAID_PARTY_SIZE) {
+      raidState.modes[mode].slotQueuedAt = Array.from({ length: RAID_PARTY_SIZE }, (_, index) => raidState.modes[mode].slotQueuedAt[index] || null);
+    }
     if (!raidState.modes[mode].viewers || typeof raidState.modes[mode].viewers !== 'object') raidState.modes[mode].viewers = {};
   });
 }
@@ -2180,6 +2245,48 @@ function syncQueuedRaidBoss(now = new Date(), mode = RAID_MODE_NORMAL) {
     room.queuedBossId = getCurrentRaidBossId(now);
   }
   return RAID_BOSS_DATA[room.queuedBossId] || getCurrentRaidBoss(now);
+}
+
+function pruneExpiredRaidQueue(mode = null, now = new Date()) {
+  const modes = mode ? [normalizeRaidMode(mode)] : [RAID_MODE_NORMAL, RAID_MODE_HARD];
+  let changed = false;
+  modes.forEach((entryMode) => {
+    const room = getRaidRoom(entryMode);
+    let roomChanged = false;
+    room.slots.forEach((slotUserId, index) => {
+      if (!slotUserId) {
+        room.slotQueuedAt[index] = null;
+        return;
+      }
+      if (!room.slotQueuedAt[index]) {
+        room.slotQueuedAt[index] = now;
+        roomChanged = true;
+        return;
+      }
+      const queuedAtMs = new Date(room.slotQueuedAt[index]).getTime();
+      if (!Number.isFinite(queuedAtMs) || now.getTime() - queuedAtMs >= RAID_QUEUE_TIMEOUT_MS) {
+        room.slots[index] = null;
+        room.slotQueuedAt[index] = null;
+        roomChanged = true;
+      }
+    });
+    if (roomChanged) {
+      syncQueuedRaidBoss(now, entryMode);
+      changed = true;
+    }
+  });
+  if (changed) bumpRaidVersion();
+  return changed;
+}
+
+function getRaidQueueRemainingMs(userId, mode = RAID_MODE_NORMAL, now = new Date()) {
+  const room = getRaidRoom(mode);
+  const slotIndex = findQueuedRaidSlotIndex(userId, mode);
+  if (slotIndex < 0) return null;
+  const queuedAt = room.slotQueuedAt?.[slotIndex] || now;
+  const queuedAtMs = new Date(queuedAt).getTime();
+  if (!Number.isFinite(queuedAtMs)) return RAID_QUEUE_TIMEOUT_MS;
+  return Math.max(0, RAID_QUEUE_TIMEOUT_MS - (now.getTime() - queuedAtMs));
 }
 
 function getRaidLobbyBoss(now = new Date(), mode = RAID_MODE_NORMAL) {
@@ -2259,6 +2366,7 @@ function ensureUserDefaults(user) {
   user.pvpStats.played = Math.max(0, Math.floor(Number(user.pvpStats.played ?? 0)));
   user.pvpStats.wins = Math.max(0, Math.floor(Number(user.pvpStats.wins ?? 0)));
   user.pvpStats.losses = Math.max(0, Math.floor(Number(user.pvpStats.losses ?? 0)));
+  user.pvpStats.lastWeeklyRewardWeekKey = user.pvpStats.lastWeeklyRewardWeekKey || '';
   if (!Array.isArray(user.buffs)) user.buffs = [];
   if (!Array.isArray(user.pendingNotifications)) user.pendingNotifications = [];
 
@@ -3101,6 +3209,142 @@ function addItemToInventory(user, itemId, amount = 1) {
   }
 }
 
+function resetPvpStatsToBase(user, options = {}) {
+  const lastWeeklyRewardWeekKey = options.lastWeeklyRewardWeekKey
+    ?? user.pvpStats?.lastWeeklyRewardWeekKey
+    ?? '';
+  user.pvpStats = {
+    rating: PVP_RATING_BASE,
+    played: 0,
+    wins: 0,
+    losses: 0,
+    lastWeeklyRewardWeekKey
+  };
+}
+
+function getPvpWeeklyRewardForRank(rank) {
+  const tier = PVP_WEEKLY_REWARD_TIERS.find((entry) => entry.rank === rank);
+  return tier || PVP_WEEKLY_PARTICIPATION_REWARD;
+}
+
+let weeklyPvpSeasonPromise = null;
+let weeklyPvpSeasonLastCheckMs = 0;
+
+async function processWeeklyPvpSeasonIfNeeded(now = new Date(), options = {}) {
+  const force = Boolean(options.force);
+  const nowMs = now.getTime();
+  if (!force && nowMs - weeklyPvpSeasonLastCheckMs < PVP_WEEKLY_SEASON_CHECK_INTERVAL_MS) {
+    return null;
+  }
+  weeklyPvpSeasonLastCheckMs = nowMs;
+
+  if (weeklyPvpSeasonPromise) return weeklyPvpSeasonPromise;
+  weeklyPvpSeasonPromise = processWeeklyPvpSeasonUnchecked(now)
+    .catch((err) => {
+      console.error('Weekly PVP season processing error:', err);
+    })
+    .finally(() => {
+      weeklyPvpSeasonPromise = null;
+    });
+  return weeklyPvpSeasonPromise;
+}
+
+async function processWeeklyPvpSeasonUnchecked(now = new Date()) {
+  const currentWeekKey = getKSTWeekStartKey(now);
+  let setting = await GameSetting.findOne({ key: PVP_WEEKLY_SEASON_SETTING_KEY });
+
+  if (!setting) {
+    await GameSetting.updateOne(
+      { key: PVP_WEEKLY_SEASON_SETTING_KEY },
+      {
+        $setOnInsert: {
+          key: PVP_WEEKLY_SEASON_SETTING_KEY,
+          value: {
+            lastProcessedWeekKey: currentWeekKey,
+            initializedAt: now
+          },
+          updatedAt: now
+        }
+      },
+      { upsert: true }
+    );
+    return;
+  }
+
+  const lastProcessedWeekKey = setting.value?.lastProcessedWeekKey || null;
+  if (lastProcessedWeekKey === currentWeekKey) return;
+
+  const rewardCandidates = await User.find({ 'pvpStats.played': { $gt: 0 } })
+    .select('_id username nickname pvpStats')
+    .lean();
+
+  const rankedUsers = rewardCandidates
+    .map((user) => ({
+      userId: String(user._id),
+      nickname: user.nickname || user.username || '',
+      rating: Math.round(Number(user.pvpStats?.rating ?? PVP_RATING_BASE)),
+      played: Math.max(0, Math.floor(Number(user.pvpStats?.played || 0))),
+      wins: Math.max(0, Math.floor(Number(user.pvpStats?.wins || 0))),
+      losses: Math.max(0, Math.floor(Number(user.pvpStats?.losses || 0)))
+    }))
+    .sort((a, b) =>
+      b.rating - a.rating
+      || b.wins - a.wins
+      || a.losses - b.losses
+      || String(a.nickname || '').localeCompare(String(b.nickname || ''))
+    );
+
+  const rankedMode = getPvpModeState(PVP_MODE_RANKED);
+  rankedMode.queue = [];
+  rankedMode.match = null;
+  rankedMode.battle = null;
+  rankedMode.viewers = {};
+  bumpPvpVersion();
+
+  for (const [index, rankedUser] of rankedUsers.entries()) {
+    const rank = index + 1;
+    const reward = getPvpWeeklyRewardForRank(rank);
+    await runUserMutationWithRetry(rankedUser.userId, (user) => {
+      ensureUserDefaults(user);
+      const alreadyRewarded = user.pvpStats?.lastWeeklyRewardWeekKey === currentWeekKey;
+      if (!alreadyRewarded) {
+        addItemToInventory(user, 'bacchus', reward.bacchus);
+        addItemToInventory(user, 'business_card', reward.businessCards);
+        queueNotification(
+          user,
+          'pvp_weekly_reward',
+          `지난주 랭크 개인면담 ${rank}위 보상으로 박카스 ${reward.bacchus}개와 명함 ${reward.businessCards}장을 받았습니다. 면담 점수는 월요일 정산으로 초기화되었습니다.`
+        );
+      }
+      resetPvpStatsToBase(user, { lastWeeklyRewardWeekKey: currentWeekKey });
+    }, {
+      conflictLabel: 'Weekly PVP reward conflict'
+    });
+  }
+
+  await User.updateMany(
+    {},
+    {
+      $set: {
+        'pvpStats.rating': PVP_RATING_BASE,
+        'pvpStats.played': 0,
+        'pvpStats.wins': 0,
+        'pvpStats.losses': 0
+      }
+    }
+  );
+
+  setting.value = {
+    ...(setting.value || {}),
+    lastProcessedWeekKey: currentWeekKey,
+    lastProcessedAt: now,
+    previousProcessedWeekKey: lastProcessedWeekKey,
+    rewardedUserCount: rankedUsers.length
+  };
+  setting.updatedAt = now;
+  await setting.save();
+}
+
 function addCardToCollection(user, cardId, amount = 1) {
   if (amount <= 0 || !CARD_DATA[cardId]) return;
   const entry = getCardEntry(user, cardId);
@@ -3369,6 +3613,7 @@ function clearQueuedRaidUser(userId, mode = null) {
     const slotIndex = findQueuedRaidSlotIndex(userId, entryMode);
     if (slotIndex >= 0) {
       room.slots[slotIndex] = null;
+      room.slotQueuedAt[slotIndex] = null;
       syncQueuedRaidBoss(new Date(), entryMode);
       bumpRaidVersion();
     }
@@ -3658,6 +3903,182 @@ function applySupportPackage(user, packageId) {
     addItemToInventory(user, reward.itemId, reward.quantity);
   });
   return packageInfo;
+}
+
+function createAdminMailGiftPayload(giftType, giftId, quantity = 1, now = new Date()) {
+  const giftQuantity = Math.max(1, Math.floor(Number(quantity) || 1));
+  const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+  if (giftType === 'item' || giftType === 'fragment') {
+    const actualGiftItemId = getRewardVariantItemId(giftId);
+    const item = ITEM_DATA[actualGiftItemId];
+    return {
+      giftType,
+      giftId,
+      quantity: giftQuantity,
+      title: `${item?.name || actualGiftItemId} ${giftQuantity}개`,
+      description: '운영자가 보낸 아이템입니다. 24시간 안에 수령해주세요.',
+      payload: { actualGiftItemId },
+      expiresAt
+    };
+  }
+
+  if (giftType === 'buff') {
+    const buff = BUFF_DATA[giftId];
+    return {
+      giftType,
+      giftId,
+      quantity: 1,
+      title: `${buff?.name || giftId} 버프`,
+      description: '수령 즉시 버프가 적용됩니다. 24시간 안에 수령해주세요.',
+      payload: {},
+      expiresAt
+    };
+  }
+
+  if (giftType === 'package') {
+    const packageInfo = SUPPORT_PACKAGE_DATA[giftId];
+    return {
+      giftType,
+      giftId,
+      quantity: 1,
+      title: packageInfo?.name || giftId,
+      description: (packageInfo?.rewards || [])
+        .map((reward) => `${ITEM_DATA[reward.itemId]?.name || reward.itemId} ${reward.quantity}개`)
+        .join(', '),
+      payload: {},
+      expiresAt
+    };
+  }
+
+  const title = TITLE_DATA[giftId];
+  return {
+    giftType,
+    giftId,
+    quantity: 1,
+    title: `<${title?.name || giftId}> 칭호`,
+    description: '수령 시 칭호가 해금됩니다. 이미 보유 중이어도 우편은 정상 처리됩니다.',
+    payload: {},
+    expiresAt
+  };
+}
+
+function applyAdminMailGiftToUser(user, mail) {
+  ensureUserDefaults(user);
+
+  if (mail.giftType === 'item' || mail.giftType === 'fragment') {
+    const itemId = mail.payload?.actualGiftItemId || getRewardVariantItemId(mail.giftId);
+    addItemToInventory(user, itemId, Math.max(1, Math.floor(Number(mail.quantity || 1))));
+    return `${ITEM_DATA[itemId]?.name || itemId} ${Math.max(1, Math.floor(Number(mail.quantity || 1)))}개를 수령했습니다.`;
+  }
+
+  if (mail.giftType === 'buff') {
+    const buff = BUFF_DATA[mail.giftId];
+    if (!buff) throw createHttpError(400, '존재하지 않는 버프 우편입니다.');
+    setOrRefreshBuff(user, mail.giftId, buff.durationMs);
+    return `${buff.name} 버프를 수령했습니다.`;
+  }
+
+  if (mail.giftType === 'package') {
+    const packageInfo = applySupportPackage(user, mail.giftId);
+    if (!packageInfo) throw createHttpError(400, '존재하지 않는 패키지 우편입니다.');
+    return `${packageInfo.name} 패키지를 수령했습니다.`;
+  }
+
+  if (mail.giftType === 'title') {
+    const title = TITLE_DATA[mail.giftId];
+    if (!title) throw createHttpError(400, '존재하지 않는 칭호 우편입니다.');
+    unlockTitle(user, mail.giftId, { notify: false });
+    return `<${title.name}> 칭호를 수령했습니다.`;
+  }
+
+  throw createHttpError(400, '처리할 수 없는 우편입니다.');
+}
+
+async function expireAdminMails(userId = null, now = new Date()) {
+  const filter = {
+    status: 'pending',
+    expiresAt: { $lte: now }
+  };
+  if (userId) filter.recipientId = userId;
+  await AdminMail.updateMany(filter, { $set: { status: 'expired' } });
+}
+
+async function getPendingAdminMailCount(userId, now = new Date()) {
+  if (!userId) return 0;
+  await expireAdminMails(userId, now);
+  return AdminMail.countDocuments({
+    recipientId: userId,
+    status: 'pending',
+    expiresAt: { $gt: now }
+  });
+}
+
+function formatAdminMail(mail, now = new Date()) {
+  const expiresAt = new Date(mail.expiresAt);
+  const remainingMs = Math.max(0, expiresAt.getTime() - now.getTime());
+  return {
+    id: String(mail._id),
+    title: mail.title,
+    description: mail.description || '',
+    giftType: mail.giftType,
+    giftId: mail.giftId,
+    quantity: Math.max(1, Math.floor(Number(mail.quantity || 1))),
+    createdAt: mail.createdAt,
+    expiresAt: mail.expiresAt,
+    remainingSeconds: Math.ceil(remainingMs / 1000)
+  };
+}
+
+async function getPendingAdminMailList(userId, now = new Date()) {
+  await expireAdminMails(userId, now);
+  const mails = await AdminMail.find({
+    recipientId: userId,
+    status: 'pending',
+    expiresAt: { $gt: now }
+  }).sort({ createdAt: -1 });
+  return mails.map((mail) => formatAdminMail(mail, now));
+}
+
+async function claimAdminMail(userId, mailId, now = new Date()) {
+  const mail = await AdminMail.findOneAndUpdate(
+    {
+      _id: mailId,
+      recipientId: userId,
+      status: 'pending',
+      expiresAt: { $gt: now }
+    },
+    { $set: { status: 'claiming' } },
+    { new: true }
+  );
+
+  if (!mail) {
+    throw createHttpError(404, '수령할 수 있는 우편을 찾을 수 없습니다.');
+  }
+
+  try {
+    const message = await runUserMutationWithRetry(userId, (user) => {
+      calculateOfflineGains(user, now);
+      const claimMessage = applyAdminMailGiftToUser(user, mail);
+      reconcileTitles(user, now);
+      reconcileEmblems(user);
+      user.gameState.lastActionTime = now;
+      return claimMessage;
+    }, {
+      conflictLabel: 'Admin mail claim conflict'
+    });
+
+    mail.status = 'claimed';
+    mail.claimedAt = now;
+    await mail.save();
+    return message;
+  } catch (err) {
+    await AdminMail.updateOne(
+      { _id: mail._id, status: 'claiming' },
+      { $set: { status: 'pending' } }
+    );
+    throw err;
+  }
 }
 
 function getEquipmentScrollRule(itemId) {
@@ -5742,15 +6163,19 @@ function applyRaidBattleStartPassives(activeBattle) {
 }
 
 function buildRaidModeStatus(user, mode = RAID_MODE_NORMAL, now = new Date()) {
+  pruneExpiredRaidQueue(mode, now);
   const room = getRaidRoom(mode);
   const slots = room.slots || Array(RAID_PARTY_SIZE).fill(null);
   const slotIndex = findQueuedRaidSlotIndex(user._id, mode);
   const config = getRaidModeConfig(mode);
+  const queueRemainingMs = slotIndex >= 0 ? getRaidQueueRemainingMs(user._id, mode, now) : null;
   return {
     mode,
     label: config.label,
     queuedCount: slots.filter(Boolean).length,
     queuedSlotIndex: slotIndex,
+    queueRemainingMs,
+    queueExpiresAt: queueRemainingMs === null ? null : new Date(now.getTime() + queueRemainingMs),
     hasActiveBattle: Boolean(room.activeBattle),
     isParticipant: room.activeBattle ? isRaidUserParticipant(room.activeBattle, user._id) : false,
     participantCount: room.activeBattle?.participants?.length || 0,
@@ -5762,6 +6187,7 @@ function buildRaidModeStatus(user, mode = RAID_MODE_NORMAL, now = new Date()) {
 
 async function buildRaidStateResponse(user, now = new Date(), mode = RAID_MODE_NORMAL) {
   try {
+    pruneExpiredRaidQueue(null, now);
     await advanceRaidState(now);
   } catch (err) {
     console.error('Raid state reconciliation error:', err);
@@ -5785,6 +6211,7 @@ async function buildRaidStateResponse(user, now = new Date(), mode = RAID_MODE_N
   });
 
   const slotIndex = findQueuedRaidSlotIndex(user._id, normalizedMode);
+  const queueRemainingMs = slotIndex >= 0 ? getRaidQueueRemainingMs(user._id, normalizedMode, now) : null;
   return {
     version: raidState.version,
     mode: normalizedMode,
@@ -5792,6 +6219,8 @@ async function buildRaidStateResponse(user, now = new Date(), mode = RAID_MODE_N
     lobby: getRaidLobbySummary(now, normalizedMode),
     slots,
     queuedSlotIndex: slotIndex,
+    queueRemainingMs,
+    queueExpiresAt: queueRemainingMs === null ? null : new Date(now.getTime() + queueRemainingMs),
     todayUsed: isRaidAlreadyUsedToday(user, now),
     remainingEntries: getRaidRemainingEntries(user, now),
     minLevelMet: isRaidLevelEligible(user.gameState.level, normalizedMode),
@@ -6948,9 +7377,43 @@ function buildPvpEffectsSnapshot(player) {
   ];
 }
 
+function isPvpViewerParticipant(players = [], viewerUserId = null) {
+  if (!viewerUserId) return false;
+  return players.some((player) => player.userId === String(viewerUserId));
+}
+
+function getPvpDisplayNameForViewer(player, players = [], mode = PVP_MODE_RANKED, viewerUserId = null) {
+  const originalName = player?.displayName || '';
+  if (!isRankedPvpMode(mode)) return originalName;
+  if (!isPvpViewerParticipant(players, viewerUserId)) return originalName;
+  if (player.userId === String(viewerUserId)) return originalName;
+  return PVP_RANKED_ANONYMOUS_OPPONENT_NAME;
+}
+
+function buildPvpPlayersForViewer(players = [], mode = PVP_MODE_RANKED, viewerUserId = null) {
+  return players.map((player) => ({
+    ...player,
+    displayName: getPvpDisplayNameForViewer(player, players, mode, viewerUserId)
+  }));
+}
+
+function anonymizePvpTextForViewer(text, players = [], mode = PVP_MODE_RANKED, viewerUserId = null) {
+  if (!text || !isRankedPvpMode(mode) || !isPvpViewerParticipant(players, viewerUserId)) {
+    return text;
+  }
+
+  return players
+    .filter((player) => player.userId !== String(viewerUserId) && player.displayName)
+    .reduce(
+      (output, player) => String(output).split(player.displayName).join(PVP_RANKED_ANONYMOUS_OPPONENT_NAME),
+      String(text)
+    );
+}
+
 function buildPvpBattleSnapshot(battle, viewerUserId = null) {
   if (!battle) return null;
   const modeState = getPvpModeStateForBattle(battle);
+  const viewerIsParticipant = isPvpViewerParticipant(battle.players, viewerUserId);
   return {
     battleId: battle.battleId,
     mode: normalizePvpMode(battle.mode),
@@ -6965,12 +7428,12 @@ function buildPvpBattleSnapshot(battle, viewerUserId = null) {
     loserUserId: battle.loserUserId,
     finishedAt: battle.finishedAt,
     ratingChange: battle.ratingChange || null,
-    isParticipant: Boolean(viewerUserId && battle.players.some((player) => player.userId === String(viewerUserId))),
+    isParticipant: viewerIsParticipant,
     currentBet: viewerUserId && battle.bets ? (battle.bets[viewerUserId] || null) : null,
     spectators: buildSpectatorList(modeState.viewers, battle.players.map((player) => player.userId)),
     players: battle.players.map((player) => ({
       userId: player.userId,
-      displayName: player.displayName,
+      displayName: getPvpDisplayNameForViewer(player, battle.players, battle.mode, viewerUserId),
       isSelf: viewerUserId ? player.userId === String(viewerUserId) : false,
       hp: player.hp,
       maxHp: player.maxHp,
@@ -6985,7 +7448,10 @@ function buildPvpBattleSnapshot(battle, viewerUserId = null) {
         cooldownRemaining: Number(card.cooldownRemaining || 0)
       }))
     })),
-    recentLogs: battle.logs.slice(-20).reverse()
+    recentLogs: battle.logs
+      .slice(-20)
+      .reverse()
+      .map((log) => anonymizePvpTextForViewer(log, battle.players, battle.mode, viewerUserId))
   };
 }
 
@@ -7007,19 +7473,21 @@ function buildPvpModeSummary(mode, modeState, userId, user) {
 }
 
 async function buildPvpStateResponse(user, now = new Date(), requestedMode = PVP_MODE_RANKED) {
+  await processWeeklyPvpSeasonIfNeeded(now);
   await advancePvpState(now);
   const responseNow = new Date();
   const userId = user?._id ? String(user._id) : null;
   const selectedMode = normalizePvpMode(requestedMode);
   const selectedModeState = getPvpModeState(selectedMode);
   const match = selectedModeState.match;
+  const matchPlayersForViewer = match ? buildPvpPlayersForViewer(match.players, match.mode, userId) : [];
   const matchPayload = match ? {
     matchId: match.matchId,
     mode: normalizePvpMode(match.mode),
     modeLabel: getPvpModeLabel(match.mode),
     isRanked: isRankedPvpMode(match.mode),
     phase: match.phase,
-    players: match.players,
+    players: matchPlayersForViewer,
     accepted: match.accepted,
     acceptEndsAt: match.acceptEndsAt,
     turnUserId: match.turnUserId,
@@ -7034,7 +7502,7 @@ async function buildPvpStateResponse(user, now = new Date(), requestedMode = PVP
     pickedCardIds: getPvpPickedCardIds(match),
     allCards: getAllPvpBanCards(),
     ownedCards: getOwnedPvpPickCards(user),
-    logs: match.logs.slice(-8),
+    logs: match.logs.slice(-8).map((log) => anonymizePvpTextForViewer(log, match.players, match.mode, userId)),
     spectators: buildSpectatorList(selectedModeState.viewers, match.players.map((player) => player.userId)),
     isParticipant: Boolean(userId && match.players.some((player) => player.userId === userId)),
     isMyTurn: Boolean(userId && match.turnUserId === userId)
@@ -7445,11 +7913,13 @@ async function advanceRaidState(now = new Date()) {
   await advanceRaidRoomState(RAID_MODE_HARD, now);
 }
 
-function unlockTitle(user, titleId) {
+function unlockTitle(user, titleId, options = {}) {
   if (!TITLE_DATA[titleId]) return false;
   if (user.titles.unlocked.includes(titleId)) return false;
   user.titles.unlocked.push(titleId);
-  queueNotification(user, 'title_unlock', `<${TITLE_DATA[titleId].name}> 칭호를 획득하였습니다!`);
+  if (options.notify !== false) {
+    queueNotification(user, 'title_unlock', `<${TITLE_DATA[titleId].name}> 칭호를 획득하였습니다!`);
+  }
   return true;
 }
 
@@ -8079,6 +8549,7 @@ async function buildUserResponseWithGlobals(user, now = new Date()) {
   const response = buildUserResponse(user, now);
   response.global = getGlobalState(now);
   response.marketplaceSoldPendingCount = await getMarketplaceSoldPendingCount(user._id);
+  response.adminMailPendingCount = await getPendingAdminMailCount(user._id, now);
   return response;
 }
 
@@ -10041,7 +10512,8 @@ app.post('/api/raid/state', async (req, res) => {
       raid,
       user: buildGameStateResponse(user, now),
       notifications: Array.isArray(user.pendingNotifications) ? [...user.pendingNotifications] : [],
-      global: getGlobalState(now)
+      global: getGlobalState(now),
+      adminMailPendingCount: await getPendingAdminMailCount(user._id, now)
     });
   } catch (err) {
     console.error('Raid state error:', err);
@@ -10064,6 +10536,7 @@ app.post('/api/raid/toggle-slot', async (req, res) => {
     calculateOfflineGains(user, now);
     const normalizedMode = normalizeRaidMode(mode);
     const room = getRaidRoom(normalizedMode);
+    pruneExpiredRaidQueue(normalizedMode, now);
 
     if (room.activeBattle) {
       return res.status(400).json({ msg: '이미 해당 모드의 레이드가 진행 중입니다.' });
@@ -10078,6 +10551,7 @@ app.post('/api/raid/toggle-slot', async (req, res) => {
     const existingSlot = findQueuedRaidSlotIndex(user._id, normalizedMode);
     if (existingSlot === targetSlot) {
       room.slots[targetSlot] = null;
+      room.slotQueuedAt[targetSlot] = null;
       syncQueuedRaidBoss(now, normalizedMode);
       bumpRaidVersion();
     } else {
@@ -10100,8 +10574,10 @@ app.post('/api/raid/toggle-slot', async (req, res) => {
       }
       if (existingSlot >= 0) {
         room.slots[existingSlot] = null;
+        room.slotQueuedAt[existingSlot] = null;
       }
       room.slots[targetSlot] = String(user._id);
+      room.slotQueuedAt[targetSlot] = now;
       syncQueuedRaidBoss(now, normalizedMode);
       bumpRaidVersion();
     }
@@ -10131,8 +10607,9 @@ app.post('/api/raid/start', async (req, res) => {
       await advanceRaidState(now);
     } catch (err) {
       console.error('Raid advance before start error:', err);
-      clearActiveRaidBattle();
+      clearActiveRaidBattle(normalizedMode);
     }
+    pruneExpiredRaidQueue(normalizedMode, now);
 
     if (room.activeBattle) {
       if (isRaidUserParticipant(room.activeBattle, userId)) {
@@ -10177,7 +10654,11 @@ app.post('/api/raid/start', async (req, res) => {
     }
 
     if (participants.length < 2) {
-      room.slots = room.slots.map((slotUserId) => (userMap.has(String(slotUserId)) ? slotUserId : null));
+      room.slots = room.slots.map((slotUserId, index) => {
+        const keepSlot = userMap.has(String(slotUserId));
+        if (!keepSlot) room.slotQueuedAt[index] = null;
+        return keepSlot ? slotUserId : null;
+      });
       syncQueuedRaidBoss(now, normalizedMode);
       bumpRaidVersion();
       return res.status(400).json({ msg: '참여 가능한 파티원이 2명 이상 있어야 합니다.' });
@@ -10245,6 +10726,7 @@ app.post('/api/raid/start', async (req, res) => {
     };
     applyRaidBattleStartPassives(room.activeBattle);
     room.slots = Array(RAID_PARTY_SIZE).fill(null);
+    room.slotQueuedAt = Array(RAID_PARTY_SIZE).fill(null);
     room.queuedBossId = null;
     bumpRaidVersion();
 
@@ -10320,9 +10802,11 @@ app.post('/api/raid/cancel-countdown', async (req, res) => {
     const userMap = new Map(users.map((entry) => [String(entry._id), entry]));
 
     room.slots = Array(RAID_PARTY_SIZE).fill(null);
+    room.slotQueuedAt = Array(RAID_PARTY_SIZE).fill(null);
     activeBattle.participants.forEach((participant, index) => {
       if (index < RAID_PARTY_SIZE) {
         room.slots[index] = String(participant.userId);
+        room.slotQueuedAt[index] = new Date();
       }
     });
     room.queuedBossId = activeBattle.bossId;
@@ -10719,7 +11203,8 @@ app.post('/api/pvp/bet', async (req, res) => {
     res.json({
       user: buildGameStateResponse(user, now),
       notifications: consumeNotifications(user),
-      pvp: await buildPvpStateResponse(user, now, pvpMode)
+      pvp: await buildPvpStateResponse(user, now, pvpMode),
+      adminMailPendingCount: await getPendingAdminMailCount(user._id, now)
     });
   } catch (err) {
     console.error('PVP bet error:', err);
@@ -10879,7 +11364,8 @@ app.post('/api/sync', async (req, res) => {
           user: buildGameStateResponse(latestUser, now),
           notifications: Array.isArray(latestUser.pendingNotifications) ? [...latestUser.pendingNotifications] : [],
           global: getGlobalState(now),
-          marketplaceSoldPendingCount: await getMarketplaceSoldPendingCount(latestUser._id)
+          marketplaceSoldPendingCount: await getMarketplaceSoldPendingCount(latestUser._id),
+          adminMailPendingCount: await getPendingAdminMailCount(latestUser._id, now)
         });
       } catch (reloadErr) {
         console.error('Sync conflict recovery error:', reloadErr);
@@ -10893,6 +11379,7 @@ app.post('/api/sync', async (req, res) => {
 app.get('/api/ranking', async (req, res) => {
   try {
     const now = new Date();
+    await processWeeklyPvpSeasonIfNeeded(now);
     const rankingUsers = await User.find({ nickname: { $ne: null } })
       .sort({ 'gameState.level': -1, 'gameState.exp': -1 })
       .limit(20)
@@ -10938,6 +11425,88 @@ app.get('/api/ranking', async (req, res) => {
     res.json({ level: levelRanking, pvp: pvpRanking });
   } catch (err) {
     console.error('Ranking error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.get('/api/mail', async (req, res) => {
+  const { userId } = req.query;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+
+  try {
+    const user = await User.findById(userId).select('_id');
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+
+    const now = new Date();
+    const mails = await getPendingAdminMailList(user._id, now);
+    res.json({
+      mails,
+      pendingCount: mails.length
+    });
+  } catch (err) {
+    console.error('Admin mail list error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/mail/claim', async (req, res) => {
+  const { userId, mailId } = req.body;
+  if (!userId || !mailId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+
+  try {
+    const now = new Date();
+    const message = await claimAdminMail(userId, mailId, now);
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    ensureUserDefaults(user);
+    const response = await buildUserResponseWithGlobals(user, now);
+    response.mail = {
+      mails: await getPendingAdminMailList(user._id, now),
+      claimedCount: 1,
+      messages: [message]
+    };
+    res.json(response);
+  } catch (err) {
+    console.error('Admin mail claim error:', err);
+    res.status(err.statusCode || 500).json({ msg: err.statusCode ? err.message : '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/mail/claim-all', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+
+  try {
+    const now = new Date();
+    await expireAdminMails(userId, now);
+    const mails = await AdminMail.find({
+      recipientId: userId,
+      status: 'pending',
+      expiresAt: { $gt: now }
+    }).sort({ createdAt: 1 }).select('_id');
+
+    const messages = [];
+    for (const mail of mails) {
+      try {
+        messages.push(await claimAdminMail(userId, mail._id, new Date()));
+      } catch (err) {
+        console.error('Admin mail claim-all item skipped:', err);
+      }
+    }
+
+    const responseNow = new Date();
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    ensureUserDefaults(user);
+    const response = await buildUserResponseWithGlobals(user, responseNow);
+    response.mail = {
+      mails: await getPendingAdminMailList(user._id, responseNow),
+      claimedCount: messages.length,
+      messages
+    };
+    res.json(response);
+  } catch (err) {
+    console.error('Admin mail claim all error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
   }
 });
@@ -11006,64 +11575,21 @@ app.post('/api/admin/gift', async (req, res) => {
 
   try {
     const users = targetMode === 'all'
-      ? await User.find({})
-      : await User.find({ _id: targetUserId });
+      ? await User.find({}).select('_id').lean()
+      : await User.find({ _id: targetUserId }).select('_id').lean();
 
     if (!users.length) {
       return res.status(404).json({ msg: '선물할 사용자를 찾을 수 없습니다.' });
     }
 
     const now = new Date();
-    let deliveredCount = 0;
-
-    const applyGiftToUser = (user) => {
-      ensureUserDefaults(user);
-      calculateOfflineGains(user, now);
-
-      if (giftType === 'item' || giftType === 'fragment') {
-        const actualGiftItemId = getRewardVariantItemId(giftId);
-        addItemToInventory(user, actualGiftItemId, giftQuantity);
-        queueNotification(user, 'admin_gift', `운영자로부터 선물이 도착했습니다! <${ITEM_DATA[actualGiftItemId].name} ${giftQuantity}개>`);
-      } else if (giftType === 'buff') {
-        setOrRefreshBuff(user, giftId, BUFF_DATA[giftId].durationMs);
-        queueNotification(user, 'admin_gift', `운영자로부터 선물이 도착했습니다! <${BUFF_DATA[giftId].name}>`);
-      } else if (giftType === 'package') {
-        const packageInfo = applySupportPackage(user, giftId);
-        queueNotification(user, 'admin_gift', `운영자로부터 선물이 도착했습니다! <${packageInfo.name}>`);
-      } else {
-        const unlocked = unlockTitle(user, giftId);
-        if (!unlocked) {
-          queueNotification(user, 'admin_gift', `운영자가 <${TITLE_DATA[giftId].name}> 칭호를 다시 확인했습니다. 이미 보유 중입니다.`);
-        }
-      }
-
-      reconcileTitles(user, now);
-    };
-
-    for (const user of users) {
-      try {
-        applyGiftToUser(user);
-        await user.save();
-        deliveredCount += 1;
-      } catch (err) {
-        if (!isVersionConflictError(err)) {
-          if (targetMode === 'single') throw err;
-          console.error('Admin gift user skipped:', err);
-          continue;
-        }
-
-        try {
-          const latestUser = await User.findById(user._id);
-          if (!latestUser) continue;
-          applyGiftToUser(latestUser);
-          await latestUser.save();
-          deliveredCount += 1;
-        } catch (retryErr) {
-          if (targetMode === 'single') throw retryErr;
-          console.error('Admin gift retry failed:', retryErr);
-        }
-      }
-    }
+    const mailPayload = createAdminMailGiftPayload(giftType, giftId, giftQuantity, now);
+    const mailDocs = users.map((user) => ({
+      recipientId: user._id,
+      ...mailPayload
+    }));
+    const inserted = await AdminMail.insertMany(mailDocs, { ordered: false });
+    const deliveredCount = inserted.length;
 
     if (!deliveredCount) {
       return res.status(500).json({ msg: '선물 발송에 실패했습니다.' });
@@ -11071,7 +11597,8 @@ app.post('/api/admin/gift', async (req, res) => {
 
     res.json({
       success: true,
-      deliveredCount
+      deliveredCount,
+      expiresAt: mailPayload.expiresAt
     });
   } catch (err) {
     console.error('Admin gift error:', err);

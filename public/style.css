@@ -1099,6 +1099,46 @@ progress {
   border: 1px solid #ffffff;
 }
 
+.mailbox-btn {
+  position: relative;
+}
+
+.mailbox-btn.has-pending::after {
+  content: "";
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #d32f2f;
+  border: 1px solid #ffffff;
+}
+
+.mailbox-list {
+  display: grid;
+  gap: 10px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.mailbox-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px;
+  border: var(--excel-border);
+  background: #fbfbfb;
+}
+
+.mailbox-item p {
+  margin: 4px 0;
+  color: #555555;
+  line-height: 1.35;
+}
+
 .new-card-result {
   color: #d32f2f;
   font-weight: 800;
