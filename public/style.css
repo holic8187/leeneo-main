@@ -1337,6 +1337,76 @@ progress {
   color: #ffd799;
 }
 
+.potato-rehab-card,
+.card-name-chip.potato-rehab-card,
+.fusion-source-card.potato-rehab-card,
+.enhance-selected-card.potato-rehab-card,
+.raid-slot.potato-rehab-card,
+.raid-slot-card.potato-rehab-card,
+.pvp-mini-card.potato-rehab-card,
+.pvp-card-choice.potato-rehab-card {
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
+  overflow: visible;
+  border-color: rgba(197, 39, 30, calc(0.42 + (var(--potato-aura-strength, 0) * 0.45))) !important;
+  box-shadow:
+    0 0 calc(3px + (var(--potato-aura-strength, 0) * 12px)) rgba(190, 30, 20, calc(var(--potato-aura-strength, 0) * 0.72)),
+    inset 0 0 calc(2px + (var(--potato-aura-strength, 0) * 8px)) rgba(255, 86, 45, calc(var(--potato-aura-strength, 0) * 0.28));
+}
+
+.potato-rehab-card::before,
+.card-name-chip.potato-rehab-card::before,
+.fusion-source-card.potato-rehab-card::before,
+.enhance-selected-card.potato-rehab-card::before,
+.raid-slot.potato-rehab-card::before,
+.raid-slot-card.potato-rehab-card::before,
+.pvp-mini-card.potato-rehab-card::before,
+.pvp-card-choice.potato-rehab-card::before {
+  content: "";
+  position: absolute;
+  inset: -14px -10px -8px;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: -1;
+  opacity: var(--potato-aura-strength, 0);
+  transform: scale(var(--potato-aura-scale, 1));
+  background:
+    radial-gradient(ellipse at 22% 85%, rgba(255, 58, 25, 0.78), transparent 38%),
+    radial-gradient(ellipse at 72% 80%, rgba(255, 112, 34, 0.56), transparent 42%),
+    linear-gradient(0deg, rgba(170, 12, 6, 0.5), rgba(255, 87, 34, 0.26) 44%, transparent 72%);
+  filter: blur(1px) drop-shadow(0 0 7px rgba(255, 48, 26, 0.58));
+  animation: potatoRehabFlame 2.8s ease-in-out infinite alternate;
+}
+
+.potato-rehab-card > *,
+.card-name-chip.potato-rehab-card > *,
+.fusion-source-card.potato-rehab-card > *,
+.enhance-selected-card.potato-rehab-card > *,
+.raid-slot.potato-rehab-card > *,
+.raid-slot-card.potato-rehab-card > *,
+.pvp-mini-card.potato-rehab-card > *,
+.pvp-card-choice.potato-rehab-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.card-name-chip.potato-rehab-card {
+  display: inline-flex;
+  align-items: center;
+}
+
+@keyframes potatoRehabFlame {
+  0% {
+    opacity: calc(var(--potato-aura-strength, 0) * 0.55);
+    transform: translateY(2px) scale(calc(var(--potato-aura-scale, 1) * 0.96));
+  }
+  100% {
+    opacity: var(--potato-aura-strength, 0);
+    transform: translateY(-3px) scale(var(--potato-aura-scale, 1));
+  }
+}
+
 .pvp-bet-choices {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

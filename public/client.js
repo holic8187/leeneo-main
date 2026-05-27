@@ -63,7 +63,7 @@ const ITEM_DATA = {
 const CARD_DATA = {
   mingu_champion: { name: '제 1회 면담대회 우승자 밍구의 품격', grade: 'S', color: '#c62828', skillName: '챔피언의 품격', skillDesc: '지정한 파티원 1인에게 보호막 20과 <챔피언의 가호>를, 상대에게 <눈부심>을 부여합니다.', cooldown: 7, targetType: 'ally', specialStyle: 'champion' },
   winter_subordinate: { name: '겨울 부장의 부하직원 육성', grade: 'S', color: '#c62828', skillName: '부하직원 육성', skillDesc: '파티원 중 가장 레벨이 낮은 1명을 2턴 동안 레벨 +1~+5로 간주합니다. +5강은 쿨타임이 7턴입니다.', cooldown: 8, targetType: null },
-  potato_rehab: { name: '감자의 재활훈련', grade: 'S', color: '#c62828', skillName: '재활훈련', skillDesc: '보스전에서 현재 데미지의 고정 피해를 1회 입힙니다. 한 판당 1회만 사용할 수 있고, 이 스킬로 처치하면 데미지가 영구적으로 10% 증가합니다. 개인면담에서는 선택할 수 없습니다.', cooldown: 0, targetType: null },
+  potato_rehab: { name: '감자의 재활훈련', grade: 'S', color: '#c62828', skillName: '재활훈련', skillDesc: '보스전에서 현재 데미지의 고정 피해를 1회 입힙니다. 노멀 보스에서는 피해와 막타 성장량이 1/3로 적용됩니다. 한 판당 1회만 사용할 수 있고, 이 스킬로 처치하면 데미지가 플레이어의 현재 레벨만큼 영구 증가합니다. 개인면담에서는 선택할 수 없습니다.', cooldown: 0, targetType: null, specialStyle: 'potato-rehab' },
   ineo_diet: { name: '이네오의 다이어트 선언', grade: 'S', color: '#c62828', skillName: '다이어트 선언', skillDesc: '돌아오는 턴에 기본 공격을 총 10회 합니다. 각 공격은 기본 공격 피해의 90%로 적용되며 크리티컬이 적용될 수 있습니다.', cooldown: 3, targetType: null },
   gangnam_style: { name: '일 중에 몰래 듣는 강남스타일', grade: 'S', color: '#c62828', skillName: '강남스타일', skillDesc: '1턴 동안 모든 팀원에게 크리티컬률 20%와 흥겨움 버프를 부여하고, 보호막 10을 제공합니다. 흥겨움 동안 기본 공격 횟수가 2배가 됩니다.', cooldown: 2, targetType: null },
   delegate_lee: { name: '이것 좀 대신 해줘 이대리', grade: 'S', color: '#c62828', skillName: '이것 좀 대신 해줘', skillDesc: '현재 입장한 파티원의 전체 레벨 합 x 30의 데미지를 1회 가합니다.', cooldown: 6, targetType: null },
@@ -263,6 +263,25 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-05-27-potato-rehab-normal-mode-nerf',
+    time: '2026-05-27 15:05',
+    title: '감자의 재활훈련 노멀 보스 보정',
+    items: [
+      '노멀 보스에서 <감자의 재활훈련> 피해와 막타 후 영구 데미지 증가량이 1/3로 적용되도록 조정했습니다.',
+      '<감자의 재활훈련> 설명에 노멀 보스 1/3 적용 내용을 추가했습니다.'
+    ]
+  },
+  {
+    id: '2026-05-27-potato-rehab-rework',
+    time: '2026-05-27 14:55',
+    title: '감자의 재활훈련 리워크',
+    items: [
+      '<감자의 재활훈련> 기본 피해를 20,000으로 변경했습니다.',
+      '<감자의 재활훈련>으로 보스를 처치하면 카드 피해가 플레이어의 현재 레벨만큼 영구 증가하도록 변경했습니다.',
+      '<감자의 재활훈련> 막타 횟수에 따라 카드 뒤 붉은 불꽃 오오라가 점점 선명해지도록 추가했습니다.'
+    ]
+  },
   {
     id: '2026-05-27-pvp-gossip-passive-removable',
     time: '2026-05-27 14:35',
@@ -1395,6 +1414,35 @@ function escapeHtml(value) {
 
 function escapeAttr(value) {
   return escapeHtml(value);
+}
+
+function getCardVisualClass(card = {}) {
+  const classes = [];
+  if (card.specialStyle === 'champion') classes.push('champion-card');
+  if (card.specialStyle === 'potato-rehab') classes.push('potato-rehab-card');
+  return classes.join(' ');
+}
+
+function getCardVisualStyle(card = {}) {
+  if (card.specialStyle !== 'potato-rehab') return '';
+  const strength = Math.max(0, Math.min(1, Number(card.potatoRehabAuraStrength || 0)));
+  if (strength <= 0) return '';
+  const scale = Number((1 + (strength * 0.32)).toFixed(3));
+  return `--potato-aura-strength:${strength}; --potato-aura-scale:${scale};`;
+}
+
+function applyCardVisualToElement(element, card = {}) {
+  if (!element) return;
+  element.classList.toggle('champion-card', card.specialStyle === 'champion');
+  element.classList.toggle('potato-rehab-card', card.specialStyle === 'potato-rehab');
+  const strength = Math.max(0, Math.min(1, Number(card.potatoRehabAuraStrength || 0)));
+  if (card.specialStyle === 'potato-rehab' && strength > 0) {
+    element.style.setProperty('--potato-aura-strength', String(strength));
+    element.style.setProperty('--potato-aura-scale', String(Number((1 + (strength * 0.32)).toFixed(3))));
+  } else {
+    element.style.removeProperty('--potato-aura-strength');
+    element.style.removeProperty('--potato-aura-scale');
+  }
 }
 
 function setText(id, value) {
@@ -2572,7 +2620,7 @@ function renderCardFusionModal(user) {
     sourceList.insertAdjacentHTML(
       'beforeend',
       `
-        <div class="fusion-source-card ${card.specialStyle === 'champion' ? 'champion-card' : ''} ${disabled ? 'disabled' : ''}">
+        <div class="fusion-source-card ${getCardVisualClass(card)} ${disabled ? 'disabled' : ''}" style="${escapeAttr(getCardVisualStyle(card))}">
           <div class="fusion-card-head">
             <span class="fusion-card-name">${escapeHtml(card.baseName || card.name)}${levelText}</span>
             <span class="grade-badge" style="background:${escapeHtml(card.color)}">${escapeHtml(card.grade)}</span>
@@ -2641,7 +2689,8 @@ function renderCardEnhanceModal(user) {
     previewPane.innerHTML = '현재 효과와 강화 후 미리보기가 여기에 표시됩니다.';
     confirmButton.disabled = true;
   } else {
-    selectedCardEl.className = `enhance-selected-card selected ${selectedCard.specialStyle === 'champion' ? 'champion-card' : ''}`;
+    selectedCardEl.className = `enhance-selected-card selected ${getCardVisualClass(selectedCard)}`;
+    selectedCardEl.setAttribute('style', getCardVisualStyle(selectedCard));
     selectedCardEl.style.borderColor = selectedCard.borderColor || '#d0d0d0';
     selectedCardEl.innerHTML = `
       <div class="fusion-card-head">
@@ -2698,7 +2747,7 @@ function renderCardEnhanceModal(user) {
     sourceList.insertAdjacentHTML(
       'beforeend',
       `
-        <div class="fusion-source-card enhance-source-card ${card.specialStyle === 'champion' ? 'champion-card' : ''} ${selected ? 'selected' : ''} ${disabled ? 'unavailable' : ''}" style="border-color:${escapeHtml(card.borderColor || '#d0d0d0')}" onclick="handleCardEnhanceSelect('${card.cardId}', ${Number(card.enhancementLevel || 0)})">
+        <div class="fusion-source-card enhance-source-card ${getCardVisualClass(card)} ${selected ? 'selected' : ''} ${disabled ? 'unavailable' : ''}" style="border-color:${escapeHtml(card.borderColor || '#d0d0d0')}; ${escapeAttr(getCardVisualStyle(card))}" onclick="handleCardEnhanceSelect('${card.cardId}', ${Number(card.enhancementLevel || 0)})">
           <div class="fusion-card-head">
             <span class="fusion-card-name">${escapeHtml(card.name)}</span>
             <span class="grade-badge" style="background:${escapeHtml(card.color || '#666666')}">${escapeHtml(card.grade)}</span>
@@ -5302,15 +5351,19 @@ function renderRaidBattle(raidState, user) {
       participantCard = createRaidParticipantCardElement(participant.userId);
     }
     participantList.appendChild(participantCard);
+    const participantCardVisual = {
+      specialStyle: participant.equippedCardSpecialStyle,
+      potatoRehabAuraStrength: participant.equippedCardPotatoRehabAuraStrength
+    };
     const isChampionCard = participant.equippedCardSpecialStyle === 'champion';
     participantCard.classList.toggle('active-turn', isActiveParticipant);
-    participantCard.classList.toggle('champion-card', isChampionCard);
+    applyCardVisualToElement(participantCard, participantCardVisual);
     participantCard.classList.toggle('raid-champion-profile', isChampionCard);
     participantCard.querySelector('[data-raid-participant-name]').textContent = participant.displayName || '';
     participantCard.querySelector('[data-raid-participant-level]').textContent = `Lv.${formatNumber(participant.level)}`;
     const equippedCardEl = participantCard.querySelector('[data-raid-participant-card]');
     equippedCardEl.textContent = participant.equippedCardName || '장착 카드 없음';
-    equippedCardEl.classList.toggle('champion-card', isChampionCard);
+    applyCardVisualToElement(equippedCardEl, participantCardVisual);
     participantCard.querySelector('[data-raid-participant-status]').textContent = `HP ${formatNumber(participant.hp)} / ${formatNumber(participant.maxHp)}`;
     participantCard.querySelector('[data-raid-participant-shield-text]').textContent = `보호막 ${formatNumber(participant.shield || 0)}`;
 
@@ -6482,7 +6535,7 @@ function updateInventoryUI(user) {
         'beforeend',
         `
           <tr>
-            <td><span class="card-name-chip ${card.specialStyle === 'champion' ? 'champion-card' : ''}" style="border-color:${escapeHtml(card.borderColor || 'transparent')}">${escapeHtml(card.name)}</span></td>
+            <td><span class="card-name-chip ${getCardVisualClass(card)}" style="border-color:${escapeHtml(card.borderColor || 'transparent')}; ${escapeAttr(getCardVisualStyle(card))}">${escapeHtml(card.name)}</span></td>
             <td><span class="grade-badge" style="background:${escapeHtml(card.color || '#666666')}">${escapeHtml(card.grade)}</span></td>
             <td>${formatNumber(card.quantity)}장 보유</td>
             <td>
@@ -6661,6 +6714,8 @@ function updateRaidLobbyUI(raidState, user) {
           equippedCardSkillDesc: participant.skillDesc,
           equippedCardSpecialStyle: participant.equippedCardSpecialStyle,
           equippedCardBorderColor: participant.equippedCardBorderColor,
+          equippedCardPotatoRehabKillCount: participant.equippedCardPotatoRehabKillCount,
+          equippedCardPotatoRehabAuraStrength: participant.equippedCardPotatoRehabAuraStrength,
           equippedCardCooldown: participant.skillCooldown
         })),
         ...Array(5).fill(null)
@@ -6668,6 +6723,10 @@ function updateRaidLobbyUI(raidState, user) {
     : (raidState?.slots || Array(5).fill(null));
   slots.forEach((slot, index) => {
     const isSelf = slot?.userId && user && String(slot.userId) === String(user._id);
+    const slotCardVisual = slot ? {
+      specialStyle: slot.equippedCardSpecialStyle,
+      potatoRehabAuraStrength: slot.equippedCardPotatoRehabAuraStrength
+    } : {};
     const cardTooltip = slot
       ? [
           slot.equippedCardName || '장착 카드 없음',
@@ -6679,11 +6738,11 @@ function updateRaidLobbyUI(raidState, user) {
     slotGrid.insertAdjacentHTML(
       'beforeend',
       `
-        <button class="raid-slot ${slot ? '' : 'empty'} ${isSelf ? 'self' : ''} ${slot?.equippedCardSpecialStyle === 'champion' ? 'champion-card raid-champion-profile' : ''}" onclick="handleRaidSlotClick(${index})">
+        <button class="raid-slot ${slot ? '' : 'empty'} ${isSelf ? 'self' : ''} ${getCardVisualClass(slotCardVisual)} ${slot?.equippedCardSpecialStyle === 'champion' ? 'raid-champion-profile' : ''}" style="${escapeAttr(getCardVisualStyle(slotCardVisual))}" onclick="handleRaidSlotClick(${index})">
           ${slot
             ? `<div class="raid-slot-name"><span class="raid-name-chip" style="border-color:${escapeHtml(slot.equippedCardBorderColor || 'transparent')}">${escapeHtml(slot.displayName)}</span></div>
                <div>Lv.${formatNumber(slot.level)}</div>
-               <div class="raid-slot-card ${slot.equippedCardSpecialStyle === 'champion' ? 'champion-card' : ''}" title="${escapeHtml(cardTooltip)}">${escapeHtml(slot.equippedCardName || '장착 카드 없음')}</div>`
+               <div class="raid-slot-card ${getCardVisualClass(slotCardVisual)}" style="${escapeAttr(getCardVisualStyle(slotCardVisual))}" title="${escapeHtml(cardTooltip)}">${escapeHtml(slot.equippedCardName || '장착 카드 없음')}</div>`
             : `<div class="raid-slot-name">${index + 1}번 슬롯</div><div>클릭해 참가 대기</div>`}
         </button>
       `

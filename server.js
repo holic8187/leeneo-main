@@ -54,7 +54,7 @@ const CARD_DRAW_GRADE_RATES = [
   { grade: 'C', rate: 0.65 }
 ];
 const CARD_GRADE_SORT_ORDER = { S: 0, A: 1, B: 2, C: 3 };
-const POTATO_REHAB_BASE_DAMAGE = 200;
+const POTATO_REHAB_BASE_DAMAGE = 20000;
 const NEWS_TYPING_RSS_FEEDS = [
   'https://news.google.com/rss?hl=ko&gl=KR&ceid=KR:ko',
   'https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=ko&gl=KR&ceid=KR:ko',
@@ -861,14 +861,15 @@ const CARD_DATA = {
     grade: 'S',
     rate: 0.00025,
     skillName: '재활훈련',
-    skillDesc: '보스전에서 현재 데미지의 고정 피해를 1회 입힙니다. 한 판당 1회만 사용할 수 있고, 이 스킬로 적을 처치하면 데미지가 영구적으로 10% 증가합니다.',
+    skillDesc: '보스전에서 현재 데미지의 고정 피해를 1회 입힙니다. 노멀 보스에서는 피해와 막타 성장량이 1/3로 적용됩니다. 한 판당 1회만 사용할 수 있고, 이 스킬로 적을 처치하면 데미지가 플레이어의 현재 레벨만큼 영구 증가합니다.',
     cooldown: 0,
     effectType: 'potato_rehab_fixed_damage',
     targetType: null,
     fixedDamage: POTATO_REHAB_BASE_DAMAGE,
     enhanceDisabled: true,
     pvpDisabled: true,
-    oncePerBattle: true
+    oncePerBattle: true,
+    specialStyle: 'potato-rehab'
   },
   precise_strike: {
     id: 'precise_strike',
@@ -2071,7 +2072,8 @@ const userSchema = new mongoose.Schema({
     },
     lastAdventureAt: { type: Date, default: null },
     lastAdventureLog: { type: String, default: '' },
-    potatoRehabDamage: { type: Number, default: POTATO_REHAB_BASE_DAMAGE }
+    potatoRehabDamage: { type: Number, default: POTATO_REHAB_BASE_DAMAGE },
+    potatoRehabKillCount: { type: Number, default: 0 }
   },
   pendingAdventure: {
     eventId: { type: String, default: null },
@@ -2446,7 +2448,8 @@ function ensureUserDefaults(user) {
       },
       lastAdventureAt: null,
       lastAdventureLog: '',
-      potatoRehabDamage: POTATO_REHAB_BASE_DAMAGE
+      potatoRehabDamage: POTATO_REHAB_BASE_DAMAGE,
+      potatoRehabKillCount: 0
     };
   }
   user.meta.loginCount = Number(user.meta.loginCount ?? 0);
@@ -2503,6 +2506,7 @@ function ensureUserDefaults(user) {
     POTATO_REHAB_BASE_DAMAGE,
     Math.floor(Number(user.meta.potatoRehabDamage || POTATO_REHAB_BASE_DAMAGE))
   );
+  user.meta.potatoRehabKillCount = Math.max(0, Math.floor(Number(user.meta.potatoRehabKillCount || 0)));
 
   if (!user.pendingAdventure || typeof user.pendingAdventure !== 'object') {
     user.pendingAdventure = {
@@ -2950,7 +2954,7 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
     case 'winter_subordinate':
       return `파티원 중 가장 레벨이 낮은 1명에게 ${card.turns}턴 동안 <부하직원>을 부여합니다. 부하직원은 현재 레벨보다 +${card.levelBonus} 높게 간주되어 레벨 기반 공격력과 스킬에 적용됩니다.`;
     case 'potato_rehab':
-      return `보스전에서 현재 데미지 ${Number(card.fixedDamage || POTATO_REHAB_BASE_DAMAGE).toLocaleString()}의 고정 피해를 1회 입힙니다. 한 판당 1회만 사용 가능하며, 이 스킬로 적을 처치하면 데미지가 영구적으로 10% 증가합니다. 개인면담에서는 선택할 수 없고 강화할 수 없습니다.`;
+      return `보스전에서 현재 데미지 ${Number(card.fixedDamage || POTATO_REHAB_BASE_DAMAGE).toLocaleString()}의 고정 피해를 1회 입힙니다. 노멀 보스에서는 피해와 막타 성장량이 1/3로 적용됩니다. 한 판당 1회만 사용 가능하며, 이 스킬로 적을 처치하면 데미지가 플레이어의 현재 레벨만큼 영구 증가합니다. 개인면담에서는 선택할 수 없고 강화할 수 없습니다.`;
     case 'precise_strike':
       return `자신의 레벨 x ${card.multiplierPerLevel}의 데미지를 1회 주며, 방어막을 무시하고 HP에 직접 피해를 입힙니다.`;
     case 'umbrella_copy':
@@ -2975,17 +2979,44 @@ function getPotatoRehabDamage(source) {
   return Math.max(POTATO_REHAB_BASE_DAMAGE, Math.floor(Number(rawDamage || POTATO_REHAB_BASE_DAMAGE)));
 }
 
+function getPotatoRehabBattleDamage(source, battle) {
+  const damage = getPotatoRehabDamage(source);
+  return getRaidModeFromBattle(battle) === RAID_MODE_NORMAL
+    ? Math.max(1, Math.floor(damage / 3))
+    : damage;
+}
+
+function getPotatoRehabGrowthIncrement(source, battle) {
+  const baseIncrement = Math.max(1, Math.floor(Number(source?.level || source?.gameState?.level || 1)));
+  return getRaidModeFromBattle(battle) === RAID_MODE_NORMAL
+    ? Math.max(1, Math.floor(baseIncrement / 3))
+    : baseIncrement;
+}
+
+function getPotatoRehabKillCount(source) {
+  const rawCount = source?.potatoRehabKillCount ?? source?.meta?.potatoRehabKillCount;
+  return Math.max(0, Math.floor(Number(rawCount || 0)));
+}
+
+function getPotatoRehabAuraStrength(source) {
+  const killCount = getPotatoRehabKillCount(source);
+  if (killCount <= 0) return 0;
+  return Number(Math.min(1, 0.12 + (killCount * 0.055)).toFixed(3));
+}
+
 function buildUserCardSkillDescription(user, cardId, enhancementLevel = 0) {
   if (cardId !== 'potato_rehab') return buildCardSkillDescription(cardId, enhancementLevel);
   const damage = getPotatoRehabDamage(user);
-  return `보스전에서 현재 데미지 ${damage.toLocaleString()}의 고정 피해를 1회 입힙니다. 한 판당 1회만 사용 가능하며, 이 스킬로 적을 처치하면 데미지가 영구적으로 10% 증가합니다. 개인면담에서는 선택할 수 없고 강화할 수 없습니다.`;
+  const killCount = getPotatoRehabKillCount(user);
+  return `보스전에서 현재 데미지 ${damage.toLocaleString()}의 고정 피해를 1회 입힙니다. 노멀 보스에서는 피해와 막타 성장량이 1/3로 적용됩니다. 한 판당 1회만 사용 가능하며, 이 스킬로 적을 처치하면 데미지가 플레이어의 현재 레벨만큼 영구 증가합니다. 현재 막타 ${killCount.toLocaleString()}회. 개인면담에서는 선택할 수 없고 강화할 수 없습니다.`;
 }
 
 function buildRaidParticipantCardSkillDescription(participant, card) {
   if (!card) return '';
   if (card.id !== 'potato_rehab') return buildCardSkillDescription(card.id, card.enhancementLevel || 0);
   const damage = getPotatoRehabDamage(participant);
-  return `보스전에서 현재 데미지 ${damage.toLocaleString()}의 고정 피해를 1회 입힙니다. 한 판당 1회만 사용 가능하며, 이 스킬로 적을 처치하면 데미지가 영구적으로 10% 증가합니다.`;
+  const killCount = getPotatoRehabKillCount(participant);
+  return `보스전에서 현재 데미지 ${damage.toLocaleString()}의 고정 피해를 1회 입힙니다. 노멀 보스에서는 피해와 막타 성장량이 1/3로 적용됩니다. 한 판당 1회만 사용 가능하며, 이 스킬로 적을 처치하면 데미지가 플레이어의 현재 레벨만큼 영구 증가합니다. 현재 막타 ${killCount.toLocaleString()}회.`;
 }
 
 function queueNotification(user, type, text) {
@@ -3418,7 +3449,9 @@ function buildCardDetails(user) {
     cooldown: getCardDefinition(card.id, 0)?.cooldown ?? card.cooldown,
     durationText: getCardDurationText(card.id, 0),
     targetType: card.targetType || null,
-    specialStyle: card.specialStyle || ''
+    specialStyle: card.specialStyle || '',
+    potatoRehabKillCount: card.id === 'potato_rehab' ? getPotatoRehabKillCount(user) : 0,
+    potatoRehabAuraStrength: card.id === 'potato_rehab' ? getPotatoRehabAuraStrength(user) : 0
   }));
 }
 
@@ -3446,6 +3479,8 @@ function buildCardVariantDetails(user) {
         cooldown: resolved.cooldown,
         durationText: getCardDurationText(card.id, 0),
         specialStyle: CARD_DATA[card.id].specialStyle || '',
+        potatoRehabKillCount: card.id === 'potato_rehab' ? getPotatoRehabKillCount(user) : 0,
+        potatoRehabAuraStrength: card.id === 'potato_rehab' ? getPotatoRehabAuraStrength(user) : 0,
         canEnhance: canEnhanceCard,
         availableEnhanceQuantity: canEnhanceCard ? baseQuantity : 0,
         enhanceSuccessRate: canEnhanceCard ? getCardEnhancementSuccessRate(0) : 0,
@@ -3458,7 +3493,9 @@ function buildCardVariantDetails(user) {
           cooldown: nextPreview.cooldown,
           durationText: getCardDurationText(card.id, 1),
           borderColor: nextPreview.borderColor,
-          specialStyle: CARD_DATA[card.id].specialStyle || ''
+          specialStyle: CARD_DATA[card.id].specialStyle || '',
+          potatoRehabKillCount: card.id === 'potato_rehab' ? getPotatoRehabKillCount(user) : 0,
+          potatoRehabAuraStrength: card.id === 'potato_rehab' ? getPotatoRehabAuraStrength(user) : 0
         } : null
       });
     }
@@ -3488,6 +3525,8 @@ function buildCardVariantDetails(user) {
         cooldown: resolved.cooldown,
         durationText: getCardDurationText(entry.cardId, normalizedLevel),
         specialStyle: CARD_DATA[entry.cardId].specialStyle || '',
+        potatoRehabKillCount: entry.cardId === 'potato_rehab' ? getPotatoRehabKillCount(user) : 0,
+        potatoRehabAuraStrength: entry.cardId === 'potato_rehab' ? getPotatoRehabAuraStrength(user) : 0,
         canEnhance: canEnhanceCard && normalizedLevel < 5,
         availableEnhanceQuantity: canEnhanceCard && normalizedLevel < 5 ? Number(entry.quantity) : 0,
         enhanceSuccessRate: canEnhanceCard && normalizedLevel < 5 ? getCardEnhancementSuccessRate(normalizedLevel) : 0,
@@ -3500,7 +3539,9 @@ function buildCardVariantDetails(user) {
           cooldown: nextPreview.cooldown,
           durationText: getCardDurationText(entry.cardId, nextLevel),
           borderColor: nextPreview.borderColor,
-          specialStyle: CARD_DATA[entry.cardId].specialStyle || ''
+          specialStyle: CARD_DATA[entry.cardId].specialStyle || '',
+          potatoRehabKillCount: entry.cardId === 'potato_rehab' ? getPotatoRehabKillCount(user) : 0,
+          potatoRehabAuraStrength: entry.cardId === 'potato_rehab' ? getPotatoRehabAuraStrength(user) : 0
         } : null
       });
     });
@@ -3707,7 +3748,9 @@ function buildQueuedSlotSnapshot(user) {
     equippedCardPassiveOnly: Boolean(equippedCard?.passiveOnly),
     equippedCardEnhancementLevel: Number(equippedCard?.enhancementLevel || 0),
     equippedCardBorderColor: equippedCard?.borderColor || '',
-    equippedCardSpecialStyle: equippedCard?.specialStyle || ''
+    equippedCardSpecialStyle: equippedCard?.specialStyle || '',
+    equippedCardPotatoRehabKillCount: equippedCard?.id === 'potato_rehab' ? getPotatoRehabKillCount(user) : 0,
+    equippedCardPotatoRehabAuraStrength: equippedCard?.id === 'potato_rehab' ? getPotatoRehabAuraStrength(user) : 0
   };
 }
 
@@ -3738,6 +3781,8 @@ function createRaidParticipantFromUser(user) {
     equippedCardId: user.equippedCardId || null,
     equippedCardLevel: normalizeCardEnhancementLevel(user.equippedCardLevel || 0),
     potatoRehabDamage: getPotatoRehabDamage(user),
+    potatoRehabKillCount: getPotatoRehabKillCount(user),
+    potatoRehabAuraStrength: getPotatoRehabAuraStrength(user),
     potatoRehabUsed: false,
     extraHits: 0,
     multiHitDamageMultiplier: 1,
@@ -5016,7 +5061,7 @@ function useRaidCardSkill(participant, battle) {
     const dealtDamage = applyRaidDamageToBoss(battle, damage, { attacker: participant, skillName: card.name });
     logText = `${participant.displayName}(이)가 ${card.name}로 ${dealtDamage.toLocaleString()} 피해를 가했습니다.`;
   } else if (card.effectType === 'potato_rehab_fixed_damage') {
-    const damage = getPotatoRehabDamage(participant);
+    const damage = getPotatoRehabBattleDamage(participant, battle);
     const beforeBossHp = Number(battle.bossHp || 0);
     const dealtDamage = applyRaidDamageToBoss(battle, damage, { attacker: participant, skillName: card.name });
     participant.potatoRehabUsed = true;
@@ -6103,6 +6148,8 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
         equippedCardGrade: card?.grade || null,
         equippedCardBorderColor: card?.borderColor || '',
         equippedCardSpecialStyle: card?.specialStyle || '',
+        equippedCardPotatoRehabKillCount: card?.id === 'potato_rehab' ? getPotatoRehabKillCount(participant) : 0,
+        equippedCardPotatoRehabAuraStrength: card?.id === 'potato_rehab' ? getPotatoRehabAuraStrength(participant) : 0,
         skillName: card?.skillName || '',
         skillDesc: card ? buildRaidParticipantCardSkillDescription(participant, card) : '',
         targetType: card?.targetType || null,
@@ -7699,12 +7746,14 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
       );
       if ((activeBattle.potatoRehabKillUserIds || []).includes(participant.userId)) {
         const previousDamage = getPotatoRehabDamage(user);
-        const nextDamage = Math.max(previousDamage + 1, Math.round(previousDamage * 1.1));
+        const levelIncrement = getPotatoRehabGrowthIncrement(participant, activeBattle);
+        const nextDamage = previousDamage + levelIncrement;
         user.meta.potatoRehabDamage = nextDamage;
+        user.meta.potatoRehabKillCount = getPotatoRehabKillCount(user) + 1;
         queueNotification(
           user,
           'potato_rehab_growth',
-          `<감자의 재활훈련>으로 보스를 처치했습니다! 카드 데미지가 ${previousDamage.toLocaleString()}에서 ${nextDamage.toLocaleString()}로 영구 증가했습니다.`
+          `<감자의 재활훈련>으로 보스를 처치했습니다! 카드 데미지가 ${previousDamage.toLocaleString()}에서 ${nextDamage.toLocaleString()}로 영구 증가했습니다. (막타 ${Number(user.meta.potatoRehabKillCount || 0).toLocaleString()}회)`
         );
       }
     } else {
