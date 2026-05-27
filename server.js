@@ -1164,7 +1164,7 @@ const RAID_BOSS_DATA = {
     imageLabel: '대머리 김부장',
     portrait: 'assets/bosses/bald_manager.png',
     patternOrder: ['wig_search', 'mz', 'afterparty', 'sauna'],
-    hardPassiveText: '패시브. 매끈한 두피: 같은 플레이어 턴에 1회 타격당할 때마다 이후 받는 피해가 10%씩 곱연산으로 감소합니다. 새 턴이 시작되면 사라집니다.',
+    hardPassiveText: '패시브. 매끈한 두피: 1P 행동 시작부터 다음 1P 행동 시작 전까지 1회 타격당할 때마다 이후 받는 피해가 10%씩 곱연산으로 감소합니다. 다음 턴 1P 행동 시작 시 사라집니다.',
     skillsText: [
       '1. 내 가발 어디갔어?!: 랜덤 3명에게 20 피해, 2턴 동안 기본 공격/스킬 사용 불가',
       '2. 허허, 요즘 엠제트세대란..: 랜덤 4명에게 10 피해, 2턴 동안 회복량/실드 획득량 50% 감소',
@@ -4278,7 +4278,7 @@ function buildRaidBossStatusEffects(battle) {
       type: 'buff',
       name: '매끈한 두피',
       count: stacks || null,
-      desc: `같은 플레이어 턴에 피격될 때마다 이후 받는 피해가 10%씩 곱연산으로 감소합니다.${stacks > 0 ? ` 현재 피해 수령 ${Math.round(Math.pow(0.9, stacks) * 100)}%` : ''}`
+      desc: `1P 행동 시작부터 다음 1P 행동 시작 전까지 피격될 때마다 이후 받는 피해가 10%씩 곱연산으로 감소합니다.${stacks > 0 ? ` 현재 피해 수령 ${Math.round(Math.pow(0.9, stacks) * 100)}%` : ''}`
     });
   }
   if (isHardMode && battle.bossId === RAID_BOSS_ID_HOI) {
@@ -5048,7 +5048,7 @@ function isHardRaidBattle(battle) {
   return getRaidModeFromBattle(battle) === RAID_MODE_HARD;
 }
 
-function resetRaidBossTurnPassiveState(battle) {
+function resetRaidBossRoundPassiveState(battle) {
   if (!battle) return;
   battle.bossSmoothScalpStacks = 0;
 }
@@ -7335,7 +7335,9 @@ async function advanceRaidRoomState(mode = RAID_MODE_NORMAL, now = new Date()) {
 
     if (activeBattle.turnIndex < activeBattle.participants.length) {
       const participant = activeBattle.participants[activeBattle.turnIndex];
-      resetRaidBossTurnPassiveState(activeBattle);
+      if (activeBattle.turnIndex === 0) {
+        resetRaidBossRoundPassiveState(activeBattle);
+      }
       if (participant.hp > 0) {
         if (participant.actionLockTurns > 0) {
           activeBattle.logs.push(`${participant.displayName}님은 가발 찾는중.. 상태라 아무 행동도 할 수 없습니다.`);
@@ -7387,7 +7389,6 @@ async function advanceRaidRoomState(mode = RAID_MODE_NORMAL, now = new Date()) {
         activeBattle.nextActionAt = new Date(now.getTime() + RAID_ACTION_DELAY_MS);
       }
     } else {
-      resetRaidBossTurnPassiveState(activeBattle);
       const bossResult = performRaidBossAction(activeBattle);
       if (bossResult?.steps?.length) {
         queueRaidSequence(activeBattle, bossResult.steps, {
