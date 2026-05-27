@@ -263,6 +263,15 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-27-chunsik-art-emblem',
+    time: '2026-05-27 11:45',
+    title: '춘식이 작품 휘장 추가',
+    items: [
+      '150레벨 이상 유저에게 자동으로 지급되는 신규 휘장 <춘식이 작품>을 추가했습니다.',
+      '<춘식이 작품>은 보유만 해도 월급 획득량이 1% 증가합니다.'
+    ]
+  },
+  {
     id: '2026-05-27-bald-manager-passive-round-reset',
     time: '2026-05-27 00:40',
     title: '김부장 하드 패시브 초기화 수정',

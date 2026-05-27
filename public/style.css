@@ -390,6 +390,31 @@ progress {
   display: none;
 }
 
+.emblem-chunsik-art {
+  color: #f8fbff;
+  font-weight: 800;
+  background:
+    linear-gradient(90deg, rgba(18, 21, 28, .54) 0%, rgba(60, 67, 76, .16) 48%, rgba(8, 14, 20, .58) 100%),
+    url('/assets/emblems/chunsik-art-banner.png') center center / cover no-repeat;
+  box-shadow: inset 0 0 0 1px rgba(216, 230, 255, .66), inset 0 0 22px rgba(185, 210, 255, .24);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .9), 0 0 10px rgba(210, 228, 255, .62);
+}
+
+.emblem-chunsik-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 0%, rgba(255, 255, 255, .38) 46%, transparent 62%);
+  transform: translateX(-120%);
+  animation: emblem-sheen 4.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.emblem-chunsik-art .ranking-emblem-icon,
+.emblem-chunsik-art .emblem-preview-icon {
+  display: none;
+}
+
 @keyframes emblem-sheen {
   0%, 52% { transform: translateX(-120%); }
   78%, 100% { transform: translateX(120%); }

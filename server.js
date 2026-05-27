@@ -184,6 +184,17 @@ const EMBLEM_DATA = {
     className: 'emblem-cat-butler',
     shopType: 'fragment',
     effects: { raidRewardBonus: 5 }
+  },
+  chunsik_art: {
+    id: 'chunsik_art',
+    name: '춘식이 작품',
+    price: 0,
+    desc: '랭킹 닉네임 칸에 유리 공예 느낌의 전용 배경을 표시합니다. 보유 효과: 월급 +1% / 150레벨 이상 달성 시 자동 해금',
+    imageUrl: '',
+    className: 'emblem-chunsik-art',
+    shopType: 'unlock',
+    unlockLevel: 150,
+    effects: { moneyBonus: 1 }
   }
 };
 const EQUIPMENT_DROP_CHANCE = 0.0005;
@@ -7442,6 +7453,30 @@ function unlockTitle(user, titleId) {
   return true;
 }
 
+function unlockEmblem(user, emblemId, options = {}) {
+  const emblem = EMBLEM_DATA[emblemId];
+  if (!emblem) return false;
+  ensureUserDefaults(user);
+  if (user.emblems.unlocked.includes(emblemId)) return false;
+
+  user.emblems.unlocked.push(emblemId);
+  if (!user.emblems.equipped) user.emblems.equipped = emblemId;
+  if (options.notify !== false) {
+    queueNotification(user, 'emblem_unlock', `<${emblem.name}> 휘장을 획득하였습니다!`);
+  }
+  return true;
+}
+
+function reconcileEmblems(user) {
+  ensureUserDefaults(user);
+  Object.values(EMBLEM_DATA).forEach((emblem) => {
+    if (!emblem.unlockLevel) return;
+    if (Number(user.gameState?.level || 1) >= Number(emblem.unlockLevel || 0)) {
+      unlockEmblem(user, emblem.id);
+    }
+  });
+}
+
 function removeTitle(user, titleId) {
   if (!user.titles.unlocked.includes(titleId)) return false;
   user.titles.unlocked = user.titles.unlocked.filter((id) => id !== titleId);
@@ -7542,6 +7577,7 @@ function calculateItemStats(inventory = []) {
 
 function calculateEmblemStats(emblems = {}) {
   const stats = {
+    moneyBonus: 0,
     expBonus: 0,
     raidRewardBonus: 0
   };
@@ -7550,10 +7586,12 @@ function calculateEmblemStats(emblems = {}) {
   unlocked.forEach((emblemId) => {
     const effects = EMBLEM_DATA[emblemId]?.effects;
     if (!effects) return;
+    stats.moneyBonus += Number(effects.moneyBonus || 0);
     stats.expBonus += Number(effects.expBonus || 0);
     stats.raidRewardBonus += Number(effects.raidRewardBonus || 0);
   });
 
+  stats.moneyBonus = Number(stats.moneyBonus.toFixed(2));
   stats.expBonus = Number(stats.expBonus.toFixed(2));
   stats.raidRewardBonus = Number(stats.raidRewardBonus.toFixed(2));
   return stats;
@@ -7597,7 +7635,7 @@ function calculateDerivedStats(user, now = new Date()) {
   const titleEffects = titleDef?.effects || {};
   const activeBuffEffects = getActiveBuffEffects(user, now);
 
-  const moneyBonusPercent = itemStats.moneyBonus + (titleEffects.moneyBonus || 0);
+  const moneyBonusPercent = itemStats.moneyBonus + emblemStats.moneyBonus + (titleEffects.moneyBonus || 0);
   const expBonusPercent = itemStats.expBonus + emblemStats.expBonus;
   const titleStressMultiplier = titleEffects.titleStressMultiplier || 1;
   const passiveExpMultiplier = Math.max(0, 1 + activeBuffEffects.expBonusAdd + activeBuffEffects.passiveExpBonusAdd);
@@ -7609,6 +7647,7 @@ function calculateDerivedStats(user, now = new Date()) {
   return {
     moneyBonusPercent: Number(moneyBonusPercent.toFixed(2)),
     itemMoneyBonusPercent: itemStats.moneyBonus,
+    emblemMoneyBonusPercent: emblemStats.moneyBonus,
     titleMoneyBonusPercent: Number((titleEffects.moneyBonus || 0).toFixed(2)),
     expBonusPercent: Number(expBonusPercent.toFixed(2)),
     itemExpBonusPercent: itemStats.expBonus,
@@ -7809,6 +7848,7 @@ function checkLevelUp(user) {
 
   if (leveledUp) {
     user.gameState.passiveExpCarry = 0;
+    reconcileEmblems(user);
   }
   return leveledUp;
 }
@@ -7820,6 +7860,7 @@ function calculateOfflineGains(user, now = new Date()) {
   settlePendingStockInvestment(user, now);
   cleanupExpiredBuffs(user, now);
   reconcileTitles(user, now);
+  reconcileEmblems(user);
   resetDailyStaminaIfNeeded(user, now, getEffectiveMaxStamina(user, now));
 
   const lastActionTime = new Date(user.gameState.lastActionTime || now);
@@ -7935,7 +7976,7 @@ function buildEmblemDetails(user) {
 function buildEmblemShopState(user) {
   ensureUserDefaults(user);
   return {
-    items: Object.values(EMBLEM_DATA).filter((emblem) => emblem.shopType !== 'fragment').map((emblem) => {
+    items: Object.values(EMBLEM_DATA).filter((emblem) => emblem.shopType === 'money').map((emblem) => {
       const owned = user.emblems.unlocked.includes(emblem.id);
       return getEmblemPublicDetail(emblem.id, {
         owned,
@@ -8005,6 +8046,7 @@ function buildGameStateResponse(user, now = new Date()) {
     itemStats: {
       moneyBonus: derivedStats.moneyBonusPercent,
       itemMoneyBonus: derivedStats.itemMoneyBonusPercent,
+      emblemMoneyBonus: derivedStats.emblemMoneyBonusPercent,
       titleMoneyBonus: derivedStats.titleMoneyBonusPercent,
       expBonus: derivedStats.expBonusPercent,
       itemExpBonus: derivedStats.itemExpBonusPercent,
@@ -8990,6 +9032,7 @@ app.post('/api/shop/buy', async (req, res) => {
     }
 
     reconcileTitles(user, now);
+    reconcileEmblems(user);
     user.gameState.lastActionTime = now;
 
     const response = await buildUserResponseWithGlobals(user, now);
@@ -11089,6 +11132,7 @@ app.post('/api/admin/set-level', async (req, res) => {
     user.gameState.maxStamina = 10;
     user.gameState.stamina = Math.min(getEffectiveMaxStamina(user, now), user.gameState.stamina);
     reconcileTitles(user, now);
+    reconcileEmblems(user);
     queueNotification(user, 'admin_level', `운영자가 당신의 레벨을 ${targetLevel}(으)로 조정했습니다.`);
 
     await user.save();
