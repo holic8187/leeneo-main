@@ -158,6 +158,7 @@ const PVP_RANKED_ANONYMOUS_OPPONENT_NAME = '익명의 상대';
 const INFINITE_OVERTIME_MIN_LEVEL = 30;
 const INFINITE_OVERTIME_COOLDOWN_MS = 3 * 24 * 60 * 60 * 1000;
 const INFINITE_OVERTIME_MAX_FLOOR = 30;
+const INFINITE_OVERTIME_BOT_ATTACK_LEVEL = 1;
 const INFINITE_OVERTIME_DEFENSE_MIN_SCORE = 13;
 const INFINITE_OVERTIME_DEFENSE_MAX_SCORE = 21;
 const INFINITE_OVERTIME_CARD_SCORE = { S: 5, A: 4, B: 3, C: 2 };
@@ -7103,6 +7104,7 @@ function createInfiniteOvertimeBotParticipant(floorInfo) {
     userId: `bot:${floorInfo.floor}`,
     displayName: `<야근중인 ${floorInfo.defenderName || '야근 Bot'}>`,
     level: botLevel,
+    attackLevel: INFINITE_OVERTIME_BOT_ATTACK_LEVEL,
     maxHp: botMaxHp,
     hp: botMaxHp,
     shield: 0,
@@ -7698,7 +7700,10 @@ function getPvpEffectiveLevel(player) {
   const subordinateBonus = (player.buffs || [])
     .filter((buff) => buff.id === 'subordinate_level' && !buff.pendingActivation)
     .reduce((max, buff) => Math.max(max, Number(buff.value || 0)), 0);
-  return Number(player.level || 1) + subordinateBonus;
+  const baseLevel = Number.isFinite(Number(player.attackLevel))
+    ? Math.max(1, Number(player.attackLevel))
+    : Number(player.level || 1);
+  return baseLevel + subordinateBonus;
 }
 
 function getPvpCardEffectMultiplier(player) {
