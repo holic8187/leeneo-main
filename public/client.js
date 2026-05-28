@@ -37,6 +37,12 @@ const ITEM_DATA = {
     hoverDesc: '사용 시 오늘 보스 레이드 추가 입장 가능 횟수가 1회 증가합니다.',
     shopHidden: true
   },
+  infinite_overtime_ticket: {
+    name: '무한야근 입장권',
+    desc: '무한야근 재도전 대기시간 초기화',
+    hoverDesc: '사용 시 무한야근 재도전 대기시간을 초기화해 즉시 다시 도전할 수 있습니다.',
+    shopHidden: true
+  },
   hagendaz: {
     name: '하겐다즈',
     desc: '사용 즉시 1레벨 상승',
@@ -276,6 +282,7 @@ const PATCH_NOTES = [
     title: '무한야근 Bot 스킬 사용 보강',
     items: [
       '무한야근 방어 Bot이 효과가 없는 스킬을 고르고 턴을 낭비하지 않도록, 사용 가치가 없는 스킬은 건너뛰고 다음 카드 스킬을 확인하게 했습니다.',
+      '무한야근 입장권을 추가했습니다. 운영자 우편 선물로 지급할 수 있고, 사용하면 무한야근 재도전 대기시간이 초기화됩니다.',
       '사용 가능한 스킬이 없을 때는 기본 공격을 진행한다는 로그를 남기도록 해 전투 흐름을 더 명확하게 표시했습니다.'
     ]
   },
@@ -2500,6 +2507,13 @@ function getMaxUsableItemQuantity(user, itemId, ownedQuantity = null) {
       ? Math.max(aggregatedOwned, parsedOwned)
       : aggregatedOwned
   );
+  if (itemId === 'infinite_overtime_ticket') {
+    const hasOvertimeState = latestInfiniteOvertimeState && typeof latestInfiniteOvertimeState === 'object';
+    const remainingMs = Number(latestInfiniteOvertimeState?.cooldownRemainingMs || 0);
+    const active = Boolean(latestInfiniteOvertimeState?.active || user?.infiniteOvertime?.active);
+    if (active || (hasOvertimeState && remainingMs <= 0)) return 0;
+    return Math.min(1, Math.max(0, Math.floor(Number(owned || 0))));
+  }
   if (itemId !== 'bacchus') {
     return Math.max(0, Math.floor(Number(owned || 0)));
   }
@@ -7100,7 +7114,7 @@ function updateInventoryUI(user) {
       const shortDesc = itemInfo.desc || '';
       const qtyInputId = `use-qty-${item.itemId}`;
       const ownedQuantity = getInventoryQuantityFromUser(user, item.itemId);
-      const canUse = ['bacchus', 'hot6', 'tylenol', 'raid_entry_ticket', 'hagendaz'].includes(item.itemId);
+      const canUse = ['bacchus', 'hot6', 'tylenol', 'raid_entry_ticket', 'infinite_overtime_ticket', 'hagendaz'].includes(item.itemId);
       const maxUseQuantity = getMaxUsableItemQuantity(user, item.itemId, ownedQuantity);
       const actionButton = canUse
         ? `<div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" max="${Math.max(1, maxUseQuantity)}" step="1" value="${getRememberedQuantityInputValue(qtyInputId, 1, Math.max(1, maxUseQuantity))}" oninput="rememberQuantityInputValue('${qtyInputId}', this.value)" ${maxUseQuantity <= 0 ? 'disabled' : ''}><button class="mini-btn" onclick="handleUseItem('${item.itemId}', '${qtyInputId}')" ${maxUseQuantity <= 0 ? 'disabled' : ''}>사용</button></div>`

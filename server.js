@@ -1,4 +1,4 @@
-﻿require('dotenv').config();
+require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -315,6 +315,14 @@ const ITEM_DATA = {
     shopHidden: true,
     desc: '오늘 보스 레이드 입장 횟수 +1',
     hoverDesc: '사용 시 오늘 보스 레이드 추가 입장 횟수를 1회 늘립니다.'
+  },
+  infinite_overtime_ticket: {
+    name: '무한야근 입장권',
+    price: 0,
+    type: 'consumable',
+    shopHidden: true,
+    desc: '무한야근 재도전 대기시간 초기화',
+    hoverDesc: '사용 시 무한야근 재도전 대기시간을 초기화해 즉시 다시 도전할 수 있습니다.'
   },
   hagendaz: {
     name: '하겐다즈',
@@ -10676,6 +10684,15 @@ app.post('/api/inventory/use', async (req, res) => {
         return res.status(400).json({ msg: '행동력이 이미 최대치라 박카스를 사용할 수 없습니다.' });
       }
       useQuantity = Math.min(useQuantity, maxRecoverableStamina);
+    } else if (itemId === 'infinite_overtime_ticket') {
+      ensureUserDefaults(user);
+      if (user.infiniteOvertime?.active) {
+        return res.status(400).json({ msg: '진행 중인 무한야근 도전이 있어 입장권을 사용할 수 없습니다.' });
+      }
+      if (getInfiniteOvertimeCooldownRemainingMs(user, now) <= 0) {
+        return res.status(400).json({ msg: '이미 무한야근에 도전할 수 있어 입장권을 사용할 필요가 없습니다.' });
+      }
+      useQuantity = 1;
     }
 
     if (!removeItemFromInventory(user, itemId, useQuantity)) {
@@ -10696,6 +10713,14 @@ app.post('/api/inventory/use', async (req, res) => {
       syncRaidEntryState(user, now);
       user.meta.raidEntryBonusCount += useQuantity;
       queueNotification(user, 'item_use', `회의 추가 입장권 ${useQuantity}장을 사용했습니다. 오늘 보스 레이드 입장 가능 횟수가 ${useQuantity}회 증가했습니다.`);
+    } else if (itemId === 'infinite_overtime_ticket') {
+      ensureUserDefaults(user);
+      user.infiniteOvertime.lastAttemptAt = null;
+      user.infiniteOvertime.lastCompletedAt = null;
+      user.infiniteOvertime.active = false;
+      user.markModified('infiniteOvertime');
+      clearInfiniteOvertimeAttackDraft(userId);
+      queueNotification(user, 'item_use', '무한야근 입장권 1장을 사용했습니다. 무한야근 재도전 대기시간이 초기화되었습니다.');
     } else if (itemId === 'hagendaz') {
       user.gameState.level += useQuantity;
       user.gameState.exp = 0;
