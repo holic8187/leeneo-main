@@ -205,6 +205,8 @@ let selectedPvpEnhancementLevel = 0;
 let latestInfiniteOvertimeState = null;
 let overtimeSetupMode = '';
 let overtimeSelection = [];
+let overtimeEditingDefense = false;
+let overtimeDraftPicking = false;
 let overtimeSwapOptionCardId = null;
 let overtimeSwapReplaceIndex = null;
 let pvpBetTargetUserId = null;
@@ -269,12 +271,32 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-28-infinite-overtime-bot-skill-ai',
+    time: '2026-05-28 16:40',
+    title: '무한야근 Bot 스킬 사용 보강',
+    items: [
+      '무한야근 방어 Bot이 효과가 없는 스킬을 고르고 턴을 낭비하지 않도록, 사용 가치가 없는 스킬은 건너뛰고 다음 카드 스킬을 확인하게 했습니다.',
+      '사용 가능한 스킬이 없을 때는 기본 공격을 진행한다는 로그를 남기도록 해 전투 흐름을 더 명확하게 표시했습니다.'
+    ]
+  },
+  {
+    id: '2026-05-28-infinite-overtime-30f-draft',
+    time: '2026-05-28 16:20',
+    title: '무한야근 30층 및 후보 선택 패치',
+    items: [
+      '무한야근을 30층 구성으로 확장하고, 층이 올라갈수록 방어 Bot의 체력과 레벨이 점진적으로 높아지도록 조정했습니다.',
+      '공략 덱 선택 방식을 슬롯마다 5개의 랜덤 후보 중 1장을 고르는 방식으로 변경했습니다. 후보 등급 확률은 S 10%, A 20%, B 30%, C 40%입니다.',
+      '3층마다 발생하는 카드 교환 이벤트 후 같은 층으로 다시 들어가는 문제를 방지하고, 항상 다음 층으로 이어지도록 저장 처리를 보강했습니다.',
+      '방어 Bot 프리셋은 무한야근 대기 화면에서 원할 때 다시 수정할 수 있습니다.'
+    ]
+  },
+  {
     id: '2026-05-28-infinite-overtime-mode',
     time: '2026-05-28 01:10',
     title: '무한야근 모드 1차 추가',
     items: [
       '개인면담 옆에 30레벨부터 입장 가능한 1인 전투 콘텐츠 무한야근 버튼을 추가했습니다.',
-      '첫 입장 시 방어 Bot 프리셋을 등록하고, 공략용 카드 5장으로 25층까지 이어 도전할 수 있습니다.',
+      '첫 입장 시 방어 Bot 프리셋을 등록하고, 공략용 카드 5장으로 이어 도전할 수 있습니다.',
       '3층마다 카드 교환 이벤트가 발생하며, 승리 시 층수에 비례한 파편, 명함, 박카스, 회의 추가 입장권 중 하나를 획득합니다.',
       '무한야근은 3일에 한 번 도전할 수 있고, 승리 후 나가면 다음 층부터 이어서 진행됩니다.'
     ]
@@ -3713,10 +3735,29 @@ function renderOvertimeSelectedDeck(containerId, deck = [], options = {}) {
   container.innerHTML = slots.join('');
 }
 
+function renderOvertimeDefenseEditButton() {
+  return '<button class="mini-btn" onclick="startOvertimeDefenseEdit()">방어 Bot 수정</button>';
+}
+
+function startOvertimeDefenseEdit() {
+  const state = latestInfiniteOvertimeState;
+  if (!state || state.battle) return;
+  overtimeEditingDefense = true;
+  overtimeSetupMode = '';
+  renderInfiniteOvertimeState(state, getStoredUser());
+}
+
+function cancelOvertimeDefenseEdit() {
+  overtimeEditingDefense = false;
+  overtimeSetupMode = '';
+  renderInfiniteOvertimeState(latestInfiniteOvertimeState, getStoredUser());
+}
+
 function renderInfiniteOvertimeState(state, user) {
   if (!state) return;
   showInfiniteOvertimeScreen();
-  const mode = getOvertimeModeFromState(state);
+  const baseMode = getOvertimeModeFromState(state);
+  const mode = overtimeEditingDefense && !state.battle ? 'defense' : baseMode;
   const battle = state.battle;
   const setupView = document.getElementById('overtimeSetupView');
   const battleView = document.getElementById('overtimeBattleView');
@@ -3748,14 +3789,15 @@ function renderInfiniteOvertimeState(state, user) {
 
   if (overtimeSetupMode !== mode) {
     overtimeSetupMode = mode;
-    overtimeSelection = mode === 'defense' ? [...(state.defensePreset || [])] : mode === 'attack' ? [...(state.attackDeck || [])] : [];
+    overtimeSelection = mode === 'defense' ? [...(state.defensePreset || [])] : [];
   }
 
   const selectedScore = overtimeSelection.reduce((sum, card) => sum + Number(card.score || 0), 0);
   const grid = document.getElementById('overtimeCardGrid');
-  const cards = mode === 'defense' ? (state.defenseOptions || []) : (state.ownedCards || []);
+  const cards = state.defenseOptions || [];
 
   if (mode === 'locked') {
+    overtimeEditingDefense = false;
     setText('overtimePhaseStatus', `무한야근은 ${formatNumber(state.minLevel || 30)}레벨부터 입장할 수 있습니다.`);
     renderOvertimeSelectedDeck('overtimeSelectedDeck', []);
     if (grid) grid.innerHTML = '';
@@ -3764,17 +3806,29 @@ function renderInfiniteOvertimeState(state, user) {
   }
 
   if (mode === 'cooldown') {
+    overtimeEditingDefense = false;
     setText('overtimePhaseStatus', `다음 무한야근 도전까지 ${formatOvertimeDuration(state.cooldownRemainingMs)} 남았습니다.`);
     renderOvertimeSelectedDeck('overtimeSelectedDeck', state.attackDeck || []);
-    if (grid) grid.innerHTML = '<div class="menu-note">아직 재도전 시간이 아닙니다.</div>';
+    if (grid) {
+      grid.innerHTML = `
+        <div class="menu-note">아직 재도전 시간이 아닙니다.</div>
+        <div class="pvp-action-row">${renderOvertimeDefenseEditButton()}</div>
+      `;
+    }
     if (confirmBtn) confirmBtn.disabled = true;
     return;
   }
 
   if (mode === 'ready') {
+    overtimeEditingDefense = false;
     setText('overtimePhaseStatus', `무한야근 ${formatNumber(state.nextFloor || 1)}층부터 이어갈 수 있습니다.`);
     renderOvertimeSelectedDeck('overtimeSelectedDeck', state.attackDeck || []);
-    if (grid) grid.innerHTML = '<div class="menu-note">이미 확정한 공략 덱으로 다음 층 전투를 시작합니다.</div>';
+    if (grid) {
+      grid.innerHTML = `
+        <div class="menu-note">이미 확정한 공략 덱으로 다음 층 전투를 시작합니다.</div>
+        <div class="pvp-action-row">${renderOvertimeDefenseEditButton()}</div>
+      `;
+    }
     if (confirmBtn) {
       confirmBtn.textContent = '다음 층 전투 시작';
       confirmBtn.disabled = false;
@@ -3782,13 +3836,42 @@ function renderInfiniteOvertimeState(state, user) {
     return;
   }
 
+  if (mode === 'attack') {
+    overtimeEditingDefense = false;
+    const draft = state.attackDraft || {};
+    const selectedDeck = draft.selectedDeck || [];
+    const selectedScore = Number(draft.selectedScore || 0);
+    setText('overtimePhaseStatus', `공략용 카드 후보 선택: ${formatNumber(selectedDeck.length)}/5장 / 현재 비용 ${formatNumber(selectedScore)}점`);
+    renderOvertimeSelectedDeck('overtimeSelectedDeck', selectedDeck);
+    if (confirmBtn) {
+      confirmBtn.textContent = selectedDeck.length >= 5 ? '무한야근 시작' : `${formatNumber((draft.slotIndex || selectedDeck.length + 1))}번 슬롯 후보 선택 중`;
+      confirmBtn.disabled = selectedDeck.length !== 5;
+    }
+    if (grid) {
+      const candidates = draft.candidates || [];
+      const intro = `
+        <div class="menu-note">
+          슬롯마다 제시되는 5개의 후보 중 1장을 선택합니다. 후보 등급 확률은 S 10%, A 20%, B 30%, C 40%입니다.
+        </div>
+        <div class="pvp-action-row">${renderOvertimeDefenseEditButton()}</div>
+      `;
+      grid.innerHTML = selectedDeck.length >= 5
+        ? `${intro}<div class="menu-note">공략 덱이 완성되었습니다. 시작 버튼을 눌러 1층으로 입장하세요.</div>`
+        : intro + (candidates.map((card) => renderOvertimeCard(card, {
+            handler: 'handleOvertimeDraftCandidateSelect',
+            disabled: overtimeDraftPicking
+          })).join('') || '<div class="menu-note">선택 가능한 후보가 없습니다.</div>');
+    }
+    return;
+  }
+
   const targetText = mode === 'defense'
-    ? `방어 Bot 프리셋 등록: 배정 점수 ${formatNumber(state.targetScore)}점 / 현재 ${formatNumber(selectedScore)}점`
+    ? `${overtimeEditingDefense ? '방어 Bot 프리셋 수정' : '방어 Bot 프리셋 등록'}: 배정 점수 ${formatNumber(state.targetScore)}점 / 현재 ${formatNumber(selectedScore)}점`
     : `공략용 카드 선택: ${formatNumber(overtimeSelection.length)}/5장`;
   setText('overtimePhaseStatus', targetText);
   renderOvertimeSelectedDeck('overtimeSelectedDeck', overtimeSelection, { clickable: true });
   if (confirmBtn) {
-    confirmBtn.textContent = mode === 'defense' ? '방어 Bot 등록' : '무한야근 시작';
+    confirmBtn.textContent = overtimeEditingDefense ? '방어 Bot 수정 완료' : '방어 Bot 등록';
     confirmBtn.disabled = mode === 'defense'
       ? !(overtimeSelection.length === 5 && selectedScore === Number(state.targetScore || 0))
       : overtimeSelection.length !== 5;
@@ -3799,14 +3882,17 @@ function renderInfiniteOvertimeState(state, user) {
       const disabled = !selected && overtimeSelection.length >= 5;
       return renderOvertimeCard(card, { selected, disabled });
     }).join('') || '<div class="menu-note">선택 가능한 카드가 없습니다.</div>';
+    if (overtimeEditingDefense) {
+      grid.innerHTML = `<div class="pvp-action-row"><button class="mini-btn" onclick="cancelOvertimeDefenseEdit()">수정 취소</button></div>${grid.innerHTML}`;
+    }
   }
 }
 
 function handleOvertimeCardSelect(cardId, enhancementLevel = 0) {
   const state = latestInfiniteOvertimeState;
-  const mode = getOvertimeModeFromState(state);
-  if (!['defense', 'attack'].includes(mode)) return;
-  const cards = mode === 'defense' ? (state.defenseOptions || []) : (state.ownedCards || []);
+  const mode = overtimeEditingDefense ? 'defense' : getOvertimeModeFromState(state);
+  if (mode !== 'defense') return;
+  const cards = state.defenseOptions || [];
   const card = cards.find((entry) => entry.cardId === cardId && Number(entry.enhancementLevel || 0) === Number(enhancementLevel || 0));
   if (!card) return;
   const key = getOvertimeSelectionKey(card);
@@ -3819,8 +3905,30 @@ function handleOvertimeCardSelect(cardId, enhancementLevel = 0) {
   renderInfiniteOvertimeState(state, getStoredUser());
 }
 
+async function handleOvertimeDraftCandidateSelect(cardId, enhancementLevel = 0) {
+  const user = getStoredUser();
+  if (!user?._id || overtimeDraftPicking) return;
+  overtimeDraftPicking = true;
+  renderInfiniteOvertimeState(latestInfiniteOvertimeState, user);
+  try {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/infinite-overtime/draft-pick`, {
+      userId: user._id,
+      cardId,
+      enhancementLevel
+    }));
+    if (data.infiniteOvertime) latestInfiniteOvertimeState = data.infiniteOvertime;
+    updateLocalUserState(data, { force: true });
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    overtimeDraftPicking = false;
+    renderInfiniteOvertimeState(latestInfiniteOvertimeState, getStoredUser());
+  }
+}
+
 function handleOvertimeSelectedDeckClick(index) {
   if (!Number.isInteger(Number(index))) return;
+  if (!overtimeEditingDefense && getOvertimeModeFromState(latestInfiniteOvertimeState) !== 'defense') return;
   overtimeSelection.splice(Number(index), 1);
   renderInfiniteOvertimeState(latestInfiniteOvertimeState, getStoredUser());
 }
@@ -3829,15 +3937,16 @@ async function handleOvertimeConfirmClick() {
   const user = getStoredUser();
   const state = latestInfiniteOvertimeState;
   if (!user?._id || !state) return;
-  const mode = getOvertimeModeFromState(state);
+  const mode = overtimeEditingDefense ? 'defense' : getOvertimeModeFromState(state);
   const endpoint = mode === 'defense' ? 'defense-preset' : 'start';
   const payload = { userId: user._id };
-  if (mode === 'defense' || mode === 'attack') payload.deck = overtimeSelection;
+  if (mode === 'defense') payload.deck = overtimeSelection;
   if (!['defense', 'attack', 'ready'].includes(mode)) return;
   try {
     const data = await runWithUserMutation(() => postJson(`${API_URL}/api/infinite-overtime/${endpoint}`, payload));
     if (data.infiniteOvertime) latestInfiniteOvertimeState = data.infiniteOvertime;
     updateLocalUserState(data, { force: true });
+    overtimeEditingDefense = false;
     overtimeSetupMode = '';
     renderInfiniteOvertimeState(latestInfiniteOvertimeState, getStoredUser());
   } catch (err) {
@@ -4054,6 +4163,10 @@ async function handleOvertimeExitClick() {
 
 async function handleOvertimeBackClick() {
   const battle = latestInfiniteOvertimeState?.battle;
+  if (overtimeEditingDefense) {
+    cancelOvertimeDefenseEdit();
+    return;
+  }
   if (battle && ['active', 'swap'].includes(battle.phase)) {
     alert('전투 중에는 메인화면으로 돌아갈 수 없습니다.');
     return;
