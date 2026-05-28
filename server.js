@@ -155,6 +155,12 @@ const PVP_MODE_NORMAL = 'normal';
 const PVP_WEEKLY_SEASON_SETTING_KEY = 'pvp_weekly_season';
 const PVP_WEEKLY_SEASON_CHECK_INTERVAL_MS = 60 * 1000;
 const PVP_RANKED_ANONYMOUS_OPPONENT_NAME = '익명의 상대';
+const INFINITE_OVERTIME_MIN_LEVEL = 30;
+const INFINITE_OVERTIME_COOLDOWN_MS = 3 * 24 * 60 * 60 * 1000;
+const INFINITE_OVERTIME_MAX_FLOOR = 25;
+const INFINITE_OVERTIME_DEFENSE_MIN_SCORE = 13;
+const INFINITE_OVERTIME_DEFENSE_MAX_SCORE = 21;
+const INFINITE_OVERTIME_CARD_SCORE = { S: 5, A: 4, B: 3, C: 2 };
 const PVP_MODE_LABELS = {
   [PVP_MODE_RANKED]: '랭크',
   [PVP_MODE_NORMAL]: '일반'
@@ -1926,6 +1932,10 @@ let pvpState = {
   }
 };
 let pvpAdvanceQueue = Promise.resolve();
+let infiniteOvertimeState = {
+  version: 0,
+  battles: {}
+};
 
 if (!MONGO_URI) {
   console.error('MONGO_URI is not configured in .env.');
@@ -2014,6 +2024,21 @@ const userSchema = new mongoose.Schema({
     wins: { type: Number, default: 0 },
     losses: { type: Number, default: 0 },
     lastWeeklyRewardWeekKey: { type: String, default: '' }
+  },
+  infiniteOvertime: {
+    defensePreset: [{
+      cardId: { type: String, required: true },
+      enhancementLevel: { type: Number, default: 0 }
+    }],
+    defenseScore: { type: Number, default: 0 },
+    attackDeck: [{
+      cardId: { type: String, required: true },
+      enhancementLevel: { type: Number, default: 0 }
+    }],
+    active: { type: Boolean, default: false },
+    nextFloor: { type: Number, default: 1 },
+    lastAttemptAt: { type: Date, default: null },
+    lastCompletedAt: { type: Date, default: null }
   },
   buffs: [{
     buffId: { type: String, required: true },
@@ -2369,6 +2394,31 @@ function ensureUserDefaults(user) {
   user.pvpStats.wins = Math.max(0, Math.floor(Number(user.pvpStats.wins ?? 0)));
   user.pvpStats.losses = Math.max(0, Math.floor(Number(user.pvpStats.losses ?? 0)));
   user.pvpStats.lastWeeklyRewardWeekKey = user.pvpStats.lastWeeklyRewardWeekKey || '';
+  if (!user.infiniteOvertime || typeof user.infiniteOvertime !== 'object') {
+    user.infiniteOvertime = {
+      defensePreset: [],
+      defenseScore: 0,
+      attackDeck: [],
+      active: false,
+      nextFloor: 1,
+      lastAttemptAt: null,
+      lastCompletedAt: null
+    };
+  }
+  const normalizeOvertimeDeck = (deck) => (Array.isArray(deck) ? deck : [])
+    .filter((entry) => entry && CARD_DATA[entry.cardId] && !CARD_DATA[entry.cardId].pvpDisabled)
+    .slice(0, 5)
+    .map((entry) => ({
+      cardId: String(entry.cardId),
+      enhancementLevel: normalizeCardEnhancementLevel(entry.enhancementLevel || entry.level || 0)
+    }));
+  user.infiniteOvertime.defensePreset = normalizeOvertimeDeck(user.infiniteOvertime.defensePreset);
+  user.infiniteOvertime.defenseScore = Math.max(0, Math.floor(Number(user.infiniteOvertime.defenseScore || 0)));
+  user.infiniteOvertime.attackDeck = normalizeOvertimeDeck(user.infiniteOvertime.attackDeck);
+  user.infiniteOvertime.active = Boolean(user.infiniteOvertime.active);
+  user.infiniteOvertime.nextFloor = Math.max(1, Math.min(INFINITE_OVERTIME_MAX_FLOOR, Math.floor(Number(user.infiniteOvertime.nextFloor || 1))));
+  user.infiniteOvertime.lastAttemptAt = user.infiniteOvertime.lastAttemptAt || null;
+  user.infiniteOvertime.lastCompletedAt = user.infiniteOvertime.lastCompletedAt || null;
   if (!Array.isArray(user.buffs)) user.buffs = [];
   if (!Array.isArray(user.pendingNotifications)) user.pendingNotifications = [];
 
@@ -6392,6 +6442,184 @@ function getOwnedPvpPickCards(user) {
     }));
 }
 
+function bumpInfiniteOvertimeVersion() {
+  infiniteOvertimeState.version = (Number(infiniteOvertimeState.version || 0) + 1) % Number.MAX_SAFE_INTEGER;
+}
+
+function getInfiniteOvertimeCardScore(cardId) {
+  return INFINITE_OVERTIME_CARD_SCORE[CARD_DATA[cardId]?.grade] || 0;
+}
+
+function getInfiniteOvertimeDeckScore(deck = []) {
+  return (Array.isArray(deck) ? deck : []).reduce((sum, entry) => sum + getInfiniteOvertimeCardScore(entry.cardId), 0);
+}
+
+function normalizeInfiniteOvertimeDeck(deck = []) {
+  const seen = new Set();
+  return (Array.isArray(deck) ? deck : [])
+    .filter((entry) => {
+      const cardId = String(entry?.cardId || '');
+      if (!cardId || seen.has(cardId) || !CARD_DATA[cardId] || CARD_DATA[cardId].pvpDisabled) return false;
+      seen.add(cardId);
+      return true;
+    })
+    .slice(0, 5)
+    .map((entry) => ({
+      cardId: String(entry.cardId),
+      enhancementLevel: normalizeCardEnhancementLevel(entry.enhancementLevel || entry.level || 0)
+    }));
+}
+
+function getAllInfiniteOvertimeCards(previewLevel = 0) {
+  return Object.values(CARD_DATA)
+    .filter((card) => !card.pvpDisabled)
+    .map((card) => {
+      const level = card.enhanceDisabled ? 0 : normalizeCardEnhancementLevel(previewLevel);
+      const resolved = getCardDefinition(card.id, level);
+      return {
+        cardId: card.id,
+        enhancementLevel: level,
+        name: resolved?.displayName || card.name,
+        baseName: card.name,
+        grade: card.grade,
+        score: getInfiniteOvertimeCardScore(card.id),
+        color: CARD_GRADE_COLORS[card.grade] || '#666666',
+        skillName: resolved?.skillName || card.skillName,
+        skillDesc: buildCardSkillDescription(card.id, level),
+        cooldown: Number(resolved?.cooldown || 0),
+        durationText: getCardDurationText(card.id, level),
+        passiveOnly: Boolean(resolved?.passiveOnly),
+        specialStyle: card.specialStyle || ''
+      };
+    })
+    .sort((a, b) => getCardGradeOrderValue(a.grade) - getCardGradeOrderValue(b.grade) || a.baseName.localeCompare(b.baseName, 'ko'));
+}
+
+function getInfiniteOvertimeOwnedCards(user) {
+  return getOwnedPvpPickCards(user)
+    .map((entry) => ({
+      ...entry,
+      score: getInfiniteOvertimeCardScore(entry.cardId)
+    }))
+    .filter((entry) => entry.score > 0);
+}
+
+function generateInfiniteOvertimeDeckForScore(targetScore, options = getAllInfiniteOvertimeCards(0)) {
+  const normalizedTarget = Math.max(INFINITE_OVERTIME_DEFENSE_MIN_SCORE, Math.min(INFINITE_OVERTIME_DEFENSE_MAX_SCORE, Math.floor(Number(targetScore || INFINITE_OVERTIME_DEFENSE_MIN_SCORE))));
+  const pool = (Array.isArray(options) ? options : []).filter((entry) => entry?.cardId && getInfiniteOvertimeCardScore(entry.cardId) > 0);
+  if (pool.length < 5) return [];
+
+  for (let attempt = 0; attempt < 5000; attempt += 1) {
+    const shuffled = [...pool].sort(() => Math.random() - 0.5);
+    const selected = [];
+    let score = 0;
+    for (const card of shuffled) {
+      if (selected.some((entry) => entry.cardId === card.cardId)) continue;
+      const nextScore = score + getInfiniteOvertimeCardScore(card.cardId);
+      if (selected.length < 4 && nextScore >= normalizedTarget) continue;
+      selected.push({
+        cardId: card.cardId,
+        enhancementLevel: normalizeCardEnhancementLevel(card.enhancementLevel || 0)
+      });
+      score = nextScore;
+      if (selected.length === 5) break;
+    }
+    if (selected.length === 5 && score === normalizedTarget) return selected;
+  }
+
+  const result = [];
+  function backtrack(startIndex, score) {
+    if (result.length === 5) return score === normalizedTarget;
+    for (let index = startIndex; index < pool.length; index += 1) {
+      const card = pool[index];
+      if (result.some((entry) => entry.cardId === card.cardId)) continue;
+      const nextScore = score + getInfiniteOvertimeCardScore(card.cardId);
+      if (nextScore > normalizedTarget) continue;
+      result.push({
+        cardId: card.cardId,
+        enhancementLevel: normalizeCardEnhancementLevel(card.enhancementLevel || 0)
+      });
+      if (backtrack(index + 1, nextScore)) return true;
+      result.pop();
+    }
+    return false;
+  }
+  return backtrack(0, 0) ? [...result] : [];
+}
+
+function getInfiniteOvertimeCardPublicDetail(entry) {
+  const card = getCardDefinition(entry.cardId, entry.enhancementLevel || 0);
+  if (!card) return null;
+  return {
+    cardId: entry.cardId,
+    enhancementLevel: normalizeCardEnhancementLevel(entry.enhancementLevel || 0),
+    name: card.displayName || CARD_DATA[entry.cardId]?.name || entry.cardId,
+    baseName: CARD_DATA[entry.cardId]?.name || entry.cardId,
+    grade: card.grade || CARD_DATA[entry.cardId]?.grade || '',
+    score: getInfiniteOvertimeCardScore(entry.cardId),
+    color: CARD_GRADE_COLORS[card.grade || CARD_DATA[entry.cardId]?.grade] || '#666666',
+    borderColor: card.borderColor || '',
+    skillName: card.skillName || '',
+    skillDesc: buildCardSkillDescription(entry.cardId, entry.enhancementLevel || 0),
+    cooldown: Number(card.cooldown || 0),
+    durationText: getCardDurationText(entry.cardId, entry.enhancementLevel || 0),
+    passiveOnly: Boolean(card.passiveOnly),
+    specialStyle: CARD_DATA[entry.cardId]?.specialStyle || ''
+  };
+}
+
+function getInfiniteOvertimeDefenseScoreFromRanks(pvpRank, levelRank) {
+  let score = INFINITE_OVERTIME_DEFENSE_MIN_SCORE;
+  if (Number.isFinite(Number(pvpRank)) && Number(pvpRank) > 0) {
+    score = Math.max(score, INFINITE_OVERTIME_DEFENSE_MAX_SCORE - (Math.floor((Number(pvpRank) - 1) / 3) * 2));
+  }
+  if (Number.isFinite(Number(levelRank)) && Number(levelRank) > 0) {
+    score = Math.max(score, INFINITE_OVERTIME_DEFENSE_MAX_SCORE - 1 - (Math.floor((Number(levelRank) - 1) / 3) * 2));
+  }
+  return Math.max(INFINITE_OVERTIME_DEFENSE_MIN_SCORE, Math.min(INFINITE_OVERTIME_DEFENSE_MAX_SCORE, score));
+}
+
+async function buildInfiniteOvertimeScoreMap() {
+  const users = await User.find({ nickname: { $ne: null } })
+    .select('_id nickname username gameState.level gameState.exp pvpStats infiniteOvertime');
+  const scoreMap = new Map();
+  const levelSorted = [...users].sort((a, b) =>
+    Number(b.gameState?.level || 1) - Number(a.gameState?.level || 1)
+    || Number(b.gameState?.exp || 0) - Number(a.gameState?.exp || 0)
+  );
+  levelSorted.forEach((user, index) => {
+    const userId = String(user._id);
+    const previous = scoreMap.get(userId) || {};
+    scoreMap.set(userId, {
+      ...previous,
+      levelRank: index + 1,
+      targetScore: getInfiniteOvertimeDefenseScoreFromRanks(previous.pvpRank, index + 1)
+    });
+  });
+
+  const pvpSorted = [...users]
+    .filter((user) => Number(user.pvpStats?.played || 0) > 0)
+    .sort((a, b) =>
+      Number(b.pvpStats?.rating || PVP_RATING_BASE) - Number(a.pvpStats?.rating || PVP_RATING_BASE)
+      || Number(b.pvpStats?.wins || 0) - Number(a.pvpStats?.wins || 0)
+      || Number(a.pvpStats?.losses || 0) - Number(b.pvpStats?.losses || 0)
+    );
+  pvpSorted.forEach((user, index) => {
+    const userId = String(user._id);
+    const previous = scoreMap.get(userId) || {};
+    scoreMap.set(userId, {
+      ...previous,
+      pvpRank: index + 1,
+      targetScore: getInfiniteOvertimeDefenseScoreFromRanks(index + 1, previous.levelRank)
+    });
+  });
+  return { users, scoreMap };
+}
+
+function formatInfiniteOvertimeDeck(deck = []) {
+  return normalizeInfiniteOvertimeDeck(deck).map(getInfiniteOvertimeCardPublicDetail).filter(Boolean);
+}
+
 function getPvpPlayer(matchOrBattle, userId) {
   return matchOrBattle?.players?.find((player) => String(player.userId) === String(userId)) || null;
 }
@@ -6669,6 +6897,479 @@ function applyPvpBattleStartPassives(battle) {
       }
     });
   });
+}
+
+function createInfiniteOvertimeBotParticipant(floorInfo) {
+  return {
+    userId: `bot:${floorInfo.floor}`,
+    displayName: `${floorInfo.defenderName || '야근 Bot'}의 방어 Bot`,
+    level: 1,
+    maxHp: PVP_MAX_HP,
+    hp: PVP_MAX_HP,
+    shield: 0,
+    tempShieldAmount: 0,
+    shieldExpiresAfterUserId: null,
+    lastHpLoss: 0,
+    lastShieldLoss: 0,
+    basicAttackEquipmentBonusPercent: 0,
+    cardEffectEquipmentBonusPercent: 0,
+    plannedCardIndex: null,
+    basicAttackLockTurns: 0,
+    actionLockTurns: 0,
+    buffs: [],
+    debuffs: [],
+    isBot: true,
+    cards: normalizeInfiniteOvertimeDeck(floorInfo.deck).map((pick, index) => {
+      const card = getCardDefinition(pick.cardId, pick.enhancementLevel || 0);
+      return {
+        slotIndex: index,
+        cardId: pick.cardId,
+        enhancementLevel: normalizeCardEnhancementLevel(pick.enhancementLevel || 0),
+        cooldownRemaining: 0,
+        name: card?.displayName || CARD_DATA[pick.cardId]?.name || pick.cardId,
+        baseName: CARD_DATA[pick.cardId]?.name || pick.cardId,
+        grade: card?.grade || CARD_DATA[pick.cardId]?.grade || null,
+        color: CARD_GRADE_COLORS[card?.grade || CARD_DATA[pick.cardId]?.grade] || '#666666',
+        borderColor: card?.borderColor || '',
+        skillName: card?.skillName || '',
+        skillDesc: card ? buildCardSkillDescription(card.id, card.enhancementLevel || 0) : '',
+        durationText: card ? getCardDurationText(card.id, card.enhancementLevel || 0) : '',
+        passiveOnly: Boolean(card?.passiveOnly)
+      };
+    })
+  };
+}
+
+async function buildInfiniteOvertimeFloors(userId) {
+  const { users, scoreMap } = await buildInfiniteOvertimeScoreMap();
+  const allCards = getAllInfiniteOvertimeCards(0);
+  const sortedCandidates = users
+    .filter((entry) => String(entry._id) !== String(userId))
+    .map((entry) => {
+      ensureUserDefaults(entry);
+      const scoreInfo = scoreMap.get(String(entry._id)) || {};
+      const targetScore = Math.max(
+        INFINITE_OVERTIME_DEFENSE_MIN_SCORE,
+        Math.min(INFINITE_OVERTIME_DEFENSE_MAX_SCORE, Number(scoreInfo.targetScore || INFINITE_OVERTIME_DEFENSE_MIN_SCORE))
+      );
+      let deck = normalizeInfiniteOvertimeDeck(entry.infiniteOvertime?.defensePreset || []);
+      const storedScore = getInfiniteOvertimeDeckScore(deck);
+      if (
+        deck.length !== 5
+        || storedScore < INFINITE_OVERTIME_DEFENSE_MIN_SCORE
+        || storedScore > INFINITE_OVERTIME_DEFENSE_MAX_SCORE
+      ) {
+        deck = generateInfiniteOvertimeDeckForScore(targetScore, allCards);
+      }
+      const score = getInfiniteOvertimeDeckScore(deck) || targetScore;
+      return {
+        defenderUserId: String(entry._id),
+        defenderName: entry.nickname || entry.username || '익명',
+        level: Number(entry.gameState?.level || 1),
+        targetScore,
+        score,
+        deck
+      };
+    })
+    .filter((entry) => entry.deck.length === 5)
+    .sort((a, b) => a.score - b.score || a.level - b.level || a.defenderName.localeCompare(b.defenderName, 'ko'));
+  const selectedCandidates = sortedCandidates.length <= INFINITE_OVERTIME_MAX_FLOOR
+    ? sortedCandidates
+    : Array.from({ length: INFINITE_OVERTIME_MAX_FLOOR }, (_, index) => {
+        const sourceIndex = Math.round(index * ((sortedCandidates.length - 1) / (INFINITE_OVERTIME_MAX_FLOOR - 1)));
+        return sortedCandidates[sourceIndex];
+      });
+  const floors = selectedCandidates.map((entry, index) => ({ ...entry, floor: index + 1 }));
+
+  while (floors.length < INFINITE_OVERTIME_MAX_FLOOR) {
+    const floor = floors.length + 1;
+    const syntheticScore = Math.min(
+      INFINITE_OVERTIME_DEFENSE_MAX_SCORE,
+      INFINITE_OVERTIME_DEFENSE_MIN_SCORE + Math.floor((floor - 1) / 3)
+    );
+    floors.push({
+      floor,
+      defenderUserId: `synthetic:${floor}`,
+      defenderName: `야근 ${floor}팀`,
+      level: 1,
+      targetScore: syntheticScore,
+      score: syntheticScore,
+      deck: generateInfiniteOvertimeDeckForScore(syntheticScore, allCards)
+    });
+  }
+  return floors;
+}
+
+async function getInfiniteOvertimeFloorInfo(userId, floor) {
+  const floors = await buildInfiniteOvertimeFloors(userId);
+  return floors[Math.max(0, Math.min(INFINITE_OVERTIME_MAX_FLOOR - 1, Number(floor || 1) - 1))] || floors[0];
+}
+
+function createInfiniteOvertimeBattleFromFloor(user, floorInfo, now = new Date()) {
+  const userId = String(user._id);
+  const attackDeck = normalizeInfiniteOvertimeDeck(user.infiniteOvertime?.attackDeck || []);
+  const player = createPvpParticipantFromUser(user, { players: [{ userId }] }, attackDeck);
+  const bot = createInfiniteOvertimeBotParticipant(floorInfo);
+  const battle = {
+    battleId: crypto.randomUUID(),
+    mode: 'infinite_overtime',
+    modeLabel: '무한야근',
+    phase: 'active',
+    floor: floorInfo.floor,
+    floorScore: floorInfo.score,
+    floorInfo,
+    players: [player, bot],
+    firstUserId: userId,
+    currentUserId: userId,
+    turnNumber: 1,
+    turnEndsAt: null,
+    logs: [`무한야근 ${floorInfo.floor}층 전투가 시작되었습니다.`],
+    winnerUserId: null,
+    loserUserId: null,
+    finishedAt: null,
+    rewardGranted: false,
+    reward: null,
+    swapOptions: [],
+    swapResolved: false
+  };
+  applyPvpBattleStartPassives(battle);
+  battle.createdAt = now;
+  return battle;
+}
+
+function getInfiniteOvertimeBattle(userId) {
+  return infiniteOvertimeState.battles[String(userId)] || null;
+}
+
+function setInfiniteOvertimeBattle(userId, battle) {
+  if (battle) {
+    infiniteOvertimeState.battles[String(userId)] = battle;
+  } else {
+    delete infiniteOvertimeState.battles[String(userId)];
+  }
+  bumpInfiniteOvertimeVersion();
+}
+
+function getInfiniteOvertimePlayer(battle) {
+  return battle?.players?.find((player) => !player.isBot) || null;
+}
+
+function getInfiniteOvertimeBot(battle) {
+  return battle?.players?.find((player) => player.isBot) || null;
+}
+
+function buildInfiniteOvertimeReward(floor) {
+  const ratio = Math.max(0, Math.min(1, (Number(floor || 1) - 1) / Math.max(1, INFINITE_OVERTIME_MAX_FLOOR - 1)));
+  const rewardTypes = [
+    { type: 'fragment', itemId: 'equipment_fragment', min: 50, max: 400, label: '장비 파편' },
+    { type: 'business_card', itemId: 'business_card', min: 10, max: 50, label: '명함' },
+    { type: 'bacchus', itemId: 'bacchus', min: 30, max: 60, label: '박카스' },
+    { type: 'raid_ticket', itemId: 'raid_entry_ticket', min: 2, max: 10, label: '회의 추가 입장권' }
+  ];
+  const picked = rewardTypes[Math.floor(Math.random() * rewardTypes.length)];
+  const amount = Math.max(1, Math.round(Number(picked.min || 1) + ((Number(picked.max || picked.min) - Number(picked.min || 1)) * ratio)));
+  return {
+    ...picked,
+    quantity: amount,
+    text: `${picked.label} ${amount.toLocaleString()}개`
+  };
+}
+
+function grantInfiniteOvertimeReward(user, battle) {
+  if (!battle || battle.rewardGranted) return battle?.reward || null;
+  const reward = buildInfiniteOvertimeReward(battle.floor);
+  addItemToInventory(user, reward.itemId, reward.quantity);
+  battle.reward = reward;
+  battle.rewardGranted = true;
+  queueNotification(user, 'infinite_overtime_reward', `무한야근 ${battle.floor}층 클리어! ${reward.text}를 획득했습니다.`);
+  return reward;
+}
+
+function buildInfiniteOvertimeSwapOptions(user, currentDeck = []) {
+  const currentIds = new Set(normalizeInfiniteOvertimeDeck(currentDeck).map((entry) => entry.cardId));
+  const owned = getInfiniteOvertimeOwnedCards(user)
+    .filter((entry) => !currentIds.has(entry.cardId));
+  const selected = [];
+  const gradeWeights = [
+    { grade: 'S', weight: 10 },
+    { grade: 'A', weight: 20 },
+    { grade: 'B', weight: 30 },
+    { grade: 'C', weight: 40 }
+  ];
+
+  while (selected.length < 3 && selected.length < owned.length) {
+    const available = owned.filter((entry) => !selected.some((picked) => picked.cardId === entry.cardId));
+    const totalWeight = gradeWeights.reduce((sum, entry) => sum + entry.weight, 0);
+    let roll = Math.random() * totalWeight;
+    let targetGrade = 'C';
+    for (const entry of gradeWeights) {
+      roll -= entry.weight;
+      if (roll <= 0) {
+        targetGrade = entry.grade;
+        break;
+      }
+    }
+    const gradePool = available.filter((entry) => entry.grade === targetGrade);
+    const pool = gradePool.length ? gradePool : available;
+    selected.push(pool[Math.floor(Math.random() * pool.length)]);
+  }
+  return selected.slice(0, 3).map((entry) => ({
+    cardId: entry.cardId,
+    enhancementLevel: normalizeCardEnhancementLevel(entry.enhancementLevel || 0)
+  }));
+}
+
+async function finishInfiniteOvertimeVictory(user, battle, options = {}) {
+  if (!battle || battle.phase === 'defeat') return;
+  if (!options.skipSwap && battle.floor % 3 === 0 && !battle.swapResolved && !battle.rewardGranted) {
+    const swapOptions = buildInfiniteOvertimeSwapOptions(user, user.infiniteOvertime.attackDeck || []);
+    if (swapOptions.length > 0) {
+      battle.phase = 'swap';
+      battle.swapOptions = swapOptions;
+      battle.logs.push('카드 교환 이벤트가 발생했습니다.');
+      return;
+    }
+    battle.swapResolved = true;
+    battle.logs.push('교환 가능한 카드가 없어 카드 교환 이벤트를 건너뜁니다.');
+  }
+
+  const reward = grantInfiniteOvertimeReward(user, battle);
+  const nextFloor = Math.min(INFINITE_OVERTIME_MAX_FLOOR, Number(battle.floor || 1) + 1);
+  user.infiniteOvertime.active = Number(battle.floor || 1) < INFINITE_OVERTIME_MAX_FLOOR;
+  user.infiniteOvertime.nextFloor = nextFloor;
+  if (!user.infiniteOvertime.active) {
+    user.infiniteOvertime.lastCompletedAt = new Date();
+  }
+  battle.phase = 'victory';
+  battle.reward = reward;
+  battle.finishedAt = new Date();
+  battle.logs.push(Number(battle.floor || 1) >= INFINITE_OVERTIME_MAX_FLOOR
+    ? '무한야근 최종 층을 클리어했습니다!'
+    : `승리했습니다. 다음 도전은 ${nextFloor}층입니다.`);
+}
+
+function executeInfiniteOvertimeSingleTurn(battle, actor, target, plannedIndex = null, options = {}) {
+  if (!battle || !actor || !target || actor.hp <= 0 || target.hp <= 0) return;
+  actor.lastHpLoss = 0;
+  actor.lastShieldLoss = 0;
+  target.lastHpLoss = 0;
+  target.lastShieldLoss = 0;
+
+  if (Number(plannedIndex) >= 0) {
+    const used = applyPvpCardSkill(actor, target, battle, Number(plannedIndex));
+    if (!used) {
+      battle.logs.push(`${actor.displayName}의 스킬은 사용할 수 없어 기본 공격만 진행합니다.`);
+    }
+  } else if (options.botAutoSkill) {
+    for (let index = 0; index < (actor.cards || []).length; index += 1) {
+      const entry = actor.cards[index];
+      const card = getCardDefinition(entry.cardId, entry.enhancementLevel || 0);
+      if (!card || card.passiveOnly) continue;
+      const canResolveOvertime = card.effectType === 'overtime_rage'
+        && (target.debuffs || []).some((debuff) => debuff.id === 'overtime' && debuff.sourceUserId === actor.userId);
+      if (Number(entry.cooldownRemaining || 0) > 0 && !canResolveOvertime) continue;
+      if (applyPvpCardSkill(actor, target, battle, index)) break;
+    }
+  }
+
+  if (actor.hp > 0 && target.hp > 0 && actor.basicAttackLockTurns <= 0) {
+    performPvpBasicAttack(actor, target, battle);
+  } else if (actor.basicAttackLockTurns > 0) {
+    battle.logs.push(`${actor.displayName}은(는) 기본 공격을 할 수 없습니다.`);
+  }
+  tickPvpPlayerEndOfTurn(actor, battle);
+  clearPvpShieldsExpiredByUserTurn(battle, actor.userId);
+}
+
+async function executeInfiniteOvertimePlayerAction(user, cardIndex = null) {
+  const userId = String(user._id);
+  const battle = getInfiniteOvertimeBattle(userId);
+  if (!battle || battle.phase !== 'active') throw createHttpError(400, '진행 중인 무한야근 전투가 없습니다.');
+  const player = getInfiniteOvertimePlayer(battle);
+  const bot = getInfiniteOvertimeBot(battle);
+  if (!player || !bot) throw createHttpError(400, '전투 정보를 찾을 수 없습니다.');
+
+  executeInfiniteOvertimeSingleTurn(battle, player, bot, Number.isInteger(cardIndex) ? cardIndex : null);
+  if (bot.hp <= 0) {
+    battle.winnerUserId = player.userId;
+    battle.phase = 'victory_pending';
+    await finishInfiniteOvertimeVictory(user, battle);
+    return battle;
+  }
+  if (player.hp <= 0) {
+    battle.winnerUserId = bot.userId;
+    battle.loserUserId = player.userId;
+    battle.phase = 'defeat';
+    user.infiniteOvertime.active = false;
+    battle.logs.push('패배했습니다. 이번 무한야근 도전은 종료됩니다.');
+    return battle;
+  }
+
+  battle.currentUserId = bot.userId;
+  executeInfiniteOvertimeSingleTurn(battle, bot, player, null, { botAutoSkill: true });
+  battle.turnNumber = Number(battle.turnNumber || 1) + 1;
+  battle.currentUserId = player.userId;
+  if (bot.hp <= 0) {
+    battle.winnerUserId = player.userId;
+    battle.phase = 'victory_pending';
+    await finishInfiniteOvertimeVictory(user, battle);
+    return battle;
+  }
+  if (player.hp <= 0) {
+    battle.winnerUserId = bot.userId;
+    battle.loserUserId = player.userId;
+    battle.phase = 'defeat';
+    user.infiniteOvertime.active = false;
+    battle.logs.push('패배했습니다. 이번 무한야근 도전은 종료됩니다.');
+  }
+  return battle;
+}
+
+function getInfiniteOvertimeCooldownRemainingMs(user, now = new Date()) {
+  if (user?.infiniteOvertime?.active) return 0;
+  const lastAttemptAt = user?.infiniteOvertime?.lastAttemptAt
+    ? new Date(user.infiniteOvertime.lastAttemptAt).getTime()
+    : 0;
+  if (!lastAttemptAt) return 0;
+  return Math.max(0, (lastAttemptAt + INFINITE_OVERTIME_COOLDOWN_MS) - now.getTime());
+}
+
+function buildInfiniteOvertimeBattleSnapshot(battle, viewerUserId = null) {
+  if (!battle) return null;
+  return {
+    battleId: battle.battleId,
+    mode: 'infinite_overtime',
+    modeLabel: '무한야근',
+    phase: battle.phase,
+    floor: battle.floor,
+    floorScore: battle.floorScore,
+    floorInfo: battle.floorInfo ? {
+      floor: battle.floorInfo.floor,
+      defenderName: battle.floorInfo.defenderName,
+      score: battle.floorInfo.score,
+      deck: formatInfiniteOvertimeDeck(battle.floorInfo.deck || [])
+    } : null,
+    currentUserId: battle.currentUserId,
+    firstUserId: battle.firstUserId,
+    turnNumber: battle.turnNumber,
+    winnerUserId: battle.winnerUserId,
+    loserUserId: battle.loserUserId,
+    finishedAt: battle.finishedAt,
+    reward: battle.reward || null,
+    swapOptions: formatInfiniteOvertimeDeck(battle.swapOptions || []),
+    swapResolved: Boolean(battle.swapResolved),
+    isParticipant: Boolean(viewerUserId && battle.players?.some((player) => player.userId === String(viewerUserId))),
+    players: (battle.players || []).map((player) => ({
+      userId: player.userId,
+      displayName: player.displayName,
+      isSelf: viewerUserId ? player.userId === String(viewerUserId) : false,
+      isBot: Boolean(player.isBot),
+      hp: player.hp,
+      maxHp: player.maxHp,
+      shield: player.shield,
+      lastHpLoss: player.lastHpLoss || 0,
+      lastShieldLoss: player.lastShieldLoss || 0,
+      plannedCardIndex: Number.isInteger(player.plannedCardIndex) ? player.plannedCardIndex : null,
+      statusEffects: buildPvpEffectsSnapshot(player),
+      cards: (player.cards || []).map((card, index) => ({
+        ...card,
+        slotIndex: index,
+        cooldownRemaining: Number(card.cooldownRemaining || 0)
+      }))
+    })),
+    recentLogs: (battle.logs || []).slice(-20).reverse()
+  };
+}
+
+async function buildInfiniteOvertimeStateResponse(user, now = new Date()) {
+  ensureUserDefaults(user);
+  const userId = String(user._id);
+  const { scoreMap } = await buildInfiniteOvertimeScoreMap();
+  const scoreInfo = scoreMap.get(userId) || {};
+  const targetScore = getInfiniteOvertimeDefenseScoreFromRanks(scoreInfo.pvpRank, scoreInfo.levelRank);
+  const battle = getInfiniteOvertimeBattle(userId);
+  const cooldownRemainingMs = getInfiniteOvertimeCooldownRemainingMs(user, now);
+  const defensePreset = normalizeInfiniteOvertimeDeck(user.infiniteOvertime?.defensePreset || []);
+  const attackDeck = normalizeInfiniteOvertimeDeck(user.infiniteOvertime?.attackDeck || []);
+  const locked = Number(user.gameState?.level || 1) < INFINITE_OVERTIME_MIN_LEVEL;
+
+  let stage = 'attack_setup';
+  if (locked) stage = 'locked';
+  else if (battle) stage = battle.phase || 'battle';
+  else if (defensePreset.length !== 5) stage = 'defense_setup';
+  else if (user.infiniteOvertime?.active && attackDeck.length === 5) stage = 'ready';
+  else if (cooldownRemainingMs > 0) stage = 'cooldown';
+
+  return {
+    version: infiniteOvertimeState.version,
+    serverNow: now.toISOString(),
+    stage,
+    locked,
+    minLevel: INFINITE_OVERTIME_MIN_LEVEL,
+    maxFloor: INFINITE_OVERTIME_MAX_FLOOR,
+    cooldownMs: INFINITE_OVERTIME_COOLDOWN_MS,
+    cooldownRemainingMs,
+    targetScore,
+    scoreInfo: {
+      pvpRank: scoreInfo.pvpRank || null,
+      levelRank: scoreInfo.levelRank || null
+    },
+    defenseScore: getInfiniteOvertimeDeckScore(defensePreset),
+    defensePreset: formatInfiniteOvertimeDeck(defensePreset),
+    defenseOptions: getAllInfiniteOvertimeCards(0),
+    ownedCards: getInfiniteOvertimeOwnedCards(user),
+    attackDeck: formatInfiniteOvertimeDeck(attackDeck),
+    active: Boolean(user.infiniteOvertime?.active),
+    nextFloor: Math.max(1, Math.min(INFINITE_OVERTIME_MAX_FLOOR, Number(user.infiniteOvertime?.nextFloor || 1))),
+    battle: buildInfiniteOvertimeBattleSnapshot(battle, userId)
+  };
+}
+
+async function buildInfiniteOvertimeUserPayload(user, now = new Date()) {
+  const response = await buildUserResponseWithGlobals(user, now);
+  response.infiniteOvertime = await buildInfiniteOvertimeStateResponse(user, now);
+  return response;
+}
+
+function validateInfiniteOvertimeDefenseDeck(deck, targetScore) {
+  const normalized = normalizeInfiniteOvertimeDeck(deck);
+  if (normalized.length !== 5) {
+    throw createHttpError(400, '방어 Bot 프리셋은 카드 5장으로 구성해야 합니다.');
+  }
+  const score = getInfiniteOvertimeDeckScore(normalized);
+  if (score !== Number(targetScore)) {
+    throw createHttpError(400, `현재 배정 점수는 ${targetScore}점입니다. 정확히 ${targetScore}점으로 구성해주세요.`);
+  }
+  return normalized.map((entry) => ({
+    cardId: entry.cardId,
+    enhancementLevel: 0
+  }));
+}
+
+function validateInfiniteOvertimeAttackDeck(user, deck) {
+  const normalized = normalizeInfiniteOvertimeDeck(deck);
+  if (normalized.length !== 5) {
+    throw createHttpError(400, '공략용 카드는 5장을 선택해야 합니다.');
+  }
+  const ownedMap = new Map(getInfiniteOvertimeOwnedCards(user).map((card) => [card.cardId, card]));
+  const validated = normalized.map((entry) => {
+    const owned = ownedMap.get(entry.cardId);
+    if (!owned) {
+      throw createHttpError(400, '보유 중인 카드만 선택할 수 있습니다.');
+    }
+    return {
+      cardId: entry.cardId,
+      enhancementLevel: normalizeCardEnhancementLevel(owned.enhancementLevel || 0)
+    };
+  });
+  return validated;
+}
+
+async function startInfiniteOvertimeBattleForUser(user, floor, now = new Date()) {
+  const floorInfo = await getInfiniteOvertimeFloorInfo(user._id, floor);
+  const battle = createInfiniteOvertimeBattleFromFloor(user, floorInfo, now);
+  setInfiniteOvertimeBattle(user._id, battle);
+  return battle;
 }
 
 function addPvpBuff(player, buff) {
@@ -11024,6 +11725,225 @@ app.post('/api/raid/set-target', async (req, res) => {
     res.json({ raid: buildRaidBattleSnapshot(activeBattle, userId) });
   } catch (err) {
     console.error('Raid target set error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/infinite-overtime/state', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    ensureUserDefaults(user);
+    res.json({ infiniteOvertime: await buildInfiniteOvertimeStateResponse(user, new Date()) });
+  } catch (err) {
+    console.error('Infinite overtime state error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/infinite-overtime/defense-preset', async (req, res) => {
+  const { userId, deck } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+
+  try {
+    const response = await withUserMutationLock(userId, async () => {
+      const user = await User.findById(userId);
+      if (!user) throw createHttpError(404, '사용자를 찾을 수 없습니다.');
+      ensureUserDefaults(user);
+      const now = new Date();
+      if (Number(user.gameState?.level || 1) < INFINITE_OVERTIME_MIN_LEVEL) {
+        throw createHttpError(400, `무한야근은 ${INFINITE_OVERTIME_MIN_LEVEL}레벨부터 입장할 수 있습니다.`);
+      }
+      const { scoreMap } = await buildInfiniteOvertimeScoreMap();
+      const scoreInfo = scoreMap.get(String(user._id)) || {};
+      const targetScore = getInfiniteOvertimeDefenseScoreFromRanks(scoreInfo.pvpRank, scoreInfo.levelRank);
+      const preset = validateInfiniteOvertimeDefenseDeck(deck, targetScore);
+      user.infiniteOvertime.defensePreset = preset;
+      user.infiniteOvertime.defenseScore = getInfiniteOvertimeDeckScore(preset);
+      await user.save();
+      bumpInfiniteOvertimeVersion();
+      return buildInfiniteOvertimeUserPayload(user, now);
+    });
+    res.json(response);
+  } catch (err) {
+    if (err?.statusCode) return res.status(err.statusCode).json({ msg: err.message });
+    console.error('Infinite overtime defense preset error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/infinite-overtime/start', async (req, res) => {
+  const { userId, deck } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+
+  try {
+    const response = await withUserMutationLock(userId, async () => {
+      const user = await User.findById(userId);
+      if (!user) throw createHttpError(404, '사용자를 찾을 수 없습니다.');
+      ensureUserDefaults(user);
+      const now = new Date();
+      if (Number(user.gameState?.level || 1) < INFINITE_OVERTIME_MIN_LEVEL) {
+        throw createHttpError(400, `무한야근은 ${INFINITE_OVERTIME_MIN_LEVEL}레벨부터 입장할 수 있습니다.`);
+      }
+      const defensePreset = normalizeInfiniteOvertimeDeck(user.infiniteOvertime?.defensePreset || []);
+      if (defensePreset.length !== 5) {
+        throw createHttpError(400, '먼저 방어 Bot 프리셋을 등록해주세요.');
+      }
+
+      const existingBattle = getInfiniteOvertimeBattle(userId);
+      if (existingBattle && existingBattle.phase === 'active') {
+        return buildInfiniteOvertimeUserPayload(user, now);
+      }
+
+      if (!user.infiniteOvertime.active) {
+        const cooldownRemainingMs = getInfiniteOvertimeCooldownRemainingMs(user, now);
+        if (cooldownRemainingMs > 0) {
+          throw createHttpError(400, '아직 무한야근 재도전 시간이 아닙니다.');
+        }
+        user.infiniteOvertime.attackDeck = validateInfiniteOvertimeAttackDeck(user, deck);
+        user.infiniteOvertime.active = true;
+        user.infiniteOvertime.nextFloor = 1;
+        user.infiniteOvertime.lastAttemptAt = now;
+        user.infiniteOvertime.lastCompletedAt = null;
+      } else if (normalizeInfiniteOvertimeDeck(user.infiniteOvertime.attackDeck || []).length !== 5) {
+        throw createHttpError(400, '공략용 카드 5장을 먼저 선택해주세요.');
+      }
+
+      const floor = Math.max(1, Math.min(INFINITE_OVERTIME_MAX_FLOOR, Number(user.infiniteOvertime.nextFloor || 1)));
+      await user.save();
+      await startInfiniteOvertimeBattleForUser(user, floor, now);
+      return buildInfiniteOvertimeUserPayload(user, now);
+    });
+    res.json(response);
+  } catch (err) {
+    if (err?.statusCode) return res.status(err.statusCode).json({ msg: err.message });
+    console.error('Infinite overtime start error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/infinite-overtime/action', async (req, res) => {
+  const { userId, cardIndex } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+
+  try {
+    const response = await withUserMutationLock(userId, async () => {
+      const user = await User.findById(userId);
+      if (!user) throw createHttpError(404, '사용자를 찾을 수 없습니다.');
+      ensureUserDefaults(user);
+      const parsedIndex = Number(cardIndex);
+      await executeInfiniteOvertimePlayerAction(user, Number.isInteger(parsedIndex) ? parsedIndex : null);
+      await user.save();
+      bumpInfiniteOvertimeVersion();
+      return buildInfiniteOvertimeUserPayload(user, new Date());
+    });
+    res.json(response);
+  } catch (err) {
+    if (err?.statusCode) return res.status(err.statusCode).json({ msg: err.message });
+    console.error('Infinite overtime action error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/infinite-overtime/swap', async (req, res) => {
+  const { userId, skip, optionCardId, replaceIndex } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+
+  try {
+    const response = await withUserMutationLock(userId, async () => {
+      const user = await User.findById(userId);
+      if (!user) throw createHttpError(404, '사용자를 찾을 수 없습니다.');
+      ensureUserDefaults(user);
+      const battle = getInfiniteOvertimeBattle(userId);
+      if (!battle || battle.phase !== 'swap') {
+        throw createHttpError(400, '진행 중인 카드 교환 이벤트가 없습니다.');
+      }
+
+      if (!skip) {
+        const option = normalizeInfiniteOvertimeDeck(battle.swapOptions || []).find((entry) => entry.cardId === String(optionCardId));
+        const index = Math.floor(Number(replaceIndex));
+        const attackDeck = normalizeInfiniteOvertimeDeck(user.infiniteOvertime.attackDeck || []);
+        if (!option) throw createHttpError(400, '선택할 수 없는 카드입니다.');
+        if (!Number.isInteger(index) || index < 0 || index >= attackDeck.length) {
+          throw createHttpError(400, '교체할 카드를 선택해주세요.');
+        }
+        attackDeck[index] = {
+          cardId: option.cardId,
+          enhancementLevel: normalizeCardEnhancementLevel(option.enhancementLevel || 0)
+        };
+        user.infiniteOvertime.attackDeck = attackDeck;
+        battle.logs.push(`${getCardDisplayName(option.cardId, option.enhancementLevel)} 카드로 덱을 교체했습니다.`);
+      } else {
+        battle.logs.push('카드 교환을 하지 않고 진행합니다.');
+      }
+
+      battle.swapResolved = true;
+      await finishInfiniteOvertimeVictory(user, battle, { skipSwap: true });
+      await user.save();
+      bumpInfiniteOvertimeVersion();
+      return buildInfiniteOvertimeUserPayload(user, new Date());
+    });
+    res.json(response);
+  } catch (err) {
+    if (err?.statusCode) return res.status(err.statusCode).json({ msg: err.message });
+    console.error('Infinite overtime swap error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/infinite-overtime/continue', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+
+  try {
+    const response = await withUserMutationLock(userId, async () => {
+      const user = await User.findById(userId);
+      if (!user) throw createHttpError(404, '사용자를 찾을 수 없습니다.');
+      ensureUserDefaults(user);
+      const battle = getInfiniteOvertimeBattle(userId);
+      if (battle && !['victory', 'defeat'].includes(battle.phase)) {
+        throw createHttpError(400, '현재 전투를 먼저 마무리해주세요.');
+      }
+      if (!user.infiniteOvertime.active) {
+        throw createHttpError(400, '이어갈 무한야근 도전이 없습니다.');
+      }
+      setInfiniteOvertimeBattle(userId, null);
+      const floor = Math.max(1, Math.min(INFINITE_OVERTIME_MAX_FLOOR, Number(user.infiniteOvertime.nextFloor || 1)));
+      await startInfiniteOvertimeBattleForUser(user, floor, new Date());
+      return buildInfiniteOvertimeUserPayload(user, new Date());
+    });
+    res.json(response);
+  } catch (err) {
+    if (err?.statusCode) return res.status(err.statusCode).json({ msg: err.message });
+    console.error('Infinite overtime continue error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/infinite-overtime/exit', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+
+  try {
+    const response = await withUserMutationLock(userId, async () => {
+      const user = await User.findById(userId);
+      if (!user) throw createHttpError(404, '사용자를 찾을 수 없습니다.');
+      ensureUserDefaults(user);
+      const battle = getInfiniteOvertimeBattle(userId);
+      if (battle && !['victory', 'defeat'].includes(battle.phase)) {
+        throw createHttpError(400, '전투 중에는 메인화면으로 돌아갈 수 없습니다.');
+      }
+      setInfiniteOvertimeBattle(userId, null);
+      await user.save();
+      return buildInfiniteOvertimeUserPayload(user, new Date());
+    });
+    res.json(response);
+  } catch (err) {
+    if (err?.statusCode) return res.status(err.statusCode).json({ msg: err.message });
+    console.error('Infinite overtime exit error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
   }
 });

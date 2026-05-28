@@ -202,6 +202,11 @@ let latestPvpState = null;
 let selectedPvpMode = 'ranked';
 let selectedPvpCardId = null;
 let selectedPvpEnhancementLevel = 0;
+let latestInfiniteOvertimeState = null;
+let overtimeSetupMode = '';
+let overtimeSelection = [];
+let overtimeSwapOptionCardId = null;
+let overtimeSwapReplaceIndex = null;
 let pvpBetTargetUserId = null;
 let pvpDraftContextKey = '';
 let pvpDraftSubmitting = false;
@@ -263,6 +268,17 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-05-28-infinite-overtime-mode',
+    time: '2026-05-28 01:10',
+    title: '무한야근 모드 1차 추가',
+    items: [
+      '개인면담 옆에 30레벨부터 입장 가능한 1인 전투 콘텐츠 무한야근 버튼을 추가했습니다.',
+      '첫 입장 시 방어 Bot 프리셋을 등록하고, 공략용 카드 5장으로 25층까지 이어 도전할 수 있습니다.',
+      '3층마다 카드 교환 이벤트가 발생하며, 승리 시 층수에 비례한 파편, 명함, 박카스, 회의 추가 입장권 중 하나를 획득합니다.',
+      '무한야근은 3일에 한 번 도전할 수 있고, 승리 후 나가면 다음 층부터 이어서 진행됩니다.'
+    ]
+  },
   {
     id: '2026-05-28-pvp-overtime-cleanse-cooldown',
     time: '2026-05-28 00:20',
@@ -927,6 +943,13 @@ function setupEventListeners() {
   bindClick('workOptimizationSkillBtn', handleWorkOptimizationSkillClick);
   bindClick('raidLobbyBtn', openRaidLobby);
   bindClick('pvpLobbyBtn', handlePvpLobbyClick);
+  bindClick('infiniteOvertimeBtn', handleInfiniteOvertimeClick);
+  bindClick('overtimeBackBtn', handleOvertimeBackClick);
+  bindClick('overtimeConfirmBtn', handleOvertimeConfirmClick);
+  bindClick('overtimeBgmToggleBtn', handleBgmToggleClick);
+  bindClick('overtimePatchNotesBtn', () => openPatchNotesModal({ markSeen: true }));
+  bindClick('overtimeSwapConfirmBtn', handleOvertimeSwapConfirm);
+  bindClick('overtimeSwapSkipBtn', handleOvertimeSwapSkip);
   bindClick('pvpModeNormalBtn', () => handlePvpModeSelect('normal'));
   bindClick('pvpModeRankedBtn', () => handlePvpModeSelect('ranked'));
   bindClick('pvpModeCloseBtn', () => hideModal('pvpModeModal'));
@@ -1800,6 +1823,8 @@ function hideAllScreens() {
   if (raidScreen) raidScreen.classList.add('hidden');
   const pvpScreen = document.getElementById('pvp-screen');
   if (pvpScreen) pvpScreen.classList.add('hidden');
+  const overtimeScreen = document.getElementById('infinite-overtime-screen');
+  if (overtimeScreen) overtimeScreen.classList.add('hidden');
 }
 
 async function handleLoginClick(event) {
@@ -3181,6 +3206,7 @@ function updateLocalUserState(data, options = {}) {
   if (latestUser) {
     updateRaidButton(latestUser, latestRaidState);
     updatePvpButton(latestUser, latestPvpState);
+    updateInfiniteOvertimeButton(latestUser, latestInfiniteOvertimeState);
   }
   updateMarketplacePendingDot(data.marketplaceSoldPendingCount);
   updateMailboxPendingDot(data.adminMailPendingCount);
@@ -3232,6 +3258,7 @@ function showGameScreen(user) {
   document.getElementById('game-screen').classList.remove('hidden');
   document.getElementById('raid-screen').classList.add('hidden');
   document.getElementById('pvp-screen')?.classList.add('hidden');
+  document.getElementById('infinite-overtime-screen')?.classList.add('hidden');
   updateShoutBanner(latestGlobalState);
   updateGameUI(user);
   loadNewsTypingPrompt();
@@ -3290,6 +3317,7 @@ function showRaidScreen() {
   document.getElementById('game-screen').classList.add('hidden');
   document.getElementById('raid-screen').classList.remove('hidden');
   document.getElementById('pvp-screen')?.classList.add('hidden');
+  document.getElementById('infinite-overtime-screen')?.classList.add('hidden');
   startBgm('raid');
 }
 
@@ -3557,9 +3585,492 @@ function updatePvpButton(user, pvpState) {
   button.title = level < 50 ? '입장은 50레벨부터 가능하지만, 진행 중인 개인면담은 관전할 수 있습니다.' : '';
 }
 
+function updateInfiniteOvertimeButton(user, overtimeState) {
+  const button = document.getElementById('infiniteOvertimeBtn');
+  if (!button || !user) return;
+  const level = Number(user.gameState?.level || 1);
+  button.classList.toggle('waiting', Boolean(overtimeState?.battle || overtimeState?.active));
+  if (level < 30) {
+    button.disabled = true;
+    button.textContent = '무한야근';
+    button.title = '무한야근은 30레벨부터 입장할 수 있습니다.';
+    return;
+  }
+  button.disabled = false;
+  if (overtimeState?.battle?.phase === 'active') {
+    button.textContent = '무한야근 진행중';
+    button.title = '진행 중인 무한야근 전투로 돌아갑니다.';
+  } else if (overtimeState?.active) {
+    button.textContent = `무한야근 ${formatNumber(overtimeState.nextFloor || 1)}층`;
+    button.title = '이어가기를 할 수 있습니다.';
+  } else if (Number(overtimeState?.cooldownRemainingMs || 0) > 0) {
+    button.textContent = '무한야근 대기';
+    button.title = `다음 도전까지 ${formatOvertimeDuration(overtimeState.cooldownRemainingMs)} 남았습니다.`;
+  } else {
+    button.textContent = '무한야근';
+    button.title = '무한야근에 입장합니다.';
+  }
+}
+
+function formatOvertimeDuration(ms) {
+  const totalSeconds = Math.max(0, Math.ceil(Number(ms || 0) / 1000));
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  if (days > 0) return `${days}일 ${hours}시간`;
+  if (hours > 0) return `${hours}시간 ${minutes}분`;
+  return `${minutes}분`;
+}
+
+function showInfiniteOvertimeScreen() {
+  document.getElementById('game-screen')?.classList.add('hidden');
+  document.getElementById('raid-screen')?.classList.add('hidden');
+  document.getElementById('pvp-screen')?.classList.add('hidden');
+  document.getElementById('infinite-overtime-screen')?.classList.remove('hidden');
+  startBgm('pvp');
+}
+
+async function handleInfiniteOvertimeClick() {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+  if (Number(user.gameState?.level || 1) < 30) {
+    alert('무한야근은 30레벨부터 입장할 수 있습니다.');
+    return;
+  }
+  try {
+    await fetchInfiniteOvertimeState({ open: true });
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function fetchInfiniteOvertimeState(options = {}) {
+  const user = getStoredUser();
+  if (!user?._id) return null;
+  const data = await postJson(`${API_URL}/api/infinite-overtime/state`, { userId: user._id });
+  latestInfiniteOvertimeState = data.infiniteOvertime;
+  updateInfiniteOvertimeButton(user, latestInfiniteOvertimeState);
+  if (options.open) showInfiniteOvertimeScreen();
+  if (!document.getElementById('infinite-overtime-screen')?.classList.contains('hidden')) {
+    renderInfiniteOvertimeState(latestInfiniteOvertimeState, user);
+  }
+  return latestInfiniteOvertimeState;
+}
+
+function getOvertimeModeFromState(state) {
+  if (state?.stage === 'defense_setup') return 'defense';
+  if (state?.stage === 'attack_setup') return 'attack';
+  if (state?.stage === 'ready') return 'ready';
+  if (state?.stage === 'cooldown') return 'cooldown';
+  if (state?.stage === 'locked') return 'locked';
+  return '';
+}
+
+function getOvertimeSelectionKey(card) {
+  return `${card.cardId}:${Number(card.enhancementLevel || 0)}`;
+}
+
+function isOvertimeCardSelected(card) {
+  const key = getOvertimeSelectionKey(card);
+  return overtimeSelection.some((entry) => getOvertimeSelectionKey(entry) === key);
+}
+
+function renderOvertimeCard(card, options = {}) {
+  const selected = Boolean(options.selected);
+  const disabled = Boolean(options.disabled);
+  const handler = options.handler || 'handleOvertimeCardSelect';
+  const scoreText = Number(card.score || 0) > 0 ? ` / ${formatNumber(card.score)}점` : '';
+  return `
+    <button class="pvp-card-choice ${getCardVisualClass(card)} ${selected ? 'selected' : ''} ${disabled ? 'disabled' : ''}"
+      style="${escapeAttr(getCardVisualStyle(card))}"
+      ${disabled ? 'disabled' : ''}
+      onclick="${handler}('${escapeAttr(card.cardId)}', ${Number(card.enhancementLevel || 0)})">
+      <span class="pvp-card-grade" style="background:${escapeAttr(card.color || '#666666')}">${escapeHtml(card.grade || '')}</span>
+      <div class="pvp-card-name">${escapeHtml(card.name || card.baseName || card.cardId)}${card.enhancementLevel ? ` +${formatNumber(card.enhancementLevel)}` : ''}</div>
+      <div class="pvp-card-desc">${escapeHtml(card.skillDesc || '')}</div>
+      <div class="menu-note">쿨타임 ${formatNumber(card.cooldown || 0)}턴 / ${escapeHtml(card.durationText || '')}${scoreText}</div>
+    </button>
+  `;
+}
+
+function renderOvertimeSelectedDeck(containerId, deck = [], options = {}) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const clickable = options.clickable;
+  const handler = options.handler || 'handleOvertimeSelectedDeckClick';
+  const slots = [];
+  for (let index = 0; index < 5; index += 1) {
+    const card = deck[index];
+    slots.push(card ? `
+      <button class="overtime-deck-slot ${getCardVisualClass(card)} ${options.selectedIndex === index ? 'selected' : ''}"
+        style="${escapeAttr(getCardVisualStyle(card))}"
+        ${clickable ? `onclick="${handler}(${index})"` : ''}>
+        <strong>${index + 1}. ${escapeHtml(card.name || card.baseName || card.cardId)}${card.enhancementLevel ? ` +${formatNumber(card.enhancementLevel)}` : ''}</strong>
+        <span>${escapeHtml(card.grade || '')} / ${formatNumber(card.score || 0)}점</span>
+      </button>
+    ` : `<div class="overtime-deck-slot empty">${index + 1}번 슬롯</div>`);
+  }
+  container.innerHTML = slots.join('');
+}
+
+function renderInfiniteOvertimeState(state, user) {
+  if (!state) return;
+  showInfiniteOvertimeScreen();
+  const mode = getOvertimeModeFromState(state);
+  const battle = state.battle;
+  const setupView = document.getElementById('overtimeSetupView');
+  const battleView = document.getElementById('overtimeBattleView');
+  const swapView = document.getElementById('overtimeSwapView');
+  const backBtn = document.getElementById('overtimeBackBtn');
+  const confirmBtn = document.getElementById('overtimeConfirmBtn');
+  if (backBtn) backBtn.disabled = Boolean(battle && ['active', 'swap'].includes(battle.phase));
+
+  if (battle?.phase === 'swap') {
+    setupView?.classList.add('hidden');
+    battleView?.classList.add('hidden');
+    swapView?.classList.remove('hidden');
+    renderOvertimeSwap(state);
+    setText('overtimePhaseStatus', `${formatNumber(battle.floor)}층 클리어! 카드 교환 이벤트`);
+    return;
+  }
+
+  if (battle && ['active', 'victory', 'defeat'].includes(battle.phase)) {
+    setupView?.classList.add('hidden');
+    swapView?.classList.add('hidden');
+    battleView?.classList.remove('hidden');
+    renderOvertimeBattle(state, user);
+    return;
+  }
+
+  setupView?.classList.remove('hidden');
+  battleView?.classList.add('hidden');
+  swapView?.classList.add('hidden');
+
+  if (overtimeSetupMode !== mode) {
+    overtimeSetupMode = mode;
+    overtimeSelection = mode === 'defense' ? [...(state.defensePreset || [])] : mode === 'attack' ? [...(state.attackDeck || [])] : [];
+  }
+
+  const selectedScore = overtimeSelection.reduce((sum, card) => sum + Number(card.score || 0), 0);
+  const grid = document.getElementById('overtimeCardGrid');
+  const cards = mode === 'defense' ? (state.defenseOptions || []) : (state.ownedCards || []);
+
+  if (mode === 'locked') {
+    setText('overtimePhaseStatus', `무한야근은 ${formatNumber(state.minLevel || 30)}레벨부터 입장할 수 있습니다.`);
+    renderOvertimeSelectedDeck('overtimeSelectedDeck', []);
+    if (grid) grid.innerHTML = '';
+    if (confirmBtn) confirmBtn.disabled = true;
+    return;
+  }
+
+  if (mode === 'cooldown') {
+    setText('overtimePhaseStatus', `다음 무한야근 도전까지 ${formatOvertimeDuration(state.cooldownRemainingMs)} 남았습니다.`);
+    renderOvertimeSelectedDeck('overtimeSelectedDeck', state.attackDeck || []);
+    if (grid) grid.innerHTML = '<div class="menu-note">아직 재도전 시간이 아닙니다.</div>';
+    if (confirmBtn) confirmBtn.disabled = true;
+    return;
+  }
+
+  if (mode === 'ready') {
+    setText('overtimePhaseStatus', `무한야근 ${formatNumber(state.nextFloor || 1)}층부터 이어갈 수 있습니다.`);
+    renderOvertimeSelectedDeck('overtimeSelectedDeck', state.attackDeck || []);
+    if (grid) grid.innerHTML = '<div class="menu-note">이미 확정한 공략 덱으로 다음 층 전투를 시작합니다.</div>';
+    if (confirmBtn) {
+      confirmBtn.textContent = '다음 층 전투 시작';
+      confirmBtn.disabled = false;
+    }
+    return;
+  }
+
+  const targetText = mode === 'defense'
+    ? `방어 Bot 프리셋 등록: 배정 점수 ${formatNumber(state.targetScore)}점 / 현재 ${formatNumber(selectedScore)}점`
+    : `공략용 카드 선택: ${formatNumber(overtimeSelection.length)}/5장`;
+  setText('overtimePhaseStatus', targetText);
+  renderOvertimeSelectedDeck('overtimeSelectedDeck', overtimeSelection, { clickable: true });
+  if (confirmBtn) {
+    confirmBtn.textContent = mode === 'defense' ? '방어 Bot 등록' : '무한야근 시작';
+    confirmBtn.disabled = mode === 'defense'
+      ? !(overtimeSelection.length === 5 && selectedScore === Number(state.targetScore || 0))
+      : overtimeSelection.length !== 5;
+  }
+  if (grid) {
+    grid.innerHTML = cards.map((card) => {
+      const selected = isOvertimeCardSelected(card);
+      const disabled = !selected && overtimeSelection.length >= 5;
+      return renderOvertimeCard(card, { selected, disabled });
+    }).join('') || '<div class="menu-note">선택 가능한 카드가 없습니다.</div>';
+  }
+}
+
+function handleOvertimeCardSelect(cardId, enhancementLevel = 0) {
+  const state = latestInfiniteOvertimeState;
+  const mode = getOvertimeModeFromState(state);
+  if (!['defense', 'attack'].includes(mode)) return;
+  const cards = mode === 'defense' ? (state.defenseOptions || []) : (state.ownedCards || []);
+  const card = cards.find((entry) => entry.cardId === cardId && Number(entry.enhancementLevel || 0) === Number(enhancementLevel || 0));
+  if (!card) return;
+  const key = getOvertimeSelectionKey(card);
+  const existingIndex = overtimeSelection.findIndex((entry) => getOvertimeSelectionKey(entry) === key);
+  if (existingIndex >= 0) {
+    overtimeSelection.splice(existingIndex, 1);
+  } else if (overtimeSelection.length < 5) {
+    overtimeSelection.push(card);
+  }
+  renderInfiniteOvertimeState(state, getStoredUser());
+}
+
+function handleOvertimeSelectedDeckClick(index) {
+  if (!Number.isInteger(Number(index))) return;
+  overtimeSelection.splice(Number(index), 1);
+  renderInfiniteOvertimeState(latestInfiniteOvertimeState, getStoredUser());
+}
+
+async function handleOvertimeConfirmClick() {
+  const user = getStoredUser();
+  const state = latestInfiniteOvertimeState;
+  if (!user?._id || !state) return;
+  const mode = getOvertimeModeFromState(state);
+  const endpoint = mode === 'defense' ? 'defense-preset' : 'start';
+  const payload = { userId: user._id };
+  if (mode === 'defense' || mode === 'attack') payload.deck = overtimeSelection;
+  if (!['defense', 'attack', 'ready'].includes(mode)) return;
+  try {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/infinite-overtime/${endpoint}`, payload));
+    if (data.infiniteOvertime) latestInfiniteOvertimeState = data.infiniteOvertime;
+    updateLocalUserState(data, { force: true });
+    overtimeSetupMode = '';
+    renderInfiniteOvertimeState(latestInfiniteOvertimeState, getStoredUser());
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+function renderOvertimeBattle(state, user) {
+  const battle = state.battle;
+  if (!battle) return;
+  const player = (battle.players || []).find((entry) => !entry.isBot);
+  const bot = (battle.players || []).find((entry) => entry.isBot);
+  setText('overtimePhaseStatus', battle.phase === 'active'
+    ? `무한야근 ${formatNumber(battle.floor)}층 / 방어 점수 ${formatNumber(battle.floorScore)}점`
+    : battle.phase === 'victory' ? `${formatNumber(battle.floor)}층 승리` : '무한야근 패배');
+  setText('overtimeBattleTurnLabel', `현재 턴 ${formatNumber(battle.turnNumber || 1)}`);
+  setText('overtimeBattleTurnActor', battle.phase === 'active' ? '내 행동' : '전투 종료');
+  renderOvertimeBattlePanel('overtimeBotBattlePanel', bot, false, battle);
+  renderOvertimeBattlePanel('overtimePlayerBattlePanel', player, true, battle);
+  renderOvertimeBattleLog(battle);
+  renderOvertimeResultPanel(state);
+}
+
+function renderOvertimeBattlePanel(panelId, player, canControl, battle) {
+  const panel = document.getElementById(panelId);
+  if (!panel || !player) return;
+  const hpRatio = player.maxHp > 0 ? Math.max(0, Math.min(100, (player.hp / player.maxHp) * 100)) : 0;
+  const shieldRatio = player.maxHp > 0 ? Math.max(0, Math.min(100, (player.shield / player.maxHp) * 100)) : 0;
+  const effects = (player.statusEffects || []).map((effect) => `
+    <div class="raid-effect-badge ${effect.type === 'debuff' ? 'raid-effect-debuff' : 'raid-effect-buff'}" title="${escapeAttr(effect.desc || '')}">
+      <div class="raid-effect-name">${escapeHtml(effect.name)}${effect.turns ? ` (${formatNumber(effect.turns)}턴)` : ''}${effect.count ? ` (${formatNumber(effect.count)}회)` : ''}</div>
+      ${effect.desc ? `<div class="raid-effect-desc">${escapeHtml(effect.desc)}</div>` : ''}
+    </div>
+  `).join('');
+  const cardButtons = (player.cards || []).map((card, index) => {
+    const disabled = !canControl || battle.phase !== 'active' || card.passiveOnly || Number(card.cooldownRemaining || 0) > 0;
+    return `
+      <button class="pvp-card-skill-btn ${getCardVisualClass(card)}" style="${escapeAttr(getCardVisualStyle(card))}" ${disabled ? 'disabled' : ''} title="${escapeAttr(card.skillDesc || '')}" onclick="handleOvertimeAction(${index})">
+        ${escapeHtml(card.name || card.baseName || '')}
+        ${Number(card.cooldownRemaining || 0) > 0 ? `<br>쿨 ${formatNumber(card.cooldownRemaining)}` : ''}
+      </button>
+    `;
+  }).join('');
+  const basicButton = canControl ? `
+    <button class="pvp-card-skill-btn pvp-basic-turn-btn" ${battle.phase !== 'active' || player.hp <= 0 ? 'disabled' : ''} onclick="handleOvertimeAction(null)">
+      스킬 없이 기본공격
+    </button>
+  ` : '';
+  const lossAmount = Number(player.lastHpLoss || 0) + Number(player.lastShieldLoss || 0);
+  panel.classList.toggle('active-turn', battle.phase === 'active' && canControl);
+  panel.innerHTML = `
+    <strong>${escapeHtml(player.displayName || '')}</strong>
+    <div class="pvp-hp-row">
+      <span>HP</span>
+      <div class="pvp-hp-bar" data-pvp-hp-bar></div>
+      <span>${formatNumber(player.hp)} / ${formatNumber(player.maxHp)}</span>
+    </div>
+    <div class="menu-note">보호막 ${formatNumber(player.shield || 0)}</div>
+    <div class="pvp-effect-title">버프 / 디버프</div>
+    <div class="pvp-effect-list">${effects || '<span class="muted-text">버프 / 디버프 없음</span>'}</div>
+    <div class="pvp-card-button-list">${basicButton}${cardButtons}</div>
+  `;
+  updatePvpAnimatedBar(panel.querySelector('[data-pvp-hp-bar]'), `overtime:${battle.battleId || ''}:${player.userId}`, {
+    hpRatio,
+    shieldRatio,
+    lossText: lossAmount > 0 ? `-${formatNumber(lossAmount)}` : '',
+    trailDelayMs: 650
+  });
+}
+
+function renderOvertimeBattleLog(battle) {
+  const log = document.getElementById('overtimeBattleLog');
+  if (!log) return;
+  log.innerHTML = (battle.recentLogs || [])
+    .map((line, index) => `<div class="raid-log-line ${index === 0 ? 'latest' : ''}">${escapeHtml(line)}</div>`)
+    .join('');
+}
+
+function renderOvertimeResultPanel(state) {
+  const panel = document.getElementById('overtimeResultPanel');
+  const battle = state?.battle;
+  if (!panel || !battle || !['victory', 'defeat'].includes(battle.phase)) {
+    panel?.classList.add('hidden');
+    return;
+  }
+  panel.classList.remove('hidden');
+  if (battle.phase === 'victory') {
+    panel.innerHTML = `
+      <h3>${formatNumber(battle.floor)}층 승리</h3>
+      <p>${escapeHtml(battle.reward?.text || '보상을 획득했습니다.')}</p>
+      <div class="modal-actions">
+        <button class="menu-action-btn" ${state.active ? '' : 'disabled'} onclick="handleOvertimeContinueClick()">다음 층으로</button>
+        <button class="mini-btn" onclick="handleOvertimeExitClick()">메인 화면으로</button>
+      </div>
+    `;
+  } else {
+    panel.innerHTML = `
+      <h3>무한야근 패배</h3>
+      <p>이번 도전은 종료되었습니다. 3일 뒤 다시 도전할 수 있습니다.</p>
+      <div class="modal-actions">
+        <button class="mini-btn" onclick="handleOvertimeExitClick()">확인</button>
+      </div>
+    `;
+  }
+}
+
+async function handleOvertimeAction(cardIndex) {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+  try {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/infinite-overtime/action`, {
+      userId: user._id,
+      cardIndex
+    }));
+    if (data.infiniteOvertime) latestInfiniteOvertimeState = data.infiniteOvertime;
+    updateLocalUserState(data, { force: true });
+    renderInfiniteOvertimeState(latestInfiniteOvertimeState, getStoredUser());
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+function renderOvertimeSwap(state) {
+  const battle = state.battle;
+  const optionsEl = document.getElementById('overtimeSwapOptions');
+  const deck = state.attackDeck || [];
+  if (optionsEl) {
+    optionsEl.innerHTML = (battle.swapOptions || []).map((card) => renderOvertimeCard(card, {
+      selected: overtimeSwapOptionCardId === card.cardId,
+      handler: 'handleOvertimeSwapOptionSelect'
+    })).join('');
+  }
+  renderOvertimeSelectedDeck('overtimeSwapDeck', deck, {
+    clickable: true,
+    handler: 'handleOvertimeSwapDeckSelect',
+    selectedIndex: overtimeSwapReplaceIndex
+  });
+  const confirmBtn = document.getElementById('overtimeSwapConfirmBtn');
+  if (confirmBtn) confirmBtn.disabled = !overtimeSwapOptionCardId || !Number.isInteger(overtimeSwapReplaceIndex);
+}
+
+function handleOvertimeSwapOptionSelect(cardId) {
+  overtimeSwapOptionCardId = String(cardId || '');
+  renderOvertimeSwap(latestInfiniteOvertimeState);
+}
+
+function handleOvertimeSwapDeckSelect(index) {
+  overtimeSwapReplaceIndex = Number(index);
+  renderOvertimeSwap(latestInfiniteOvertimeState);
+}
+
+async function handleOvertimeSwapConfirm() {
+  const user = getStoredUser();
+  if (!user?._id || !overtimeSwapOptionCardId || !Number.isInteger(overtimeSwapReplaceIndex)) return;
+  try {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/infinite-overtime/swap`, {
+      userId: user._id,
+      optionCardId: overtimeSwapOptionCardId,
+      replaceIndex: overtimeSwapReplaceIndex
+    }));
+    overtimeSwapOptionCardId = null;
+    overtimeSwapReplaceIndex = null;
+    if (data.infiniteOvertime) latestInfiniteOvertimeState = data.infiniteOvertime;
+    updateLocalUserState(data, { force: true });
+    renderInfiniteOvertimeState(latestInfiniteOvertimeState, getStoredUser());
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleOvertimeSwapSkip() {
+  const user = getStoredUser();
+  if (!user?._id) return;
+  try {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/infinite-overtime/swap`, {
+      userId: user._id,
+      skip: true
+    }));
+    overtimeSwapOptionCardId = null;
+    overtimeSwapReplaceIndex = null;
+    if (data.infiniteOvertime) latestInfiniteOvertimeState = data.infiniteOvertime;
+    updateLocalUserState(data, { force: true });
+    renderInfiniteOvertimeState(latestInfiniteOvertimeState, getStoredUser());
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleOvertimeContinueClick() {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+  try {
+    const data = await postJson(`${API_URL}/api/infinite-overtime/continue`, { userId: user._id });
+    if (data.infiniteOvertime) latestInfiniteOvertimeState = data.infiniteOvertime;
+    updateLocalUserState(data, { force: true });
+    renderInfiniteOvertimeState(latestInfiniteOvertimeState, getStoredUser());
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleOvertimeExitClick() {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+  try {
+    const data = await postJson(`${API_URL}/api/infinite-overtime/exit`, { userId: user._id });
+    if (data.infiniteOvertime) latestInfiniteOvertimeState = data.infiniteOvertime;
+    updateLocalUserState(data, { force: true });
+  } catch (err) {
+    alert(err.message);
+  }
+  showGameScreen(getStoredUser());
+}
+
+async function handleOvertimeBackClick() {
+  const battle = latestInfiniteOvertimeState?.battle;
+  if (battle && ['active', 'swap'].includes(battle.phase)) {
+    alert('전투 중에는 메인화면으로 돌아갈 수 없습니다.');
+    return;
+  }
+  if (battle && ['victory', 'defeat'].includes(battle.phase)) {
+    await handleOvertimeExitClick();
+    return;
+  }
+  document.getElementById('infinite-overtime-screen')?.classList.add('hidden');
+  document.getElementById('game-screen')?.classList.remove('hidden');
+  startBgm('normal');
+}
+
 function showPvpScreen() {
   document.getElementById('game-screen')?.classList.add('hidden');
   document.getElementById('raid-screen')?.classList.add('hidden');
+  document.getElementById('infinite-overtime-screen')?.classList.add('hidden');
   document.getElementById('pvp-screen')?.classList.remove('hidden');
   startBgm('pvp');
 }
@@ -5634,6 +6145,7 @@ function updateGameUI(user) {
     updateShopUI(user);
   }
   updateStatsTab(user);
+  updateInfiniteOvertimeButton(user, latestInfiniteOvertimeState);
   updateStockStatus(user);
   updateStressEffect(user.gameState?.stress || 0);
   setText('adventureLog', user.meta?.lastAdventureLog || '모험에서 어떤 일이 벌어질지 모릅니다.');

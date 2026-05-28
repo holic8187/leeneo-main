@@ -1153,6 +1153,68 @@ progress {
   background: #f8fbff;
 }
 
+.overtime-entry-btn {
+  background: #1f2937;
+  color: #ffe066;
+  border-color: #111827;
+}
+
+.overtime-screen {
+  min-height: 640px;
+}
+
+.overtime-setup-view,
+.overtime-swap-view {
+  display: grid;
+  gap: 12px;
+}
+
+.overtime-rule-note {
+  grid-template-columns: 1fr;
+}
+
+.overtime-selected-deck {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.overtime-deck-slot {
+  display: grid;
+  gap: 4px;
+  min-height: 72px;
+  padding: 9px;
+  border: 1px solid #b7b7b7;
+  background: #ffffff;
+  text-align: left;
+}
+
+.overtime-deck-slot.empty {
+  align-items: center;
+  justify-items: center;
+  color: #888888;
+  background: #f7f7f7;
+}
+
+.overtime-deck-slot.selected,
+.overtime-deck-slot:hover {
+  border-color: #2f75b5;
+  box-shadow: 0 0 0 2px rgba(47, 117, 181, 0.18);
+}
+
+.overtime-card-grid {
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.overtime-result-panel {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #b7c8e8;
+  background: #f7fbff;
+}
+
 .pvp-screen {
   position: relative;
   margin-top: 10px;
