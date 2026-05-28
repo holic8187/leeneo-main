@@ -277,6 +277,21 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-28-carbon-fiber-emblem',
+    time: '2026-05-28 19:10',
+    title: 'CARBON FIBER 휘장 추가',
+    items: [
+      '일반 상점에 100경 원짜리 CARBON FIBER 휘장을 추가했습니다. 보유 효과는 모든 경험치 획득량 +1.5%입니다.'
+    ]
+  },
+  {
+    id: '2026-05-28-adventure-save-hardening',
+    time: '2026-05-28 18:35',
+    title: '모험 저장 안정화',
+    items: [
+      '모험하기와 고양이 선택지 결과 처리를 공통 저장 잠금/재시도 흐름으로 통일해, 저장 중 연결이 끊기거나 서버 오류 팝업이 뜨는 빈도를 줄였습니다.'
+    ]
+  },  {
     id: '2026-05-28-infinite-overtime-reward-tune',
     time: '2026-05-28 18:20',
     title: '무한야근 보상 조정',

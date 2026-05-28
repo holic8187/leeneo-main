@@ -219,6 +219,16 @@ const EMBLEM_DATA = {
     shopType: 'unlock',
     unlockLevel: 150,
     effects: { moneyBonus: 1 }
+  },
+  carbon_fiber: {
+    id: 'carbon_fiber',
+    name: 'CARBON FIBER',
+    price: 1000000000000000000,
+    desc: '랭킹 닉네임 칸에 카본 파이버 배경을 표시합니다. 보유 효과: 모든 경험치 획득량 +1.5%',
+    imageUrl: '',
+    className: 'emblem-carbon-fiber',
+    shopType: 'money',
+    effects: { expBonus: 1.5 }
   }
 };
 const EQUIPMENT_DROP_CHANCE = 0.0005;
@@ -10162,13 +10172,7 @@ app.post('/api/action/adventure', async (req, res) => {
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
-    const response = await withUserMutationLock(userId, async () => {
-      const user = await User.findById(userId);
-      if (!user) {
-        throw createHttpError(404, '사용자를 찾을 수 없습니다.');
-      }
-      ensureUserDefaults(user);
-
+    const response = await runUserMutationWithRetry(userId, async (user) => {
       const now = new Date();
       calculateOfflineGains(user, now);
       cleanupExpiredBuffs(user, now);
@@ -10205,10 +10209,7 @@ app.post('/api/action/adventure', async (req, res) => {
           message: event.message,
           createdAt: now
         };
-
-        const choiceResponse = await buildAdventureChoiceResponse(user, now);
-        await persistUserSnapshot(user, { message: '모험 선택지 저장 중 충돌이 발생했습니다. 다시 시도해주세요.' });
-        return choiceResponse;
+        return buildAdventureChoiceResponse(user, now);
       }
 
       const rewardText = applyAdventureReward(user, event.reward, now);
@@ -10223,9 +10224,8 @@ app.post('/api/action/adventure', async (req, res) => {
         message: event.message,
         rewardText
       };
-      await persistUserSnapshot(user, { message: '모험 결과 저장 중 충돌이 발생했습니다. 다시 시도해주세요.' });
       return response;
-    });
+    }, { conflictLabel: 'Adventure action conflict' });
 
     res.json(response);
   } catch (err) {
@@ -10233,22 +10233,16 @@ app.post('/api/action/adventure', async (req, res) => {
     res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
   }
 });
-
 app.post('/api/action/adventure/resolve', async (req, res) => {
   const { userId, choice } = req.body;
   if (!userId || !choice) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
   if (!['yes', 'no'].includes(choice)) return res.status(400).json({ msg: '올바르지 않은 선택입니다.' });
 
   try {
-    const response = await withUserMutationLock(userId, async () => {
-      const user = await User.findById(userId);
-      if (!user) {
-        throw createHttpError(404, '사용자를 찾을 수 없습니다.');
-      }
-      ensureUserDefaults(user);
-
+    const response = await runUserMutationWithRetry(userId, async (user) => {
       const now = new Date();
       calculateOfflineGains(user, now);
+      cleanupExpiredBuffs(user, now);
 
       if (!user.pendingAdventure?.eventId) {
         throw createHttpError(400, '진행 중인 모험 선택지가 없습니다.');
@@ -10261,36 +10255,36 @@ app.post('/api/action/adventure/resolve', async (req, res) => {
       if (choice === 'yes') {
         if (getCatTunaCanQuantity(user) > 0 && removeCatTunaCanFromInventory(user, 1)) {
           user.meta.catFoodGivenCount += 1;
-          rewardText = `고양이에게 참치캔을 건넸습니다. 현재 총 ${user.meta.catFoodGivenCount}번 건네줬습니다.`;
+          rewardText = `고양이에게 참치캔을 건넸습니다. 현재 총 ${user.meta.catFoodGivenCount}번 건네주었습니다.`;
 
           if (user.meta.catFoodGivenCount >= 10) {
             unlockTitle(user, 'cat_butler');
-            setOrRefreshBuff(user, 'cat_gratitude_buff', CAT_GRATITUDE_DURATION_MS);
+            setOrRefreshBuff(user, 'cat_gratitude_buff', CAT_GRATITUDE_DURATION_MS, { now });
             rewardText += ' 고양이의 보은 버프를 획득했습니다.';
           }
 
           if (hasCatButlerTitle || user.meta.catFoodGivenCount >= 10) {
-            setOrRefreshBuff(user, 'cat_gratitude_buff', CAT_GRATITUDE_DURATION_MS);
+            setOrRefreshBuff(user, 'cat_gratitude_buff', CAT_GRATITUDE_DURATION_MS, { now });
             addItemToInventory(user, 'bacchus', 1);
 
             const extraItemPool = ['hot6', 'cat_tuna_can', 'reward_pen_monami'];
             const extraItemId = extraItemPool[Math.floor(Math.random() * extraItemPool.length)];
             addItemToInventory(user, extraItemId, 1);
 
-            rewardText += ` 고양이가 보답으로 박카스 1개와 ${ITEM_DATA[extraItemId].name} 1개를 남겨두고 갔습니다.`;
+            rewardText += ` 고양이가 보답으로 박카스 1개와 ${ITEM_DATA[extraItemId].name} 1개를 챙겨주고 갔습니다.`;
           }
         } else {
           rewardText = '참치캔이 없어 고양이에게 아무것도 줄 수 없었습니다.';
           if (hasCatButlerTitle) {
-            setOrRefreshBuff(user, 'cat_gratitude_buff', CAT_GRATITUDE_DURATION_MS);
-            rewardText += ' 그래도 고양이는 당신을 기억하고 있어 고양이의 보은 버프를 남겨줬습니다.';
+            setOrRefreshBuff(user, 'cat_gratitude_buff', CAT_GRATITUDE_DURATION_MS, { now });
+            rewardText += ' 그래도 고양이는 당신을 기억하고 있어 고양이의 보은 버프를 챙겨주었습니다.';
           }
         }
       } else {
         rewardText = '고양이를 한 번 쓰다듬고 지나쳤습니다. 아무것도 획득하지 못했습니다.';
         if (hasCatButlerTitle) {
-          setOrRefreshBuff(user, 'cat_gratitude_buff', CAT_GRATITUDE_DURATION_MS);
-          rewardText += ' 그래도 고양이는 당신을 기억하고 있어 고양이의 보은 버프를 남겨줬습니다.';
+          setOrRefreshBuff(user, 'cat_gratitude_buff', CAT_GRATITUDE_DURATION_MS, { now });
+          rewardText += ' 그래도 고양이는 당신을 기억하고 있어 고양이의 보은 버프를 챙겨주었습니다.';
         }
       }
 
@@ -10305,9 +10299,8 @@ app.post('/api/action/adventure/resolve', async (req, res) => {
         message: '고양이가 잠시 당신을 바라보다가 천천히 발걸음을 옮겼다.',
         rewardText
       };
-      await persistUserSnapshot(user, { message: '모험 선택 결과 저장 중 충돌이 발생했습니다. 다시 시도해주세요.' });
       return response;
-    });
+    }, { conflictLabel: 'Adventure resolve conflict' });
 
     res.json(response);
   } catch (err) {
@@ -10315,7 +10308,6 @@ app.post('/api/action/adventure/resolve', async (req, res) => {
     res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
   }
 });
-
 app.post('/api/action/lupin', async (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });

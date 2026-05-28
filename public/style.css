@@ -414,6 +414,35 @@ progress {
 .emblem-chunsik-art .emblem-preview-icon {
   display: none;
 }
+.emblem-carbon-fiber {
+  color: #f2f4f6;
+  font-weight: 900;
+  background:
+    radial-gradient(circle at 68% 18%, rgba(255, 255, 255, .2), transparent 16%),
+    linear-gradient(115deg, rgba(255, 255, 255, .1) 0%, transparent 18%, rgba(255, 255, 255, .06) 45%, transparent 62%),
+    linear-gradient(135deg, rgba(255, 255, 255, .08) 0 10%, transparent 10% 20%, rgba(0, 0, 0, .52) 20% 30%, transparent 30% 40%) 0 0 / 18px 18px,
+    linear-gradient(45deg, rgba(255, 255, 255, .05) 0 10%, transparent 10% 20%, rgba(0, 0, 0, .6) 20% 30%, transparent 30% 40%) 0 0 / 18px 18px,
+    linear-gradient(90deg, #050607 0%, #1a1d20 28%, #070809 54%, #25282b 76%, #090a0b 100%);
+  box-shadow: inset 0 0 0 1px rgba(210, 216, 222, .54), inset 0 0 22px rgba(255, 255, 255, .12), inset 0 0 34px rgba(0, 0, 0, .76);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .98), 0 0 9px rgba(210, 220, 232, .5);
+}
+
+.emblem-carbon-fiber::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, .35) 46%, transparent 61%),
+    linear-gradient(180deg, rgba(255, 255, 255, .1), transparent 45%, rgba(0, 0, 0, .38));
+  transform: translateX(-120%);
+  animation: emblem-sheen 3.1s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.emblem-carbon-fiber .ranking-emblem-icon,
+.emblem-carbon-fiber .emblem-preview-icon {
+  display: none;
+}
 
 @keyframes emblem-sheen {
   0%, 52% { transform: translateX(-120%); }
