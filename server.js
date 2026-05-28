@@ -6504,6 +6504,17 @@ function getInfiniteOvertimeOwnedCards(user) {
     .filter((entry) => entry.score > 0);
 }
 
+function resolveInfiniteOvertimeOwnedEnhancements(user, deck = []) {
+  const ownedMap = new Map(getInfiniteOvertimeOwnedCards(user).map((card) => [card.cardId, card]));
+  return normalizeInfiniteOvertimeDeck(deck).map((entry) => {
+    const owned = ownedMap.get(entry.cardId);
+    return {
+      cardId: entry.cardId,
+      enhancementLevel: normalizeCardEnhancementLevel(owned?.enhancementLevel ?? entry.enhancementLevel ?? 0)
+    };
+  });
+}
+
 function generateInfiniteOvertimeDeckForScore(targetScore, options = getAllInfiniteOvertimeCards(0)) {
   const normalizedTarget = Math.max(INFINITE_OVERTIME_DEFENSE_MIN_SCORE, Math.min(INFINITE_OVERTIME_DEFENSE_MAX_SCORE, Math.floor(Number(targetScore || INFINITE_OVERTIME_DEFENSE_MIN_SCORE))));
   const pool = (Array.isArray(options) ? options : []).filter((entry) => entry?.cardId && getInfiniteOvertimeCardScore(entry.cardId) > 0);
@@ -6952,7 +6963,7 @@ async function buildInfiniteOvertimeFloors(userId) {
         INFINITE_OVERTIME_DEFENSE_MIN_SCORE,
         Math.min(INFINITE_OVERTIME_DEFENSE_MAX_SCORE, Number(scoreInfo.targetScore || INFINITE_OVERTIME_DEFENSE_MIN_SCORE))
       );
-      let deck = normalizeInfiniteOvertimeDeck(entry.infiniteOvertime?.defensePreset || []);
+      let deck = resolveInfiniteOvertimeOwnedEnhancements(entry, entry.infiniteOvertime?.defensePreset || []);
       const storedScore = getInfiniteOvertimeDeckScore(deck);
       if (
         deck.length !== 5
@@ -7289,7 +7300,7 @@ async function buildInfiniteOvertimeStateResponse(user, now = new Date()) {
   const targetScore = getInfiniteOvertimeDefenseScoreFromRanks(scoreInfo.pvpRank, scoreInfo.levelRank);
   const battle = getInfiniteOvertimeBattle(userId);
   const cooldownRemainingMs = getInfiniteOvertimeCooldownRemainingMs(user, now);
-  const defensePreset = normalizeInfiniteOvertimeDeck(user.infiniteOvertime?.defensePreset || []);
+  const defensePreset = resolveInfiniteOvertimeOwnedEnhancements(user, user.infiniteOvertime?.defensePreset || []);
   const attackDeck = normalizeInfiniteOvertimeDeck(user.infiniteOvertime?.attackDeck || []);
   const locked = Number(user.gameState?.level || 1) < INFINITE_OVERTIME_MIN_LEVEL;
 
@@ -7316,7 +7327,7 @@ async function buildInfiniteOvertimeStateResponse(user, now = new Date()) {
     },
     defenseScore: getInfiniteOvertimeDeckScore(defensePreset),
     defensePreset: formatInfiniteOvertimeDeck(defensePreset),
-    defenseOptions: getAllInfiniteOvertimeCards(0),
+    defenseOptions: getInfiniteOvertimeOwnedCards(user),
     ownedCards: getInfiniteOvertimeOwnedCards(user),
     attackDeck: formatInfiniteOvertimeDeck(attackDeck),
     active: Boolean(user.infiniteOvertime?.active),
@@ -7331,19 +7342,27 @@ async function buildInfiniteOvertimeUserPayload(user, now = new Date()) {
   return response;
 }
 
-function validateInfiniteOvertimeDefenseDeck(deck, targetScore) {
+function validateInfiniteOvertimeDefenseDeck(user, deck, targetScore) {
   const normalized = normalizeInfiniteOvertimeDeck(deck);
   if (normalized.length !== 5) {
     throw createHttpError(400, '방어 Bot 프리셋은 카드 5장으로 구성해야 합니다.');
   }
-  const score = getInfiniteOvertimeDeckScore(normalized);
+  const ownedMap = new Map(getInfiniteOvertimeOwnedCards(user).map((card) => [card.cardId, card]));
+  const resolved = normalized.map((entry) => {
+    const owned = ownedMap.get(entry.cardId);
+    if (!owned) {
+      throw createHttpError(400, '방어 Bot에는 보유 중인 카드만 등록할 수 있습니다.');
+    }
+    return {
+      cardId: entry.cardId,
+      enhancementLevel: normalizeCardEnhancementLevel(owned.enhancementLevel || 0)
+    };
+  });
+  const score = getInfiniteOvertimeDeckScore(resolved);
   if (score !== Number(targetScore)) {
     throw createHttpError(400, `현재 배정 점수는 ${targetScore}점입니다. 정확히 ${targetScore}점으로 구성해주세요.`);
   }
-  return normalized.map((entry) => ({
-    cardId: entry.cardId,
-    enhancementLevel: 0
-  }));
+  return resolved;
 }
 
 function validateInfiniteOvertimeAttackDeck(user, deck) {
@@ -11760,7 +11779,7 @@ app.post('/api/infinite-overtime/defense-preset', async (req, res) => {
       const { scoreMap } = await buildInfiniteOvertimeScoreMap();
       const scoreInfo = scoreMap.get(String(user._id)) || {};
       const targetScore = getInfiniteOvertimeDefenseScoreFromRanks(scoreInfo.pvpRank, scoreInfo.levelRank);
-      const preset = validateInfiniteOvertimeDefenseDeck(deck, targetScore);
+      const preset = validateInfiniteOvertimeDefenseDeck(user, deck, targetScore);
       user.infiniteOvertime.defensePreset = preset;
       user.infiniteOvertime.defenseScore = getInfiniteOvertimeDeckScore(preset);
       await user.save();

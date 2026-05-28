@@ -516,7 +516,7 @@ progress {
 }
 
 #fragmentShopBtn {
-  left: 176px;
+  left: 276px;
 }
 
 .fragment-shop-list {
@@ -554,7 +554,7 @@ progress {
 }
 
 .marketplace-entry-btn {
-  left: 268px;
+  left: 340px;
   background: #fff8d8;
   color: #6f4d00;
   border-color: #d9b74c;
@@ -1154,6 +1154,7 @@ progress {
 }
 
 .overtime-entry-btn {
+  left: 184px;
   background: #1f2937;
   color: #ffe066;
   border-color: #111827;
