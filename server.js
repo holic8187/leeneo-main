@@ -3154,6 +3154,8 @@ function toPlainMongoValue(value) {
 
 function buildUserPersistenceSnapshot(user) {
   return {
+    nickname: user.nickname || null,
+    workHours: toPlainMongoValue(user.workHours),
     gameState: toPlainMongoValue(user.gameState),
     inventory: toPlainMongoValue(user.inventory),
     cards: toPlainMongoValue(user.cards),
@@ -3162,6 +3164,8 @@ function buildUserPersistenceSnapshot(user) {
     equippedEquipment: toPlainMongoValue(user.equippedEquipment),
     equippedCardId: user.equippedCardId || null,
     equippedCardLevel: normalizeCardEnhancementLevel(user.equippedCardLevel || 0),
+    pvpStats: toPlainMongoValue(user.pvpStats),
+    infiniteOvertime: toPlainMongoValue(user.infiniteOvertime),
     buffs: toPlainMongoValue(user.buffs),
     titles: toPlainMongoValue(user.titles),
     emblems: toPlainMongoValue(user.emblems),
@@ -3214,7 +3218,7 @@ async function runUserMutationWithRetry(userId, mutateUser, options = {}) {
     const result = await mutateUser(user, attempt);
 
     try {
-      await user.save();
+      await persistUserSnapshot(user);
       if (typeof afterSave === 'function') {
         return await afterSave(user, result, attempt);
       }
@@ -3226,14 +3230,14 @@ async function runUserMutationWithRetry(userId, mutateUser, options = {}) {
         if (attempt < maxRetries) {
           continue;
         }
-        throw createHttpError(409, '요청이 겹쳐 처리에 실패했습니다. 잠시 후 다시 시도해주세요.');
+        throw createHttpError(409, '요청 처리 중 저장 충돌이 발생했습니다. 잠시 후 다시 시도해주세요.');
       }
       throw err;
     }
   }
 
   if (isVersionConflictError(lastError)) {
-    throw createHttpError(409, '요청이 겹쳐 처리에 실패했습니다. 잠시 후 다시 시도해주세요.');
+    throw createHttpError(409, '요청 처리 중 저장 충돌이 발생했습니다. 잠시 후 다시 시도해주세요.');
   }
   throw lastError || createHttpError(500, '서버 오류가 발생했습니다.');
 }
@@ -8206,7 +8210,7 @@ async function settlePvpBets(battle, winnerUserId) {
         } else {
           queueNotification(user, 'pvp_bet_lose', `개인면담 배팅 실패! ${amount.toLocaleString()}원을 잃었습니다.`);
         }
-        await user.save();
+        await persistUserSnapshot(user);
       });
     } catch (err) {
       console.error('PVP bet settlement error:', err);
@@ -8237,7 +8241,7 @@ async function finalizePvpBattleOutcome(winnerUserId, loserUserId, battle) {
         user.gameState.exp += expReward;
         checkLevelUp(user);
         queueNotification(user, 'pvp_normal_victory_reward', `일반 개인면담 승리! 경험치 ${expReward.toLocaleString()}를 획득했습니다.`);
-        await user.save();
+        await persistUserSnapshot(user);
       });
       await withUserMutationLock(loserUserId, async () => {
         const user = await User.findById(loserUserId);
@@ -8248,7 +8252,7 @@ async function finalizePvpBattleOutcome(winnerUserId, loserUserId, battle) {
         user.gameState.exp += expReward;
         checkLevelUp(user);
         queueNotification(user, 'pvp_normal_defeat_reward', `일반 개인면담 패배 보상으로 경험치 ${expReward.toLocaleString()}를 획득했습니다.`);
-        await user.save();
+        await persistUserSnapshot(user);
       });
       battle.ratingChange = null;
       return;
@@ -8276,7 +8280,7 @@ async function finalizePvpBattleOutcome(winnerUserId, loserUserId, battle) {
       addItemToInventory(user, 'equipment_fragment', fragmentReward);
       addItemToInventory(user, 'bacchus', 1);
       queueNotification(user, 'pvp_victory_reward', `랭크 개인면담 승리! +${delta}점, 회의 추가 입장권 1장, 박카스 1개, 경험치 ${expReward.toLocaleString()}, 장비 파편 ${fragmentReward}개를 획득했습니다.`);
-      await user.save();
+      await persistUserSnapshot(user);
     });
     await withUserMutationLock(loserUserId, async () => {
       const user = await User.findById(loserUserId);
@@ -8290,7 +8294,7 @@ async function finalizePvpBattleOutcome(winnerUserId, loserUserId, battle) {
       user.gameState.exp += expReward;
       checkLevelUp(user);
       queueNotification(user, 'pvp_rating_loss', `랭크 개인면담 패배로 -${delta}점이 반영되었습니다. 패배 보상으로 경험치 ${expReward.toLocaleString()}를 획득했습니다.`);
-      await user.save();
+      await persistUserSnapshot(user);
     });
     battle.ratingChange = { winnerDelta: delta, loserDelta: -delta, winnerNewRating, loserNewRating };
     await settlePvpBets(battle, winnerUserId);
@@ -8784,7 +8788,7 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
 
       try {
         applyRaidOutcomeToUser(user, participant);
-        await user.save();
+        await persistUserSnapshot(user);
         finalized = true;
       } catch (err) {
         lastFinalizeError = err;
@@ -9858,7 +9862,7 @@ app.post('/api/login', async (req, res) => {
 
     const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '1d' });
     const response = await buildUserResponseWithGlobals(user, now);
-    await user.save();
+    await persistUserSnapshot(user);
 
     res.json({
       token,
@@ -9888,7 +9892,7 @@ app.post('/api/set-nickname', async (req, res) => {
     if (existingUser) return res.status(400).json({ msg: '이미 사용 중인 닉네임입니다.' });
 
     user.nickname = nickname;
-    await user.save();
+    await persistUserSnapshot(user);
     res.json({ success: true, nickname: user.nickname });
   } catch (err) {
     console.error('Set nickname error:', err);
@@ -10414,7 +10418,7 @@ app.post('/api/action/side-job', async (req, res) => {
 
       const matchedCount = updateResult.matchedCount ?? updateResult.n ?? 0;
       if (!matchedCount) {
-        throw createHttpError(409, '부업 처리 중 저장 충돌이 발생했습니다. 다시 시도해주세요.');
+        throw createHttpError(409, '요청 처리 중 저장 충돌이 발생했습니다. 잠시 후 다시 시도해주세요.');
       }
 
       const savedUser = await User.findById(user._id);
@@ -10489,7 +10493,7 @@ app.post('/api/action/stock', async (req, res) => {
 
     reconcileTitles(user, now);
     const response = await buildUserResponseWithGlobals(user, now);
-    await user.save();
+    await persistUserSnapshot(user);
     res.json(response);
   } catch (err) {
     console.error('Stock action error:', err);
@@ -10571,7 +10575,7 @@ app.post('/api/shop/buy', async (req, res) => {
       totalPrice,
       ownedQuantity: getInventoryQuantity(user, itemId)
     };
-    await user.save();
+    await persistUserSnapshot(user);
     res.json(response);
   } catch (err) {
     console.error('Shop buy error:', err);
@@ -10630,7 +10634,7 @@ app.post('/api/fragment-shop/buy', async (req, res) => {
       quantity: shopItem.quantity,
       cost: shopItem.cost
     };
-    await user.save();
+    await persistUserSnapshot(user);
     res.json(response);
   } catch (err) {
     console.error('Fragment shop buy error:', err);
@@ -10673,7 +10677,7 @@ app.post('/api/emblem-shop/buy', async (req, res) => {
         emblemName: emblem.name,
         price: emblem.price
       };
-      await user.save();
+      await persistUserSnapshot(user);
       res.json(response);
     });
   } catch (err) {
@@ -10704,7 +10708,7 @@ app.post('/api/emblem/toggle', async (req, res) => {
       user.gameState.lastActionTime = now;
 
       const response = await buildUserResponseWithGlobals(user, now);
-      await user.save();
+      await persistUserSnapshot(user);
       res.json(response);
     });
   } catch (err) {
@@ -10784,7 +10788,7 @@ app.post('/api/inventory/use', async (req, res) => {
     user.gameState.lastActionTime = now;
 
     const response = await buildUserResponseWithGlobals(user, now);
-    await user.save();
+    await persistUserSnapshot(user);
     res.json(response);
   } catch (err) {
     console.error('Inventory use error:', err);
@@ -10818,7 +10822,7 @@ app.post('/api/title/toggle', async (req, res) => {
     user.meta.lastTitleChangeDayKey = todayKey;
     user.gameState.stamina = Math.min(user.gameState.stamina, getEffectiveMaxStamina(user, now));
     const response = await buildUserResponseWithGlobals(user, now);
-    await user.save();
+    await persistUserSnapshot(user);
     res.json(response);
   } catch (err) {
     console.error('Title toggle error:', err);
@@ -10852,7 +10856,7 @@ app.post('/api/equipment/toggle-equip', async (req, res) => {
     }
 
     const response = await buildUserResponseWithGlobals(user, now);
-    await user.save();
+    await persistUserSnapshot(user);
     res.json(response);
   } catch (err) {
     console.error('Equipment toggle error:', err);
@@ -10865,53 +10869,54 @@ app.post('/api/equipment/upgrade', async (req, res) => {
   if (!userId || !equipmentId || !scrollItemId) {
     return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
   }
+  const successRoll = Math.random();
 
   try {
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      ensureUserDefaults(user);
 
-    const now = new Date();
-    calculateOfflineGains(user, now);
-    ensureUserDefaults(user);
+      const equipment = getEquipmentById(user, equipmentId);
+      if (!equipment) {
+        throw createHttpError(404, '장비를 찾을 수 없습니다.');
+      }
+      if (Number(equipment.upgradesLeft || 0) <= 0) {
+        throw createHttpError(400, '더 이상 업그레이드할 수 없는 장비입니다.');
+      }
 
-    const equipment = getEquipmentById(user, equipmentId);
-    if (!equipment) {
-      return res.status(404).json({ msg: '장비를 찾을 수 없습니다.' });
-    }
-    if (Number(equipment.upgradesLeft || 0) <= 0) {
-      return res.status(400).json({ msg: '더 이상 업그레이드할 수 없는 장비입니다.' });
-    }
+      const scrollRule = getEquipmentScrollRule(scrollItemId);
+      if (!scrollRule) {
+        throw createHttpError(400, '사용할 수 없는 주문서입니다.');
+      }
+      if (scrollRule.equipmentType !== equipment.equipmentType) {
+        throw createHttpError(400, '해당 장비에는 사용할 수 없는 주문서입니다.');
+      }
+      if (getInventoryQuantity(user, scrollItemId) <= 0) {
+        throw createHttpError(400, '보유한 주문서가 없습니다.');
+      }
 
-    const scrollRule = getEquipmentScrollRule(scrollItemId);
-    if (!scrollRule) {
-      return res.status(400).json({ msg: '사용할 수 없는 주문서입니다.' });
-    }
-    if (scrollRule.equipmentType !== equipment.equipmentType) {
-      return res.status(400).json({ msg: '해당 장비에는 사용할 수 없는 주문서입니다.' });
-    }
-    if (getInventoryQuantity(user, scrollItemId) <= 0) {
-      return res.status(400).json({ msg: '보유한 주문서가 없습니다.' });
-    }
+      removeItemFromInventory(user, scrollItemId, 1);
+      equipment.upgradesLeft = Math.max(0, Number(equipment.upgradesLeft || 0) - 1);
+      const success = successRoll < Number(scrollRule.successRate || 0);
+      if (success) {
+        equipment.statValue = Number((Number(equipment.statValue || 0) + Number(scrollRule.addValue || 0)).toFixed(1));
+      }
 
-    removeItemFromInventory(user, scrollItemId, 1);
-    equipment.upgradesLeft = Math.max(0, Number(equipment.upgradesLeft || 0) - 1);
-    const success = Math.random() < Number(scrollRule.successRate || 0);
-    if (success) {
-      equipment.statValue = Number((Number(equipment.statValue || 0) + Number(scrollRule.addValue || 0)).toFixed(1));
-    }
+      const logText = buildEquipmentEnhanceLog(scrollItemId, equipment, success);
+      const response = await buildUserResponseWithGlobals(user, now);
+      response.equipmentUpgrade = {
+        success,
+        equipmentId: equipment.equipmentId,
+        logText
+      };
+      return response;
+    }, { conflictLabel: 'Equipment upgrade conflict' });
 
-    const logText = buildEquipmentEnhanceLog(scrollItemId, equipment, success);
-    const response = await buildUserResponseWithGlobals(user, now);
-    response.equipmentUpgrade = {
-      success,
-      equipmentId: equipment.equipmentId,
-      logText
-    };
-    await user.save();
     res.json(response);
   } catch (err) {
     console.error('Equipment upgrade error:', err);
-    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
   }
 });
 
@@ -11365,153 +11370,156 @@ app.post('/api/cards/fuse', async (req, res) => {
   }
 
   try {
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      ensureUserDefaults(user);
 
-    const now = new Date();
-    calculateOfflineGains(user, now);
+      const quantityMap = new Map();
+      let sourceGrade = null;
+      for (const entry of requestedCards) {
+        const cardId = entry.cardId;
+        const enhancementLevel = normalizeCardEnhancementLevel(entry.enhancementLevel || 0);
+        const cardInfo = CARD_DATA[cardId];
+        if (!cardInfo) {
+          throw createHttpError(400, '존재하지 않는 카드가 포함되어 있습니다.');
+        }
+        if (cardInfo.grade === 'S') {
+          throw createHttpError(400, 'S등급 카드는 합성할 수 없습니다.');
+        }
+        if (enhancementLevel >= 5) {
+          throw createHttpError(400, '5강 카드는 합성 재료로 사용할 수 없습니다.');
+        }
+        if (!sourceGrade) {
+          sourceGrade = cardInfo.grade;
+        } else if (sourceGrade !== cardInfo.grade) {
+          throw createHttpError(400, '같은 등급 카드만 합성할 수 있습니다.');
+        }
+        const variantKey = `${cardId}::${enhancementLevel}`;
+        quantityMap.set(variantKey, {
+          cardId,
+          enhancementLevel,
+          amount: (quantityMap.get(variantKey)?.amount || 0) + 1
+        });
+      }
 
-    const quantityMap = new Map();
-    let sourceGrade = null;
-    for (const entry of requestedCards) {
-      const cardId = entry.cardId;
-      const enhancementLevel = normalizeCardEnhancementLevel(entry.enhancementLevel || 0);
-      const cardInfo = CARD_DATA[cardId];
-      if (!cardInfo) {
-        return res.status(400).json({ msg: '존재하지 않는 카드가 포함되어 있습니다.' });
+      for (const { cardId, enhancementLevel, amount } of quantityMap.values()) {
+        if (getOwnedCardVariantQuantity(user, cardId, enhancementLevel) < amount) {
+          throw createHttpError(400, '보유 카드 수량이 부족합니다.');
+        }
       }
-      if (cardInfo.grade === 'S') {
-        return res.status(400).json({ msg: 'S등급 카드는 합성할 수 없습니다.' });
-      }
-      if (enhancementLevel >= 5) {
-        return res.status(400).json({ msg: '5강 카드는 합성 재료로 사용할 수 없습니다.' });
-      }
-      if (!sourceGrade) {
-        sourceGrade = cardInfo.grade;
-      } else if (sourceGrade !== cardInfo.grade) {
-        return res.status(400).json({ msg: '같은 등급 카드만 합성할 수 있습니다.' });
-      }
-      const variantKey = `${cardId}::${enhancementLevel}`;
-      quantityMap.set(variantKey, {
-        cardId,
-        enhancementLevel,
-        amount: (quantityMap.get(variantKey)?.amount || 0) + 1
-      });
-    }
 
-    for (const { cardId, enhancementLevel, amount } of quantityMap.values()) {
-      if (getOwnedCardVariantQuantity(user, cardId, enhancementLevel) < amount) {
-        return res.status(400).json({ msg: '보유 카드 수량이 부족합니다.' });
+      for (const { cardId, enhancementLevel, amount } of quantityMap.values()) {
+        const removed = enhancementLevel > 0
+          ? removeEnhancedCard(user, cardId, enhancementLevel, amount)
+          : removeCardFromCollection(user, cardId, amount);
+        if (!removed) {
+          throw createHttpError(400, '보유 카드 수량이 부족합니다.');
+        }
       }
-    }
 
-    for (const { cardId, enhancementLevel, amount } of quantityMap.values()) {
-      const removed = enhancementLevel > 0
-        ? removeEnhancedCard(user, cardId, enhancementLevel, amount)
-        : removeCardFromCollection(user, cardId, amount);
-      if (!removed) {
-        return res.status(400).json({ msg: '보유 카드 수량이 부족합니다.' });
+      const resultGrade = getFusionOutcomeGrade(sourceGrade);
+      const resultCardId = getRandomCardIdByGrade(resultGrade);
+      if (!resultCardId) {
+        throw createHttpError(500, '합성 결과 카드를 찾지 못했습니다.');
       }
-    }
 
-    const resultGrade = getFusionOutcomeGrade(sourceGrade);
-    const resultCardId = getRandomCardIdByGrade(resultGrade);
-    if (!resultCardId) {
-      return res.status(500).json({ msg: '합성 결과 카드를 찾지 못했습니다.' });
-    }
+      addCardToCollection(user, resultCardId, 1);
 
-    addCardToCollection(user, resultCardId, 1);
+      user.gameState.lastActionTime = now;
+      const response = await buildUserResponseWithGlobals(user, now);
+      response.fusionResult = {
+        sourceGrade,
+        result: {
+          id: resultCardId,
+          name: CARD_DATA[resultCardId].name,
+          grade: CARD_DATA[resultCardId].grade,
+          color: CARD_GRADE_COLORS[CARD_DATA[resultCardId].grade] || '#666666',
+          skillName: CARD_DATA[resultCardId].skillName,
+          skillDesc: CARD_DATA[resultCardId].skillDesc
+        }
+      };
+      return response;
+    }, { conflictLabel: 'Card fusion conflict' });
 
-    user.gameState.lastActionTime = now;
-    const response = await buildUserResponseWithGlobals(user, now);
-    response.fusionResult = {
-      sourceGrade,
-      result: {
-        id: resultCardId,
-        name: CARD_DATA[resultCardId].name,
-        grade: CARD_DATA[resultCardId].grade,
-        color: CARD_GRADE_COLORS[CARD_DATA[resultCardId].grade] || '#666666',
-        skillName: CARD_DATA[resultCardId].skillName,
-        skillDesc: CARD_DATA[resultCardId].skillDesc
-      }
-    };
-    await user.save();
     res.json(response);
   } catch (err) {
     console.error('Card fusion error:', err);
-    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
   }
 });
 
 app.post('/api/cards/enhance', async (req, res) => {
   const { userId, cardId, enhancementLevel } = req.body;
   if (!userId || !cardId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+  const successRoll = Math.random();
 
   try {
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      ensureUserDefaults(user);
 
-    const now = new Date();
-    calculateOfflineGains(user, now);
-
-    const currentLevel = normalizeCardEnhancementLevel(enhancementLevel || 0);
-    if (!CARD_DATA[cardId]) {
-      return res.status(400).json({ msg: '존재하지 않는 카드입니다.' });
-    }
-    if (CARD_DATA[cardId].enhanceDisabled) {
-      return res.status(400).json({ msg: '이 카드는 강화할 수 없습니다.' });
-    }
-    if (currentLevel >= 5) {
-      return res.status(400).json({ msg: '이미 최대 강화 단계입니다.' });
-    }
-    if (getOwnedCardVariantQuantity(user, cardId, currentLevel) <= 0) {
-      return res.status(400).json({ msg: '해당 강화 단계의 카드를 보유하고 있지 않습니다.' });
-    }
-    const equippedThisVariant = user.equippedCardId === cardId && Number(user.equippedCardLevel || 0) === currentLevel;
-    const availableEnhanceQuantity = getOwnedCardVariantQuantity(user, cardId, currentLevel);
-    if (availableEnhanceQuantity <= 0) {
-      return res.status(400).json({ msg: '강화에 사용할 카드가 없습니다.' });
-    }
-
-    const enhanceCost = getCardEnhancementCost(cardId, currentLevel);
-    if (user.gameState.money < enhanceCost) {
-      return res.status(400).json({ msg: '강화 비용이 부족합니다.' });
-    }
-
-    user.gameState.money -= enhanceCost;
-    const successRate = getCardEnhancementSuccessRate(currentLevel);
-    const isSuccess = Math.random() < successRate;
-    const nextLevel = currentLevel + 1;
-
-    if (isSuccess) {
-      if (currentLevel <= 0) {
-        removeCardFromCollection(user, cardId, 1);
-      } else {
-        removeEnhancedCard(user, cardId, currentLevel, 1);
+      const currentLevel = normalizeCardEnhancementLevel(enhancementLevel || 0);
+      if (!CARD_DATA[cardId]) {
+        throw createHttpError(400, '존재하지 않는 카드입니다.');
       }
-      addEnhancedCard(user, cardId, nextLevel, 1);
-      if (equippedThisVariant) {
-        user.equippedCardId = cardId;
-        user.equippedCardLevel = nextLevel;
+      if (CARD_DATA[cardId].enhanceDisabled) {
+        throw createHttpError(400, '이 카드는 강화할 수 없습니다.');
       }
-    }
+      if (currentLevel >= 5) {
+        throw createHttpError(400, '이미 최대 강화 단계입니다.');
+      }
+      if (getOwnedCardVariantQuantity(user, cardId, currentLevel) <= 0) {
+        throw createHttpError(400, '해당 강화 단계의 카드를 보유하고 있지 않습니다.');
+      }
+      const equippedThisVariant = user.equippedCardId === cardId && Number(user.equippedCardLevel || 0) === currentLevel;
+      const availableEnhanceQuantity = getOwnedCardVariantQuantity(user, cardId, currentLevel);
+      if (availableEnhanceQuantity <= 0) {
+        throw createHttpError(400, '강화에 사용할 카드가 없습니다.');
+      }
 
-    user.gameState.lastActionTime = now;
-    const response = await buildUserResponseWithGlobals(user, now);
-    response.enhancementResult = {
-      cardId,
-      success: isSuccess,
-      previousLevel: currentLevel,
-      nextLevel: isSuccess ? nextLevel : currentLevel,
-      successRate,
-      cost: enhanceCost,
-      cardName: CARD_DATA[cardId].name
-    };
-    await user.save();
+      const enhanceCost = getCardEnhancementCost(cardId, currentLevel);
+      if (user.gameState.money < enhanceCost) {
+        throw createHttpError(400, '강화 비용이 부족합니다.');
+      }
+
+      user.gameState.money -= enhanceCost;
+      const successRate = getCardEnhancementSuccessRate(currentLevel);
+      const isSuccess = successRoll < successRate;
+      const nextLevel = currentLevel + 1;
+
+      if (isSuccess) {
+        if (currentLevel <= 0) {
+          removeCardFromCollection(user, cardId, 1);
+        } else {
+          removeEnhancedCard(user, cardId, currentLevel, 1);
+        }
+        addEnhancedCard(user, cardId, nextLevel, 1);
+        if (equippedThisVariant) {
+          user.equippedCardId = cardId;
+          user.equippedCardLevel = nextLevel;
+        }
+      }
+
+      user.gameState.lastActionTime = now;
+      const response = await buildUserResponseWithGlobals(user, now);
+      response.enhancementResult = {
+        cardId,
+        success: isSuccess,
+        previousLevel: currentLevel,
+        nextLevel: isSuccess ? nextLevel : currentLevel,
+        successRate,
+        cost: enhanceCost,
+        cardName: CARD_DATA[cardId].name
+      };
+      return response;
+    }, { conflictLabel: 'Card enhance conflict' });
+
     res.json(response);
   } catch (err) {
     console.error('Card enhance error:', err);
-    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
   }
 });
 
@@ -11557,7 +11565,7 @@ app.post('/api/cards/equip', async (req, res) => {
       user.equippedCardLevel = cardId ? targetLevel : 0;
     }
     const response = await buildUserResponseWithGlobals(user, now);
-    await user.save();
+    await persistUserSnapshot(user);
     res.json(response);
   } catch (err) {
     console.error('Card equip error:', err);
@@ -11744,7 +11752,7 @@ app.post('/api/raid/start', async (req, res) => {
         return res.status(400).json({ msg: `${user.nickname || user.username} 님은 오늘 이미 레이드에 참여했습니다.` });
       }
       try {
-        await user.save();
+        await persistUserSnapshot(user);
         consumedUsers.push(user);
       } catch (err) {
         if (!isVersionConflictError(err)) throw err;
@@ -11763,7 +11771,7 @@ app.post('/api/raid/start', async (req, res) => {
           throw createHttpError(400, `${latestUser.nickname || latestUser.username} 님은 오늘 이미 레이드에 참여했습니다.`);
         }
 
-        await latestUser.save();
+        await persistUserSnapshot(latestUser);
         participantUsers[participantIndex] = latestUser;
         participants[participantIndex] = createRaidParticipantFromUser(latestUser);
         consumedUsers.push(latestUser);
@@ -11835,7 +11843,7 @@ app.post('/api/raid/start', async (req, res) => {
     for (const user of consumedUsers) {
       try {
         refundRaidEntry(user, new Date());
-        await user.save();
+        await persistUserSnapshot(user);
       } catch (refundErr) {
         console.error('Raid start refund error:', refundErr);
       }
@@ -11889,7 +11897,7 @@ app.post('/api/raid/cancel-countdown', async (req, res) => {
       const participantUser = userMap.get(String(participantId));
       if (!participantUser) continue;
       refundRaidEntry(participantUser, new Date());
-      await participantUser.save();
+      await persistUserSnapshot(participantUser);
     }
 
     room.activeBattle = null;
@@ -12043,7 +12051,7 @@ app.post('/api/infinite-overtime/defense-preset', async (req, res) => {
       user.infiniteOvertime.defensePreset = preset;
       user.infiniteOvertime.defenseScore = getInfiniteOvertimeDeckScore(preset);
       user.markModified('infiniteOvertime');
-      await user.save();
+      await persistUserSnapshot(user);
       bumpInfiniteOvertimeVersion();
       return buildInfiniteOvertimeUserPayload(user, now);
     });
@@ -12131,7 +12139,7 @@ app.post('/api/infinite-overtime/start', async (req, res) => {
 
       const floor = Math.max(1, Math.min(INFINITE_OVERTIME_MAX_FLOOR, Number(user.infiniteOvertime.nextFloor || 1)));
       user.markModified('infiniteOvertime');
-      await user.save();
+      await persistUserSnapshot(user);
       await startInfiniteOvertimeBattleForUser(user, floor, now);
       return buildInfiniteOvertimeUserPayload(user, now);
     });
@@ -12155,7 +12163,7 @@ app.post('/api/infinite-overtime/action', async (req, res) => {
       const parsedIndex = Number(cardIndex);
       await executeInfiniteOvertimePlayerAction(user, Number.isInteger(parsedIndex) ? parsedIndex : null);
       user.markModified('infiniteOvertime');
-      await user.save();
+      await persistUserSnapshot(user);
       bumpInfiniteOvertimeVersion();
       return buildInfiniteOvertimeUserPayload(user, new Date());
     });
@@ -12207,7 +12215,7 @@ app.post('/api/infinite-overtime/swap', async (req, res) => {
         user.infiniteOvertime.nextFloor = nextFloor;
       }
       user.markModified('infiniteOvertime');
-      await user.save();
+      await persistUserSnapshot(user);
       bumpInfiniteOvertimeVersion();
       return buildInfiniteOvertimeUserPayload(user, new Date());
     });
@@ -12240,7 +12248,7 @@ app.post('/api/infinite-overtime/continue', async (req, res) => {
         floor = Math.max(floor, Math.min(INFINITE_OVERTIME_MAX_FLOOR, Number(battle.floor || 1) + 1));
         user.infiniteOvertime.nextFloor = floor;
         user.markModified('infiniteOvertime');
-        await user.save();
+        await persistUserSnapshot(user);
       }
       setInfiniteOvertimeBattle(userId, null);
       await startInfiniteOvertimeBattleForUser(user, floor, new Date());
@@ -12268,7 +12276,7 @@ app.post('/api/infinite-overtime/exit', async (req, res) => {
         throw createHttpError(400, '전투 중에는 메인화면으로 돌아갈 수 없습니다.');
       }
       setInfiniteOvertimeBattle(userId, null);
-      await user.save();
+      await persistUserSnapshot(user);
       return buildInfiniteOvertimeUserPayload(user, new Date());
     });
     res.json(response);
@@ -12542,7 +12550,7 @@ app.post('/api/pvp/bet', async (req, res) => {
       createdAt: now
     };
     match.logs.push(`${user.nickname || user.username}님이 승부 예측 배팅을 등록했습니다.`);
-    await user.save();
+    await persistUserSnapshot(user);
     bumpPvpVersion();
 
     res.json({
@@ -12664,7 +12672,7 @@ app.post('/api/action/shout', async (req, res) => {
     pushShoutMessage(shoutMessage, now);
 
     const response = await buildUserResponseWithGlobals(user, now);
-    await user.save();
+    await persistUserSnapshot(user);
     res.json(response);
   } catch (err) {
     console.error('Shout action error:', err);
@@ -12688,7 +12696,7 @@ app.post('/api/sync', async (req, res) => {
       reconcileTitles(user, now);
 
       const syncResponse = await buildUserResponseWithGlobals(user, now);
-      await user.save();
+      await persistUserSnapshot(user);
       return syncResponse;
     });
     res.json(response);
@@ -13007,7 +13015,7 @@ app.post('/api/admin/set-level', async (req, res) => {
     reconcileEmblems(user);
     queueNotification(user, 'admin_level', `운영자가 당신의 레벨을 ${targetLevel}(으)로 조정했습니다.`);
 
-    await user.save();
+    await persistUserSnapshot(user);
 
     res.json({
       success: true,
@@ -13046,7 +13054,7 @@ app.post('/api/admin/grant-money', async (req, res) => {
     queueNotification(user, 'admin_money', `운영자가 ${grantAmount.toLocaleString()}원을 지급했습니다.`);
 
     try {
-      await user.save();
+      await persistUserSnapshot(user);
     } catch (err) {
       if (!isVersionConflictError(err)) throw err;
       const latestUser = await User.findById(targetUserId);
@@ -13058,7 +13066,7 @@ app.post('/api/admin/grant-money', async (req, res) => {
       latestUser.gameState.money += grantAmount;
       reconcileTitles(latestUser, now);
       queueNotification(latestUser, 'admin_money', `운영자가 ${grantAmount.toLocaleString()}원을 지급했습니다.`);
-      await latestUser.save();
+      await persistUserSnapshot(latestUser);
       user = latestUser;
     }
 

@@ -277,6 +277,23 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-28-user-save-snapshot',
+    time: '2026-05-28 17:45',
+    title: '저장 충돌 추가 안정화',
+    items: [
+      '카드 강화뿐 아니라 상점, 가방, 장착 변경, 일부 보상 처리처럼 유저 데이터를 저장하는 주요 행동을 안전 저장 방식으로 통일했습니다.',
+      '자동 동기화와 직접 행동이 겹칠 때 뜨던 서버 오류 팝업 빈도를 더 줄였습니다.'
+    ]
+  },  {
+    id: '2026-05-28-save-conflict-hardening',
+    time: '2026-05-28 17:25',
+    title: '강화/합성 저장 안정화',
+    items: [
+      '카드 강화, 카드 합성, 장비 강화가 자동 동기화 저장과 충돌해 서버 오류 팝업이 뜨던 문제를 줄이기 위해 서버 저장 잠금과 충돌 재시도를 적용했습니다.',
+      '카드 강화와 합성 요청도 클라이언트 요청 큐를 타도록 바꿔 빠른 연속 조작 중 저장 순서가 꼬일 가능성을 낮췄습니다.'
+    ]
+  },
+  {
     id: '2026-05-28-infinite-overtime-draft-rate-fix',
     time: '2026-05-28 17:05',
     title: '무한야근 공략 카드 후보 확률 조정',
@@ -2902,11 +2919,11 @@ async function handleCardEnhanceConfirm() {
   if (!confirmed) return;
 
   try {
-    const data = await postJson(`${API_URL}/api/cards/enhance`, {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/cards/enhance`, {
       userId: user._id,
       cardId: selectedCard.cardId,
       enhancementLevel: selectedCard.enhancementLevel
-    });
+    }));
     updateLocalUserState(data);
     const result = data.enhancementResult;
     if (result) {
@@ -3036,11 +3053,11 @@ async function handleCardFusionConfirm() {
   }
 
   try {
-    const data = await postJson(`${API_URL}/api/cards/fuse`, {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/cards/fuse`, {
       userId: user._id,
       cards: cardFusionSelection.map(parseCardVariantKey),
       cardIds: [...cardFusionSelection]
-    });
+    }));
     cardFusionSelection = [];
     updateLocalUserState(data);
     const result = data.fusionResult?.result;
