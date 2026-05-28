@@ -276,7 +276,14 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
-  {
+    {
+    id: '2026-05-28-carbon-fiber-image',
+    time: '2026-05-28 19:25',
+    title: 'CARBON FIBER 휘장 이미지 적용',
+    items: [
+      'CARBON FIBER 휘장에 실제 카본 파이버 배너 이미지를 적용하고, 원본 하단의 흰 여백을 잘라냈습니다.'
+    ]
+  },{
     id: '2026-05-28-carbon-fiber-emblem',
     time: '2026-05-28 19:10',
     title: 'CARBON FIBER 휘장 추가',
