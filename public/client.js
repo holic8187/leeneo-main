@@ -277,6 +277,13 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-28-infinite-overtime-reward-tune',
+    time: '2026-05-28 18:20',
+    title: '무한야근 보상 조정',
+    items: [
+      '무한야근 클리어 보상 중 파편 보상은 유지하고, 명함은 5~15개, 박카스는 5~20개, 회의 추가 입장권은 1~3개 범위로 조정했습니다.'
+    ]
+  },  {
     id: '2026-05-28-infinite-overtime-bot-attack-fixed',
     time: '2026-05-28 18:05',
     title: '무한야근 공격력 조정',

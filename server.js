@@ -7275,9 +7275,9 @@ function buildInfiniteOvertimeReward(floor) {
   const ratio = Math.max(0, Math.min(1, (Number(floor || 1) - 1) / Math.max(1, INFINITE_OVERTIME_MAX_FLOOR - 1)));
   const rewardTypes = [
     { type: 'fragment', itemId: 'equipment_fragment', min: 50, max: 400, label: '장비 파편' },
-    { type: 'business_card', itemId: 'business_card', min: 10, max: 50, label: '명함' },
-    { type: 'bacchus', itemId: 'bacchus', min: 30, max: 60, label: '박카스' },
-    { type: 'raid_ticket', itemId: 'raid_entry_ticket', min: 2, max: 10, label: '회의 추가 입장권' }
+    { type: 'business_card', itemId: 'business_card', min: 5, max: 15, label: '명함' },
+    { type: 'bacchus', itemId: 'bacchus', min: 5, max: 20, label: '박카스' },
+    { type: 'raid_ticket', itemId: 'raid_entry_ticket', min: 1, max: 3, label: '회의 추가 입장권' }
   ];
   const picked = rewardTypes[Math.floor(Math.random() * rewardTypes.length)];
   const amount = Math.max(1, Math.round(Number(picked.min || 1) + ((Number(picked.max || picked.min) - Number(picked.min || 1)) * ratio)));
