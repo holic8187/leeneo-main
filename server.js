@@ -167,6 +167,7 @@ const INFINITE_OVERTIME_DRAFT_GRADE_WEIGHTS = [
   { grade: 'B', weight: 30 },
   { grade: 'C', weight: 40 }
 ];
+const INFINITE_OVERTIME_DRAFT_GRADE_ORDER = ['S', 'A', 'B', 'C'];
 const PVP_MODE_LABELS = {
   [PVP_MODE_RANKED]: '랭크',
   [PVP_MODE_NORMAL]: '일반'
@@ -6656,24 +6657,75 @@ function rollInfiniteOvertimeDraftGrade() {
   return 'C';
 }
 
+function getInfiniteOvertimeDraftGradeWeight(grade) {
+  return INFINITE_OVERTIME_DRAFT_GRADE_WEIGHTS.find((entry) => entry.grade === grade)?.weight || 0;
+}
+
+function getInfiniteOvertimeDraftLowerGrades(grade, includeSelf = false) {
+  const index = INFINITE_OVERTIME_DRAFT_GRADE_ORDER.indexOf(grade);
+  if (index < 0) return ['C'];
+  return INFINITE_OVERTIME_DRAFT_GRADE_ORDER.slice(index + (includeSelf ? 0 : 1));
+}
+
+function pickInfiniteOvertimeCandidateFromGrades(available, usedIds, grades) {
+  const gradeList = (Array.isArray(grades) ? grades : [])
+    .filter((grade, index, list) => grade && list.indexOf(grade) === index);
+  const availableGrades = gradeList.filter((grade) => (
+    available.some((entry) => !usedIds.has(entry.cardId) && entry.grade === grade)
+  ));
+  if (!availableGrades.length) return null;
+
+  const totalWeight = availableGrades.reduce((sum, grade) => sum + getInfiniteOvertimeDraftGradeWeight(grade), 0);
+  let roll = Math.random() * Math.max(1, totalWeight);
+  let selectedGrade = availableGrades[availableGrades.length - 1];
+  for (const grade of availableGrades) {
+    roll -= getInfiniteOvertimeDraftGradeWeight(grade);
+    if (roll <= 0) {
+      selectedGrade = grade;
+      break;
+    }
+  }
+
+  const pool = available.filter((entry) => !usedIds.has(entry.cardId) && entry.grade === selectedGrade);
+  if (!pool.length) return null;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+function pushInfiniteOvertimeCandidate(candidates, picked) {
+  if (!picked) return false;
+  candidates.push({
+    cardId: picked.cardId,
+    enhancementLevel: normalizeCardEnhancementLevel(picked.enhancementLevel || 0)
+  });
+  return true;
+}
+
 function buildInfiniteOvertimeDraftCandidates(user, selectedDeck = [], count = 5) {
   const selectedIds = new Set(normalizeInfiniteOvertimeDeck(selectedDeck).map((entry) => entry.cardId));
   const owned = getInfiniteOvertimeOwnedCards(user)
     .filter((entry) => !selectedIds.has(entry.cardId));
   const candidates = [];
+  const targetGrade = rollInfiniteOvertimeDraftGrade();
 
   while (candidates.length < count && candidates.length < owned.length) {
     const usedIds = new Set(candidates.map((entry) => entry.cardId));
     const available = owned.filter((entry) => !usedIds.has(entry.cardId));
-    const targetGrade = rollInfiniteOvertimeDraftGrade();
-    const gradePool = available.filter((entry) => entry.grade === targetGrade);
-    const pool = gradePool.length ? gradePool : available;
-    if (!pool.length) break;
-    const picked = pool[Math.floor(Math.random() * pool.length)];
-    candidates.push({
-      cardId: picked.cardId,
-      enhancementLevel: normalizeCardEnhancementLevel(picked.enhancementLevel || 0)
-    });
+    if (!available.length) break;
+
+    let picked = null;
+    if (!candidates.length) {
+      picked = pickInfiniteOvertimeCandidateFromGrades(available, usedIds, [targetGrade])
+        || pickInfiniteOvertimeCandidateFromGrades(available, usedIds, getInfiniteOvertimeDraftLowerGrades(targetGrade, false))
+        || pickInfiniteOvertimeCandidateFromGrades(available, usedIds, INFINITE_OVERTIME_DRAFT_GRADE_ORDER.filter((grade) => grade !== 'S'))
+        || pickInfiniteOvertimeCandidateFromGrades(available, usedIds, INFINITE_OVERTIME_DRAFT_GRADE_ORDER);
+    } else {
+      const fillerGrades = getInfiniteOvertimeDraftLowerGrades(targetGrade, false);
+      picked = pickInfiniteOvertimeCandidateFromGrades(available, usedIds, fillerGrades.length ? fillerGrades : [targetGrade])
+        || pickInfiniteOvertimeCandidateFromGrades(available, usedIds, INFINITE_OVERTIME_DRAFT_GRADE_ORDER.filter((grade) => grade !== 'S'))
+        || pickInfiniteOvertimeCandidateFromGrades(available, usedIds, INFINITE_OVERTIME_DRAFT_GRADE_ORDER);
+    }
+
+    if (!pushInfiniteOvertimeCandidate(candidates, picked)) break;
   }
 
   return candidates;

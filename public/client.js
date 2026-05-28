@@ -277,6 +277,15 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-28-infinite-overtime-draft-rate-fix',
+    time: '2026-05-28 17:05',
+    title: '무한야근 공략 카드 후보 확률 조정',
+    items: [
+      '공략용 카드 후보 5장을 각각 S 10%로 굴리던 구조를 바꿔, 한 슬롯에서 S 후보가 등장하는 확률이 의도한 10%에 가깝게 적용되도록 조정했습니다.',
+      '낮은 등급 후보가 부족할 때 전체 카드 풀로 바로 대체되며 고등급이 과하게 섞일 수 있던 보정 로직도 완화했습니다.'
+    ]
+  },
+  {
     id: '2026-05-28-infinite-overtime-bot-skill-ai',
     time: '2026-05-28 16:40',
     title: '무한야근 Bot 스킬 사용 보강',
