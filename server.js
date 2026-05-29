@@ -44,7 +44,14 @@ const WORK_CLICK_ANTICHEAT_MIN_INTERVAL_MS = 55;
 const WORK_CLICK_ANTICHEAT_IP_WINDOW_MS = 30 * 1000;
 const WORK_CLICK_ANTICHEAT_COOLDOWN_MS = 7 * 1000;
 const ADVENTURE_COOLDOWN_MS = 1250;
-const MARKETPLACE_TRADEABLE_ITEM_IDS = ['raid_entry_ticket', 'hagendaz'];
+const COMPANY_STOCK_MARKET_SETTING_KEY = 'company_stock_market';
+const COMPANY_STOCK_UPDATE_INTERVAL_MS = 10 * 60 * 1000;
+const COMPANY_STOCK_HISTORY_LIMIT = 144;
+const COMPANY_STOCK_SELL_FEE_RATE = 0.03;
+const COMPANY_STOCK_RUMOR_ACCURACY = 0.6;
+const COMPANY_STOCK_MAX_BACKFILL_TICKS = 288;
+const WORK_REPAIR_COUPON_DROP_CHANCE = 0.0005;
+const MARKETPLACE_TRADEABLE_ITEM_IDS = ['raid_entry_ticket', 'hagendaz', 'excavation_repair_coupon'];
 const MARKETPLACE_FEE_RATE = 0.1;
 const MARKETPLACE_LISTING_TTL_MS = 48 * 60 * 60 * 1000;
 const CARD_DRAW_GRADE_RATES = [
@@ -499,6 +506,14 @@ const ITEM_DATA = {
     shopHidden: true,
     desc: '사용 즉시 1레벨 상승',
     hoverDesc: '사용 시 즉시 1레벨 상승하며 현재 경험치는 0으로 초기화됩니다.'
+  },
+  excavation_repair_coupon: {
+    name: '발굴 기계 수리 쿠폰',
+    price: 0,
+    type: 'consumable',
+    shopHidden: true,
+    desc: '고장난 발굴 기계를 즉시 수리',
+    hoverDesc: '회사 운영 중 발굴 기계가 고장났을 때 사용하면 즉시 수리됩니다.'
   },
   business_card: {
     name: '명함',
@@ -1108,6 +1123,20 @@ const CARD_DATA = {
     enhanceDisabled: true,
     targetType: null
   },
+  nosy_manager: {
+    id: 'nosy_manager',
+    name: '노처녀 신차장의 오지랖',
+    grade: 'A',
+    rate: 0.008,
+    skillName: '오지랖',
+    skillDesc: '선택한 파티원 1명에게 보호막 30을 부여하고, 상대에게 자신의 레벨 x 20 피해를 2회 입힙니다.',
+    cooldown: 5,
+    effectType: 'ally_shield_enemy_multi_hit',
+    targetType: 'ally',
+    shield: 30,
+    damagePerLevel: 20,
+    hits: 2
+  },
   mond_parental_leave: {
     id: 'mond_parental_leave',
     name: '몬드의 육아휴직',
@@ -1203,6 +1232,7 @@ const CARD_ENHANCE_RULES = {
   precise_strike: { multiplierPerLevel: { 0: 40, 2: 45, 3: 50, 4: 55 }, cooldown: { 0: 5, 1: 4, 5: 3 } },
   umbrella_copy: { copyEffectMultiplier: { 0: 0.5, 2: 0.6, 3: 0.7 }, canSelectCopyTarget: { 4: 1 }, cooldown: { 0: 6, 1: 5, 5: 4 } },
   neo_pesticide: { damagePerLevel: { 0: 10, 2: 11, 4: 12, 5: 15 }, cooldown: { 0: 7, 1: 6, 3: 5 } },
+  nosy_manager: { shield: { 0: 30, 1: 35, 4: 40 }, damagePerLevel: { 0: 20, 2: 25, 5: 30 }, cooldown: { 0: 5, 3: 4 } },
   mond_parental_leave: { cooldown: { 0: 9, 1: 8, 3: 7, 5: 6 } },
   jor_bongo: { breadCount: { 0: 6, 1: 7, 2: 8, 3: 9, 4: 10 }, cooldown: { 0: 5, 5: 4 } },
   gossip: { removeBuffCount: { 0: 1, 5: 2 }, cooldown: { 0: 8, 1: 7, 2: 6, 3: 5, 4: 4 } }
@@ -2274,6 +2304,14 @@ const userSchema = new mongoose.Schema({
     amount: { type: Number, default: 0 },
     investedOn: { type: String, default: null }
   },
+  stockPortfolio: [{
+    companyId: { type: String, required: true },
+    companyName: { type: String, default: '' },
+    shares: { type: Number, default: 0 },
+    averagePrice: { type: Number, default: 0 },
+    investedAmount: { type: Number, default: 0 },
+    updatedAt: { type: Date, default: Date.now }
+  }],
   shopState: {
     dayKey: { type: String, default: null },
     dailySpend: { type: Number, default: 0 },
@@ -2384,6 +2422,184 @@ adminMailSchema.index({ recipientId: 1, status: 1, createdAt: -1 });
 adminMailSchema.index({ expiresAt: 1, status: 1 });
 
 const AdminMail = mongoose.model('AdminMail', adminMailSchema);
+
+function getCompanyStockDisplayName(user) {
+  const branchName = String(user?.branchOffice?.companyName || '').trim();
+  if (branchName) return branchName;
+  return String(user?.nickname || user?.username || '이름 없는 회사').trim();
+}
+
+function rollCompanyStockInitialPrice() {
+  const buckets = [
+    { min: 10000, max: 90000, weight: 35 },
+    { min: 100000, max: 900000, weight: 35 },
+    { min: 1000000, max: 9000000, weight: 20 },
+    { min: 10000000, max: 90000000, weight: 10 }
+  ];
+  const totalWeight = buckets.reduce((sum, bucket) => sum + bucket.weight, 0);
+  let roll = Math.random() * totalWeight;
+  const bucket = buckets.find((entry) => {
+    roll -= entry.weight;
+    return roll <= 0;
+  }) || buckets[0];
+  return Math.max(100, Math.round(bucket.min + Math.random() * (bucket.max - bucket.min)));
+}
+
+function rollCompanyStockChangePct() {
+  const magnitude = Math.pow(Math.random(), 2.35) * 10;
+  const sign = Math.random() < 0.5 ? -1 : 1;
+  return Number((sign * magnitude).toFixed(2));
+}
+
+const COMPANY_STOCK_RUMOR_BANK = {
+  up: {
+    small: ['사내 분위기가 조용히 좋아지고 있다는 말이 돕니다.', '작은 계약이 연달아 들어왔다는 이야기가 있습니다.', '지출 관리를 잘했다는 소문이 들립니다.', '낮은 폭의 반등 신호가 보인다는 평가입니다.', '거래처 반응이 나쁘지 않다는 이야기가 있습니다.'],
+    mid: ['신규 프로젝트가 순조롭게 진행 중이라는 말이 있습니다.', '이번 주 실적 기대감이 커지고 있습니다.', '영업팀 쪽에서 꽤 괜찮은 소식이 들립니다.', '시장 반응이 예상보다 따뜻하다는 소문입니다.', '내부 평가가 한 단계 좋아졌다는 이야기가 있습니다.'],
+    large: ['대형 계약 가능성이 시장에 돌고 있습니다.', '깜짝 호재가 있다는 소문이 빠르게 퍼집니다.', '기관성 매수세가 붙었다는 이야기가 있습니다.', '회사 가치 재평가 가능성이 제기됩니다.', '큰 폭의 기대감이 몰리고 있다는 말이 있습니다.']
+  },
+  down: {
+    small: ['소소한 비용 부담 이야기가 있습니다.', '단기 피로감이 쌓였다는 평가입니다.', '거래처 회신이 조금 늦어진다는 말이 있습니다.', '작은 조정 가능성이 거론됩니다.', '내부 점검 이슈가 있다는 소문입니다.'],
+    mid: ['주요 프로젝트 일정이 밀릴 수 있다는 이야기가 있습니다.', '매출 기대치가 낮아졌다는 말이 돕니다.', '시장 반응이 생각보다 차갑다는 평가입니다.', '단기 악재가 반영될 수 있다는 소문입니다.', '경쟁사 압박이 커졌다는 이야기가 있습니다.'],
+    large: ['큰 비용 이슈가 생겼다는 소문이 빠르게 퍼집니다.', '대형 계약이 흔들린다는 이야기가 있습니다.', '시장 신뢰가 크게 흔들릴 수 있다는 평가입니다.', '예상 밖의 악재가 있다는 말이 나옵니다.', '급격한 매도세를 경계해야 한다는 소문입니다.']
+  }
+};
+
+function getCompanyStockMagnitudeKey(changePct) {
+  const abs = Math.abs(Number(changePct || 0));
+  if (abs >= 7) return 'large';
+  if (abs >= 3) return 'mid';
+  return 'small';
+}
+
+function buildCompanyStockRumor(company) {
+  const projected = Number(company?.projectedChangePct || 0);
+  const reliable = Math.random() < COMPANY_STOCK_RUMOR_ACCURACY;
+  const hintUp = reliable ? projected >= 0 : projected < 0;
+  const direction = hintUp ? 'up' : 'down';
+  const magnitudeKey = getCompanyStockMagnitudeKey(projected);
+  const pool = COMPANY_STOCK_RUMOR_BANK[direction][magnitudeKey] || COMPANY_STOCK_RUMOR_BANK[direction].small;
+  const base = pool[Math.floor(Math.random() * pool.length)] || '별다른 소문은 없습니다.';
+  const wrappers = ['찌라시: ', '복도 소문: ', '커피머신 앞 정보: ', '익명의 제보: ', '점심시간 루머: '];
+  const wrapper = wrappers[Math.floor(Math.random() * wrappers.length)];
+  return wrapper + base;
+}
+
+function normalizeCompanyStockEntry(entry, now = new Date()) {
+  const price = Math.max(100, Math.round(Number(entry?.price || 0) || rollCompanyStockInitialPrice()));
+  const history = Array.isArray(entry?.history) ? entry.history.slice(-COMPANY_STOCK_HISTORY_LIMIT) : [];
+  if (!history.length) {
+    history.push({ at: now, price, changePct: 0 });
+  }
+  return {
+    companyId: String(entry?.companyId || ''),
+    companyName: String(entry?.companyName || '이름 없는 회사'),
+    ownerNickname: String(entry?.ownerNickname || ''),
+    companyValue: Math.max(0, Number(entry?.companyValue || 0)),
+    price,
+    lastChangePct: Number(entry?.lastChangePct || 0),
+    projectedChangePct: Number.isFinite(Number(entry?.projectedChangePct)) ? Number(entry.projectedChangePct) : rollCompanyStockChangePct(),
+    history
+  };
+}
+
+async function syncCompanyStockMarket(now = new Date()) {
+  let setting = await GameSetting.findOne({ key: COMPANY_STOCK_MARKET_SETTING_KEY });
+  if (!setting) {
+    setting = new GameSetting({ key: COMPANY_STOCK_MARKET_SETTING_KEY, value: { companies: [], lastTickAt: now, nextTickAt: new Date(now.getTime() + COMPANY_STOCK_UPDATE_INTERVAL_MS) } });
+  }
+  const value = setting.value && typeof setting.value === 'object' ? setting.value : {};
+  const companyUsers = await User.find({ 'branchOffice.isFounded': true })
+    .select('_id username nickname branchOffice.companyName branchOffice.companyValue')
+    .lean();
+  const activeIds = new Set(companyUsers.map((entry) => String(entry._id)));
+  const byId = new Map();
+  (Array.isArray(value.companies) ? value.companies : []).forEach((entry) => {
+    const normalized = normalizeCompanyStockEntry(entry, now);
+    if (normalized.companyId) byId.set(normalized.companyId, normalized);
+  });
+  companyUsers.forEach((companyUser) => {
+    const companyId = String(companyUser._id);
+    const existing = byId.get(companyId) || normalizeCompanyStockEntry({ companyId }, now);
+    existing.companyId = companyId;
+    existing.companyName = getCompanyStockDisplayName(companyUser);
+    existing.ownerNickname = String(companyUser.nickname || companyUser.username || '');
+    existing.companyValue = Math.max(0, Number(companyUser.branchOffice?.companyValue || 0));
+    if (!Number.isFinite(Number(existing.projectedChangePct))) existing.projectedChangePct = rollCompanyStockChangePct();
+    byId.set(companyId, existing);
+  });
+  let companies = [...byId.values()].filter((entry) => activeIds.has(entry.companyId));
+  let lastTickAt = value.lastTickAt ? new Date(value.lastTickAt) : now;
+  if (!Number.isFinite(lastTickAt.getTime())) lastTickAt = now;
+  let elapsedTicks = Math.floor((now.getTime() - lastTickAt.getTime()) / COMPANY_STOCK_UPDATE_INTERVAL_MS);
+  elapsedTicks = Math.max(0, Math.min(COMPANY_STOCK_MAX_BACKFILL_TICKS, elapsedTicks));
+  for (let tick = 0; tick < elapsedTicks; tick += 1) {
+    const tickAt = new Date(lastTickAt.getTime() + COMPANY_STOCK_UPDATE_INTERVAL_MS);
+    companies.forEach((company) => {
+      const changePct = Number.isFinite(Number(company.projectedChangePct)) ? Number(company.projectedChangePct) : rollCompanyStockChangePct();
+      company.price = Math.max(100, Math.round(Number(company.price || 100) * (1 + changePct / 100)));
+      company.lastChangePct = Number(changePct.toFixed(2));
+      company.history = Array.isArray(company.history) ? company.history : [];
+      company.history.push({ at: tickAt, price: company.price, changePct: company.lastChangePct });
+      company.history = company.history.slice(-COMPANY_STOCK_HISTORY_LIMIT);
+      company.projectedChangePct = rollCompanyStockChangePct();
+    });
+    lastTickAt = tickAt;
+  }
+  const nextTickAt = new Date(lastTickAt.getTime() + COMPANY_STOCK_UPDATE_INTERVAL_MS);
+  const nextValue = { companies, lastTickAt, nextTickAt };
+  await GameSetting.updateOne(
+    { key: COMPANY_STOCK_MARKET_SETTING_KEY },
+    { $set: { value: nextValue, updatedAt: now } },
+    { upsert: true }
+  );
+  return nextValue;
+}
+
+function normalizeStockPortfolio(portfolio = []) {
+  if (!Array.isArray(portfolio)) return [];
+  return portfolio
+    .filter((entry) => entry && entry.companyId && Number(entry.shares || 0) > 0)
+    .map((entry) => ({
+      companyId: String(entry.companyId),
+      companyName: String(entry.companyName || ''),
+      shares: Math.max(0, Math.floor(Number(entry.shares || 0))),
+      averagePrice: Math.max(0, Number(entry.averagePrice || 0)),
+      investedAmount: Math.max(0, Number(entry.investedAmount || 0)),
+      updatedAt: entry.updatedAt || new Date()
+    }));
+}
+
+async function buildCompanyStockMarketResponse(user, now = new Date()) {
+  const market = await syncCompanyStockMarket(now);
+  const companies = Array.isArray(market.companies) ? market.companies : [];
+  const portfolio = normalizeStockPortfolio(user?.stockPortfolio);
+  const holdings = portfolio.map((holding) => {
+    const stock = companies.find((company) => company.companyId === holding.companyId);
+    const currentPrice = stock ? Number(stock.price || 0) : 0;
+    return {
+      ...holding,
+      companyName: stock?.companyName || holding.companyName,
+      currentPrice,
+      marketValue: Math.floor(currentPrice * Number(holding.shares || 0)),
+      unrealizedProfit: Math.floor((currentPrice - Number(holding.averagePrice || 0)) * Number(holding.shares || 0))
+    };
+  });
+  return {
+    stocks: companies.map((company) => ({
+      companyId: company.companyId,
+      companyName: company.companyName,
+      ownerNickname: company.ownerNickname,
+      companyValue: company.companyValue,
+      price: company.price,
+      lastChangePct: company.lastChangePct,
+      history: company.history || []
+    })),
+    holdings,
+    sellFeeRate: COMPANY_STOCK_SELL_FEE_RATE,
+    nextUpdateAt: market.nextTickAt || null,
+    totalMarketValue: holdings.reduce((sum, holding) => sum + Number(holding.marketValue || 0), 0)
+  };
+}
 
 function getKSTDateKey(date = new Date()) {
   const kst = new Date(date.getTime() + KST_OFFSET_MS);
@@ -2661,6 +2877,8 @@ function ensureUserDefaults(user) {
   }
   user.pendingStockInvestment.amount = Number(user.pendingStockInvestment.amount ?? 0);
   user.pendingStockInvestment.investedOn = user.pendingStockInvestment.investedOn || null;
+
+  user.stockPortfolio = normalizeStockPortfolio(user.stockPortfolio);
 
   if (!user.shopState) {
     user.shopState = {
@@ -3115,6 +3333,9 @@ function getCardDurationText(cardId, enhancementLevel = 0) {
     case 'fantasy':
     case 'broken_leg':
     case 'rooftop_pigeons':
+      return '즉시';
+    case 'nosy_manager':
+      return '즉시 / 보호막은 해당 턴의 보스 턴까지';
     case 'precise_strike':
       return '즉시';
     case 'tissue_box':
@@ -3225,6 +3446,8 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
       return `파티원 중 가장 레벨이 낮은 1명에게 ${card.turns}턴 동안 <부하직원>을 부여합니다. 부하직원은 현재 레벨보다 +${card.levelBonus} 높게 간주되어 레벨 기반 공격력과 스킬에 적용됩니다.`;
     case 'potato_rehab':
       return `보스전에서 현재 데미지 ${Number(card.fixedDamage || POTATO_REHAB_BASE_DAMAGE).toLocaleString()}의 고정 피해를 1회 입힙니다. 노멀 보스에서는 피해와 막타 성장량이 1/3로 적용됩니다. 한 판당 1회만 사용 가능하며, 이 스킬로 적을 처치하면 데미지가 플레이어의 현재 레벨만큼 영구 증가합니다. 개인면담에서는 선택할 수 없고 강화할 수 없습니다.`;
+    case 'nosy_manager':
+      return '선택한 파티원 1명에게 보호막 ' + card.shield + '을 부여하고, 상대에게 자신의 레벨 x ' + card.damagePerLevel + ' 피해를 ' + (card.hits || 2) + '회 입힙니다.';
     case 'precise_strike':
       return `자신의 레벨 x ${card.multiplierPerLevel}의 데미지를 1회 주며, 방어막을 무시하고 HP에 직접 피해를 입힙니다.`;
     case 'umbrella_copy':
@@ -3375,6 +3598,7 @@ function buildUserPersistenceSnapshot(user) {
     titles: toPlainMongoValue(user.titles),
     emblems: toPlainMongoValue(user.emblems),
     pendingStockInvestment: toPlainMongoValue(user.pendingStockInvestment),
+    stockPortfolio: toPlainMongoValue(user.stockPortfolio),
     shopState: toPlainMongoValue(user.shopState),
     meta: toPlainMongoValue(user.meta),
     pendingAdventure: toPlainMongoValue(user.pendingAdventure),
@@ -4445,10 +4669,19 @@ function applyWorkDrop(user) {
   };
 }
 
-function applyWorkDrops(user, attempts = 1) {
+function applyWorkDrops(user, attempts = 1, options = {}) {
   const normalizedAttempts = Math.max(0, Math.floor(Number(attempts) || 0));
   const drops = [];
   for (let index = 0; index < normalizedAttempts; index += 1) {
+    if (options.includeRepairCoupon && Math.random() < WORK_REPAIR_COUPON_DROP_CHANCE) {
+      addItemToInventory(user, 'excavation_repair_coupon', 1);
+      drops.push({
+        type: 'item',
+        itemId: 'excavation_repair_coupon',
+        quantity: 1,
+        text: '발굴 기계 수리 쿠폰 1개를 획득했습니다.'
+      });
+    }
     const drop = applyWorkDrop(user);
     if (drop) drops.push(drop);
   }
@@ -5379,6 +5612,29 @@ function useRaidCardSkill(participant, battle) {
       ally.skillCooldown = Math.max(0, Number(ally.skillCooldown || 0) - reduceAmount);
     });
     logText = `${participant.displayName}(이)가 ${card.name}로 파티원들의 남은 스킬 쿨타임을 ${reduceAmount}턴 줄였습니다.`;
+  } else if (card.effectType === 'ally_shield_enemy_multi_hit') {
+    const selectedTargetId = participant.plannedTargetUserId;
+    const target = getRaidParticipant(battle, selectedTargetId) || participant;
+    const shieldAmount = scaleFlat(card.shield || 0);
+    const appliedShield = grantRaidShield(target, shieldAmount);
+    const perHitDamage = scaleMultiHitFlat(getRaidEffectiveLevel(participant) * Number(card.damagePerLevel || 0));
+    const steps = [];
+    for (let hit = 0; hit < Math.max(1, Number(card.hits || 2)); hit += 1) {
+      steps.push({
+        type: 'player_fixed_skill_hit',
+        userId: participant.userId,
+        skillName: card.name,
+        damage: perHitDamage,
+        hitIndex: hit
+      });
+    }
+    participant.plannedTargetUserId = null;
+    participant.plannedTargetUserId2 = null;
+    return {
+      logs: [participant.displayName + '(이)가 ' + card.name + '로 ' + target.displayName + '에게 보호막 ' + appliedShield.toLocaleString() + '을 부여했습니다.'],
+      steps,
+      delayUnits: Math.max(1, steps.length)
+    };
   } else if (card.effectType === 'target_heal') {
     const selectedTargetId = participant.plannedTargetUserId;
     const target = getRaidParticipant(battle, selectedTargetId) || getAliveRaidParticipants(battle)[0] || participant;
@@ -10374,6 +10630,7 @@ function buildGameStateResponse(user, now = new Date()) {
     emblemShop: buildEmblemShopState(user),
     branchOffice: buildBranchOfficePublicState(user, now, derivedStats),
     pendingStockInvestment: user.pendingStockInvestment,
+    stockPortfolio: user.stockPortfolio,
     pendingAdventure: user.pendingAdventure,
     shopState: user.shopState,
     fragmentShop: buildFragmentShopState(user, now),
@@ -10765,7 +11022,7 @@ app.post('/api/action/work', async (req, res) => {
       reconcileTitles(user, now);
       user.gameState.lastActionTime = now;
       const dropAttempts = antiCheat.rewardMultiplier >= 1 || Math.random() < antiCheat.rewardMultiplier ? 1 : 0;
-      const workDrops = applyWorkDrops(user, dropAttempts);
+      const workDrops = applyWorkDrops(user, dropAttempts, { includeRepairCoupon: true });
       const workDrop = workDrops[0] || null;
       if (workDrop?.text) {
         queueNotification(user, 'work_drop', workDrop.text);
@@ -11254,6 +11511,116 @@ app.post('/api/action/side-job', async (req, res) => {
   }
 });
 
+app.get('/api/company-stock-market', async (req, res) => {
+  const { userId } = req.query;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    ensureUserDefaults(user);
+    const now = new Date();
+    const stockMarket = await buildCompanyStockMarketResponse(user, now);
+    res.json({ stockMarket });
+  } catch (err) {
+    console.error('Company stock market load error:', err);
+    res.status(500).json({ msg: '회사 주식 시장을 불러오지 못했습니다.' });
+  }
+});
+
+app.post('/api/company-stock-market/buy', async (req, res) => {
+  const { userId, companyId, shares } = req.body;
+  const buyShares = Math.max(0, Math.floor(Number(shares || 0)));
+  if (!userId || !companyId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+  if (buyShares <= 0) return res.status(400).json({ msg: '구매 수량을 입력해주세요.' });
+  try {
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      ensureUserDefaults(user);
+      const market = await syncCompanyStockMarket(now);
+      const stock = (market.companies || []).find((entry) => entry.companyId === String(companyId));
+      if (!stock) throw createHttpError(404, '상장된 회사를 찾을 수 없습니다.');
+      const cost = Math.floor(Number(stock.price || 0) * buyShares);
+      if (cost <= 0) throw createHttpError(400, '구매 금액이 올바르지 않습니다.');
+      if (Number(user.gameState.money || 0) < cost) throw createHttpError(400, '잔고가 부족합니다.');
+      user.gameState.money -= cost;
+      user.stockPortfolio = normalizeStockPortfolio(user.stockPortfolio);
+      let holding = user.stockPortfolio.find((entry) => entry.companyId === String(companyId));
+      if (!holding) {
+        holding = { companyId: String(companyId), companyName: stock.companyName, shares: 0, averagePrice: 0, investedAmount: 0, updatedAt: now };
+        user.stockPortfolio.push(holding);
+      }
+      const previousShares = Number(holding.shares || 0);
+      const previousInvested = Number(holding.investedAmount || (previousShares * Number(holding.averagePrice || 0)));
+      holding.shares = previousShares + buyShares;
+      holding.investedAmount = previousInvested + cost;
+      holding.averagePrice = holding.shares > 0 ? holding.investedAmount / holding.shares : 0;
+      holding.companyName = stock.companyName;
+      holding.updatedAt = now;
+      user.markModified('stockPortfolio');
+      user.gameState.lastActionTime = now;
+      const userResponse = await buildUserResponseWithGlobals(user, now);
+      userResponse.stockMarket = await buildCompanyStockMarketResponse(user, now);
+      return userResponse;
+    }, { conflictLabel: 'Company stock buy conflict' });
+    res.json(response);
+  } catch (err) {
+    console.error('Company stock buy error:', err);
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '주식을 구매하지 못했습니다.' });
+  }
+});
+
+app.post('/api/company-stock-market/sell', async (req, res) => {
+  const { userId, companyId, shares } = req.body;
+  const sellShares = Math.max(0, Math.floor(Number(shares || 0)));
+  if (!userId || !companyId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+  if (sellShares <= 0) return res.status(400).json({ msg: '판매 수량을 입력해주세요.' });
+  try {
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      ensureUserDefaults(user);
+      const market = await syncCompanyStockMarket(now);
+      const stock = (market.companies || []).find((entry) => entry.companyId === String(companyId));
+      const holding = user.stockPortfolio.find((entry) => entry.companyId === String(companyId));
+      if (!stock || !holding || Number(holding.shares || 0) < sellShares) throw createHttpError(400, '판매할 주식이 부족합니다.');
+      const gross = Math.floor(Number(stock.price || 0) * sellShares);
+      const fee = Math.floor(gross * COMPANY_STOCK_SELL_FEE_RATE);
+      const net = Math.max(0, gross - fee);
+      user.gameState.money += net;
+      const averagePrice = Number(holding.averagePrice || 0);
+      holding.shares = Number(holding.shares || 0) - sellShares;
+      holding.investedAmount = Math.max(0, Number(holding.investedAmount || 0) - (averagePrice * sellShares));
+      holding.updatedAt = now;
+      if (holding.shares <= 0) user.stockPortfolio = user.stockPortfolio.filter((entry) => entry !== holding);
+      user.markModified('stockPortfolio');
+      user.gameState.lastActionTime = now;
+      const userResponse = await buildUserResponseWithGlobals(user, now);
+      userResponse.stockMarket = await buildCompanyStockMarketResponse(user, now);
+      userResponse.stockTrade = { gross, fee, net };
+      return userResponse;
+    }, { conflictLabel: 'Company stock sell conflict' });
+    res.json(response);
+  } catch (err) {
+    console.error('Company stock sell error:', err);
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '주식을 판매하지 못했습니다.' });
+  }
+});
+
+app.post('/api/company-stock-market/rumor', async (req, res) => {
+  const { companyId } = req.body;
+  if (!companyId) return res.status(400).json({ msg: '회사 정보가 필요합니다.' });
+  try {
+    const market = await syncCompanyStockMarket(new Date());
+    const company = (market.companies || []).find((entry) => entry.companyId === String(companyId));
+    if (!company) return res.status(404).json({ msg: '상장된 회사를 찾을 수 없습니다.' });
+    res.json({ rumor: buildCompanyStockRumor(company) });
+  } catch (err) {
+    console.error('Company stock rumor error:', err);
+    res.status(500).json({ msg: '찌라시를 불러오지 못했습니다.' });
+  }
+});
+
 app.post('/api/action/stock', async (req, res) => {
   const { userId, amount } = req.body;
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
@@ -11553,6 +11920,17 @@ app.post('/api/inventory/use', async (req, res) => {
       useQuantity = 1;
     }
 
+    if (itemId === 'excavation_repair_coupon') {
+      ensureUserDefaults(user);
+      if (!user.branchOffice?.isFounded) {
+        return res.status(400).json({ msg: '회사를 설립한 뒤 사용할 수 있습니다.' });
+      }
+      const brokenUntil = getBranchMachineBrokenUntil(user, now);
+      if (!brokenUntil || brokenUntil <= now) {
+        return res.status(400).json({ msg: '현재 수리할 발굴 기계 고장이 없습니다.' });
+      }
+      useQuantity = 1;
+    }
     if (!removeItemFromInventory(user, itemId, useQuantity)) {
       return res.status(400).json({ msg: '해당 아이템이 부족합니다.' });
     }
@@ -11586,6 +11964,13 @@ app.post('/api/inventory/use', async (req, res) => {
       queueNotification(user, 'item_use', `하겐다즈 ${useQuantity}개를 사용해 즉시 ${useQuantity}레벨 상승했습니다.`);
     }
 
+    if (itemId === 'excavation_repair_coupon') {
+      ensureUserDefaults(user);
+      user.branchOffice.excavationBrokenUntil = null;
+      user.branchOffice.lastLog = '발굴 기계 수리 쿠폰으로 고장난 발굴 기계를 즉시 수리했습니다.';
+      user.markModified('branchOffice');
+      queueNotification(user, 'item_use', '발굴 기계 수리 쿠폰을 사용해 발굴 기계를 즉시 수리했습니다.');
+    }
     reconcileTitles(user, now);
     user.gameState.lastActionTime = now;
 

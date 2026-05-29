@@ -1,6 +1,11 @@
 const API_URL = window.location.origin;
 
 const ITEM_DATA = {
+  excavation_repair_coupon: {
+    name: '발굴 기계 수리 쿠폰',
+    desc: '고장난 발굴 기계를 즉시 수리',
+    hoverDesc: '회사 운영 중 발굴 기계가 고장났을 때 사용하면 즉시 수리됩니다.'
+  },
   pen_monami: {
     name: '모나미 볼펜',
     desc: '월급 획득량 +0.05%',
@@ -67,6 +72,7 @@ const ITEM_DATA = {
 };
 
 const CARD_DATA = {
+  nosy_manager: { name: '노처녀 신차장의 오지랖', grade: 'A', color: '#f9a825', skillName: '오지랖', skillDesc: '선택한 파티원 1명에게 보호막을 부여하고, 상대에게 자신의 레벨 기반 피해를 2회 입힙니다.', cooldown: 5, targetType: 'ally' },
   mingu_champion: { name: '제 1회 면담대회 우승자 밍구의 품격', grade: 'S', color: '#c62828', skillName: '챔피언의 품격', skillDesc: '지정한 파티원 1인에게 보호막 20과 <챔피언의 가호>를, 상대에게 <눈부심>을 부여합니다.', cooldown: 7, targetType: 'ally', specialStyle: 'champion' },
   winter_subordinate: { name: '겨울 부장의 부하직원 육성', grade: 'S', color: '#c62828', skillName: '부하직원 육성', skillDesc: '파티원 중 가장 레벨이 낮은 1명을 2턴 동안 레벨 +1~+5로 간주합니다. +5강은 쿨타임이 7턴입니다.', cooldown: 8, targetType: null },
   potato_rehab: { name: '감자의 재활훈련', grade: 'S', color: '#c62828', skillName: '재활훈련', skillDesc: '보스전에서 현재 데미지의 고정 피해를 1회 입힙니다. 노멀 보스에서는 피해와 막타 성장량이 1/3로 적용됩니다. 한 판당 1회만 사용할 수 있고, 이 스킬로 처치하면 데미지가 플레이어의 현재 레벨만큼 영구 증가합니다. 개인면담에서는 선택할 수 없습니다.', cooldown: 0, targetType: null, specialStyle: 'potato-rehab' },
@@ -250,6 +256,7 @@ let cardGradeFilter = 'all';
 let cardSortMode = 'grade';
 let marketplaceState = { itemType: 'scroll', view: 'active', sort: 'time_desc', data: { active: [], mine: [] } };
 let marketplaceRegisterState = { itemType: 'scroll', selected: null, sort: 'acquired' };
+let companyStockMarketState = { stocks: [], holdings: [], sellFeeRate: 0.03, totalMarketValue: 0, rumors: {} };
 let mailboxState = { mails: [] };
 let raidBattleLogPinnedToBottom = true;
 let userMutationInFlightCount = 0;
@@ -277,6 +284,17 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-05-29-company-stock-market-repair-card',
+    time: '2026-05-29 18:20',
+    title: '회사 주식 시장과 수리 쿠폰, 신규 카드 추가',
+    items: [
+      '회사 운영과 연동되는 주식 시장을 추가했습니다. 상장 회사 주식을 직접 사고팔 수 있고, 매도 시 3% 수수료가 적용됩니다.',
+      '주식은 10분마다 변동되며, 종목별 차트와 찌라시 버튼으로 흐름을 확인할 수 있습니다.',
+      '서류작업 클릭 시 낮은 확률로 발굴 기계 수리 쿠폰을 획득할 수 있고, 쿠폰은 장터 거래와 고장 즉시 수리에 사용할 수 있습니다.',
+      'A급 카드 <노처녀 신차장의 오지랖>을 추가했습니다.'
+    ]
+  },
   {
     id: '2026-05-29-branch-auto-excavation-balance',
     time: '2026-05-29 11:55',
@@ -1134,6 +1152,8 @@ function setupEventListeners() {
   bindClick('closeFusionModalBtn', closeCardFusionModal);
   bindClick('confirmFusionBtn', handleCardFusionConfirm);
   bindClick('stockInvestBtn', handleStockInvest);
+  bindClick('stockMarketOpenBtn', openCompanyStockMarketModal);
+  bindClick('stockMarketCloseBtn', closeCompanyStockMarketModal);
   bindClick('adminLogoutBtn', handleLogoutClick);
   bindClick('adminGiftBtn', handleAdminGift);
   bindClick('adminDeleteUserBtn', handleAdminDeleteUser);
@@ -2609,6 +2629,125 @@ function hasFocusedQuantityInput() {
   return Boolean(activeElement && activeElement.classList?.contains('qty-input'));
 }
 
+
+async function loadCompanyStockMarket() {
+  const user = getStoredUser();
+  if (!user?._id) return null;
+  const data = await getJson(API_URL + '/api/company-stock-market?userId=' + encodeURIComponent(user._id));
+  if (data.stockMarket) {
+    companyStockMarketState = { ...companyStockMarketState, ...data.stockMarket, rumors: companyStockMarketState.rumors || {} };
+  }
+  return companyStockMarketState;
+}
+
+async function openCompanyStockMarketModal() {
+  showModal('stockMarketModal');
+  const status = document.getElementById('stockMarketStatus');
+  if (status) status.textContent = '회사 주식 시장을 불러오는 중입니다.';
+  try {
+    await loadCompanyStockMarket();
+    renderCompanyStockMarket();
+  } catch (err) {
+    if (status) status.textContent = err.message || '주식 시장을 불러오지 못했습니다.';
+  }
+}
+
+function closeCompanyStockMarketModal() {
+  hideModal('stockMarketModal');
+}
+
+function buildCompanyStockChart(history = []) {
+  const points = Array.isArray(history) ? history.slice(-36) : [];
+  if (points.length < 2) return '<div class="company-stock-chart-empty">자료 부족</div>';
+  const prices = points.map((entry) => Number(entry.price || 0));
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  const range = Math.max(1, max - min);
+  const coords = points.map((entry, index) => {
+    const x = points.length <= 1 ? 0 : (index / (points.length - 1)) * 120;
+    const y = 36 - ((Number(entry.price || 0) - min) / range) * 32;
+    return x.toFixed(1) + ',' + y.toFixed(1);
+  }).join(' ');
+  return '<svg class="company-stock-chart" viewBox="0 0 120 40" preserveAspectRatio="none"><polyline points="' + coords + '" fill="none" stroke="#107c41" stroke-width="2"/><line x1="0" y1="36" x2="120" y2="36" stroke="#d0d7de" stroke-width="1"/></svg>';
+}
+
+function renderCompanyStockMarket() {
+  const tbody = document.getElementById('stockMarketList');
+  const summary = document.getElementById('stockMarketSummary');
+  const status = document.getElementById('stockMarketStatus');
+  if (!tbody) return;
+  const stocks = companyStockMarketState.stocks || [];
+  const holdings = new Map((companyStockMarketState.holdings || []).map((entry) => [entry.companyId, entry]));
+  if (summary) {
+    summary.textContent = '보유 주식 평가액 ' + formatNumber(companyStockMarketState.totalMarketValue || 0) + '원 / 매도 수수료 ' + Math.round(Number(companyStockMarketState.sellFeeRate || 0.03) * 100) + '%';
+  }
+  if (status) {
+    const next = companyStockMarketState.nextUpdateAt ? new Date(companyStockMarketState.nextUpdateAt) : null;
+    status.textContent = next && Number.isFinite(next.getTime()) ? '다음 주가 변동 예정: ' + next.toLocaleTimeString('ko-KR') : '주가는 10분마다 변동됩니다.';
+  }
+  tbody.innerHTML = stocks.length ? '' : '<tr><td colspan="8">상장된 회사가 아직 없습니다. 회사 운영에서 지사를 설립하면 자동 상장됩니다.</td></tr>';
+  stocks.forEach((stock, index) => {
+    const holding = holdings.get(stock.companyId) || {};
+    const buyInputId = 'stock-buy-' + index;
+    const sellInputId = 'stock-sell-' + index;
+    const change = Number(stock.lastChangePct || 0);
+    const changeClass = change >= 0 ? 'stock-change-up' : 'stock-change-down';
+    const rumor = companyStockMarketState.rumors?.[stock.companyId] || '';
+    const row = document.createElement('tr');
+    row.innerHTML =
+      '<td>' + escapeHtml(stock.companyName || '이름 없는 회사') + '<div class="muted-text">가치 ' + formatNumber(stock.companyValue || 0) + '원</div></td>' +
+      '<td>' + formatNumber(stock.price || 0) + '원</td>' +
+      '<td class="' + changeClass + '">' + (change >= 0 ? '+' : '') + formatNumber(change, 2) + '%</td>' +
+      '<td>' + buildCompanyStockChart(stock.history) + '</td>' +
+      '<td>' + formatNumber(holding.shares || 0) + '주<div class="muted-text">평가 ' + formatNumber(holding.marketValue || 0) + '원</div></td>' +
+      '<td><div class="stock-trade-row"><input id="' + buyInputId + '" class="stock-share-input" type="number" min="1" step="1" value="1"><button class="mini-btn" onclick="handleCompanyStockBuy(\'' + escapeHtml(stock.companyId) + '\', \'' + buyInputId + '\')">매수</button></div></td>' +
+      '<td><div class="stock-trade-row"><input id="' + sellInputId + '" class="stock-share-input" type="number" min="1" max="' + Math.max(1, Number(holding.shares || 0)) + '" step="1" value="1"><button class="mini-btn" onclick="handleCompanyStockSell(\'' + escapeHtml(stock.companyId) + '\', \'' + sellInputId + '\')" ' + (Number(holding.shares || 0) <= 0 ? 'disabled' : '') + '>매도</button></div></td>' +
+      '<td><button class="mini-btn" onclick="handleCompanyStockRumor(\'' + escapeHtml(stock.companyId) + '\')">찌라시</button>' + (rumor ? '<div class="company-stock-rumor">' + escapeHtml(rumor) + '</div>' : '') + '</td>';
+    tbody.appendChild(row);
+  });
+}
+
+async function handleCompanyStockBuy(companyId, inputId) {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+  const input = document.getElementById(inputId);
+  const shares = Math.max(1, Math.floor(Number(input?.value || 1)));
+  try {
+    const data = await postJson(API_URL + '/api/company-stock-market/buy', { userId: user._id, companyId, shares });
+    if (data.stockMarket) companyStockMarketState = { ...companyStockMarketState, ...data.stockMarket, rumors: companyStockMarketState.rumors || {} };
+    updateLocalUserState(data);
+    renderCompanyStockMarket();
+  } catch (err) {
+    alert(err.message || '주식을 구매하지 못했습니다.');
+  }
+}
+
+async function handleCompanyStockSell(companyId, inputId) {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+  const input = document.getElementById(inputId);
+  const shares = Math.max(1, Math.floor(Number(input?.value || 1)));
+  try {
+    const data = await postJson(API_URL + '/api/company-stock-market/sell', { userId: user._id, companyId, shares });
+    if (data.stockMarket) companyStockMarketState = { ...companyStockMarketState, ...data.stockMarket, rumors: companyStockMarketState.rumors || {} };
+    updateLocalUserState(data);
+    renderCompanyStockMarket();
+    if (data.stockTrade) alert('매도 정산: ' + formatNumber(data.stockTrade.net) + '원 (수수료 ' + formatNumber(data.stockTrade.fee) + '원)');
+  } catch (err) {
+    alert(err.message || '주식을 판매하지 못했습니다.');
+  }
+}
+
+async function handleCompanyStockRumor(companyId) {
+  try {
+    const data = await postJson(API_URL + '/api/company-stock-market/rumor', { companyId });
+    companyStockMarketState.rumors = companyStockMarketState.rumors || {};
+    companyStockMarketState.rumors[companyId] = data.rumor || '별다른 소문은 없습니다.';
+    renderCompanyStockMarket();
+  } catch (err) {
+    alert(err.message || '찌라시를 불러오지 못했습니다.');
+  }
+}
 function getMaxUsableItemQuantity(user, itemId, ownedQuantity = null) {
   const aggregatedOwned = getInventoryQuantityFromUser(user, itemId);
   const parsedOwned = Math.floor(Number(ownedQuantity));
@@ -2618,6 +2757,10 @@ function getMaxUsableItemQuantity(user, itemId, ownedQuantity = null) {
       ? Math.max(aggregatedOwned, parsedOwned)
       : aggregatedOwned
   );
+  if (itemId === 'excavation_repair_coupon') {
+    return user?.branchOffice?.excavationBrokenRemainingMs > 0 ? Math.min(1, owned) : 0;
+  }
+
   if (itemId === 'infinite_overtime_ticket') {
     const hasOvertimeState = latestInfiniteOvertimeState && typeof latestInfiniteOvertimeState === 'object';
     const remainingMs = Number(latestInfiniteOvertimeState?.cooldownRemainingMs || 0);
@@ -5807,7 +5950,7 @@ function sortMarketplaceRegisterEntries(entries) {
 }
 
 function getMarketplaceTradeableItems(user) {
-  return ['raid_entry_ticket', 'hagendaz']
+  return ['raid_entry_ticket', 'hagendaz', 'excavation_repair_coupon']
     .map((itemId, index) => ({
       itemType: 'item',
       itemId,
@@ -6891,24 +7034,12 @@ function updateStatsTab(user) {
 
 function updateStockStatus(user) {
   const stockStatus = document.getElementById('stock-status');
-  const stockInput = document.getElementById('stockAmount');
-  const stockButton = document.getElementById('stockInvestBtn');
-  if (!stockStatus || !stockInput || !stockButton) return;
-
-  const pendingAmount = user.pendingStockInvestment?.amount || 0;
-  const isLocked = pendingAmount > 0;
-
-  stockInput.disabled = isLocked;
-  stockButton.disabled = isLocked;
-
-  if (isLocked) {
-    stockInput.value = '';
-    stockInput.placeholder = `${formatNumber(pendingAmount)}원을 투자했습니다.`;
-    stockStatus.textContent = `현재 ${formatNumber(pendingAmount)}원이 투자 중이며, 결과를 다음 날에 확인할 수 있습니다.`;
-  } else {
-    stockInput.placeholder = '투자 금액';
-    stockStatus.textContent = '하루 1회 투자할 수 있으며, 결과를 다음 날에 확인할 수 있습니다.';
-  }
+  if (!stockStatus) return;
+  const portfolio = Array.isArray(user.stockPortfolio) ? user.stockPortfolio : [];
+  const heldShares = portfolio.reduce((sum, entry) => sum + Number(entry.shares || 0), 0);
+  stockStatus.textContent = heldShares > 0
+    ? '현재 보유 주식 ' + formatNumber(heldShares) + '주. 회사 주식 시장에서 언제든 매수/매도할 수 있습니다.'
+    : '회사 주식 시장에서 상장 회사의 주식을 직접 사고팔 수 있습니다.';
 }
 
 function updateStressEffect(stress) {
@@ -7359,6 +7490,9 @@ window.showTab = function showTab(tabName) {
 
 window.handleBuyClick = handleBuyClick;
 window.handleUseItem = handleUseItem;
+window.handleCompanyStockBuy = handleCompanyStockBuy;
+window.handleCompanyStockSell = handleCompanyStockSell;
+window.handleCompanyStockRumor = handleCompanyStockRumor;
 window.handleToggleTitle = handleToggleTitle;
 window.handleToggleCardEquip = handleToggleCardEquip;
 window.handleCardFusionAdd = handleCardFusionAdd;
@@ -7522,7 +7656,7 @@ function updateInventoryUI(user) {
       const shortDesc = itemInfo.desc || '';
       const qtyInputId = `use-qty-${item.itemId}`;
       const ownedQuantity = getInventoryQuantityFromUser(user, item.itemId);
-      const canUse = ['bacchus', 'hot6', 'tylenol', 'raid_entry_ticket', 'infinite_overtime_ticket', 'hagendaz'].includes(item.itemId);
+      const canUse = ['bacchus', 'hot6', 'tylenol', 'raid_entry_ticket', 'infinite_overtime_ticket', 'hagendaz', 'excavation_repair_coupon'].includes(item.itemId);
       const maxUseQuantity = getMaxUsableItemQuantity(user, item.itemId, ownedQuantity);
       const actionButton = canUse
         ? `<div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" max="${Math.max(1, maxUseQuantity)}" step="1" value="${getRememberedQuantityInputValue(qtyInputId, 1, Math.max(1, maxUseQuantity))}" oninput="rememberQuantityInputValue('${qtyInputId}', this.value)" ${maxUseQuantity <= 0 ? 'disabled' : ''}><button class="mini-btn" onclick="handleUseItem('${item.itemId}', '${qtyInputId}')" ${maxUseQuantity <= 0 ? 'disabled' : ''}>사용</button></div>`

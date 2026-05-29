@@ -2616,3 +2616,63 @@ progress {
 .branch-codex-list {
   margin: 6px 0 10px;
 }
+
+.stock-market-modal-panel {
+  width: min(1180px, 94vw);
+  max-height: 88vh;
+  overflow: hidden;
+}
+
+.stock-market-scroll {
+  max-height: 62vh;
+  overflow: auto;
+}
+
+.stock-market-table th,
+.stock-market-table td {
+  vertical-align: middle;
+}
+
+.company-stock-chart {
+  width: 120px;
+  height: 40px;
+  background: #f8fbf8;
+  border: 1px solid #d0d7de;
+}
+
+.company-stock-chart-empty {
+  width: 120px;
+  color: #666;
+  font-size: 12px;
+}
+
+.stock-change-up {
+  color: #c62828;
+  font-weight: 700;
+}
+
+.stock-change-down {
+  color: #1565c0;
+  font-weight: 700;
+}
+
+.stock-trade-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.stock-share-input {
+  width: 70px;
+  padding: 4px;
+  border: 1px solid #c7c7c7;
+}
+
+.company-stock-rumor {
+  margin-top: 6px;
+  padding: 6px;
+  background: #fff8dc;
+  border: 1px solid #e0c56d;
+  max-width: 220px;
+  font-size: 12px;
+}
