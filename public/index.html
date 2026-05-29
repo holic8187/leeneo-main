@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>네오상사 거래명세서</title>
-  <link rel="stylesheet" href="style.css?v=37">
+  <link rel="stylesheet" href="style.css?v=38">
 </head>
 <body>
   <div id="login-screen">
@@ -147,12 +147,14 @@
           <tr>
             <td class="sheet-header">1</td>
             <td colspan="10" class="animation-cell animation-host">
-              <button id="raidLobbyBtn" class="raid-entry-btn">회의 참석</button>
-              <button id="pvpLobbyBtn" class="raid-entry-btn side-entry-btn pvp-entry-btn">개인면담</button>
-              <button id="infiniteOvertimeBtn" class="raid-entry-btn side-entry-btn overtime-entry-btn">무한야근</button>
-              <button id="branchOfficeBtn" class="raid-entry-btn side-entry-btn branch-office-entry-btn">지사 운영</button>
-              <button id="fragmentShopBtn" class="raid-entry-btn side-entry-btn">상점</button>
-              <button id="marketplaceBtn" class="raid-entry-btn side-entry-btn marketplace-entry-btn">사내 번개장터</button>
+              <div class="main-action-row">
+                <button id="raidLobbyBtn" class="raid-entry-btn">회의 참석</button>
+                <button id="pvpLobbyBtn" class="raid-entry-btn side-entry-btn pvp-entry-btn">개인면담</button>
+                <button id="infiniteOvertimeBtn" class="raid-entry-btn side-entry-btn overtime-entry-btn">무한야근</button>
+                <button id="branchOfficeBtn" class="raid-entry-btn side-entry-btn branch-office-entry-btn">회사 운영</button>
+                <button id="fragmentShopBtn" class="raid-entry-btn side-entry-btn">상점</button>
+                <button id="marketplaceBtn" class="raid-entry-btn side-entry-btn marketplace-entry-btn">사내 번개장터</button>
+              </div>
               <div id="raidEntryHint" class="raid-entry-hint">10레벨부터 입장 가능</div>
               <div id="anim-display" class="anim-display-text">(업무 중..)</div>
             </td>
@@ -537,7 +539,7 @@
 
   <div id="branchOfficeModal" class="modal-overlay hidden">
     <div class="excel-sheet modal-panel branch-office-modal-panel">
-      <h3>이모지 지사 운영</h3>
+      <h3>회사 운영</h3>
       <p class="menu-note">실제 유저에게 돈이 이동하지 않는 장기 수집형 소각 콘텐츠입니다. 설립비, 공고비, 계약금, 발굴비, 창고비, 처분비, 유지비는 모두 소각됩니다.</p>
       <div id="branchOfficeContent" class="branch-office-content"></div>
       <div class="modal-buttons">

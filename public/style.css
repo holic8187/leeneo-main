@@ -509,6 +509,25 @@ progress {
   line-height: 1.1;
 }
 
+.main-action-row {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.main-action-row .raid-entry-btn {
+  position: relative;
+  top: auto;
+  left: auto;
+  white-space: nowrap;
+}
+
 .raid-entry-btn {
   position: absolute;
   top: 10px;
