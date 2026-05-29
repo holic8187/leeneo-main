@@ -194,6 +194,7 @@ animations[2] = [
 let updateInterval;
 let rankingInterval;
 let rankingMode = 'level';
+let branchContractPercentDraft = '1';
 let shopModalMode = 'fragment';
 let syncInterval;
 let animationInterval;
@@ -277,13 +278,35 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-29-branch-company-ranking-wording',
+    time: '2026-05-29 10:45',
+    title: '회사 운영 표시와 고용 밸런스 조정',
+    items: [
+      '회사 가치 랭킹에서 닉네임 대신 회사 이름이 보이도록 변경했습니다.',
+      '직원 공고 배율 입력값이 동기화 갱신 후에도 유지되도록 개선했습니다.',
+      '회사 운영 안내 문구를 운영 비용/사용 표현 중심으로 정리했습니다.',
+      '회사 가치 20억원마다 최대 고용 가능 직원 수가 1명씩 증가하고, 해고 비용은 기존의 절반으로 조정했습니다.'
+    ]
+  },
+  {
+    id: '2026-05-29-branch-excavation-time-pool',
+    time: '2026-05-29 10:30',
+    title: '회사 운영 발굴 시간제 및 수집 풀 확장',
+    items: [
+      '회사 설립/회사명 입력 중 동기화 갱신으로 입력창 포커스가 사라지던 현상을 수정했습니다.',
+      '발굴이 즉시 결과가 나오는 방식에서 기본 10분 진행 후 결과 확인 방식으로 변경되었습니다.',
+      '발굴 소요 시간을 0.5~3% 줄여주는 신규 수집품 효과를 추가했습니다.',
+      '지사 직원 이름 풀과 수집품 종류를 대폭 확장했습니다.'
+    ]
+  },
+  {
     id: '2026-05-29-branch-office-mvp',
     time: '2026-05-29 15:40',
     title: '이모지 지사 운영 MVP 추가',
     items: [
-      '레벨 250 이상 또는 분당 월급 5,000만원 이상 유저가 500억원을 소각해 지사를 설립할 수 있습니다.',
+      '레벨 250 이상 또는 분당 월급 5,000만원 이상 유저가 500억원을 사용해 회사를 설립할 수 있습니다.',
       '직원 공고, NPC 직원 고용, 발굴, 창고 확장, 아이템 처분, 일일 계약금/유지비 정산, 파산, 회사 가치 랭킹을 추가했습니다.',
-      '지사를 설립하지 않은 고소득 유저는 6시간마다 보유 현금의 30%가 고소득근로자 세금으로 소각됩니다.',
+      '지사를 설립하지 않은 고소득 유저는 6시간마다 보유 현금의 30%가 고소득근로자 세금으로 사용됩니다.',
       '발굴 수집품은 현금 보상이 아니라 회사 가치, 도감, 보유 효과 중심으로 작동합니다.'
     ]
   },
@@ -713,7 +736,7 @@ const PATCH_NOTES = [
     time: '2026-05-20 18:20',
     title: '신규 카드와 업무 최적화 조정',
     items: [
-      '신규 B등급 카드 <죠르의 봉고차>를 추가했습니다. 빵 버프는 피격 시 HP를 회복하고 1개씩 소모됩니다.',
+      '신규 B등급 카드 <죠르의 봉고차>를 추가했습니다. 빵 버프는 피격 시 HP를 회복하고 1개씩 사용됩니다.',
       '신규 A등급 카드 <몬드의 육아휴직>을 추가했습니다. 레이드에서는 파티원 스킬 쿨타임을, 개인면담에서는 자신의 카드 쿨타임을 줄입니다.',
       '<업무 최적화> 스킬 재사용 대기시간을 5시간에서 7시간으로 조정했습니다.'
     ]
@@ -3317,7 +3340,7 @@ function updateLocalUserState(data, options = {}) {
     openFragmentShopModal();
   }
   const branchOfficeModal = document.getElementById('branchOfficeModal');
-  if (branchOfficeModal && !branchOfficeModal.classList.contains('hidden')) {
+  if (branchOfficeModal && !branchOfficeModal.classList.contains('hidden') && !isBranchOfficeTextEntryActive()) {
     renderBranchOfficeModal(latestUser);
   }
   if (latestUser) {
@@ -5171,6 +5194,16 @@ function closeBranchOfficeModal() {
   hideModal('branchOfficeModal');
 }
 
+function isBranchOfficeTextEntryActive() {
+  const modal = document.getElementById('branchOfficeModal');
+  const container = document.getElementById('branchOfficeContent');
+  const active = document.activeElement;
+  if (!modal || modal.classList.contains('hidden') || !container) return false;
+  if (container.matches(':focus-within')) return true;
+  if (!active || !container.contains(active)) return false;
+  return ['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName);
+}
+
 function renderBranchOfficeModal(user = getStoredUser()) {
   const container = document.getElementById('branchOfficeContent');
   if (!container) return;
@@ -5182,13 +5215,13 @@ function renderBranchOfficeModal(user = getStoredUser()) {
 
   if (!branch.isFounded) {
     const taxNotice = branch.highIncomeTax?.applies
-      ? '<div class="branch-warning">지사 설립 대상자입니다. 지사를 설립하지 않으면 6시간마다 보유 현금의 30%가 고소득근로자 4대보험+소득세로 소각됩니다.</div>'
+      ? '<div class="branch-warning">지사 설립 대상자입니다. 지사를 설립하지 않으면 6시간마다 보유 현금의 30%가 고소득근로자 4대보험+소득세로 사용됩니다.</div>'
       : '';
     const foundForm = branch.eligible
       ? `
         <div class="branch-card">
           <h4>지사 설립</h4>
-          <p>설립비: <strong>${formatNumber(branch.foundCost)}원</strong> 전액 소각</p>
+          <p>설립비: <strong>${formatNumber(branch.foundCost)}원</strong> 전액 소모</p>
           <div class="stock-controls">
             <input id="branchCompanyNameInput" type="text" maxlength="24" placeholder="회사 이름 입력">
             <button class="menu-action-btn" onclick="handleBranchFound()">지사 설립</button>
@@ -5233,7 +5266,23 @@ function renderBranchOfficeModal(user = getStoredUser()) {
     <span class="branch-codex-chip" title="${escapeAttr(item.effectText || '')}">${escapeHtml(item.emoji || '')} ${escapeHtml(item.name || '')}</span>
   `).join('') || '<span class="menu-note">아직 발견한 수집품이 없습니다.</span>';
   const employeeCodex = (branch.employeeCodex || []).map((name) => `<span class="branch-codex-chip">${escapeHtml(name)}</span>`).join('') || '<span class="menu-note">아직 고용 기록이 없습니다.</span>';
+  const activeContractInput = document.getElementById('branchContractPercentInput');
+  if (activeContractInput && activeContractInput.value !== '') branchContractPercentDraft = activeContractInput.value;
+  const contractPercentValue = branchContractPercentDraft || '1';
   const postPreview = Number(branch.dailySalaryBase || 0);
+  const pendingExcavation = branch.pendingExcavation || null;
+  const pendingRemainingMs = Number(pendingExcavation?.remainingMs || 0);
+  const pendingComplete = Boolean(pendingExcavation?.isComplete);
+  const pendingProgress = Math.max(0, Math.min(100, Number(pendingExcavation?.progressPercent || 0)));
+  const excavationButtonText = pendingExcavation
+    ? (pendingComplete ? '발굴 결과 확인' : `발굴 진행 중 (${formatDurationMs(pendingRemainingMs)} 남음)`)
+    : '발굴 시작';
+  const excavationButtonDisabled = pendingExcavation && !pendingComplete ? 'disabled' : '';
+  const excavationStatus = pendingExcavation
+    ? (pendingComplete
+        ? '발굴이 완료되었습니다. 결과 확인 버튼을 눌러주세요.'
+        : `진행률 ${formatNumber(pendingProgress, 1)}% / 완료까지 ${formatDurationMs(pendingRemainingMs)}`)
+    : `기본 소요 시간 ${formatDurationMs(branch.excavationDurationMs || 0)} / 수집품 효과로 단축될 수 있습니다.`;
 
   container.innerHTML = `
     <div class="branch-summary-grid">
@@ -5258,15 +5307,17 @@ function renderBranchOfficeModal(user = getStoredUser()) {
       <h4>직원 공고</h4>
       <p>하루 시작 기준 일급: <strong>${formatNumber(postPreview)}원</strong>. 입력한 비율만큼 직원 일일 계약금이 정해지고, 공고 비용은 계약금의 30%입니다.</p>
       <div class="stock-controls">
-        <input id="branchContractPercentInput" type="number" min="0.1" max="50" step="0.1" value="1">
+        <input id="branchContractPercentInput" type="number" min="0.1" max="50" step="0.1" value="${escapeAttr(contractPercentValue)}" oninput="handleBranchContractPercentInput(this.value)" onchange="handleBranchContractPercentInput(this.value)">
         <button class="menu-action-btn" onclick="handleBranchRecruit()">공고 올리기</button>
       </div>
     </div>
 
     <div class="branch-card">
       <h4>발굴</h4>
-      <p>발굴 비용: <strong>${formatNumber(branch.digCost || 0)}원</strong> / 성공률: <strong>${formatBranchPercent(branch.successChance)}</strong></p>
-      <button class="menu-action-btn" onclick="handleBranchExcavate()">발굴 시도</button>
+      <p>발굴 비용: <strong>${formatNumber(branch.digCost || 0)}원</strong> / 성공률: <strong>${formatBranchPercent(branch.successChance)}</strong> / 소요 시간: <strong>${formatDurationMs(branch.excavationDurationMs || 0)}</strong></p>
+      <p class="menu-note">${escapeHtml(excavationStatus)}</p>
+      ${pendingExcavation ? `<div class="branch-excavation-progress"><div style="width:${pendingProgress}%"></div></div>` : ''}
+      <button class="menu-action-btn" ${excavationButtonDisabled} onclick="handleBranchExcavate()">${escapeHtml(excavationButtonText)}</button>
     </div>
 
     <div class="branch-card">
@@ -5323,8 +5374,14 @@ async function handleBranchRename() {
   }
 }
 
+function handleBranchContractPercentInput(value) {
+  branchContractPercentDraft = String(value ?? '').slice(0, 12);
+}
+
 async function handleBranchRecruit() {
-  const contractPercent = Number(document.getElementById('branchContractPercentInput')?.value || 0);
+  const inputValue = document.getElementById('branchContractPercentInput')?.value || branchContractPercentDraft || '0';
+  handleBranchContractPercentInput(inputValue);
+  const contractPercent = Number(inputValue || 0);
   try {
     await runBranchAction('/api/branch-office/post-job', { contractPercent });
   } catch (err) {
@@ -5333,7 +5390,7 @@ async function handleBranchRecruit() {
 }
 
 async function handleBranchFire(employeeId) {
-  if (!confirm('해고 비용은 해당 직원 일일 계약금의 10배입니다. 정말 해고할까요?')) return;
+  if (!confirm('해고 비용은 해당 직원 일일 계약금의 5배입니다. 정말 해고할까요?')) return;
   try {
     await runBranchAction('/api/branch-office/fire', { employeeId });
   } catch (err) {
@@ -5358,7 +5415,7 @@ async function handleBranchBuyStorage() {
 }
 
 async function handleBranchDispose(instanceId) {
-  if (!confirm('아이템 처분 비용이 소각됩니다. 회사 가치는 내려가지 않습니다. 처분할까요?')) return;
+  if (!confirm('아이템 처분 비용이 사용됩니다. 회사 가치는 내려가지 않습니다. 처분할까요?')) return;
   try {
     await runBranchAction('/api/branch-office/dispose-item', { instanceId });
   } catch (err) {
@@ -6190,6 +6247,7 @@ window.handleMarketplaceBuy = handleMarketplaceBuy;
 window.handleMarketplaceCancel = handleMarketplaceCancel;
 window.handleBranchFound = handleBranchFound;
 window.handleBranchRename = handleBranchRename;
+window.handleBranchContractPercentInput = handleBranchContractPercentInput;
 window.handleBranchRecruit = handleBranchRecruit;
 window.handleBranchFire = handleBranchFire;
 window.handleBranchExcavate = handleBranchExcavate;
@@ -6874,6 +6932,9 @@ async function updateRankingUI() {
           ? `${entry.branchOffice?.companyName || '이름 없는 지사'} / 직원 ${formatNumber(entry.branchOffice?.employeeCount || 0)}명 / 창고 ${formatNumber(entry.branchOffice?.storageUsed || 0)}/${formatNumber(entry.branchOffice?.storageSlots || 0)} / 성공률 ${formatBranchPercent(entry.branchOffice?.successChance || 0)}`
           : `현재 경험치 ${formatNumber(entry.gameState?.exp || 0)}`);
 
+      const rankingName = rankingMode === 'branch'
+        ? (entry.branchOffice?.companyName || '이름 없는 회사')
+        : (entry.displayName || entry.nickname || '이름 없음');
       const emblem = showRankingEmblems ? (entry.equippedEmblem || null) : null;
       const emblemClass = emblem?.className ? String(emblem.className).replace(/[^a-zA-Z0-9_-]/g, '') : '';
       const emblemIcon = showRankingEmblems && emblem?.imageUrl
@@ -6887,7 +6948,7 @@ async function updateRankingUI() {
             <td class="center-text">${index + 1}</td>
             <td class="ranking-name-cell ${escapeHtml(emblemClass)}">
               <span class="online-dot ${entry.isOnline ? 'online' : 'offline'}"></span>
-              <span class="ranking-display-name">${escapeHtml(entry.displayName || entry.nickname)}</span>
+              <span class="ranking-display-name">${escapeHtml(rankingName)}</span>
               ${emblemIcon}
             </td>
             <td class="center-text">${escapeHtml(valueText)}</td>

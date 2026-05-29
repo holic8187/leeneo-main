@@ -2541,6 +2541,20 @@ progress {
 .branch-grade-A { background: #f9a825; color: #2f2100; }
 .branch-grade-S { background: #c62828; }
 
+.branch-excavation-progress {
+  height: 10px;
+  border: var(--excel-border);
+  background: #f4f8f3;
+  margin: 8px 0;
+  overflow: hidden;
+}
+
+.branch-excavation-progress > div {
+  height: 100%;
+  background: linear-gradient(90deg, #70ad47, #2f7d32);
+  transition: width 0.35s ease;
+}
+
 .branch-storage-actions {
   display: flex;
   justify-content: space-between;
