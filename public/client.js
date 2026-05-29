@@ -278,6 +278,17 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-05-29-branch-auto-excavation-balance',
+    time: '2026-05-29 11:55',
+    title: '회사 자동 발굴과 발굴 밸런스 조정',
+    items: [
+      '회사 운영 발굴에 자동 반복 ON/OFF 버튼을 추가했습니다.',
+      '발굴 기본 시간이 15분으로 변경되고, 저녁 6시 이후 발굴은 야근 비용으로 3배가 적용됩니다.',
+      '발굴 시작 시 3% 확률로 기계가 고장나며, 고장 시 6시간 동안 발굴할 수 없습니다.',
+      '직원 계약금 산정 기준을 기존의 절반으로 낮추고, SS급 유물 사장님의 벤츠 키와 신규 수집품을 대폭 추가했습니다.'
+    ]
+  },
+  {
     id: '2026-05-29-branch-company-ranking-wording',
     time: '2026-05-29 10:45',
     title: '회사 운영 표시와 고용 밸런스 조정',
@@ -5274,15 +5285,27 @@ function renderBranchOfficeModal(user = getStoredUser()) {
   const pendingRemainingMs = Number(pendingExcavation?.remainingMs || 0);
   const pendingComplete = Boolean(pendingExcavation?.isComplete);
   const pendingProgress = Math.max(0, Math.min(100, Number(pendingExcavation?.progressPercent || 0)));
+  const brokenRemainingMs = Number(branch.excavationBrokenRemainingMs || 0);
+  const branchMachineBroken = brokenRemainingMs > 0;
   const excavationButtonText = pendingExcavation
     ? (pendingComplete ? '발굴 결과 확인' : `발굴 진행 중 (${formatDurationMs(pendingRemainingMs)} 남음)`)
     : '발굴 시작';
-  const excavationButtonDisabled = pendingExcavation && !pendingComplete ? 'disabled' : '';
-  const excavationStatus = pendingExcavation
-    ? (pendingComplete
-        ? '발굴이 완료되었습니다. 결과 확인 버튼을 눌러주세요.'
-        : `진행률 ${formatNumber(pendingProgress, 1)}% / 완료까지 ${formatDurationMs(pendingRemainingMs)}`)
-    : `기본 소요 시간 ${formatDurationMs(branch.excavationDurationMs || 0)} / 수집품 효과로 단축될 수 있습니다.`;
+  const excavationButtonDisabled = (pendingExcavation && !pendingComplete) || branchMachineBroken ? 'disabled' : '';
+  const excavationStatus = branchMachineBroken
+    ? `발굴 기계 수리 중입니다. 남은 시간: ${formatDurationMs(brokenRemainingMs)}`
+    : (pendingExcavation
+        ? (pendingComplete
+            ? '발굴이 완료되었습니다. 결과 확인 버튼을 눌러주세요.'
+            : `진행률 ${formatNumber(pendingProgress, 1)}% / 완료까지 ${formatDurationMs(pendingRemainingMs)}`)
+        : `기본 소요 시간 ${formatDurationMs(branch.excavationDurationMs || 0)} / 수집품 효과로 단축될 수 있습니다.`);
+  const autoExcavationEnabled = Boolean(branch.autoExcavationEnabled);
+  const autoExcavationButtonText = autoExcavationEnabled ? '자동 발굴 ON' : '자동 발굴 OFF';
+  const autoExcavationHint = autoExcavationEnabled
+    ? 'ON 상태에서는 완료된 발굴을 자동 정산하고 다음 발굴을 이어서 시작합니다.'
+    : 'OFF 상태에서는 완료 후 직접 결과 확인을 눌러야 합니다.';
+  const overtimeExcavationNotice = branch.overtimeExcavationActive
+    ? `저녁 6시 이후 야근 발굴 비용 ${formatNumber(branch.overtimeExcavationMultiplier || 3)}배 적용 중`
+    : '저녁 6시 이후에는 야근 발굴 비용 3배가 적용됩니다.';
 
   container.innerHTML = `
     <div class="branch-summary-grid">
@@ -5315,8 +5338,13 @@ function renderBranchOfficeModal(user = getStoredUser()) {
     <div class="branch-card">
       <h4>발굴</h4>
       <p>발굴 비용: <strong>${formatNumber(branch.digCost || 0)}원</strong> / 성공률: <strong>${formatBranchPercent(branch.successChance)}</strong> / 소요 시간: <strong>${formatDurationMs(branch.excavationDurationMs || 0)}</strong></p>
+      <p class="menu-note">${escapeHtml(overtimeExcavationNotice)} / 고장 확률: ${formatNumber(branch.breakdownChancePercent || 3, 2)}%</p>
       <p class="menu-note">${escapeHtml(excavationStatus)}</p>
       ${pendingExcavation ? `<div class="branch-excavation-progress"><div style="width:${pendingProgress}%"></div></div>` : ''}
+      <div class="branch-auto-row">
+        <button class="mini-btn branch-auto-toggle ${autoExcavationEnabled ? 'on' : 'off'}" onclick="handleBranchAutoExcavationToggle(${autoExcavationEnabled ? 'false' : 'true'})">${escapeHtml(autoExcavationButtonText)}</button>
+        <span class="menu-note">${escapeHtml(autoExcavationHint)}</span>
+      </div>
       <button class="menu-action-btn" ${excavationButtonDisabled} onclick="handleBranchExcavate()">${escapeHtml(excavationButtonText)}</button>
     </div>
 
@@ -5401,6 +5429,14 @@ async function handleBranchFire(employeeId) {
 async function handleBranchExcavate() {
   try {
     await runBranchAction('/api/branch-office/excavate');
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleBranchAutoExcavationToggle(enabled) {
+  try {
+    await runBranchAction('/api/branch-office/toggle-auto-excavation', { enabled });
   } catch (err) {
     alert(err.message);
   }
@@ -6251,6 +6287,7 @@ window.handleBranchContractPercentInput = handleBranchContractPercentInput;
 window.handleBranchRecruit = handleBranchRecruit;
 window.handleBranchFire = handleBranchFire;
 window.handleBranchExcavate = handleBranchExcavate;
+window.handleBranchAutoExcavationToggle = handleBranchAutoExcavationToggle;
 window.handleBranchBuyStorage = handleBranchBuyStorage;
 window.handleBranchDispose = handleBranchDispose;
 window.handleFragmentShopBuy = handleFragmentShopBuy;

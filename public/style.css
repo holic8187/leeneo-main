@@ -2555,6 +2555,25 @@ progress {
   transition: width 0.35s ease;
 }
 
+.branch-auto-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0;
+}
+
+.branch-auto-toggle.on {
+  border-color: #70ad47;
+  background: #e2f0d9;
+  color: #1f5f1f;
+  font-weight: 700;
+}
+
+.branch-auto-toggle.off {
+  background: #f5f5f5;
+}
+
 .branch-storage-actions {
   display: flex;
   justify-content: space-between;

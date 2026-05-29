@@ -244,12 +244,17 @@ const BRANCH_OFFICE_ELIGIBLE_SALARY_PER_MINUTE = 50000000;
 const BRANCH_OFFICE_HIGH_INCOME_TAX_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const BRANCH_OFFICE_HIGH_INCOME_TAX_RATE = 0.3;
 const BRANCH_OFFICE_FOUND_COST = 50000000000;
+const BRANCH_OFFICE_CONTRACT_SALARY_RATIO = 0.5;
 const BRANCH_OFFICE_MAX_EMPLOYEES = 10;
 const BRANCH_OFFICE_COMPANY_VALUE_PER_EXTRA_EMPLOYEE = 2000000000;
 const BRANCH_OFFICE_BASE_DIG_COST = 100000000;
 const BRANCH_OFFICE_DIG_COST_PER_EMPLOYEE = 50000000;
 const BRANCH_OFFICE_SUCCESS_CAP = 15;
-const BRANCH_OFFICE_BASE_EXCAVATION_MS = 10 * 60 * 1000;
+const BRANCH_OFFICE_BASE_EXCAVATION_MS = 15 * 60 * 1000;
+const BRANCH_OFFICE_BREAKDOWN_CHANCE = 0.03;
+const BRANCH_OFFICE_BREAKDOWN_MS = 6 * 60 * 60 * 1000;
+const BRANCH_OFFICE_OVERTIME_START_HOUR = 18;
+const BRANCH_OFFICE_OVERTIME_COST_MULTIPLIER = 3;
 const BRANCH_OFFICE_BASE_STORAGE_SLOTS = 10;
 const BRANCH_OFFICE_MAX_STORAGE_SLOTS = 100;
 const BRANCH_OFFICE_STORAGE_BASE_COST = 1000000000;
@@ -274,6 +279,7 @@ const BRANCH_EMPLOYEE_GRADE_CONFIG = {
   S: { label: 'S', role: '지사장', minPower: 1.8, maxPower: 2.7 }
 };
 const BRANCH_ITEM_GRADE_CONFIG = {
+  ss: { label: 'SS', valueGain: 500000000000, disposeCost: 100000000000, color: '#d4af37' },
   common: { label: '일반', valueGain: 100000000, disposeCost: 100000000, color: '#607d8b' },
   rare: { label: '희귀', valueGain: 1000000000, disposeCost: 500000000, color: '#1565c0' },
   epic: { label: '영웅', valueGain: 10000000000, disposeCost: 2000000000, color: '#6a1b9a' },
@@ -332,6 +338,62 @@ const BRANCH_COLLECTIBLE_ITEMS = {
   unicorn_parking_pass: { id: 'unicorn_parking_pass', emoji: '🦄', name: '유니콘 주차권', grade: 'legendary', desc: '한 번도 본 적 없는 주차 자리를 보장합니다.', effects: { bossRaidExpBonus: 3, hourlyExpPercent: 1.2 } },
   ceo_sleep_mask: { id: 'ceo_sleep_mask', emoji: '😴', name: '대표님의 수면안대', grade: 'legendary', desc: '회의 중에도 아무 일 없던 척할 수 있습니다.', effects: { excavationTimeReductionPercent: 2.5, companyValueBonus: 2.5 } }
 };
+
+
+
+Object.assign(BRANCH_COLLECTIBLE_ITEMS, {
+  ceo_benz_key: { id: 'ceo_benz_key', emoji: '🚘', name: '사장님의 벤츠 키', grade: 'ss', desc: '만지기만 해도 주차장이 조용해지는 SS급 유물입니다.', effects: { excavationSuccessCapBonus: 2.5 } },
+  expired_badge: { id: 'expired_badge', emoji: '🪪', name: '만료된 출입증', grade: 'common', desc: '문은 안 열리지만 소속감은 남아 있습니다.', effects: {} },
+  dull_scissors: { id: 'dull_scissors', emoji: '✂️', name: '무딘 가위', grade: 'common', desc: '테이프 하나 자르기에도 회의가 필요합니다.', effects: { companyValueBonus: 0.5 } },
+  lonely_binder_clip: { id: 'lonely_binder_clip', emoji: '🗜️', name: '외로운 집게클립', grade: 'common', desc: '서류 한 장을 과하게 붙잡고 있습니다.', effects: { excavationPowerBonus: 0.1 } },
+  vending_coin: { id: 'vending_coin', emoji: '🪙', name: '자판기 밑 동전', grade: 'common', desc: '누군가의 절망과 희망이 동시에 느껴집니다.', effects: { hourlyExpPercent: 0.3 } },
+  loose_lan_cable: { id: 'loose_lan_cable', emoji: '🔗', name: '헐거운 랜선', grade: 'common', desc: '연결은 되지만 믿음은 가지 않습니다.', effects: { excavationTimeReductionPercent: 0.5 } },
+  dried_glue_stick: { id: 'dried_glue_stick', emoji: '🧴', name: '말라붙은 딱풀', grade: 'common', desc: '뚜껑을 열면 세월이 느껴집니다.', effects: {} },
+  torn_envelope: { id: 'torn_envelope', emoji: '✉️', name: '찢어진 봉투', grade: 'common', desc: '중요했을지도 모르는 봉투입니다.', effects: { companyValueBonus: 0.6 } },
+  old_desk_calendar: { id: 'old_desk_calendar', emoji: '📆', name: '작년 탁상달력', grade: 'common', desc: '이미 지난 일정이 더 무섭습니다.', effects: { hourlyExpPercent: 0.4 } },
+  empty_clip_box: { id: 'empty_clip_box', emoji: '📦', name: '빈 클립 상자', grade: 'common', desc: '겉은 멀쩡한데 속이 비어 있습니다.', effects: {} },
+  crooked_ruler: { id: 'crooked_ruler', emoji: '📏', name: '휘어진 자', grade: 'common', desc: '정확하지 않아도 업무는 굴러갑니다.', effects: { bossRaidExpBonus: 0.5 } },
+  stale_cookie: { id: 'stale_cookie', emoji: '🍪', name: '눅눅한 쿠키', grade: 'common', desc: '먹기는 애매하지만 버리긴 아깝습니다.', effects: { hourlyExpPercent: 0.4 } },
+  cracked_phone_stand: { id: 'cracked_phone_stand', emoji: '📱', name: '금 간 휴대폰 거치대', grade: 'common', desc: '버티는 법을 잘 아는 물건입니다.', effects: { excavationPowerBonus: 0.12 } },
+  faded_highlighter: { id: 'faded_highlighter', emoji: '🖍️', name: '색 바랜 형광펜', grade: 'common', desc: '강조해도 아무도 보지 않습니다.', effects: { excavationTimeReductionPercent: 0.6 } },
+  rubber_band_ball: { id: 'rubber_band_ball', emoji: '🟤', name: '고무줄 뭉치', grade: 'common', desc: '의외로 단단한 사내 유산입니다.', effects: { companyValueBonus: 0.7 } },
+  forgotten_lunch_spoon: { id: 'forgotten_lunch_spoon', emoji: '🥄', name: '잊혀진 도시락 숟가락', grade: 'common', desc: '점심시간의 흔적이 남아 있습니다.', effects: {} },
+  memo_with_password: { id: 'memo_with_password', emoji: '📝', name: '비밀번호 적힌 메모', grade: 'rare', desc: '보안 교육이 다시 필요해 보입니다.', effects: { excavationPowerBonus: 0.25 } },
+  locked_drawer_key: { id: 'locked_drawer_key', emoji: '🔑', name: '잠긴 서랍 열쇠', grade: 'rare', desc: '서랍보다 열쇠가 더 수상합니다.', effects: { companyValueBonus: 1.1 } },
+  premium_coffee_filter: { id: 'premium_coffee_filter', emoji: '☕', name: '프리미엄 커피 필터', grade: 'rare', desc: '커피 맛보다 기분이 진해집니다.', effects: { hourlyExpPercent: 0.7 } },
+  unused_usb_hub: { id: 'unused_usb_hub', emoji: '🔌', name: '새것 같은 USB 허브', grade: 'rare', desc: '꽂을수록 가능성이 늘어납니다.', effects: { excavationTimeReductionPercent: 1 } },
+  quiet_headset: { id: 'quiet_headset', emoji: '🎧', name: '무소음 헤드셋', grade: 'rare', desc: '아무 말도 듣고 싶지 않을 때 좋습니다.', effects: { bossRaidExpBonus: 0.8 } },
+  spare_projector_lamp: { id: 'spare_projector_lamp', emoji: '💡', name: '프로젝터 예비 램프', grade: 'rare', desc: '회의를 더 오래 지속시킬 수 있습니다.', effects: { companyValueBonus: 1.2 } },
+  blue_lanyard: { id: 'blue_lanyard', emoji: '🔵', name: '파란 사원증 목걸이', grade: 'rare', desc: '왠지 더 정직해 보이는 목걸이입니다.', effects: { excavationPowerBonus: 0.28 } },
+  snack_receipt_bundle: { id: 'snack_receipt_bundle', emoji: '🧾', name: '간식 영수증 묶음', grade: 'rare', desc: '복지와 사비 사이의 기록입니다.', effects: { hourlyExpPercent: 0.6 } },
+  emergency_exit_map: { id: 'emergency_exit_map', emoji: '🗺️', name: '비상구 지도', grade: 'rare', desc: '퇴근길을 닮아서 더 소중합니다.', effects: { excavationTimeReductionPercent: 1.2 } },
+  sealed_document_tube: { id: 'sealed_document_tube', emoji: '📜', name: '봉인된 도면통', grade: 'rare', desc: '열면 일이 커질 것 같습니다.', effects: { companyValueBonus: 1.3 } },
+  office_plant_seed: { id: 'office_plant_seed', emoji: '🌱', name: '사무실 화분 씨앗', grade: 'rare', desc: '언젠가 누군가 물을 줄지도 모릅니다.', effects: { hourlyExpPercent: 0.8 } },
+  unused_nameplate: { id: 'unused_nameplate', emoji: '🏷️', name: '미사용 명패', grade: 'rare', desc: '승진의 빈자리가 느껴집니다.', effects: { excavationPowerBonus: 0.32 } },
+  silver_stamp: { id: 'silver_stamp', emoji: '🔖', name: '은빛 결재 도장', grade: 'epic', desc: '찍히는 순간 서류가 당당해집니다.', effects: { companyValueBonus: 1.8, excavationPowerBonus: 0.35 } },
+  executive_keyboard: { id: 'executive_keyboard', emoji: '⌨️', name: '임원용 기계식 키보드', grade: 'epic', desc: '타건음만으로 보고서가 승인될 것 같습니다.', effects: { hourlyExpPercent: 1.1 } },
+  glass_meeting_token: { id: 'glass_meeting_token', emoji: '🔷', name: '유리 회의 토큰', grade: 'epic', desc: '회의 참석권보다 묘하게 고급스럽습니다.', effects: { bossRaidExpBonus: 1.4 } },
+  gold_plated_mouse: { id: 'gold_plated_mouse', emoji: '🖱️', name: '금도금 마우스', grade: 'epic', desc: '클릭 한 번에도 품격이 묻어납니다.', effects: { companyValueBonus: 2 } },
+  confidential_shred_piece: { id: 'confidential_shred_piece', emoji: '📄', name: '대외비 파쇄 조각', grade: 'epic', desc: '조각인데도 비밀스러운 기운이 납니다.', effects: { excavationPowerBonus: 0.4 } },
+  night_shift_lantern: { id: 'night_shift_lantern', emoji: '🏮', name: '야근 랜턴', grade: 'epic', desc: '불을 켜면 퇴근이 멀어집니다.', effects: { excavationTimeReductionPercent: 2 } },
+  velvet_chair_cushion: { id: 'velvet_chair_cushion', emoji: '🟣', name: '벨벳 의자 쿠션', grade: 'epic', desc: '앉는 순간 잠깐 대표가 된 기분입니다.', effects: { hourlyExpPercent: 1.2 } },
+  audit_seal_box: { id: 'audit_seal_box', emoji: '📮', name: '감사팀 봉인함', grade: 'epic', desc: '열면 안 되지만 발견한 것만으로 성과입니다.', effects: { companyValueBonus: 2.3 } },
+  platinum_parking_card: { id: 'platinum_parking_card', emoji: '💳', name: '플래티넘 주차카드', grade: 'epic', desc: '주차장이 먼저 길을 비켜줍니다.', effects: { bossRaidExpBonus: 1.8 } },
+  whispering_printer: { id: 'whispering_printer', emoji: '🖨️', name: '속삭이는 프린터', grade: 'epic', desc: '출력물보다 소문이 먼저 나옵니다.', effects: { excavationPowerBonus: 0.43 } },
+  redline_contract: { id: 'redline_contract', emoji: '📑', name: '빨간줄 계약서', grade: 'legendary', desc: '수정사항이 많을수록 가치가 오릅니다.', effects: { companyValueBonus: 3, excavationPowerBonus: 0.45 } },
+  founders_fountain_pen: { id: 'founders_fountain_pen', emoji: '🖋️', name: '창업자의 만년필', grade: 'legendary', desc: '사인 한 번에 회사 분위기가 바뀝니다.', effects: { hourlyExpPercent: 1.5, companyValueBonus: 2.5 } },
+  secret_server_rack: { id: 'secret_server_rack', emoji: '🗄️', name: '비밀 서버랙', grade: 'legendary', desc: '돌아가는 소리만으로도 예산이 느껴집니다.', effects: { excavationTimeReductionPercent: 3, bossRaidExpBonus: 2.5 } },
+  diamond_employee_card: { id: 'diamond_employee_card', emoji: '💠', name: '다이아 사원증', grade: 'legendary', desc: '출근할 때마다 빛이 납니다.', effects: { excavationPowerBonus: 0.5, hourlyExpPercent: 1.3 } },
+  chairman_safe_code: { id: 'chairman_safe_code', emoji: '🔐', name: '회장 금고 암호표', grade: 'legendary', desc: '외우는 순간 책임도 같이 옵니다.', effects: { companyValueBonus: 3, excavationTimeReductionPercent: 2.5 } },
+  eternal_coffee_machine: { id: 'eternal_coffee_machine', emoji: '☕', name: '영원한 커피머신', grade: 'legendary', desc: '물을 넣지 않아도 야근 향이 납니다.', effects: { hourlyExpPercent: 1.5, excavationPowerBonus: 0.48 } },
+  platinum_toner_core: { id: 'platinum_toner_core', emoji: '⚙️', name: '백금 토너 코어', grade: 'legendary', desc: '잉크보다 값비싼 무언가입니다.', effects: { bossRaidExpBonus: 3, companyValueBonus: 2.5 } },
+  ceo_elevator_key: { id: 'ceo_elevator_key', emoji: '🛗', name: '대표 전용 엘리베이터 키', grade: 'legendary', desc: '누르면 층보다 위계가 먼저 올라갑니다.', effects: { excavationTimeReductionPercent: 3, companyValueBonus: 2.8 } },
+  abandoned_business_card_case: { id: 'abandoned_business_card_case', emoji: '💼', name: '버려진 명함 케이스', grade: 'common', desc: '빈 케이스인데도 사회생활의 무게가 있습니다.', effects: { companyValueBonus: 0.5 } },
+  fresh_printer_paper: { id: 'fresh_printer_paper', emoji: '📄', name: '새 프린터 용지 묶음', grade: 'common', desc: '언젠가 보고서가 될 운명입니다.', effects: { excavationTimeReductionPercent: 0.5 } },
+  secret_snack_drawer: { id: 'secret_snack_drawer', emoji: '🍫', name: '비밀 간식 서랍', grade: 'rare', desc: '열면 사내 사기가 조금 올라갑니다.', effects: { hourlyExpPercent: 0.7 } },
+  polished_briefcase: { id: 'polished_briefcase', emoji: '💼', name: '광나는 서류가방', grade: 'epic', desc: '내용물보다 가방의 존재감이 더 큽니다.', effects: { companyValueBonus: 2, bossRaidExpBonus: 1.5 } },
+  boardroom_chandelier: { id: 'boardroom_chandelier', emoji: '💡', name: '중역회의실 샹들리에', grade: 'legendary', desc: '불이 켜지는 순간 예산도 같이 켜집니다.', effects: { companyValueBonus: 3, excavationPowerBonus: 0.45 } }
+});
 
 const ITEM_DATA = {
   pen_monami: {
@@ -2187,6 +2249,8 @@ const userSchema = new mongoose.Schema({
       cost: { type: Number, default: 0 },
       successChance: { type: Number, default: 0 }
     },
+    autoExcavationEnabled: { type: Boolean, default: false },
+    excavationBrokenUntil: { type: Date, default: null },
     itemCodex: { type: [String], default: [] },
     employeeCodex: { type: [String], default: [] },
     lastSettlementDayKey: { type: String, default: '' },
@@ -9289,6 +9353,8 @@ function getDefaultBranchOffice() {
     storageSlots: BRANCH_OFFICE_BASE_STORAGE_SLOTS,
     items: [],
     pendingExcavation: { startedAt: null, completesAt: null, cost: 0, successChance: 0 },
+    autoExcavationEnabled: false,
+    excavationBrokenUntil: null,
     itemCodex: [],
     employeeCodex: [],
     lastSettlementDayKey: '',
@@ -9345,6 +9411,9 @@ function normalizeBranchOffice(user) {
         successChance: Math.max(0, Math.min(100, Number(office.pendingExcavation.successChance || 0)))
       }
     : { startedAt: null, completesAt: null, cost: 0, successChance: 0 };
+  office.autoExcavationEnabled = Boolean(office.autoExcavationEnabled);
+  const brokenUntil = office.excavationBrokenUntil ? new Date(office.excavationBrokenUntil) : null;
+  office.excavationBrokenUntil = brokenUntil && Number.isFinite(brokenUntil.getTime()) ? brokenUntil : null;
   office.itemCodex = [...new Set(Array.isArray(office.itemCodex) ? office.itemCodex.filter((itemId) => BRANCH_COLLECTIBLE_ITEMS[itemId]) : [])];
   office.employeeCodex = [...new Set(Array.isArray(office.employeeCodex) ? office.employeeCodex.map((name) => String(name || '').slice(0, 24)).filter(Boolean) : [])];
   office.lastSettlementDayKey = office.lastSettlementDayKey || '';
@@ -9359,7 +9428,7 @@ function sanitizeBranchCompanyName(name) {
 
 function getBranchEmployeeDailySalaryBase(user, now = new Date(), derivedStats = null) {
   const stats = derivedStats || calculateDerivedStats(user, now);
-  return Math.floor(getSalaryPerMinute(user.gameState.level, stats.moneyBonusPercent) * 60 * 24);
+  return Math.floor(getSalaryPerMinute(user.gameState.level, stats.moneyBonusPercent) * 60 * 24 * BRANCH_OFFICE_CONTRACT_SALARY_RATIO);
 }
 
 function isBranchOfficeEligible(user, now = new Date(), derivedStats = null) {
@@ -9374,6 +9443,7 @@ function getBranchItemEffectText(effects = {}) {
   if (effects.hourlyExpPercent) parts.push('매시간 다음 레벨까지 남은 경험치의 ' + effects.hourlyExpPercent + '% 획득');
   if (effects.excavationPowerBonus) parts.push('직원 전체 발굴 확률 +' + effects.excavationPowerBonus + '%');
   if (effects.bossRaidExpBonus) parts.push('보스 클리어 경험치 +' + effects.bossRaidExpBonus + '%');
+  if (effects.excavationSuccessCapBonus) parts.push('발굴 확률 최대치 +' + effects.excavationSuccessCapBonus + '%');
   if (effects.excavationTimeReductionPercent) parts.push('발굴 소요 시간 -' + effects.excavationTimeReductionPercent + '%');
   if (effects.companyValueBonus) parts.push('회사 가치 증가량 +' + effects.companyValueBonus + '%');
   return parts.length ? parts.join(' / ') : '보유 효과 없음';
@@ -9399,7 +9469,7 @@ function getBranchItemDetail(itemId) {
 }
 
 function calculateBranchItemEffects(branchOffice = {}) {
-  const effects = { hourlyExpPercent: 0, excavationPowerBonus: 0, bossRaidExpBonus: 0, companyValueBonus: 0, excavationTimeReductionPercent: 0 };
+  const effects = { hourlyExpPercent: 0, excavationPowerBonus: 0, bossRaidExpBonus: 0, companyValueBonus: 0, excavationTimeReductionPercent: 0, excavationSuccessCapBonus: 0 };
   (Array.isArray(branchOffice?.items) ? branchOffice.items : []).forEach((entry) => {
     const itemEffects = BRANCH_COLLECTIBLE_ITEMS[entry.itemId]?.effects || {};
     effects.hourlyExpPercent += Number(itemEffects.hourlyExpPercent || 0);
@@ -9407,6 +9477,7 @@ function calculateBranchItemEffects(branchOffice = {}) {
     effects.bossRaidExpBonus += Number(itemEffects.bossRaidExpBonus || 0);
     effects.companyValueBonus += Number(itemEffects.companyValueBonus || 0);
     effects.excavationTimeReductionPercent += Number(itemEffects.excavationTimeReductionPercent || 0);
+    effects.excavationSuccessCapBonus += Number(itemEffects.excavationSuccessCapBonus || 0);
   });
   Object.keys(effects).forEach((key) => { effects[key] = Number(effects[key].toFixed(2)); });
   return effects;
@@ -9420,12 +9491,25 @@ function getBranchExcavationPower(user) {
 }
 
 function getBranchExcavationChance(user) {
-  return Number(Math.min(BRANCH_OFFICE_SUCCESS_CAP, getBranchExcavationPower(user)).toFixed(2));
+  normalizeBranchOffice(user);
+  const effects = calculateBranchItemEffects(user.branchOffice);
+  const cap = BRANCH_OFFICE_SUCCESS_CAP + Number(effects.excavationSuccessCapBonus || 0);
+  return Number(Math.min(cap, getBranchExcavationPower(user)).toFixed(2));
 }
 
-function getBranchExcavationCost(user) {
+function getKSTHour(date = new Date()) {
+  const kst = new Date(date.getTime() + KST_OFFSET_MS);
+  return kst.getUTCHours();
+}
+
+function isBranchOvertimeExcavationTime(now = new Date()) {
+  return getKSTHour(now) >= BRANCH_OFFICE_OVERTIME_START_HOUR;
+}
+
+function getBranchExcavationCost(user, now = new Date()) {
   normalizeBranchOffice(user);
-  return BRANCH_OFFICE_BASE_DIG_COST + user.branchOffice.employees.length * BRANCH_OFFICE_DIG_COST_PER_EMPLOYEE;
+  const baseCost = BRANCH_OFFICE_BASE_DIG_COST + user.branchOffice.employees.length * BRANCH_OFFICE_DIG_COST_PER_EMPLOYEE;
+  return baseCost * (isBranchOvertimeExcavationTime(now) ? BRANCH_OFFICE_OVERTIME_COST_MULTIPLIER : 1);
 }
 
 function getBranchExcavationDurationMs(user) {
@@ -9433,6 +9517,161 @@ function getBranchExcavationDurationMs(user) {
   const effects = calculateBranchItemEffects(user.branchOffice);
   const reduction = Math.max(0, Math.min(90, Number(effects.excavationTimeReductionPercent || 0)));
   return Math.max(60 * 1000, Math.floor(BRANCH_OFFICE_BASE_EXCAVATION_MS * (1 - reduction / 100)));
+}
+
+function getBranchPendingExcavation(user) {
+  normalizeBranchOffice(user);
+  const pending = user.branchOffice.pendingExcavation;
+  if (!pending?.completesAt) return null;
+  const completesAt = new Date(pending.completesAt);
+  if (!Number.isFinite(completesAt.getTime())) return null;
+  const startedAt = pending.startedAt ? new Date(pending.startedAt) : null;
+  return {
+    startedAt: startedAt && Number.isFinite(startedAt.getTime()) ? startedAt : null,
+    completesAt,
+    cost: Math.max(0, Math.floor(Number(pending.cost || 0))),
+    successChance: Math.max(0, Math.min(100, Number(pending.successChance || 0)))
+  };
+}
+
+function clearBranchPendingExcavation(user) {
+  normalizeBranchOffice(user);
+  user.branchOffice.pendingExcavation = { startedAt: null, completesAt: null, cost: 0, successChance: 0 };
+}
+
+function getBranchMachineBrokenUntil(user, now = new Date()) {
+  normalizeBranchOffice(user);
+  const brokenUntil = user.branchOffice.excavationBrokenUntil ? new Date(user.branchOffice.excavationBrokenUntil) : null;
+  if (!brokenUntil || !Number.isFinite(brokenUntil.getTime())) {
+    user.branchOffice.excavationBrokenUntil = null;
+    return null;
+  }
+  if (brokenUntil.getTime() <= now.getTime()) {
+    user.branchOffice.excavationBrokenUntil = null;
+    return null;
+  }
+  return brokenUntil;
+}
+
+function startBranchExcavation(user, now = new Date(), options = {}) {
+  normalizeBranchOffice(user);
+  if (!user.branchOffice.isFounded) {
+    return { started: false, reason: 'not_founded', message: '먼저 회사를 설립해주세요.' };
+  }
+  if (getBranchPendingExcavation(user)) {
+    return { started: false, reason: 'pending', message: '이미 발굴이 진행 중입니다.' };
+  }
+  const brokenUntil = getBranchMachineBrokenUntil(user, now);
+  if (brokenUntil) {
+    const message = '발굴 기계 수리 중입니다. 남은 시간: ' + Math.ceil((brokenUntil.getTime() - now.getTime()) / 60000) + '분';
+    user.branchOffice.lastLog = message;
+    return { started: false, reason: 'broken', message, brokenUntil };
+  }
+  if (Math.random() < BRANCH_OFFICE_BREAKDOWN_CHANCE) {
+    const repairUntil = new Date(now.getTime() + BRANCH_OFFICE_BREAKDOWN_MS);
+    user.branchOffice.excavationBrokenUntil = repairUntil;
+    const message = '발굴 기계가 고장났습니다. 6시간 수리 후 다시 발굴할 수 있습니다. 비용은 사용되지 않았습니다.';
+    user.branchOffice.lastLog = message;
+    return { started: false, reason: 'breakdown', message, brokenUntil: repairUntil };
+  }
+
+  const cost = getBranchExcavationCost(user, now);
+  if (Number(user.gameState.money || 0) < cost) {
+    const message = options.auto ? '자동 발굴 대기 중: 발굴 비용이 부족합니다.' : '발굴 비용이 부족합니다.';
+    user.branchOffice.lastLog = message;
+    return { started: false, reason: 'money', message };
+  }
+
+  user.gameState.money = Number(user.gameState.money || 0) - cost;
+  const durationMs = getBranchExcavationDurationMs(user);
+  const successChance = getBranchExcavationChance(user);
+  const completesAt = new Date(now.getTime() + durationMs);
+  user.branchOffice.pendingExcavation = { startedAt: now, completesAt, cost, successChance };
+  const overtimeText = isBranchOvertimeExcavationTime(now) ? ' 야근 시간이라 발굴 비용 3배가 적용되었습니다.' : '';
+  const message = (options.auto ? '자동 발굴을 시작했습니다.' : '발굴을 시작했습니다.')
+    + ' 발굴 비용 ' + cost.toLocaleString() + '원이 사용되었습니다.' + overtimeText
+    + ' 예상 소요 시간: ' + Math.ceil(durationMs / 60000) + '분.';
+  user.branchOffice.lastLog = message;
+  return { started: true, message, pending: true, completesAt, durationMs, successChance };
+}
+
+function completeBranchExcavation(user, now = new Date(), options = {}) {
+  normalizeBranchOffice(user);
+  const pending = getBranchPendingExcavation(user);
+  if (!pending) return { completed: false, reason: 'none', message: '확인할 발굴 결과가 없습니다.' };
+
+  const remainingMs = pending.completesAt.getTime() - now.getTime();
+  if (remainingMs > 0 && !options.force) {
+    return {
+      completed: false,
+      reason: 'not_ready',
+      remainingMs,
+      message: '발굴이 아직 진행 중입니다. 남은 시간: ' + Math.ceil(remainingMs / 1000) + '초'
+    };
+  }
+
+  const successChance = Number(pending.successChance || getBranchExcavationChance(user));
+  const success = Math.random() * 100 < successChance;
+  let message = options.auto ? '자동 발굴 결과: ' : '발굴 결과 확인: ';
+  let itemDetail = null;
+  let valueGain = 0;
+
+  if (success) {
+    const item = rollBranchCollectibleItem(user);
+    const detail = getBranchItemDetail(item.id);
+    if (detail) {
+      const branchEffects = calculateBranchItemEffects(user.branchOffice);
+      valueGain = Math.floor(detail.valueGain * (1 + branchEffects.companyValueBonus / 100));
+      user.branchOffice.companyValue += valueGain;
+      user.branchOffice.itemCodex = [...new Set([...(user.branchOffice.itemCodex || []), item.id])];
+      itemDetail = detail;
+      if (user.branchOffice.items.length < user.branchOffice.storageSlots) {
+        user.branchOffice.items.push({ instanceId: createBranchOfficeId('boi'), itemId: item.id, acquiredAt: now });
+        message += detail.emoji + ' ' + detail.name + ' 발굴 성공! 회사 가치 +' + valueGain.toLocaleString() + '원';
+      } else {
+        message += detail.emoji + ' ' + detail.name + ' 발굴 성공! 회사 가치 +' + valueGain.toLocaleString() + '원. 단, 창고가 가득 차 보관하지 못했습니다.';
+      }
+    } else {
+      message += '발굴은 성공했지만 수집품 정보를 확인하지 못했습니다.';
+    }
+  } else {
+    message += '발굴 실패. 아무것도 찾지 못했습니다. (성공률 ' + successChance + '%)';
+  }
+
+  clearBranchPendingExcavation(user);
+  user.branchOffice.lastLog = message;
+  return { completed: true, message, success, item: itemDetail, valueGain, pending: false };
+}
+
+function processBranchAutoExcavation(user, now = new Date()) {
+  normalizeBranchOffice(user);
+  const office = user.branchOffice;
+  if (!office.isFounded || !office.autoExcavationEnabled) return [];
+
+  const messages = [];
+  let guard = 0;
+  while (guard < 100) {
+    guard += 1;
+    const brokenUntil = getBranchMachineBrokenUntil(user, now);
+    if (brokenUntil) break;
+    const pending = getBranchPendingExcavation(user);
+    if (pending) {
+      if (pending.completesAt.getTime() > now.getTime()) break;
+      const completed = completeBranchExcavation(user, pending.completesAt, { auto: true, force: true });
+      if (completed.message) messages.push(completed.message);
+      if (!office.autoExcavationEnabled) break;
+      const next = startBranchExcavation(user, pending.completesAt, { auto: true });
+      if (next.message) messages.push(next.message);
+      if (!next.started || new Date(next.completesAt).getTime() > now.getTime()) break;
+      continue;
+    }
+
+    const started = startBranchExcavation(user, now, { auto: true });
+    if (started.message) messages.push(started.message);
+    break;
+  }
+
+  return messages;
 }
 
 function getBranchNextStorageCost(user) {
@@ -9475,6 +9714,10 @@ function rollBranchCollectibleItem(user) {
   const power = Math.max(0, getBranchExcavationPower(user) - BRANCH_OFFICE_SUCCESS_CAP);
   const legendaryBonus = Math.min(3, power * 0.15);
   const epicBonus = Math.min(5, power * 0.25);
+  if (Math.random() * 100 < 0.15) {
+    const ssPool = Object.values(BRANCH_COLLECTIBLE_ITEMS).filter((item) => item.grade === 'ss');
+    if (ssPool.length) return ssPool[Math.floor(Math.random() * ssPool.length)];
+  }
   const weights = [
     { grade: 'legendary', weight: 2 + legendaryBonus },
     { grade: 'epic', weight: 8 + epicBonus },
@@ -9628,10 +9871,19 @@ function buildBranchOfficePublicState(user, now = new Date(), derivedStats = nul
     itemCodexTotal: Object.keys(BRANCH_COLLECTIBLE_ITEMS).length,
     employeeCodex: office.employeeCodex,
     employeeCodexCount: office.employeeCodex.length,
-    digCost: getBranchExcavationCost(user),
+    digCost: getBranchExcavationCost(user, now),
+    overtimeExcavationActive: isBranchOvertimeExcavationTime(now),
+    overtimeExcavationMultiplier: BRANCH_OFFICE_OVERTIME_COST_MULTIPLIER,
     excavationPower: getBranchExcavationPower(user),
     successChance: getBranchExcavationChance(user),
     excavationDurationMs: getBranchExcavationDurationMs(user),
+    autoExcavationEnabled: Boolean(office.autoExcavationEnabled),
+    excavationBrokenUntil: getBranchMachineBrokenUntil(user, now),
+    excavationBrokenRemainingMs: (() => {
+      const brokenUntil = getBranchMachineBrokenUntil(user, now);
+      return brokenUntil ? Math.max(0, brokenUntil.getTime() - now.getTime()) : 0;
+    })(),
+    breakdownChancePercent: Number((BRANCH_OFFICE_BREAKDOWN_CHANCE * 100).toFixed(2)),
     pendingExcavation: pending ? {
       startedAt: pending.startedAt,
       completesAt: pending.completesAt,
@@ -9957,6 +10209,7 @@ function calculateOfflineGains(user, now = new Date()) {
   applyBranchOfficeHighIncomeTax(user, now, derivedStats);
 
   if (elapsedSeconds === 0) {
+    processBranchAutoExcavation(user, now);
     user.gameState.lastActionTime = now;
     return;
   }
@@ -9999,6 +10252,7 @@ function calculateOfflineGains(user, now = new Date()) {
 
   checkLevelUp(user);
   reconcileTitles(user, now);
+  processBranchAutoExcavation(user, now);
   user.gameState.lastActionTime = now;
 }
 
@@ -13407,54 +13661,54 @@ app.post('/api/branch-office/excavate', async (req, res) => {
       normalizeBranchOffice(user);
       if (!user.branchOffice.isFounded) throw createHttpError(400, '먼저 회사를 설립해주세요.');
 
-      const pending = user.branchOffice.pendingExcavation?.completesAt ? user.branchOffice.pendingExcavation : null;
+      const pending = getBranchPendingExcavation(user);
       if (pending) {
-        const completesAt = new Date(pending.completesAt);
-        const remainingMs = completesAt.getTime() - now.getTime();
-        if (remainingMs > 0) {
-          throw createHttpError(400, '발굴이 아직 진행 중입니다. 남은 시간: ' + Math.ceil(remainingMs / 1000) + '초');
+        const completed = completeBranchExcavation(user, now);
+        if (!completed.completed) throw createHttpError(400, completed.message || '발굴이 아직 진행 중입니다.');
+        if (user.branchOffice.autoExcavationEnabled) {
+          const next = startBranchExcavation(user, now, { auto: true });
+          if (next.started) completed.message += ' 다음 자동 발굴이 이어서 시작되었습니다.';
+          else if (next.message) completed.message += ' ' + next.message;
         }
-
-        const successChance = Number(pending.successChance || getBranchExcavationChance(user));
-        const success = Math.random() * 100 < successChance;
-        let message = '발굴 결과 확인: ';
-        let itemDetail = null;
-        if (success) {
-          const item = rollBranchCollectibleItem(user);
-          const detail = getBranchItemDetail(item.id);
-          const branchEffects = calculateBranchItemEffects(user.branchOffice);
-          const valueGain = Math.floor(detail.valueGain * (1 + branchEffects.companyValueBonus / 100));
-          user.branchOffice.companyValue += valueGain;
-          user.branchOffice.itemCodex = [...new Set([...(user.branchOffice.itemCodex || []), item.id])];
-          itemDetail = detail;
-          if (user.branchOffice.items.length < user.branchOffice.storageSlots) {
-            user.branchOffice.items.push({ instanceId: createBranchOfficeId('boi'), itemId: item.id, acquiredAt: now });
-            message += detail.emoji + ' ' + detail.name + ' 발굴 성공! 회사 가치 +' + valueGain.toLocaleString() + '원';
-          } else {
-            message += detail.emoji + ' ' + detail.name + ' 발굴 성공! 회사 가치 +' + valueGain.toLocaleString() + '원. 단, 창고가 가득 차 보관하지 못했습니다.';
-          }
-        } else {
-          message += '발굴 실패. 아무것도 찾지 못했습니다. (성공률 ' + successChance + '%)';
-        }
-        user.branchOffice.pendingExcavation = { startedAt: null, completesAt: null, cost: 0, successChance: 0 };
-        user.branchOffice.lastLog = message;
-        return { user: buildGameStateResponse(user, now), branchResult: { message, success, item: itemDetail, pending: false } };
+        return { user: buildGameStateResponse(user, now), branchResult: completed };
       }
 
-      const cost = getBranchExcavationCost(user);
-      if (user.gameState.money < cost) throw createHttpError(400, '발굴 비용이 부족합니다.');
-      user.gameState.money -= cost;
-      const durationMs = getBranchExcavationDurationMs(user);
-      const successChance = getBranchExcavationChance(user);
-      const completesAt = new Date(now.getTime() + durationMs);
-      user.branchOffice.pendingExcavation = { startedAt: now, completesAt, cost, successChance };
-      const message = '발굴을 시작했습니다. 발굴 비용 ' + cost.toLocaleString() + '원이 사용되었습니다. 예상 소요 시간: ' + Math.ceil(durationMs / 60000) + '분. 완료 후 다시 눌러 결과를 확인하세요.';
-      user.branchOffice.lastLog = message;
-      return { user: buildGameStateResponse(user, now), branchResult: { message, pending: true, completesAt, durationMs, successChance } };
+      const started = startBranchExcavation(user, now);
+      if (!started.started) throw createHttpError(400, started.message || '발굴을 시작할 수 없습니다.');
+      return { user: buildGameStateResponse(user, now), branchResult: started };
     }, { conflictLabel: 'Branch excavate conflict' });
     res.json(response);
   } catch (err) {
     console.error('Branch excavate error:', err);
+    res.status(err.statusCode || 500).json({ msg: err.statusCode ? err.message : '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/branch-office/toggle-auto-excavation', async (req, res) => {
+  const { userId, enabled } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+  try {
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      normalizeBranchOffice(user);
+      if (!user.branchOffice.isFounded) throw createHttpError(400, '먼저 회사를 설립해주세요.');
+
+      user.branchOffice.autoExcavationEnabled = Boolean(enabled);
+      let message = user.branchOffice.autoExcavationEnabled
+        ? '자동 발굴을 켰습니다. 완료된 발굴은 자동 정산되고 다음 발굴이 이어서 시작됩니다.'
+        : '자동 발굴을 껐습니다. 이미 진행 중인 발굴은 유지되고, 다음 반복만 중단됩니다.';
+
+      if (user.branchOffice.autoExcavationEnabled) {
+        const autoMessages = processBranchAutoExcavation(user, now);
+        if (autoMessages.length) message += ' ' + autoMessages[autoMessages.length - 1];
+      }
+      user.branchOffice.lastLog = message;
+      return { user: buildGameStateResponse(user, now), branchResult: { message } };
+    }, { conflictLabel: 'Branch auto excavate conflict' });
+    res.json(response);
+  } catch (err) {
+    console.error('Branch auto excavate error:', err);
     res.status(err.statusCode || 500).json({ msg: err.statusCode ? err.message : '서버 오류가 발생했습니다.' });
   }
 });
