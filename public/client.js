@@ -276,6 +276,17 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-05-29-branch-office-mvp',
+    time: '2026-05-29 15:40',
+    title: '이모지 지사 운영 MVP 추가',
+    items: [
+      '레벨 250 이상 또는 분당 월급 5,000만원 이상 유저가 500억원을 소각해 지사를 설립할 수 있습니다.',
+      '직원 공고, NPC 직원 고용, 발굴, 창고 확장, 아이템 처분, 일일 계약금/유지비 정산, 파산, 회사 가치 랭킹을 추가했습니다.',
+      '지사를 설립하지 않은 고소득 유저는 6시간마다 보유 현금의 30%가 고소득근로자 세금으로 소각됩니다.',
+      '발굴 수집품은 현금 보상이 아니라 회사 가치, 도감, 보유 효과 중심으로 작동합니다.'
+    ]
+  },
     {
     id: '2026-05-28-carbon-fiber-image',
     time: '2026-05-28 19:25',
@@ -1055,7 +1066,10 @@ function setupEventListeners() {
   bindClick('pvpPatchNotesBtn', () => openPatchNotesModal({ markSeen: true }));
   bindClick('rankingLevelTab', () => setRankingMode('level'));
   bindClick('rankingPvpTab', () => setRankingMode('pvp'));
+  bindClick('rankingBranchTab', () => setRankingMode('branch'));
   bindClick('rankingEmblemToggleBtn', handleRankingEmblemToggle);
+  bindClick('branchOfficeBtn', openBranchOfficeModal);
+  bindClick('branchOfficeCloseBtn', closeBranchOfficeModal);
   bindClick('fragmentShopBtn', openFragmentShopModal);
   bindClick('fragmentShopTabBtn', () => handleShopModalTabChange('fragment'));
   bindClick('generalShopTabBtn', () => handleShopModalTabChange('general'));
@@ -2034,6 +2048,7 @@ function handleLogoutClick() {
   hideModal('patchNotesModal');
   hideModal('equipmentDismantleModal');
   hideModal('fragmentShopModal');
+  hideModal('branchOfficeModal');
   hideModal('marketplaceModal');
   hideModal('marketplaceRegisterModal');
   hideModal('raidLobbyModal');
@@ -3300,6 +3315,10 @@ function updateLocalUserState(data, options = {}) {
   const fragmentShopModal = document.getElementById('fragmentShopModal');
   if (fragmentShopModal && !fragmentShopModal.classList.contains('hidden')) {
     openFragmentShopModal();
+  }
+  const branchOfficeModal = document.getElementById('branchOfficeModal');
+  if (branchOfficeModal && !branchOfficeModal.classList.contains('hidden')) {
+    renderBranchOfficeModal(latestUser);
   }
   if (latestUser) {
     updateRaidButton(latestUser, latestRaidState);
@@ -5128,6 +5147,225 @@ function openSupportModal() {
   showModal('supportModal');
 }
 
+
+function getBranchOfficeState(user = getStoredUser()) {
+  return user?.branchOffice || null;
+}
+
+function formatBranchPercent(value) {
+  const number = Number(value || 0);
+  return Number.isFinite(number) ? number.toFixed(2).replace(/\.00$/, '') + '%' : '0%';
+}
+
+function renderBranchEffectBadges(item) {
+  const effectText = item?.effectText || '보유 효과 없음';
+  return '<span class="branch-effect-badge">' + escapeHtml(effectText) + '</span>';
+}
+
+function openBranchOfficeModal() {
+  renderBranchOfficeModal(getStoredUser());
+  showModal('branchOfficeModal');
+}
+
+function closeBranchOfficeModal() {
+  hideModal('branchOfficeModal');
+}
+
+function renderBranchOfficeModal(user = getStoredUser()) {
+  const container = document.getElementById('branchOfficeContent');
+  if (!container) return;
+  const branch = getBranchOfficeState(user);
+  if (!branch) {
+    container.innerHTML = '<div class="menu-note">지사 정보를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.</div>';
+    return;
+  }
+
+  if (!branch.isFounded) {
+    const taxNotice = branch.highIncomeTax?.applies
+      ? '<div class="branch-warning">지사 설립 대상자입니다. 지사를 설립하지 않으면 6시간마다 보유 현금의 30%가 고소득근로자 4대보험+소득세로 소각됩니다.</div>'
+      : '';
+    const foundForm = branch.eligible
+      ? `
+        <div class="branch-card">
+          <h4>지사 설립</h4>
+          <p>설립비: <strong>${formatNumber(branch.foundCost)}원</strong> 전액 소각</p>
+          <div class="stock-controls">
+            <input id="branchCompanyNameInput" type="text" maxlength="24" placeholder="회사 이름 입력">
+            <button class="menu-action-btn" onclick="handleBranchFound()">지사 설립</button>
+          </div>
+        </div>
+      `
+      : '<div class="branch-card"><h4>아직 설립 대상자가 아닙니다</h4><p>' + escapeHtml(branch.requirementText || '') + '</p></div>';
+    container.innerHTML = `
+      <div class="branch-summary-grid">
+        <div class="branch-stat"><span>설립 조건</span><strong>${escapeHtml(branch.requirementText || '')}</strong></div>
+        <div class="branch-stat"><span>현재 상태</span><strong>${branch.eligible ? '설립 가능' : '대기 중'}</strong></div>
+      </div>
+      ${taxNotice}
+      ${foundForm}
+    `;
+    return;
+  }
+
+  const employeeRows = (branch.employees || []).map((employee) => `
+    <tr>
+      <td><span class="branch-grade branch-grade-${escapeAttr(employee.grade)}">${escapeHtml(employee.grade)}</span></td>
+      <td>${escapeHtml(employee.name)}</td>
+      <td class="center-text">+${formatBranchPercent(employee.excavationPower)}</td>
+      <td class="center-text">${formatNumber(employee.dailySalary)}원</td>
+      <td class="center-text"><button class="mini-btn" onclick="handleBranchFire('${escapeAttr(employee.employeeId)}')">해고</button></td>
+    </tr>
+  `).join('') || '<tr><td colspan="5" class="center-text">고용된 직원이 없습니다.</td></tr>';
+
+  const itemCards = (branch.items || []).map((item) => `
+    <div class="branch-item-card" style="border-color:${escapeAttr(item.color || '#cccccc')}">
+      <div class="branch-item-head"><strong>${escapeHtml(item.emoji || '')} ${escapeHtml(item.name)}</strong><span style="color:${escapeAttr(item.color || '#333')}">${escapeHtml(item.gradeLabel || '')}</span></div>
+      <p>${escapeHtml(item.desc || '')}</p>
+      ${renderBranchEffectBadges(item)}
+      <div class="branch-item-actions">
+        <span>처분 비용 ${formatNumber(item.disposeCost)}원</span>
+        <button class="mini-btn" onclick="handleBranchDispose('${escapeAttr(item.instanceId)}')">처분</button>
+      </div>
+    </div>
+  `).join('') || '<div class="menu-note">창고에 보관 중인 수집품이 없습니다.</div>';
+
+  const itemCodex = (branch.itemCodex || []).map((item) => `
+    <span class="branch-codex-chip" title="${escapeAttr(item.effectText || '')}">${escapeHtml(item.emoji || '')} ${escapeHtml(item.name || '')}</span>
+  `).join('') || '<span class="menu-note">아직 발견한 수집품이 없습니다.</span>';
+  const employeeCodex = (branch.employeeCodex || []).map((name) => `<span class="branch-codex-chip">${escapeHtml(name)}</span>`).join('') || '<span class="menu-note">아직 고용 기록이 없습니다.</span>';
+  const postPreview = Number(branch.dailySalaryBase || 0);
+
+  container.innerHTML = `
+    <div class="branch-summary-grid">
+      <div class="branch-stat"><span>회사명</span><strong>${escapeHtml(branch.companyName || '이름 없음')}</strong></div>
+      <div class="branch-stat"><span>회사 가치</span><strong>${formatNumber(branch.companyValue || 0)}원</strong></div>
+      <div class="branch-stat"><span>발굴 성공률</span><strong>${formatBranchPercent(branch.successChance)}</strong></div>
+      <div class="branch-stat"><span>창고</span><strong>${formatNumber(branch.storageUsed || 0)} / ${formatNumber(branch.storageSlots || 0)}</strong></div>
+      <div class="branch-stat"><span>일일 유지비</span><strong>${formatNumber(branch.dailyMaintenanceCost || 0)}원</strong></div>
+      <div class="branch-stat"><span>직원</span><strong>${formatNumber(branch.employeeCount || 0)} / ${formatNumber(branch.maxEmployees || 0)}</strong></div>
+    </div>
+
+    <div class="branch-card">
+      <h4>회사명 변경</h4>
+      <div class="stock-controls">
+        <input id="branchRenameInput" type="text" maxlength="24" value="${escapeAttr(branch.companyName || '')}">
+        <button class="mini-btn" onclick="handleBranchRename()">변경</button>
+      </div>
+      <p class="menu-note">최근 기록: ${escapeHtml(branch.lastLog || '기록 없음')}</p>
+    </div>
+
+    <div class="branch-card">
+      <h4>직원 공고</h4>
+      <p>하루 시작 기준 일급: <strong>${formatNumber(postPreview)}원</strong>. 입력한 비율만큼 직원 일일 계약금이 정해지고, 공고 비용은 계약금의 30%입니다.</p>
+      <div class="stock-controls">
+        <input id="branchContractPercentInput" type="number" min="0.1" max="50" step="0.1" value="1">
+        <button class="menu-action-btn" onclick="handleBranchRecruit()">공고 올리기</button>
+      </div>
+    </div>
+
+    <div class="branch-card">
+      <h4>발굴</h4>
+      <p>발굴 비용: <strong>${formatNumber(branch.digCost || 0)}원</strong> / 성공률: <strong>${formatBranchPercent(branch.successChance)}</strong></p>
+      <button class="menu-action-btn" onclick="handleBranchExcavate()">발굴 시도</button>
+    </div>
+
+    <div class="branch-card">
+      <h4>직원 목록</h4>
+      <table class="inner-table branch-table">
+        <thead><tr><th>등급</th><th>직원</th><th>발굴력</th><th>일일 계약금</th><th>관리</th></tr></thead>
+        <tbody>${employeeRows}</tbody>
+      </table>
+    </div>
+
+    <div class="branch-card">
+      <h4>창고</h4>
+      <div class="branch-storage-actions">
+        <span>다음 창고 1칸 구매 비용: ${branch.nextStorageCost == null ? '최대치' : formatNumber(branch.nextStorageCost) + '원'}</span>
+        <button class="mini-btn" ${branch.nextStorageCost == null ? 'disabled' : ''} onclick="handleBranchBuyStorage()">창고 1칸 구매</button>
+      </div>
+      <div class="branch-item-grid">${itemCards}</div>
+    </div>
+
+    <div class="branch-card">
+      <h4>도감</h4>
+      <p>수집품 도감: ${formatNumber(branch.itemCodexCount || 0)} / ${formatNumber(branch.itemCodexTotal || 0)}</p>
+      <div class="branch-codex-list">${itemCodex}</div>
+      <p>직원 도감: ${formatNumber(branch.employeeCodexCount || 0)}명</p>
+      <div class="branch-codex-list">${employeeCodex}</div>
+    </div>
+  `;
+}
+
+async function runBranchAction(endpoint, body = {}) {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+  const data = await runWithUserMutation(() => postJson(API_URL + endpoint, { userId: user._id, ...body }));
+  updateLocalUserState(data, { force: true });
+  if (data.branchResult?.message) alert(data.branchResult.message);
+  renderBranchOfficeModal(getStoredUser());
+}
+
+async function handleBranchFound() {
+  const companyName = document.getElementById('branchCompanyNameInput')?.value || '';
+  try {
+    await runBranchAction('/api/branch-office/found', { companyName });
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleBranchRename() {
+  const companyName = document.getElementById('branchRenameInput')?.value || '';
+  try {
+    await runBranchAction('/api/branch-office/rename', { companyName });
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleBranchRecruit() {
+  const contractPercent = Number(document.getElementById('branchContractPercentInput')?.value || 0);
+  try {
+    await runBranchAction('/api/branch-office/post-job', { contractPercent });
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleBranchFire(employeeId) {
+  if (!confirm('해고 비용은 해당 직원 일일 계약금의 10배입니다. 정말 해고할까요?')) return;
+  try {
+    await runBranchAction('/api/branch-office/fire', { employeeId });
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleBranchExcavate() {
+  try {
+    await runBranchAction('/api/branch-office/excavate');
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleBranchBuyStorage() {
+  try {
+    await runBranchAction('/api/branch-office/buy-storage');
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleBranchDispose(instanceId) {
+  if (!confirm('아이템 처분 비용이 소각됩니다. 회사 가치는 내려가지 않습니다. 처분할까요?')) return;
+  try {
+    await runBranchAction('/api/branch-office/dispose-item', { instanceId });
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
 function openFragmentShopModal() {
   const user = getStoredUser();
   renderShopModal(user);
@@ -5950,6 +6188,13 @@ window.handleMarketplaceRegisterSortChange = handleMarketplaceRegisterSortChange
 window.handleMarketplaceRegisterSelect = handleMarketplaceRegisterSelect;
 window.handleMarketplaceBuy = handleMarketplaceBuy;
 window.handleMarketplaceCancel = handleMarketplaceCancel;
+window.handleBranchFound = handleBranchFound;
+window.handleBranchRename = handleBranchRename;
+window.handleBranchRecruit = handleBranchRecruit;
+window.handleBranchFire = handleBranchFire;
+window.handleBranchExcavate = handleBranchExcavate;
+window.handleBranchBuyStorage = handleBranchBuyStorage;
+window.handleBranchDispose = handleBranchDispose;
 window.handleFragmentShopBuy = handleFragmentShopBuy;
 window.handleEmblemShopBuy = handleEmblemShopBuy;
 window.handleToggleEmblem = handleToggleEmblem;
@@ -6602,11 +6847,12 @@ async function updateRankingUI() {
     const rankingData = await getJson(`${API_URL}/api/ranking`);
     const entries = Array.isArray(rankingData)
       ? rankingData
-      : (rankingMode === 'pvp' ? (rankingData.pvp || []) : (rankingData.level || []));
+      : (rankingMode === 'pvp' ? (rankingData.pvp || []) : (rankingMode === 'branch' ? (rankingData.branch || []) : (rankingData.level || [])));
     const valueHeader = document.getElementById('rankingValueHeader');
-    if (valueHeader) valueHeader.textContent = rankingMode === 'pvp' ? '면담 점수' : '레벨';
+    if (valueHeader) valueHeader.textContent = rankingMode === 'pvp' ? '면담 점수' : (rankingMode === 'branch' ? '회사 가치' : '레벨');
     document.getElementById('rankingLevelTab')?.classList.toggle('active', rankingMode === 'level');
     document.getElementById('rankingPvpTab')?.classList.toggle('active', rankingMode === 'pvp');
+    document.getElementById('rankingBranchTab')?.classList.toggle('active', rankingMode === 'branch');
     rankingListBody.innerHTML = '';
 
     if (entries.length === 0) {
@@ -6621,10 +6867,12 @@ async function updateRankingUI() {
       if (index === 2) rankClass = 'rank-3';
       const valueText = rankingMode === 'pvp'
         ? (Number(entry.pvpStats?.played || 0) > 0 ? `${formatNumber(entry.pvpStats.rating)}점` : '---점')
-        : formatNumber(entry.gameState?.level || 0);
+        : (rankingMode === 'branch' ? `${formatNumber(entry.branchOffice?.companyValue || 0)}원` : formatNumber(entry.gameState?.level || 0));
       const titleText = rankingMode === 'pvp'
         ? `전적 ${formatNumber(entry.pvpStats?.wins || 0)}승 ${formatNumber(entry.pvpStats?.losses || 0)}패`
-        : `현재 경험치 ${formatNumber(entry.gameState?.exp || 0)}`;
+        : (rankingMode === 'branch'
+          ? `${entry.branchOffice?.companyName || '이름 없는 지사'} / 직원 ${formatNumber(entry.branchOffice?.employeeCount || 0)}명 / 창고 ${formatNumber(entry.branchOffice?.storageUsed || 0)}/${formatNumber(entry.branchOffice?.storageSlots || 0)} / 성공률 ${formatBranchPercent(entry.branchOffice?.successChance || 0)}`
+          : `현재 경험치 ${formatNumber(entry.gameState?.exp || 0)}`);
 
       const emblem = showRankingEmblems ? (entry.equippedEmblem || null) : null;
       const emblemClass = emblem?.className ? String(emblem.className).replace(/[^a-zA-Z0-9_-]/g, '') : '';
@@ -6653,7 +6901,7 @@ async function updateRankingUI() {
 }
 
 function setRankingMode(mode) {
-  rankingMode = mode === 'pvp' ? 'pvp' : 'level';
+  rankingMode = mode === 'pvp' ? 'pvp' : (mode === 'branch' ? 'branch' : 'level');
   updateRankingUI();
 }
 

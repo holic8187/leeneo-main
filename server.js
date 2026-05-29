@@ -239,6 +239,53 @@ const EQUIPMENT_SCROLL_DROP_WEIGHT = 3;
 const EQUIPMENT_GEAR_DROP_WEIGHT = 7;
 const CAT_TUNA_CAN_ITEM_IDS = ['cat_tuna_can', 'tuna_can', 'cat_food'];
 
+const BRANCH_OFFICE_ELIGIBLE_LEVEL = 250;
+const BRANCH_OFFICE_ELIGIBLE_SALARY_PER_MINUTE = 50000000;
+const BRANCH_OFFICE_HIGH_INCOME_TAX_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const BRANCH_OFFICE_HIGH_INCOME_TAX_RATE = 0.3;
+const BRANCH_OFFICE_FOUND_COST = 50000000000;
+const BRANCH_OFFICE_MAX_EMPLOYEES = 10;
+const BRANCH_OFFICE_BASE_DIG_COST = 100000000;
+const BRANCH_OFFICE_DIG_COST_PER_EMPLOYEE = 50000000;
+const BRANCH_OFFICE_SUCCESS_CAP = 15;
+const BRANCH_OFFICE_BASE_STORAGE_SLOTS = 10;
+const BRANCH_OFFICE_MAX_STORAGE_SLOTS = 100;
+const BRANCH_OFFICE_STORAGE_BASE_COST = 1000000000;
+const BRANCH_OFFICE_MAINTENANCE_RATE = 0.02;
+const BRANCH_OFFICE_BANKRUPT_MISSED_DAYS = 5;
+const BRANCH_EMPLOYEE_NAME_POOL = [
+  '김성실', '박야근', '이보고', '최정산', '정기획', '한발굴', '오자료', '신계약', '윤창고', '강관리',
+  '문효율', '서분석', '조인내', '임집요', '권탐색', '백서류', '남집중', '유품질', '장검토', '송성과'
+];
+const BRANCH_EMPLOYEE_GRADE_CONFIG = {
+  C: { label: 'C', role: '사원', minPower: 0.2, maxPower: 0.6 },
+  B: { label: 'B', role: '대리', minPower: 0.6, maxPower: 1.1 },
+  A: { label: 'A', role: '과장', minPower: 1.1, maxPower: 1.8 },
+  S: { label: 'S', role: '지사장', minPower: 1.8, maxPower: 2.7 }
+};
+const BRANCH_ITEM_GRADE_CONFIG = {
+  common: { label: '일반', valueGain: 100000000, disposeCost: 100000000, color: '#607d8b' },
+  rare: { label: '희귀', valueGain: 1000000000, disposeCost: 500000000, color: '#1565c0' },
+  epic: { label: '영웅', valueGain: 10000000000, disposeCost: 2000000000, color: '#6a1b9a' },
+  legendary: { label: '전설', valueGain: 100000000000, disposeCost: 20000000000, color: '#ef6c00' }
+};
+const BRANCH_COLLECTIBLE_ITEMS = {
+  rusty_clip: { id: 'rusty_clip', emoji: '📎', name: '녹슨 클립', grade: 'common', desc: '어딘가에서 굴러다니다 온 평범한 클립입니다.', effects: {} },
+  cold_coffee: { id: 'cold_coffee', emoji: '☕', name: '식은 커피', grade: 'common', desc: '식었지만 정신은 조금 번쩍 듭니다.', effects: { hourlyExpPercent: 0.3 } },
+  lost_pen: { id: 'lost_pen', emoji: '🖊️', name: '잃어버린 볼펜', grade: 'common', desc: '분명 누군가의 것이었지만 이제 지사의 것입니다.', effects: { excavationPowerBonus: 0.1 } },
+  unfiled_receipt: { id: 'unfiled_receipt', emoji: '🧾', name: '미제출 영수증', grade: 'common', desc: '정산되지 않은 기묘한 종이입니다.', effects: {} },
+  squeaky_chair: { id: 'squeaky_chair', emoji: '🪑', name: '삐걱대는 의자', grade: 'common', desc: '앉을 때마다 존재감을 드러냅니다.', effects: { companyValueBonus: 0.5 } },
+  sealed_stamp: { id: 'sealed_stamp', emoji: '📮', name: '봉인된 사내 도장', grade: 'rare', desc: '찍으면 왠지 결재가 빨라질 것 같습니다.', effects: { excavationPowerBonus: 0.25 } },
+  snack_safe: { id: 'snack_safe', emoji: '🍪', name: '간식 금고', grade: 'rare', desc: '잠긴 이유를 알 수 없는 간식 보관함입니다.', effects: { hourlyExpPercent: 0.6 } },
+  ancient_fax: { id: 'ancient_fax', emoji: '📠', name: '고대의 팩스기', grade: 'rare', desc: '아직도 어딘가로 서류를 보내는 듯합니다.', effects: { bossRaidExpBonus: 0.8 } },
+  dead_monitor: { id: 'dead_monitor', emoji: '🖥️', name: '죽은 모니터', grade: 'rare', desc: '꺼져 있지만 이상하게 회사 가치가 올라갑니다.', effects: { companyValueBonus: 1 } },
+  golden_nameplate: { id: 'golden_nameplate', emoji: '🏷️', name: '금빛 명패', grade: 'epic', desc: '어느 임원의 책상에서 온 듯한 명패입니다.', effects: { excavationPowerBonus: 0.4, companyValueBonus: 1.5 } },
+  legendary_tissue_box: { id: 'legendary_tissue_box', emoji: '🧻', name: '전설의 휴지곽', grade: 'epic', desc: '모든 회의실이 탐내는 휴지곽입니다.', effects: { bossRaidExpBonus: 1.5 } },
+  overtime_calendar: { id: 'overtime_calendar', emoji: '📅', name: '야근이 적힌 달력', grade: 'epic', desc: '빨간 날에도 검은 일정이 적혀 있습니다.', effects: { hourlyExpPercent: 1 } },
+  no_leave_trophy: { id: 'no_leave_trophy', emoji: '🏆', name: '퇴근 불가 트로피', grade: 'legendary', desc: '보는 순간 회사가 이겼다는 생각이 듭니다.', effects: { hourlyExpPercent: 1.5, companyValueBonus: 3 } },
+  ceo_black_card: { id: 'ceo_black_card', emoji: '💳', name: '대표님의 블랙카드 영수증', grade: 'legendary', desc: '영수증만으로도 지사의 격이 달라집니다.', effects: { bossRaidExpBonus: 3, excavationPowerBonus: 0.5 } }
+};
+
 const ITEM_DATA = {
   pen_monami: {
     name: '모나미 볼펜',
@@ -2067,6 +2114,33 @@ const userSchema = new mongoose.Schema({
     lastAttemptAt: { type: Date, default: null },
     lastCompletedAt: { type: Date, default: null }
   },
+  branchOffice: {
+    isFounded: { type: Boolean, default: false },
+    companyName: { type: String, default: '' },
+    foundedAt: { type: Date, default: null },
+    companyValue: { type: Number, default: 0 },
+    employees: [{
+      employeeId: { type: String, required: true },
+      name: { type: String, required: true },
+      role: { type: String, default: '사원' },
+      grade: { type: String, default: 'C' },
+      excavationPower: { type: Number, default: 0 },
+      dailySalary: { type: Number, default: 0 },
+      hiredAt: { type: Date, default: Date.now }
+    }],
+    storageSlots: { type: Number, default: 10 },
+    items: [{
+      instanceId: { type: String, required: true },
+      itemId: { type: String, required: true },
+      acquiredAt: { type: Date, default: Date.now }
+    }],
+    itemCodex: { type: [String], default: [] },
+    employeeCodex: { type: [String], default: [] },
+    lastSettlementDayKey: { type: String, default: '' },
+    missedMaintenanceDays: { type: Number, default: 0 },
+    lastTaxAt: { type: Date, default: null },
+    lastLog: { type: String, default: '' }
+  },
   buffs: [{
     buffId: { type: String, required: true },
     expiresAt: { type: Date, required: true }
@@ -2493,6 +2567,8 @@ function ensureUserDefaults(user) {
   user.shopState.dailyFragmentBusinessCardPurchases = Number(user.shopState.dailyFragmentBusinessCardPurchases ?? 0);
   user.shopState.dailyFragmentCatButlerEmblemPurchases = Number(user.shopState.dailyFragmentCatButlerEmblemPurchases ?? 0);
   user.shopState.lastShoppingAddictQualifiedDayKey = user.shopState.lastShoppingAddictQualifiedDayKey || null;
+
+  normalizeBranchOffice(user);
 
   if (!user.meta) {
     user.meta = {
@@ -3177,6 +3253,7 @@ function buildUserPersistenceSnapshot(user) {
     equippedCardLevel: normalizeCardEnhancementLevel(user.equippedCardLevel || 0),
     pvpStats: toPlainMongoValue(user.pvpStats),
     infiniteOvertime: toPlainMongoValue(user.infiniteOvertime),
+    branchOffice: toPlainMongoValue(user.branchOffice),
     buffs: toPlainMongoValue(user.buffs),
     titles: toPlainMongoValue(user.titles),
     emblems: toPlainMongoValue(user.emblems),
@@ -8734,7 +8811,7 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
           rewardNotes.push('이번엔 될거같아 실패로 보상 없음');
         }
       }
-      const expBonusMultiplier = 1 + derivedStats.expBonusPercent / 100;
+      const expBonusMultiplier = 1 + (derivedStats.expBonusPercent + (derivedStats.branchRaidExpBonusPercent || 0)) / 100;
       const expReward = Math.floor(getRequiredExp(participant.level) * rewardRatio * rewardMultiplier * expBonusMultiplier);
       const businessCards = Math.max(0, Math.round((sharedBaseRewards?.businessCards || 0) * rewardMultiplier));
       const bacchus = Math.max(0, Math.round((sharedBaseRewards?.bacchus || 0) * rewardMultiplier));
@@ -9143,6 +9220,363 @@ function calculateEmblemStats(emblems = {}) {
   return stats;
 }
 
+
+function createBranchOfficeId(prefix) {
+  const suffix = crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random().toString(36).slice(2, 10);
+  return prefix + '_' + suffix;
+}
+
+function getDefaultBranchOffice() {
+  return {
+    isFounded: false,
+    companyName: '',
+    foundedAt: null,
+    companyValue: 0,
+    employees: [],
+    storageSlots: BRANCH_OFFICE_BASE_STORAGE_SLOTS,
+    items: [],
+    itemCodex: [],
+    employeeCodex: [],
+    lastSettlementDayKey: '',
+    missedMaintenanceDays: 0,
+    lastTaxAt: null,
+    lastLog: ''
+  };
+}
+
+function normalizeBranchOffice(user) {
+  if (!user.branchOffice || typeof user.branchOffice !== 'object') {
+    user.branchOffice = getDefaultBranchOffice();
+  }
+  const office = user.branchOffice;
+  office.isFounded = Boolean(office.isFounded);
+  office.companyName = String(office.companyName || '').slice(0, 24);
+  office.foundedAt = office.foundedAt || null;
+  office.companyValue = Math.max(0, Math.floor(Number(office.companyValue || 0)));
+  office.storageSlots = Math.max(BRANCH_OFFICE_BASE_STORAGE_SLOTS, Math.min(BRANCH_OFFICE_MAX_STORAGE_SLOTS, Math.floor(Number(office.storageSlots || BRANCH_OFFICE_BASE_STORAGE_SLOTS))));
+  office.employees = (Array.isArray(office.employees) ? office.employees : [])
+    .filter((employee) => employee && employee.employeeId)
+    .slice(0, BRANCH_OFFICE_MAX_EMPLOYEES)
+    .map((employee) => ({
+      employeeId: String(employee.employeeId),
+      name: String(employee.name || '이름없는 직원').slice(0, 24),
+      role: String(employee.role || '사원').slice(0, 12),
+      grade: BRANCH_EMPLOYEE_GRADE_CONFIG[employee.grade] ? String(employee.grade) : 'C',
+      excavationPower: Number(Math.max(0, Number(employee.excavationPower || 0)).toFixed(2)),
+      dailySalary: Math.max(0, Math.floor(Number(employee.dailySalary || 0))),
+      hiredAt: employee.hiredAt || new Date()
+    }));
+  office.items = (Array.isArray(office.items) ? office.items : [])
+    .filter((item) => item && item.instanceId && BRANCH_COLLECTIBLE_ITEMS[item.itemId])
+    .slice(0, office.storageSlots)
+    .map((item) => ({
+      instanceId: String(item.instanceId),
+      itemId: String(item.itemId),
+      acquiredAt: item.acquiredAt || new Date()
+    }));
+  office.itemCodex = [...new Set(Array.isArray(office.itemCodex) ? office.itemCodex.filter((itemId) => BRANCH_COLLECTIBLE_ITEMS[itemId]) : [])];
+  office.employeeCodex = [...new Set(Array.isArray(office.employeeCodex) ? office.employeeCodex.map((name) => String(name || '').slice(0, 24)).filter(Boolean) : [])];
+  office.lastSettlementDayKey = office.lastSettlementDayKey || '';
+  office.missedMaintenanceDays = Math.max(0, Math.floor(Number(office.missedMaintenanceDays || 0)));
+  office.lastTaxAt = office.lastTaxAt || null;
+  office.lastLog = String(office.lastLog || '').slice(0, 240);
+}
+
+function sanitizeBranchCompanyName(name) {
+  return String(name || '').replace(/\s+/g, ' ').trim().slice(0, 24);
+}
+
+function getBranchEmployeeDailySalaryBase(user, now = new Date(), derivedStats = null) {
+  const stats = derivedStats || calculateDerivedStats(user, now);
+  return Math.floor(getSalaryPerMinute(user.gameState.level, stats.moneyBonusPercent) * 60 * 24);
+}
+
+function isBranchOfficeEligible(user, now = new Date(), derivedStats = null) {
+  const level = Number(user.gameState?.level || 1);
+  if (level >= BRANCH_OFFICE_ELIGIBLE_LEVEL) return true;
+  const stats = derivedStats || calculateDerivedStats(user, now);
+  return getSalaryPerMinute(level, stats.moneyBonusPercent) >= BRANCH_OFFICE_ELIGIBLE_SALARY_PER_MINUTE;
+}
+
+function getBranchItemEffectText(effects = {}) {
+  const parts = [];
+  if (effects.hourlyExpPercent) parts.push('매시간 다음 레벨까지 남은 경험치의 ' + effects.hourlyExpPercent + '% 획득');
+  if (effects.excavationPowerBonus) parts.push('직원 전체 발굴 확률 +' + effects.excavationPowerBonus + '%');
+  if (effects.bossRaidExpBonus) parts.push('보스 클리어 경험치 +' + effects.bossRaidExpBonus + '%');
+  if (effects.companyValueBonus) parts.push('회사 가치 증가량 +' + effects.companyValueBonus + '%');
+  return parts.length ? parts.join(' / ') : '보유 효과 없음';
+}
+
+function getBranchItemDetail(itemId) {
+  const item = BRANCH_COLLECTIBLE_ITEMS[itemId];
+  if (!item) return null;
+  const grade = BRANCH_ITEM_GRADE_CONFIG[item.grade] || BRANCH_ITEM_GRADE_CONFIG.common;
+  return {
+    id: item.id,
+    emoji: item.emoji,
+    name: item.name,
+    grade: item.grade,
+    gradeLabel: grade.label,
+    color: grade.color,
+    desc: item.desc,
+    valueGain: grade.valueGain,
+    disposeCost: grade.disposeCost,
+    effectText: getBranchItemEffectText(item.effects),
+    effects: item.effects || {}
+  };
+}
+
+function calculateBranchItemEffects(branchOffice = {}) {
+  const effects = { hourlyExpPercent: 0, excavationPowerBonus: 0, bossRaidExpBonus: 0, companyValueBonus: 0 };
+  (Array.isArray(branchOffice?.items) ? branchOffice.items : []).forEach((entry) => {
+    const itemEffects = BRANCH_COLLECTIBLE_ITEMS[entry.itemId]?.effects || {};
+    effects.hourlyExpPercent += Number(itemEffects.hourlyExpPercent || 0);
+    effects.excavationPowerBonus += Number(itemEffects.excavationPowerBonus || 0);
+    effects.bossRaidExpBonus += Number(itemEffects.bossRaidExpBonus || 0);
+    effects.companyValueBonus += Number(itemEffects.companyValueBonus || 0);
+  });
+  Object.keys(effects).forEach((key) => { effects[key] = Number(effects[key].toFixed(2)); });
+  return effects;
+}
+
+function getBranchExcavationPower(user) {
+  normalizeBranchOffice(user);
+  const employeePower = user.branchOffice.employees.reduce((sum, employee) => sum + Number(employee.excavationPower || 0), 0);
+  const itemPower = calculateBranchItemEffects(user.branchOffice).excavationPowerBonus;
+  return Number((employeePower + itemPower).toFixed(2));
+}
+
+function getBranchExcavationChance(user) {
+  return Number(Math.min(BRANCH_OFFICE_SUCCESS_CAP, getBranchExcavationPower(user)).toFixed(2));
+}
+
+function getBranchExcavationCost(user) {
+  normalizeBranchOffice(user);
+  return BRANCH_OFFICE_BASE_DIG_COST + user.branchOffice.employees.length * BRANCH_OFFICE_DIG_COST_PER_EMPLOYEE;
+}
+
+function getBranchNextStorageCost(user) {
+  normalizeBranchOffice(user);
+  if (user.branchOffice.storageSlots >= BRANCH_OFFICE_MAX_STORAGE_SLOTS) return null;
+  const extraSlots = Math.max(0, user.branchOffice.storageSlots - BRANCH_OFFICE_BASE_STORAGE_SLOTS);
+  return Math.floor(BRANCH_OFFICE_STORAGE_BASE_COST * Math.pow(3, extraSlots));
+}
+
+function rollBranchEmployee(contractPercent, dailySalary) {
+  const roll = Math.random() * 100;
+  const sChance = Math.min(8, contractPercent * 0.35);
+  const aChance = Math.min(22, 4 + contractPercent * 1.1);
+  const bChance = Math.min(45, 18 + contractPercent * 1.5);
+  let grade = 'C';
+  if (roll < sChance) grade = 'S';
+  else if (roll < sChance + aChance) grade = 'A';
+  else if (roll < sChance + aChance + bChance) grade = 'B';
+  const config = BRANCH_EMPLOYEE_GRADE_CONFIG[grade];
+  const basePower = config.minPower + Math.random() * (config.maxPower - config.minPower);
+  const efficiencyNoise = 0.85 + Math.random() * 0.3;
+  const excavationPower = Number((basePower * efficiencyNoise).toFixed(2));
+  const baseName = BRANCH_EMPLOYEE_NAME_POOL[Math.floor(Math.random() * BRANCH_EMPLOYEE_NAME_POOL.length)];
+  return {
+    employeeId: createBranchOfficeId('emp'),
+    name: baseName + ' ' + config.role,
+    role: config.role,
+    grade,
+    excavationPower,
+    dailySalary,
+    hiredAt: new Date()
+  };
+}
+
+function getBranchRecruitSuccessChance(contractPercent) {
+  return Number(Math.min(95, 30 + Math.sqrt(Math.max(0, contractPercent)) * 18).toFixed(2));
+}
+
+function rollBranchCollectibleItem(user) {
+  const power = Math.max(0, getBranchExcavationPower(user) - BRANCH_OFFICE_SUCCESS_CAP);
+  const legendaryBonus = Math.min(3, power * 0.15);
+  const epicBonus = Math.min(5, power * 0.25);
+  const weights = [
+    { grade: 'legendary', weight: 2 + legendaryBonus },
+    { grade: 'epic', weight: 8 + epicBonus },
+    { grade: 'rare', weight: 25 },
+    { grade: 'common', weight: 65 }
+  ];
+  const total = weights.reduce((sum, entry) => sum + entry.weight, 0);
+  let roll = Math.random() * total;
+  let selectedGrade = 'common';
+  for (const entry of weights) {
+    roll -= entry.weight;
+    if (roll <= 0) {
+      selectedGrade = entry.grade;
+      break;
+    }
+  }
+  const pool = Object.values(BRANCH_COLLECTIBLE_ITEMS).filter((item) => item.grade === selectedGrade);
+  return pool[Math.floor(Math.random() * pool.length)] || Object.values(BRANCH_COLLECTIBLE_ITEMS)[0];
+}
+
+function applyBranchOfficeDailySettlement(user, now = new Date()) {
+  normalizeBranchOffice(user);
+  const office = user.branchOffice;
+  if (!office.isFounded) return;
+  const todayKey = getKSTDateKey(now);
+  if (office.lastSettlementDayKey === todayKey) return;
+  const days = office.lastSettlementDayKey ? Math.max(1, Math.min(7, getDateKeyDiff(todayKey, office.lastSettlementDayKey))) : 1;
+  let totalBurned = 0;
+  for (let i = 0; i < days && office.isFounded; i += 1) {
+    const salaryCost = office.employees.reduce((sum, employee) => sum + Math.max(0, Math.floor(Number(employee.dailySalary || 0))), 0);
+    const salaryPaid = Math.min(user.gameState.money, salaryCost);
+    user.gameState.money -= salaryPaid;
+    totalBurned += salaryPaid;
+    if (salaryPaid < salaryCost && office.companyValue > 0) {
+      office.companyValue = Math.floor(office.companyValue * 0.95);
+    }
+
+    const maintenanceCost = Math.floor(office.companyValue * BRANCH_OFFICE_MAINTENANCE_RATE);
+    const maintenancePaid = Math.min(user.gameState.money, maintenanceCost);
+    user.gameState.money -= maintenancePaid;
+    totalBurned += maintenancePaid;
+    if (maintenancePaid >= maintenanceCost) {
+      office.missedMaintenanceDays = 0;
+    } else if (maintenanceCost > 0) {
+      office.missedMaintenanceDays += 1;
+      const unpaidRatio = Math.max(0, Math.min(1, (maintenanceCost - maintenancePaid) / maintenanceCost));
+      const lossRate = Math.min(0.8, unpaidRatio * (0.15 + office.missedMaintenanceDays * 0.05));
+      office.companyValue = Math.floor(office.companyValue * (1 - lossRate));
+    }
+
+    if (office.missedMaintenanceDays >= BRANCH_OFFICE_BANKRUPT_MISSED_DAYS) {
+      office.isFounded = false;
+      office.companyName = '';
+      office.foundedAt = null;
+      office.companyValue = 0;
+      office.employees = [];
+      office.items = [];
+      office.storageSlots = BRANCH_OFFICE_BASE_STORAGE_SLOTS;
+      office.missedMaintenanceDays = 0;
+      office.lastLog = '지사 유지비 미납이 누적되어 파산 처리되었습니다. 재설립이 필요합니다.';
+      queueNotification(user, 'branch_office_bankrupt', office.lastLog);
+      break;
+    }
+  }
+  office.lastSettlementDayKey = todayKey;
+  if (totalBurned > 0 && office.isFounded) {
+    office.lastLog = '일일 정산으로 ' + totalBurned.toLocaleString() + '원이 소각되었습니다.';
+  }
+}
+
+function applyBranchOfficeHighIncomeTax(user, now = new Date(), derivedStats = null) {
+  normalizeBranchOffice(user);
+  const office = user.branchOffice;
+  if (office.isFounded) {
+    office.lastTaxAt = now;
+    return;
+  }
+  const eligible = isBranchOfficeEligible(user, now, derivedStats);
+  if (!eligible) {
+    office.lastTaxAt = now;
+    return;
+  }
+  if (!office.lastTaxAt) {
+    office.lastTaxAt = now;
+    return;
+  }
+  const lastTaxAt = new Date(office.lastTaxAt);
+  const elapsed = now.getTime() - lastTaxAt.getTime();
+  const intervals = Math.floor(elapsed / BRANCH_OFFICE_HIGH_INCOME_TAX_INTERVAL_MS);
+  if (intervals <= 0) return;
+  let burned = 0;
+  for (let i = 0; i < intervals; i += 1) {
+    const tax = Math.floor(Number(user.gameState.money || 0) * BRANCH_OFFICE_HIGH_INCOME_TAX_RATE);
+    user.gameState.money = Math.max(0, Number(user.gameState.money || 0) - tax);
+    burned += tax;
+  }
+  office.lastTaxAt = new Date(lastTaxAt.getTime() + intervals * BRANCH_OFFICE_HIGH_INCOME_TAX_INTERVAL_MS);
+  if (burned > 0) {
+    office.lastLog = '지사 미설립 고소득근로자 세금으로 ' + burned.toLocaleString() + '원이 소각되었습니다.';
+    queueNotification(user, 'branch_office_tax', office.lastLog);
+  }
+}
+
+function buildBranchOfficePublicState(user, now = new Date(), derivedStats = null) {
+  normalizeBranchOffice(user);
+  const office = user.branchOffice;
+  const stats = derivedStats || calculateDerivedStats(user, now);
+  const dailySalaryBase = getBranchEmployeeDailySalaryBase(user, now, stats);
+  const employees = office.employees.map((employee) => ({
+    employeeId: employee.employeeId,
+    name: employee.name,
+    role: employee.role,
+    grade: employee.grade,
+    excavationPower: employee.excavationPower,
+    dailySalary: employee.dailySalary
+  }));
+  const items = office.items.map((entry) => ({
+    instanceId: entry.instanceId,
+    acquiredAt: entry.acquiredAt,
+    ...getBranchItemDetail(entry.itemId)
+  })).filter((entry) => entry.id);
+  const itemEffects = calculateBranchItemEffects(office);
+  const eligible = isBranchOfficeEligible(user, now, stats);
+  const salaryPerMinute = getSalaryPerMinute(user.gameState.level, stats.moneyBonusPercent);
+  return {
+    isFounded: office.isFounded,
+    eligible,
+    requirementText: '레벨 ' + BRANCH_OFFICE_ELIGIBLE_LEVEL + ' 이상 또는 분당 월급 ' + BRANCH_OFFICE_ELIGIBLE_SALARY_PER_MINUTE.toLocaleString() + '원 이상',
+    foundCost: BRANCH_OFFICE_FOUND_COST,
+    companyName: office.companyName,
+    foundedAt: office.foundedAt,
+    companyValue: office.companyValue,
+    employees,
+    employeeCount: employees.length,
+    maxEmployees: BRANCH_OFFICE_MAX_EMPLOYEES,
+    storageSlots: office.storageSlots,
+    maxStorageSlots: BRANCH_OFFICE_MAX_STORAGE_SLOTS,
+    storageUsed: items.length,
+    items,
+    itemCodex: office.itemCodex.map((itemId) => getBranchItemDetail(itemId)).filter(Boolean),
+    itemCodexCount: office.itemCodex.length,
+    itemCodexTotal: Object.keys(BRANCH_COLLECTIBLE_ITEMS).length,
+    employeeCodex: office.employeeCodex,
+    employeeCodexCount: office.employeeCodex.length,
+    digCost: getBranchExcavationCost(user),
+    excavationPower: getBranchExcavationPower(user),
+    successChance: getBranchExcavationChance(user),
+    itemEffects,
+    nextStorageCost: getBranchNextStorageCost(user),
+    dailySalaryBase,
+    salaryPerMinute,
+    dailyMaintenanceCost: Math.floor(office.companyValue * BRANCH_OFFICE_MAINTENANCE_RATE),
+    maintenanceRate: BRANCH_OFFICE_MAINTENANCE_RATE,
+    missedMaintenanceDays: office.missedMaintenanceDays,
+    highIncomeTax: {
+      applies: eligible && !office.isFounded,
+      rate: BRANCH_OFFICE_HIGH_INCOME_TAX_RATE,
+      intervalHours: 6,
+      lastTaxAt: office.lastTaxAt
+    },
+    lastSettlementDayKey: office.lastSettlementDayKey,
+    lastLog: office.lastLog
+  };
+}
+
+function getBranchRankingSummary(user) {
+  normalizeBranchOffice(user);
+  const office = user.branchOffice;
+  if (!office.isFounded) return null;
+  return {
+    companyName: office.companyName,
+    companyValue: office.companyValue,
+    employeeCount: office.employees.length,
+    storageUsed: office.items.length,
+    storageSlots: office.storageSlots,
+    successChance: getBranchExcavationChance(user),
+    itemCodexCount: office.itemCodex.length,
+    itemCodexTotal: Object.keys(BRANCH_COLLECTIBLE_ITEMS).length,
+    lastLog: office.lastLog
+  };
+}
+
 function getActiveBuffEffects(user, now = new Date()) {
   const effects = {
     expBonusAdd: 0,
@@ -9177,6 +9611,7 @@ function calculateDerivedStats(user, now = new Date()) {
 
   const itemStats = calculateItemStats(user.inventory);
   const emblemStats = calculateEmblemStats(user.emblems);
+  const branchItemStats = calculateBranchItemEffects(user.branchOffice);
   const titleDef = getEquippedTitleDefinition(user);
   const titleEffects = titleDef?.effects || {};
   const activeBuffEffects = getActiveBuffEffects(user, now);
@@ -9199,6 +9634,10 @@ function calculateDerivedStats(user, now = new Date()) {
     itemExpBonusPercent: itemStats.expBonus,
     emblemExpBonusPercent: emblemStats.expBonus,
     raidRewardBonusPercent: emblemStats.raidRewardBonus,
+    branchHourlyExpPercent: branchItemStats.hourlyExpPercent,
+    branchExcavationBonusPercent: branchItemStats.excavationPowerBonus,
+    branchRaidExpBonusPercent: branchItemStats.bossRaidExpBonus,
+    branchCompanyValueBonusPercent: branchItemStats.companyValueBonus,
     stressMultiplier: finalStressMultiplier,
     stressReductionPercent: Number(((1 - finalStressMultiplier) * 100).toFixed(2)),
     clickStressRelief: Number((itemStats.clickStressRelief + activeBuffEffects.clickStressRelief).toFixed(2)),
@@ -9413,12 +9852,14 @@ function calculateOfflineGains(user, now = new Date()) {
   let elapsedSeconds = (now.getTime() - lastActionTime.getTime()) / 1000;
   if (elapsedSeconds < 0) elapsedSeconds = 0;
 
+  const derivedStats = calculateDerivedStats(user, now);
+  applyBranchOfficeDailySettlement(user, now);
+  applyBranchOfficeHighIncomeTax(user, now, derivedStats);
+
   if (elapsedSeconds === 0) {
     user.gameState.lastActionTime = now;
     return;
   }
-
-  const derivedStats = calculateDerivedStats(user, now);
 
   if (!derivedStats.noStress) {
     const gainedStress = elapsedSeconds * IDLE_STRESS_PER_SECOND * derivedStats.stressMultiplier;
@@ -9442,6 +9883,11 @@ function calculateOfflineGains(user, now = new Date()) {
   let rawExpGain =
     getPassiveExpPerSecond(user.gameState.level) * passiveExpMultiplier * elapsedSeconds +
     user.gameState.passiveExpCarry;
+
+  if (user.branchOffice?.isFounded && derivedStats.branchHourlyExpPercent > 0) {
+    const hourlyBranchExp = getRequiredExp(user.gameState.level) * (derivedStats.branchHourlyExpPercent / 100) * (elapsedSeconds / 3600);
+    rawExpGain += hourlyBranchExp;
+  }
 
   if (user.gameState.stress >= 100) {
     rawExpGain /= 2;
@@ -9572,6 +10018,7 @@ function buildGameStateResponse(user, now = new Date()) {
     emblems: user.emblems,
     emblemDetails: buildEmblemDetails(user),
     emblemShop: buildEmblemShopState(user),
+    branchOffice: buildBranchOfficePublicState(user, now, derivedStats),
     pendingStockInvestment: user.pendingStockInvestment,
     pendingAdventure: user.pendingAdventure,
     shopState: user.shopState,
@@ -9598,6 +10045,10 @@ function buildGameStateResponse(user, now = new Date()) {
       itemExpBonus: derivedStats.itemExpBonusPercent,
       emblemExpBonus: derivedStats.emblemExpBonusPercent,
       raidRewardBonus: derivedStats.raidRewardBonusPercent,
+      branchHourlyExp: derivedStats.branchHourlyExpPercent,
+      branchExcavationBonus: derivedStats.branchExcavationBonusPercent,
+      branchRaidExpBonus: derivedStats.branchRaidExpBonusPercent,
+      branchCompanyValueBonus: derivedStats.branchCompanyValueBonusPercent,
       stressMultiplier: derivedStats.stressMultiplier,
       stressReduction: derivedStats.stressReductionPercent,
       clickStressRelief: derivedStats.clickStressRelief,
@@ -12726,6 +13177,218 @@ app.post('/api/sync', async (req, res) => {
   }
 });
 
+
+app.post('/api/branch-office/found', async (req, res) => {
+  const { userId, companyName } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+
+  try {
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      const derivedStats = calculateDerivedStats(user, now);
+      if (user.branchOffice.isFounded) throw createHttpError(400, '이미 지사를 운영 중입니다.');
+      if (!isBranchOfficeEligible(user, now, derivedStats)) throw createHttpError(400, '아직 지사 설립 조건을 달성하지 못했습니다.');
+      if (user.gameState.money < BRANCH_OFFICE_FOUND_COST) throw createHttpError(400, '지사 설립비가 부족합니다.');
+      const cleanName = sanitizeBranchCompanyName(companyName);
+      if (cleanName.length < 2) throw createHttpError(400, '회사 이름은 2글자 이상으로 입력해주세요.');
+      user.gameState.money -= BRANCH_OFFICE_FOUND_COST;
+      user.branchOffice = {
+        ...getDefaultBranchOffice(),
+        isFounded: true,
+        companyName: cleanName,
+        foundedAt: now,
+        lastSettlementDayKey: getKSTDateKey(now),
+        lastTaxAt: now,
+        lastLog: cleanName + ' 지사를 설립했습니다. 설립비 ' + BRANCH_OFFICE_FOUND_COST.toLocaleString() + '원이 소각되었습니다.'
+      };
+      return { user: buildGameStateResponse(user, now), branchResult: { message: user.branchOffice.lastLog } };
+    }, { conflictLabel: 'Branch found conflict' });
+    res.json(response);
+  } catch (err) {
+    console.error('Branch found error:', err);
+    res.status(err.statusCode || 500).json({ msg: err.statusCode ? err.message : '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/branch-office/rename', async (req, res) => {
+  const { userId, companyName } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+  try {
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      if (!user.branchOffice.isFounded) throw createHttpError(400, '먼저 지사를 설립해주세요.');
+      const cleanName = sanitizeBranchCompanyName(companyName);
+      if (cleanName.length < 2) throw createHttpError(400, '회사 이름은 2글자 이상으로 입력해주세요.');
+      user.branchOffice.companyName = cleanName;
+      user.branchOffice.lastLog = '회사 이름을 ' + cleanName + '(으)로 변경했습니다.';
+      return { user: buildGameStateResponse(user, now), branchResult: { message: user.branchOffice.lastLog } };
+    }, { conflictLabel: 'Branch rename conflict' });
+    res.json(response);
+  } catch (err) {
+    console.error('Branch rename error:', err);
+    res.status(err.statusCode || 500).json({ msg: err.statusCode ? err.message : '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/branch-office/post-job', async (req, res) => {
+  const { userId, contractPercent } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+  try {
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      if (!user.branchOffice.isFounded) throw createHttpError(400, '먼저 지사를 설립해주세요.');
+      if (user.branchOffice.employees.length >= BRANCH_OFFICE_MAX_EMPLOYEES) throw createHttpError(400, '직원은 최대 10명까지 고용할 수 있습니다.');
+      const percent = Math.max(0, Math.min(50, Number(contractPercent || 0)));
+      if (percent <= 0) throw createHttpError(400, '계약 비율을 0보다 크게 입력해주세요.');
+      const dailyBase = getBranchEmployeeDailySalaryBase(user, now);
+      const dailySalary = Math.max(1, Math.floor(dailyBase * percent / 100));
+      const postCost = Math.floor(dailySalary * 0.3);
+      if (user.gameState.money < postCost) throw createHttpError(400, '공고 비용이 부족합니다.');
+      user.gameState.money -= postCost;
+      const successChance = getBranchRecruitSuccessChance(percent);
+      const success = Math.random() * 100 < successChance;
+      let message = '공고 비용 ' + postCost.toLocaleString() + '원이 소각되었습니다. ';
+      let employee = null;
+      if (success) {
+        employee = rollBranchEmployee(percent, dailySalary);
+        user.branchOffice.employees.push(employee);
+        user.branchOffice.employeeCodex = [...new Set([...(user.branchOffice.employeeCodex || []), employee.name])];
+        message += employee.name + ' 채용 성공! (' + employee.grade + '등급 / 발굴력 +' + employee.excavationPower + '% / 일일 계약금 ' + dailySalary.toLocaleString() + '원)';
+      } else {
+        message += '채용 실패. 면접장에 아무도 오지 않았습니다. (성공률 ' + successChance + '%)';
+      }
+      user.branchOffice.lastLog = message;
+      return { user: buildGameStateResponse(user, now), branchResult: { message, employee } };
+    }, { conflictLabel: 'Branch recruit conflict' });
+    res.json(response);
+  } catch (err) {
+    console.error('Branch recruit error:', err);
+    res.status(err.statusCode || 500).json({ msg: err.statusCode ? err.message : '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/branch-office/fire', async (req, res) => {
+  const { userId, employeeId } = req.body;
+  if (!userId || !employeeId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+  try {
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      if (!user.branchOffice.isFounded) throw createHttpError(400, '먼저 지사를 설립해주세요.');
+      const index = user.branchOffice.employees.findIndex((employee) => employee.employeeId === employeeId);
+      if (index < 0) throw createHttpError(404, '직원을 찾을 수 없습니다.');
+      const employee = user.branchOffice.employees[index];
+      const fireCost = Math.floor(Number(employee.dailySalary || 0) * 10);
+      if (user.gameState.money < fireCost) throw createHttpError(400, '해고 비용이 부족합니다.');
+      user.gameState.money -= fireCost;
+      user.branchOffice.employees.splice(index, 1);
+      const message = employee.name + '을(를) 해고했습니다. 해고 비용 ' + fireCost.toLocaleString() + '원이 소각되었습니다.';
+      user.branchOffice.lastLog = message;
+      return { user: buildGameStateResponse(user, now), branchResult: { message } };
+    }, { conflictLabel: 'Branch fire conflict' });
+    res.json(response);
+  } catch (err) {
+    console.error('Branch fire error:', err);
+    res.status(err.statusCode || 500).json({ msg: err.statusCode ? err.message : '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/branch-office/excavate', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+  try {
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      if (!user.branchOffice.isFounded) throw createHttpError(400, '먼저 지사를 설립해주세요.');
+      const cost = getBranchExcavationCost(user);
+      if (user.gameState.money < cost) throw createHttpError(400, '발굴 비용이 부족합니다.');
+      user.gameState.money -= cost;
+      const successChance = getBranchExcavationChance(user);
+      const success = Math.random() * 100 < successChance;
+      let message = '발굴 비용 ' + cost.toLocaleString() + '원이 소각되었습니다. ';
+      let itemDetail = null;
+      if (success) {
+        const item = rollBranchCollectibleItem(user);
+        const detail = getBranchItemDetail(item.id);
+        const branchEffects = calculateBranchItemEffects(user.branchOffice);
+        const valueGain = Math.floor(detail.valueGain * (1 + branchEffects.companyValueBonus / 100));
+        user.branchOffice.companyValue += valueGain;
+        user.branchOffice.itemCodex = [...new Set([...(user.branchOffice.itemCodex || []), item.id])];
+        itemDetail = detail;
+        if (user.branchOffice.items.length < user.branchOffice.storageSlots) {
+          user.branchOffice.items.push({ instanceId: createBranchOfficeId('boi'), itemId: item.id, acquiredAt: now });
+          message += detail.emoji + ' ' + detail.name + ' 발굴 성공! 회사 가치 +' + valueGain.toLocaleString() + '원';
+        } else {
+          message += detail.emoji + ' ' + detail.name + ' 발굴 성공! 회사 가치 +' + valueGain.toLocaleString() + '원. 단, 창고가 가득 차 보관하지 못했습니다.';
+        }
+      } else {
+        message += '발굴 실패. 아무것도 찾지 못했습니다. (성공률 ' + successChance + '%)';
+      }
+      user.branchOffice.lastLog = message;
+      return { user: buildGameStateResponse(user, now), branchResult: { message, success, item: itemDetail } };
+    }, { conflictLabel: 'Branch excavate conflict' });
+    res.json(response);
+  } catch (err) {
+    console.error('Branch excavate error:', err);
+    res.status(err.statusCode || 500).json({ msg: err.statusCode ? err.message : '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/branch-office/buy-storage', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+  try {
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      if (!user.branchOffice.isFounded) throw createHttpError(400, '먼저 지사를 설립해주세요.');
+      const cost = getBranchNextStorageCost(user);
+      if (cost == null) throw createHttpError(400, '창고가 이미 최대치입니다.');
+      if (user.gameState.money < cost) throw createHttpError(400, '창고 구매 비용이 부족합니다.');
+      user.gameState.money -= cost;
+      user.branchOffice.storageSlots += 1;
+      const message = '창고 1칸을 구매했습니다. ' + cost.toLocaleString() + '원이 소각되었습니다.';
+      user.branchOffice.lastLog = message;
+      return { user: buildGameStateResponse(user, now), branchResult: { message } };
+    }, { conflictLabel: 'Branch storage conflict' });
+    res.json(response);
+  } catch (err) {
+    console.error('Branch storage error:', err);
+    res.status(err.statusCode || 500).json({ msg: err.statusCode ? err.message : '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/branch-office/dispose-item', async (req, res) => {
+  const { userId, instanceId } = req.body;
+  if (!userId || !instanceId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+  try {
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      if (!user.branchOffice.isFounded) throw createHttpError(400, '먼저 지사를 설립해주세요.');
+      const index = user.branchOffice.items.findIndex((item) => item.instanceId === instanceId);
+      if (index < 0) throw createHttpError(404, '아이템을 찾을 수 없습니다.');
+      const itemEntry = user.branchOffice.items[index];
+      const detail = getBranchItemDetail(itemEntry.itemId);
+      const cost = detail.disposeCost;
+      if (user.gameState.money < cost) throw createHttpError(400, '처분 비용이 부족합니다.');
+      user.gameState.money -= cost;
+      user.branchOffice.items.splice(index, 1);
+      const message = detail.emoji + ' ' + detail.name + '을(를) 처분했습니다. 처분 비용 ' + cost.toLocaleString() + '원이 소각되었습니다. 회사 가치는 유지됩니다.';
+      user.branchOffice.lastLog = message;
+      return { user: buildGameStateResponse(user, now), branchResult: { message } };
+    }, { conflictLabel: 'Branch dispose conflict' });
+    res.json(response);
+  } catch (err) {
+    console.error('Branch dispose error:', err);
+    res.status(err.statusCode || 500).json({ msg: err.statusCode ? err.message : '서버 오류가 발생했습니다.' });
+  }
+});
+
 app.get('/api/ranking', async (req, res) => {
   try {
     const now = new Date();
@@ -12733,7 +13396,7 @@ app.get('/api/ranking', async (req, res) => {
     const rankingUsers = await User.find({ nickname: { $ne: null } })
       .sort({ 'gameState.level': -1, 'gameState.exp': -1 })
       .limit(20)
-      .select('nickname username gameState.level gameState.exp titles emblems meta.lastSeenAt pvpStats');
+      .select('nickname username gameState.level gameState.exp titles emblems meta.lastSeenAt pvpStats branchOffice');
 
     const levelRanking = rankingUsers.map((user) => ({
       nickname: user.nickname,
@@ -12743,11 +13406,12 @@ app.get('/api/ranking', async (req, res) => {
         level: user.gameState.level,
         exp: user.gameState.exp
       },
-      isOnline: Boolean(user.meta?.lastSeenAt && now.getTime() - new Date(user.meta.lastSeenAt).getTime() <= ONLINE_THRESHOLD_MS)
+      isOnline: Boolean(user.meta?.lastSeenAt && now.getTime() - new Date(user.meta.lastSeenAt).getTime() <= ONLINE_THRESHOLD_MS),
+      branchOffice: getBranchRankingSummary(user)
     }));
 
     const pvpUsers = await User.find({ nickname: { $ne: null } })
-      .select('nickname username titles emblems meta.lastSeenAt pvpStats');
+      .select('nickname username titles emblems meta.lastSeenAt pvpStats branchOffice');
     const pvpRanking = pvpUsers
       .map((user) => ({
         nickname: user.nickname,
@@ -12759,7 +13423,8 @@ app.get('/api/ranking', async (req, res) => {
           wins: Math.max(0, Math.floor(Number(user.pvpStats?.wins || 0))),
           losses: Math.max(0, Math.floor(Number(user.pvpStats?.losses || 0)))
         },
-        isOnline: Boolean(user.meta?.lastSeenAt && now.getTime() - new Date(user.meta.lastSeenAt).getTime() <= ONLINE_THRESHOLD_MS)
+        isOnline: Boolean(user.meta?.lastSeenAt && now.getTime() - new Date(user.meta.lastSeenAt).getTime() <= ONLINE_THRESHOLD_MS),
+        branchOffice: getBranchRankingSummary(user)
       }))
       .sort((a, b) => {
         const aPlayed = a.pvpStats.played > 0 ? 1 : 0;
@@ -12772,12 +13437,26 @@ app.get('/api/ranking', async (req, res) => {
       })
       .slice(0, 20);
 
-    res.json({ level: levelRanking, pvp: pvpRanking });
+    const branchUsers = await User.find({ nickname: { $ne: null }, 'branchOffice.isFounded': true })
+      .select('nickname username titles emblems meta.lastSeenAt pvpStats branchOffice');
+    const branchRanking = branchUsers
+      .map((user) => ({
+        nickname: user.nickname,
+        displayName: buildDisplayName(user),
+        equippedEmblem: getEquippedEmblemDetail(user),
+        branchOffice: getBranchRankingSummary(user),
+        isOnline: Boolean(user.meta?.lastSeenAt && now.getTime() - new Date(user.meta.lastSeenAt).getTime() <= ONLINE_THRESHOLD_MS)
+      }))
+      .sort((a, b) => Number(b.branchOffice?.companyValue || 0) - Number(a.branchOffice?.companyValue || 0)
+        || String(a.nickname || '').localeCompare(String(b.nickname || '')))
+      .slice(0, 20);
+    res.json({ level: levelRanking, pvp: pvpRanking, branch: branchRanking });
   } catch (err) {
     console.error('Ranking error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
   }
 });
+
 
 app.get('/api/mail', async (req, res) => {
   const { userId } = req.query;

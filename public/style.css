@@ -2453,3 +2453,114 @@ progress {
     gap: 10px;
   }
 }
+
+
+.branch-office-entry-btn {
+  background: #1f7a3b;
+  color: #fff5a8;
+  border-color: #0e4f25;
+}
+
+.branch-office-modal-panel {
+  width: min(980px, calc(100vw - 36px));
+  max-height: 88vh;
+  overflow-y: auto;
+}
+
+.branch-office-content {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.branch-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.branch-stat,
+.branch-card {
+  border: var(--excel-border);
+  background: #fbfbfb;
+  padding: 10px 12px;
+}
+
+.branch-stat span {
+  display: block;
+  color: #666666;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.branch-warning {
+  border: 1px solid #c62828;
+  background: #fff1f1;
+  color: #9f1c1c;
+  padding: 10px 12px;
+  font-weight: 700;
+}
+
+.branch-table th,
+.branch-table td {
+  white-space: nowrap;
+}
+
+.branch-grade {
+  display: inline-block;
+  min-width: 24px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  color: #ffffff;
+  text-align: center;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.branch-grade-C { background: #2e7d32; }
+.branch-grade-B { background: #1565c0; }
+.branch-grade-A { background: #f9a825; color: #2f2100; }
+.branch-grade-S { background: #c62828; }
+
+.branch-storage-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.branch-item-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.branch-item-card {
+  border: 2px solid #cccccc;
+  background: #ffffff;
+  padding: 10px;
+}
+
+.branch-item-head,
+.branch-item-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.branch-effect-badge,
+.branch-codex-chip {
+  display: inline-block;
+  margin: 3px 4px 3px 0;
+  padding: 3px 7px;
+  border: 1px solid #d6bd63;
+  background: #fff9dc;
+  border-radius: 12px;
+  font-size: 12px;
+}
+
+.branch-codex-list {
+  margin: 6px 0 10px;
+}

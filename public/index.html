@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>네오상사 거래명세서</title>
-  <link rel="stylesheet" href="style.css?v=36">
+  <link rel="stylesheet" href="style.css?v=37">
 </head>
 <body>
   <div id="login-screen">
@@ -150,6 +150,7 @@
               <button id="raidLobbyBtn" class="raid-entry-btn">회의 참석</button>
               <button id="pvpLobbyBtn" class="raid-entry-btn side-entry-btn pvp-entry-btn">개인면담</button>
               <button id="infiniteOvertimeBtn" class="raid-entry-btn side-entry-btn overtime-entry-btn">무한야근</button>
+              <button id="branchOfficeBtn" class="raid-entry-btn side-entry-btn branch-office-entry-btn">지사 운영</button>
               <button id="fragmentShopBtn" class="raid-entry-btn side-entry-btn">상점</button>
               <button id="marketplaceBtn" class="raid-entry-btn side-entry-btn marketplace-entry-btn">사내 번개장터</button>
               <div id="raidEntryHint" class="raid-entry-hint">10레벨부터 입장 가능</div>
@@ -396,6 +397,7 @@
         <div class="ranking-tabs">
           <button id="rankingLevelTab" class="mini-btn active" type="button">레벨 순위</button>
           <button id="rankingPvpTab" class="mini-btn" type="button">개인면담 순위</button>
+          <button id="rankingBranchTab" class="mini-btn" type="button">회사 가치 순위</button>
           <button id="rankingEmblemToggleBtn" class="mini-btn ranking-emblem-toggle" type="button">휘장 끄기</button>
         </div>
         <div class="ranking-list">
@@ -528,6 +530,18 @@
       </div>
       <div class="modal-buttons">
         <button id="fragmentShopCloseBtn" class="mini-btn">닫기</button>
+      </div>
+    </div>
+  </div>
+
+
+  <div id="branchOfficeModal" class="modal-overlay hidden">
+    <div class="excel-sheet modal-panel branch-office-modal-panel">
+      <h3>이모지 지사 운영</h3>
+      <p class="menu-note">실제 유저에게 돈이 이동하지 않는 장기 수집형 소각 콘텐츠입니다. 설립비, 공고비, 계약금, 발굴비, 창고비, 처분비, 유지비는 모두 소각됩니다.</p>
+      <div id="branchOfficeContent" class="branch-office-content"></div>
+      <div class="modal-buttons">
+        <button id="branchOfficeCloseBtn" class="mini-btn">닫기</button>
       </div>
     </div>
   </div>
@@ -897,6 +911,6 @@
     </div>
   </div>
 
-  <script src="client.js?v=127"></script>
+  <script src="client.js?v=128"></script>
 </body>
 </html>
