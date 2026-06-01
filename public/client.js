@@ -289,6 +289,24 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-01-infinite-overtime-basic-refresh',
+    time: '2026-06-01 21:05',
+    title: '무한야근 전투 조작 안정화',
+    items: [
+      '무한야근에서 기본공격만 선택했을 때 호이의 야근 재시전으로 처리될 수 있는 경로를 차단했습니다.',
+      '무한야근 도중 메인 화면으로 나가 카드 강화를 하고 돌아와도 현재 공략 덱의 강화 단계와 장비 효과가 다시 반영되도록 했습니다.'
+    ]
+  },
+  {
+    id: '2026-06-01-branch-salary-bacchus-hotfix',
+    time: '2026-06-01 20:35',
+    title: '회사 계약금/소모품 사용 핫픽스',
+    items: [
+      '회사 직원 계약금 기준 일급 계산을 기존의 1/3 수준으로 낮췄습니다.',
+      '박카스 등 인벤토리 아이템 사용 시 서버 오류가 발생하던 잘못된 호출을 제거했습니다.'
+    ]
+  },
+  {
     id: '2026-06-01-consumable-skill-atomic-save',
     time: '2026-06-01 20:10',
     title: '소모품/업무 최적화 적용 안정화',
@@ -4371,14 +4389,14 @@ function renderOvertimeBattlePanel(panelId, player, canControl, battle) {
   const cardButtons = (player.cards || []).map((card, index) => {
     const disabled = !canControl || battle.phase !== 'active' || card.passiveOnly || Number(card.cooldownRemaining || 0) > 0;
     return `
-      <button class="pvp-card-skill-btn ${getCardVisualClass(card)}" style="${escapeAttr(getCardVisualStyle(card))}" ${disabled ? 'disabled' : ''} title="${escapeAttr(card.skillDesc || '')}" onclick="handleOvertimeAction(${index})">
+      <button class="pvp-card-skill-btn ${getCardVisualClass(card)}" style="${escapeAttr(getCardVisualStyle(card))}" ${disabled ? 'disabled' : ''} title="${escapeAttr(card.skillDesc || '')}" onclick="handleOvertimeAction(${index}, 'skill')">
         ${escapeHtml(card.name || card.baseName || '')}
         ${Number(card.cooldownRemaining || 0) > 0 ? `<br>쿨 ${formatNumber(card.cooldownRemaining)}` : ''}
       </button>
     `;
   }).join('');
   const basicButton = canControl ? `
-    <button class="pvp-card-skill-btn pvp-basic-turn-btn" ${battle.phase !== 'active' || player.hp <= 0 ? 'disabled' : ''} onclick="handleOvertimeAction(null)">
+    <button class="pvp-card-skill-btn pvp-basic-turn-btn" ${battle.phase !== 'active' || player.hp <= 0 ? 'disabled' : ''} onclick="handleOvertimeAction(null, 'basic')">
       스킬 없이 기본공격
     </button>
   ` : '';
@@ -4440,13 +4458,14 @@ function renderOvertimeResultPanel(state) {
   }
 }
 
-async function handleOvertimeAction(cardIndex) {
+async function handleOvertimeAction(cardIndex, actionType = cardIndex === null ? 'basic' : 'skill') {
   const user = getStoredUser();
   if (!user?._id) return handleLogoutClick();
   try {
     const data = await runWithUserMutation(() => postJson(`${API_URL}/api/infinite-overtime/action`, {
       userId: user._id,
-      cardIndex
+      cardIndex,
+      actionType
     }));
     if (data.infiniteOvertime) latestInfiniteOvertimeState = data.infiniteOvertime;
     updateLocalUserState(data, { force: true });

@@ -252,7 +252,7 @@ const BRANCH_OFFICE_ELIGIBLE_SALARY_PER_MINUTE = 50000000;
 const BRANCH_OFFICE_HIGH_INCOME_TAX_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const BRANCH_OFFICE_HIGH_INCOME_TAX_RATE = 0.3;
 const BRANCH_OFFICE_FOUND_COST = 50000000000;
-const BRANCH_OFFICE_CONTRACT_SALARY_RATIO = 0.5;
+const BRANCH_OFFICE_CONTRACT_SALARY_RATIO = 1 / 6;
 const BRANCH_OFFICE_MIN_CONTRACT_PERCENT = 0.1;
 const BRANCH_EMPLOYEE_SALARY_EFFICIENCY_MIN = 0.85;
 const BRANCH_EMPLOYEE_SALARY_EFFICIENCY_RANGE = 0.3;
@@ -7670,6 +7670,26 @@ async function autoPickPvpCard(match, userId, now = new Date()) {
   }
 }
 
+function buildPvpCardSlotSnapshot(pick, index, existing = null) {
+  const normalizedLevel = normalizeCardEnhancementLevel(pick.enhancementLevel || 0);
+  const card = getCardDefinition(pick.cardId, normalizedLevel);
+  return {
+    slotIndex: index,
+    cardId: pick.cardId,
+    enhancementLevel: normalizedLevel,
+    cooldownRemaining: Math.max(0, Math.floor(Number(existing?.cooldownRemaining || 0))),
+    name: card?.displayName || CARD_DATA[pick.cardId]?.name || pick.cardId,
+    baseName: CARD_DATA[pick.cardId]?.name || pick.cardId,
+    grade: card?.grade || CARD_DATA[pick.cardId]?.grade || null,
+    color: CARD_GRADE_COLORS[card?.grade || CARD_DATA[pick.cardId]?.grade] || '#666666',
+    borderColor: card?.borderColor || '',
+    skillName: card?.skillName || '',
+    skillDesc: card ? buildCardSkillDescription(card.id, card.enhancementLevel || 0) : '',
+    durationText: card ? getCardDurationText(card.id, card.enhancementLevel || 0) : '',
+    passiveOnly: Boolean(card?.passiveOnly)
+  };
+}
+
 function createPvpParticipantFromUser(user, match, picks) {
   const equippedEquipment = getEquippedEquipment(user);
   const equippedCardEffect = equippedEquipment?.equipmentType === EQUIPMENT_TYPE_CARD ? equippedEquipment : null;
@@ -7692,24 +7712,7 @@ function createPvpParticipantFromUser(user, match, picks) {
     actionLockTurns: 0,
     buffs: [],
     debuffs: [],
-    cards: (picks || []).map((pick, index) => {
-      const card = getCardDefinition(pick.cardId, pick.enhancementLevel || 0);
-      return {
-        slotIndex: index,
-        cardId: pick.cardId,
-        enhancementLevel: normalizeCardEnhancementLevel(pick.enhancementLevel || 0),
-        cooldownRemaining: 0,
-        name: card?.displayName || CARD_DATA[pick.cardId]?.name || pick.cardId,
-        baseName: CARD_DATA[pick.cardId]?.name || pick.cardId,
-        grade: card?.grade || CARD_DATA[pick.cardId]?.grade || null,
-        color: CARD_GRADE_COLORS[card?.grade || CARD_DATA[pick.cardId]?.grade] || '#666666',
-        borderColor: card?.borderColor || '',
-        skillName: card?.skillName || '',
-        skillDesc: card ? buildCardSkillDescription(card.id, card.enhancementLevel || 0) : '',
-        durationText: card ? getCardDurationText(card.id, card.enhancementLevel || 0) : '',
-        passiveOnly: Boolean(card?.passiveOnly)
-      };
-    })
+    cards: (picks || []).map((pick, index) => buildPvpCardSlotSnapshot(pick, index))
   };
 }
 
@@ -7905,7 +7908,8 @@ async function getInfiniteOvertimeFloorInfo(userId, floor) {
 
 function createInfiniteOvertimeBattleFromFloor(user, floorInfo, now = new Date()) {
   const userId = String(user._id);
-  const attackDeck = normalizeInfiniteOvertimeDeck(user.infiniteOvertime?.attackDeck || []);
+  const attackDeck = resolveInfiniteOvertimeOwnedEnhancements(user, user.infiniteOvertime?.attackDeck || []);
+  user.infiniteOvertime.attackDeck = attackDeck;
   const player = createPvpParticipantFromUser(user, { players: [{ userId }] }, attackDeck);
   const bot = createInfiniteOvertimeBotParticipant(floorInfo);
   const battle = {
@@ -7950,6 +7954,27 @@ function setInfiniteOvertimeBattle(userId, battle) {
 
 function getInfiniteOvertimePlayer(battle) {
   return battle?.players?.find((player) => !player.isBot) || null;
+}
+
+function refreshInfiniteOvertimeBattlePlayerFromUser(user, battle) {
+  const player = getInfiniteOvertimePlayer(battle);
+  if (!user || !battle || !player) return;
+  ensureUserDefaults(user);
+  const resolvedDeck = resolveInfiniteOvertimeOwnedEnhancements(user, user.infiniteOvertime?.attackDeck || []);
+  if (resolvedDeck.length !== 5) return;
+  user.infiniteOvertime.attackDeck = resolvedDeck;
+  const equippedEquipment = getEquippedEquipment(user);
+  const equippedCardEffect = equippedEquipment?.equipmentType === EQUIPMENT_TYPE_CARD ? equippedEquipment : null;
+  const equippedBasicAttack = equippedEquipment?.equipmentType === EQUIPMENT_TYPE_ATTACK ? equippedEquipment : null;
+  player.cardEffectEquipmentBonusPercent = Number(equippedCardEffect?.statValue || 0) / 100;
+  player.basicAttackEquipmentBonusPercent = Number(equippedBasicAttack?.statValue || 0) / 100;
+  const previousCards = Array.isArray(player.cards) ? player.cards : [];
+  player.cards = resolvedDeck.map((pick, index) => {
+    const previous = previousCards[index]?.cardId === pick.cardId
+      ? previousCards[index]
+      : previousCards.find((entry) => entry.cardId === pick.cardId);
+    return buildPvpCardSlotSnapshot(pick, index, previous);
+  });
 }
 
 function getInfiniteOvertimeBot(battle) {
@@ -8094,7 +8119,7 @@ function executeInfiniteOvertimeSingleTurn(battle, actor, target, plannedIndex =
   const actionLocked = Number(actor.actionLockTurns || 0) > 0;
   if (actionLocked) {
     battle.logs.push(`${actor.displayName}은(는) 행동 불가 상태라 아무 행동도 할 수 없습니다.`);
-  } else if (Number(plannedIndex) >= 0) {
+  } else if (!options.basicOnly && Number(plannedIndex) >= 0) {
     const used = applyPvpCardSkill(actor, target, battle, Number(plannedIndex));
     if (!used) {
       battle.logs.push(`${actor.displayName}의 스킬은 사용할 수 없어 기본 공격만 진행합니다.`);
@@ -8122,15 +8147,16 @@ function executeInfiniteOvertimeSingleTurn(battle, actor, target, plannedIndex =
   clearPvpShieldsExpiredByUserTurn(battle, actor.userId);
 }
 
-async function executeInfiniteOvertimePlayerAction(user, cardIndex = null) {
+async function executeInfiniteOvertimePlayerAction(user, cardIndex = null, options = {}) {
   const userId = String(user._id);
   const battle = getInfiniteOvertimeBattle(userId);
   if (!battle || battle.phase !== 'active') throw createHttpError(400, '진행 중인 무한야근 전투가 없습니다.');
+  refreshInfiniteOvertimeBattlePlayerFromUser(user, battle);
   const player = getInfiniteOvertimePlayer(battle);
   const bot = getInfiniteOvertimeBot(battle);
   if (!player || !bot) throw createHttpError(400, '전투 정보를 찾을 수 없습니다.');
 
-  executeInfiniteOvertimeSingleTurn(battle, player, bot, Number.isInteger(cardIndex) ? cardIndex : null);
+  executeInfiniteOvertimeSingleTurn(battle, player, bot, Number.isInteger(cardIndex) ? cardIndex : null, { basicOnly: Boolean(options.basicOnly) });
   if (bot.hp <= 0) {
     battle.winnerUserId = player.userId;
     battle.phase = 'victory_pending';
@@ -8231,6 +8257,7 @@ async function buildInfiniteOvertimeStateResponse(user, now = new Date()) {
   const scoreInfo = scoreMap.get(userId) || {};
   const targetScore = getInfiniteOvertimeDefenseScoreFromRanks(scoreInfo.pvpRank, scoreInfo.levelRank);
   const battle = getInfiniteOvertimeBattle(userId);
+  if (battle) refreshInfiniteOvertimeBattlePlayerFromUser(user, battle);
   const cooldownRemainingMs = getInfiniteOvertimeCooldownRemainingMs(user, now);
   const defensePreset = resolveInfiniteOvertimeOwnedEnhancements(user, user.infiniteOvertime?.defensePreset || []);
   const attackDeck = normalizeInfiniteOvertimeDeck(user.infiniteOvertime?.attackDeck || []);
@@ -12290,7 +12317,6 @@ app.post('/api/inventory/use', async (req, res) => {
       cleanupExpiredBuffs(user, now);
       reconcileTitles(user, now);
       reconcileSkills(user, now);
-      reconcileBadgeUnlocks(user, now);
 
       let useQuantity = Math.min(requestedQuantity, getInventoryQuantity(user, itemId));
       if (useQuantity <= 0) {
@@ -12365,7 +12391,6 @@ app.post('/api/inventory/use', async (req, res) => {
 
       reconcileTitles(user, now);
       reconcileSkills(user, now);
-      reconcileBadgeUnlocks(user, now);
       user.gameState.lastActionTime = now;
 
       const response = await buildUserResponseWithGlobals(user, now);
@@ -13739,7 +13764,7 @@ app.post('/api/infinite-overtime/start', async (req, res) => {
 });
 
 app.post('/api/infinite-overtime/action', async (req, res) => {
-  const { userId, cardIndex } = req.body;
+  const { userId, cardIndex, actionType } = req.body;
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
@@ -13747,8 +13772,9 @@ app.post('/api/infinite-overtime/action', async (req, res) => {
       const user = await User.findById(userId);
       if (!user) throw createHttpError(404, '사용자를 찾을 수 없습니다.');
       ensureUserDefaults(user);
-      const parsedIndex = cardIndex === null || cardIndex === undefined || cardIndex === '' ? null : Number(cardIndex);
-      await executeInfiniteOvertimePlayerAction(user, Number.isInteger(parsedIndex) ? parsedIndex : null);
+      const basicOnly = actionType === 'basic' || cardIndex === null || cardIndex === undefined || cardIndex === '';
+      const parsedIndex = basicOnly ? null : Number(cardIndex);
+      await executeInfiniteOvertimePlayerAction(user, Number.isInteger(parsedIndex) ? parsedIndex : null, { basicOnly });
       user.markModified('infiniteOvertime');
       await persistUserSnapshot(user);
       bumpInfiniteOvertimeVersion();
