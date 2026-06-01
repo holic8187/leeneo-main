@@ -253,6 +253,10 @@ const BRANCH_OFFICE_HIGH_INCOME_TAX_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const BRANCH_OFFICE_HIGH_INCOME_TAX_RATE = 0.3;
 const BRANCH_OFFICE_FOUND_COST = 50000000000;
 const BRANCH_OFFICE_CONTRACT_SALARY_RATIO = 0.5;
+const BRANCH_OFFICE_MIN_CONTRACT_PERCENT = 0.1;
+const BRANCH_EMPLOYEE_SALARY_EFFICIENCY_MIN = 0.85;
+const BRANCH_EMPLOYEE_SALARY_EFFICIENCY_RANGE = 0.3;
+const BRANCH_EMPLOYEE_GRADE_SALARY_MULTIPLIER = { C: 0.8, B: 1.2, A: 1.7, S: 2.4 };
 const BRANCH_OFFICE_MAX_EMPLOYEES = 10;
 const BRANCH_OFFICE_COMPANY_VALUE_PER_EXTRA_EMPLOYEE = 2000000000;
 const BRANCH_OFFICE_BASE_DIG_COST = 100000000;
@@ -1060,7 +1064,7 @@ const CARD_DATA = {
     grade: 'S',
     rate: 0.00025,
     skillName: '굳건한 멘탈',
-    skillDesc: '자기 자신에게 피격 무효화를 3회 부여합니다.',
+    skillDesc: '자기 자신에게 피격 무효화를 3회 부여합니다. 피격 무효를 모두 소모한 뒤 쿨타임이 시작됩니다.',
     cooldown: 8,
     effectType: 'self_negate_hit',
     targetType: null,
@@ -2307,6 +2311,8 @@ const userSchema = new mongoose.Schema({
       grade: { type: String, default: 'C' },
       excavationPower: { type: Number, default: 0 },
       dailySalary: { type: Number, default: 0 },
+      salaryEfficiency: { type: Number, default: 1 },
+      contractPercent: { type: Number, default: 0 },
       hiredAt: { type: Date, default: Date.now }
     }],
     storageSlots: { type: Number, default: 10 },
@@ -3583,7 +3589,7 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
     case 'flexible_blame':
       return `지정한 아군 1인에게 ${card.turns || 2}턴 동안 <예? 저요?> 버프를 부여합니다. 상대방은 버프 보유자를 우선 타겟팅하고, 광역/다중 대상 공격에는 버프 보유자가 우선 포함됩니다. 버프 보유자는 받는 최종 피해가 ${formatCardPercentText(card.damageReductionPercent)} 감소합니다.`;
     case 'solid_mental':
-      return `자기 자신에게 피격 무효화 ${card.negateHitCount || 3}회를 부여합니다.`;
+      return `자기 자신에게 피격 무효화 ${card.negateHitCount || 3}회를 부여합니다. 피격 무효를 모두 소모한 뒤 쿨타임이 시작됩니다.`;
     case 'mingu_champion':
       return `지정한 파티원 1인에게 보호막 ${card.shield}, ${card.turns}턴 동안 <챔피언의 가호>를 부여하고 상대에게 ${card.blindTurns}턴 동안 <눈부심>을 부여합니다. 챔피언의 가호: 공격력 +${Math.round(Number(card.attackBonusPercent || 0) * 100)}%, 크리티컬 확률 +${Math.round(Number(card.critBonus || 0) * 100)}%. 눈부심: 모든 공격 명중률 ${Math.round(Number(card.blindMissChance || 0.3) * 100)}% 감소.`;
     case 'winter_subordinate':
@@ -4448,6 +4454,7 @@ function createRaidParticipantFromUser(user) {
     healShieldReductionMultiplier: 1,
     nextHitDamageTakenMultiplier: 1,
     negateHitCount: 0,
+    solidMentalNegateCount: 0,
     debuffImmuneCount: 0,
     selfEsteemCount: 0,
     tauntTurns: 0,
@@ -4491,6 +4498,9 @@ function setOrRefreshBuff(user, buffId, durationMs, options = {}) {
     existingBuff.expiresAt = expiresAt;
   } else {
     user.buffs.push({ buffId, expiresAt });
+  }
+  if (typeof user.markModified === 'function') {
+    user.markModified('buffs');
   }
 }
 
@@ -5638,7 +5648,8 @@ function useRaidCardSkill(participant, battle) {
   const scaleCount = (value) => Math.max(1, Math.ceil(Number(value || 0) * ampMultiplier));
   const scaleBonusMultiplier = (value) => Number((1 + ((Number(value || 1) - 1) * totalValueMultiplier)).toFixed(4));
 
-  participant.skillCooldown = card.cooldown + 1;
+  const startsCooldownAfterNegate = card.id === 'solid_mental';
+  participant.skillCooldown = startsCooldownAfterNegate ? Number(card.cooldown || 0) : Number(card.cooldown || 0) + 1;
   participant.plannedSkill = false;
   let logText = `${participant.displayName}(이)가 ${card.name} 스킬을 사용했습니다.`;
 
@@ -5807,6 +5818,9 @@ function useRaidCardSkill(participant, battle) {
   } else if (card.effectType === 'self_negate_hit') {
     const negateCount = scaleCount(card.negateHitCount || 1);
     participant.negateHitCount += negateCount;
+    if (card.id === 'solid_mental') {
+      participant.solidMentalNegateCount = Math.max(0, Number(participant.solidMentalNegateCount || 0)) + negateCount;
+    }
     logText = `${participant.displayName}(이)가 ${card.name}로 자신에게 피격 무효 ${negateCount}회를 부여했습니다.`;
   } else if (card.effectType === 'self_bonus_damage') {
     participant.extraDamage = scaleFlat(getRaidEffectiveLevel(participant) * Number(card.bonusPerLevel || 0));
@@ -6089,7 +6103,8 @@ function useRaidCardSkill(participant, battle) {
 }
 
 function tickRaidParticipantEndOfTurn(participant, battle) {
-  if (participant.skillCooldown > 0) participant.skillCooldown -= 1;
+  const solidMentalCooldownPaused = participant.equippedCardId === 'solid_mental' && Number(participant.solidMentalNegateCount || 0) > 0;
+  if (participant.skillCooldown > 0 && !solidMentalCooldownPaused) participant.skillCooldown -= 1;
   if (participant.silenceTurns > 0) participant.silenceTurns -= 1;
   if (participant.actionLockTurns > 0) participant.actionLockTurns -= 1;
   if (participant.basicAttackLockTurns > 0) participant.basicAttackLockTurns -= 1;
@@ -6465,6 +6480,9 @@ function applyRaidDamage(target, damage, options = {}) {
   if (!target || target.hp <= 0) return 0;
   if ((options.allowNegate ?? true) && target.negateHitCount > 0) {
     target.negateHitCount -= 1;
+    if (Number(target.solidMentalNegateCount || 0) > 0) {
+      target.solidMentalNegateCount = Math.max(0, Number(target.solidMentalNegateCount || 0) - 1);
+    }
     target.lastShieldLoss = 0;
     target.lastHpLoss = 0;
     return 0;
@@ -8386,7 +8404,7 @@ function consumePvpBreadBuff(target, battle) {
 
 function applyPvpDamage(target, amount, battle, options = {}) {
   if (!target || target.hp <= 0) return 0;
-  const negateBuff = target.buffs.find((buff) => buff.id === 'negate_hit' && Number(buff.count || 0) > 0);
+  const negateBuff = target.buffs.find((buff) => ['solid_mental_negate_hit', 'negate_hit'].includes(buff.id) && Number(buff.count || 0) > 0);
   if (!options.ignoreNegate && negateBuff) {
     negateBuff.count -= 1;
     if (negateBuff.count <= 0) target.buffs = target.buffs.filter((buff) => buff !== negateBuff);
@@ -8633,7 +8651,9 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
     battle.logs.push(`${actor.displayName}(이)가 <예? 저요?> 버프를 얻었습니다.`);
   } else if (card.effectType === 'self_negate_hit') {
     const negateCount = scaleCount(card.negateHitCount || 1);
-    addPvpBuff(actor, { id: 'negate_hit', name: '피격 무효', count: negateCount, desc: '피격 무효' });
+    const buffId = card.id === 'solid_mental' ? 'solid_mental_negate_hit' : 'negate_hit';
+    const desc = card.id === 'solid_mental' ? '피격 무효를 모두 소모하면 굳건한 멘탈 쿨타임이 시작됩니다.' : '피격 무효';
+    addPvpBuff(actor, { id: buffId, name: '피격 무효', count: negateCount, desc });
     battle.logs.push(`${actor.displayName}(이)가 피격 무효 ${negateCount}회를 얻었습니다.`);
   } else if (card.effectType === 'party_cleanse') {
     clearPvpDebuffs(actor, battle);
@@ -8761,7 +8781,9 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
   }
 
   if (cardEntry && !options.ignoreCooldown && (card.effectType !== 'overtime_rage' || canResolveOvertime)) {
-    cardEntry.cooldownRemaining = Number(card.cooldown || 0) + 1;
+    cardEntry.cooldownRemaining = card.id === 'solid_mental'
+      ? Number(card.cooldown || 0)
+      : Number(card.cooldown || 0) + 1;
   }
   return true;
 }
@@ -8833,8 +8855,10 @@ function performPvpBasicAttack(actor, target, battle) {
 }
 
 function tickPvpPlayerEndOfTurn(player, battle) {
+  const solidMentalActive = player.buffs.some((buff) => buff.id === 'solid_mental_negate_hit' && Number(buff.count || 0) > 0);
   player.cards.forEach((card) => {
-    if (Number(card.cooldownRemaining || 0) > 0) card.cooldownRemaining -= 1;
+    const pausedBySolidMental = card.cardId === 'solid_mental' && solidMentalActive;
+    if (Number(card.cooldownRemaining || 0) > 0 && !pausedBySolidMental) card.cooldownRemaining -= 1;
   });
   player.buffs.forEach((buff) => {
     if (buff.pendingActivation) {
@@ -9864,15 +9888,24 @@ function normalizeBranchOffice(user) {
   office.employees = (Array.isArray(office.employees) ? office.employees : [])
     .filter((employee) => employee && employee.employeeId)
     .slice(0, Math.max(BRANCH_OFFICE_MAX_EMPLOYEES, getBranchMaxEmployees(office), Array.isArray(office.employees) ? office.employees.length : 0))
-    .map((employee) => ({
-      employeeId: String(employee.employeeId),
-      name: String(employee.name || '이름없는 직원').slice(0, 24),
-      role: String(employee.role || '사원').slice(0, 12),
-      grade: BRANCH_EMPLOYEE_GRADE_CONFIG[employee.grade] ? String(employee.grade) : 'C',
-      excavationPower: Number(Math.max(0, Number(employee.excavationPower || 0)).toFixed(2)),
-      dailySalary: Math.max(0, Math.floor(Number(employee.dailySalary || 0))),
-      hiredAt: employee.hiredAt || new Date()
-    }));
+    .map((employee) => {
+      const normalizedEmployee = {
+        employeeId: String(employee.employeeId),
+        name: String(employee.name || '이름없는 직원').slice(0, 24),
+        role: String(employee.role || '사원').slice(0, 12),
+        grade: BRANCH_EMPLOYEE_GRADE_CONFIG[employee.grade] ? String(employee.grade) : 'C',
+        excavationPower: Number(Math.max(0, Number(employee.excavationPower || 0)).toFixed(2)),
+        dailySalary: Math.max(0, Math.floor(Number(employee.dailySalary || 0))),
+        salaryEfficiency: getBranchEmployeeSalaryEfficiency(employee),
+        contractPercent: Math.max(0, Math.min(50, Number(employee.contractPercent || 0))),
+        hiredAt: employee.hiredAt || new Date()
+      };
+      const fairDailySalary = getBranchEmployeeFairDailySalary(user, normalizedEmployee);
+      if (normalizedEmployee.dailySalary < fairDailySalary) {
+        normalizedEmployee.dailySalary = fairDailySalary;
+      }
+      return normalizedEmployee;
+    });
   office.items = (Array.isArray(office.items) ? office.items : [])
     .filter((item) => item && item.instanceId && BRANCH_COLLECTIBLE_ITEMS[item.itemId])
     .slice(0, office.storageSlots)
@@ -9911,6 +9944,52 @@ function sanitizeBranchCompanyName(name) {
 function getBranchEmployeeDailySalaryBase(user, now = new Date(), derivedStats = null) {
   const stats = derivedStats || calculateDerivedStats(user, now);
   return Math.floor(getSalaryPerMinute(user.gameState.level, stats.moneyBonusPercent) * 60 * 24 * BRANCH_OFFICE_CONTRACT_SALARY_RATIO);
+}
+
+function getStableUnitIntervalFromText(text) {
+  const source = String(text || '');
+  let hash = 2166136261;
+  for (let i = 0; i < source.length; i += 1) {
+    hash ^= source.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 4294967295;
+}
+
+function getBranchEmployeeSalaryEfficiency(employee = {}) {
+  const stored = Number(employee.salaryEfficiency);
+  const hasModernContractPercent = Number(employee.contractPercent || 0) > 0;
+  if (Number.isFinite(stored) && stored >= 0.5 && stored <= 2 && (stored !== 1 || hasModernContractPercent)) {
+    return Number(stored.toFixed(3));
+  }
+  const unit = getStableUnitIntervalFromText(employee.employeeId || employee.name || Math.random());
+  return Number((BRANCH_EMPLOYEE_SALARY_EFFICIENCY_MIN + unit * BRANCH_EMPLOYEE_SALARY_EFFICIENCY_RANGE).toFixed(3));
+}
+
+function getBranchEmployeePowerSalaryFactor(employee = {}) {
+  const grade = BRANCH_EMPLOYEE_GRADE_CONFIG[employee.grade] ? employee.grade : 'C';
+  const config = BRANCH_EMPLOYEE_GRADE_CONFIG[grade];
+  const power = Math.max(config.minPower, Math.min(config.maxPower, Number(employee.excavationPower || config.minPower)));
+  const span = Math.max(0.01, config.maxPower - config.minPower);
+  const normalized = (power - config.minPower) / span;
+  return Number((0.85 + normalized * 0.35).toFixed(3));
+}
+
+function getBranchEmployeeFairDailySalary(user, employee = {}, now = new Date(), derivedStats = null) {
+  const grade = BRANCH_EMPLOYEE_GRADE_CONFIG[employee.grade] ? employee.grade : 'C';
+  const base = getBranchEmployeeDailySalaryBase(user, now, derivedStats);
+  const minContractSalary = base * BRANCH_OFFICE_MIN_CONTRACT_PERCENT / 100;
+  const gradeMultiplier = BRANCH_EMPLOYEE_GRADE_SALARY_MULTIPLIER[grade] || 1;
+  const powerFactor = getBranchEmployeePowerSalaryFactor(employee);
+  const efficiency = getBranchEmployeeSalaryEfficiency(employee);
+  return Math.max(1, Math.floor(minContractSalary * gradeMultiplier * powerFactor * efficiency));
+}
+
+function getBranchEmployeeFinalDailySalary(user, employee = {}, requestedDailySalary = 0, now = new Date(), derivedStats = null) {
+  return Math.max(
+    Math.max(1, Math.floor(Number(requestedDailySalary || 0))),
+    getBranchEmployeeFairDailySalary(user, employee, now, derivedStats)
+  );
 }
 
 function isBranchOfficeEligible(user, now = new Date(), derivedStats = null) {
@@ -10190,6 +10269,7 @@ function rollBranchEmployee(contractPercent, dailySalary) {
   const basePower = config.minPower + Math.random() * (config.maxPower - config.minPower);
   const efficiencyNoise = 0.85 + Math.random() * 0.3;
   const excavationPower = Number((basePower * efficiencyNoise).toFixed(2));
+  const salaryEfficiency = Number((BRANCH_EMPLOYEE_SALARY_EFFICIENCY_MIN + Math.random() * BRANCH_EMPLOYEE_SALARY_EFFICIENCY_RANGE).toFixed(3));
   const baseName = BRANCH_EMPLOYEE_NAME_POOL[Math.floor(Math.random() * BRANCH_EMPLOYEE_NAME_POOL.length)];
   return {
     employeeId: createBranchOfficeId('emp'),
@@ -10197,7 +10277,9 @@ function rollBranchEmployee(contractPercent, dailySalary) {
     role: config.role,
     grade,
     excavationPower,
-    dailySalary,
+    dailySalary: Math.max(1, Math.floor(Number(dailySalary || 0))),
+    salaryEfficiency,
+    contractPercent: Number(Math.max(0, Number(contractPercent || 0)).toFixed(3)),
     hiredAt: new Date()
   };
 }
@@ -10332,7 +10414,9 @@ function buildBranchOfficePublicState(user, now = new Date(), derivedStats = nul
     role: employee.role,
     grade: employee.grade,
     excavationPower: employee.excavationPower,
-    dailySalary: employee.dailySalary
+    dailySalary: employee.dailySalary,
+    salaryEfficiency: employee.salaryEfficiency,
+    contractPercent: employee.contractPercent
   }));
   const items = office.items.map((entry) => ({
     instanceId: entry.instanceId,
@@ -11405,6 +11489,7 @@ app.post('/api/skill/work-optimization', async (req, res) => {
 
       user.meta.lastWorkOptimizationAt = now;
       setOrRefreshBuff(user, 'work_optimization_buff', WORK_OPTIMIZATION_DURATION_MS, { now });
+      user.markModified('meta');
       queueNotification(user, 'skill_use', '<업무 최적화>를 사용했습니다. 온라인 유저들에게 1시간 경험치 2배 버프가 적용됩니다.');
 
       const onlineSince = new Date(now.getTime() - ONLINE_THRESHOLD_MS);
@@ -12184,7 +12269,7 @@ app.post('/api/emblem/toggle', async (req, res) => {
 app.post('/api/inventory/use', async (req, res) => {
   const { userId, itemId, quantity } = req.body;
   if (!userId || !itemId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
-  let useQuantity = Math.max(1, Math.floor(Number(quantity) || 1));
+  let requestedQuantity = Math.max(1, Math.floor(Number(quantity) || 1));
 
   const itemInfo = ITEM_DATA[itemId];
   if (!itemInfo || itemInfo.type !== 'consumable') {
@@ -12192,89 +12277,103 @@ app.post('/api/inventory/use', async (req, res) => {
   }
 
   try {
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
-
-    const now = new Date();
-    calculateOfflineGains(user, now);
-
-    if (itemId === 'bacchus') {
-      const maxRecoverableStamina = Math.max(0, Math.floor(getEffectiveMaxStamina(user, now) - Number(user.gameState.stamina || 0)));
-      if (maxRecoverableStamina <= 0) {
-        return res.status(400).json({ msg: '행동력이 이미 최대치라 박카스를 사용할 수 없습니다.' });
-      }
-      useQuantity = Math.min(useQuantity, maxRecoverableStamina);
-    } else if (itemId === 'infinite_overtime_ticket') {
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
       ensureUserDefaults(user);
-      if (user.infiniteOvertime?.active) {
-        return res.status(400).json({ msg: '진행 중인 무한야근 도전이 있어 입장권을 사용할 수 없습니다.' });
-      }
-      if (getInfiniteOvertimeCooldownRemainingMs(user, now) <= 0) {
-        return res.status(400).json({ msg: '이미 무한야근에 도전할 수 있어 입장권을 사용할 필요가 없습니다.' });
-      }
-      useQuantity = 1;
-    }
+      cleanupExpiredBuffs(user, now);
+      reconcileTitles(user, now);
+      reconcileSkills(user, now);
+      reconcileBadgeUnlocks(user, now);
 
-    if (itemId === 'excavation_repair_coupon') {
-      ensureUserDefaults(user);
-      if (!user.branchOffice?.isFounded) {
-        return res.status(400).json({ msg: '회사를 설립한 뒤 사용할 수 있습니다.' });
+      let useQuantity = Math.min(requestedQuantity, getInventoryQuantity(user, itemId));
+      if (useQuantity <= 0) {
+        throw createHttpError(400, '해당 아이템이 부족합니다.');
       }
-      const brokenUntil = getBranchMachineBrokenUntil(user, now);
-      if (!brokenUntil || brokenUntil <= now) {
-        return res.status(400).json({ msg: '현재 수리할 발굴 기계 고장이 없습니다.' });
+
+      if (itemId === 'bacchus') {
+        const maxRecoverableStamina = Math.max(0, Math.floor(getEffectiveMaxStamina(user, now) - Number(user.gameState.stamina || 0)));
+        if (maxRecoverableStamina <= 0) {
+          throw createHttpError(400, '행동력이 이미 최대치라 박카스를 사용할 수 없습니다.');
+        }
+        useQuantity = Math.min(useQuantity, maxRecoverableStamina);
+      } else if (itemId === 'infinite_overtime_ticket') {
+        if (user.infiniteOvertime?.active) {
+          throw createHttpError(400, '진행 중인 무한야근 도전이 있어 입장권을 사용할 수 없습니다.');
+        }
+        if (getInfiniteOvertimeCooldownRemainingMs(user, now) <= 0) {
+          throw createHttpError(400, '이미 무한야근에 도전할 수 있어 입장권을 사용할 필요가 없습니다.');
+        }
+        useQuantity = 1;
       }
-      useQuantity = 1;
-    }
-    if (!removeItemFromInventory(user, itemId, useQuantity)) {
-      return res.status(400).json({ msg: '해당 아이템이 부족합니다.' });
-    }
 
-    if (itemId === 'bacchus') {
-      user.gameState.stamina = Math.min(getEffectiveMaxStamina(user, now), user.gameState.stamina + useQuantity);
-      queueNotification(user, 'item_use', `박카스를 ${useQuantity}병 마셨습니다. 행동력이 ${useQuantity} 회복되었습니다.`);
-    } else if (itemId === 'hot6') {
-      addUserStress(user, -(10 * useQuantity));
-      setOrRefreshBuff(user, 'hot6_buff', HOT6_DURATION_MS * useQuantity, { now, stackDuration: true });
-      queueNotification(user, 'item_use', `핫식스를 ${useQuantity}병 사용했습니다. 스트레스가 ${10 * useQuantity} 감소하고 버프 시간이 누적되었습니다.`);
-    } else if (itemId === 'tylenol') {
-      removeAllDebuffs(user);
-      queueNotification(user, 'item_use', `타이레놀을 ${useQuantity}정 사용했습니다. 현재 걸려 있는 모든 디버프를 제거했습니다.`);
-    } else if (itemId === 'raid_entry_ticket') {
-      syncRaidEntryState(user, now);
-      user.meta.raidEntryBonusCount += useQuantity;
-      queueNotification(user, 'item_use', `회의 추가 입장권 ${useQuantity}장을 사용했습니다. 오늘 보스 레이드 입장 가능 횟수가 ${useQuantity}회 증가했습니다.`);
-    } else if (itemId === 'infinite_overtime_ticket') {
-      ensureUserDefaults(user);
-      user.infiniteOvertime.lastAttemptAt = null;
-      user.infiniteOvertime.lastCompletedAt = null;
-      user.infiniteOvertime.active = false;
-      user.markModified('infiniteOvertime');
-      clearInfiniteOvertimeAttackDraft(userId);
-      queueNotification(user, 'item_use', '무한야근 입장권 1장을 사용했습니다. 무한야근 재도전 대기시간이 초기화되었습니다.');
-    } else if (itemId === 'hagendaz') {
-      user.gameState.level += useQuantity;
-      user.gameState.exp = 0;
-      user.gameState.passiveExpCarry = 0;
-      queueNotification(user, 'item_use', `하겐다즈 ${useQuantity}개를 사용해 즉시 ${useQuantity}레벨 상승했습니다.`);
-    }
+      if (itemId === 'excavation_repair_coupon') {
+        if (!user.branchOffice?.isFounded) {
+          throw createHttpError(400, '회사를 설립해야 사용할 수 있습니다.');
+        }
+        const brokenUntil = getBranchMachineBrokenUntil(user, now);
+        if (!brokenUntil || brokenUntil <= now) {
+          throw createHttpError(400, '현재 수리할 발굴 기계 고장이 없습니다.');
+        }
+        useQuantity = 1;
+      }
 
-    if (itemId === 'excavation_repair_coupon') {
-      ensureUserDefaults(user);
-      user.branchOffice.excavationBrokenUntil = null;
-      user.branchOffice.lastLog = '발굴 기계 수리 쿠폰으로 고장난 발굴 기계를 즉시 수리했습니다.';
-      user.markModified('branchOffice');
-      queueNotification(user, 'item_use', '발굴 기계 수리 쿠폰을 사용해 발굴 기계를 즉시 수리했습니다.');
-    }
-    reconcileTitles(user, now);
-    user.gameState.lastActionTime = now;
+      if (!removeItemFromInventory(user, itemId, useQuantity)) {
+        throw createHttpError(400, '해당 아이템이 부족합니다.');
+      }
 
-    const response = await buildUserResponseWithGlobals(user, now);
-    await persistUserSnapshot(user);
+      if (itemId === 'bacchus') {
+        user.gameState.stamina = Math.min(getEffectiveMaxStamina(user, now), Number(user.gameState.stamina || 0) + useQuantity);
+        queueNotification(user, 'item_use', `박카스를 ${useQuantity}병 마셨습니다. 행동력이 ${useQuantity} 회복되었습니다.`);
+      } else if (itemId === 'hot6') {
+        addUserStress(user, -(10 * useQuantity));
+        setOrRefreshBuff(user, 'hot6_buff', HOT6_DURATION_MS * useQuantity, { now, stackDuration: true });
+        queueNotification(user, 'item_use', `핫식스를 ${useQuantity}병 사용했습니다. 스트레스가 ${10 * useQuantity} 감소하고 버프 시간이 누적되었습니다.`);
+      } else if (itemId === 'tylenol') {
+        removeAllDebuffs(user);
+        queueNotification(user, 'item_use', `타이레놀 ${useQuantity}개를 사용했습니다. 현재 걸린 모든 디버프를 제거했습니다.`);
+      } else if (itemId === 'raid_entry_ticket') {
+        syncRaidEntryState(user, now);
+        user.meta.raidEntryBonusCount += useQuantity;
+        queueNotification(user, 'item_use', `회의 추가 입장권 ${useQuantity}장을 사용했습니다. 오늘 보스 레이드 입장 가능 횟수가 ${useQuantity}회 증가했습니다.`);
+      } else if (itemId === 'infinite_overtime_ticket') {
+        user.infiniteOvertime.lastAttemptAt = null;
+        user.infiniteOvertime.lastCompletedAt = null;
+        user.infiniteOvertime.active = false;
+        user.markModified('infiniteOvertime');
+        clearInfiniteOvertimeAttackDraft(String(userId));
+        queueNotification(user, 'item_use', '무한야근 입장권 1장을 사용했습니다. 무한야근 도전 대기시간이 초기화되었습니다.');
+      } else if (itemId === 'hagendaz') {
+        user.gameState.level += useQuantity;
+        user.gameState.exp = 0;
+        user.gameState.passiveExpCarry = 0;
+        queueNotification(user, 'item_use', `하겐다즈 ${useQuantity}개를 사용해 즉시 ${useQuantity}레벨 상승했습니다.`);
+      }
+
+      if (itemId === 'excavation_repair_coupon') {
+        user.branchOffice.excavationBrokenUntil = null;
+        user.branchOffice.lastLog = '발굴 기계 수리 쿠폰으로 고장난 발굴 기계를 즉시 수리했습니다.';
+        user.markModified('branchOffice');
+        queueNotification(user, 'item_use', '발굴 기계 수리 쿠폰을 사용해 발굴 기계를 즉시 수리했습니다.');
+      }
+
+      reconcileTitles(user, now);
+      reconcileSkills(user, now);
+      reconcileBadgeUnlocks(user, now);
+      user.gameState.lastActionTime = now;
+
+      const response = await buildUserResponseWithGlobals(user, now);
+      response.itemUseResult = {
+        itemId,
+        itemName: itemInfo.name,
+        quantity: useQuantity
+      };
+      return response;
+    }, { conflictLabel: 'Inventory use conflict' });
     res.json(response);
   } catch (err) {
     console.error('Inventory use error:', err);
-    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+    res.status(err.statusCode || 500).json({ msg: err.statusCode ? err.message : '서버 오류가 발생했습니다.' });
   }
 });
 
@@ -14276,9 +14375,11 @@ app.post('/api/branch-office/post-job', async (req, res) => {
       if (!user.branchOffice.isFounded) throw createHttpError(400, '먼저 지사를 설립해주세요.');
       const maxEmployees = getBranchMaxEmployees(user);
       if (user.branchOffice.employees.length >= maxEmployees) throw createHttpError(400, '직원은 현재 최대 ' + maxEmployees + '명까지 고용할 수 있습니다. 회사 가치 20억원마다 한도가 1명씩 증가합니다.');
-      const percent = Math.max(0, Math.min(50, Number(contractPercent || 0)));
-      if (percent <= 0) throw createHttpError(400, '계약 비율을 0보다 크게 입력해주세요.');
-      const dailyBase = getBranchEmployeeDailySalaryBase(user, now);
+      const rawPercent = Number(contractPercent);
+      if (!Number.isFinite(rawPercent) || rawPercent <= 0) throw createHttpError(400, '계약 비율은 0보다 크게 입력해주세요.');
+      const percent = Math.max(BRANCH_OFFICE_MIN_CONTRACT_PERCENT, Math.min(50, rawPercent));
+      const derivedStats = calculateDerivedStats(user, now);
+      const dailyBase = getBranchEmployeeDailySalaryBase(user, now, derivedStats);
       const dailySalary = Math.max(1, Math.floor(dailyBase * percent / 100));
       const postCost = Math.floor(dailySalary * 0.3);
       if (user.gameState.money < postCost) throw createHttpError(400, '공고 비용이 부족합니다.');
@@ -14289,9 +14390,10 @@ app.post('/api/branch-office/post-job', async (req, res) => {
       let employee = null;
       if (success) {
         employee = rollBranchEmployee(percent, dailySalary);
+        employee.dailySalary = getBranchEmployeeFinalDailySalary(user, employee, dailySalary, now, derivedStats);
         user.branchOffice.employees.push(employee);
         user.branchOffice.employeeCodex = [...new Set([...(user.branchOffice.employeeCodex || []), employee.name])];
-        message += employee.name + ' 채용 성공! (' + employee.grade + '등급 / 발굴력 +' + employee.excavationPower + '% / 일일 계약금 ' + dailySalary.toLocaleString() + '원)';
+        message += employee.name + ' 채용 성공! (' + employee.grade + '등급 / 발굴력 +' + employee.excavationPower + '% / 일일 계약금 ' + employee.dailySalary.toLocaleString() + '원)';
       } else {
         message += '채용 실패. 면접장에 아무도 오지 않았습니다. (성공률 ' + successChance + '%)';
       }

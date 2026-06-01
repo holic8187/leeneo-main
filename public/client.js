@@ -74,7 +74,7 @@ const ITEM_DATA = {
 const CARD_DATA = {
   chunsik_not_hyeji: { name: '춘식이혜지아니다.', grade: 'S', color: '#c62828', skillName: '춘식이혜지아니다.', skillDesc: '지정한 아군 1인의 총 잃은 체력 비율을 회복합니다.', cooldown: 8, targetType: 'ally' },
   flexible_blame: { name: '유연한 남탓: 제가 한거 아닌데요?', grade: 'A', color: '#f9a825', skillName: '제가 한거 아닌데요?', skillDesc: '지정한 아군 1인에게 <예? 저요?>를 부여해 우선 타겟팅되게 하고 받는 최종 피해를 감소시킵니다.', cooldown: 5, targetType: 'ally' },
-  solid_mental: { name: '굳건한 멘탈의 소유자', grade: 'S', color: '#c62828', skillName: '굳건한 멘탈', skillDesc: '자기 자신에게 피격 무효화를 여러 회 부여합니다.', cooldown: 8, targetType: null },
+  solid_mental: { name: '굳건한 멘탈의 소유자', grade: 'S', color: '#c62828', skillName: '굳건한 멘탈', skillDesc: '자기 자신에게 피격 무효화를 여러 회 부여합니다. 피격 무효를 모두 소모한 뒤 쿨타임이 시작됩니다.', cooldown: 8, targetType: null },
   nosy_manager: { name: '노처녀 신차장의 오지랖', grade: 'A', color: '#f9a825', skillName: '오지랖', skillDesc: '선택한 파티원 1명에게 보호막을 부여하고, 상대에게 자신의 레벨 기반 피해를 2회 입힙니다.', cooldown: 5, targetType: 'ally' },
   mingu_champion: { name: '제 1회 면담대회 우승자 밍구의 품격', grade: 'S', color: '#c62828', skillName: '챔피언의 품격', skillDesc: '지정한 파티원 1인에게 보호막 20과 <챔피언의 가호>를, 상대에게 <눈부심>을 부여합니다.', cooldown: 7, targetType: 'ally', specialStyle: 'champion' },
   winter_subordinate: { name: '겨울 부장의 부하직원 육성', grade: 'S', color: '#c62828', skillName: '부하직원 육성', skillDesc: '파티원 중 가장 레벨이 낮은 1명을 2턴 동안 레벨 +1~+5로 간주합니다. +5강은 쿨타임이 7턴입니다.', cooldown: 8, targetType: null },
@@ -288,6 +288,33 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-06-01-consumable-skill-atomic-save',
+    time: '2026-06-01 20:10',
+    title: '소모품/업무 최적화 적용 안정화',
+    items: [
+      '업무 최적화 버프 갱신이 저장에 확실히 반영되도록 보강했습니다.',
+      '박카스 등 소모품 사용을 원자 처리로 묶어 아이템만 소모되고 효과가 누락될 수 있던 경로를 수정했습니다.'
+    ]
+  },
+  {
+    id: '2026-06-01-solid-mental-delayed-cooldown',
+    time: '2026-06-01 19:45',
+    title: '굳건한 멘탈 쿨타임 조정',
+    items: [
+      '<굳건한 멘탈의 소유자>는 피격 무효화 횟수를 모두 소모한 뒤부터 쿨타임이 진행되도록 변경했습니다.',
+      '회의/개인면담/무한야근 전투 모두 같은 방식으로 적용됩니다.'
+    ]
+  },
+  {
+    id: '2026-06-01-branch-employee-salary-floor',
+    time: '2026-06-01 19:20',
+    title: '회사 직원 계약금 악용 방지',
+    items: [
+      '직원 공고 계약금 기준을 분당 월급 환산값과 서버 최소 비율 기준으로 고정했습니다.',
+      '이미 생성된 비정상 저가 직원은 등급, 발굴력, 효율 보정값을 반영한 최소 일일 계약금으로 자동 보정됩니다.'
+    ]
+  },
   {
     id: '2026-06-01-new-cards-chunsik-blame-mental',
     date: '2026-06-01 18:45',
@@ -5599,7 +5626,7 @@ function renderBranchOfficeModal(user = getStoredUser()) {
 
     <div class="branch-card">
       <h4>직원 공고</h4>
-      <p>하루 시작 기준 일급: <strong>${formatNumber(postPreview)}원</strong>. 입력한 비율만큼 직원 일일 계약금이 정해지고, 공고 비용은 계약금의 30%입니다.</p>
+      <p>분당 월급 기준 환산 일급: <strong>${formatNumber(postPreview)}원</strong>. 입력한 비율만큼 직원 일일 계약금이 정해지고, 공고 비용은 계약금의 30%입니다. 서버에서 최소 ${formatNumber(0.1, 1)}%와 직원 등급/발굴력 기준 보정이 적용됩니다.</p>
       <div class="stock-controls">
         <input id="branchContractPercentInput" type="number" min="0.1" max="50" step="0.1" value="${escapeAttr(contractPercentValue)}" oninput="handleBranchContractPercentInput(this.value)" onchange="handleBranchContractPercentInput(this.value)">
         <button class="menu-action-btn" onclick="handleBranchRecruit()">공고 올리기</button>
