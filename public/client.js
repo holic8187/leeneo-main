@@ -201,6 +201,7 @@ let updateInterval;
 let rankingInterval;
 let rankingMode = 'level';
 let branchContractPercentDraft = '1';
+let branchEmployeeSortMode = { key: "grade", direction: "desc" };
 let shopModalMode = 'fragment';
 let syncInterval;
 let animationInterval;
@@ -284,6 +285,19 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-06-01-stock-rumor-branch-sort-overtime-fix',
+    date: '2026-06-01 18:40',
+    title: '주식 시장/회사 운영/무한야근 안정화',
+    items: [
+      '주식 매수 후 돈만 빠지고 보유 주식이 늘지 않을 수 있던 저장 흐름을 보강했습니다.',
+      '주식 찌라시는 종목별 10분 동안 유지되며, 멘트 풀을 두 배로 늘렸습니다.',
+      '주식 보유 탭에 평균 매수가와 수익률을 추가하고, 차트 표시 범위를 12시간으로 확장했습니다.',
+      '회사 직원 목록에 발굴력, 등급, 계약금 정렬 기능을 추가했습니다.',
+      '발굴률 상한을 넘는 초과 발굴력은 희귀 수집품 등장 보정으로 일부 반영됩니다.',
+      '무한야근에서 기본공격이 첫 번째 스킬로 처리될 수 있던 문제를 수정했습니다.'
+    ]
+  },
   {
     id: '2026-05-29-company-stock-market-repair-card',
     time: '2026-05-29 18:20',
@@ -2635,7 +2649,7 @@ async function loadCompanyStockMarket() {
   if (!user?._id) return null;
   const data = await getJson(API_URL + '/api/company-stock-market?userId=' + encodeURIComponent(user._id));
   if (data.stockMarket) {
-    companyStockMarketState = { ...companyStockMarketState, ...data.stockMarket, rumors: companyStockMarketState.rumors || {} };
+    mergeCompanyStockMarketState(data.stockMarket);
   }
   return companyStockMarketState;
 }
@@ -2652,12 +2666,60 @@ async function openCompanyStockMarketModal() {
   }
 }
 
+function normalizeCompanyStockRumorClient(entry) {
+  if (!entry) return null;
+  if (typeof entry === 'string') return { text: entry };
+  const expiresAtMs = entry.expiresAt ? Date.parse(entry.expiresAt) : 0;
+  if (expiresAtMs && expiresAtMs <= Date.now()) return null;
+  return { text: entry.text || '', createdAt: entry.createdAt || null, expiresAt: entry.expiresAt || null };
+}
+
+function getFreshCompanyStockRumorsFromMarket(stockMarket) {
+  const result = {};
+  (stockMarket?.stocks || []).forEach((stock) => {
+    const rumor = normalizeCompanyStockRumorClient(stock.rumor);
+    if (rumor?.text) result[stock.companyId] = rumor;
+  });
+  return result;
+}
+
+function getCompanyStockRumorText(companyId) {
+  const rumor = normalizeCompanyStockRumorClient(companyStockMarketState.rumors?.[companyId]);
+  return rumor?.text || '';
+}
+
+function getCompanyStockRumorRemainingText(companyId) {
+  const rumor = normalizeCompanyStockRumorClient(companyStockMarketState.rumors?.[companyId]);
+  if (!rumor?.expiresAt) return '';
+  const remainingMs = Date.parse(rumor.expiresAt) - Date.now();
+  if (!Number.isFinite(remainingMs) || remainingMs <= 0) return '';
+  const minutes = Math.floor(remainingMs / 60000);
+  const seconds = Math.floor((remainingMs % 60000) / 1000);
+  return '다음 찌라시까지 ' + minutes + '분 ' + String(seconds).padStart(2, '0') + '초';
+}
+
+function mergeCompanyStockMarketState(stockMarket) {
+  const previousRumors = {};
+  Object.entries(companyStockMarketState.rumors || {}).forEach(([companyId, rumor]) => {
+    const normalized = normalizeCompanyStockRumorClient(rumor);
+    if (normalized?.text) previousRumors[companyId] = normalized;
+  });
+  companyStockMarketState = {
+    ...companyStockMarketState,
+    ...stockMarket,
+    rumors: {
+      ...previousRumors,
+      ...getFreshCompanyStockRumorsFromMarket(stockMarket)
+    }
+  };
+}
+
 function closeCompanyStockMarketModal() {
   hideModal('stockMarketModal');
 }
 
 function buildCompanyStockChart(history = []) {
-  const points = Array.isArray(history) ? history.slice(-36) : [];
+  const points = Array.isArray(history) ? history.slice(-72) : [];
   if (points.length < 2) return '<div class="company-stock-chart-empty">자료 부족</div>';
   const prices = points.map((entry) => Number(entry.price || 0));
   const min = Math.min(...prices);
@@ -2690,19 +2752,24 @@ function renderCompanyStockMarket() {
     const holding = holdings.get(stock.companyId) || {};
     const buyInputId = 'stock-buy-' + index;
     const sellInputId = 'stock-sell-' + index;
+    const currentPrice = Number(stock.price || 0);
+    const averagePrice = Number(holding.averagePrice || 0);
+    const marketValue = Number(holding.marketValue || 0);
+    const profitRate = Number.isFinite(Number(holding.profitRate)) ? Number(holding.profitRate) : (averagePrice > 0 ? ((currentPrice - averagePrice) / averagePrice) * 100 : 0);
     const change = Number(stock.lastChangePct || 0);
     const changeClass = change >= 0 ? 'stock-change-up' : 'stock-change-down';
-    const rumor = companyStockMarketState.rumors?.[stock.companyId] || '';
+    const rumor = getCompanyStockRumorText(stock.companyId);
+    const rumorRemaining = getCompanyStockRumorRemainingText(stock.companyId);
     const row = document.createElement('tr');
     row.innerHTML =
       '<td>' + escapeHtml(stock.companyName || '이름 없는 회사') + '<div class="muted-text">가치 ' + formatNumber(stock.companyValue || 0) + '원</div></td>' +
-      '<td>' + formatNumber(stock.price || 0) + '원</td>' +
+      '<td>' + formatNumber(currentPrice) + '원</td>' +
       '<td class="' + changeClass + '">' + (change >= 0 ? '+' : '') + formatNumber(change, 2) + '%</td>' +
       '<td>' + buildCompanyStockChart(stock.history) + '</td>' +
-      '<td>' + formatNumber(holding.shares || 0) + '주<div class="muted-text">평가 ' + formatNumber(holding.marketValue || 0) + '원</div></td>' +
+      '<td>' + formatNumber(holding.shares || 0) + '주<div class="muted-text">평가 ' + formatNumber(marketValue) + '원</div><div class="muted-text">평단 ' + formatNumber(averagePrice, 2) + '원</div><div class="muted-text ' + (profitRate >= 0 ? 'stock-change-up' : 'stock-change-down') + '">수익률 ' + (profitRate >= 0 ? '+' : '') + formatNumber(profitRate, 2) + '%</div></td>' +
       '<td><div class="stock-trade-row"><input id="' + buyInputId + '" class="stock-share-input" type="number" min="1" step="1" value="1"><button class="mini-btn" onclick="handleCompanyStockBuy(\'' + escapeHtml(stock.companyId) + '\', \'' + buyInputId + '\')">매수</button></div></td>' +
       '<td><div class="stock-trade-row"><input id="' + sellInputId + '" class="stock-share-input" type="number" min="1" max="' + Math.max(1, Number(holding.shares || 0)) + '" step="1" value="1"><button class="mini-btn" onclick="handleCompanyStockSell(\'' + escapeHtml(stock.companyId) + '\', \'' + sellInputId + '\')" ' + (Number(holding.shares || 0) <= 0 ? 'disabled' : '') + '>매도</button></div></td>' +
-      '<td><button class="mini-btn" onclick="handleCompanyStockRumor(\'' + escapeHtml(stock.companyId) + '\')">찌라시</button>' + (rumor ? '<div class="company-stock-rumor">' + escapeHtml(rumor) + '</div>' : '') + '</td>';
+      '<td><button class="mini-btn" onclick="handleCompanyStockRumor(\'' + escapeHtml(stock.companyId) + '\')">찌라시</button>' + (rumor ? '<div class="company-stock-rumor">' + escapeHtml(rumor) + (rumorRemaining ? '<span class="company-stock-rumor-meta">' + escapeHtml(rumorRemaining) + '</span>' : '') + '</div>' : '') + '</td>';
     tbody.appendChild(row);
   });
 }
@@ -2714,8 +2781,8 @@ async function handleCompanyStockBuy(companyId, inputId) {
   const shares = Math.max(1, Math.floor(Number(input?.value || 1)));
   try {
     const data = await postJson(API_URL + '/api/company-stock-market/buy', { userId: user._id, companyId, shares });
-    if (data.stockMarket) companyStockMarketState = { ...companyStockMarketState, ...data.stockMarket, rumors: companyStockMarketState.rumors || {} };
-    updateLocalUserState(data);
+    if (data.stockMarket) mergeCompanyStockMarketState(data.stockMarket);
+    updateLocalUserState(data, { force: true });
     renderCompanyStockMarket();
   } catch (err) {
     alert(err.message || '주식을 구매하지 못했습니다.');
@@ -2729,8 +2796,8 @@ async function handleCompanyStockSell(companyId, inputId) {
   const shares = Math.max(1, Math.floor(Number(input?.value || 1)));
   try {
     const data = await postJson(API_URL + '/api/company-stock-market/sell', { userId: user._id, companyId, shares });
-    if (data.stockMarket) companyStockMarketState = { ...companyStockMarketState, ...data.stockMarket, rumors: companyStockMarketState.rumors || {} };
-    updateLocalUserState(data);
+    if (data.stockMarket) mergeCompanyStockMarketState(data.stockMarket);
+    updateLocalUserState(data, { force: true });
     renderCompanyStockMarket();
     if (data.stockTrade) alert('매도 정산: ' + formatNumber(data.stockTrade.net) + '원 (수수료 ' + formatNumber(data.stockTrade.fee) + '원)');
   } catch (err) {
@@ -2742,7 +2809,7 @@ async function handleCompanyStockRumor(companyId) {
   try {
     const data = await postJson(API_URL + '/api/company-stock-market/rumor', { companyId });
     companyStockMarketState.rumors = companyStockMarketState.rumors || {};
-    companyStockMarketState.rumors[companyId] = data.rumor || '별다른 소문은 없습니다.';
+    companyStockMarketState.rumors[companyId] = { text: data.rumor || '별다른 소문은 없습니다.', createdAt: data.createdAt || null, expiresAt: data.expiresAt || null };
     renderCompanyStockMarket();
   } catch (err) {
     alert(err.message || '찌라시를 불러오지 못했습니다.');
@@ -5329,6 +5396,46 @@ function getBranchOfficeState(user = getStoredUser()) {
   return user?.branchOffice || null;
 }
 
+function getBranchEmployeeGradeRank(grade) {
+  return { S: 4, A: 3, B: 2, C: 1 }[String(grade || '').toUpperCase()] || 0;
+}
+
+function getSortedBranchEmployees(employees = []) {
+  const list = Array.isArray(employees) ? employees.slice() : [];
+  const { key, direction } = branchEmployeeSortMode || {};
+  const sign = direction === 'asc' ? 1 : -1;
+  return list.sort((a, b) => {
+    let av = 0;
+    let bv = 0;
+    if (key === 'power') {
+      av = Number(a?.excavationPower || 0);
+      bv = Number(b?.excavationPower || 0);
+    } else if (key === 'salary') {
+      av = Number(a?.dailySalary || 0);
+      bv = Number(b?.dailySalary || 0);
+    } else {
+      av = getBranchEmployeeGradeRank(a?.grade);
+      bv = getBranchEmployeeGradeRank(b?.grade);
+    }
+    if (av === bv) return String(a?.name || '').localeCompare(String(b?.name || ''), 'ko');
+    return (av - bv) * sign;
+  });
+}
+
+function handleBranchEmployeeSortChange(key) {
+  if (branchEmployeeSortMode.key === key) {
+    branchEmployeeSortMode = { key, direction: branchEmployeeSortMode.direction === 'desc' ? 'asc' : 'desc' };
+  } else {
+    branchEmployeeSortMode = { key, direction: key === 'salary' ? 'asc' : 'desc' };
+  }
+  renderBranchOffice();
+}
+
+function formatBranchEmployeeSortLabel(key, label) {
+  if (branchEmployeeSortMode.key !== key) return label;
+  return label + (branchEmployeeSortMode.direction === 'desc' ? ' ▼' : ' ▲');
+}
+
 function formatBranchPercent(value) {
   const number = Number(value || 0);
   return Number.isFinite(number) ? number.toFixed(2).replace(/\.00$/, '') + '%' : '0%';
@@ -5394,7 +5501,7 @@ function renderBranchOfficeModal(user = getStoredUser()) {
     return;
   }
 
-  const employeeRows = (branch.employees || []).map((employee) => `
+  const employeeRows = getSortedBranchEmployees(branch.employees || []).map((employee) => `
     <tr>
       <td><span class="branch-grade branch-grade-${escapeAttr(employee.grade)}">${escapeHtml(employee.grade)}</span></td>
       <td>${escapeHtml(employee.name)}</td>
@@ -5481,6 +5588,7 @@ function renderBranchOfficeModal(user = getStoredUser()) {
     <div class="branch-card">
       <h4>발굴</h4>
       <p>발굴 비용: <strong>${formatNumber(branch.digCost || 0)}원</strong> / 성공률: <strong>${formatBranchPercent(branch.successChance)}</strong> / 소요 시간: <strong>${formatDurationMs(branch.excavationDurationMs || 0)}</strong></p>
+      <p class="branch-stat-note">발굴 확률 상한: <strong>${formatBranchPercent(branch.excavationSuccessCap || 15)}</strong> / 초과 발굴력 희귀 보정: <strong>${formatBranchPercent(branch.rareItemBonusChance || 0)}</strong></p>
       <p class="menu-note">${escapeHtml(overtimeExcavationNotice)} / 고장 확률: ${formatNumber(branch.breakdownChancePercent || 3, 2)}%</p>
       <p class="menu-note">${escapeHtml(excavationStatus)}</p>
       ${pendingExcavation ? `<div class="branch-excavation-progress"><div style="width:${pendingProgress}%"></div></div>` : ''}
@@ -5493,6 +5601,13 @@ function renderBranchOfficeModal(user = getStoredUser()) {
 
     <div class="branch-card">
       <h4>직원 목록</h4>
+      <div class="branch-section-heading">
+        <div class="branch-sort-controls">
+          <button type="button" onclick="handleBranchEmployeeSortChange('power')">${formatBranchEmployeeSortLabel('power', '발굴력')}</button>
+          <button type="button" onclick="handleBranchEmployeeSortChange('grade')">${formatBranchEmployeeSortLabel('grade', '등급')}</button>
+          <button type="button" onclick="handleBranchEmployeeSortChange('salary')">${formatBranchEmployeeSortLabel('salary', '계약금')}</button>
+        </div>
+      </div>
       <table class="inner-table branch-table">
         <thead><tr><th>등급</th><th>직원</th><th>발굴력</th><th>일일 계약금</th><th>관리</th></tr></thead>
         <tbody>${employeeRows}</tbody>
@@ -6427,6 +6542,7 @@ window.handleMarketplaceCancel = handleMarketplaceCancel;
 window.handleBranchFound = handleBranchFound;
 window.handleBranchRename = handleBranchRename;
 window.handleBranchContractPercentInput = handleBranchContractPercentInput;
+window.handleBranchEmployeeSortChange = handleBranchEmployeeSortChange;
 window.handleBranchRecruit = handleBranchRecruit;
 window.handleBranchFire = handleBranchFire;
 window.handleBranchExcavate = handleBranchExcavate;

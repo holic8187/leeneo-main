@@ -49,6 +49,7 @@ const COMPANY_STOCK_UPDATE_INTERVAL_MS = 10 * 60 * 1000;
 const COMPANY_STOCK_HISTORY_LIMIT = 144;
 const COMPANY_STOCK_SELL_FEE_RATE = 0.03;
 const COMPANY_STOCK_RUMOR_ACCURACY = 0.6;
+const COMPANY_STOCK_RUMOR_TTL_MS = 10 * 60 * 1000;
 const COMPANY_STOCK_MAX_BACKFILL_TICKS = 288;
 const WORK_REPAIR_COUPON_DROP_CHANCE = 0.0005;
 const MARKETPLACE_TRADEABLE_ITEM_IDS = ['raid_entry_ticket', 'hagendaz', 'excavation_repair_coupon'];
@@ -257,6 +258,7 @@ const BRANCH_OFFICE_COMPANY_VALUE_PER_EXTRA_EMPLOYEE = 2000000000;
 const BRANCH_OFFICE_BASE_DIG_COST = 100000000;
 const BRANCH_OFFICE_DIG_COST_PER_EMPLOYEE = 50000000;
 const BRANCH_OFFICE_SUCCESS_CAP = 15;
+const BRANCH_OFFICE_RARE_BONUS_RATE = 0.1;
 const BRANCH_OFFICE_BASE_EXCAVATION_MS = 15 * 60 * 1000;
 const BRANCH_OFFICE_BREAKDOWN_CHANCE = 0.03;
 const BRANCH_OFFICE_BREAKDOWN_MS = 6 * 60 * 60 * 1000;
@@ -2277,7 +2279,8 @@ const userSchema = new mongoose.Schema({
       startedAt: { type: Date, default: null },
       completesAt: { type: Date, default: null },
       cost: { type: Number, default: 0 },
-      successChance: { type: Number, default: 0 }
+      successChance: { type: Number, default: 0 },
+      rareItemBonusChance: { type: Number, default: 0 }
     },
     autoExcavationEnabled: { type: Boolean, default: false },
     excavationBrokenUntil: { type: Date, default: null },
@@ -2453,14 +2456,80 @@ function rollCompanyStockChangePct() {
 
 const COMPANY_STOCK_RUMOR_BANK = {
   up: {
-    small: ['사내 분위기가 조용히 좋아지고 있다는 말이 돕니다.', '작은 계약이 연달아 들어왔다는 이야기가 있습니다.', '지출 관리를 잘했다는 소문이 들립니다.', '낮은 폭의 반등 신호가 보인다는 평가입니다.', '거래처 반응이 나쁘지 않다는 이야기가 있습니다.'],
-    mid: ['신규 프로젝트가 순조롭게 진행 중이라는 말이 있습니다.', '이번 주 실적 기대감이 커지고 있습니다.', '영업팀 쪽에서 꽤 괜찮은 소식이 들립니다.', '시장 반응이 예상보다 따뜻하다는 소문입니다.', '내부 평가가 한 단계 좋아졌다는 이야기가 있습니다.'],
-    large: ['대형 계약 가능성이 시장에 돌고 있습니다.', '깜짝 호재가 있다는 소문이 빠르게 퍼집니다.', '기관성 매수세가 붙었다는 이야기가 있습니다.', '회사 가치 재평가 가능성이 제기됩니다.', '큰 폭의 기대감이 몰리고 있다는 말이 있습니다.']
+    small: [
+      '작은 계약 소식이 흘러나옵니다. 살짝 오를 수 있다는 말이 돕니다.',
+      '사내 분위기가 조용히 좋아졌다는 이야기가 있습니다.',
+      '원가 절감 효과가 조금씩 반영될 수 있다는 분석이 나왔습니다.',
+      '단기 매수세가 약하게 붙을 가능성이 있다는 소문입니다.',
+      '큰 뉴스는 없지만 바닥을 다지는 흐름이라는 평가가 있습니다.',
+      '소폭 개선된 실적 메모가 돌고 있다는 이야기가 들립니다.',
+      '작은 협업 건이 긍정적으로 마무리됐다는 소문이 있습니다.',
+      '거래량이 천천히 늘어날 수 있다는 관측이 나옵니다.',
+      '내부 비용 관리가 효과를 보고 있다는 말이 있습니다.',
+      '조심스러운 반등 기대감이 생겼다는 찌라시가 돌고 있습니다.'
+    ],
+    mid: [
+      '신규 거래처 확보 가능성이 제기되며 상승 기대감이 커졌습니다.',
+      '중요한 프로젝트가 무난히 진행 중이라는 말이 있습니다.',
+      '투자자들이 관심을 보이기 시작했다는 소문입니다.',
+      '매출 개선 신호가 잡혔다는 찌라시가 돌고 있습니다.',
+      '단기 호재가 확인될 경우 꽤 강한 반등이 나올 수 있다는 관측입니다.',
+      '실적 전망치가 상향될 수 있다는 이야기가 있습니다.',
+      '중형 계약 발표가 준비 중이라는 소문이 돌고 있습니다.',
+      '경쟁사 대비 수익성이 좋아졌다는 평가가 나왔습니다.',
+      '기관성 매수세가 유입될 수 있다는 말이 있습니다.',
+      '긍정적인 내부 보고서가 공유됐다는 이야기가 있습니다.'
+    ],
+    large: [
+      '대형 계약설이 돌고 있습니다. 사실이라면 큰 폭의 상승도 가능해 보입니다.',
+      '업계에서 상당한 호재가 임박했다는 이야기가 나옵니다.',
+      '강한 매수세가 유입될 수 있다는 소문이 퍼지고 있습니다.',
+      '예상보다 큰 성과 발표가 있을 수 있다는 찌라시입니다.',
+      '상승 쪽으로 큰 변동성이 열릴 수 있다는 경고성 분석입니다.',
+      '굵직한 파트너십 발표 가능성이 시장에 퍼지고 있습니다.',
+      '상장 이후 가장 큰 호재가 나올 수 있다는 과격한 소문입니다.',
+      '대형 고객사 확보설이 빠르게 돌고 있습니다.',
+      '급등 재료가 포착됐다는 이야기가 투자자 사이에 퍼졌습니다.',
+      '매수 잔량이 크게 쌓일 수 있다는 관측이 있습니다.'
+    ]
   },
   down: {
-    small: ['소소한 비용 부담 이야기가 있습니다.', '단기 피로감이 쌓였다는 평가입니다.', '거래처 회신이 조금 늦어진다는 말이 있습니다.', '작은 조정 가능성이 거론됩니다.', '내부 점검 이슈가 있다는 소문입니다.'],
-    mid: ['주요 프로젝트 일정이 밀릴 수 있다는 이야기가 있습니다.', '매출 기대치가 낮아졌다는 말이 돕니다.', '시장 반응이 생각보다 차갑다는 평가입니다.', '단기 악재가 반영될 수 있다는 소문입니다.', '경쟁사 압박이 커졌다는 이야기가 있습니다.'],
-    large: ['큰 비용 이슈가 생겼다는 소문이 빠르게 퍼집니다.', '대형 계약이 흔들린다는 이야기가 있습니다.', '시장 신뢰가 크게 흔들릴 수 있다는 평가입니다.', '예상 밖의 악재가 있다는 말이 나옵니다.', '급격한 매도세를 경계해야 한다는 소문입니다.']
+    small: [
+      '작은 비용 증가 이슈가 있다는 이야기가 있습니다. 소폭 하락 가능성이 있습니다.',
+      '단기 차익 실현 매물이 나올 수 있다는 소문입니다.',
+      '거래량이 줄어들며 약한 조정이 예상된다는 분석입니다.',
+      '큰 악재는 아니지만 분위기가 살짝 식었다는 말이 있습니다.',
+      '잠깐 쉬어가는 흐름이 나올 수 있다는 찌라시입니다.',
+      '소규모 일정 지연이 있다는 말이 들립니다.',
+      '일부 투자자가 이익 실현을 준비한다는 소문입니다.',
+      '매수세가 잠시 둔화될 수 있다는 관측이 있습니다.',
+      '작은 비용 압박이 반영될 수 있다는 분석이 있습니다.',
+      '조용한 약세 전환 가능성이 언급되고 있습니다.'
+    ],
+    mid: [
+      '프로젝트 지연 가능성이 제기되며 조정 압력이 커졌습니다.',
+      '최근 상승분을 되돌릴 수 있다는 경계감이 있습니다.',
+      '매출 전망이 다소 낮아졌다는 소문입니다.',
+      '중요한 협상이 삐걱거린다는 찌라시가 돌고 있습니다.',
+      '단기 매도세가 강해질 수 있다는 관측입니다.',
+      '주요 계약 조건이 불리해졌다는 이야기가 있습니다.',
+      '중형 악재가 확인될 수 있다는 조심스러운 말이 나옵니다.',
+      '수익성 둔화 가능성이 투자자 사이에 퍼지고 있습니다.',
+      '재고 부담이 커졌다는 소문이 있습니다.',
+      '관망세가 매도세로 바뀔 수 있다는 분석입니다.'
+    ],
+    large: [
+      '큰 악재성 루머가 돌고 있습니다. 급락 가능성을 경계해야 한다는 말이 있습니다.',
+      '대형 계약 취소설이 퍼지고 있습니다.',
+      '강한 매도세가 나올 수 있다는 불안한 소문입니다.',
+      '예상보다 큰 비용 문제가 터질 수 있다는 찌라시입니다.',
+      '하락 쪽으로 큰 변동성이 열릴 수 있다는 경고성 분석입니다.',
+      '핵심 파트너 이탈설이 빠르게 돌고 있습니다.',
+      '재무 부담이 크게 늘 수 있다는 이야기가 있습니다.',
+      '대규모 실망 매물이 나올 수 있다는 관측입니다.',
+      '주요 호재가 무산됐다는 소문이 퍼지고 있습니다.',
+      '투자심리가 급격히 얼어붙을 수 있다는 경고가 있습니다.'
+    ]
   }
 };
 
@@ -2478,10 +2547,28 @@ function buildCompanyStockRumor(company) {
   const direction = hintUp ? 'up' : 'down';
   const magnitudeKey = getCompanyStockMagnitudeKey(projected);
   const pool = COMPANY_STOCK_RUMOR_BANK[direction][magnitudeKey] || COMPANY_STOCK_RUMOR_BANK[direction].small;
-  const base = pool[Math.floor(Math.random() * pool.length)] || '별다른 소문은 없습니다.';
-  const wrappers = ['찌라시: ', '복도 소문: ', '커피머신 앞 정보: ', '익명의 제보: ', '점심시간 루머: '];
-  const wrapper = wrappers[Math.floor(Math.random() * wrappers.length)];
-  return wrapper + base;
+  const base = pool[Math.floor(Math.random() * pool.length)] || '뚜렷한 정보는 없지만 시장이 묘하게 술렁입니다.';
+  const wrappers = [
+    '점심시간 흡연장 찌라시: ',
+    '복도에서 주워들은 말로는 ',
+    '익명의 회계팀 제보에 따르면 ',
+    '퇴근길 단톡방에 따르면 ',
+    '프린터 옆 메모에는 ',
+    '회의실 앞 소문으로는 ',
+    '탕비실 커피머신 옆 정보에 따르면 ',
+    '누군가 흘린 메신저 캡처에는 ',
+    '엘리베이터 안에서 들은 이야기로는 ',
+    '사내 익명 게시판 분위기는 '
+  ];
+  return wrappers[Math.floor(Math.random() * wrappers.length)] + base;
+}
+
+function normalizeCompanyStockRumorEntry(rumor, now = new Date()) {
+  if (!rumor || !rumor.text) return null;
+  const expiresAt = rumor.expiresAt ? new Date(rumor.expiresAt) : null;
+  if (!expiresAt || !Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() <= now.getTime()) return null;
+  const createdAt = rumor.createdAt ? new Date(rumor.createdAt) : now;
+  return { text: String(rumor.text), createdAt, expiresAt };
 }
 
 function normalizeCompanyStockEntry(entry, now = new Date()) {
@@ -2498,6 +2585,7 @@ function normalizeCompanyStockEntry(entry, now = new Date()) {
     price,
     lastChangePct: Number(entry?.lastChangePct || 0),
     projectedChangePct: Number.isFinite(Number(entry?.projectedChangePct)) ? Number(entry.projectedChangePct) : rollCompanyStockChangePct(),
+    rumor: normalizeCompanyStockRumorEntry(entry?.rumor, now),
     history
   };
 }
@@ -2576,12 +2664,15 @@ async function buildCompanyStockMarketResponse(user, now = new Date()) {
   const holdings = portfolio.map((holding) => {
     const stock = companies.find((company) => company.companyId === holding.companyId);
     const currentPrice = stock ? Number(stock.price || 0) : 0;
+    const shares = Number(holding.shares || 0);
+    const averagePrice = Number(holding.averagePrice || 0);
     return {
       ...holding,
       companyName: stock?.companyName || holding.companyName,
       currentPrice,
-      marketValue: Math.floor(currentPrice * Number(holding.shares || 0)),
-      unrealizedProfit: Math.floor((currentPrice - Number(holding.averagePrice || 0)) * Number(holding.shares || 0))
+      marketValue: Math.floor(currentPrice * shares),
+      unrealizedProfit: Math.floor((currentPrice - averagePrice) * shares),
+      profitRate: averagePrice > 0 ? ((currentPrice - averagePrice) / averagePrice) * 100 : 0
     };
   });
   return {
@@ -2592,6 +2683,7 @@ async function buildCompanyStockMarketResponse(user, now = new Date()) {
       companyValue: company.companyValue,
       price: company.price,
       lastChangePct: company.lastChangePct,
+      rumor: company.rumor || null,
       history: company.history || []
     })),
     holdings,
@@ -9608,7 +9700,7 @@ function getDefaultBranchOffice() {
     employees: [],
     storageSlots: BRANCH_OFFICE_BASE_STORAGE_SLOTS,
     items: [],
-    pendingExcavation: { startedAt: null, completesAt: null, cost: 0, successChance: 0 },
+    pendingExcavation: { startedAt: null, completesAt: null, cost: 0, successChance: 0, rareItemBonusChance: 0 },
     autoExcavationEnabled: false,
     excavationBrokenUntil: null,
     itemCodex: [],
@@ -9664,9 +9756,10 @@ function normalizeBranchOffice(user) {
         startedAt: pendingStartedAt && Number.isFinite(pendingStartedAt.getTime()) ? pendingStartedAt : null,
         completesAt: pendingCompletesAt,
         cost: Math.max(0, Math.floor(Number(office.pendingExcavation.cost || 0))),
-        successChance: Math.max(0, Math.min(100, Number(office.pendingExcavation.successChance || 0)))
+        successChance: Math.max(0, Math.min(100, Number(office.pendingExcavation.successChance || 0))),
+        rareItemBonusChance: Math.max(0, Math.min(100, Number(office.pendingExcavation.rareItemBonusChance || 0)))
       }
-    : { startedAt: null, completesAt: null, cost: 0, successChance: 0 };
+    : { startedAt: null, completesAt: null, cost: 0, successChance: 0, rareItemBonusChance: 0 };
   office.autoExcavationEnabled = Boolean(office.autoExcavationEnabled);
   const brokenUntil = office.excavationBrokenUntil ? new Date(office.excavationBrokenUntil) : null;
   office.excavationBrokenUntil = brokenUntil && Number.isFinite(brokenUntil.getTime()) ? brokenUntil : null;
@@ -9746,11 +9839,22 @@ function getBranchExcavationPower(user) {
   return Number((employeePower + itemPower).toFixed(2));
 }
 
-function getBranchExcavationChance(user) {
+function getBranchExcavationRawChance(user) {
+  return Number((getBranchExcavationPower(user) || 0).toFixed(2));
+}
+
+function getBranchExcavationCap(user) {
   normalizeBranchOffice(user);
   const effects = calculateBranchItemEffects(user.branchOffice);
-  const cap = BRANCH_OFFICE_SUCCESS_CAP + Number(effects.excavationSuccessCapBonus || 0);
-  return Number(Math.min(cap, getBranchExcavationPower(user)).toFixed(2));
+  return Number((BRANCH_OFFICE_SUCCESS_CAP + Number(effects.excavationSuccessCapBonus || 0)).toFixed(2));
+}
+
+function getBranchExcavationChance(user) {
+  return Number(Math.min(getBranchExcavationCap(user), getBranchExcavationRawChance(user)).toFixed(2));
+}
+
+function getBranchRareItemBonusChance(user) {
+  return Number((Math.max(0, getBranchExcavationRawChance(user) - getBranchExcavationCap(user)) * BRANCH_OFFICE_RARE_BONUS_RATE).toFixed(2));
 }
 
 function getKSTHour(date = new Date()) {
@@ -9786,13 +9890,14 @@ function getBranchPendingExcavation(user) {
     startedAt: startedAt && Number.isFinite(startedAt.getTime()) ? startedAt : null,
     completesAt,
     cost: Math.max(0, Math.floor(Number(pending.cost || 0))),
-    successChance: Math.max(0, Math.min(100, Number(pending.successChance || 0)))
+    successChance: Math.max(0, Math.min(100, Number(pending.successChance || 0))),
+    rareItemBonusChance: Math.max(0, Math.min(100, Number(pending.rareItemBonusChance || 0)))
   };
 }
 
 function clearBranchPendingExcavation(user) {
   normalizeBranchOffice(user);
-  user.branchOffice.pendingExcavation = { startedAt: null, completesAt: null, cost: 0, successChance: 0 };
+  user.branchOffice.pendingExcavation = { startedAt: null, completesAt: null, cost: 0, successChance: 0, rareItemBonusChance: 0 };
 }
 
 function getBranchMachineBrokenUntil(user, now = new Date()) {
@@ -9841,8 +9946,9 @@ function startBranchExcavation(user, now = new Date(), options = {}) {
   user.gameState.money = Number(user.gameState.money || 0) - cost;
   const durationMs = getBranchExcavationDurationMs(user);
   const successChance = getBranchExcavationChance(user);
+  const rareItemBonusChance = getBranchRareItemBonusChance(user);
   const completesAt = new Date(now.getTime() + durationMs);
-  user.branchOffice.pendingExcavation = { startedAt: now, completesAt, cost, successChance };
+  user.branchOffice.pendingExcavation = { startedAt: now, completesAt, cost, successChance, rareItemBonusChance };
   const overtimeText = isBranchOvertimeExcavationTime(now) ? ' 야근 시간이라 발굴 비용 3배가 적용되었습니다.' : '';
   const message = (options.auto ? '자동 발굴을 시작했습니다.' : '발굴을 시작했습니다.')
     + ' 발굴 비용 ' + cost.toLocaleString() + '원이 사용되었습니다.' + overtimeText
@@ -9867,13 +9973,14 @@ function completeBranchExcavation(user, now = new Date(), options = {}) {
   }
 
   const successChance = Number(pending.successChance || getBranchExcavationChance(user));
+  const rareItemBonusChance = Number(pending.rareItemBonusChance || getBranchRareItemBonusChance(user));
   const success = Math.random() * 100 < successChance;
   let message = options.auto ? '자동 발굴 결과: ' : '발굴 결과 확인: ';
   let itemDetail = null;
   let valueGain = 0;
 
   if (success) {
-    const item = rollBranchCollectibleItem(user);
+    const item = rollBranchCollectibleItem(user, rareItemBonusChance);
     const detail = getBranchItemDetail(item.id);
     if (detail) {
       const branchEffects = calculateBranchItemEffects(user.branchOffice);
@@ -9966,19 +10073,23 @@ function getBranchRecruitSuccessChance(contractPercent) {
   return Number(Math.min(95, 30 + Math.sqrt(Math.max(0, contractPercent)) * 18).toFixed(2));
 }
 
-function rollBranchCollectibleItem(user) {
-  const power = Math.max(0, getBranchExcavationPower(user) - BRANCH_OFFICE_SUCCESS_CAP);
-  const legendaryBonus = Math.min(3, power * 0.15);
-  const epicBonus = Math.min(5, power * 0.25);
-  if (Math.random() * 100 < 0.15) {
+function rollBranchCollectibleItem(user, rareBonusOverride = null) {
+  const overCapBonus = Number.isFinite(Number(rareBonusOverride))
+    ? Number(rareBonusOverride)
+    : getBranchRareItemBonusChance(user);
+  const excessPower = Math.max(0, getBranchExcavationRawChance(user) - getBranchExcavationCap(user));
+  const legendaryBonus = Math.min(5, excessPower * 0.15 + overCapBonus * 0.13);
+  const epicBonus = Math.min(8, excessPower * 0.25 + overCapBonus * 0.30);
+  const rareBonus = Math.min(10, overCapBonus * 0.55);
+  if (Math.random() * 100 < 0.15 + overCapBonus * 0.02) {
     const ssPool = Object.values(BRANCH_COLLECTIBLE_ITEMS).filter((item) => item.grade === 'ss');
     if (ssPool.length) return ssPool[Math.floor(Math.random() * ssPool.length)];
   }
   const weights = [
     { grade: 'legendary', weight: 2 + legendaryBonus },
     { grade: 'epic', weight: 8 + epicBonus },
-    { grade: 'rare', weight: 25 },
-    { grade: 'common', weight: 65 }
+    { grade: 'rare', weight: 25 + rareBonus },
+    { grade: 'common', weight: Math.max(1, 65 - rareBonus - epicBonus - legendaryBonus) }
   ];
   const total = weights.reduce((sum, entry) => sum + entry.weight, 0);
   let roll = Math.random() * total;
@@ -10132,6 +10243,8 @@ function buildBranchOfficePublicState(user, now = new Date(), derivedStats = nul
     overtimeExcavationMultiplier: BRANCH_OFFICE_OVERTIME_COST_MULTIPLIER,
     excavationPower: getBranchExcavationPower(user),
     successChance: getBranchExcavationChance(user),
+    excavationSuccessCap: getBranchExcavationCap(user),
+    rareItemBonusChance: getBranchRareItemBonusChance(user),
     excavationDurationMs: getBranchExcavationDurationMs(user),
     autoExcavationEnabled: Boolean(office.autoExcavationEnabled),
     excavationBrokenUntil: getBranchMachineBrokenUntil(user, now),
@@ -10147,7 +10260,8 @@ function buildBranchOfficePublicState(user, now = new Date(), derivedStats = nul
       isComplete: pendingRemainingMs <= 0,
       progressPercent: Number(Math.max(0, Math.min(100, ((pendingTotalMs - pendingRemainingMs) / pendingTotalMs) * 100)).toFixed(1)),
       cost: pending.cost,
-      successChance: pending.successChance
+      successChance: pending.successChance,
+      rareItemBonusChance: pending.rareItemBonusChance
     } : null,
     itemEffects,
     nextStorageCost: getBranchNextStorageCost(user),
@@ -11544,19 +11658,32 @@ app.post('/api/company-stock-market/buy', async (req, res) => {
       if (cost <= 0) throw createHttpError(400, '구매 금액이 올바르지 않습니다.');
       if (Number(user.gameState.money || 0) < cost) throw createHttpError(400, '잔고가 부족합니다.');
       user.gameState.money -= cost;
-      user.stockPortfolio = normalizeStockPortfolio(user.stockPortfolio);
-      let holding = user.stockPortfolio.find((entry) => entry.companyId === String(companyId));
-      if (!holding) {
-        holding = { companyId: String(companyId), companyName: stock.companyName, shares: 0, averagePrice: 0, investedAmount: 0, updatedAt: now };
-        user.stockPortfolio.push(holding);
-      }
-      const previousShares = Number(holding.shares || 0);
-      const previousInvested = Number(holding.investedAmount || (previousShares * Number(holding.averagePrice || 0)));
-      holding.shares = previousShares + buyShares;
-      holding.investedAmount = previousInvested + cost;
-      holding.averagePrice = holding.shares > 0 ? holding.investedAmount / holding.shares : 0;
-      holding.companyName = stock.companyName;
-      holding.updatedAt = now;
+      const portfolio = normalizeStockPortfolio(user.stockPortfolio);
+      const holdingIndex = portfolio.findIndex((entry) => entry.companyId === String(companyId));
+      const previousHolding = holdingIndex >= 0 ? portfolio[holdingIndex] : {
+        companyId: String(companyId),
+        companyName: stock.companyName,
+        shares: 0,
+        averagePrice: 0,
+        investedAmount: 0,
+        updatedAt: now
+      };
+      const previousShares = Number(previousHolding.shares || 0);
+      const previousInvested = Number(previousHolding.investedAmount || (previousShares * Number(previousHolding.averagePrice || 0)));
+      const nextShares = previousShares + buyShares;
+      const nextInvested = previousInvested + cost;
+      const nextHolding = {
+        ...previousHolding,
+        companyId: String(companyId),
+        companyName: stock.companyName,
+        shares: nextShares,
+        investedAmount: nextInvested,
+        averagePrice: nextShares > 0 ? nextInvested / nextShares : 0,
+        updatedAt: now
+      };
+      if (holdingIndex >= 0) portfolio[holdingIndex] = nextHolding;
+      else portfolio.push(nextHolding);
+      user.stockPortfolio = portfolio;
       user.markModified('stockPortfolio');
       user.gameState.lastActionTime = now;
       const userResponse = await buildUserResponseWithGlobals(user, now);
@@ -11582,17 +11709,31 @@ app.post('/api/company-stock-market/sell', async (req, res) => {
       ensureUserDefaults(user);
       const market = await syncCompanyStockMarket(now);
       const stock = (market.companies || []).find((entry) => entry.companyId === String(companyId));
-      const holding = user.stockPortfolio.find((entry) => entry.companyId === String(companyId));
+      const portfolio = normalizeStockPortfolio(user.stockPortfolio);
+      const holdingIndex = portfolio.findIndex((entry) => entry.companyId === String(companyId));
+      const holding = holdingIndex >= 0 ? portfolio[holdingIndex] : null;
       if (!stock || !holding || Number(holding.shares || 0) < sellShares) throw createHttpError(400, '판매할 주식이 부족합니다.');
       const gross = Math.floor(Number(stock.price || 0) * sellShares);
       const fee = Math.floor(gross * COMPANY_STOCK_SELL_FEE_RATE);
       const net = Math.max(0, gross - fee);
       user.gameState.money += net;
       const averagePrice = Number(holding.averagePrice || 0);
-      holding.shares = Number(holding.shares || 0) - sellShares;
-      holding.investedAmount = Math.max(0, Number(holding.investedAmount || 0) - (averagePrice * sellShares));
-      holding.updatedAt = now;
-      if (holding.shares <= 0) user.stockPortfolio = user.stockPortfolio.filter((entry) => entry !== holding);
+      const previousShares = Number(holding.shares || 0);
+      const previousInvested = Number(holding.investedAmount || (previousShares * averagePrice));
+      const nextShares = previousShares - sellShares;
+      const nextInvested = Math.max(0, previousInvested - (averagePrice * sellShares));
+      if (nextShares <= 0) {
+        portfolio.splice(holdingIndex, 1);
+      } else {
+        portfolio[holdingIndex] = {
+          ...holding,
+          shares: nextShares,
+          investedAmount: nextInvested,
+          averagePrice: nextInvested / nextShares,
+          updatedAt: now
+        };
+      }
+      user.stockPortfolio = portfolio;
       user.markModified('stockPortfolio');
       user.gameState.lastActionTime = now;
       const userResponse = await buildUserResponseWithGlobals(user, now);
@@ -11608,13 +11749,34 @@ app.post('/api/company-stock-market/sell', async (req, res) => {
 });
 
 app.post('/api/company-stock-market/rumor', async (req, res) => {
-  const { companyId } = req.body;
+  const { companyId } = req.body || {};
   if (!companyId) return res.status(400).json({ msg: '회사 정보가 필요합니다.' });
   try {
-    const market = await syncCompanyStockMarket(new Date());
+    const now = new Date();
+    const market = await syncCompanyStockMarket(now);
     const company = (market.companies || []).find((entry) => entry.companyId === String(companyId));
     if (!company) return res.status(404).json({ msg: '상장된 회사를 찾을 수 없습니다.' });
-    res.json({ rumor: buildCompanyStockRumor(company) });
+    const currentRumor = normalizeCompanyStockRumorEntry(company.rumor, now);
+    if (!currentRumor) {
+      company.rumor = {
+        text: buildCompanyStockRumor(company),
+        createdAt: now,
+        expiresAt: new Date(now.getTime() + COMPANY_STOCK_RUMOR_TTL_MS)
+      };
+      await GameSetting.updateOne(
+        { key: COMPANY_STOCK_MARKET_SETTING_KEY },
+        { $set: { value: market, updatedAt: now } },
+        { upsert: true }
+      );
+    } else {
+      company.rumor = currentRumor;
+    }
+    res.json({
+      rumor: company.rumor.text,
+      createdAt: company.rumor.createdAt,
+      expiresAt: company.rumor.expiresAt,
+      cached: Boolean(currentRumor)
+    });
   } catch (err) {
     console.error('Company stock rumor error:', err);
     res.status(500).json({ msg: '찌라시를 불러오지 못했습니다.' });
@@ -13347,7 +13509,7 @@ app.post('/api/infinite-overtime/action', async (req, res) => {
       const user = await User.findById(userId);
       if (!user) throw createHttpError(404, '사용자를 찾을 수 없습니다.');
       ensureUserDefaults(user);
-      const parsedIndex = Number(cardIndex);
+      const parsedIndex = cardIndex === null || cardIndex === undefined || cardIndex === '' ? null : Number(cardIndex);
       await executeInfiniteOvertimePlayerAction(user, Number.isInteger(parsedIndex) ? parsedIndex : null);
       user.markModified('infiniteOvertime');
       await persistUserSnapshot(user);

@@ -2676,3 +2676,38 @@ progress {
   max-width: 220px;
   font-size: 12px;
 }
+
+
+.branch-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 8px 0 4px;
+}
+
+.branch-sort-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.branch-sort-controls button {
+  padding: 3px 7px;
+  border: 1px solid #b8b8b8;
+  background: #f8fbf8;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.branch-stat-note {
+  color: #4c4c4c;
+  font-size: 12px;
+}
+
+.company-stock-rumor-meta {
+  display: block;
+  margin-top: 3px;
+  color: #666;
+  font-size: 11px;
+}
