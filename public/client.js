@@ -72,6 +72,9 @@ const ITEM_DATA = {
 };
 
 const CARD_DATA = {
+  chunsik_not_hyeji: { name: '춘식이혜지아니다.', grade: 'S', color: '#c62828', skillName: '춘식이혜지아니다.', skillDesc: '지정한 아군 1인의 총 잃은 체력 비율을 회복합니다.', cooldown: 8, targetType: 'ally' },
+  flexible_blame: { name: '유연한 남탓: 제가 한거 아닌데요?', grade: 'A', color: '#f9a825', skillName: '제가 한거 아닌데요?', skillDesc: '지정한 아군 1인에게 <예? 저요?>를 부여해 우선 타겟팅되게 하고 받는 최종 피해를 감소시킵니다.', cooldown: 5, targetType: 'ally' },
+  solid_mental: { name: '굳건한 멘탈의 소유자', grade: 'S', color: '#c62828', skillName: '굳건한 멘탈', skillDesc: '자기 자신에게 피격 무효화를 여러 회 부여합니다.', cooldown: 8, targetType: null },
   nosy_manager: { name: '노처녀 신차장의 오지랖', grade: 'A', color: '#f9a825', skillName: '오지랖', skillDesc: '선택한 파티원 1명에게 보호막을 부여하고, 상대에게 자신의 레벨 기반 피해를 2회 입힙니다.', cooldown: 5, targetType: 'ally' },
   mingu_champion: { name: '제 1회 면담대회 우승자 밍구의 품격', grade: 'S', color: '#c62828', skillName: '챔피언의 품격', skillDesc: '지정한 파티원 1인에게 보호막 20과 <챔피언의 가호>를, 상대에게 <눈부심>을 부여합니다.', cooldown: 7, targetType: 'ally', specialStyle: 'champion' },
   winter_subordinate: { name: '겨울 부장의 부하직원 육성', grade: 'S', color: '#c62828', skillName: '부하직원 육성', skillDesc: '파티원 중 가장 레벨이 낮은 1명을 2턴 동안 레벨 +1~+5로 간주합니다. +5강은 쿨타임이 7턴입니다.', cooldown: 8, targetType: null },
@@ -285,6 +288,24 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-06-01-new-cards-chunsik-blame-mental',
+    date: '2026-06-01 18:45',
+    title: '신규 카드 3종 추가',
+    changes: [
+      'S등급 <춘식이혜지아니다.>, S등급 <굳건한 멘탈의 소유자>, A등급 <유연한 남탓: 제가 한거 아닌데요?> 카드를 추가했습니다.',
+      '<예? 저요?> 버프는 보스의 랜덤 타겟팅에 우선 포함되며, 받는 최종 피해 감소 효과가 적용됩니다.'
+    ]
+  },
+  {
+    id: '2026-06-01-main-button-layout-fix',
+    date: '2026-06-01 18:20',
+    title: '메인 버튼 정렬 안정화',
+    changes: [
+      '회의/면담/야근/상점 버튼이 상태 문구 길이에 따라 서로 겹치지 않도록 고정 슬롯 배치로 정리했습니다.',
+      '대기중처럼 긴 버튼 문구는 버튼 영역 안에서만 표시되도록 처리했습니다.'
+    ]
+  },
   {
     id: '2026-06-01-stock-rumor-branch-sort-overtime-fix',
     date: '2026-06-01 18:40',

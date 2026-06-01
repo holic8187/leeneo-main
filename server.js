@@ -1029,6 +1029,43 @@ const CARD_DATA = {
     rageDamagePerStackPerLevel: 5,
     targetType: null
   },
+  chunsik_not_hyeji: {
+    id: 'chunsik_not_hyeji',
+    name: '춘식이혜지아니다.',
+    grade: 'S',
+    rate: 0.00025,
+    skillName: '춘식이혜지아니다.',
+    skillDesc: '지정한 아군 1인의 총 잃은 체력의 30%를 회복합니다.',
+    cooldown: 8,
+    effectType: 'target_missing_hp_heal',
+    targetType: 'ally',
+    healMissingHpPercent: 0.3
+  },
+  flexible_blame: {
+    id: 'flexible_blame',
+    name: '유연한 남탓: 제가 한거 아닌데요?',
+    grade: 'A',
+    rate: 0.008,
+    skillName: '제가 한거 아닌데요?',
+    skillDesc: '지정한 아군 1인에게 2턴 동안 <예? 저요?> 버프를 부여합니다. 상대는 해당 대상을 우선 타겟팅하며, 버프 보유자는 받는 최종 피해가 감소합니다.',
+    cooldown: 5,
+    effectType: 'target_taunt_damage_reduction',
+    targetType: 'ally',
+    turns: 2,
+    damageReductionPercent: 0.02
+  },
+  solid_mental: {
+    id: 'solid_mental',
+    name: '굳건한 멘탈의 소유자',
+    grade: 'S',
+    rate: 0.00025,
+    skillName: '굳건한 멘탈',
+    skillDesc: '자기 자신에게 피격 무효화를 3회 부여합니다.',
+    cooldown: 8,
+    effectType: 'self_negate_hit',
+    targetType: null,
+    negateHitCount: 3
+  },
   mingu_champion: {
     id: 'mingu_champion',
     name: '제 1회 면담대회 우승자 밍구의 품격',
@@ -1229,6 +1266,9 @@ const CARD_ENHANCE_RULES = {
   sunscreen: { targets: { 0: 3, 2: 4, 3: 99 }, negateHitCount: { 0: 1, 4: 2 }, includeSelf: { 0: 0, 3: 1 }, cooldown: { 0: 6, 1: 5, 5: 4 } },
   trial_and_growth: { multiplierPerStatus: { 0: 5, 1: 5, 2: 6, 3: 7, 4: 7, 5: 8 }, cooldown: { 0: 5, 1: 4, 4: 3 } },
   hoi_overtime: { rageDamagePerStackPerLevel: { 0: 5, 1: 6, 2: 7, 3: 8, 4: 9 }, cooldown: { 0: 4, 5: 3 } },
+  chunsik_not_hyeji: { healMissingHpPercent: { 0: 0.3, 2: 0.35, 3: 0.4, 5: 0.45 }, cooldown: { 0: 8, 1: 7, 4: 6 } },
+  flexible_blame: { damageReductionPercent: { 0: 0.02, 1: 0.04, 2: 0.06, 3: 0.08, 4: 0.1 }, cooldown: { 0: 5, 5: 4 } },
+  solid_mental: { negateHitCount: { 0: 3, 1: 4, 2: 5, 4: 6, 5: 7 }, cooldown: { 0: 8, 3: 7 } },
   mingu_champion: { attackBonusPercent: { 0: 0.1, 3: 0.15, 5: 0.2 }, cooldown: { 0: 7, 2: 6, 4: 5 } },
   winter_subordinate: { levelBonus: { 0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 5 }, cooldown: { 0: 8, 5: 7 } },
   precise_strike: { multiplierPerLevel: { 0: 40, 2: 45, 3: 50, 4: 55 }, cooldown: { 0: 5, 1: 4, 5: 3 } },
@@ -3448,6 +3488,12 @@ function getCardDurationText(cardId, enhancementLevel = 0) {
       return '즉시 / 사용 시 자신의 디버프 제거';
     case 'hoi_overtime':
       return '첫 사용은 쿨타임 없음 / 재사용 시 즉시 폭발 후 쿨타임';
+    case 'chunsik_not_hyeji':
+      return '즉시';
+    case 'flexible_blame':
+      return `${card.turns || 2}턴`;
+    case 'solid_mental':
+      return `${card.negateHitCount || 3}회`;
     case 'mingu_champion':
       return `챔피언의 가호 ${card.turns || 2}턴 / 눈부심 ${card.blindTurns || 1}턴`;
     case 'winter_subordinate':
@@ -3532,6 +3578,12 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
       return `현재 자신이 가진 버프/디버프 총 갯수 x 레벨 x ${card.multiplierPerStatus}의 피해를 ${card.hits}회 주고, 자신의 모든 디버프를 제거합니다.`;
     case 'hoi_overtime':
       return `상대에게 <야근>을 적용합니다. 첫 사용은 쿨타임이 돌지 않고, 야근 중 기본 공격 피격마다 <내면의 분노>가 쌓입니다. 이후 자신의 턴에 재사용하면 스택 x 레벨 x ${card.rageDamagePerStackPerLevel} 피해를 주고 야근과 스택을 소진한 뒤 쿨타임이 시작됩니다. 야근이 정화되면 폭발 재사용은 불가능해지고 즉시 쿨타임이 시작됩니다.`;
+    case 'chunsik_not_hyeji':
+      return `지정한 아군 1인의 총 잃은 체력의 ${formatCardPercentText(card.healMissingHpPercent)}를 회복합니다.`;
+    case 'flexible_blame':
+      return `지정한 아군 1인에게 ${card.turns || 2}턴 동안 <예? 저요?> 버프를 부여합니다. 상대방은 버프 보유자를 우선 타겟팅하고, 광역/다중 대상 공격에는 버프 보유자가 우선 포함됩니다. 버프 보유자는 받는 최종 피해가 ${formatCardPercentText(card.damageReductionPercent)} 감소합니다.`;
+    case 'solid_mental':
+      return `자기 자신에게 피격 무효화 ${card.negateHitCount || 3}회를 부여합니다.`;
     case 'mingu_champion':
       return `지정한 파티원 1인에게 보호막 ${card.shield}, ${card.turns}턴 동안 <챔피언의 가호>를 부여하고 상대에게 ${card.blindTurns}턴 동안 <눈부심>을 부여합니다. 챔피언의 가호: 공격력 +${Math.round(Number(card.attackBonusPercent || 0) * 100)}%, 크리티컬 확률 +${Math.round(Number(card.critBonus || 0) * 100)}%. 눈부심: 모든 공격 명중률 ${Math.round(Number(card.blindMissChance || 0.3) * 100)}% 감소.`;
     case 'winter_subordinate':
@@ -4398,6 +4450,9 @@ function createRaidParticipantFromUser(user) {
     negateHitCount: 0,
     debuffImmuneCount: 0,
     selfEsteemCount: 0,
+    tauntTurns: 0,
+    tauntDamageReductionPercent: 0,
+    tauntSourceUserId: null,
     breadCount: 0,
     attackBonusTurns: 0,
     attackBonusPercent: 0,
@@ -5322,6 +5377,7 @@ function buildRaidParticipantStatusEffects(participant) {
   if (Number(participant.negateHitCount || 0) > 0) effects.push({ type: 'buff', name: '피격 무효', count: Number(participant.negateHitCount || 0), desc: '다음 피격을 무효화' });
   if (Number(participant.debuffImmuneCount || 0) > 0) effects.push({ type: 'buff', name: '디버프 무효', count: Number(participant.debuffImmuneCount || 0), desc: '다음 디버프를 무효화' });
   if (Number(participant.selfEsteemCount || 0) > 0) effects.push({ type: 'buff', name: '자존감', count: Number(participant.selfEsteemCount || 0), desc: '다음 디버프를 반사합니다. 보스에게는 디버프 무효처럼 작동합니다.' });
+  if (Number(participant.tauntTurns || 0) > 0) effects.push({ type: 'buff', name: '예? 저요?', turns: Number(participant.tauntTurns || 0), desc: `보스가 이 대상을 우선 타겟팅합니다. 받는 최종 피해 ${Math.round(Number(participant.tauntDamageReductionPercent || 0) * 100)}% 감소` });
   if (Number(participant.breadCount || 0) > 0) effects.push({ type: 'buff', name: '빵', count: Number(participant.breadCount || 0), desc: '피격 시 HP 5 회복 후 1개 소모' });
   if (Number(participant.critBonusTurns || 0) > 0) effects.push({ type: 'buff', name: '크리티컬 상승', turns: Number(participant.critBonusTurns || 0), desc: `치명타 확률 +${Math.round(Number(participant.critBonusValue || 0) * 100)}%` });
   if (Number(participant.hypeTurns || 0) > 0) effects.push({ type: 'buff', name: '흥겨움', turns: Number(participant.hypeTurns || 0), desc: '기본 공격 횟수 2배' });
@@ -5733,6 +5789,25 @@ function useRaidCardSkill(participant, battle) {
     const healAmount = scaleFlat(card.heal);
     const actualHeal = healRaidTarget(target, healAmount);
     logText = `${participant.displayName}(이)가 ${card.name}로 ${target.displayName}의 HP를 ${actualHeal.toLocaleString()} 회복시켰습니다.`;
+  } else if (card.effectType === 'target_missing_hp_heal') {
+    const selectedTargetId = participant.plannedTargetUserId;
+    const target = getRaidParticipant(battle, selectedTargetId) || getAliveRaidParticipants(battle)[0] || participant;
+    const percent = Math.max(0, scalePercent(card.healMissingHpPercent));
+    const missingHp = Math.max(0, Number(target.maxHp || 0) - Number(target.hp || 0));
+    const actualHeal = healRaidTarget(target, Math.floor(missingHp * percent));
+    logText = `${participant.displayName}(이)가 ${card.name}로 ${target.displayName}의 잃은 체력 ${formatCardPercentText(percent)}만큼 HP ${actualHeal.toLocaleString()}를 회복시켰습니다.`;
+  } else if (card.effectType === 'target_taunt_damage_reduction') {
+    const selectedTargetId = participant.plannedTargetUserId;
+    const target = getRaidParticipant(battle, selectedTargetId) || participant;
+    const reduction = Math.max(0, Math.min(0.95, scalePercent(card.damageReductionPercent)));
+    target.tauntTurns = Math.max(Number(target.tauntTurns || 0), Number(card.turns || 2));
+    target.tauntDamageReductionPercent = Math.max(Number(target.tauntDamageReductionPercent || 0), reduction);
+    target.tauntSourceUserId = participant.userId;
+    logText = `${participant.displayName}(이)가 ${card.name}로 ${target.displayName}에게 <예? 저요?>를 부여했습니다. 보스가 우선 타겟팅하며 받는 최종 피해가 ${formatCardPercentText(reduction)} 감소합니다.`;
+  } else if (card.effectType === 'self_negate_hit') {
+    const negateCount = scaleCount(card.negateHitCount || 1);
+    participant.negateHitCount += negateCount;
+    logText = `${participant.displayName}(이)가 ${card.name}로 자신에게 피격 무효 ${negateCount}회를 부여했습니다.`;
   } else if (card.effectType === 'self_bonus_damage') {
     participant.extraDamage = scaleFlat(getRaidEffectiveLevel(participant) * Number(card.bonusPerLevel || 0));
   } else if (card.effectType === 'self_per_hit_bonus') {
@@ -6037,6 +6112,13 @@ function tickRaidParticipantEndOfTurn(participant, battle) {
   if (participant.hypeTurns > 0) {
     participant.hypeTurns -= 1;
   }
+  if (participant.tauntTurns > 0) {
+    participant.tauntTurns -= 1;
+    if (participant.tauntTurns <= 0) {
+      participant.tauntDamageReductionPercent = 0;
+      participant.tauntSourceUserId = null;
+    }
+  }
   if (participant.tempShieldTurns > 0) {
     participant.tempShieldTurns -= 1;
     if (participant.tempShieldTurns <= 0) {
@@ -6335,7 +6417,8 @@ function executeNextRaidSequenceStep(battle) {
     }
     const currentAlive = getAliveRaidParticipants(battle);
     if (currentAlive.length > 0) {
-      const target = currentAlive[Math.floor(Math.random() * currentAlive.length)];
+      const target = pickRaidBossTarget(currentAlive);
+      if (!target) return true;
       applyRaidDamage(target, Number(step.damage || 0), { battle, source: 'boss' });
       battle.logs.push(`${bossInfo.name}의 ${step.skillName} ${step.hitIndex + 1}타! ${target.displayName}에게 ${Number(step.damage || 0).toLocaleString()} 피해를 입혔습니다.`);
     }
@@ -6391,6 +6474,10 @@ function applyRaidDamage(target, damage, options = {}) {
   if (Number(target.nextHitDamageTakenMultiplier || 1) > 1) {
     remainingDamage = Math.floor(remainingDamage * Number(target.nextHitDamageTakenMultiplier || 1));
     target.nextHitDamageTakenMultiplier = 1;
+  }
+  const tauntReduction = Number(target.tauntTurns || 0) > 0 ? Math.max(0, Math.min(0.95, Number(target.tauntDamageReductionPercent || 0))) : 0;
+  if (tauntReduction > 0) {
+    remainingDamage = Math.floor(remainingDamage * (1 - tauntReduction));
   }
   let blocked = 0;
   if (target.shield > 0) {
@@ -6465,6 +6552,34 @@ function applyRaidDebuffImmunity(target) {
   return false;
 }
 
+
+function getRaidTauntTargets(aliveParticipants) {
+  return (aliveParticipants || []).filter((participant) => participant.hp > 0 && Number(participant.tauntTurns || 0) > 0);
+}
+
+function pickRaidBossTarget(aliveParticipants) {
+  const alive = (aliveParticipants || []).filter((participant) => participant.hp > 0);
+  if (!alive.length) return null;
+  const tauntTargets = getRaidTauntTargets(alive);
+  const pool = tauntTargets.length ? tauntTargets : alive;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+function selectRaidBossTargets(aliveParticipants, count) {
+  const alive = (aliveParticipants || []).filter((participant) => participant.hp > 0);
+  const targetCount = Math.max(0, Math.min(Math.floor(Number(count || 0)), alive.length));
+  if (!targetCount) return [];
+  const tauntTargets = getRaidTauntTargets(alive);
+  const selected = [];
+  tauntTargets.sort(() => Math.random() - 0.5).slice(0, targetCount).forEach((target) => selected.push(target));
+  const selectedIds = new Set(selected.map((target) => target.userId));
+  const rest = alive.filter((target) => !selectedIds.has(target.userId)).sort(() => Math.random() - 0.5);
+  while (selected.length < targetCount && rest.length) {
+    selected.push(rest.shift());
+  }
+  return selected;
+}
+
 function performRaidBossAction(battle) {
   const bossInfo = RAID_BOSS_DATA[battle.bossId] || RAID_BOSS_DATA[RAID_BOSS_ID];
   if (battle.bossShieldTurns > 0) {
@@ -6480,7 +6595,7 @@ function performRaidBossAction(battle) {
 
   if (battle.bossId === RAID_BOSS_ID_HOI) {
     if (pattern === 'son_brag') {
-      const targets = [...aliveParticipants].sort(() => Math.random() - 0.5).slice(0, Math.min(2, aliveParticipants.length));
+      const targets = selectRaidBossTargets(aliveParticipants, 2);
       const affectedNames = [];
       const resistedNames = [];
       aliveParticipants.forEach((participant) => {
@@ -6551,8 +6666,8 @@ function performRaidBossAction(battle) {
     }
 
     if (pattern === 'nail_clip') {
-      const target = aliveParticipants[Math.floor(Math.random() * aliveParticipants.length)];
-      if (!applyRaidDebuffImmunity(target)) {
+      const target = pickRaidBossTarget(aliveParticipants);
+      if (target && !applyRaidDebuffImmunity(target)) {
         target.nailBounceDelayTurns = Math.max(target.nailBounceDelayTurns, 1);
         target.nailBounceDamage = Math.max(target.nailBounceDamage, 40);
         target.nailBounceRemainingBounces = Math.max(target.nailBounceRemainingBounces, 2);
@@ -6583,9 +6698,7 @@ function performRaidBossAction(battle) {
         return `대머리 김부장의 어이쿠 가발이 여기있네..! ${target.displayName}에게 20 피해를 입히고 <수고했네> 버프를 부여했습니다.`;
       }
 
-      const targets = [...aliveParticipants]
-        .sort(() => Math.random() - 0.5)
-        .slice(0, Math.min(3, aliveParticipants.length));
+      const targets = selectRaidBossTargets(aliveParticipants, 3);
       const lockedNames = [];
       const resistedNames = [];
       targets.forEach((participant) => {
@@ -6604,9 +6717,7 @@ function performRaidBossAction(battle) {
     }
 
     if (pattern === 'mz') {
-      const targets = [...aliveParticipants]
-        .sort(() => Math.random() - 0.5)
-        .slice(0, Math.min(4, aliveParticipants.length));
+      const targets = selectRaidBossTargets(aliveParticipants, 4);
       const debuffedNames = [];
       const resistedNames = [];
       targets.forEach((participant) => {
@@ -6665,9 +6776,7 @@ function performRaidBossAction(battle) {
   }
 
   if (pattern === 'ice') {
-    const targets = [...aliveParticipants]
-      .sort(() => Math.random() - 0.5)
-      .slice(0, Math.min(3, aliveParticipants.length));
+    const targets = selectRaidBossTargets(aliveParticipants, 3);
     const silencedNames = [];
     const resistedNames = [];
     targets.forEach((participant) => {
@@ -8288,6 +8397,12 @@ function applyPvpDamage(target, amount, battle, options = {}) {
   }
 
   let remaining = Math.max(0, Math.floor(Number(amount || 0)));
+  const tauntReduction = target.buffs
+    .filter((buff) => buff.id === 'taunt_damage_reduction' && !buff.pendingActivation)
+    .reduce((max, buff) => Math.max(max, Number(buff.value || 0)), 0);
+  if (tauntReduction > 0) {
+    remaining = Math.floor(remaining * (1 - Math.max(0, Math.min(0.95, tauntReduction))));
+  }
   let shieldLoss = 0;
   if (!options.ignoreShield && Number(target.shield || 0) > 0) {
     shieldLoss = Math.min(Number(target.shield || 0), remaining);
@@ -8502,6 +8617,24 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
       desc: `다음 자신의 공격 피해 x${damageMultiplier.toFixed(1)}`
     });
     battle.logs.push(`${actor.displayName}의 HP가 ${selfDamage.toLocaleString()} 감소하고, 다음 자신의 공격 피해가 ${damageMultiplier.toFixed(1)}배가 됩니다.`);
+  } else if (card.effectType === 'target_missing_hp_heal') {
+    const missingHp = Math.max(0, Number(actor.maxHp || PVP_MAX_HP) - Number(actor.hp || 0));
+    const healed = healPvpTarget(actor, Math.floor(missingHp * Math.max(0, scalePercent(card.healMissingHpPercent))));
+    battle.logs.push(`${actor.displayName}의 HP가 ${healed.toLocaleString()} 회복되었습니다.`);
+  } else if (card.effectType === 'target_taunt_damage_reduction') {
+    const reduction = Math.max(0, Math.min(0.95, scalePercent(card.damageReductionPercent)));
+    addPvpBuff(actor, {
+      id: 'taunt_damage_reduction',
+      name: '예? 저요?',
+      turns: Number(card.turns || 2),
+      value: reduction,
+      desc: `상대가 우선 타겟팅합니다. 받는 최종 피해 ${Math.round(reduction * 100)}% 감소`
+    });
+    battle.logs.push(`${actor.displayName}(이)가 <예? 저요?> 버프를 얻었습니다.`);
+  } else if (card.effectType === 'self_negate_hit') {
+    const negateCount = scaleCount(card.negateHitCount || 1);
+    addPvpBuff(actor, { id: 'negate_hit', name: '피격 무효', count: negateCount, desc: '피격 무효' });
+    battle.logs.push(`${actor.displayName}(이)가 피격 무효 ${negateCount}회를 얻었습니다.`);
   } else if (card.effectType === 'party_cleanse') {
     clearPvpDebuffs(actor, battle);
   } else if (card.effectType === 'party_bread_buff') {
