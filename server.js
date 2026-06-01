@@ -3822,15 +3822,20 @@ async function runUserMutationWithRetry(userId, mutateUser, options = {}) {
 }
 
 function cleanupExpiredBuffs(user, now = new Date()) {
-  user.buffs = user.buffs.filter((buff) => new Date(buff.expiresAt) > now);
+  if (!user) return;
+  user.buffs = (Array.isArray(user.buffs) ? user.buffs : [])
+    .filter((buff) => buff && new Date(buff.expiresAt) > now);
 }
 
 function removeAllDebuffs(user) {
-  user.buffs = user.buffs.filter((buff) => BUFF_DATA[buff.buffId]?.category !== 'debuff');
+  if (!user) return;
+  user.buffs = (Array.isArray(user.buffs) ? user.buffs : [])
+    .filter((buff) => BUFF_DATA[buff.buffId]?.category !== 'debuff');
 }
 
 function hasBuff(user, buffId, now = new Date()) {
-  return user.buffs.some((buff) => buff.buffId === buffId && new Date(buff.expiresAt) > now);
+  return (Array.isArray(user?.buffs) ? user.buffs : [])
+    .some((buff) => buff.buffId === buffId && new Date(buff.expiresAt) > now);
 }
 
 function getInventoryItem(user, itemId) {
@@ -4486,6 +4491,7 @@ function createRaidParticipantFromUser(user) {
 }
 
 function setOrRefreshBuff(user, buffId, durationMs, options = {}) {
+  if (!Array.isArray(user.buffs)) user.buffs = [];
   const now = options.now || new Date();
   const existingBuff = user.buffs.find((buff) => buff.buffId === buffId);
   const shouldStack = Boolean(options.stackDuration) || buffId === 'cat_gratitude_buff';
