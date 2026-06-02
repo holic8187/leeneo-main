@@ -231,6 +231,9 @@ let overtimeEditingDefense = false;
 let overtimeDraftPicking = false;
 let overtimeSwapOptionCardId = null;
 let overtimeSwapReplaceIndex = null;
+let overtimeActionInFlight = false;
+let overtimeContinueInFlight = false;
+let overtimeSwapInFlight = false;
 let pvpBetTargetUserId = null;
 let pvpDraftContextKey = '';
 let pvpDraftSubmitting = false;
@@ -4330,13 +4333,57 @@ async function fetchInfiniteOvertimeState(options = {}) {
   const user = getStoredUser();
   if (!user?._id) return null;
   const data = await postJson(`${API_URL}/api/infinite-overtime/state`, { userId: user._id });
-  latestInfiniteOvertimeState = data.infiniteOvertime;
+  applyInfiniteOvertimeState(data.infiniteOvertime);
   updateInfiniteOvertimeButton(user, latestInfiniteOvertimeState);
   if (options.open) showInfiniteOvertimeScreen();
   if (!document.getElementById('infinite-overtime-screen')?.classList.contains('hidden')) {
     renderInfiniteOvertimeState(latestInfiniteOvertimeState, user);
   }
   return latestInfiniteOvertimeState;
+}
+
+function getOvertimeStateBattleFloor(state) {
+  return Number(state?.battle?.floor || 0);
+}
+
+function getOvertimeStateVisibleFloor(state) {
+  const battleFloor = getOvertimeStateBattleFloor(state);
+  const nextFloor = Number(state?.nextFloor || 0);
+  return battleFloor > 0 ? battleFloor : Math.max(0, nextFloor);
+}
+
+function isOlderInfiniteOvertimeState(incoming, current) {
+  if (!incoming || !current) return false;
+  const currentBattle = current.battle;
+  const incomingBattle = incoming.battle;
+  const currentFloor = getOvertimeStateVisibleFloor(current);
+  const incomingFloor = getOvertimeStateVisibleFloor(incoming);
+  if (incomingFloor > 0 && currentFloor > 0 && incomingFloor < currentFloor) {
+    return true;
+  }
+  if (currentBattle?.battleId && incomingBattle?.battleId && currentBattle.battleId !== incomingBattle.battleId) {
+    const currentBattleFloor = getOvertimeStateBattleFloor(current);
+    const incomingBattleFloor = getOvertimeStateBattleFloor(incoming);
+    if (incomingBattleFloor > 0 && currentBattleFloor > 0 && incomingBattleFloor <= currentBattleFloor) {
+      return true;
+    }
+  }
+  if (currentBattle?.phase === 'active' && incomingBattle && ['victory', 'defeat', 'swap'].includes(incomingBattle.phase)) {
+    return incomingFloor < currentFloor || incomingBattle.battleId !== currentBattle.battleId;
+  }
+  if (currentBattle?.phase === 'active' && !incomingBattle && incoming?.active) {
+    return true;
+  }
+  return false;
+}
+
+function applyInfiniteOvertimeState(incoming, options = {}) {
+  if (!incoming) return false;
+  if (!options.force && isOlderInfiniteOvertimeState(incoming, latestInfiniteOvertimeState)) {
+    return false;
+  }
+  latestInfiniteOvertimeState = incoming;
+  return true;
 }
 
 function getOvertimeModeFromState(state) {
@@ -4576,8 +4623,8 @@ async function handleOvertimeDraftCandidateSelect(cardId, enhancementLevel = 0) 
       cardId,
       enhancementLevel
     }));
-    if (data.infiniteOvertime) latestInfiniteOvertimeState = data.infiniteOvertime;
-    updateLocalUserState(data, { force: true });
+    const applied = applyInfiniteOvertimeState(data.infiniteOvertime, { force: true });
+    if (applied) updateLocalUserState(data, { force: true });
   } catch (err) {
     alert(err.message);
   } finally {
@@ -4604,8 +4651,8 @@ async function handleOvertimeConfirmClick() {
   if (!['defense', 'attack', 'ready'].includes(mode)) return;
   try {
     const data = await runWithUserMutation(() => postJson(`${API_URL}/api/infinite-overtime/${endpoint}`, payload));
-    if (data.infiniteOvertime) latestInfiniteOvertimeState = data.infiniteOvertime;
-    updateLocalUserState(data, { force: true });
+    const applied = applyInfiniteOvertimeState(data.infiniteOvertime, { force: true });
+    if (applied) updateLocalUserState(data, { force: true });
     overtimeEditingDefense = false;
     overtimeSetupMode = '';
     renderInfiniteOvertimeState(latestInfiniteOvertimeState, getStoredUser());
@@ -4716,17 +4763,23 @@ function renderOvertimeResultPanel(state) {
 async function handleOvertimeAction(cardIndex, actionType = cardIndex === null ? 'basic' : 'skill') {
   const user = getStoredUser();
   if (!user?._id) return handleLogoutClick();
+  if (overtimeActionInFlight) return;
+  overtimeActionInFlight = true;
   try {
     const data = await runWithUserMutation(() => postJson(`${API_URL}/api/infinite-overtime/action`, {
       userId: user._id,
       cardIndex,
       actionType
     }));
-    if (data.infiniteOvertime) latestInfiniteOvertimeState = data.infiniteOvertime;
-    updateLocalUserState(data, { force: true });
-    renderInfiniteOvertimeState(latestInfiniteOvertimeState, getStoredUser());
+    const applied = applyInfiniteOvertimeState(data.infiniteOvertime);
+    if (applied) {
+      updateLocalUserState(data, { force: true });
+      renderInfiniteOvertimeState(latestInfiniteOvertimeState, getStoredUser());
+    }
   } catch (err) {
     alert(err.message);
+  } finally {
+    overtimeActionInFlight = false;
   }
 }
 
@@ -4762,6 +4815,8 @@ function handleOvertimeSwapDeckSelect(index) {
 async function handleOvertimeSwapConfirm() {
   const user = getStoredUser();
   if (!user?._id || !overtimeSwapOptionCardId || !Number.isInteger(overtimeSwapReplaceIndex)) return;
+  if (overtimeSwapInFlight) return;
+  overtimeSwapInFlight = true;
   try {
     const data = await runWithUserMutation(() => postJson(`${API_URL}/api/infinite-overtime/swap`, {
       userId: user._id,
@@ -4770,17 +4825,23 @@ async function handleOvertimeSwapConfirm() {
     }));
     overtimeSwapOptionCardId = null;
     overtimeSwapReplaceIndex = null;
-    if (data.infiniteOvertime) latestInfiniteOvertimeState = data.infiniteOvertime;
-    updateLocalUserState(data, { force: true });
-    renderInfiniteOvertimeState(latestInfiniteOvertimeState, getStoredUser());
+    const applied = applyInfiniteOvertimeState(data.infiniteOvertime);
+    if (applied) {
+      updateLocalUserState(data, { force: true });
+      renderInfiniteOvertimeState(latestInfiniteOvertimeState, getStoredUser());
+    }
   } catch (err) {
     alert(err.message);
+  } finally {
+    overtimeSwapInFlight = false;
   }
 }
 
 async function handleOvertimeSwapSkip() {
   const user = getStoredUser();
   if (!user?._id) return;
+  if (overtimeSwapInFlight) return;
+  overtimeSwapInFlight = true;
   try {
     const data = await runWithUserMutation(() => postJson(`${API_URL}/api/infinite-overtime/swap`, {
       userId: user._id,
@@ -4788,24 +4849,34 @@ async function handleOvertimeSwapSkip() {
     }));
     overtimeSwapOptionCardId = null;
     overtimeSwapReplaceIndex = null;
-    if (data.infiniteOvertime) latestInfiniteOvertimeState = data.infiniteOvertime;
-    updateLocalUserState(data, { force: true });
-    renderInfiniteOvertimeState(latestInfiniteOvertimeState, getStoredUser());
+    const applied = applyInfiniteOvertimeState(data.infiniteOvertime);
+    if (applied) {
+      updateLocalUserState(data, { force: true });
+      renderInfiniteOvertimeState(latestInfiniteOvertimeState, getStoredUser());
+    }
   } catch (err) {
     alert(err.message);
+  } finally {
+    overtimeSwapInFlight = false;
   }
 }
 
 async function handleOvertimeContinueClick() {
   const user = getStoredUser();
   if (!user?._id) return handleLogoutClick();
+  if (overtimeContinueInFlight) return;
+  overtimeContinueInFlight = true;
   try {
-    const data = await postJson(`${API_URL}/api/infinite-overtime/continue`, { userId: user._id });
-    if (data.infiniteOvertime) latestInfiniteOvertimeState = data.infiniteOvertime;
-    updateLocalUserState(data, { force: true });
-    renderInfiniteOvertimeState(latestInfiniteOvertimeState, getStoredUser());
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/infinite-overtime/continue`, { userId: user._id }));
+    const applied = applyInfiniteOvertimeState(data.infiniteOvertime);
+    if (applied) {
+      updateLocalUserState(data, { force: true });
+      renderInfiniteOvertimeState(latestInfiniteOvertimeState, getStoredUser());
+    }
   } catch (err) {
     alert(err.message);
+  } finally {
+    overtimeContinueInFlight = false;
   }
 }
 
@@ -4813,9 +4884,9 @@ async function handleOvertimeExitClick() {
   const user = getStoredUser();
   if (!user?._id) return handleLogoutClick();
   try {
-    const data = await postJson(`${API_URL}/api/infinite-overtime/exit`, { userId: user._id });
-    if (data.infiniteOvertime) latestInfiniteOvertimeState = data.infiniteOvertime;
-    updateLocalUserState(data, { force: true });
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/infinite-overtime/exit`, { userId: user._id }));
+    const applied = applyInfiniteOvertimeState(data.infiniteOvertime, { force: true });
+    if (applied) updateLocalUserState(data, { force: true });
   } catch (err) {
     alert(err.message);
   }
