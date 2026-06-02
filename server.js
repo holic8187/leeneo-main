@@ -51,6 +51,13 @@ const COMPANY_STOCK_SELL_FEE_RATE = 0.03;
 const COMPANY_STOCK_RUMOR_ACCURACY = 0.6;
 const COMPANY_STOCK_RUMOR_TTL_MS = 10 * 60 * 1000;
 const COMPANY_STOCK_MAX_BACKFILL_TICKS = 288;
+const STOCK_TOURNAMENT_ID = 'stock_tournament_1';
+const STOCK_TOURNAMENT_NAME = '제 1회 주식투자 대회';
+const STOCK_TOURNAMENT_START_AT = new Date('2026-06-03T00:00:00.000Z');
+const STOCK_TOURNAMENT_END_AT = new Date('2026-06-10T00:00:00.000Z');
+const STOCK_TOURNAMENT_INITIAL_CASH = 100000000;
+const STOCK_TOURNAMENT_ADVANCED_INFO_LIMIT = 2;
+const STOCK_TOURNAMENT_ADVANCED_INFO_ACCURACY = 0.9;
 const WORK_REPAIR_COUPON_DROP_CHANCE = 0.0005;
 const MARKETPLACE_TRADEABLE_ITEM_IDS = ['raid_entry_ticket', 'hagendaz', 'excavation_repair_coupon'];
 const MARKETPLACE_FEE_RATE = 0.1;
@@ -2361,6 +2368,30 @@ const userSchema = new mongoose.Schema({
     investedAmount: { type: Number, default: 0 },
     updatedAt: { type: Date, default: Date.now }
   }],
+  stockTournament: {
+    eventId: { type: String, default: null },
+    registeredAt: { type: Date, default: null },
+    cash: { type: Number, default: STOCK_TOURNAMENT_INITIAL_CASH },
+    holdings: [{
+      companyId: { type: String, required: true },
+      companyName: { type: String, default: '' },
+      shares: { type: Number, default: 0 },
+      averagePrice: { type: Number, default: 0 },
+      investedAmount: { type: Number, default: 0 },
+      updatedAt: { type: Date, default: Date.now }
+    }],
+    advancedInfoUsed: { type: Number, default: 0 },
+    advancedInfos: [{
+      companyId: { type: String, default: '' },
+      companyName: { type: String, default: '' },
+      text: { type: String, default: '' },
+      createdAt: { type: Date, default: Date.now },
+      expiresAt: { type: Date, default: null }
+    }],
+    finalizedAt: { type: Date, default: null },
+    finalAssets: { type: Number, default: 0 },
+    finalReturnPct: { type: Number, default: 0 }
+  },
   shopState: {
     dayKey: { type: String, default: null },
     dailySpend: { type: Number, default: 0 },
@@ -2709,7 +2740,7 @@ async function buildCompanyStockMarketResponse(user, now = new Date()) {
   const portfolio = normalizeStockPortfolio(user?.stockPortfolio);
   const holdings = portfolio.map((holding) => {
     const stock = companies.find((company) => company.companyId === holding.companyId);
-    const currentPrice = stock ? Number(stock.price || 0) : 0;
+    const currentPrice = stock ? getStockTournamentValuationPrice(stock, now) : 0;
     const shares = Number(holding.shares || 0);
     const averagePrice = Number(holding.averagePrice || 0);
     return {
@@ -2738,6 +2769,188 @@ async function buildCompanyStockMarketResponse(user, now = new Date()) {
     totalMarketValue: holdings.reduce((sum, holding) => sum + Number(holding.marketValue || 0), 0)
   };
 }
+
+
+function getStockTournamentPhase(now = new Date()) {
+  const time = now.getTime();
+  if (time < STOCK_TOURNAMENT_START_AT.getTime()) return 'before';
+  if (time >= STOCK_TOURNAMENT_END_AT.getTime()) return 'ended';
+  return 'active';
+}
+
+function getStockTournamentPhaseLabel(phase) {
+  if (phase === 'before') return '대회 준비중';
+  if (phase === 'active') return '대회 진행중';
+  return '대회 종료';
+}
+
+function normalizeStockTournamentHoldingList(holdings = []) {
+  return normalizeStockPortfolio(holdings);
+}
+
+function ensureStockTournamentState(user) {
+  if (!user.stockTournament || typeof user.stockTournament !== 'object') {
+    user.stockTournament = {};
+  }
+  const tournament = user.stockTournament;
+  tournament.eventId = tournament.eventId || null;
+  tournament.registeredAt = tournament.registeredAt || null;
+  tournament.cash = Math.max(0, Number(tournament.cash ?? STOCK_TOURNAMENT_INITIAL_CASH));
+  tournament.holdings = normalizeStockTournamentHoldingList(tournament.holdings);
+  tournament.advancedInfoUsed = Math.max(0, Math.floor(Number(tournament.advancedInfoUsed || 0)));
+  tournament.advancedInfos = Array.isArray(tournament.advancedInfos) ? tournament.advancedInfos
+    .filter((entry) => entry && entry.text)
+    .map((entry) => ({
+      companyId: String(entry.companyId || ''),
+      companyName: String(entry.companyName || ''),
+      text: String(entry.text || ''),
+      createdAt: entry.createdAt || new Date(),
+      expiresAt: entry.expiresAt || null
+    })) : [];
+  tournament.finalizedAt = tournament.finalizedAt || null;
+  tournament.finalAssets = Math.max(0, Number(tournament.finalAssets || 0));
+  tournament.finalReturnPct = Number(tournament.finalReturnPct || 0);
+  return tournament;
+}
+
+function isStockTournamentRegistered(user) {
+  return user?.stockTournament?.eventId === STOCK_TOURNAMENT_ID && Boolean(user.stockTournament.registeredAt);
+}
+
+function buildStockTournamentUserSummary(user, now = new Date()) {
+  ensureStockTournamentState(user);
+  const phase = getStockTournamentPhase(now);
+  const registered = isStockTournamentRegistered(user);
+  return {
+    eventId: STOCK_TOURNAMENT_ID,
+    name: STOCK_TOURNAMENT_NAME,
+    phase,
+    phaseLabel: getStockTournamentPhaseLabel(phase),
+    startAt: STOCK_TOURNAMENT_START_AT,
+    endAt: STOCK_TOURNAMENT_END_AT,
+    isRegistered: registered,
+    canTrade: registered && phase === 'active'
+  };
+}
+
+function getStockTournamentValuationPrice(company, now = new Date()) {
+  if (!company) return 0;
+  if (getStockTournamentPhase(now) !== 'ended') return Number(company.price || 0);
+  const endMs = STOCK_TOURNAMENT_END_AT.getTime();
+  const history = Array.isArray(company.history) ? company.history : [];
+  const endPoint = [...history].reverse().find((entry) => {
+    const atMs = entry?.at ? new Date(entry.at).getTime() : 0;
+    return Number.isFinite(atMs) && atMs <= endMs;
+  });
+  return Number(endPoint?.price || company.price || 0);
+}
+
+function calculateStockTournamentAssetsFromMarket(tournament, companies = [], now = new Date()) {
+  const holdings = normalizeStockTournamentHoldingList(tournament?.holdings);
+  const totalStockValue = holdings.reduce((sum, holding) => {
+    const stock = companies.find((company) => company.companyId === holding.companyId);
+    return sum + Math.floor(getStockTournamentValuationPrice(stock, now) * Number(holding.shares || 0));
+  }, 0);
+  return Math.max(0, Math.floor(Number(tournament?.cash || 0) + totalStockValue));
+}
+
+function buildStockTournamentAdvancedHint(company) {
+  const projected = Number(company?.projectedChangePct || 0);
+  const truthful = Math.random() < STOCK_TOURNAMENT_ADVANCED_INFO_ACCURACY;
+  const hintedChange = truthful ? projected : -projected;
+  const abs = Math.abs(hintedChange);
+  const direction = hintedChange >= 0 ? '상승' : '하락';
+  const strength = abs >= 7 ? '강한' : abs >= 3 ? '완만한' : '약한';
+  const volatility = Math.abs(Number(company?.lastChangePct || 0)) >= 5 ? '최근 변동성도 커서 진입 타이밍을 조심해야 합니다.' : '큰 변수만 없다면 흐름은 비교적 안정적으로 보입니다.';
+  return `${company?.companyName || '해당 종목'} 고급 정보: 향후 24시간은 ${strength} ${direction} 쪽으로 기울었다는 내부 보고가 있습니다. ${volatility}`;
+}
+
+async function buildStockTournamentLeaderboard(companies = [], now = new Date()) {
+  const users = await User.find({ 'stockTournament.eventId': STOCK_TOURNAMENT_ID })
+    .select('_id username nickname stockTournament')
+    .lean();
+  return users.map((entry) => {
+    const tournament = entry.stockTournament || {};
+    const finalized = tournament.finalizedAt && Number(tournament.finalAssets || 0) > 0;
+    const totalAssets = finalized
+      ? Math.floor(Number(tournament.finalAssets || 0))
+      : calculateStockTournamentAssetsFromMarket(tournament, companies, now);
+    const returnPct = finalized
+      ? Number(tournament.finalReturnPct || 0)
+      : ((totalAssets - STOCK_TOURNAMENT_INITIAL_CASH) / STOCK_TOURNAMENT_INITIAL_CASH) * 100;
+    return {
+      userId: String(entry._id),
+      nickname: entry.nickname || entry.username || '참가자',
+      totalAssets,
+      returnPct
+    };
+  }).sort((a, b) => b.totalAssets - a.totalAssets || b.returnPct - a.returnPct)
+    .map((entry, index) => ({ rank: index + 1, ...entry }));
+}
+
+async function buildStockTournamentResponse(user, now = new Date()) {
+  ensureUserDefaults(user);
+  const phase = getStockTournamentPhase(now);
+  const market = await syncCompanyStockMarket(now);
+  const companies = Array.isArray(market.companies) ? market.companies : [];
+  const tournament = ensureStockTournamentState(user);
+  const registered = isStockTournamentRegistered(user);
+  const holdings = normalizeStockTournamentHoldingList(tournament.holdings).map((holding) => {
+    const stock = companies.find((company) => company.companyId === holding.companyId);
+    const currentPrice = stock ? Number(stock.price || 0) : 0;
+    const shares = Number(holding.shares || 0);
+    const averagePrice = Number(holding.averagePrice || 0);
+    return {
+      ...holding,
+      companyName: stock?.companyName || holding.companyName,
+      currentPrice,
+      marketValue: Math.floor(currentPrice * shares),
+      unrealizedProfit: Math.floor((currentPrice - averagePrice) * shares),
+      profitRate: averagePrice > 0 ? ((currentPrice - averagePrice) / averagePrice) * 100 : 0
+    };
+  });
+  const totalAssets = registered
+    ? Math.max(0, Math.floor(Number(tournament.cash || 0) + holdings.reduce((sum, entry) => sum + Number(entry.marketValue || 0), 0)))
+    : 0;
+  const returnPct = registered ? ((totalAssets - STOCK_TOURNAMENT_INITIAL_CASH) / STOCK_TOURNAMENT_INITIAL_CASH) * 100 : 0;
+  const leaderboard = await buildStockTournamentLeaderboard(companies, now);
+  return {
+    eventId: STOCK_TOURNAMENT_ID,
+    name: STOCK_TOURNAMENT_NAME,
+    phase,
+    phaseLabel: getStockTournamentPhaseLabel(phase),
+    startAt: STOCK_TOURNAMENT_START_AT,
+    endAt: STOCK_TOURNAMENT_END_AT,
+    initialCash: STOCK_TOURNAMENT_INITIAL_CASH,
+    isRegistered: registered,
+    canRegister: !registered && phase === 'before',
+    canTrade: registered && phase === 'active',
+    cash: registered ? Math.floor(Number(tournament.cash || 0)) : 0,
+    totalAssets,
+    returnPct,
+    holdings,
+    advancedInfoLimit: STOCK_TOURNAMENT_ADVANCED_INFO_LIMIT,
+    advancedInfoUsed: Math.max(0, Math.floor(Number(tournament.advancedInfoUsed || 0))),
+    advancedInfoRemaining: Math.max(0, STOCK_TOURNAMENT_ADVANCED_INFO_LIMIT - Math.max(0, Math.floor(Number(tournament.advancedInfoUsed || 0)))),
+    advancedInfos: Array.isArray(tournament.advancedInfos) ? tournament.advancedInfos : [],
+    leaderboard,
+    stockMarket: {
+      stocks: companies.map((company) => ({
+        companyId: company.companyId,
+        companyName: company.companyName,
+        ownerNickname: company.ownerNickname,
+        companyValue: company.companyValue,
+        price: company.price,
+        lastChangePct: company.lastChangePct,
+        rumor: company.rumor || null,
+        history: company.history || []
+      })),
+      sellFeeRate: COMPANY_STOCK_SELL_FEE_RATE,
+      nextUpdateAt: market.nextTickAt || null
+    }
+  };
+}
+
 
 function getKSTDateKey(date = new Date()) {
   const kst = new Date(date.getTime() + KST_OFFSET_MS);
@@ -3017,6 +3230,7 @@ function ensureUserDefaults(user) {
   user.pendingStockInvestment.investedOn = user.pendingStockInvestment.investedOn || null;
 
   user.stockPortfolio = normalizeStockPortfolio(user.stockPortfolio);
+  ensureStockTournamentState(user);
 
   if (!user.shopState) {
     user.shopState = {
@@ -3749,6 +3963,7 @@ function buildUserPersistenceSnapshot(user) {
     emblems: toPlainMongoValue(user.emblems),
     pendingStockInvestment: toPlainMongoValue(user.pendingStockInvestment),
     stockPortfolio: toPlainMongoValue(user.stockPortfolio),
+    stockTournament: toPlainMongoValue(user.stockTournament),
     shopState: toPlainMongoValue(user.shopState),
     meta: toPlainMongoValue(user.meta),
     pendingAdventure: toPlainMongoValue(user.pendingAdventure),
@@ -10995,6 +11210,7 @@ function buildGameStateResponse(user, now = new Date()) {
     branchOffice: buildBranchOfficePublicState(user, now, derivedStats),
     pendingStockInvestment: user.pendingStockInvestment,
     stockPortfolio: user.stockPortfolio,
+    stockTournament: buildStockTournamentUserSummary(user, now),
     pendingAdventure: user.pendingAdventure,
     shopState: user.shopState,
     fragmentShop: buildFragmentShopState(user, now),
@@ -12031,6 +12247,209 @@ app.post('/api/company-stock-market/rumor', async (req, res) => {
   } catch (err) {
     console.error('Company stock rumor error:', err);
     res.status(500).json({ msg: '찌라시를 불러오지 못했습니다.' });
+  }
+});
+
+
+app.get('/api/stock-tournament', async (req, res) => {
+  const { userId } = req.query;
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    const now = new Date();
+    const stockTournament = await buildStockTournamentResponse(user, now);
+    res.json({ stockTournament });
+  } catch (err) {
+    console.error('Stock tournament load error:', err);
+    res.status(500).json({ msg: '주식투자 대회 정보를 불러오지 못했습니다.' });
+  }
+});
+
+app.post('/api/stock-tournament/register', async (req, res) => {
+  const { userId } = req.body || {};
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+  try {
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      ensureUserDefaults(user);
+      const phase = getStockTournamentPhase(now);
+      if (phase !== 'before') throw createHttpError(400, '참가 신청 기간이 아닙니다.');
+      const tournament = ensureStockTournamentState(user);
+      if (!isStockTournamentRegistered(user)) {
+        tournament.eventId = STOCK_TOURNAMENT_ID;
+        tournament.registeredAt = now;
+        tournament.cash = STOCK_TOURNAMENT_INITIAL_CASH;
+        tournament.holdings = [];
+        tournament.advancedInfoUsed = 0;
+        tournament.advancedInfos = [];
+        tournament.finalizedAt = null;
+        tournament.finalAssets = 0;
+        tournament.finalReturnPct = 0;
+        user.markModified('stockTournament');
+      }
+      const userResponse = await buildUserResponseWithGlobals(user, now);
+      userResponse.stockTournament = await buildStockTournamentResponse(user, now);
+      return userResponse;
+    }, { conflictLabel: 'Stock tournament register conflict' });
+    res.json(response);
+  } catch (err) {
+    console.error('Stock tournament register error:', err);
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '주식투자 대회 참가 신청에 실패했습니다.' });
+  }
+});
+
+app.post('/api/stock-tournament/buy', async (req, res) => {
+  const { userId, companyId, shares } = req.body || {};
+  const buyShares = Math.max(0, Math.floor(Number(shares || 0)));
+  if (!userId || !companyId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+  if (buyShares <= 0) return res.status(400).json({ msg: '매수 수량을 입력해주세요.' });
+  try {
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      ensureUserDefaults(user);
+      if (!isStockTournamentRegistered(user)) throw createHttpError(400, '대회 참가자가 아닙니다.');
+      if (getStockTournamentPhase(now) !== 'active') throw createHttpError(400, '현재 대회 거래 시간이 아닙니다.');
+      const market = await syncCompanyStockMarket(now);
+      const stock = (market.companies || []).find((entry) => entry.companyId === String(companyId));
+      if (!stock) throw createHttpError(404, '상장 회사를 찾을 수 없습니다.');
+      const tournament = ensureStockTournamentState(user);
+      const cost = Math.floor(Number(stock.price || 0) * buyShares);
+      if (cost <= 0) throw createHttpError(400, '매수 금액이 올바르지 않습니다.');
+      if (Number(tournament.cash || 0) < cost) throw createHttpError(400, '대회 가상 현금이 부족합니다.');
+      tournament.cash -= cost;
+      const holdings = normalizeStockTournamentHoldingList(tournament.holdings);
+      const holdingIndex = holdings.findIndex((entry) => entry.companyId === String(companyId));
+      const previousHolding = holdingIndex >= 0 ? holdings[holdingIndex] : {
+        companyId: String(companyId),
+        companyName: stock.companyName,
+        shares: 0,
+        averagePrice: 0,
+        investedAmount: 0,
+        updatedAt: now
+      };
+      const previousShares = Number(previousHolding.shares || 0);
+      const previousInvested = Number(previousHolding.investedAmount || (previousShares * Number(previousHolding.averagePrice || 0)));
+      const nextShares = previousShares + buyShares;
+      const nextInvested = previousInvested + cost;
+      const nextHolding = {
+        ...previousHolding,
+        companyId: String(companyId),
+        companyName: stock.companyName,
+        shares: nextShares,
+        investedAmount: nextInvested,
+        averagePrice: nextShares > 0 ? nextInvested / nextShares : 0,
+        updatedAt: now
+      };
+      if (holdingIndex >= 0) holdings[holdingIndex] = nextHolding;
+      else holdings.push(nextHolding);
+      tournament.holdings = holdings;
+      user.stockTournament = tournament;
+      user.markModified('stockTournament');
+      const userResponse = await buildUserResponseWithGlobals(user, now);
+      userResponse.stockTournament = await buildStockTournamentResponse(user, now);
+      return userResponse;
+    }, { conflictLabel: 'Stock tournament buy conflict' });
+    res.json(response);
+  } catch (err) {
+    console.error('Stock tournament buy error:', err);
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '대회 주식을 매수하지 못했습니다.' });
+  }
+});
+
+app.post('/api/stock-tournament/sell', async (req, res) => {
+  const { userId, companyId, shares } = req.body || {};
+  const sellShares = Math.max(0, Math.floor(Number(shares || 0)));
+  if (!userId || !companyId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+  if (sellShares <= 0) return res.status(400).json({ msg: '매도 수량을 입력해주세요.' });
+  try {
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      ensureUserDefaults(user);
+      if (!isStockTournamentRegistered(user)) throw createHttpError(400, '대회 참가자가 아닙니다.');
+      if (getStockTournamentPhase(now) !== 'active') throw createHttpError(400, '현재 대회 거래 시간이 아닙니다.');
+      const market = await syncCompanyStockMarket(now);
+      const stock = (market.companies || []).find((entry) => entry.companyId === String(companyId));
+      const tournament = ensureStockTournamentState(user);
+      const holdings = normalizeStockTournamentHoldingList(tournament.holdings);
+      const holdingIndex = holdings.findIndex((entry) => entry.companyId === String(companyId));
+      const holding = holdingIndex >= 0 ? holdings[holdingIndex] : null;
+      if (!stock || !holding || Number(holding.shares || 0) < sellShares) throw createHttpError(400, '매도할 대회 주식이 부족합니다.');
+      const gross = Math.floor(Number(stock.price || 0) * sellShares);
+      const fee = Math.floor(gross * COMPANY_STOCK_SELL_FEE_RATE);
+      const net = Math.max(0, gross - fee);
+      tournament.cash += net;
+      const averagePrice = Number(holding.averagePrice || 0);
+      const previousShares = Number(holding.shares || 0);
+      const previousInvested = Number(holding.investedAmount || (previousShares * averagePrice));
+      const nextShares = previousShares - sellShares;
+      const nextInvested = Math.max(0, previousInvested - (averagePrice * sellShares));
+      if (nextShares <= 0) {
+        holdings.splice(holdingIndex, 1);
+      } else {
+        holdings[holdingIndex] = {
+          ...holding,
+          shares: nextShares,
+          investedAmount: nextInvested,
+          averagePrice: nextInvested / nextShares,
+          updatedAt: now
+        };
+      }
+      tournament.holdings = holdings;
+      user.stockTournament = tournament;
+      user.markModified('stockTournament');
+      const userResponse = await buildUserResponseWithGlobals(user, now);
+      userResponse.stockTournament = await buildStockTournamentResponse(user, now);
+      userResponse.stockTournamentTrade = { gross, fee, net };
+      return userResponse;
+    }, { conflictLabel: 'Stock tournament sell conflict' });
+    res.json(response);
+  } catch (err) {
+    console.error('Stock tournament sell error:', err);
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '대회 주식을 매도하지 못했습니다.' });
+  }
+});
+
+app.post('/api/stock-tournament/advanced-info', async (req, res) => {
+  const { userId, companyId } = req.body || {};
+  if (!userId || !companyId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+  try {
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      ensureUserDefaults(user);
+      if (!isStockTournamentRegistered(user)) throw createHttpError(400, '대회 참가자가 아닙니다.');
+      if (getStockTournamentPhase(now) !== 'active') throw createHttpError(400, '대회 진행 중에만 고급 정보를 사용할 수 있습니다.');
+      const tournament = ensureStockTournamentState(user);
+      if (Number(tournament.advancedInfoUsed || 0) >= STOCK_TOURNAMENT_ADVANCED_INFO_LIMIT) {
+        throw createHttpError(400, '고급 정보 찬스를 모두 사용했습니다.');
+      }
+      const market = await syncCompanyStockMarket(now);
+      const stock = (market.companies || []).find((entry) => entry.companyId === String(companyId));
+      if (!stock) throw createHttpError(404, '상장 회사를 찾을 수 없습니다.');
+      const info = {
+        companyId: String(companyId),
+        companyName: stock.companyName,
+        text: buildStockTournamentAdvancedHint(stock),
+        createdAt: now,
+        expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000)
+      };
+      tournament.advancedInfoUsed = Math.max(0, Math.floor(Number(tournament.advancedInfoUsed || 0))) + 1;
+      tournament.advancedInfos = [...(Array.isArray(tournament.advancedInfos) ? tournament.advancedInfos : []), info].slice(-STOCK_TOURNAMENT_ADVANCED_INFO_LIMIT);
+      user.stockTournament = tournament;
+      user.markModified('stockTournament');
+      const userResponse = await buildUserResponseWithGlobals(user, now);
+      userResponse.stockTournament = await buildStockTournamentResponse(user, now);
+      userResponse.advancedInfo = info;
+      return userResponse;
+    }, { conflictLabel: 'Stock tournament advanced info conflict' });
+    res.json(response);
+  } catch (err) {
+    console.error('Stock tournament advanced info error:', err);
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '고급 정보를 확인하지 못했습니다.' });
   }
 });
 

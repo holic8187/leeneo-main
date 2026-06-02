@@ -261,6 +261,7 @@ let cardSortMode = 'grade';
 let marketplaceState = { itemType: 'scroll', view: 'active', sort: 'time_desc', data: { active: [], mine: [] } };
 let marketplaceRegisterState = { itemType: 'scroll', selected: null, sort: 'acquired' };
 let companyStockMarketState = { stocks: [], holdings: [], sellFeeRate: 0.03, totalMarketValue: 0, rumors: {} };
+let stockTournamentState = { stocks: [], holdings: [], leaderboard: [], advancedInfos: [], phase: 'before', isRegistered: false, canTrade: false, cash: 0, totalAssets: 0, returnPct: 0, advancedInfoRemaining: 0 };
 let mailboxState = { mails: [] };
 let raidBattleLogPinnedToBottom = true;
 let userMutationInFlightCount = 0;
@@ -1234,6 +1235,12 @@ function setupEventListeners() {
   bindClick('stockInvestBtn', handleStockInvest);
   bindClick('stockMarketOpenBtn', openCompanyStockMarketModal);
   bindClick('stockMarketCloseBtn', closeCompanyStockMarketModal);
+  bindClick('eventBtn', openEventModal);
+  bindClick('eventCloseBtn', closeEventModal);
+  bindClick('stockTournamentRegisterBtn', handleStockTournamentRegister);
+  bindClick('stockTournamentWatchBtn', openStockTournamentModal);
+  bindClick('stockTournamentEntryBtn', openStockTournamentModal);
+  bindClick('stockTournamentCloseBtn', closeStockTournamentModal);
   bindClick('adminLogoutBtn', handleLogoutClick);
   bindClick('adminGiftBtn', handleAdminGift);
   bindClick('adminDeleteUserBtn', handleAdminDeleteUser);
@@ -2881,6 +2888,239 @@ async function handleCompanyStockRumor(companyId) {
     alert(err.message || '찌라시를 불러오지 못했습니다.');
   }
 }
+
+
+function updateStockTournamentEntryButton(user) {
+  const button = document.getElementById('stockTournamentEntryBtn');
+  if (!button) return;
+  const tournament = user?.stockTournament || {};
+  const registered = Boolean(tournament.isRegistered);
+  if (!registered) {
+    button.classList.add('hidden');
+    return;
+  }
+  button.classList.remove('hidden');
+  if (tournament.phase === 'before') {
+    button.textContent = '주식 대회 준비중';
+    button.disabled = true;
+  } else if (tournament.phase === 'ended') {
+    button.textContent = '주식 대회 결과';
+    button.disabled = false;
+  } else {
+    button.textContent = '주식 대회 참가';
+    button.disabled = false;
+  }
+}
+
+function mergeStockTournamentState(stockTournament) {
+  if (!stockTournament) return;
+  const market = stockTournament.stockMarket || {};
+  stockTournamentState = {
+    ...stockTournamentState,
+    ...stockTournament,
+    stocks: market.stocks || stockTournament.stocks || [],
+    sellFeeRate: market.sellFeeRate ?? stockTournament.sellFeeRate ?? 0.03,
+    nextUpdateAt: market.nextUpdateAt || stockTournament.nextUpdateAt || null
+  };
+}
+
+async function loadStockTournament() {
+  const user = getStoredUser();
+  if (!user?._id) return null;
+  const data = await getJson(API_URL + '/api/stock-tournament?userId=' + encodeURIComponent(user._id));
+  if (data.stockTournament) mergeStockTournamentState(data.stockTournament);
+  return stockTournamentState;
+}
+
+async function openEventModal() {
+  showModal('eventModal');
+  const status = document.getElementById('stockTournamentEventStatus');
+  if (status) status.textContent = '대회 정보를 불러오는 중입니다.';
+  try {
+    await loadStockTournament();
+    renderStockTournamentEventPanel();
+  } catch (err) {
+    if (status) status.textContent = err.message || '대회 정보를 불러오지 못했습니다.';
+  }
+}
+
+function closeEventModal() {
+  hideModal('eventModal');
+}
+
+function getTournamentDateText(value) {
+  const date = value ? new Date(value) : null;
+  if (!date || !Number.isFinite(date.getTime())) return '-';
+  return date.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+}
+
+function renderStockTournamentEventPanel() {
+  const status = document.getElementById('stockTournamentEventStatus');
+  const registerBtn = document.getElementById('stockTournamentRegisterBtn');
+  const watchBtn = document.getElementById('stockTournamentWatchBtn');
+  if (status) {
+    const start = getTournamentDateText(stockTournamentState.startAt);
+    const end = getTournamentDateText(stockTournamentState.endAt);
+    const registeredText = stockTournamentState.isRegistered ? '참가 신청 완료' : '미참가';
+    status.textContent = `${stockTournamentState.phaseLabel || '대회 상태 확인중'} / ${registeredText} / 시작 ${start} / 종료 ${end}`;
+  }
+  if (registerBtn) {
+    registerBtn.disabled = !stockTournamentState.canRegister;
+    registerBtn.textContent = stockTournamentState.isRegistered ? '참가 신청 완료' : '참여한다';
+  }
+  if (watchBtn) {
+    watchBtn.textContent = stockTournamentState.phase === 'before' ? '대회장 미리보기' : '대회장 보기';
+  }
+}
+
+async function handleStockTournamentRegister() {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+  try {
+    const data = await postJson(API_URL + '/api/stock-tournament/register', { userId: user._id });
+    if (data.stockTournament) mergeStockTournamentState(data.stockTournament);
+    updateLocalUserState(data, { force: true });
+    renderStockTournamentEventPanel();
+    alert('주식투자 대회 참가 신청이 완료되었습니다.');
+  } catch (err) {
+    alert(err.message || '참가 신청에 실패했습니다.');
+  }
+}
+
+async function openStockTournamentModal() {
+  showModal('stockTournamentModal');
+  const status = document.getElementById('stockTournamentStatus');
+  if (status) status.textContent = '대회 정보를 불러오는 중입니다.';
+  try {
+    await loadStockTournament();
+    renderStockTournament();
+  } catch (err) {
+    if (status) status.textContent = err.message || '대회 정보를 불러오지 못했습니다.';
+  }
+}
+
+function closeStockTournamentModal() {
+  hideModal('stockTournamentModal');
+}
+
+function getStockTournamentAdvancedInfo(companyId) {
+  const infos = Array.isArray(stockTournamentState.advancedInfos) ? stockTournamentState.advancedInfos : [];
+  const now = Date.now();
+  return [...infos].reverse().find((entry) => entry.companyId === companyId && (!entry.expiresAt || Date.parse(entry.expiresAt) > now));
+}
+
+function renderStockTournamentLeaderboard() {
+  const container = document.getElementById('stockTournamentLeaderboard');
+  if (!container) return;
+  const leaderboard = stockTournamentState.leaderboard || [];
+  if (!leaderboard.length) {
+    container.innerHTML = '<p class="menu-note">아직 참가자가 없습니다.</p>';
+    return;
+  }
+  container.innerHTML = leaderboard.slice(0, 30).map((entry) => (
+    '<div class="stock-tournament-rank-row">' +
+      '<strong>' + formatNumber(entry.rank) + '위</strong>' +
+      '<span>' + escapeHtml(entry.nickname || '참가자') + '</span>' +
+      '<span>' + formatNumber(entry.totalAssets || 0) + '원</span>' +
+      '<span class="' + (Number(entry.returnPct || 0) >= 0 ? 'stock-change-up' : 'stock-change-down') + '">' + (Number(entry.returnPct || 0) >= 0 ? '+' : '') + formatNumber(entry.returnPct || 0, 2) + '%</span>' +
+    '</div>'
+  )).join('');
+}
+
+function renderStockTournament() {
+  const tbody = document.getElementById('stockTournamentList');
+  const summary = document.getElementById('stockTournamentSummary');
+  const status = document.getElementById('stockTournamentStatus');
+  if (!tbody) return;
+  const stocks = stockTournamentState.stocks || [];
+  const holdings = new Map((stockTournamentState.holdings || []).map((entry) => [entry.companyId, entry]));
+  const phaseText = stockTournamentState.phaseLabel || '대회 상태 확인중';
+  if (summary) {
+    if (stockTournamentState.isRegistered) {
+      summary.textContent = `가상 현금 ${formatNumber(stockTournamentState.cash || 0)}원 / 총 재산 ${formatNumber(stockTournamentState.totalAssets || 0)}원 / 수익률 ${Number(stockTournamentState.returnPct || 0) >= 0 ? '+' : ''}${formatNumber(stockTournamentState.returnPct || 0, 2)}% / 고급 정보 ${formatNumber(stockTournamentState.advancedInfoRemaining || 0)}회 남음`;
+    } else {
+      summary.textContent = '미참가자는 거래 없이 순위와 종목만 구경할 수 있습니다.';
+    }
+  }
+  if (status) {
+    const next = stockTournamentState.nextUpdateAt ? new Date(stockTournamentState.nextUpdateAt) : null;
+    const timeText = next && Number.isFinite(next.getTime()) ? ' / 다음 가격 변동 ' + next.toLocaleTimeString('ko-KR') : '';
+    status.textContent = `${phaseText}${timeText}`;
+  }
+  tbody.innerHTML = stocks.length ? '' : '<tr><td colspan="8">상장된 회사가 아직 없습니다.</td></tr>';
+  stocks.forEach((stock, index) => {
+    const holding = holdings.get(stock.companyId) || {};
+    const buyInputId = 'tournament-buy-' + index;
+    const sellInputId = 'tournament-sell-' + index;
+    const currentPrice = Number(stock.price || 0);
+    const averagePrice = Number(holding.averagePrice || 0);
+    const marketValue = Number(holding.marketValue || 0);
+    const profitRate = Number.isFinite(Number(holding.profitRate)) ? Number(holding.profitRate) : (averagePrice > 0 ? ((currentPrice - averagePrice) / averagePrice) * 100 : 0);
+    const change = Number(stock.lastChangePct || 0);
+    const changeClass = change >= 0 ? 'stock-change-up' : 'stock-change-down';
+    const info = getStockTournamentAdvancedInfo(stock.companyId);
+    const tradeDisabled = !stockTournamentState.canTrade;
+    const infoDisabled = tradeDisabled || !stockTournamentState.isRegistered || Number(stockTournamentState.advancedInfoRemaining || 0) <= 0;
+    const row = document.createElement('tr');
+    row.innerHTML =
+      '<td>' + escapeHtml(stock.companyName || '이름 없는 회사') + '<div class="muted-text">가치 ' + formatNumber(stock.companyValue || 0) + '원</div></td>' +
+      '<td>' + formatNumber(currentPrice) + '원</td>' +
+      '<td class="' + changeClass + '">' + (change >= 0 ? '+' : '') + formatNumber(change, 2) + '%</td>' +
+      '<td>' + buildCompanyStockChart(stock.history) + '</td>' +
+      '<td>' + formatNumber(holding.shares || 0) + '주<div class="muted-text">평가 ' + formatNumber(marketValue) + '원</div><div class="muted-text">평단 ' + formatNumber(averagePrice, 2) + '원</div><div class="muted-text ' + (profitRate >= 0 ? 'stock-change-up' : 'stock-change-down') + '">수익률 ' + (profitRate >= 0 ? '+' : '') + formatNumber(profitRate, 2) + '%</div></td>' +
+      '<td><div class="stock-trade-row"><input id="' + buyInputId + '" class="stock-share-input" type="number" min="1" step="1" value="1" ' + (tradeDisabled ? 'disabled' : '') + '><button class="mini-btn" onclick="handleStockTournamentBuy(\'' + escapeHtml(stock.companyId) + '\', \'' + buyInputId + '\')" ' + (tradeDisabled ? 'disabled' : '') + '>매수</button></div></td>' +
+      '<td><div class="stock-trade-row"><input id="' + sellInputId + '" class="stock-share-input" type="number" min="1" max="' + Math.max(1, Number(holding.shares || 0)) + '" step="1" value="1" ' + (tradeDisabled ? 'disabled' : '') + '><button class="mini-btn" onclick="handleStockTournamentSell(\'' + escapeHtml(stock.companyId) + '\', \'' + sellInputId + '\')" ' + (tradeDisabled || Number(holding.shares || 0) <= 0 ? 'disabled' : '') + '>매도</button></div></td>' +
+      '<td><button class="mini-btn" onclick="handleStockTournamentAdvancedInfo(\'' + escapeHtml(stock.companyId) + '\')" ' + (infoDisabled ? 'disabled' : '') + '>고급 정보</button>' + (info ? '<div class="company-stock-rumor">' + escapeHtml(info.text || '') + '</div>' : '') + '</td>';
+    tbody.appendChild(row);
+  });
+  renderStockTournamentLeaderboard();
+}
+
+async function handleStockTournamentBuy(companyId, inputId) {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+  const input = document.getElementById(inputId);
+  const shares = Math.max(1, Math.floor(Number(input?.value || 1)));
+  try {
+    const data = await postJson(API_URL + '/api/stock-tournament/buy', { userId: user._id, companyId, shares });
+    if (data.stockTournament) mergeStockTournamentState(data.stockTournament);
+    updateLocalUserState(data, { force: true });
+    renderStockTournament();
+  } catch (err) {
+    alert(err.message || '대회 주식을 매수하지 못했습니다.');
+  }
+}
+
+async function handleStockTournamentSell(companyId, inputId) {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+  const input = document.getElementById(inputId);
+  const shares = Math.max(1, Math.floor(Number(input?.value || 1)));
+  try {
+    const data = await postJson(API_URL + '/api/stock-tournament/sell', { userId: user._id, companyId, shares });
+    if (data.stockTournament) mergeStockTournamentState(data.stockTournament);
+    updateLocalUserState(data, { force: true });
+    renderStockTournament();
+    if (data.stockTournamentTrade) alert('대회 매도 정산: ' + formatNumber(data.stockTournamentTrade.net) + '원 (수수료 ' + formatNumber(data.stockTournamentTrade.fee) + '원)');
+  } catch (err) {
+    alert(err.message || '대회 주식을 매도하지 못했습니다.');
+  }
+}
+
+async function handleStockTournamentAdvancedInfo(companyId) {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+  try {
+    const data = await postJson(API_URL + '/api/stock-tournament/advanced-info', { userId: user._id, companyId });
+    if (data.stockTournament) mergeStockTournamentState(data.stockTournament);
+    updateLocalUserState(data, { force: true });
+    renderStockTournament();
+    if (data.advancedInfo?.text) alert(data.advancedInfo.text);
+  } catch (err) {
+    alert(err.message || '고급 정보를 확인하지 못했습니다.');
+  }
+}
+
 function getMaxUsableItemQuantity(user, itemId, ownedQuantity = null) {
   const aggregatedOwned = getInventoryQuantityFromUser(user, itemId);
   const parsedOwned = Math.floor(Number(ownedQuantity));
@@ -7087,6 +7327,7 @@ function updateStatusUI(user) {
   setText('passiveExpPreview', formatNumber(state.passiveDailyExp ?? 0, 2));
   setText('clickExpPreview', formatNumber(state.clickExp ?? 0));
   setText('stressReductionPreview', `${formatNumber(itemStats.stressReduction ?? 0, 2)}%`);
+  updateStockTournamentEntryButton(user);
 }
 
 function updateBuffUI(user) {

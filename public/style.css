@@ -2753,3 +2753,62 @@ progress {
   font-size: 11px;
   letter-spacing: -0.03em;
 }
+
+
+.event-entry-btn {
+  background: #fff7cc;
+  border-color: #d6a700;
+  color: #7a4d00;
+}
+
+.stock-tournament-entry-btn {
+  background: #0f6bff;
+  border-color: #0b4fc0;
+  color: #ffe55c;
+}
+
+.event-modal-panel,
+.stock-tournament-modal-panel {
+  width: min(1180px, calc(100vw - 32px));
+}
+
+.event-rule-list {
+  margin: 10px 0 16px;
+  padding-left: 20px;
+  line-height: 1.7;
+}
+
+.stock-tournament-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 14px;
+  align-items: start;
+}
+
+.stock-tournament-ranking {
+  border: var(--excel-border);
+  background: #fbfff8;
+  padding: 10px;
+  max-height: 620px;
+  overflow: auto;
+}
+
+.stock-tournament-rank-row {
+  display: grid;
+  grid-template-columns: 42px minmax(70px, 1fr) 100px 70px;
+  gap: 6px;
+  align-items: center;
+  border-bottom: 1px solid #e1e7dd;
+  padding: 6px 0;
+  font-size: 12px;
+}
+
+@media (max-width: 900px) {
+  .stock-tournament-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .stock-tournament-ranking {
+    max-height: 260px;
+  }
+}
