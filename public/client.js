@@ -210,6 +210,10 @@ let syncInterval;
 let animationInterval;
 let raidPollInterval;
 let pvpPollInterval;
+let rankingRequestInFlight = false;
+let syncRequestInFlight = false;
+let raidPollRequestInFlight = false;
+let pvpPollRequestInFlight = false;
 let modalResolver = null;
 let latestGlobalState = { activeShoutText: '', activeShoutKey: '' };
 let lastRenderedShoutKey = '';
@@ -5006,7 +5010,9 @@ async function handlePvpAccept(accept) {
 async function pollPvpState() {
   const user = getStoredUser();
   if (!user?._id) return;
+  if (pvpPollRequestInFlight) return;
   try {
+    pvpPollRequestInFlight = true;
     const pvpScreenOpen = !document.getElementById('pvp-screen')?.classList.contains('hidden');
     const viewing = pvpScreenOpen && Boolean(latestPvpState?.match || latestPvpState?.battle);
     const previousPvpState = latestPvpState;
@@ -5028,6 +5034,8 @@ async function pollPvpState() {
     }
   } catch (err) {
     console.error('PVP state poll failed:', err);
+  } finally {
+    pvpPollRequestInFlight = false;
   }
 }
 
@@ -7143,8 +7151,10 @@ async function pollRaidState() {
   const user = getStoredUser();
   if (!user?._id) return;
   if (userMutationInFlightCount > 0) return;
+  if (raidPollRequestInFlight) return;
 
   try {
+    raidPollRequestInFlight = true;
     const raidScreenOpen = !document.getElementById('raid-screen')?.classList.contains('hidden');
     const viewing = raidScreenOpen && Boolean(latestRaidState?.activeBattle);
     const data = await postJson(`${API_URL}/api/raid/state`, { userId: user._id, viewing, mode: selectedRaidMode });
@@ -7169,6 +7179,8 @@ async function pollRaidState() {
     }
   } catch (err) {
     console.error('Raid state poll failed:', err);
+  } finally {
+    raidPollRequestInFlight = false;
   }
 }
 
@@ -7493,22 +7505,28 @@ async function syncUserState() {
   const user = getStoredUser();
   if (!user?._id) return;
   if (userMutationInFlightCount > 0) return;
+  if (syncRequestInFlight) return;
 
   try {
+    syncRequestInFlight = true;
     const data = await postJson(`${API_URL}/api/sync`, { userId: user._id });
     updateLocalUserState(data, { force: false });
   } catch (err) {
     console.error('State sync failed:', err);
+  } finally {
+    syncRequestInFlight = false;
   }
 }
 
 async function updateRankingUI() {
   const rankingListBody = document.getElementById('ranking-list-body');
   if (!rankingListBody) return;
+  if (rankingRequestInFlight) return;
   const showRankingEmblems = isRankingEmblemsEnabled();
   updateRankingEmblemToggleButton();
 
   try {
+    rankingRequestInFlight = true;
     const rankingData = await getJson(`${API_URL}/api/ranking`);
     const entries = Array.isArray(rankingData)
       ? rankingData
@@ -7522,6 +7540,7 @@ async function updateRankingUI() {
 
     if (entries.length === 0) {
       rankingListBody.innerHTML = '<tr><td colspan="3" class="center-text">랭킹 정보가 없습니다.</td></tr>';
+      rankingRequestInFlight = false;
       return;
     }
 
@@ -7566,6 +7585,7 @@ async function updateRankingUI() {
   } catch {
     rankingListBody.innerHTML = '<tr><td colspan="3" class="center-text error-text">랭킹 로딩 실패</td></tr>';
   }
+  rankingRequestInFlight = false;
 }
 
 function setRankingMode(mode) {
@@ -7588,7 +7608,7 @@ function startPeriodicUpdates() {
   rankingInterval = setInterval(updateRankingUI, 30000);
 
   syncUserState();
-  syncInterval = setInterval(syncUserState, 7000);
+  syncInterval = setInterval(syncUserState, 15000);
 
   pollRaidState();
   raidPollInterval = setInterval(pollRaidState, 3000);

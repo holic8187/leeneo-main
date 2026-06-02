@@ -194,6 +194,7 @@ const PVP_WEEKLY_REWARD_TIERS = [
   { rank: 3, bacchus: 40, businessCards: 40 }
 ];
 const PVP_WEEKLY_PARTICIPATION_REWARD = { bacchus: 20, businessCards: 20 };
+const RANKING_CACHE_TTL_MS = 30 * 1000;
 const SPECTATOR_TTL_MS = 15000;
 const PEN_SHOP_ITEM_IDS = ['pen_monami', 'pen_jetstream', 'pen_applepencil'];
 const REWARD_PEN_ITEM_IDS = ['reward_pen_monami', 'reward_pen_jetstream', 'reward_pen_applepencil'];
@@ -7214,10 +7215,26 @@ function buildRaidModeStatus(user, mode = RAID_MODE_NORMAL, now = new Date()) {
   };
 }
 
-async function buildRaidStateResponse(user, now = new Date(), mode = RAID_MODE_NORMAL) {
+let raidPollAdvanceInFlight = false;
+
+async function advanceRaidStateForPoll(now = new Date()) {
+  if (raidPollAdvanceInFlight) return;
+  raidPollAdvanceInFlight = true;
+  try {
+    await advanceRaidState(now);
+  } finally {
+    raidPollAdvanceInFlight = false;
+  }
+}
+
+async function buildRaidStateResponse(user, now = new Date(), mode = RAID_MODE_NORMAL, options = {}) {
   try {
     pruneExpiredRaidQueue(null, now);
-    await advanceRaidState(now);
+    if (options.poll) {
+      await advanceRaidStateForPoll(now);
+    } else {
+      await advanceRaidState(now);
+    }
   } catch (err) {
     console.error('Raid state reconciliation error:', err);
     [RAID_MODE_NORMAL, RAID_MODE_HARD].forEach((entryMode) => clearActiveRaidBattle(entryMode));
@@ -9504,9 +9521,25 @@ function buildPvpModeSummary(mode, modeState, userId, user) {
   };
 }
 
-async function buildPvpStateResponse(user, now = new Date(), requestedMode = PVP_MODE_RANKED) {
+let pvpPollAdvanceInFlight = false;
+
+async function advancePvpStateForPoll(now = new Date()) {
+  if (pvpPollAdvanceInFlight) return;
+  pvpPollAdvanceInFlight = true;
+  try {
+    await advancePvpState(now);
+  } finally {
+    pvpPollAdvanceInFlight = false;
+  }
+}
+
+async function buildPvpStateResponse(user, now = new Date(), requestedMode = PVP_MODE_RANKED, options = {}) {
   await processWeeklyPvpSeasonIfNeeded(now);
-  await advancePvpState(now);
+  if (options.poll) {
+    await advancePvpStateForPoll(now);
+  } else {
+    await advancePvpState(now);
+  }
   const responseNow = new Date();
   const userId = user?._id ? String(user._id) : null;
   const selectedMode = normalizePvpMode(requestedMode);
@@ -13628,9 +13661,13 @@ app.post('/api/raid/state', async (req, res) => {
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
-    const user = await User.findById(userId);
+    const user = await User.findById(userId)
+      .select('nickname username gameState.level meta.lastRaidDayKey meta.raidEntryDayKey meta.raidEntryUsedCount meta.raidEntryBonusCount');
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
-    ensureUserDefaults(user);
+    user.gameState = user.gameState || {};
+    user.gameState.level = Number(user.gameState.level || 1);
+    user.meta = user.meta || {};
+
     const now = new Date();
     const normalizedMode = normalizeRaidMode(mode);
     const room = getRaidRoom(normalizedMode);
@@ -13639,16 +13676,10 @@ app.post('/api/raid/state', async (req, res) => {
     } else {
       pruneViewerMap(room.viewers, now);
     }
-    const raid = await buildRaidStateResponse(user, now, normalizedMode);
-    res.json({
-      raid,
-      user: buildGameStateResponse(user, now),
-      notifications: Array.isArray(user.pendingNotifications) ? [...user.pendingNotifications] : [],
-      global: getGlobalState(now),
-      adminMailPendingCount: await getPendingAdminMailCount(user._id, now)
-    });
+    const raid = await buildRaidStateResponse(user, now, normalizedMode, { poll: true });
+    res.json({ raid });
   } catch (err) {
-    console.error('Raid state error:', err);
+    console.error('Raid state poll failed:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
   }
 });
@@ -14343,9 +14374,15 @@ app.post('/api/pvp/state', async (req, res) => {
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
-    const user = await User.findById(userId);
+    const user = await User.findById(userId)
+      .select('nickname username gameState.level cards enhancedCards equippedCardId equippedCardLevel meta.potatoRehabDamage meta.potatoRehabKillCount');
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
-    ensureUserDefaults(user);
+    user.gameState = user.gameState || {};
+    user.gameState.level = Number(user.gameState.level || 1);
+    user.cards = Array.isArray(user.cards) ? user.cards : [];
+    user.enhancedCards = Array.isArray(user.enhancedCards) ? user.enhancedCards : [];
+    user.meta = user.meta || {};
+
     const now = new Date();
     const pvpMode = normalizePvpMode(mode);
     const modeState = getPvpModeState(pvpMode);
@@ -14356,7 +14393,7 @@ app.post('/api/pvp/state', async (req, res) => {
     } else {
       pruneViewerMap(modeState.viewers, now);
     }
-    const pvp = await buildPvpStateResponse(user, now, pvpMode);
+    const pvp = await buildPvpStateResponse(user, now, pvpMode, { poll: true });
     res.json({ pvp });
   } catch (err) {
     console.error('PVP state error:', err);
@@ -15016,68 +15053,97 @@ app.post('/api/branch-office/dispose-item', async (req, res) => {
   }
 });
 
-app.get('/api/ranking', async (req, res) => {
-  try {
-    const now = new Date();
-    await processWeeklyPvpSeasonIfNeeded(now);
-    const rankingUsers = await User.find({ nickname: { $ne: null } })
-      .sort({ 'gameState.level': -1, 'gameState.exp': -1 })
-      .limit(20)
-      .select('nickname username gameState.level gameState.exp titles emblems meta.lastSeenAt pvpStats branchOffice');
+let rankingCachePayload = null;
+let rankingCacheExpiresAt = 0;
+let rankingCachePromise = null;
 
-    const levelRanking = rankingUsers.map((user) => ({
+async function buildRankingPayload(now = new Date()) {
+  await processWeeklyPvpSeasonIfNeeded(now);
+  const rankingUsers = await User.find({ nickname: { $ne: null } })
+    .sort({ 'gameState.level': -1, 'gameState.exp': -1 })
+    .limit(20)
+    .select('nickname username gameState.level gameState.exp titles emblems meta.lastSeenAt pvpStats branchOffice');
+
+  const levelRanking = rankingUsers.map((user) => ({
+    nickname: user.nickname,
+    displayName: buildDisplayName(user),
+    equippedEmblem: getEquippedEmblemDetail(user),
+    gameState: {
+      level: user.gameState.level,
+      exp: user.gameState.exp
+    },
+    isOnline: Boolean(user.meta?.lastSeenAt && now.getTime() - new Date(user.meta.lastSeenAt).getTime() <= ONLINE_THRESHOLD_MS),
+    branchOffice: getBranchRankingSummary(user)
+  }));
+
+  const pvpUsers = await User.find({ nickname: { $ne: null } })
+    .select('nickname username titles emblems meta.lastSeenAt pvpStats branchOffice');
+  const pvpRanking = pvpUsers
+    .map((user) => ({
       nickname: user.nickname,
       displayName: buildDisplayName(user),
       equippedEmblem: getEquippedEmblemDetail(user),
-      gameState: {
-        level: user.gameState.level,
-        exp: user.gameState.exp
+      pvpStats: {
+        rating: Math.round(Number(user.pvpStats?.rating ?? PVP_RATING_BASE)),
+        played: Math.max(0, Math.floor(Number(user.pvpStats?.played || 0))),
+        wins: Math.max(0, Math.floor(Number(user.pvpStats?.wins || 0))),
+        losses: Math.max(0, Math.floor(Number(user.pvpStats?.losses || 0)))
       },
       isOnline: Boolean(user.meta?.lastSeenAt && now.getTime() - new Date(user.meta.lastSeenAt).getTime() <= ONLINE_THRESHOLD_MS),
       branchOffice: getBranchRankingSummary(user)
-    }));
+    }))
+    .sort((a, b) => {
+      const aPlayed = a.pvpStats.played > 0 ? 1 : 0;
+      const bPlayed = b.pvpStats.played > 0 ? 1 : 0;
+      return bPlayed - aPlayed
+        || b.pvpStats.rating - a.pvpStats.rating
+        || b.pvpStats.wins - a.pvpStats.wins
+        || a.pvpStats.losses - b.pvpStats.losses
+        || String(a.nickname || '').localeCompare(String(b.nickname || ''));
+    })
+    .slice(0, 20);
 
-    const pvpUsers = await User.find({ nickname: { $ne: null } })
-      .select('nickname username titles emblems meta.lastSeenAt pvpStats branchOffice');
-    const pvpRanking = pvpUsers
-      .map((user) => ({
-        nickname: user.nickname,
-        displayName: buildDisplayName(user),
-        equippedEmblem: getEquippedEmblemDetail(user),
-        pvpStats: {
-          rating: Math.round(Number(user.pvpStats?.rating ?? PVP_RATING_BASE)),
-          played: Math.max(0, Math.floor(Number(user.pvpStats?.played || 0))),
-          wins: Math.max(0, Math.floor(Number(user.pvpStats?.wins || 0))),
-          losses: Math.max(0, Math.floor(Number(user.pvpStats?.losses || 0)))
-        },
-        isOnline: Boolean(user.meta?.lastSeenAt && now.getTime() - new Date(user.meta.lastSeenAt).getTime() <= ONLINE_THRESHOLD_MS),
-        branchOffice: getBranchRankingSummary(user)
-      }))
-      .sort((a, b) => {
-        const aPlayed = a.pvpStats.played > 0 ? 1 : 0;
-        const bPlayed = b.pvpStats.played > 0 ? 1 : 0;
-        return bPlayed - aPlayed
-          || b.pvpStats.rating - a.pvpStats.rating
-          || b.pvpStats.wins - a.pvpStats.wins
-          || a.pvpStats.losses - b.pvpStats.losses
-          || String(a.nickname || '').localeCompare(String(b.nickname || ''));
-      })
-      .slice(0, 20);
+  const branchUsers = await User.find({ nickname: { $ne: null }, 'branchOffice.isFounded': true })
+    .select('nickname username titles emblems meta.lastSeenAt pvpStats branchOffice');
+  const branchRanking = branchUsers
+    .map((user) => ({
+      nickname: user.nickname,
+      displayName: buildDisplayName(user),
+      equippedEmblem: getEquippedEmblemDetail(user),
+      branchOffice: getBranchRankingSummary(user),
+      isOnline: Boolean(user.meta?.lastSeenAt && now.getTime() - new Date(user.meta.lastSeenAt).getTime() <= ONLINE_THRESHOLD_MS)
+    }))
+    .sort((a, b) => Number(b.branchOffice?.companyValue || 0) - Number(a.branchOffice?.companyValue || 0)
+      || String(a.nickname || '').localeCompare(String(b.nickname || '')))
+    .slice(0, 20);
 
-    const branchUsers = await User.find({ nickname: { $ne: null }, 'branchOffice.isFounded': true })
-      .select('nickname username titles emblems meta.lastSeenAt pvpStats branchOffice');
-    const branchRanking = branchUsers
-      .map((user) => ({
-        nickname: user.nickname,
-        displayName: buildDisplayName(user),
-        equippedEmblem: getEquippedEmblemDetail(user),
-        branchOffice: getBranchRankingSummary(user),
-        isOnline: Boolean(user.meta?.lastSeenAt && now.getTime() - new Date(user.meta.lastSeenAt).getTime() <= ONLINE_THRESHOLD_MS)
-      }))
-      .sort((a, b) => Number(b.branchOffice?.companyValue || 0) - Number(a.branchOffice?.companyValue || 0)
-        || String(a.nickname || '').localeCompare(String(b.nickname || '')))
-      .slice(0, 20);
-    res.json({ level: levelRanking, pvp: pvpRanking, branch: branchRanking });
+  return { level: levelRanking, pvp: pvpRanking, branch: branchRanking };
+}
+
+async function getRankingPayloadCached(now = new Date()) {
+  const nowMs = now.getTime();
+  if (rankingCachePayload && rankingCacheExpiresAt > nowMs) {
+    return rankingCachePayload;
+  }
+  if (rankingCachePromise) {
+    return rankingCachePromise;
+  }
+  rankingCachePromise = buildRankingPayload(now)
+    .then((payload) => {
+      rankingCachePayload = payload;
+      rankingCacheExpiresAt = Date.now() + RANKING_CACHE_TTL_MS;
+      return payload;
+    })
+    .finally(() => {
+      rankingCachePromise = null;
+    });
+  return rankingCachePromise;
+}
+
+app.get('/api/ranking', async (req, res) => {
+  try {
+    const now = new Date();
+    res.json(await getRankingPayloadCached(now));
   } catch (err) {
     console.error('Ranking error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
