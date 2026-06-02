@@ -2214,6 +2214,17 @@ if (!process.env.JWT_SECRET) {
 
 app.use(express.json());
 app.use(cors());
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/')) return next();
+  const startedAt = Date.now();
+  res.on('finish', () => {
+    const elapsedMs = Date.now() - startedAt;
+    if (elapsedMs >= 1500) {
+      console.warn(`[slow-api] ${req.method} ${req.path} ${res.statusCode} ${elapsedMs}ms`);
+    }
+  });
+  return next();
+});
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/', (req, res) => {
@@ -4971,7 +4982,7 @@ async function claimAdminMail(userId, mailId, now = new Date()) {
       expiresAt: { $gt: now }
     },
     { $set: { status: 'claiming' } },
-    { new: true }
+    { returnDocument: 'after' }
   );
 
   if (!mail) {
@@ -13171,7 +13182,7 @@ app.post('/api/marketplace/buy', async (req, res) => {
     reservedListing = await MarketplaceListing.findOneAndUpdate(
       { _id: listingId, status: 'active', createdAt: { $gt: cutoff } },
       { $set: { status: 'sold', buyerId: userId, soldAt: now } },
-      { new: true }
+      { returnDocument: 'after' }
     );
     if (!reservedListing) {
       return res.status(409).json({ msg: '방금 다른 유저가 먼저 구매했습니다.' });
@@ -13237,7 +13248,7 @@ app.post('/api/marketplace/cancel', async (req, res) => {
     cancelledListing = await MarketplaceListing.findOneAndUpdate(
       { _id: listingId, sellerId: userId, status: previousStatus },
       { $set: { status: 'cancelled' } },
-      { new: true }
+      { returnDocument: 'after' }
     );
     if (!cancelledListing) {
       return res.status(404).json({ msg: '취소할 등록 물품을 찾을 수 없습니다.' });

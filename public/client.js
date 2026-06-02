@@ -3884,6 +3884,12 @@ function updateLocalUserState(data, options = {}) {
   showNotifications(data.notifications);
 }
 
+function getActiveMenuTabName() {
+  const activeTab = document.querySelector('.menu-content:not(.hidden)');
+  if (!activeTab?.id?.startsWith('tab-')) return 'work';
+  return activeTab.id.slice(4);
+}
+
 async function processAdventureResult(result) {
   if (!result) return;
 
@@ -7233,17 +7239,22 @@ async function handleRaidCountdownCancelClick() {
 
 
 function updateGameUI(user) {
+  const activeTabName = getActiveMenuTabName();
   updateStatusUI(user);
   updateBuffUI(user);
   updateSpecialActionButtons(user);
   updateSkillTab(user);
   refreshSideJobStatus(user);
   updateShoutStatus(user);
-  if (!hasFocusedQuantityInput()) {
+  if (activeTabName === 'inventory' && !hasFocusedQuantityInput()) {
     updateInventoryUI(user);
+  }
+  if (activeTabName === 'shop' && !hasFocusedQuantityInput()) {
     updateShopUI(user);
   }
-  updateStatsTab(user);
+  if (activeTabName === 'stats') {
+    updateStatsTab(user);
+  }
   updateInfiniteOvertimeButton(user, latestInfiniteOvertimeState);
   updateStockStatus(user);
   updateStressEffect(user.gameState?.stress || 0);
@@ -7908,6 +7919,14 @@ window.showTab = function showTab(tabName) {
 
   const activeButton = document.querySelector(`.menu-tabs button[data-tab="${tabName}"]`);
   if (activeButton) activeButton.classList.add('active');
+
+  const user = getStoredUser();
+  if (user) {
+    if (tabName === 'inventory') updateInventoryUI(user);
+    if (tabName === 'shop') updateShopUI(user);
+    if (tabName === 'stats') updateStatsTab(user);
+    if (tabName === 'skill') updateSkillTab(user);
+  }
 
   if (tabName === 'work') {
     if (!currentNewsTypingPrompt) loadNewsTypingPrompt();
