@@ -189,11 +189,11 @@ const PVP_MODE_LABELS = {
   [PVP_MODE_NORMAL]: '일반'
 };
 const PVP_WEEKLY_REWARD_TIERS = [
-  { rank: 1, bacchus: 50, businessCards: 50 },
-  { rank: 2, bacchus: 30, businessCards: 30 },
-  { rank: 3, bacchus: 20, businessCards: 20 }
+  { rank: 1, bacchus: 100, businessCards: 100 },
+  { rank: 2, bacchus: 60, businessCards: 60 },
+  { rank: 3, bacchus: 40, businessCards: 40 }
 ];
-const PVP_WEEKLY_PARTICIPATION_REWARD = { bacchus: 10, businessCards: 10 };
+const PVP_WEEKLY_PARTICIPATION_REWARD = { bacchus: 20, businessCards: 20 };
 const SPECTATOR_TTL_MS = 15000;
 const PEN_SHOP_ITEM_IDS = ['pen_monami', 'pen_jetstream', 'pen_applepencil'];
 const REWARD_PEN_ITEM_IDS = ['reward_pen_monami', 'reward_pen_jetstream', 'reward_pen_applepencil'];
