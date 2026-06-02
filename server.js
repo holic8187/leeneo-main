@@ -21,6 +21,7 @@ let newsTypingCache = {
   fallback: false,
   stats: []
 };
+let newsTypingFetchPromise = null;
 let newsTypingCursor = 0;
 const activeNewsTypingSubmissions = new Set();
 const recentNewsTypingSubmissions = new Map();
@@ -51,6 +52,10 @@ const COMPANY_STOCK_SELL_FEE_RATE = 0.03;
 const COMPANY_STOCK_RUMOR_ACCURACY = 0.6;
 const COMPANY_STOCK_RUMOR_TTL_MS = 10 * 60 * 1000;
 const COMPANY_STOCK_MAX_BACKFILL_TICKS = 288;
+const COMPANY_STOCK_MARKET_CACHE_TTL_MS = 10 * 1000;
+let companyStockMarketCache = null;
+let companyStockMarketCacheExpiresAt = 0;
+let companyStockMarketSyncPromise = null;
 const STOCK_TOURNAMENT_ID = 'stock_tournament_1';
 const STOCK_TOURNAMENT_NAME = '제 1회 주식투자 대회';
 const STOCK_TOURNAMENT_START_AT = new Date('2026-06-03T00:00:00.000Z');
@@ -2679,7 +2684,7 @@ function normalizeCompanyStockEntry(entry, now = new Date()) {
   };
 }
 
-async function syncCompanyStockMarket(now = new Date()) {
+async function syncCompanyStockMarketUncached(now = new Date()) {
   let setting = await GameSetting.findOne({ key: COMPANY_STOCK_MARKET_SETTING_KEY });
   if (!setting) {
     setting = new GameSetting({ key: COMPANY_STOCK_MARKET_SETTING_KEY, value: { companies: [], lastTickAt: now, nextTickAt: new Date(now.getTime() + COMPANY_STOCK_UPDATE_INTERVAL_MS) } });
@@ -2730,6 +2735,29 @@ async function syncCompanyStockMarket(now = new Date()) {
     { upsert: true }
   );
   return nextValue;
+}
+
+async function syncCompanyStockMarket(now = new Date()) {
+  const nowMs = now.getTime();
+  const cachedNextTickAt = companyStockMarketCache?.nextTickAt ? new Date(companyStockMarketCache.nextTickAt).getTime() : 0;
+  const cachedMarketStillBeforeTick = !Number.isFinite(cachedNextTickAt) || cachedNextTickAt <= 0 || cachedNextTickAt > nowMs;
+  if (companyStockMarketCache && companyStockMarketCacheExpiresAt > nowMs && cachedMarketStillBeforeTick) {
+    return companyStockMarketCache;
+  }
+  if (companyStockMarketSyncPromise) {
+    return companyStockMarketSyncPromise;
+  }
+
+  companyStockMarketSyncPromise = syncCompanyStockMarketUncached(now)
+    .then((market) => {
+      companyStockMarketCache = market;
+      companyStockMarketCacheExpiresAt = Date.now() + COMPANY_STOCK_MARKET_CACHE_TTL_MS;
+      return market;
+    })
+    .finally(() => {
+      companyStockMarketSyncPromise = null;
+    });
+  return companyStockMarketSyncPromise;
 }
 
 function normalizeStockPortfolio(portfolio = []) {
@@ -3983,11 +4011,36 @@ function buildUserPersistenceSnapshot(user) {
   };
 }
 
+function buildUserSyncPersistenceSnapshot(user) {
+  return {
+    nickname: user.nickname || null,
+    workHours: toPlainMongoValue(user.workHours),
+    gameState: toPlainMongoValue(user.gameState),
+    inventory: toPlainMongoValue(user.inventory),
+    pvpStats: toPlainMongoValue(user.pvpStats),
+    infiniteOvertime: toPlainMongoValue(user.infiniteOvertime),
+    branchOffice: toPlainMongoValue(user.branchOffice),
+    buffs: toPlainMongoValue(user.buffs),
+    titles: toPlainMongoValue(user.titles),
+    emblems: toPlainMongoValue(user.emblems),
+    pendingStockInvestment: toPlainMongoValue(user.pendingStockInvestment),
+    stockPortfolio: toPlainMongoValue(user.stockPortfolio),
+    stockTournament: toPlainMongoValue(user.stockTournament),
+    shopState: toPlainMongoValue(user.shopState),
+    meta: toPlainMongoValue(user.meta),
+    pendingAdventure: toPlainMongoValue(user.pendingAdventure),
+    pendingNotifications: toPlainMongoValue(user.pendingNotifications)
+  };
+}
+
 async function persistUserSnapshot(user, options = {}) {
+  const snapshotBuilder = typeof options.snapshotBuilder === 'function'
+    ? options.snapshotBuilder
+    : buildUserPersistenceSnapshot;
   const updateResult = await User.updateOne(
     { _id: user._id },
     {
-      $set: buildUserPersistenceSnapshot(user),
+      $set: snapshotBuilder(user),
       $inc: { __v: 1 }
     }
   );
@@ -5291,12 +5344,8 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = NEWS_TYPING_FETCH
   }
 }
 
-async function fetchNewsTypingPrompts(force = false) {
+async function refreshNewsTypingPrompts() {
   const now = Date.now();
-  const cacheFresh = newsTypingCache.prompts.length
-    && now - newsTypingCache.fetchedAt < (newsTypingCache.fallback ? NEWS_TYPING_FALLBACK_CACHE_TTL_MS : NEWS_TYPING_CACHE_TTL_MS);
-  if (!force && cacheFresh) return newsTypingCache.prompts;
-
   const candidates = [];
   const fetchStats = [];
   await Promise.allSettled(NEWS_TYPING_RSS_FEEDS.map(async (url) => {
@@ -5360,6 +5409,45 @@ async function fetchNewsTypingPrompts(force = false) {
   }
 
   return newsTypingCache.prompts;
+}
+
+function startNewsTypingRefreshInBackground() {
+  if (newsTypingFetchPromise) return newsTypingFetchPromise;
+  newsTypingFetchPromise = refreshNewsTypingPrompts()
+    .catch((err) => {
+      console.warn('News typing background refresh failed:', err?.message || err);
+      return newsTypingCache.prompts;
+    })
+    .finally(() => {
+      newsTypingFetchPromise = null;
+    });
+  return newsTypingFetchPromise;
+}
+
+async function fetchNewsTypingPrompts(force = false) {
+  const now = Date.now();
+  const cacheFresh = newsTypingCache.prompts.length
+    && now - newsTypingCache.fetchedAt < (newsTypingCache.fallback ? NEWS_TYPING_FALLBACK_CACHE_TTL_MS : NEWS_TYPING_CACHE_TTL_MS);
+  if (!force && cacheFresh) return newsTypingCache.prompts;
+
+  if (!force && newsTypingCache.prompts.length) {
+    startNewsTypingRefreshInBackground();
+    return newsTypingCache.prompts;
+  }
+
+  if (!force && !newsTypingCache.prompts.length) {
+    newsTypingCache = {
+      fetchedAt: now,
+      prompts: NEWS_TYPING_FALLBACK_SENTENCES.map(buildNewsTypingPrompt),
+      fallback: true,
+      stats: [{ ok: false, error: 'initial_fallback' }]
+    };
+    startNewsTypingRefreshInBackground();
+    return newsTypingCache.prompts;
+  }
+
+  if (newsTypingFetchPromise) return newsTypingFetchPromise;
+  return startNewsTypingRefreshInBackground();
 }
 
 function cleanupNewsTypingSubmissionGuards(now = Date.now()) {
@@ -12287,6 +12375,8 @@ app.post('/api/company-stock-market/rumor', async (req, res) => {
         { $set: { value: market, updatedAt: now } },
         { upsert: true }
       );
+      companyStockMarketCache = market;
+      companyStockMarketCacheExpiresAt = Date.now() + COMPANY_STOCK_MARKET_CACHE_TTL_MS;
     } else {
       company.rumor = currentRumor;
     }
@@ -13420,7 +13510,7 @@ app.post('/api/cards/draw', async (req, res) => {
       });
 
       user.gameState.lastActionTime = now;
-      const response = await buildUserResponseWithGlobals(user, now);
+      const response = await buildFastUserResponseWithGlobals(user, now);
       response.drawResults = results;
       return response;
     }, { conflictLabel: 'Card draw conflict' });
@@ -13510,7 +13600,7 @@ app.post('/api/cards/fuse', async (req, res) => {
       addCardToCollection(user, resultCardId, 1);
 
       user.gameState.lastActionTime = now;
-      const response = await buildUserResponseWithGlobals(user, now);
+      const response = await buildFastUserResponseWithGlobals(user, now);
       response.fusionResult = {
         sourceGrade,
         result: {
@@ -13586,7 +13676,7 @@ app.post('/api/cards/enhance', async (req, res) => {
       }
 
       user.gameState.lastActionTime = now;
-      const response = await buildUserResponseWithGlobals(user, now);
+      const response = await buildFastUserResponseWithGlobals(user, now);
       response.enhancementResult = {
         cardId,
         success: isSuccess,
@@ -14769,10 +14859,11 @@ app.post('/api/action/shout', async (req, res) => {
 });
 
 app.post('/api/sync', async (req, res) => {
-  const { userId } = req.body;
+  const { userId, includeCounts } = req.body;
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
+    const shouldIncludePendingCounts = includeCounts === true;
     const response = await withUserMutationLock(userId, async () => {
       const user = await User.findById(userId);
       if (!user) {
@@ -14783,8 +14874,10 @@ app.post('/api/sync', async (req, res) => {
       calculateOfflineGains(user, now);
       reconcileTitles(user, now);
 
-      const syncResponse = await buildUserResponseWithGlobals(user, now);
-      await persistUserSnapshot(user);
+      const syncResponse = await buildUserResponseWithGlobals(user, now, {
+        includePendingCounts: shouldIncludePendingCounts
+      });
+      await persistUserSnapshot(user, { snapshotBuilder: buildUserSyncPersistenceSnapshot });
       return syncResponse;
     });
     res.json(response);
@@ -14801,13 +14894,16 @@ app.post('/api/sync', async (req, res) => {
         }
         ensureUserDefaults(latestUser);
         const now = new Date();
-        return res.json({
+        const recoveryResponse = {
           user: buildGameStateResponse(latestUser, now),
           notifications: Array.isArray(latestUser.pendingNotifications) ? [...latestUser.pendingNotifications] : [],
-          global: getGlobalState(now),
-          marketplaceSoldPendingCount: await getMarketplaceSoldPendingCount(latestUser._id),
-          adminMailPendingCount: await getPendingAdminMailCount(latestUser._id, now)
-        });
+          global: getGlobalState(now)
+        };
+        if (includeCounts === true) {
+          recoveryResponse.marketplaceSoldPendingCount = await getMarketplaceSoldPendingCount(latestUser._id);
+          recoveryResponse.adminMailPendingCount = await getPendingAdminMailCount(latestUser._id, now);
+        }
+        return res.json(recoveryResponse);
       } catch (reloadErr) {
         console.error('Sync conflict recovery error:', reloadErr);
       }
@@ -15053,97 +15149,126 @@ app.post('/api/branch-office/dispose-item', async (req, res) => {
   }
 });
 
-let rankingCachePayload = null;
-let rankingCacheExpiresAt = 0;
-let rankingCachePromise = null;
+const rankingCacheByMode = new Map();
 
-async function buildRankingPayload(now = new Date()) {
+function normalizeRankingMode(mode = 'all') {
+  if (mode === 'level' || mode === 'pvp' || mode === 'branch') return mode;
+  return 'all';
+}
+
+async function buildRankingPayload(now = new Date(), requestedMode = 'all') {
+  const mode = normalizeRankingMode(requestedMode);
   await processWeeklyPvpSeasonIfNeeded(now);
-  const rankingUsers = await User.find({ nickname: { $ne: null } })
-    .sort({ 'gameState.level': -1, 'gameState.exp': -1 })
-    .limit(20)
-    .select('nickname username gameState.level gameState.exp titles emblems meta.lastSeenAt pvpStats branchOffice');
+  const payload = {};
 
-  const levelRanking = rankingUsers.map((user) => ({
-    nickname: user.nickname,
-    displayName: buildDisplayName(user),
-    equippedEmblem: getEquippedEmblemDetail(user),
-    gameState: {
-      level: user.gameState.level,
-      exp: user.gameState.exp
-    },
-    isOnline: Boolean(user.meta?.lastSeenAt && now.getTime() - new Date(user.meta.lastSeenAt).getTime() <= ONLINE_THRESHOLD_MS),
-    branchOffice: getBranchRankingSummary(user)
-  }));
+  if (mode === 'all' || mode === 'level') {
+    const rankingUsers = await User.find({ nickname: { $ne: null } })
+      .sort({ 'gameState.level': -1, 'gameState.exp': -1 })
+      .limit(20)
+      .select('nickname username gameState.level gameState.exp titles emblems meta.lastSeenAt pvpStats branchOffice');
 
-  const pvpUsers = await User.find({ nickname: { $ne: null } })
-    .select('nickname username titles emblems meta.lastSeenAt pvpStats branchOffice');
-  const pvpRanking = pvpUsers
-    .map((user) => ({
+    payload.level = rankingUsers.map((user) => ({
       nickname: user.nickname,
       displayName: buildDisplayName(user),
       equippedEmblem: getEquippedEmblemDetail(user),
-      pvpStats: {
-        rating: Math.round(Number(user.pvpStats?.rating ?? PVP_RATING_BASE)),
-        played: Math.max(0, Math.floor(Number(user.pvpStats?.played || 0))),
-        wins: Math.max(0, Math.floor(Number(user.pvpStats?.wins || 0))),
-        losses: Math.max(0, Math.floor(Number(user.pvpStats?.losses || 0)))
+      gameState: {
+        level: user.gameState.level,
+        exp: user.gameState.exp
       },
       isOnline: Boolean(user.meta?.lastSeenAt && now.getTime() - new Date(user.meta.lastSeenAt).getTime() <= ONLINE_THRESHOLD_MS),
       branchOffice: getBranchRankingSummary(user)
-    }))
-    .sort((a, b) => {
-      const aPlayed = a.pvpStats.played > 0 ? 1 : 0;
-      const bPlayed = b.pvpStats.played > 0 ? 1 : 0;
-      return bPlayed - aPlayed
-        || b.pvpStats.rating - a.pvpStats.rating
-        || b.pvpStats.wins - a.pvpStats.wins
-        || a.pvpStats.losses - b.pvpStats.losses
-        || String(a.nickname || '').localeCompare(String(b.nickname || ''));
-    })
-    .slice(0, 20);
+    }));
+  }
 
-  const branchUsers = await User.find({ nickname: { $ne: null }, 'branchOffice.isFounded': true })
-    .select('nickname username titles emblems meta.lastSeenAt pvpStats branchOffice');
-  const branchRanking = branchUsers
-    .map((user) => ({
-      nickname: user.nickname,
-      displayName: buildDisplayName(user),
-      equippedEmblem: getEquippedEmblemDetail(user),
-      branchOffice: getBranchRankingSummary(user),
-      isOnline: Boolean(user.meta?.lastSeenAt && now.getTime() - new Date(user.meta.lastSeenAt).getTime() <= ONLINE_THRESHOLD_MS)
-    }))
-    .sort((a, b) => Number(b.branchOffice?.companyValue || 0) - Number(a.branchOffice?.companyValue || 0)
-      || String(a.nickname || '').localeCompare(String(b.nickname || '')))
-    .slice(0, 20);
+  if (mode === 'all' || mode === 'pvp') {
+    const pvpUsers = await User.find({ nickname: { $ne: null } })
+      .select('nickname username titles emblems meta.lastSeenAt pvpStats branchOffice');
+    payload.pvp = pvpUsers
+      .map((user) => ({
+        nickname: user.nickname,
+        displayName: buildDisplayName(user),
+        equippedEmblem: getEquippedEmblemDetail(user),
+        pvpStats: {
+          rating: Math.round(Number(user.pvpStats?.rating ?? PVP_RATING_BASE)),
+          played: Math.max(0, Math.floor(Number(user.pvpStats?.played || 0))),
+          wins: Math.max(0, Math.floor(Number(user.pvpStats?.wins || 0))),
+          losses: Math.max(0, Math.floor(Number(user.pvpStats?.losses || 0)))
+        },
+        isOnline: Boolean(user.meta?.lastSeenAt && now.getTime() - new Date(user.meta.lastSeenAt).getTime() <= ONLINE_THRESHOLD_MS),
+        branchOffice: getBranchRankingSummary(user)
+      }))
+      .sort((a, b) => {
+        const aPlayed = a.pvpStats.played > 0 ? 1 : 0;
+        const bPlayed = b.pvpStats.played > 0 ? 1 : 0;
+        return bPlayed - aPlayed
+          || b.pvpStats.rating - a.pvpStats.rating
+          || b.pvpStats.wins - a.pvpStats.wins
+          || a.pvpStats.losses - b.pvpStats.losses
+          || String(a.nickname || '').localeCompare(String(b.nickname || ''));
+      })
+      .slice(0, 20);
+  }
 
-  return { level: levelRanking, pvp: pvpRanking, branch: branchRanking };
+  if (mode === 'all' || mode === 'branch') {
+    const branchUsers = await User.find({ nickname: { $ne: null }, 'branchOffice.isFounded': true })
+      .select('nickname username titles emblems meta.lastSeenAt pvpStats branchOffice');
+    payload.branch = branchUsers
+      .map((user) => ({
+        nickname: user.nickname,
+        displayName: buildDisplayName(user),
+        equippedEmblem: getEquippedEmblemDetail(user),
+        branchOffice: getBranchRankingSummary(user),
+        isOnline: Boolean(user.meta?.lastSeenAt && now.getTime() - new Date(user.meta.lastSeenAt).getTime() <= ONLINE_THRESHOLD_MS)
+      }))
+      .sort((a, b) => Number(b.branchOffice?.companyValue || 0) - Number(a.branchOffice?.companyValue || 0)
+        || String(a.nickname || '').localeCompare(String(b.nickname || '')))
+      .slice(0, 20);
+  }
+
+  return payload;
 }
 
-async function getRankingPayloadCached(now = new Date()) {
+async function getRankingPayloadCached(now = new Date(), requestedMode = 'all') {
+  const mode = normalizeRankingMode(requestedMode);
   const nowMs = now.getTime();
-  if (rankingCachePayload && rankingCacheExpiresAt > nowMs) {
-    return rankingCachePayload;
+  const cached = rankingCacheByMode.get(mode);
+  if (cached?.payload && cached.expiresAt > nowMs) {
+    return cached.payload;
   }
-  if (rankingCachePromise) {
-    return rankingCachePromise;
+  if (cached?.promise) {
+    return cached.promise;
   }
-  rankingCachePromise = buildRankingPayload(now)
+  const promise = buildRankingPayload(now, mode)
     .then((payload) => {
-      rankingCachePayload = payload;
-      rankingCacheExpiresAt = Date.now() + RANKING_CACHE_TTL_MS;
+      rankingCacheByMode.set(mode, {
+        payload,
+        expiresAt: Date.now() + RANKING_CACHE_TTL_MS,
+        promise: null
+      });
       return payload;
     })
     .finally(() => {
-      rankingCachePromise = null;
+      const latest = rankingCacheByMode.get(mode);
+      if (latest?.promise === promise) {
+        rankingCacheByMode.set(mode, {
+          payload: latest.payload,
+          expiresAt: latest.expiresAt || 0,
+          promise: null
+        });
+      }
     });
-  return rankingCachePromise;
+  rankingCacheByMode.set(mode, {
+    payload: cached?.payload || null,
+    expiresAt: cached?.expiresAt || 0,
+    promise
+  });
+  return promise;
 }
 
 app.get('/api/ranking', async (req, res) => {
   try {
     const now = new Date();
-    res.json(await getRankingPayloadCached(now));
+    res.json(await getRankingPayloadCached(now, req.query.mode || 'all'));
   } catch (err) {
     console.error('Ranking error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });

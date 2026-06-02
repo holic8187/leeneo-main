@@ -214,6 +214,7 @@ let rankingRequestInFlight = false;
 let syncRequestInFlight = false;
 let raidPollRequestInFlight = false;
 let pvpPollRequestInFlight = false;
+let lastSyncPendingCountAt = 0;
 let modalResolver = null;
 let latestGlobalState = { activeShoutText: '', activeShoutKey: '' };
 let lastRenderedShoutKey = '';
@@ -7509,7 +7510,9 @@ async function syncUserState() {
 
   try {
     syncRequestInFlight = true;
-    const data = await postJson(`${API_URL}/api/sync`, { userId: user._id });
+    const includeCounts = Date.now() - lastSyncPendingCountAt >= 60000;
+    const data = await postJson(`${API_URL}/api/sync`, { userId: user._id, includeCounts });
+    if (includeCounts) lastSyncPendingCountAt = Date.now();
     updateLocalUserState(data, { force: false });
   } catch (err) {
     console.error('State sync failed:', err);
@@ -7527,7 +7530,7 @@ async function updateRankingUI() {
 
   try {
     rankingRequestInFlight = true;
-    const rankingData = await getJson(`${API_URL}/api/ranking`);
+    const rankingData = await getJson(`${API_URL}/api/ranking?mode=${encodeURIComponent(rankingMode)}`);
     const entries = Array.isArray(rankingData)
       ? rankingData
       : (rankingMode === 'pvp' ? (rankingData.pvp || []) : (rankingMode === 'branch' ? (rankingData.branch || []) : (rankingData.level || [])));
@@ -7608,7 +7611,7 @@ function startPeriodicUpdates() {
   rankingInterval = setInterval(updateRankingUI, 30000);
 
   syncUserState();
-  syncInterval = setInterval(syncUserState, 15000);
+  syncInterval = setInterval(syncUserState, 30000);
 
   pollRaidState();
   raidPollInterval = setInterval(pollRaidState, 3000);
