@@ -3875,8 +3875,12 @@ function updateLocalUserState(data, options = {}) {
     updatePvpButton(latestUser, latestPvpState);
     updateInfiniteOvertimeButton(latestUser, latestInfiniteOvertimeState);
   }
-  updateMarketplacePendingDot(data.marketplaceSoldPendingCount);
-  updateMailboxPendingDot(data.adminMailPendingCount);
+  if (Object.prototype.hasOwnProperty.call(data, 'marketplaceSoldPendingCount')) {
+    updateMarketplacePendingDot(data.marketplaceSoldPendingCount);
+  }
+  if (Object.prototype.hasOwnProperty.call(data, 'adminMailPendingCount')) {
+    updateMailboxPendingDot(data.adminMailPendingCount);
+  }
   showNotifications(data.notifications);
 }
 

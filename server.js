@@ -11263,12 +11263,20 @@ function buildUserResponse(user, now = new Date()) {
   };
 }
 
-async function buildUserResponseWithGlobals(user, now = new Date()) {
+async function buildUserResponseWithGlobals(user, now = new Date(), options = {}) {
   const response = buildUserResponse(user, now);
   response.global = getGlobalState(now);
-  response.marketplaceSoldPendingCount = await getMarketplaceSoldPendingCount(user._id);
-  response.adminMailPendingCount = await getPendingAdminMailCount(user._id, now);
+
+  if (options.includePendingCounts !== false) {
+    response.marketplaceSoldPendingCount = await getMarketplaceSoldPendingCount(user._id);
+    response.adminMailPendingCount = await getPendingAdminMailCount(user._id, now);
+  }
+
   return response;
+}
+
+async function buildFastUserResponseWithGlobals(user, now = new Date()) {
+  return buildUserResponseWithGlobals(user, now, { includePendingCounts: false });
 }
 
 function getBearerToken(req) {
@@ -11457,7 +11465,7 @@ function rollAdventureEvent() {
 }
 
 async function buildAdventureChoiceResponse(user, now = new Date()) {
-  const response = await buildUserResponseWithGlobals(user, now);
+  const response = await buildFastUserResponseWithGlobals(user, now);
   response.adventureResult = {
     requiresChoice: true,
     title: `${user.pendingAdventure.location} / ${user.pendingAdventure.actor}`,
@@ -11607,7 +11615,7 @@ app.post('/api/action/work', async (req, res) => {
       if (workDrop?.text) {
         queueNotification(user, 'work_drop', workDrop.text);
       }
-      const response = await buildUserResponseWithGlobals(user, now);
+      const response = await buildFastUserResponseWithGlobals(user, now);
       if (workDrop) {
         response.workDrop = workDrop;
       }
@@ -11691,7 +11699,7 @@ app.post('/api/action/news-typing', async (req, res) => {
       });
 
       const nextPrompt = await getNewsTypingPrompt(prompt.id);
-      const mutationResponse = await buildUserResponseWithGlobals(user, now);
+      const mutationResponse = await buildFastUserResponseWithGlobals(user, now);
       mutationResponse.newsTypingResult = {
         gainedExp,
         unitCount,
@@ -11763,7 +11771,7 @@ app.post('/api/skill/work-optimization', async (req, res) => {
         }
       }
 
-      const mutationResponse = await buildUserResponseWithGlobals(user, now);
+      const mutationResponse = await buildFastUserResponseWithGlobals(user, now);
       mutationResponse.skillResult = {
         name: '업무 최적화',
         deliveredCount,
@@ -11801,7 +11809,7 @@ app.post('/api/action/field-work', async (req, res) => {
       setOrRefreshBuff(user, 'field_work_buff', FIELD_WORK_DURATION_MS);
       user.gameState.lastActionTime = now;
 
-      return buildUserResponseWithGlobals(user, now);
+      return buildFastUserResponseWithGlobals(user, now);
     }, { conflictLabel: 'Field work action conflict' });
     res.json(response);
   } catch (err) {
@@ -11860,7 +11868,7 @@ app.post('/api/action/adventure', async (req, res) => {
       clearPendingAdventure(user);
       reconcileTitles(user, now);
 
-      const response = await buildUserResponseWithGlobals(user, now);
+      const response = await buildFastUserResponseWithGlobals(user, now);
       response.adventureResult = {
         requiresChoice: false,
         title: eventTitle,
@@ -11935,7 +11943,7 @@ app.post('/api/action/adventure/resolve', async (req, res) => {
       clearPendingAdventure(user);
       reconcileTitles(user, now);
 
-      const response = await buildUserResponseWithGlobals(user, now);
+      const response = await buildFastUserResponseWithGlobals(user, now);
       response.adventureResult = {
         requiresChoice: false,
         title: eventTitle,
@@ -11974,7 +11982,7 @@ app.post('/api/action/lupin', async (req, res) => {
       setOrRefreshBuff(user, 'lupin_exp_buff', LUPIN_EXP_DURATION_MS);
       user.gameState.lastActionTime = now;
 
-      return buildUserResponseWithGlobals(user, now);
+      return buildFastUserResponseWithGlobals(user, now);
     }, { conflictLabel: 'Lupin action conflict' });
     res.json(response);
   } catch (err) {
@@ -12000,7 +12008,7 @@ app.post('/api/action/nap', async (req, res) => {
       addUserStress(user, -30);
       user.gameState.lastActionTime = now;
 
-      return buildUserResponseWithGlobals(user, now);
+      return buildFastUserResponseWithGlobals(user, now);
     }, { conflictLabel: 'Nap action conflict' });
     res.json(response);
   } catch (err) {
@@ -12067,7 +12075,7 @@ app.post('/api/action/side-job', async (req, res) => {
       }
       ensureUserDefaults(savedUser);
 
-      const mutationResponse = await buildUserResponseWithGlobals(savedUser, now);
+      const mutationResponse = await buildFastUserResponseWithGlobals(savedUser, now);
       const moneyAfter = Number(savedUser.gameState.money || 0);
       const stressAfter = Number(savedUser.gameState.stress || 0);
       const staminaAfter = Number(savedUser.gameState.stamina || 0);
@@ -12153,7 +12161,7 @@ app.post('/api/company-stock-market/buy', async (req, res) => {
       user.stockPortfolio = portfolio;
       user.markModified('stockPortfolio');
       user.gameState.lastActionTime = now;
-      const userResponse = await buildUserResponseWithGlobals(user, now);
+      const userResponse = await buildFastUserResponseWithGlobals(user, now);
       userResponse.stockMarket = await buildCompanyStockMarketResponse(user, now);
       return userResponse;
     }, { conflictLabel: 'Company stock buy conflict' });
@@ -12203,7 +12211,7 @@ app.post('/api/company-stock-market/sell', async (req, res) => {
       user.stockPortfolio = portfolio;
       user.markModified('stockPortfolio');
       user.gameState.lastActionTime = now;
-      const userResponse = await buildUserResponseWithGlobals(user, now);
+      const userResponse = await buildFastUserResponseWithGlobals(user, now);
       userResponse.stockMarket = await buildCompanyStockMarketResponse(user, now);
       userResponse.stockTrade = { gross, fee, net };
       return userResponse;
@@ -12289,7 +12297,7 @@ app.post('/api/stock-tournament/register', async (req, res) => {
         tournament.finalReturnPct = 0;
         user.markModified('stockTournament');
       }
-      const userResponse = await buildUserResponseWithGlobals(user, now);
+      const userResponse = await buildFastUserResponseWithGlobals(user, now);
       userResponse.stockTournament = await buildStockTournamentResponse(user, now);
       return userResponse;
     }, { conflictLabel: 'Stock tournament register conflict' });
@@ -12348,7 +12356,7 @@ app.post('/api/stock-tournament/buy', async (req, res) => {
       tournament.holdings = holdings;
       user.stockTournament = tournament;
       user.markModified('stockTournament');
-      const userResponse = await buildUserResponseWithGlobals(user, now);
+      const userResponse = await buildFastUserResponseWithGlobals(user, now);
       userResponse.stockTournament = await buildStockTournamentResponse(user, now);
       return userResponse;
     }, { conflictLabel: 'Stock tournament buy conflict' });
@@ -12401,7 +12409,7 @@ app.post('/api/stock-tournament/sell', async (req, res) => {
       tournament.holdings = holdings;
       user.stockTournament = tournament;
       user.markModified('stockTournament');
-      const userResponse = await buildUserResponseWithGlobals(user, now);
+      const userResponse = await buildFastUserResponseWithGlobals(user, now);
       userResponse.stockTournament = await buildStockTournamentResponse(user, now);
       userResponse.stockTournamentTrade = { gross, fee, net };
       return userResponse;
@@ -12441,7 +12449,7 @@ app.post('/api/stock-tournament/advanced-info', async (req, res) => {
       tournament.advancedInfos = [...(Array.isArray(tournament.advancedInfos) ? tournament.advancedInfos : []), info].slice(-STOCK_TOURNAMENT_ADVANCED_INFO_LIMIT);
       user.stockTournament = tournament;
       user.markModified('stockTournament');
-      const userResponse = await buildUserResponseWithGlobals(user, now);
+      const userResponse = await buildFastUserResponseWithGlobals(user, now);
       userResponse.stockTournament = await buildStockTournamentResponse(user, now);
       userResponse.advancedInfo = info;
       return userResponse;
@@ -12493,7 +12501,7 @@ app.post('/api/action/stock', async (req, res) => {
     }
 
     reconcileTitles(user, now);
-    const response = await buildUserResponseWithGlobals(user, now);
+    const response = await buildFastUserResponseWithGlobals(user, now);
     await persistUserSnapshot(user);
     res.json(response);
   } catch (err) {
@@ -12568,7 +12576,7 @@ app.post('/api/shop/buy', async (req, res) => {
     reconcileEmblems(user);
     user.gameState.lastActionTime = now;
 
-    const response = await buildUserResponseWithGlobals(user, now);
+    const response = await buildFastUserResponseWithGlobals(user, now);
     response.shopPurchase = {
       itemId,
       itemName: itemInfo.name,
@@ -12625,7 +12633,7 @@ app.post('/api/fragment-shop/buy', async (req, res) => {
     user.shopState[shopItem.countField] = purchasedToday + 1;
     user.gameState.lastActionTime = now;
 
-    const response = await buildUserResponseWithGlobals(user, now);
+    const response = await buildFastUserResponseWithGlobals(user, now);
     response.fragmentShop = buildFragmentShopState(user, now);
     response.fragmentShopPurchase = {
       shopItemId: shopItem.id,
@@ -12672,7 +12680,7 @@ app.post('/api/emblem-shop/buy', async (req, res) => {
       if (!user.emblems.equipped) user.emblems.equipped = emblemId;
       user.gameState.lastActionTime = now;
 
-      const response = await buildUserResponseWithGlobals(user, now);
+      const response = await buildFastUserResponseWithGlobals(user, now);
       response.emblemShopPurchase = {
         emblemId,
         emblemName: emblem.name,
@@ -12708,7 +12716,7 @@ app.post('/api/emblem/toggle', async (req, res) => {
       user.emblems.equipped = user.emblems.equipped === emblemId ? null : emblemId;
       user.gameState.lastActionTime = now;
 
-      const response = await buildUserResponseWithGlobals(user, now);
+      const response = await buildFastUserResponseWithGlobals(user, now);
       await persistUserSnapshot(user);
       res.json(response);
     });
@@ -12812,7 +12820,7 @@ app.post('/api/inventory/use', async (req, res) => {
       reconcileSkills(user, now);
       user.gameState.lastActionTime = now;
 
-      const response = await buildUserResponseWithGlobals(user, now);
+      const response = await buildFastUserResponseWithGlobals(user, now);
       response.itemUseResult = {
         itemId,
         itemName: itemInfo.name,
@@ -12852,7 +12860,7 @@ app.post('/api/title/toggle', async (req, res) => {
     user.titles.equipped = user.titles.equipped === titleId ? null : titleId;
     user.meta.lastTitleChangeDayKey = todayKey;
     user.gameState.stamina = Math.min(user.gameState.stamina, getEffectiveMaxStamina(user, now));
-    const response = await buildUserResponseWithGlobals(user, now);
+    const response = await buildFastUserResponseWithGlobals(user, now);
     await persistUserSnapshot(user);
     res.json(response);
   } catch (err) {
@@ -12886,7 +12894,7 @@ app.post('/api/equipment/toggle-equip', async (req, res) => {
       user.equippedEquipment[slotKey] = equipment.equipmentId;
     }
 
-    const response = await buildUserResponseWithGlobals(user, now);
+    const response = await buildFastUserResponseWithGlobals(user, now);
     await persistUserSnapshot(user);
     res.json(response);
   } catch (err) {
@@ -12935,7 +12943,7 @@ app.post('/api/equipment/upgrade', async (req, res) => {
       }
 
       const logText = buildEquipmentEnhanceLog(scrollItemId, equipment, success);
-      const response = await buildUserResponseWithGlobals(user, now);
+      const response = await buildFastUserResponseWithGlobals(user, now);
       response.equipmentUpgrade = {
         success,
         equipmentId: equipment.equipmentId,
@@ -13004,7 +13012,7 @@ app.post('/api/equipment/dismantle', async (req, res) => {
       }
       user.gameState.lastActionTime = now;
 
-      const response = await buildUserResponseWithGlobals(user, now);
+      const response = await buildFastUserResponseWithGlobals(user, now);
       response.equipmentDismantle = {
         count: dismantled.length,
         fragments: fragmentCount,
