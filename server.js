@@ -10708,45 +10708,27 @@ function applyBranchOfficeDailySettlement(user, now = new Date()) {
   if (office.lastSettlementDayKey === todayKey) return;
   const days = office.lastSettlementDayKey ? Math.max(1, Math.min(7, getDateKeyDiff(todayKey, office.lastSettlementDayKey))) : 1;
   let totalBurned = 0;
+  let hadUnpaidCost = false;
   for (let i = 0; i < days && office.isFounded; i += 1) {
     const salaryCost = office.employees.reduce((sum, employee) => sum + Math.max(0, Math.floor(Number(employee.dailySalary || 0))), 0);
     const salaryPaid = Math.min(user.gameState.money, salaryCost);
     user.gameState.money -= salaryPaid;
     totalBurned += salaryPaid;
-    if (salaryPaid < salaryCost && office.companyValue > 0) {
-      office.companyValue = Math.floor(office.companyValue * 0.95);
-    }
+    if (salaryPaid < salaryCost) hadUnpaidCost = true;
 
     const maintenanceCost = Math.floor(office.companyValue * BRANCH_OFFICE_MAINTENANCE_RATE);
     const maintenancePaid = Math.min(user.gameState.money, maintenanceCost);
     user.gameState.money -= maintenancePaid;
     totalBurned += maintenancePaid;
-    if (maintenancePaid >= maintenanceCost) {
-      office.missedMaintenanceDays = 0;
-    } else if (maintenanceCost > 0) {
-      office.missedMaintenanceDays += 1;
-      const unpaidRatio = Math.max(0, Math.min(1, (maintenanceCost - maintenancePaid) / maintenanceCost));
-      const lossRate = Math.min(0.8, unpaidRatio * (0.15 + office.missedMaintenanceDays * 0.05));
-      office.companyValue = Math.floor(office.companyValue * (1 - lossRate));
-    }
-
-    if (office.missedMaintenanceDays >= BRANCH_OFFICE_BANKRUPT_MISSED_DAYS) {
-      office.isFounded = false;
-      office.companyName = '';
-      office.foundedAt = null;
-      office.companyValue = 0;
-      office.employees = [];
-      office.items = [];
-      office.storageSlots = BRANCH_OFFICE_BASE_STORAGE_SLOTS;
-      office.missedMaintenanceDays = 0;
-      office.lastLog = '지사 유지비 미납이 누적되어 파산 처리되었습니다. 재설립이 필요합니다.';
-      queueNotification(user, 'branch_office_bankrupt', office.lastLog);
-      break;
-    }
+    if (maintenancePaid < maintenanceCost) hadUnpaidCost = true;
+    office.missedMaintenanceDays = 0;
   }
   office.lastSettlementDayKey = todayKey;
   if (totalBurned > 0 && office.isFounded) {
-    office.lastLog = '일일 정산으로 ' + totalBurned.toLocaleString() + '원이 사용되었습니다.';
+    office.lastLog = '일일 정산으로 ' + totalBurned.toLocaleString() + '원이 사용되었습니다.'
+      + (hadUnpaidCost ? ' 일부 비용을 전부 처리하지 못했지만 회사 가치는 유지됩니다.' : '');
+  } else if (hadUnpaidCost && office.isFounded) {
+    office.lastLog = '정산 비용이 부족했지만 회사 가치는 유지됩니다.';
   }
 }
 
@@ -11526,9 +11508,10 @@ function applyAdventureReward(user, reward, now = new Date()) {
   }
 
   if (reward.type === 'money') {
-    const beforeMoney = user.gameState.money;
-    user.gameState.money = Math.max(0, user.gameState.money + reward.amount);
-    const actualDelta = user.gameState.money - beforeMoney;
+    const rewardAmount = Math.trunc(Number(reward.amount || 0));
+    const beforeMoney = Number(user.gameState.money || 0);
+    user.gameState.money = Math.max(0, beforeMoney + rewardAmount);
+    const actualDelta = Math.trunc(user.gameState.money - beforeMoney);
     if (actualDelta === 0) return '잔고는 변하지 않았습니다.';
     return actualDelta > 0
       ? `${actualDelta.toLocaleString()}원을 획득했습니다.`
