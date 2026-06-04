@@ -3917,6 +3917,7 @@ function buildRaidParticipantCardSkillDescription(participant, card) {
 }
 
 function queueNotification(user, type, text) {
+  if (type === 'infinite_overtime_reward') return;
   user.pendingNotifications.push({ type, text });
 }
 
@@ -3925,7 +3926,8 @@ function markUserSeen(user, now = new Date()) {
 }
 
 function consumeNotifications(user) {
-  const notifications = [...user.pendingNotifications];
+  const notifications = [...user.pendingNotifications]
+    .filter((notification) => notification?.type !== 'infinite_overtime_reward');
   user.pendingNotifications = [];
   return notifications;
 }

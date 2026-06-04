@@ -2058,6 +2058,7 @@ function showNotifications(notifications = []) {
   }
   notifications.forEach((notification) => {
     if (!notification?.text) return;
+    if (notification.type === 'infinite_overtime_reward') return;
     const key = `${notification.type || ''}::${notification.text}`;
     if (seen.has(key)) return;
     const lastShownAt = recentNotificationKeys.get(key) || 0;
@@ -4736,7 +4737,10 @@ function renderOvertimeResultPanel(state) {
   const panel = document.getElementById('overtimeResultPanel');
   const battle = state?.battle;
   if (!panel || !battle || !['victory', 'defeat'].includes(battle.phase)) {
-    panel?.classList.add('hidden');
+    if (panel) {
+      panel.classList.add('hidden');
+      panel.innerHTML = '';
+    }
     return;
   }
   panel.classList.remove('hidden');
