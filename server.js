@@ -250,6 +250,38 @@ const EMBLEM_DATA = {
     className: 'emblem-carbon-fiber',
     shopType: 'money',
     effects: { expBonus: 1.5 }
+  },
+  winter_manager_season: {
+    id: 'winter_manager_season',
+    name: '차가운 겨부장의 계절',
+    price: 0,
+    desc: '개인면담 랭킹 주간 정산 1위에게 최초 1회 지급됩니다. 보유 효과: 회사 유지비 1% 감소',
+    imageUrl: '',
+    className: 'emblem-winter-manager-season',
+    shopType: 'unlock',
+    effects: { maintenanceReduction: 1 }
+  },
+  chunsik_art_2: {
+    id: 'chunsik_art_2',
+    name: '춘식이 작품2',
+    price: 0,
+    desc: '고양이에게 참치캔을 300번 이상 건넨 유저에게 1회 지급됩니다. 보유 효과: 주식 거래 수수료 5% 감소',
+    imageUrl: '',
+    className: 'emblem-chunsik-art-2',
+    shopType: 'unlock',
+    unlockCatFoodGiven: 300,
+    effects: { stockFeeReduction: 5 }
+  },
+  idol: {
+    id: 'idol',
+    name: 'IDOL',
+    price: 0,
+    fragmentCost: 20000,
+    desc: '파편 상점에서 구매할 수 있습니다. 보유 효과: 무한야근 보상 10% 증가',
+    imageUrl: '',
+    className: 'emblem-idol',
+    shopType: 'fragment',
+    effects: { infiniteOvertimeRewardBonus: 10 }
   }
 };
 const EQUIPMENT_DROP_CHANCE = 0.0005;
@@ -1419,6 +1451,15 @@ const FRAGMENT_SHOP_ITEMS = {
     quantity: 1,
     dailyLimit: 1,
     countField: 'dailyFragmentCatButlerEmblemPurchases'
+  },
+  idol_emblem: {
+    id: 'idol_emblem',
+    emblemId: 'idol',
+    name: 'IDOL 휘장',
+    cost: 20000,
+    quantity: 1,
+    dailyLimit: 1,
+    countField: 'dailyFragmentIdolEmblemPurchases'
   }
 };
 
@@ -2418,6 +2459,7 @@ const userSchema = new mongoose.Schema({
     dailyFragmentRaidTicketPurchases: { type: Number, default: 0 },
     dailyFragmentBusinessCardPurchases: { type: Number, default: 0 },
     dailyFragmentCatButlerEmblemPurchases: { type: Number, default: 0 },
+    dailyFragmentIdolEmblemPurchases: { type: Number, default: 0 },
     lastShoppingAddictQualifiedDayKey: { type: String, default: null }
   },
   meta: {
@@ -2778,6 +2820,8 @@ async function buildCompanyStockMarketResponse(user, now = new Date()) {
   const market = await syncCompanyStockMarket(now);
   const companies = Array.isArray(market.companies) ? market.companies : [];
   const portfolio = normalizeStockPortfolio(user?.stockPortfolio);
+  const derivedStats = user ? calculateDerivedStats(user, now) : null;
+  const sellFeeRate = user ? getEffectiveCompanyStockSellFeeRate(user, now, derivedStats) : COMPANY_STOCK_SELL_FEE_RATE;
   const holdings = portfolio.map((holding) => {
     const stock = companies.find((company) => company.companyId === holding.companyId);
     const currentPrice = stock ? getStockTournamentValuationPrice(stock, now) : 0;
@@ -2804,7 +2848,9 @@ async function buildCompanyStockMarketResponse(user, now = new Date()) {
       history: company.history || []
     })),
     holdings,
-    sellFeeRate: COMPANY_STOCK_SELL_FEE_RATE,
+    sellFeeRate,
+    baseSellFeeRate: COMPANY_STOCK_SELL_FEE_RATE,
+    stockFeeReductionPercent: Number(derivedStats?.stockFeeReductionPercent || 0),
     nextUpdateAt: market.nextTickAt || null,
     totalMarketValue: holdings.reduce((sum, holding) => sum + Number(holding.marketValue || 0), 0)
   };
@@ -3282,6 +3328,7 @@ function ensureUserDefaults(user) {
       dailyFragmentRaidTicketPurchases: 0,
       dailyFragmentBusinessCardPurchases: 0,
       dailyFragmentCatButlerEmblemPurchases: 0,
+      dailyFragmentIdolEmblemPurchases: 0,
       lastShoppingAddictQualifiedDayKey: null
     };
   }
@@ -3293,6 +3340,7 @@ function ensureUserDefaults(user) {
   user.shopState.dailyFragmentRaidTicketPurchases = Number(user.shopState.dailyFragmentRaidTicketPurchases ?? 0);
   user.shopState.dailyFragmentBusinessCardPurchases = Number(user.shopState.dailyFragmentBusinessCardPurchases ?? 0);
   user.shopState.dailyFragmentCatButlerEmblemPurchases = Number(user.shopState.dailyFragmentCatButlerEmblemPurchases ?? 0);
+  user.shopState.dailyFragmentIdolEmblemPurchases = Number(user.shopState.dailyFragmentIdolEmblemPurchases ?? 0);
   user.shopState.lastShoppingAddictQualifiedDayKey = user.shopState.lastShoppingAddictQualifiedDayKey || null;
 
   normalizeBranchOffice(user);
@@ -4277,6 +4325,9 @@ async function processWeeklyPvpSeasonUnchecked(now = new Date()) {
       if (!alreadyRewarded) {
         addItemToInventory(user, 'bacchus', reward.bacchus);
         addItemToInventory(user, 'business_card', reward.businessCards);
+        if (rank === 1) {
+          unlockEmblem(user, 'winter_manager_season');
+        }
         queueNotification(
           user,
           'pvp_weekly_reward',
@@ -8314,7 +8365,7 @@ function getInfiniteOvertimeBot(battle) {
   return battle?.players?.find((player) => player.isBot) || null;
 }
 
-function buildInfiniteOvertimeReward(floor) {
+function buildInfiniteOvertimeReward(floor, rewardBonusPercent = 0) {
   const ratio = Math.max(0, Math.min(1, (Number(floor || 1) - 1) / Math.max(1, INFINITE_OVERTIME_MAX_FLOOR - 1)));
   const rewardTypes = [
     { type: 'fragment', itemId: 'equipment_fragment', min: 50, max: 400, label: '장비 파편' },
@@ -8323,7 +8374,9 @@ function buildInfiniteOvertimeReward(floor) {
     { type: 'raid_ticket', itemId: 'raid_entry_ticket', min: 1, max: 3, label: '회의 추가 입장권' }
   ];
   const picked = rewardTypes[Math.floor(Math.random() * rewardTypes.length)];
-  const amount = Math.max(1, Math.round(Number(picked.min || 1) + ((Number(picked.max || picked.min) - Number(picked.min || 1)) * ratio)));
+  const baseAmount = Math.max(1, Math.round(Number(picked.min || 1) + ((Number(picked.max || picked.min) - Number(picked.min || 1)) * ratio)));
+  const rewardMultiplier = 1 + Math.max(0, Number(rewardBonusPercent || 0)) / 100;
+  const amount = Math.max(1, Math.round(baseAmount * rewardMultiplier));
   return {
     ...picked,
     quantity: amount,
@@ -8333,7 +8386,8 @@ function buildInfiniteOvertimeReward(floor) {
 
 function grantInfiniteOvertimeReward(user, battle) {
   if (!battle || battle.rewardGranted) return battle?.reward || null;
-  const reward = buildInfiniteOvertimeReward(battle.floor);
+  const derivedStats = calculateDerivedStats(user);
+  const reward = buildInfiniteOvertimeReward(battle.floor, derivedStats.infiniteOvertimeRewardBonusPercent);
   addItemToInventory(user, reward.itemId, reward.quantity);
   battle.reward = reward;
   battle.rewardGranted = true;
@@ -10097,8 +10151,10 @@ function unlockEmblem(user, emblemId, options = {}) {
 function reconcileEmblems(user) {
   ensureUserDefaults(user);
   Object.values(EMBLEM_DATA).forEach((emblem) => {
-    if (!emblem.unlockLevel) return;
-    if (Number(user.gameState?.level || 1) >= Number(emblem.unlockLevel || 0)) {
+    if (emblem.unlockLevel && Number(user.gameState?.level || 1) >= Number(emblem.unlockLevel || 0)) {
+      unlockEmblem(user, emblem.id);
+    }
+    if (emblem.unlockCatFoodGiven && Number(user.meta?.catFoodGivenCount || 0) >= Number(emblem.unlockCatFoodGiven || 0)) {
       unlockEmblem(user, emblem.id);
     }
   });
@@ -10124,6 +10180,7 @@ function syncDailyShopState(user, now = new Date()) {
     user.shopState.dailyFragmentRaidTicketPurchases = 0;
     user.shopState.dailyFragmentBusinessCardPurchases = 0;
     user.shopState.dailyFragmentCatButlerEmblemPurchases = 0;
+    user.shopState.dailyFragmentIdolEmblemPurchases = 0;
   }
 }
 
@@ -10206,7 +10263,10 @@ function calculateEmblemStats(emblems = {}) {
   const stats = {
     moneyBonus: 0,
     expBonus: 0,
-    raidRewardBonus: 0
+    raidRewardBonus: 0,
+    maintenanceReduction: 0,
+    stockFeeReduction: 0,
+    infiniteOvertimeRewardBonus: 0
   };
 
   const unlocked = Array.isArray(emblems?.unlocked) ? [...new Set(emblems.unlocked)] : [];
@@ -10216,12 +10276,25 @@ function calculateEmblemStats(emblems = {}) {
     stats.moneyBonus += Number(effects.moneyBonus || 0);
     stats.expBonus += Number(effects.expBonus || 0);
     stats.raidRewardBonus += Number(effects.raidRewardBonus || 0);
+    stats.maintenanceReduction += Number(effects.maintenanceReduction || 0);
+    stats.stockFeeReduction += Number(effects.stockFeeReduction || 0);
+    stats.infiniteOvertimeRewardBonus += Number(effects.infiniteOvertimeRewardBonus || 0);
   });
 
   stats.moneyBonus = Number(stats.moneyBonus.toFixed(2));
   stats.expBonus = Number(stats.expBonus.toFixed(2));
   stats.raidRewardBonus = Number(stats.raidRewardBonus.toFixed(2));
+  stats.maintenanceReduction = Number(stats.maintenanceReduction.toFixed(2));
+  stats.stockFeeReduction = Number(stats.stockFeeReduction.toFixed(2));
+  stats.infiniteOvertimeRewardBonus = Number(stats.infiniteOvertimeRewardBonus.toFixed(2));
   return stats;
+}
+
+function getEffectiveCompanyStockSellFeeRate(user, now = new Date(), derivedStats = null) {
+  if (!user) return COMPANY_STOCK_SELL_FEE_RATE;
+  const stats = derivedStats || calculateDerivedStats(user, now);
+  const reduction = Math.max(0, Math.min(100, Number(stats.stockFeeReductionPercent || 0)));
+  return Number((COMPANY_STOCK_SELL_FEE_RATE * Math.max(0, 1 - reduction / 100)).toFixed(6));
 }
 
 
@@ -10702,13 +10775,16 @@ function rollBranchCollectibleItem(user, rareBonusOverride = null) {
   return pool[Math.floor(Math.random() * pool.length)] || Object.values(BRANCH_COLLECTIBLE_ITEMS)[0];
 }
 
-function applyBranchOfficeDailySettlement(user, now = new Date()) {
+function applyBranchOfficeDailySettlement(user, now = new Date(), derivedStats = null) {
   normalizeBranchOffice(user);
   const office = user.branchOffice;
   if (!office.isFounded) return;
   const todayKey = getKSTDateKey(now);
   if (office.lastSettlementDayKey === todayKey) return;
   const days = office.lastSettlementDayKey ? Math.max(1, Math.min(7, getDateKeyDiff(todayKey, office.lastSettlementDayKey))) : 1;
+  const stats = derivedStats || calculateDerivedStats(user, now);
+  const maintenanceReduction = Math.max(0, Math.min(100, Number(stats.maintenanceReductionPercent || 0)));
+  const effectiveMaintenanceRate = BRANCH_OFFICE_MAINTENANCE_RATE * Math.max(0, 1 - maintenanceReduction / 100);
   let totalBurned = 0;
   let hadUnpaidCost = false;
   for (let i = 0; i < days && office.isFounded; i += 1) {
@@ -10718,7 +10794,7 @@ function applyBranchOfficeDailySettlement(user, now = new Date()) {
     totalBurned += salaryPaid;
     if (salaryPaid < salaryCost) hadUnpaidCost = true;
 
-    const maintenanceCost = Math.floor(office.companyValue * BRANCH_OFFICE_MAINTENANCE_RATE);
+    const maintenanceCost = Math.floor(office.companyValue * effectiveMaintenanceRate);
     const maintenancePaid = Math.min(user.gameState.money, maintenanceCost);
     user.gameState.money -= maintenancePaid;
     totalBurned += maintenancePaid;
@@ -10799,6 +10875,8 @@ function buildBranchOfficePublicState(user, now = new Date(), derivedStats = nul
     : getBranchExcavationDurationMs(user);
   const eligible = isBranchOfficeEligible(user, now, stats);
   const salaryPerMinute = getSalaryPerMinute(user.gameState.level, stats.moneyBonusPercent);
+  const maintenanceReduction = Math.max(0, Math.min(100, Number(stats.maintenanceReductionPercent || 0)));
+  const effectiveMaintenanceRate = BRANCH_OFFICE_MAINTENANCE_RATE * Math.max(0, 1 - maintenanceReduction / 100);
   return {
     isFounded: office.isFounded,
     eligible,
@@ -10848,8 +10926,10 @@ function buildBranchOfficePublicState(user, now = new Date(), derivedStats = nul
     nextStorageCost: getBranchNextStorageCost(user),
     dailySalaryBase,
     salaryPerMinute,
-    dailyMaintenanceCost: Math.floor(office.companyValue * BRANCH_OFFICE_MAINTENANCE_RATE),
-    maintenanceRate: BRANCH_OFFICE_MAINTENANCE_RATE,
+    dailyMaintenanceCost: Math.floor(office.companyValue * effectiveMaintenanceRate),
+    maintenanceRate: effectiveMaintenanceRate,
+    baseMaintenanceRate: BRANCH_OFFICE_MAINTENANCE_RATE,
+    maintenanceReductionPercent: maintenanceReduction,
     missedMaintenanceDays: office.missedMaintenanceDays,
     highIncomeTax: {
       applies: eligible && !office.isFounded,
@@ -10937,6 +11017,9 @@ function calculateDerivedStats(user, now = new Date()) {
     itemExpBonusPercent: itemStats.expBonus,
     emblemExpBonusPercent: emblemStats.expBonus,
     raidRewardBonusPercent: emblemStats.raidRewardBonus,
+    maintenanceReductionPercent: emblemStats.maintenanceReduction,
+    stockFeeReductionPercent: emblemStats.stockFeeReduction,
+    infiniteOvertimeRewardBonusPercent: emblemStats.infiniteOvertimeRewardBonus,
     branchHourlyExpPercent: branchItemStats.hourlyExpPercent,
     branchExcavationBonusPercent: branchItemStats.excavationPowerBonus,
     branchRaidExpBonusPercent: branchItemStats.bossRaidExpBonus,
@@ -11156,7 +11239,7 @@ function calculateOfflineGains(user, now = new Date()) {
   if (elapsedSeconds < 0) elapsedSeconds = 0;
 
   const derivedStats = calculateDerivedStats(user, now);
-  applyBranchOfficeDailySettlement(user, now);
+  applyBranchOfficeDailySettlement(user, now, derivedStats);
   applyBranchOfficeHighIncomeTax(user, now, derivedStats);
 
   if (elapsedSeconds === 0) {
@@ -11352,6 +11435,9 @@ function buildGameStateResponse(user, now = new Date()) {
       itemExpBonus: derivedStats.itemExpBonusPercent,
       emblemExpBonus: derivedStats.emblemExpBonusPercent,
       raidRewardBonus: derivedStats.raidRewardBonusPercent,
+      maintenanceReduction: derivedStats.maintenanceReductionPercent,
+      stockFeeReduction: derivedStats.stockFeeReductionPercent,
+      infiniteOvertimeRewardBonus: derivedStats.infiniteOvertimeRewardBonusPercent,
       branchHourlyExp: derivedStats.branchHourlyExpPercent,
       branchExcavationBonus: derivedStats.branchExcavationBonusPercent,
       branchRaidExpBonus: derivedStats.branchRaidExpBonusPercent,
@@ -12059,6 +12145,7 @@ app.post('/api/action/adventure/resolve', async (req, res) => {
       setAdventureLog(user, `${eventTitle} - ${rewardText}`);
       clearPendingAdventure(user);
       reconcileTitles(user, now);
+      reconcileEmblems(user);
 
       const response = await buildFastUserResponseWithGlobals(user, now);
       response.adventureResult = {
@@ -12306,7 +12393,9 @@ app.post('/api/company-stock-market/sell', async (req, res) => {
       const holding = holdingIndex >= 0 ? portfolio[holdingIndex] : null;
       if (!stock || !holding || Number(holding.shares || 0) < sellShares) throw createHttpError(400, '판매할 주식이 부족합니다.');
       const gross = Math.floor(Number(stock.price || 0) * sellShares);
-      const fee = Math.floor(gross * COMPANY_STOCK_SELL_FEE_RATE);
+      const derivedStats = calculateDerivedStats(user, now);
+      const feeRate = getEffectiveCompanyStockSellFeeRate(user, now, derivedStats);
+      const fee = Math.floor(gross * feeRate);
       const net = Math.max(0, gross - fee);
       user.gameState.money += net;
       const averagePrice = Number(holding.averagePrice || 0);
@@ -12330,7 +12419,7 @@ app.post('/api/company-stock-market/sell', async (req, res) => {
       user.gameState.lastActionTime = now;
       const userResponse = await buildFastUserResponseWithGlobals(user, now);
       userResponse.stockMarket = await buildCompanyStockMarketResponse(user, now);
-      userResponse.stockTrade = { gross, fee, net };
+      userResponse.stockTrade = { gross, fee, net, feeRate };
       return userResponse;
     }, { conflictLabel: 'Company stock sell conflict' });
     res.json(response);
@@ -12744,8 +12833,7 @@ app.post('/api/fragment-shop/buy', async (req, res) => {
     }
 
     if (shopItem.emblemId) {
-      user.emblems.unlocked.push(shopItem.emblemId);
-      if (!user.emblems.equipped) user.emblems.equipped = shopItem.emblemId;
+      unlockEmblem(user, shopItem.emblemId, { notify: false });
     } else {
       addItemToInventory(user, shopItem.itemId, shopItem.quantity);
     }

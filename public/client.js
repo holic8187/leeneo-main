@@ -298,6 +298,16 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-05-emblems-winter-chunsik-idol',
+    time: '2026-06-05 22:30',
+    title: '신규 휘장 3종 추가',
+    items: [
+      '<차가운 겨부장의 계절> 휘장이 추가되었습니다. 개인면담 주간 랭킹 1위에게 최초 1회 지급되며, 회사 유지비를 1% 줄여줍니다.',
+      '<춘식이 작품2> 휘장이 추가되었습니다. 고양이에게 참치캔을 300번 이상 건넨 유저에게 자동 지급되며, 주식 거래 수수료를 5% 줄여줍니다.',
+      '<IDOL> 휘장이 파편 상점에 추가되었습니다. 파편 20,000개로 구매할 수 있으며, 무한야근 보상을 10% 증가시킵니다.'
+    ]
+  },
+  {
     id: '2026-06-01-infinite-overtime-basic-refresh',
     time: '2026-06-01 21:05',
     title: '무한야근 전투 조작 안정화',

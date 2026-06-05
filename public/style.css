@@ -439,6 +439,81 @@ progress {
   display: none;
 }
 
+.emblem-winter-manager-season {
+  color: #f8fdff;
+  font-weight: 900;
+  background:
+    linear-gradient(90deg, rgba(8, 22, 38, .48) 0%, rgba(210, 238, 255, .12) 45%, rgba(8, 25, 44, .52) 100%),
+    url('/assets/emblems/winter-season-banner.png') center center / cover no-repeat;
+  box-shadow: inset 0 0 0 1px rgba(210, 242, 255, .72), inset 0 0 22px rgba(150, 220, 255, .34);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .96), 0 0 10px rgba(185, 235, 255, .7);
+}
+
+.emblem-winter-manager-season::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 0%, rgba(235, 250, 255, .42) 46%, transparent 62%);
+  transform: translateX(-120%);
+  animation: emblem-sheen 4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.emblem-winter-manager-season .ranking-emblem-icon,
+.emblem-winter-manager-season .emblem-preview-icon {
+  display: none;
+}
+
+.emblem-chunsik-art-2 {
+  color: #4a1731;
+  font-weight: 900;
+  background:
+    linear-gradient(90deg, rgba(255, 240, 249, .48) 0%, rgba(255, 255, 255, .10) 50%, rgba(255, 214, 238, .42) 100%),
+    url('/assets/emblems/chunsik-art-2-banner.png') center center / cover no-repeat;
+  box-shadow: inset 0 0 0 1px rgba(255, 154, 211, .75), inset 0 0 22px rgba(255, 145, 205, .25);
+  text-shadow: 0 1px 1px rgba(255, 255, 255, .78), 0 0 8px rgba(255, 150, 216, .54);
+}
+
+.emblem-chunsik-art-2::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 0%, rgba(255, 255, 255, .42) 45%, transparent 61%);
+  transform: translateX(-120%);
+  animation: emblem-sheen 3.7s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.emblem-chunsik-art-2 .ranking-emblem-icon,
+.emblem-chunsik-art-2 .emblem-preview-icon {
+  display: none;
+}
+
+.emblem-idol {
+  color: #fff1ff;
+  font-weight: 900;
+  background:
+    linear-gradient(90deg, rgba(18, 4, 34, .56) 0%, rgba(255, 76, 226, .10) 48%, rgba(12, 4, 28, .58) 100%),
+    url('/assets/emblems/idol-banner.png') center center / cover no-repeat;
+  box-shadow: inset 0 0 0 1px rgba(255, 113, 236, .72), inset 0 0 26px rgba(146, 76, 255, .34);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .98), 0 0 11px rgba(255, 105, 238, .72);
+}
+
+.emblem-idol::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 0%, rgba(255, 198, 255, .42) 44%, transparent 60%);
+  transform: translateX(-120%);
+  animation: emblem-sheen 3.3s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.emblem-idol .ranking-emblem-icon,
+.emblem-idol .emblem-preview-icon {
+  display: none;
+}
+
 @keyframes emblem-sheen {
   0%, 52% { transform: translateX(-120%); }
   78%, 100% { transform: translateX(120%); }
