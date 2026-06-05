@@ -281,11 +281,12 @@ progress {
 
 .ranking-list {
   max-height: 700px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: auto;
 }
 
 .ranking-list .inner-table {
-  min-width: 400px;
+  min-width: 338px;
   table-layout: fixed;
 }
 
@@ -316,18 +317,18 @@ progress {
 }
 
 .level-col {
-  width: 78px;
+  width: 58px;
 }
 
 .nickname-col {
-  width: 270px;
+  width: 228px;
 }
 
 .ranking-name-cell {
   position: relative;
   display: table-cell;
-  width: 270px;
-  min-width: 270px;
+  width: 228px;
+  min-width: 228px;
   height: 42px;
   padding-right: 10px;
   vertical-align: middle;
@@ -344,7 +345,7 @@ progress {
 
 .ranking-display-name {
   display: inline-block;
-  max-width: 238px;
+  max-width: 198px;
   vertical-align: middle;
   white-space: nowrap;
   overflow: hidden;
@@ -578,7 +579,7 @@ progress {
 .ranking-name-cell.emblem-chunsik-art-2,
 .ranking-name-cell.emblem-bitch-not,
 .ranking-name-cell.emblem-idol {
-  height: 68px;
+  height: 56px;
 }
 
 .ranking-name-cell.emblem-neo-office-ledger,
@@ -597,7 +598,7 @@ progress {
 .emblem-preview-cell.emblem-chunsik-art-2,
 .emblem-preview-cell.emblem-bitch-not,
 .emblem-preview-cell.emblem-idol {
-  background-size: auto, contain;
+  background-size: auto, cover;
   background-position: center center, center center;
   background-repeat: no-repeat, no-repeat;
 }
@@ -2664,9 +2665,11 @@ progress {
   }
 
   .workspace-side {
-    width: auto;
+    width: 340px;
+    max-width: 100%;
     border-left: none;
     border-top: var(--excel-border);
+    overflow-x: auto;
   }
 
   .status-top,
