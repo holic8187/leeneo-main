@@ -282,12 +282,18 @@ progress {
 .ranking-list {
   max-height: 700px;
   overflow-y: auto;
-  overflow-x: auto;
+  overflow-x: hidden;
 }
 
 .ranking-list .inner-table {
-  min-width: 338px;
+  width: 100%;
+  min-width: 0;
   table-layout: fixed;
+}
+
+.ranking-list th,
+.ranking-list td {
+  box-sizing: border-box;
 }
 
 .ranking-tabs {
@@ -313,22 +319,22 @@ progress {
 }
 
 .rank-col {
-  width: 52px;
+  width: 48px;
 }
 
 .level-col {
-  width: 58px;
+  width: 54px;
 }
 
 .nickname-col {
-  width: 228px;
+  width: auto;
 }
 
 .ranking-name-cell {
   position: relative;
   display: table-cell;
-  width: 228px;
-  min-width: 228px;
+  width: auto;
+  min-width: 0;
   height: 42px;
   padding-right: 10px;
   vertical-align: middle;
@@ -345,7 +351,7 @@ progress {
 
 .ranking-display-name {
   display: inline-block;
-  max-width: 198px;
+  max-width: calc(100% - 22px);
   vertical-align: middle;
   white-space: nowrap;
   overflow: hidden;
@@ -2665,11 +2671,11 @@ progress {
   }
 
   .workspace-side {
-    width: 340px;
-    max-width: 100%;
+    width: 100%;
+    max-width: none;
     border-left: none;
     border-top: var(--excel-border);
-    overflow-x: auto;
+    overflow-x: hidden;
   }
 
   .status-top,
