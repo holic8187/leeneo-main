@@ -298,6 +298,14 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-05-ranking-emblem-mobile-ratio',
+    time: '2026-06-05 23:55',
+    title: '모바일 휘장 비율 표시 개선',
+    items: [
+      '모바일 랭킹에서 휘장이 찌그러져 보이지 않도록 랭킹 표 폭과 휘장 행 높이를 고정하고, 랭킹 영역 안에서 가로 스크롤되도록 조정했습니다.'
+    ]
+  },
+  {
     id: '2026-06-05-emblem-bitch-not-mobile-fit',
     time: '2026-06-05 23:40',
     title: '휘장 표시 개선 및 신규 휘장 추가',

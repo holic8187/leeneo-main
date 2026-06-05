@@ -281,7 +281,12 @@ progress {
 
 .ranking-list {
   max-height: 700px;
-  overflow-y: auto;
+  overflow: auto;
+}
+
+.ranking-list .inner-table {
+  min-width: 400px;
+  table-layout: fixed;
 }
 
 .ranking-tabs {
@@ -311,18 +316,18 @@ progress {
 }
 
 .level-col {
-  width: 60px;
+  width: 78px;
 }
 
 .nickname-col {
-  width: 220px;
+  width: 270px;
 }
 
 .ranking-name-cell {
   position: relative;
   display: table-cell;
-  width: 220px;
-  min-width: 220px;
+  width: 270px;
+  min-width: 270px;
   height: 42px;
   padding-right: 10px;
   vertical-align: middle;
@@ -339,7 +344,7 @@ progress {
 
 .ranking-display-name {
   display: inline-block;
-  max-width: 190px;
+  max-width: 238px;
   vertical-align: middle;
   white-space: nowrap;
   overflow: hidden;
@@ -572,6 +577,17 @@ progress {
 .ranking-name-cell.emblem-winter-manager-season,
 .ranking-name-cell.emblem-chunsik-art-2,
 .ranking-name-cell.emblem-bitch-not,
+.ranking-name-cell.emblem-idol {
+  height: 68px;
+}
+
+.ranking-name-cell.emblem-neo-office-ledger,
+.ranking-name-cell.emblem-cat-butler,
+.ranking-name-cell.emblem-chunsik-art,
+.ranking-name-cell.emblem-carbon-fiber,
+.ranking-name-cell.emblem-winter-manager-season,
+.ranking-name-cell.emblem-chunsik-art-2,
+.ranking-name-cell.emblem-bitch-not,
 .ranking-name-cell.emblem-idol,
 .emblem-preview-cell.emblem-neo-office-ledger,
 .emblem-preview-cell.emblem-cat-butler,
@@ -581,7 +597,7 @@ progress {
 .emblem-preview-cell.emblem-chunsik-art-2,
 .emblem-preview-cell.emblem-bitch-not,
 .emblem-preview-cell.emblem-idol {
-  background-size: auto, 100% 100%;
+  background-size: auto, contain;
   background-position: center center, center center;
   background-repeat: no-repeat, no-repeat;
 }
@@ -594,7 +610,7 @@ progress {
 .emblem-preview-cell {
   display: inline-block;
   width: 190px;
-  min-height: 30px;
+  min-height: 48px;
   padding: 7px 38px 7px 10px;
   border: 1px solid rgba(120, 71, 0, .35);
 }
