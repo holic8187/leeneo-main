@@ -272,6 +272,17 @@ const EMBLEM_DATA = {
     unlockCatFoodGiven: 300,
     effects: { stockFeeReduction: 5 }
   },
+  bitch_not: {
+    id: 'bitch_not',
+    name: 'BITCH 아닙니다',
+    price: 0,
+    fragmentCost: 25000,
+    desc: '파편 상점에서 구매할 수 있습니다. 보유 효과: 주식 거래 수수료 10% 감소',
+    imageUrl: '',
+    className: 'emblem-bitch-not',
+    shopType: 'fragment',
+    effects: { stockFeeReduction: 10 }
+  },
   idol: {
     id: 'idol',
     name: 'IDOL',
@@ -1460,6 +1471,15 @@ const FRAGMENT_SHOP_ITEMS = {
     quantity: 1,
     dailyLimit: 1,
     countField: 'dailyFragmentIdolEmblemPurchases'
+  },
+  bitch_not_emblem: {
+    id: 'bitch_not_emblem',
+    emblemId: 'bitch_not',
+    name: 'BITCH 아닙니다 휘장',
+    cost: 25000,
+    quantity: 1,
+    dailyLimit: 1,
+    countField: 'dailyFragmentBitchNotEmblemPurchases'
   }
 };
 
@@ -2460,6 +2480,7 @@ const userSchema = new mongoose.Schema({
     dailyFragmentBusinessCardPurchases: { type: Number, default: 0 },
     dailyFragmentCatButlerEmblemPurchases: { type: Number, default: 0 },
     dailyFragmentIdolEmblemPurchases: { type: Number, default: 0 },
+    dailyFragmentBitchNotEmblemPurchases: { type: Number, default: 0 },
     lastShoppingAddictQualifiedDayKey: { type: String, default: null }
   },
   meta: {
@@ -3329,6 +3350,7 @@ function ensureUserDefaults(user) {
       dailyFragmentBusinessCardPurchases: 0,
       dailyFragmentCatButlerEmblemPurchases: 0,
       dailyFragmentIdolEmblemPurchases: 0,
+      dailyFragmentBitchNotEmblemPurchases: 0,
       lastShoppingAddictQualifiedDayKey: null
     };
   }
@@ -3341,6 +3363,7 @@ function ensureUserDefaults(user) {
   user.shopState.dailyFragmentBusinessCardPurchases = Number(user.shopState.dailyFragmentBusinessCardPurchases ?? 0);
   user.shopState.dailyFragmentCatButlerEmblemPurchases = Number(user.shopState.dailyFragmentCatButlerEmblemPurchases ?? 0);
   user.shopState.dailyFragmentIdolEmblemPurchases = Number(user.shopState.dailyFragmentIdolEmblemPurchases ?? 0);
+  user.shopState.dailyFragmentBitchNotEmblemPurchases = Number(user.shopState.dailyFragmentBitchNotEmblemPurchases ?? 0);
   user.shopState.lastShoppingAddictQualifiedDayKey = user.shopState.lastShoppingAddictQualifiedDayKey || null;
 
   normalizeBranchOffice(user);
@@ -4612,7 +4635,7 @@ function registerViewer(viewerMap, user, now = new Date()) {
   if (!viewerMap || !user?._id) return viewerMap;
   viewerMap[String(user._id)] = {
     userId: String(user._id),
-    displayName: user.nickname || user.username,
+    displayName: getCompactNickname(user, 18),
     lastSeenAt: now
   };
   pruneViewerMap(viewerMap, now);
@@ -4724,8 +4747,8 @@ function buildQueuedSlotSnapshot(user) {
   const equippedCard = getEquippedCardInfo(user);
   return {
     userId: String(user._id),
-    displayName: user.nickname || user.username,
-    nickname: user.nickname || user.username,
+    displayName: getCompactNickname(user, 16),
+    nickname: getCompactNickname(user, 16),
     level: user.gameState.level,
     equippedCardName: equippedCard?.displayName || equippedCard?.name || '장착 카드 없음',
     equippedCardGrade: equippedCard?.grade || null,
@@ -4747,8 +4770,8 @@ function createRaidParticipantFromUser(user) {
   const equippedBasicAttack = equippedEquipment?.equipmentType === EQUIPMENT_TYPE_ATTACK ? equippedEquipment : null;
   return {
     userId: String(user._id),
-    displayName: user.nickname || user.username,
-    nickname: user.nickname || user.username,
+    displayName: getCompactNickname(user, 18),
+    nickname: getCompactNickname(user, 18),
     level: user.gameState.level,
     maxHp: 100,
     hp: 100,
@@ -5853,11 +5876,22 @@ function getEquippedTitleDefinition(user) {
   return TITLE_DATA[user.titles.equipped] || null;
 }
 
+function truncateUiText(value, maxLength = 24) {
+  const text = String(value || '').trim();
+  const chars = Array.from(text);
+  if (chars.length <= maxLength) return text;
+  return `${chars.slice(0, Math.max(1, maxLength - 1)).join('')}…`;
+}
+
+function getCompactNickname(user, maxLength = 18) {
+  return truncateUiText(user?.nickname || user?.username || '', maxLength);
+}
+
 function buildDisplayName(user) {
   const titleInfo = getEquippedTitleDefinition(user);
   const baseName = user.nickname || user.username;
   const titlePrefix = titleInfo ? `<${titleInfo.name}>` : '';
-  return `${titlePrefix}${baseName}`;
+  return truncateUiText(`${titlePrefix}${baseName}`, 24);
 }
 
 function rollCardDraw() {
@@ -8080,7 +8114,7 @@ function createPvpParticipantFromUser(user, match, picks) {
   const equippedBasicAttack = equippedEquipment?.equipmentType === EQUIPMENT_TYPE_ATTACK ? equippedEquipment : null;
   return {
     userId: String(user._id),
-    displayName: user.nickname || user.username,
+    displayName: getCompactNickname(user, 18),
     level: 1,
     maxHp: PVP_MAX_HP,
     hp: PVP_MAX_HP,
@@ -9747,7 +9781,7 @@ async function sendPvpStateError(res, user, now, status, msg, mode = PVP_MODE_RA
 function createPvpQueueEntry(user) {
   return {
     userId: String(user._id),
-    displayName: user.nickname || user.username
+    displayName: getCompactNickname(user, 18)
   };
 }
 
@@ -10181,6 +10215,7 @@ function syncDailyShopState(user, now = new Date()) {
     user.shopState.dailyFragmentBusinessCardPurchases = 0;
     user.shopState.dailyFragmentCatButlerEmblemPurchases = 0;
     user.shopState.dailyFragmentIdolEmblemPurchases = 0;
+    user.shopState.dailyFragmentBitchNotEmblemPurchases = 0;
   }
 }
 
@@ -14794,7 +14829,7 @@ app.post('/api/pvp/bet', async (req, res) => {
     user.gameState.money -= betAmount;
     match.bets[String(userId)] = {
       userId: String(userId),
-      displayName: user.nickname || user.username,
+      displayName: getCompactNickname(user, 18),
       targetUserId: String(targetUserId),
       targetDisplayName: target.displayName,
       amount: betAmount,

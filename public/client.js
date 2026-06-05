@@ -298,6 +298,25 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-05-emblem-bitch-not-mobile-fit',
+    time: '2026-06-05 23:40',
+    title: '휘장 표시 개선 및 신규 휘장 추가',
+    items: [
+      '모바일 랭킹에서 휘장 배너가 잘려 보이지 않도록 휘장 배경 표시 방식을 조정했습니다.',
+      '<BITCH 아닙니다> 휘장이 파편 상점에 추가되었습니다. 파편 25,000개로 구매할 수 있으며, 보유 시 주식 거래 수수료가 10% 감소합니다.',
+      '<춘식이 작품2> 휘장 이미지를 새 이미지로 교체했습니다.'
+    ]
+  },
+  {
+    id: '2026-06-05-compact-nickname-layout',
+    time: '2026-06-05 23:10',
+    title: '긴 닉네임 표시 안정화',
+    items: [
+      '비정상적으로 긴 닉네임이 랭킹, 레이드, 개인면담, 관전자 목록 등의 화면 레이아웃을 밀어내지 않도록 표시명을 적절히 축약했습니다.',
+      '축약된 이름 위에 마우스를 올리면 가능한 화면에서는 전체 이름을 확인할 수 있습니다.'
+    ]
+  },
+  {
     id: '2026-06-05-emblems-winter-chunsik-idol',
     time: '2026-06-05 22:30',
     title: '신규 휘장 3종 추가',
@@ -1720,6 +1739,22 @@ function escapeAttr(value) {
   return escapeHtml(value);
 }
 
+function truncateDisplayText(value, maxLength = 18) {
+  const text = String(value ?? '').trim();
+  const chars = Array.from(text);
+  if (chars.length <= maxLength) return text;
+  return chars.slice(0, Math.max(1, maxLength - 1)).join('') + '…';
+}
+
+function getCompactDisplayName(value, maxLength = 18) {
+  return truncateDisplayText(value || '이름 없음', maxLength);
+}
+
+function compactDisplayHtml(value, maxLength = 18) {
+  const full = String(value || '이름 없음');
+  return `<span class="compact-display-name" title="${escapeAttr(full)}">${escapeHtml(getCompactDisplayName(full, maxLength))}</span>`;
+}
+
 function getCardVisualClass(card = {}) {
   const classes = [];
   if (card.specialStyle === 'champion') classes.push('champion-card');
@@ -2229,7 +2264,7 @@ function getEquippedTitleDetail(user) {
 function getMainName(user) {
   const equippedTitle = getEquippedTitleDetail(user);
   const titlePrefix = equippedTitle ? `<${equippedTitle.name}>` : '';
-  return `${titlePrefix}${user.nickname || user.username || '사원'}`;
+  return getCompactDisplayName(`${titlePrefix}${user.nickname || user.username || '사원'}`, 24);
 }
 
 async function handleClickWork() {
@@ -3039,7 +3074,7 @@ function renderStockTournamentLeaderboard() {
   container.innerHTML = leaderboard.slice(0, 30).map((entry) => (
     '<div class="stock-tournament-rank-row">' +
       '<strong>' + formatNumber(entry.rank) + '위</strong>' +
-      '<span>' + escapeHtml(entry.nickname || '참가자') + '</span>' +
+      '<span>' + compactDisplayHtml(entry.nickname || '참가자', 14) + '</span>' +
       '<span>' + formatNumber(entry.totalAssets || 0) + '원</span>' +
       '<span class="' + (Number(entry.returnPct || 0) >= 0 ? 'stock-change-up' : 'stock-change-down') + '">' + (Number(entry.returnPct || 0) >= 0 ? '+' : '') + formatNumber(entry.returnPct || 0, 2) + '%</span>' +
     '</div>'
@@ -4716,7 +4751,7 @@ function renderOvertimeBattlePanel(panelId, player, canControl, battle) {
   const lossAmount = Number(player.lastHpLoss || 0) + Number(player.lastShieldLoss || 0);
   panel.classList.toggle('active-turn', battle.phase === 'active' && canControl);
   panel.innerHTML = `
-    <strong>${escapeHtml(player.displayName || '')}</strong>
+    <strong>${compactDisplayHtml(player.displayName || '', 18)}</strong>
     <div class="pvp-hp-row">
       <span>HP</span>
       <div class="pvp-hp-bar" data-pvp-hp-bar></div>
@@ -5132,7 +5167,7 @@ function renderSpectatorPanel(panelId, listId, spectators = []) {
   panel.classList.remove('hidden');
   const normalized = Array.isArray(spectators) ? spectators : [];
   list.innerHTML = normalized.length
-    ? normalized.map((spectator) => `<span class="spectator-chip">${escapeHtml(spectator.displayName || spectator.nickname || spectator.username || '관전자')}</span>`).join('')
+    ? normalized.map((spectator) => `<span class="spectator-chip">${compactDisplayHtml(spectator.displayName || spectator.nickname || spectator.username || '관전자', 14)}</span>`).join('')
     : '<span class="muted-text">없음</span>';
 }
 
@@ -5222,7 +5257,7 @@ function renderPvpSidePanel(panelId, player, match, userId) {
     };
   });
   panel.innerHTML = `
-    <div class="pvp-side-name">${escapeHtml(player.userId === String(userId) ? '내 진영' : '상대 진영')} - ${escapeHtml(player.displayName || '')}</div>
+    <div class="pvp-side-name">${escapeHtml(player.userId === String(userId) ? '내 진영' : '상대 진영')} - ${compactDisplayHtml(player.displayName || '', 16)}</div>
     <strong>금지 카드</strong>
     <div class="pvp-ban-list">${bans.map((name) => `<div class="pvp-mini-card">${escapeHtml(name)}</div>`).join('') || '<div class="menu-note">아직 없음</div>'}</div>
     <strong>선택 카드</strong>
@@ -7086,7 +7121,11 @@ function renderRaidBattle(raidState, user) {
     participantCard.classList.toggle('active-turn', isActiveParticipant);
     applyCardVisualToElement(participantCard, participantCardVisual);
     participantCard.classList.toggle('raid-champion-profile', isChampionCard);
-    participantCard.querySelector('[data-raid-participant-name]').textContent = participant.displayName || '';
+    const participantNameEl = participantCard.querySelector('[data-raid-participant-name]');
+    if (participantNameEl) {
+      participantNameEl.textContent = getCompactDisplayName(participant.displayName || '', 16);
+      participantNameEl.title = participant.displayName || '';
+    }
     participantCard.querySelector('[data-raid-participant-level]').textContent = `Lv.${formatNumber(participant.level)}`;
     const equippedCardEl = participantCard.querySelector('[data-raid-participant-card]');
     equippedCardEl.textContent = participant.equippedCardName || '장착 카드 없음';
@@ -7662,7 +7701,7 @@ async function updateRankingUI() {
             <td class="center-text">${index + 1}</td>
             <td class="ranking-name-cell ${escapeHtml(emblemClass)}">
               <span class="online-dot ${entry.isOnline ? 'online' : 'offline'}"></span>
-              <span class="ranking-display-name">${escapeHtml(rankingName)}</span>
+              <span class="ranking-display-name" title="${escapeAttr(rankingName)}">${escapeHtml(getCompactDisplayName(rankingName, 16))}</span>
               ${emblemIcon}
             </td>
             <td class="center-text">${escapeHtml(valueText)}</td>
@@ -8066,7 +8105,7 @@ function buildRaidTargetButtons(participant, participants, targetSlot, disabled)
         ${disabled ? 'disabled' : ''}
         onclick="handleRaidTargetSelect('${participant.userId}', ${targetSlot}, '${entry.userId}')"
       >
-        ${escapeHtml(entry.displayName)}
+        ${compactDisplayHtml(entry.displayName, 12)}
       </button>
     `)
     .join('');
@@ -8493,7 +8532,7 @@ function updateRaidLobbyUI(raidState, user) {
       `
         <button class="raid-slot ${slot ? '' : 'empty'} ${isSelf ? 'self' : ''} ${getCardVisualClass(slotCardVisual)} ${slot?.equippedCardSpecialStyle === 'champion' ? 'raid-champion-profile' : ''}" style="${escapeAttr(getCardVisualStyle(slotCardVisual))}" onclick="handleRaidSlotClick(${index})">
           ${slot
-            ? `<div class="raid-slot-name"><span class="raid-name-chip" style="border-color:${escapeHtml(slot.equippedCardBorderColor || 'transparent')}">${escapeHtml(slot.displayName)}</span></div>
+            ? `<div class="raid-slot-name"><span class="raid-name-chip" style="border-color:${escapeHtml(slot.equippedCardBorderColor || 'transparent')}" title="${escapeAttr(slot.displayName || '')}">${escapeHtml(getCompactDisplayName(slot.displayName || '', 12))}</span></div>
                <div>Lv.${formatNumber(slot.level)}</div>
                <div class="raid-slot-card ${getCardVisualClass(slotCardVisual)}" style="${escapeAttr(getCardVisualStyle(slotCardVisual))}" title="${escapeHtml(cardTooltip)}">${escapeHtml(slot.equippedCardName || '장착 카드 없음')}</div>`
             : `<div class="raid-slot-name">${index + 1}번 슬롯</div><div>클릭해 참가 대기</div>`}
