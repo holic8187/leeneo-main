@@ -298,6 +298,15 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-08-ranking-emblem-fixed-size',
+    time: '2026-06-08 00:20',
+    title: '랭킹 휘장 표시 크기 조정',
+    items: [
+      'PC와 모바일에서 랭킹 휘장 칸이 같은 가로세로 기준으로 보이도록 표 폭과 행 높이 기준을 다시 정리했습니다.',
+      '휘장 이미지가 강제로 찌그러지지 않도록 원본 비율을 유지하는 방식으로 표시됩니다.'
+    ]
+  },
+  {
     id: '2026-06-05-ranking-emblem-mobile-ratio',
     time: '2026-06-05 23:55',
     title: '모바일 휘장 비율 표시 개선',
