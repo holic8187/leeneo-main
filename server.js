@@ -172,6 +172,14 @@ const PVP_BET_PAYOUT_MULTIPLIER = 1.3;
 const PVP_POLL_VERSION_EMPTY = 0;
 const PVP_MODE_RANKED = 'ranked';
 const PVP_MODE_NORMAL = 'normal';
+const PVP_MODE_AUGMENT_3V3 = 'augment3v3';
+const PVP_AUGMENT_QUEUE_SIZE = 6;
+const PVP_AUGMENT_PICK_MS = 50 * 1000;
+const PVP_AUGMENT_SELECT_MS = 40 * 1000;
+const PVP_AUGMENT_KILL_TARGET = 10;
+const PVP_AUGMENT_CANDIDATE_COUNT = 3;
+const PVP_AUGMENT_PICK_COUNT = 2;
+const PVP_AUGMENT_ROUNDS = [1, 3, 5];
 const PVP_WEEKLY_SEASON_SETTING_KEY = 'pvp_weekly_season';
 const PVP_WEEKLY_SEASON_CHECK_INTERVAL_MS = 60 * 1000;
 const PVP_RANKED_ANONYMOUS_OPPONENT_NAME = '익명의 상대';
@@ -192,6 +200,21 @@ const INFINITE_OVERTIME_DRAFT_GRADE_ORDER = ['S', 'A', 'B', 'C'];
 const PVP_MODE_LABELS = {
   [PVP_MODE_RANKED]: '랭크',
   [PVP_MODE_NORMAL]: '일반'
+};
+PVP_MODE_LABELS[PVP_MODE_AUGMENT_3V3] = '증강 3대3';
+const PVP_AUGMENT_DATA = {
+  silver_backup_file: { id: 'silver_backup_file', tier: 'silver', name: '백업 파일', desc: '최대 HP +30', effects: { maxHp: 30 } },
+  silver_focus_mode: { id: 'silver_focus_mode', tier: 'silver', name: '집중 모드', desc: '공격력 +12%', effects: { attackBonus: 0.12 } },
+  silver_coffee_refill: { id: 'silver_coffee_refill', tier: 'silver', name: '커피 리필', desc: '자신의 턴 시작 시 HP 8 회복', effects: { turnHeal: 8 } },
+  silver_fast_report: { id: 'silver_fast_report', tier: 'silver', name: '빠른 보고', desc: '선택 즉시 모든 카드 쿨타임 -1', effects: { reduceCooldownNow: 1 } },
+  gold_team_meeting: { id: 'gold_team_meeting', tier: 'gold', name: '팀 미팅', desc: '라운드 시작마다 생존 아군에게 보호막 10', effects: { teamRoundShield: 10 } },
+  gold_finishing_touch: { id: 'gold_finishing_touch', tier: 'gold', name: '마무리 보고서', desc: 'HP 50% 이하 적에게 피해 +25%', effects: { executeBonus: 0.25 } },
+  gold_second_wind: { id: 'gold_second_wind', tier: 'gold', name: '퇴근 전 각성', desc: '부활 시 HP 80 추가 회복', effects: { respawnHpBonus: 80 } },
+  gold_shared_folder: { id: 'gold_shared_folder', tier: 'gold', name: '공유 폴더', desc: '카드 효과 +15%', effects: { cardEffectBonus: 0.15 } },
+  prism_emergency_order: { id: 'prism_emergency_order', tier: 'prism', name: '긴급 결재', desc: '처치 시 모든 카드 쿨타임 -1', effects: { cooldownOnKill: 1 } },
+  prism_iron_will: { id: 'prism_iron_will', tier: 'prism', name: '철야 멘탈', desc: '처음 사망할 피해를 1회 버티고 HP 1로 생존', effects: { deathCheat: 1 } },
+  prism_overtime_engine: { id: 'prism_overtime_engine', tier: 'prism', name: '야근 엔진', desc: '공격력 +35%, 받는 피해 +10%', effects: { attackBonus: 0.35, damageTakenBonus: 0.1 } },
+  prism_hr_intervention: { id: 'prism_hr_intervention', tier: 'prism', name: '인사팀 개입', desc: '아군이 부활할 때 보호막 30 부여', effects: { teamRespawnShield: 30 } }
 };
 const PVP_WEEKLY_REWARD_TIERS = [
   { rank: 1, bacchus: 100, businessCards: 100 },
@@ -7468,6 +7491,7 @@ function bumpPvpVersion() {
 }
 
 function normalizePvpMode(mode) {
+  if (mode === PVP_MODE_AUGMENT_3V3) return PVP_MODE_AUGMENT_3V3;
   return mode === PVP_MODE_NORMAL ? PVP_MODE_NORMAL : PVP_MODE_RANKED;
 }
 
@@ -7483,7 +7507,7 @@ function getPvpModeState(mode = PVP_MODE_RANKED) {
 }
 
 function getPvpModeEntries() {
-  return [PVP_MODE_RANKED, PVP_MODE_NORMAL].map((mode) => [mode, getPvpModeState(mode)]);
+  return [PVP_MODE_RANKED, PVP_MODE_NORMAL, PVP_MODE_AUGMENT_3V3].map((mode) => [mode, getPvpModeState(mode)]);
 }
 
 function isRankedPvpMode(mode) {
@@ -7564,6 +7588,95 @@ function getOwnedPvpPickCards(user) {
       passiveOnly: Boolean(entry.passiveOnly),
       specialStyle: entry.specialStyle || ''
     }));
+}
+
+function isAugmentPvpMode(mode) {
+  return normalizePvpMode(mode) === PVP_MODE_AUGMENT_3V3;
+}
+
+function getAllAugmentPvpCards() {
+  return getAllPvpBanCards()
+    .filter((card) => !card.passiveOnly)
+    .map((card) => ({
+      ...card,
+      enhancementLevel: CARD_DATA[card.cardId]?.enhanceDisabled ? 0 : 5,
+      name: CARD_DATA[card.cardId]?.enhanceDisabled ? card.baseName : `${card.baseName} +5`
+    }));
+}
+
+function pickAugmentRandomCard(cardPool, usedCardIds = new Set()) {
+  const candidates = cardPool.filter((card) => !usedCardIds.has(card.cardId));
+  if (!candidates.length) return null;
+  const picked = candidates[Math.floor(Math.random() * candidates.length)];
+  usedCardIds.add(picked.cardId);
+  return picked;
+}
+
+function buildAugmentCardCandidatesForPlayers(players = []) {
+  const cardPool = getAllAugmentPvpCards();
+  const teamUsed = { red: new Set(), blue: new Set() };
+  const candidates = {};
+  players.forEach((player) => {
+    const used = teamUsed[player.team] || new Set();
+    const list = [];
+    while (list.length < PVP_AUGMENT_CANDIDATE_COUNT) {
+      const picked = pickAugmentRandomCard(cardPool, used);
+      if (!picked) break;
+      list.push({
+        cardId: picked.cardId,
+        enhancementLevel: picked.enhancementLevel,
+        name: picked.name,
+        baseName: picked.baseName,
+        grade: picked.grade,
+        color: picked.color,
+        skillName: picked.skillName,
+        skillDesc: picked.skillDesc,
+        cooldown: picked.cooldown,
+        durationText: picked.durationText,
+        targetType: picked.targetType || null,
+        effectType: picked.effectType || null,
+        specialStyle: picked.specialStyle || ''
+      });
+    }
+    candidates[player.userId] = list;
+  });
+  return candidates;
+}
+
+function getAugmentOptionsForPlayer(player = {}) {
+  return Array.isArray(player.augmentOptions) ? player.augmentOptions : [];
+}
+
+function pickAugmentOptions(count = 3) {
+  const entries = Object.values(PVP_AUGMENT_DATA);
+  const byTier = {
+    silver: entries.filter((entry) => entry.tier === 'silver'),
+    gold: entries.filter((entry) => entry.tier === 'gold'),
+    prism: entries.filter((entry) => entry.tier === 'prism')
+  };
+  const tierWeights = [
+    { tier: 'silver', weight: 55 },
+    { tier: 'gold', weight: 35 },
+    { tier: 'prism', weight: 10 }
+  ];
+  const picked = [];
+  const seen = new Set();
+  while (picked.length < count && seen.size < entries.length) {
+    const roll = Math.random() * tierWeights.reduce((sum, entry) => sum + entry.weight, 0);
+    let acc = 0;
+    const tier = tierWeights.find((entry) => {
+      acc += entry.weight;
+      return roll <= acc;
+    })?.tier || 'silver';
+    const pool = (byTier[tier] || []).filter((entry) => !seen.has(entry.id));
+    const fallback = entries.filter((entry) => !seen.has(entry.id));
+    const source = pool.length ? pool : fallback;
+    if (!source.length) break;
+    const option = source[Math.floor(Math.random() * source.length)];
+    seen.add(option.id);
+    picked.push(option);
+  }
+  return picked;
 }
 
 function bumpInfiniteOvertimeVersion() {
@@ -8104,7 +8217,9 @@ function buildPvpCardSlotSnapshot(pick, index, existing = null) {
     skillName: card?.skillName || '',
     skillDesc: card ? buildCardSkillDescription(card.id, card.enhancementLevel || 0) : '',
     durationText: card ? getCardDurationText(card.id, card.enhancementLevel || 0) : '',
-    passiveOnly: Boolean(card?.passiveOnly)
+    passiveOnly: Boolean(card?.passiveOnly),
+    targetType: card?.targetType || null,
+    effectType: card?.effectType || null
   };
 }
 
@@ -8820,8 +8935,13 @@ function getPvpBuffValue(player, id, fallback = 0) {
     .reduce((max, buff) => Math.max(max, Number(buff.value || fallback)), fallback);
 }
 
+function getPvpAugmentEffectSum(player, key) {
+  return (player?.augmentIds || [])
+    .reduce((sum, augmentId) => sum + Number(PVP_AUGMENT_DATA[augmentId]?.effects?.[key] || 0), 0);
+}
+
 function getPvpAttackBonus(player) {
-  return player.buffs
+  return Number(player.augmentAttackBonus || 0) + player.buffs
     .filter((buff) => ['attack_bonus', 'celine', 'damage_multiplier', 'champion_guard'].includes(buff.id) && !buff.pendingActivation)
     .reduce((sum, buff) => {
       if (buff.id === 'damage_multiplier') return sum + (Number(buff.value || 1) - 1);
@@ -8869,6 +8989,9 @@ function applyPvpDamage(target, amount, battle, options = {}) {
   }
 
   let remaining = Math.max(0, Math.floor(Number(amount || 0)));
+  if (Number(target.augmentDamageTakenBonus || 0) > 0) {
+    remaining = Math.floor(remaining * (1 + Number(target.augmentDamageTakenBonus || 0)));
+  }
   const tauntReduction = target.buffs
     .filter((buff) => buff.id === 'taunt_damage_reduction' && !buff.pendingActivation)
     .reduce((max, buff) => Math.max(max, Number(buff.value || 0)), 0);
@@ -8885,7 +9008,16 @@ function applyPvpDamage(target, amount, battle, options = {}) {
       if (target.tempShieldAmount <= 0) target.shieldExpiresAfterUserId = null;
     }
   }
-  target.hp = Math.max(0, Number(target.hp || 0) - remaining);
+  const beforeHp = Number(target.hp || 0);
+  if (remaining >= beforeHp && Number(target.augmentDeathCheat || 0) > 0 && !options.ignoreNegate) {
+    target.augmentDeathCheat -= 1;
+    target.hp = 1;
+    target.lastHpLoss = Math.max(0, beforeHp - 1);
+    target.lastShieldLoss = shieldLoss;
+    battle.logs.push(`${target.displayName}이(가) <철야 멘탈>로 쓰러지지 않고 버텼습니다.`);
+    return target.lastHpLoss;
+  }
+  target.hp = Math.max(0, beforeHp - remaining);
   target.lastHpLoss = remaining;
   target.lastShieldLoss = shieldLoss;
   if (!options.skipBread && battle && (shieldLoss > 0 || remaining > 0)) {
@@ -9019,6 +9151,9 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
   const scalePercent = (value) => Number((Number(value || 0) * valueMultiplier).toFixed(4));
   const scaleCount = (value) => Math.max(1, Math.ceil(Number(value || 0) * Number(options.effectMultiplier || 1)));
   const cardLabel = card.name || card.displayName || card.skillName;
+  const friendlyTarget = target && (target.userId === actor.userId || (target.team && actor.team && target.team === actor.team))
+    ? target
+    : actor;
 
   battle.logs.push(`${actor.displayName}이(가) ${cardLabel} 스킬을 사용했습니다.`);
 
@@ -9064,11 +9199,11 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
   } else if (card.effectType === 'party_hype_crit') {
     addPvpBuff(actor, { id: 'crit_bonus', name: '크리티컬 상승', turns: Number(card.turns || 1), value: scalePercent(card.critBonus), desc: `치명타 확률 +${Math.round(scalePercent(card.critBonus) * 100)}%` });
     addPvpBuff(actor, { id: 'hype', name: '흥겨움', turns: Number(card.hypeTurns || 1), desc: '기본 공격 횟수 2배' });
-    grantPvpTemporaryShield(actor, scaleFlat(card.shield || 0), target.userId);
+    grantPvpTemporaryShield(friendlyTarget, scaleFlat(card.shield || 0), target.userId);
   } else if (card.effectType === 'party_shield' || card.effectType === 'random_shield') {
-    grantPvpTemporaryShield(actor, scaleFlat(card.shield || 0), target.userId);
+    grantPvpTemporaryShield(friendlyTarget, scaleFlat(card.shield || 0), target.userId);
   } else if (card.effectType === 'party_heal' || card.effectType === 'target_heal') {
-    const healed = healPvpTarget(actor, scaleFlat(card.heal || 0));
+    const healed = healPvpTarget(friendlyTarget, scaleFlat(card.heal || 0));
     battle.logs.push(`${actor.displayName}의 HP가 ${healed.toLocaleString()} 회복되었습니다.`);
   } else if (card.effectType === 'party_crit_bonus') {
     addPvpBuff(actor, { id: 'crit_bonus', name: '크리티컬 상승', turns: Number(card.turns || 1), value: scalePercent(card.critBonus), desc: `치명타 확률 +${Math.round(scalePercent(card.critBonus) * 100)}%` });
@@ -9090,12 +9225,12 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
     });
     battle.logs.push(`${actor.displayName}의 HP가 ${selfDamage.toLocaleString()} 감소하고, 다음 자신의 공격 피해가 ${damageMultiplier.toFixed(1)}배가 됩니다.`);
   } else if (card.effectType === 'target_missing_hp_heal') {
-    const missingHp = Math.max(0, Number(actor.maxHp || PVP_MAX_HP) - Number(actor.hp || 0));
-    const healed = healPvpTarget(actor, Math.floor(missingHp * Math.max(0, scalePercent(card.healMissingHpPercent))));
+    const missingHp = Math.max(0, Number(friendlyTarget.maxHp || PVP_MAX_HP) - Number(friendlyTarget.hp || 0));
+    const healed = healPvpTarget(friendlyTarget, Math.floor(missingHp * Math.max(0, scalePercent(card.healMissingHpPercent))));
     battle.logs.push(`${actor.displayName}의 HP가 ${healed.toLocaleString()} 회복되었습니다.`);
   } else if (card.effectType === 'target_taunt_damage_reduction') {
     const reduction = Math.max(0, Math.min(0.95, scalePercent(card.damageReductionPercent)));
-    addPvpBuff(actor, {
+    addPvpBuff(friendlyTarget, {
       id: 'taunt_damage_reduction',
       name: '예? 저요?',
       turns: Number(card.turns || 2),
@@ -9136,16 +9271,16 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
   } else if (card.effectType === 'target_pair_guard_buff') {
     const negateHitCount = Number(card.negateHitCount || 0) > 0 ? scaleCount(card.negateHitCount) : 0;
     if (negateHitCount > 0) {
-      addPvpBuff(actor, { id: 'negate_hit', name: '피격 무효', count: negateHitCount, desc: '피격 무효' });
+      addPvpBuff(friendlyTarget, { id: 'negate_hit', name: '피격 무효', count: negateHitCount, desc: '피격 무효' });
     }
-    addPvpBuff(actor, { id: 'debuff_guard', name: '디버프 무효', count: scaleCount(card.debuffImmuneCount || 1), desc: '디버프 무효' });
-    addPvpBuff(actor, { id: 'attack_bonus', name: '공격력 상승', turns: Number(card.turns || 1), value: scalePercent(card.attackBonusPercent), desc: `공격력 +${Math.round(scalePercent(card.attackBonusPercent) * 100)}%` });
+    addPvpBuff(friendlyTarget, { id: 'debuff_guard', name: '디버프 무효', count: scaleCount(card.debuffImmuneCount || 1), desc: '디버프 무효' });
+    addPvpBuff(friendlyTarget, { id: 'attack_bonus', name: '공격력 상승', turns: Number(card.turns || 1), value: scalePercent(card.attackBonusPercent), desc: `공격력 +${Math.round(scalePercent(card.attackBonusPercent) * 100)}%` });
   } else if (card.effectType === 'random_party_negate_hit' || card.effectType === 'party_negate_hit_by_level') {
-    addPvpBuff(actor, { id: 'negate_hit', name: '피격 무효', count: scaleCount(card.negateHitCount || 1), desc: '피격 무효' });
+    addPvpBuff(friendlyTarget, { id: 'negate_hit', name: '피격 무효', count: scaleCount(card.negateHitCount || 1), desc: '피격 무효' });
   } else if (card.effectType === 'random_party_attack_buff' || card.effectType === 'target_attack_buff') {
-    addPvpBuff(actor, { id: 'attack_bonus', name: '공격력 상승', turns: Number(card.turns || 1), value: scalePercent(card.attackBonusPercent), desc: `공격력 +${Math.round(scalePercent(card.attackBonusPercent) * 100)}%` });
+    addPvpBuff(friendlyTarget, { id: 'attack_bonus', name: '공격력 상승', turns: Number(card.turns || 1), value: scalePercent(card.attackBonusPercent), desc: `공격력 +${Math.round(scalePercent(card.attackBonusPercent) * 100)}%` });
   } else if (card.effectType === 'target_debuff_guard') {
-    addPvpBuff(actor, { id: 'debuff_guard', name: '디버프 무효', count: scaleCount(card.debuffImmuneCount || 1), desc: '디버프 무효' });
+    addPvpBuff(friendlyTarget, { id: 'debuff_guard', name: '디버프 무효', count: scaleCount(card.debuffImmuneCount || 1), desc: '디버프 무효' });
   } else if (card.effectType === 'self_status_blast') {
     const statusCount = actor.buffs.length + actor.debuffs.length;
     const hits = Math.max(1, Number(card.hits || 1));
@@ -9181,8 +9316,11 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
     }
   } else if (card.effectType === 'champion_guard') {
     const shieldAmount = scaleFlat(card.shield || 0);
-    grantPvpTemporaryShield(actor, shieldAmount, target.userId);
-    addPvpBuff(actor, {
+    const championEnemyTarget = target && target.team === actor.team
+      ? (battle.players || []).find((player) => player.team !== actor.team && player.hp > 0)
+      : target;
+    grantPvpTemporaryShield(friendlyTarget, shieldAmount, championEnemyTarget?.userId || target.userId);
+    addPvpBuff(friendlyTarget, {
       id: 'champion_guard',
       name: '챔피언의 가호',
       turns: Number(card.turns || 2),
@@ -9190,7 +9328,7 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
       critBonus: scalePercent(card.critBonus),
       desc: `공격력 +${Math.round(scalePercent(card.attackBonusPercent) * 100)}%, 치명타 확률 +${Math.round(scalePercent(card.critBonus) * 100)}%`
     });
-    addPvpDebuff(target, {
+    if (championEnemyTarget) addPvpDebuff(championEnemyTarget, {
       id: 'blind',
       name: '눈부심',
       turns: Number(card.blindTurns || 1),
@@ -9297,6 +9435,10 @@ function performPvpBasicAttack(actor, target, battle) {
       if (actor.hp <= 0) break;
       continue;
     }
+    const executeBonus = target.hp <= Math.floor(Number(target.maxHp || PVP_MAX_HP) * 0.5)
+      ? getPvpAugmentEffectSum(actor, 'executeBonus')
+      : 0;
+    if (executeBonus > 0) damage = Math.floor(damage * (1 + executeBonus));
     if (actor.perHitBonusTurns > 0) damage += Number(actor.perHitBonusDamage || 0);
     if (index === 0 && actor.extraDamage > 0) damage += Number(actor.extraDamage || 0);
     applyPvpDamage(target, damage, battle);
@@ -9472,7 +9614,203 @@ async function finalizePvpBattleOutcome(winnerUserId, loserUserId, battle) {
   }
 }
 
+function allAugmentSelectionsResolved(battle) {
+  if (!battle || battle.phase !== 'augment') return false;
+  return battle.players.every((player) => Number(player.hp || 0) <= 0 || battle.augmentSelected?.[player.userId]);
+}
+
+function finishAugmentSelectionRound(battle, now = new Date()) {
+  if (!battle || battle.phase !== 'augment') return;
+  battle.players.forEach((player) => {
+    if (Number(player.hp || 0) <= 0) return;
+    const selectedId = battle.augmentSelected?.[player.userId]
+      || getAugmentOptionsForPlayer(player)[0]?.id;
+    if (selectedId) {
+      applyAugmentEffectsToPlayer(player, selectedId);
+      battle.augmentSelected[player.userId] = selectedId;
+      battle.logs.push(`${player.displayName}이(가) <${PVP_AUGMENT_DATA[selectedId]?.name || selectedId}> 증강을 선택했습니다.`);
+    }
+    player.augmentOptions = [];
+  });
+  startAugmentActiveTurn(battle, now);
+}
+
+function applyAugmentRoundStartEffects(battle) {
+  if (!battle) return;
+  ['red', 'blue'].forEach((team) => {
+    const teamPlayers = getAugmentTeamPlayers(battle, team);
+    const roundShield = teamPlayers.reduce((sum, player) => {
+      return sum + (player.augmentIds || []).reduce((acc, augmentId) => acc + Number(PVP_AUGMENT_DATA[augmentId]?.effects?.teamRoundShield || 0), 0);
+    }, 0);
+    if (roundShield > 0) {
+      teamPlayers.filter((player) => player.hp > 0).forEach((player) => {
+        grantPvpTemporaryShield(player, roundShield, `augment-round-${battle.roundNumber}`);
+      });
+      battle.logs.push(`${team === 'red' ? '레드팀' : '블루팀'}이 라운드 시작 보호막 ${roundShield}을 받았습니다.`);
+    }
+  });
+}
+
+function respawnAugmentPlayersAtRoundStart(battle) {
+  if (!battle) return;
+  const teamRespawnShield = {};
+  ['red', 'blue'].forEach((team) => {
+    teamRespawnShield[team] = getAugmentTeamPlayers(battle, team).reduce((sum, player) => {
+      return sum + (player.augmentIds || []).reduce((acc, augmentId) => acc + Number(PVP_AUGMENT_DATA[augmentId]?.effects?.teamRespawnShield || 0), 0);
+    }, 0);
+  });
+  battle.players.forEach((player) => {
+    if (player.hp > 0 || Number(player.respawnAtRound || 0) > battle.roundNumber) return;
+    const bonus = (player.augmentIds || []).reduce((sum, augmentId) => sum + Number(PVP_AUGMENT_DATA[augmentId]?.effects?.respawnHpBonus || 0), 0);
+    player.hp = Math.min(player.maxHp, Math.floor(PVP_MAX_HP + bonus));
+    player.shield = Math.max(0, Number(player.shield || 0));
+    if (teamRespawnShield[player.team] > 0) {
+      grantPvpTemporaryShield(player, teamRespawnShield[player.team], `augment-respawn-${battle.roundNumber}`);
+    }
+    battle.logs.push(`${player.displayName}이(가) 부활했습니다.`);
+  });
+}
+
+function pickDefaultAugmentActionTarget(actor, battle, actionType = 'basic') {
+  if (actionType === 'ally') {
+    return getAliveAugmentTargets(getAugmentTeamPlayers(battle, actor.team)).find((player) => player.userId !== actor.userId)
+      || actor;
+  }
+  return getAliveAugmentTargets(getAugmentEnemyPlayers(battle, actor.team))[0] || null;
+}
+
+function resolveAugmentSkillTarget(actor, battle, card, targetUserId = null) {
+  const target = battle.players.find((player) => player.userId === String(targetUserId || ''));
+  const allyTypes = new Set(['ally', 'ally_pair']);
+  const wantsAlly = allyTypes.has(card?.targetType) || [
+    'party_shield',
+    'party_heal',
+    'target_heal',
+    'target_missing_hp_heal',
+    'target_taunt_damage_reduction',
+    'target_attack_buff',
+    'target_debuff_guard',
+    'champion_guard',
+    'party_cooldown_reduce',
+    'random_party_negate_hit',
+    'party_negate_hit_by_level',
+    'party_bread_buff',
+    'party_cleanse',
+    'party_crit_bonus',
+    'party_hype_crit',
+    'self_counter',
+    'self_celine_buff',
+    'self_negate_hit',
+    'self_debuff_reflect'
+  ].includes(card?.effectType);
+  if (wantsAlly) {
+    if (target && target.team === actor.team && target.hp > 0) return target;
+    return pickDefaultAugmentActionTarget(actor, battle, 'ally');
+  }
+  if (target && target.team !== actor.team && target.hp > 0) return target;
+  return pickDefaultAugmentActionTarget(actor, battle, 'enemy');
+}
+
+function handleAugmentKillIfNeeded(actor, target, battle) {
+  if (!actor || !target || !battle || target.hp > 0 || target.countedDeathInRound === battle.roundNumber) return false;
+  target.deaths = Number(target.deaths || 0) + 1;
+  target.countedDeathInRound = battle.roundNumber;
+  target.respawnAtRound = Number(battle.roundNumber || 1) + 1;
+  actor.kills = Number(actor.kills || 0) + 1;
+  battle.teamKills[actor.team] = Number(battle.teamKills?.[actor.team] || 0) + 1;
+  battle.logs.push(`${actor.displayName}이(가) ${target.displayName}을(를) 처치했습니다. ${actor.team === 'red' ? '레드팀' : '블루팀'} ${battle.teamKills[actor.team]}/${battle.killTarget}킬`);
+  const cooldownReduce = (actor.augmentIds || []).reduce((sum, augmentId) => sum + Number(PVP_AUGMENT_DATA[augmentId]?.effects?.cooldownOnKill || 0), 0);
+  if (cooldownReduce > 0) {
+    actor.cards.forEach((card) => { card.cooldownRemaining = Math.max(0, Number(card.cooldownRemaining || 0) - cooldownReduce); });
+  }
+  if (battle.teamKills[actor.team] >= battle.killTarget) {
+    battle.phase = 'finished';
+    battle.winnerTeam = actor.team;
+    battle.winnerUserId = actor.userId;
+    battle.finishedAt = new Date();
+    battle.logs.push(`${actor.team === 'red' ? '레드팀' : '블루팀'}이 먼저 ${battle.killTarget}킬을 달성했습니다.`);
+  }
+  return true;
+}
+
+async function executePvpAugmentTurn(battle, now = new Date()) {
+  if (!battle || battle.phase !== 'active') return;
+  const order = getAugmentTurnOrderPlayers(battle);
+  if (!order.length) return;
+  if (Number(battle.turnCursor || 0) === 0) {
+    respawnAugmentPlayersAtRoundStart(battle);
+    applyAugmentRoundStartEffects(battle);
+  }
+  const actor = battle.players.find((player) => player.userId === battle.currentUserId) || order[battle.turnCursor || 0];
+  if (!actor) return;
+  actor.lastHpLoss = 0;
+  actor.lastShieldLoss = 0;
+  battle.players.forEach((player) => {
+    if (player.userId !== actor.userId) {
+      player.lastHpLoss = 0;
+      player.lastShieldLoss = 0;
+    }
+  });
+  if (actor.hp <= 0) {
+    battle.logs.push(`${actor.displayName}은(는) 리스폰 대기 중입니다.`);
+  } else {
+    const turnHeal = (actor.augmentIds || []).reduce((sum, augmentId) => sum + Number(PVP_AUGMENT_DATA[augmentId]?.effects?.turnHeal || 0), 0);
+    if (turnHeal > 0) healPvpTarget(actor, turnHeal);
+    const action = actor.pendingAction || { type: 'basic' };
+    if (action.type === 'skill') {
+      const slotIndex = Number(action.cardIndex);
+      const card = getPvpCardDefinitionFromSlot(actor, slotIndex);
+      const target = resolveAugmentSkillTarget(actor, battle, card, action.targetUserId);
+      const used = target ? applyPvpCardSkill(actor, target, battle, slotIndex) : false;
+      if (used) {
+        handleAugmentKillIfNeeded(actor, target, battle);
+      } else {
+        battle.logs.push(`${actor.displayName}의 카드 사용이 실패해 기본공격으로 전환됩니다.`);
+        const basicTarget = pickDefaultAugmentActionTarget(actor, battle, 'enemy');
+        if (basicTarget) {
+          performPvpBasicAttack(actor, basicTarget, battle);
+          handleAugmentKillIfNeeded(actor, basicTarget, battle);
+        }
+      }
+    } else {
+      const explicitTarget = battle.players.find((player) => player.userId === String(action.targetUserId || ''));
+      const target = explicitTarget && explicitTarget.team !== actor.team && explicitTarget.hp > 0
+        ? explicitTarget
+        : pickDefaultAugmentActionTarget(actor, battle, 'enemy');
+      if (target) {
+        performPvpBasicAttack(actor, target, battle);
+        handleAugmentKillIfNeeded(actor, target, battle);
+      }
+    }
+  }
+  actor.pendingAction = null;
+  tickPvpPlayerEndOfTurn(actor, battle);
+  clearPvpShieldsExpiredByUserTurn(battle, actor.userId);
+  if (battle.phase === 'finished') {
+    bumpPvpVersion();
+    return;
+  }
+  battle.turnCursor = (Number(battle.turnCursor || 0) + 1) % order.length;
+  if (battle.turnCursor === 0) {
+    battle.roundNumber = Number(battle.roundNumber || 1) + 1;
+    battle.turnNumber = battle.roundNumber;
+    if (PVP_AUGMENT_ROUNDS.includes(battle.roundNumber)) {
+      prepareAugmentSelectionRound(battle, battle.roundNumber, now);
+      bumpPvpVersion();
+      return;
+    }
+  }
+  const nextActor = getAugmentTurnOrderPlayers(battle)[battle.turnCursor] || order[0];
+  battle.currentUserId = nextActor?.userId || null;
+  battle.turnEndsAt = new Date(now.getTime() + PVP_BATTLE_TURN_MS);
+  bumpPvpVersion();
+}
+
 async function executePvpTurn(battle, now = new Date()) {
+  if (isAugmentPvpMode(battle?.mode)) {
+    await executePvpAugmentTurn(battle, now);
+    return;
+  }
   const actor = getPvpPlayer(battle, battle.currentUserId);
   const target = getPvpOpponent(battle, battle.currentUserId);
   if (!actor || !target || battle.winnerUserId) return;
@@ -9529,7 +9867,13 @@ async function executePvpTurn(battle, now = new Date()) {
 async function advancePvpModeStateUnlocked(mode, modeState, now = new Date()) {
   if (modeState.match) {
     const match = modeState.match;
-    if (match.phase === 'accept') {
+    if (match.phase === 'augment_pick') {
+      if (now.getTime() >= new Date(match.turnEndsAt).getTime()) {
+        modeState.battle = await createPvpAugmentBattleFromMatch(match, now);
+        modeState.match = null;
+        bumpPvpVersion();
+      }
+    } else if (match.phase === 'accept') {
       if (now.getTime() >= new Date(match.acceptEndsAt).getTime()) {
         const acceptedPlayers = match.players.filter((player) => match.accepted[player.userId]);
         modeState.match = null;
@@ -9550,6 +9894,13 @@ async function advancePvpModeStateUnlocked(mode, modeState, now = new Date()) {
     } else if (match.phase === 'starting' && now.getTime() >= new Date(match.startsAt).getTime()) {
       modeState.battle = await createPvpBattleFromMatch(match, now);
       modeState.match = null;
+      bumpPvpVersion();
+    }
+  }
+
+  if (modeState.battle?.phase === 'augment') {
+    if (allAugmentSelectionsResolved(modeState.battle) || now.getTime() >= new Date(modeState.battle.augmentEndsAt).getTime()) {
+      finishAugmentSelectionRound(modeState.battle, now);
       bumpPvpVersion();
     }
   }
@@ -9650,7 +10001,13 @@ function buildPvpBattleSnapshot(battle, viewerUserId = null) {
     currentUserId: battle.currentUserId,
     firstUserId: battle.firstUserId,
     turnNumber: battle.turnNumber,
+    roundNumber: battle.roundNumber || battle.turnNumber,
     turnEndsAt: battle.turnEndsAt,
+    augmentRound: battle.augmentRound || null,
+    augmentEndsAt: battle.augmentEndsAt || null,
+    teamKills: battle.teamKills || null,
+    killTarget: battle.killTarget || null,
+    winnerTeam: battle.winnerTeam || null,
     winnerUserId: battle.winnerUserId,
     loserUserId: battle.loserUserId,
     finishedAt: battle.finishedAt,
@@ -9665,6 +10022,14 @@ function buildPvpBattleSnapshot(battle, viewerUserId = null) {
       hp: player.hp,
       maxHp: player.maxHp,
       shield: player.shield,
+      team: player.team || null,
+      teamSlot: Number.isInteger(player.teamSlot) ? player.teamSlot : null,
+      kills: Number(player.kills || 0),
+      deaths: Number(player.deaths || 0),
+      respawnAtRound: Number(player.respawnAtRound || 0),
+      augmentIds: Array.isArray(player.augmentIds) ? player.augmentIds : [],
+      augmentOptions: Array.isArray(player.augmentOptions) ? player.augmentOptions : [],
+      pendingAction: player.pendingAction || null,
       lastHpLoss: player.lastHpLoss || 0,
       lastShieldLoss: player.lastShieldLoss || 0,
       plannedCardIndex: Number.isInteger(player.plannedCardIndex) ? player.plannedCardIndex : null,
@@ -9738,6 +10103,9 @@ async function buildPvpStateResponse(user, now = new Date(), requestedMode = PVP
     startsAt: match.startsAt || null,
     bans: match.bans,
     picks: match.picks,
+    leftovers: match.leftovers || {},
+    candidates: match.candidates || {},
+    pickDone: match.pickDone || {},
     pickTurnIndex: match.pickTurnIndex || 0,
     currentBet: userId && match.bets ? (match.bets[userId] || null) : null,
     canBet: Boolean(isRankedPvpMode(match.mode) && userId && !match.players.some((player) => player.userId === userId) && ['ban', 'pick'].includes(match.phase) && !(match.bets || {})[userId]),
@@ -9831,6 +10199,173 @@ function startPvpAcceptMatch(modeState, mode, playerA, playerB, now = new Date()
     logs: [`${getPvpModeLabel(mode)} 개인면담 매칭이 성사되었습니다. 5초 안에 입장해주세요. 1P/2P 순서는 무작위로 배정되었습니다.`]
   };
   bumpPvpVersion();
+}
+
+function startPvpAugmentMatch(modeState, queuedPlayers, now = new Date()) {
+  const shuffled = [...queuedPlayers].sort(() => Math.random() - 0.5).slice(0, PVP_AUGMENT_QUEUE_SIZE);
+  const players = shuffled.map((entry, index) => ({
+    ...entry,
+    team: index < 3 ? 'red' : 'blue',
+    teamSlot: index % 3
+  }));
+  const candidates = buildAugmentCardCandidatesForPlayers(players);
+  modeState.match = {
+    matchId: crypto.randomUUID(),
+    mode: PVP_MODE_AUGMENT_3V3,
+    modeLabel: getPvpModeLabel(PVP_MODE_AUGMENT_3V3),
+    isRanked: false,
+    phase: 'augment_pick',
+    players,
+    accepted: {},
+    acceptEndsAt: null,
+    turnUserId: null,
+    turnEndsAt: new Date(now.getTime() + PVP_AUGMENT_PICK_MS),
+    startsAt: null,
+    bans: {},
+    picks: Object.fromEntries(players.map((player) => [player.userId, []])),
+    leftovers: {},
+    candidates,
+    pickDone: Object.fromEntries(players.map((player) => [player.userId, false])),
+    pickTurnIndex: 0,
+    logs: ['증강 3대3 면담 매칭이 성사되었습니다. 50초 안에 후보 3장 중 2장을 선택해주세요.']
+  };
+  bumpPvpVersion();
+}
+
+function finalizePvpAugmentPicks(match) {
+  if (!match || match.phase !== 'augment_pick') return;
+  match.players.forEach((player) => {
+    const userId = player.userId;
+    const candidates = Array.isArray(match.candidates?.[userId]) ? match.candidates[userId] : [];
+    const current = Array.isArray(match.picks?.[userId]) ? match.picks[userId] : [];
+    const unique = [];
+    current.forEach((pick) => {
+      if (unique.length >= PVP_AUGMENT_PICK_COUNT) return;
+      if (candidates.some((candidate) => candidate.cardId === pick.cardId) && !unique.some((entry) => entry.cardId === pick.cardId)) {
+        unique.push({ cardId: pick.cardId, enhancementLevel: pick.enhancementLevel ?? 5 });
+      }
+    });
+    candidates.forEach((candidate) => {
+      if (unique.length >= PVP_AUGMENT_PICK_COUNT) return;
+      if (!unique.some((entry) => entry.cardId === candidate.cardId)) {
+        unique.push({ cardId: candidate.cardId, enhancementLevel: candidate.enhancementLevel ?? 5 });
+      }
+    });
+    match.picks[userId] = unique.slice(0, PVP_AUGMENT_PICK_COUNT);
+    const leftover = candidates.find((candidate) => !match.picks[userId].some((pick) => pick.cardId === candidate.cardId));
+    if (leftover) match.leftovers[userId] = { cardId: leftover.cardId, enhancementLevel: leftover.enhancementLevel ?? 5 };
+    match.pickDone[userId] = true;
+  });
+}
+
+function getAugmentTurnOrderPlayers(battle) {
+  const byTeamSlot = (team, slot) => battle.players.find((player) => player.team === team && Number(player.teamSlot) === slot);
+  return [
+    byTeamSlot('red', 0),
+    byTeamSlot('blue', 0),
+    byTeamSlot('red', 1),
+    byTeamSlot('blue', 1),
+    byTeamSlot('red', 2),
+    byTeamSlot('blue', 2)
+  ].filter(Boolean);
+}
+
+function getAugmentTeamPlayers(battle, team) {
+  return battle.players.filter((player) => player.team === team);
+}
+
+function getAugmentEnemyPlayers(battle, team) {
+  return battle.players.filter((player) => player.team !== team);
+}
+
+function getAliveAugmentTargets(players = []) {
+  return players.filter((player) => Number(player.hp || 0) > 0);
+}
+
+function applyAugmentEffectsToPlayer(player, augmentId) {
+  const augment = PVP_AUGMENT_DATA[augmentId];
+  if (!player || !augment) return;
+  player.augmentIds = [...new Set([...(player.augmentIds || []), augmentId])];
+  const effects = augment.effects || {};
+  if (effects.maxHp) {
+    player.maxHp += Number(effects.maxHp || 0);
+    player.hp += Number(effects.maxHp || 0);
+  }
+  if (effects.attackBonus) player.augmentAttackBonus = Number(player.augmentAttackBonus || 0) + Number(effects.attackBonus || 0);
+  if (effects.damageTakenBonus) player.augmentDamageTakenBonus = Number(player.augmentDamageTakenBonus || 0) + Number(effects.damageTakenBonus || 0);
+  if (effects.cardEffectBonus) player.cardEffectEquipmentBonusPercent = Number(player.cardEffectEquipmentBonusPercent || 0) + Number(effects.cardEffectBonus || 0);
+  if (effects.reduceCooldownNow) {
+    player.cards.forEach((card) => { card.cooldownRemaining = Math.max(0, Number(card.cooldownRemaining || 0) - Number(effects.reduceCooldownNow || 0)); });
+  }
+  if (effects.deathCheat) player.augmentDeathCheat = Number(player.augmentDeathCheat || 0) + Number(effects.deathCheat || 0);
+}
+
+function prepareAugmentSelectionRound(battle, roundNumber, now = new Date()) {
+  battle.phase = 'augment';
+  battle.augmentRound = roundNumber;
+  battle.augmentEndsAt = new Date(now.getTime() + PVP_AUGMENT_SELECT_MS);
+  battle.augmentSelected = {};
+  battle.players.forEach((player) => {
+    if (Number(player.hp || 0) > 0) {
+      player.augmentOptions = pickAugmentOptions(3);
+    }
+  });
+  battle.logs.push(`${roundNumber}턴 증강 선택이 시작되었습니다. 40초 안에 증강을 선택해주세요.`);
+}
+
+function startAugmentActiveTurn(battle, now = new Date()) {
+  battle.phase = 'active';
+  battle.augmentEndsAt = null;
+  battle.currentUserId = getAugmentTurnOrderPlayers(battle)[battle.turnCursor || 0]?.userId || battle.players[0]?.userId || null;
+  battle.turnEndsAt = new Date(now.getTime() + PVP_BATTLE_TURN_MS);
+}
+
+async function createPvpAugmentBattleFromMatch(match, now = new Date()) {
+  finalizePvpAugmentPicks(match);
+  const userIds = match.players.map((player) => player.userId);
+  const users = await User.find({ _id: { $in: userIds } });
+  const userMap = new Map(users.map((user) => [String(user._id), user]));
+  const players = match.players.map((player) => {
+    const user = userMap.get(player.userId);
+    if (!user) return null;
+    ensureUserDefaults(user);
+    const participant = createPvpParticipantFromUser(user, match, match.picks[player.userId] || []);
+    participant.team = player.team;
+    participant.teamSlot = player.teamSlot;
+    participant.kills = 0;
+    participant.deaths = 0;
+    participant.augmentIds = [];
+    participant.augmentOptions = [];
+    participant.respawnAtRound = 0;
+    return participant;
+  }).filter(Boolean);
+  const battle = {
+    battleId: crypto.randomUUID(),
+    mode: PVP_MODE_AUGMENT_3V3,
+    modeLabel: getPvpModeLabel(PVP_MODE_AUGMENT_3V3),
+    isRanked: false,
+    phase: 'augment',
+    players,
+    firstUserId: getAugmentTurnOrderPlayers({ players })[0]?.userId || players[0]?.userId,
+    currentUserId: null,
+    turnNumber: 1,
+    roundNumber: 1,
+    turnCursor: 0,
+    turnEndsAt: null,
+    teamKills: { red: 0, blue: 0 },
+    killTarget: PVP_AUGMENT_KILL_TARGET,
+    logs: ['증강 3대3 면담 전투가 시작되었습니다. 먼저 첫 번째 증강을 선택합니다.'],
+    winnerTeam: null,
+    winnerUserId: null,
+    loserUserId: null,
+    finishedAt: null,
+    augmentRound: 1,
+    augmentEndsAt: null,
+    augmentSelected: {}
+  };
+  applyPvpBattleStartPassives(battle);
+  prepareAugmentSelectionRound(battle, 1, now);
+  return battle;
 }
 
 
@@ -14632,6 +15167,17 @@ app.post('/api/pvp/queue', async (req, res) => {
     }
 
     const entry = createPvpQueueEntry(user);
+    if (isAugmentPvpMode(pvpMode)) {
+      modeState.queue.push(entry);
+      if (modeState.queue.length >= PVP_AUGMENT_QUEUE_SIZE) {
+        const players = modeState.queue.splice(0, PVP_AUGMENT_QUEUE_SIZE);
+        startPvpAugmentMatch(modeState, players, now);
+      } else {
+        bumpPvpVersion();
+      }
+      return res.json({ pvp: await buildPvpStateResponse(user, now, pvpMode) });
+    }
+
     const opponentIndex = modeState.queue.findIndex((queued) => queued.userId !== entry.userId);
     if (opponentIndex >= 0) {
       const opponent = modeState.queue.splice(opponentIndex, 1)[0];
@@ -14645,6 +15191,117 @@ app.post('/api/pvp/queue', async (req, res) => {
   } catch (err) {
     console.error('PVP queue error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/pvp/augment-pick', async (req, res) => {
+  const { userId, cardIds, swapOutCardId, mode } = req.body;
+  if (!userId) return res.status(400).json({ msg: '?ъ슜??ID媛 ?꾩슂?⑸땲??' });
+  try {
+    const now = new Date();
+    const pvpMode = normalizePvpMode(mode);
+    const modeState = getPvpModeState(pvpMode);
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '?ъ슜?먮? 李얠쓣 ???놁뒿?덈떎.' });
+    ensureUserDefaults(user);
+    await advancePvpState(now);
+    const match = modeState.match;
+    if (!match || !isAugmentPvpMode(match.mode) || match.phase !== 'augment_pick') {
+      return sendPvpStateError(res, user, now, 400, '진행 중인 증강 3대3 픽 단계가 없습니다.', pvpMode);
+    }
+    const player = getPvpPlayer(match, userId);
+    if (!player) return sendPvpStateError(res, user, now, 403, '증강 3대3 참가자가 아닙니다.', pvpMode);
+    const candidates = Array.isArray(match.candidates?.[String(userId)]) ? match.candidates[String(userId)] : [];
+    const candidateMap = new Map(candidates.map((entry) => [entry.cardId, entry]));
+    const requested = Array.isArray(cardIds) ? cardIds.map((id) => String(id || '')).filter(Boolean) : [];
+    if (requested.length) {
+      const unique = [...new Set(requested)].filter((cardId) => candidateMap.has(cardId)).slice(0, PVP_AUGMENT_PICK_COUNT);
+      if (unique.length !== PVP_AUGMENT_PICK_COUNT) {
+        return sendPvpStateError(res, user, now, 400, '후보 3장 중 2장을 선택해주세요.', pvpMode);
+      }
+      match.picks[String(userId)] = unique.map((cardId) => ({ cardId, enhancementLevel: candidateMap.get(cardId).enhancementLevel ?? 5 }));
+      const leftover = candidates.find((candidate) => !unique.includes(candidate.cardId));
+      if (leftover) match.leftovers[String(userId)] = { cardId: leftover.cardId, enhancementLevel: leftover.enhancementLevel ?? 5 };
+      match.pickDone[String(userId)] = true;
+      match.logs.push(`${player.displayName}이(가) 증강 3대3 카드를 선택했습니다.`);
+    } else if (swapOutCardId) {
+      const leftover = match.leftovers?.[String(userId)];
+      const picks = Array.isArray(match.picks?.[String(userId)]) ? match.picks[String(userId)] : [];
+      const index = picks.findIndex((pick) => pick.cardId === String(swapOutCardId));
+      if (!leftover || index < 0) return sendPvpStateError(res, user, now, 400, '교체할 수 있는 카드가 없습니다.', pvpMode);
+      const previous = picks[index];
+      picks[index] = { cardId: leftover.cardId, enhancementLevel: leftover.enhancementLevel ?? 5 };
+      match.leftovers[String(userId)] = previous;
+      match.logs.push(`${player.displayName}이(가) 남은 후보 카드로 교체했습니다.`);
+    }
+    bumpPvpVersion();
+    res.json({ pvp: await buildPvpStateResponse(user, now, pvpMode) });
+  } catch (err) {
+    console.error('PVP augment pick error:', err);
+    res.status(500).json({ msg: '?쒕쾭 ?ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.' });
+  }
+});
+
+app.post('/api/pvp/augment-select', async (req, res) => {
+  const { userId, augmentId, mode } = req.body;
+  if (!userId) return res.status(400).json({ msg: '?ъ슜??ID媛 ?꾩슂?⑸땲??' });
+  try {
+    const now = new Date();
+    const pvpMode = normalizePvpMode(mode);
+    const modeState = getPvpModeState(pvpMode);
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '?ъ슜?먮? 李얠쓣 ???놁뒿?덈떎.' });
+    ensureUserDefaults(user);
+    await advancePvpState(now);
+    const battle = modeState.battle;
+    if (!battle || !isAugmentPvpMode(battle.mode) || battle.phase !== 'augment') {
+      return sendPvpStateError(res, user, now, 400, '현재 증강 선택 단계가 아닙니다.', pvpMode);
+    }
+    const player = getPvpPlayer(battle, userId);
+    if (!player) return sendPvpStateError(res, user, now, 403, '증강 3대3 참가자가 아닙니다.', pvpMode);
+    if (!getAugmentOptionsForPlayer(player).some((entry) => entry.id === augmentId)) {
+      return sendPvpStateError(res, user, now, 400, '선택할 수 없는 증강입니다.', pvpMode);
+    }
+    battle.augmentSelected[String(userId)] = augmentId;
+    if (allAugmentSelectionsResolved(battle)) finishAugmentSelectionRound(battle, now);
+    bumpPvpVersion();
+    res.json({ pvp: await buildPvpStateResponse(user, now, pvpMode) });
+  } catch (err) {
+    console.error('PVP augment select error:', err);
+    res.status(500).json({ msg: '?쒕쾭 ?ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.' });
+  }
+});
+
+app.post('/api/pvp/augment-action', async (req, res) => {
+  const { userId, type, cardIndex, targetUserId, mode } = req.body;
+  if (!userId) return res.status(400).json({ msg: '?ъ슜??ID媛 ?꾩슂?⑸땲??' });
+  try {
+    const now = new Date();
+    const pvpMode = normalizePvpMode(mode);
+    const modeState = getPvpModeState(pvpMode);
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: '?ъ슜?먮? 李얠쓣 ???놁뒿?덈떎.' });
+    ensureUserDefaults(user);
+    await advancePvpState(now);
+    const battle = modeState.battle;
+    if (!battle || !isAugmentPvpMode(battle.mode) || battle.phase !== 'active') {
+      return sendPvpStateError(res, user, now, 400, '진행 중인 증강 3대3 전투가 없습니다.', pvpMode);
+    }
+    const player = getPvpPlayer(battle, userId);
+    if (!player) return sendPvpStateError(res, user, now, 403, '증강 3대3 참가자가 아닙니다.', pvpMode);
+    player.pendingAction = type === 'skill'
+      ? { type: 'skill', cardIndex: Number(cardIndex), targetUserId: String(targetUserId || '') }
+      : { type: 'basic', targetUserId: String(targetUserId || '') };
+    if (battle.currentUserId === String(userId)) {
+      await executePvpAugmentTurn(battle, now);
+    } else {
+      battle.logs.push(`${player.displayName}??媛) ?ㅼ쓬 ?먯떊??李⑤? ?됰룞???덉빟?덉뒿?덈떎.`);
+      bumpPvpVersion();
+    }
+    res.json({ pvp: await buildPvpStateResponse(user, now, pvpMode) });
+  } catch (err) {
+    console.error('PVP augment action error:', err);
+    res.status(500).json({ msg: '?쒕쾭 ?ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.' });
   }
 });
 

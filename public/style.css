@@ -1761,6 +1761,128 @@ progress {
   background: #eeeeee;
 }
 
+.pvp-augment-roster {
+  display: grid;
+  gap: 6px;
+}
+
+.pvp-augment-roster-card,
+.pvp-augment-player-card {
+  border: 1px solid #c9c9c9;
+  background: #fff;
+  padding: 8px;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.pvp-augment-roster-card.self,
+.pvp-augment-player-card.self {
+  border-color: #1f7a3a;
+  background: #f2fff5;
+}
+
+.pvp-augment-roster-card.dead,
+.pvp-augment-player-card.dead {
+  opacity: 0.55;
+  filter: grayscale(0.35);
+}
+
+.pvp-augment-ready {
+  color: #0b7d2b;
+  font-weight: 700;
+}
+
+.pvp-augment-leftover {
+  border: 1px dashed #aaa;
+  background: #fffbe8;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.pvp-augment-choice {
+  min-height: 180px;
+  border: 2px solid #c7c7c7;
+  background: linear-gradient(180deg, #ffffff, #edf6ff);
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pvp-augment-choice.silver {
+  border-color: #aeb7c2;
+}
+
+.pvp-augment-choice.gold {
+  border-color: #c8941c;
+  background: linear-gradient(180deg, #fff8da, #fff1b0);
+}
+
+.pvp-augment-choice.prism {
+  border-color: #9c66ff;
+  background: linear-gradient(135deg, #fff, #eaf7ff 35%, #ffe7ff 70%, #fff8d7);
+  box-shadow: 0 0 16px rgba(156, 102, 255, 0.3);
+}
+
+.pvp-augment-choice.selected {
+  outline: 3px solid #1f7a3a;
+}
+
+.pvp-augment-team-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.pvp-augment-player-card.red.active-turn {
+  border-color: #d32f2f;
+  box-shadow: inset 0 0 0 2px rgba(211, 47, 47, 0.35);
+}
+
+.pvp-augment-player-card.blue.active-turn {
+  border-color: #1565c0;
+  box-shadow: inset 0 0 0 2px rgba(21, 101, 192, 0.35);
+}
+
+.pvp-augment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pvp-augment-target-picker {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.pvp-augment-target-picker.hidden {
+  display: none;
+}
+
+.pvp-augment-target-panel {
+  width: min(520px, calc(100vw - 24px));
+  background: #ffffff;
+  border: 1px solid #777;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+  padding: 18px;
+  display: grid;
+  gap: 12px;
+}
+
+.pvp-augment-target-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .pvp-card-choice.banned::after {
   content: "X";
   position: absolute;
