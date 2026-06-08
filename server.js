@@ -10534,10 +10534,16 @@ function calculateBranchItemEffects(branchOffice = {}) {
   return effects;
 }
 
+function getBranchEffectiveExcavationPowerBonus(branchOffice = {}) {
+  const effects = calculateBranchItemEffects(branchOffice);
+  const employeeCount = Array.isArray(branchOffice?.employees) ? branchOffice.employees.length : 0;
+  return Number((Number(effects.excavationPowerBonus || 0) * employeeCount).toFixed(2));
+}
+
 function getBranchExcavationPower(user) {
   normalizeBranchOffice(user);
   const employeePower = user.branchOffice.employees.reduce((sum, employee) => sum + Number(employee.excavationPower || 0), 0);
-  const itemPower = calculateBranchItemEffects(user.branchOffice).excavationPowerBonus;
+  const itemPower = getBranchEffectiveExcavationPowerBonus(user.branchOffice);
   return Number((employeePower + itemPower).toFixed(2));
 }
 
@@ -10898,7 +10904,10 @@ function buildBranchOfficePublicState(user, now = new Date(), derivedStats = nul
     acquiredAt: entry.acquiredAt,
     ...getBranchItemDetail(entry.itemId)
   })).filter((entry) => entry.id);
-  const itemEffects = calculateBranchItemEffects(office);
+  const itemEffects = {
+    ...calculateBranchItemEffects(office),
+    effectiveExcavationPowerBonus: getBranchEffectiveExcavationPowerBonus(office)
+  };
   const pending = office.pendingExcavation?.completesAt ? office.pendingExcavation : null;
   const pendingStartedAt = pending?.startedAt ? new Date(pending.startedAt) : null;
   const pendingCompletesAt = pending?.completesAt ? new Date(pending.completesAt) : null;
@@ -11056,7 +11065,7 @@ function calculateDerivedStats(user, now = new Date()) {
     stockFeeReductionPercent: emblemStats.stockFeeReduction,
     infiniteOvertimeRewardBonusPercent: emblemStats.infiniteOvertimeRewardBonus,
     branchHourlyExpPercent: branchItemStats.hourlyExpPercent,
-    branchExcavationBonusPercent: branchItemStats.excavationPowerBonus,
+    branchExcavationBonusPercent: getBranchEffectiveExcavationPowerBonus(user.branchOffice),
     branchRaidExpBonusPercent: branchItemStats.bossRaidExpBonus,
     branchCompanyValueBonusPercent: branchItemStats.companyValueBonus,
     stressMultiplier: finalStressMultiplier,

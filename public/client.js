@@ -298,6 +298,15 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-08-branch-excavation-item-per-employee',
+    time: '2026-06-08 00:45',
+    title: '회사 유물 발굴 보너스 적용 수정',
+    items: [
+      '회사 운영 수집품의 직원 발굴 확률 증가 효과가 직원 수만큼 정상 반영되도록 수정했습니다.',
+      '예를 들어 직원별 발굴 보너스 +0.5% 수집품을 보유하고 직원이 10명이라면 실제 발굴력에 +5%가 반영됩니다.'
+    ]
+  },
+  {
     id: '2026-06-08-ranking-emblem-fixed-size',
     time: '2026-06-08 00:20',
     title: '랭킹 휘장 표시 크기 조정',
