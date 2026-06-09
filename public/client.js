@@ -225,6 +225,7 @@ let selectedPvpMode = 'ranked';
 let selectedPvpCardId = null;
 let selectedPvpEnhancementLevel = 0;
 let selectedPvpAugmentCardIds = [];
+let selectedPvpAugmentId = null;
 let latestInfiniteOvertimeState = null;
 let overtimeSetupMode = '';
 let overtimeSelection = [];
@@ -298,6 +299,26 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-06-09-pvp-augment-selection-target-hotfix',
+    time: '2026-06-09 17:05',
+    title: '증강 2대2 선택/예약 핫픽스',
+    items: [
+      '증강 선택 단계에서 선택완료를 누르기 전까지 고른 증강을 다시 바꿀 수 있게 했습니다.',
+      '미리 예약한 행동이 자기 턴에 넘어왔을 때 타임아웃을 기다리지 않고 실행되도록 수정했습니다.',
+      '김부장의 가발 등 다단 기본공격 계열 카드가 증강면담에서 적을 대상으로 선택되고 즉시 공격이 나가도록 수정했습니다.'
+    ]
+  },
+  {
+    id: '2026-06-09-pvp-augment-faster-finish',
+    time: '2026-06-09 16:30',
+    title: '증강 2대2 템포 조정',
+    items: [
+      '증강 2대2 카드 선택을 후보 5장 중 3장 선택으로 변경했습니다.',
+      '증강 선택 횟수를 총 5회로 늘려 1~5턴 시작 시마다 증강을 고를 수 있게 했습니다.',
+      '증강 2대2 승리 조건을 팀 합산 3킬로 낮췄습니다.'
+    ]
+  },
   {
     id: '2026-06-09-pvp-augment-2v2-stability',
     time: '2026-06-09 09:40',
@@ -5344,7 +5365,7 @@ function renderPvpAugmentDraft(match, user) {
     pvpDraftContextKey = contextKey;
   }
 
-  setText('pvpPhaseStatus', `증강 2대2 카드 선택 - 3장 중 2장을 선택하세요. 선택 후 남은 카드와 교체할 수 있습니다.`);
+  setText('pvpPhaseStatus', `증강 2대2 카드 선택 - 5장 중 3장을 선택하세요. 선택 후 남은 카드와 교체할 수 있습니다.`);
   const grid = document.getElementById('pvpCardGrid');
   if (!grid) return;
 
@@ -5370,7 +5391,7 @@ function renderPvpAugmentDraft(match, user) {
   } else {
     grid.innerHTML = candidates.map((card) => {
       const selected = selectedPvpAugmentCardIds.includes(card.cardId);
-      const disabled = !selected && selectedPvpAugmentCardIds.length >= 2;
+      const disabled = !selected && selectedPvpAugmentCardIds.length >= 3;
       return `
         <button class="pvp-card-choice ${selected ? 'selected' : ''} ${disabled ? 'disabled' : ''} ${card.specialStyle === 'champion' ? 'champion-card' : ''}"
           ${disabled ? 'disabled' : ''}
@@ -5386,8 +5407,8 @@ function renderPvpAugmentDraft(match, user) {
 
   const actionBtn = document.getElementById('pvpDraftActionBtn');
   if (actionBtn) {
-    actionBtn.textContent = pickDone ? '선택 완료' : '2장 확정';
-    actionBtn.disabled = pickDone || selectedPvpAugmentCardIds.length !== 2 || pvpDraftSubmitting;
+    actionBtn.textContent = pickDone ? '선택 완료' : '3장 확정';
+    actionBtn.disabled = pickDone || selectedPvpAugmentCardIds.length !== 3 || pvpDraftSubmitting;
   }
   document.getElementById('pvpBetBtn')?.classList.add('hidden');
 }
@@ -5400,7 +5421,7 @@ function handlePvpAugmentCandidateSelect(cardId) {
   if (!candidates.some((card) => card.cardId === cardId)) return;
   if (selectedPvpAugmentCardIds.includes(cardId)) {
     selectedPvpAugmentCardIds = selectedPvpAugmentCardIds.filter((id) => id !== cardId);
-  } else if (selectedPvpAugmentCardIds.length < 2) {
+  } else if (selectedPvpAugmentCardIds.length < 3) {
     selectedPvpAugmentCardIds = [...selectedPvpAugmentCardIds, cardId];
   }
   renderPvpState(latestPvpState, user);
@@ -5436,10 +5457,17 @@ function renderPvpAugmentSelection(battle, user) {
   const grid = document.getElementById('pvpCardGrid');
   const me = (battle.players || []).find((player) => String(player.userId) === userId);
   const selected = battle.augmentSelected?.[userId];
+  const options = Array.isArray(me?.augmentOptions) ? me.augmentOptions : [];
+  const contextKey = `${battle.battleId || ''}|augment|${battle.augmentRound || ''}|${options.map((entry) => entry.id).join(',')}|${selected || ''}`;
+  if (pvpDraftContextKey !== contextKey) {
+    selectedPvpAugmentId = selected || null;
+    pvpDraftSubmitting = false;
+    pvpDraftContextKey = contextKey;
+  }
+  const draftSelected = selected || selectedPvpAugmentId;
   if (grid) {
-    const options = Array.isArray(me?.augmentOptions) ? me.augmentOptions : [];
     grid.innerHTML = options.map((augment) => `
-      <button class="pvp-augment-choice ${augment.tier || 'silver'} ${selected === augment.id ? 'selected' : ''}" ${selected ? 'disabled' : ''} onclick="handlePvpAugmentSelect('${escapeAttr(augment.id)}')">
+      <button class="pvp-augment-choice ${augment.tier || 'silver'} ${draftSelected === augment.id ? 'selected' : ''}" ${selected ? 'disabled' : ''} onclick="handlePvpAugmentChoice('${escapeAttr(augment.id)}')">
         <span>${escapeHtml(getPvpAugmentTierLabel(augment.tier))}</span>
         <strong>${escapeHtml(augment.name || augment.id)}</strong>
         <p>${escapeHtml(augment.desc || '')}</p>
@@ -5448,26 +5476,46 @@ function renderPvpAugmentSelection(battle, user) {
   }
   const actionBtn = document.getElementById('pvpDraftActionBtn');
   if (actionBtn) {
-    actionBtn.textContent = selected ? '선택 완료' : '증강을 선택하세요';
-    actionBtn.disabled = true;
+    actionBtn.textContent = selected ? '선택 완료' : (draftSelected ? '선택완료' : '증강을 선택하세요');
+    actionBtn.disabled = Boolean(selected) || !draftSelected || pvpDraftSubmitting;
   }
   document.getElementById('pvpBetBtn')?.classList.add('hidden');
   const fakeMatch = { phase: 'augment', turnEndsAt: battle.augmentEndsAt };
   renderPvpDraftTimer(fakeMatch);
 }
 
-async function handlePvpAugmentSelect(augmentId) {
+function handlePvpAugmentChoice(augmentId) {
+  const user = getStoredUser();
+  const battle = latestPvpState?.battle;
+  if (!battle || !user?._id || battle.phase !== 'augment') return;
+  const me = (battle.players || []).find((player) => String(player.userId) === String(user._id));
+  if (battle.augmentSelected?.[String(user._id)]) return;
+  const options = Array.isArray(me?.augmentOptions) ? me.augmentOptions : [];
+  if (!options.some((entry) => entry.id === augmentId)) return;
+  selectedPvpAugmentId = selectedPvpAugmentId === augmentId ? null : augmentId;
+  renderPvpState(latestPvpState, user);
+}
+
+async function handlePvpAugmentSelect() {
   const user = getStoredUser();
   if (!user?._id) return handleLogoutClick();
+  const battle = latestPvpState?.battle;
+  if (!battle || battle.phase !== 'augment' || !selectedPvpAugmentId || battle.augmentSelected?.[String(user._id)]) return;
+  pvpDraftSubmitting = true;
+  renderPvpState(latestPvpState, user);
   try {
     const data = await postJson(`${API_URL}/api/pvp/augment-select`, {
       userId: user._id,
-      augmentId,
+      augmentId: selectedPvpAugmentId,
       mode: selectedPvpMode
     });
     latestPvpState = data.pvp;
+    pvpDraftSubmitting = false;
     renderPvpState(latestPvpState, user);
   } catch (err) {
+    pvpDraftSubmitting = false;
+    if (err.pvp) latestPvpState = err.pvp;
+    renderPvpState(latestPvpState, user);
     alert(err.message);
   }
 }
@@ -5694,8 +5742,7 @@ function isPvpAugmentAllyCard(card = {}) {
     'champion_guard', 'party_cooldown_reduce', 'random_party_negate_hit',
     'party_negate_hit_by_level', 'party_bread_buff', 'party_cleanse',
     'party_crit_bonus', 'party_hype_crit', 'random_party_attack_buff',
-    'random_party_negate_hit', 'self_counter', 'self_celine_buff',
-    'self_negate_hit', 'self_debuff_reflect', 'target_pair_guard_buff',
+    'random_party_negate_hit', 'target_pair_guard_buff',
     'lowest_level_buff', 'ally_shield_enemy_multi_hit',
     'random_ally_sacrifice_buff', 'random_shield'
   ]);
@@ -5707,10 +5754,7 @@ function isPvpAugmentSelfCard(card = {}) {
     'self_counter',
     'self_celine_buff',
     'self_negate_hit',
-    'self_debuff_reflect',
-    'self_bonus_damage',
-    'self_per_hit_bonus',
-    'self_multi_hit'
+    'self_debuff_reflect'
   ].includes(card.effectType);
 }
 
@@ -5854,7 +5898,7 @@ function renderPvpAugmentBattle(battle, user) {
   document.getElementById('pvpCountdownOverlay')?.classList.add('hidden');
   const teams = getPvpAugmentTeams(battle.players || [], user?._id || '');
   const current = (battle.players || []).find((player) => player.userId === battle.currentUserId);
-  setText('pvpPhaseStatus', `증강 2대2 - 레드 ${formatNumber(battle.teamKills?.red || 0)} / 블루 ${formatNumber(battle.teamKills?.blue || 0)} / 목표 ${formatNumber(battle.killTarget || 4)}킬`);
+  setText('pvpPhaseStatus', `증강 2대2 - 레드 ${formatNumber(battle.teamKills?.red || 0)} / 블루 ${formatNumber(battle.teamKills?.blue || 0)} / 목표 ${formatNumber(battle.killTarget || 3)}킬`);
   setText('pvpBattleTurnLabel', `현재 ${formatNumber(battle.roundNumber || battle.turnNumber || 1)}턴`);
   setText('pvpBattleTurnActor', current ? `${current.team === 'red' ? '레드' : '블루'} ${current.teamSlot + 1}P - ${current.displayName} 행동` : '행동 대기');
   updatePvpTurnTimer();
@@ -5887,10 +5931,16 @@ function handlePvpCardSelect(cardId, enhancementLevel = 0) {
 
 async function handlePvpDraftAction() {
   const user = getStoredUser();
-  if (!user?._id || !latestPvpState?.match) return;
+  if (!user?._id) return handleLogoutClick();
+  const battle = latestPvpState?.battle;
+  if (battle && isPvpAugmentMode(battle.mode) && battle.phase === 'augment') {
+    await handlePvpAugmentSelect();
+    return;
+  }
+  if (!latestPvpState?.match) return;
   const match = latestPvpState.match;
   if (isPvpAugmentMode(match.mode)) {
-    if (pvpDraftSubmitting || match.phase !== 'augment_pick' || selectedPvpAugmentCardIds.length !== 2) return;
+    if (pvpDraftSubmitting || match.phase !== 'augment_pick' || selectedPvpAugmentCardIds.length !== 3) return;
     pvpDraftSubmitting = true;
     renderPvpState(latestPvpState, user);
     try {

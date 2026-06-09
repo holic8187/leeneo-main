@@ -177,10 +177,10 @@ const PVP_AUGMENT_QUEUE_SIZE = 4;
 const PVP_AUGMENT_PICK_MS = 50 * 1000;
 const PVP_AUGMENT_SELECT_MS = 40 * 1000;
 const PVP_AUGMENT_TURN_MS = 20 * 1000;
-const PVP_AUGMENT_KILL_TARGET = 4;
-const PVP_AUGMENT_CANDIDATE_COUNT = 3;
-const PVP_AUGMENT_PICK_COUNT = 2;
-const PVP_AUGMENT_ROUNDS = [1, 3, 5];
+const PVP_AUGMENT_KILL_TARGET = 3;
+const PVP_AUGMENT_CANDIDATE_COUNT = 5;
+const PVP_AUGMENT_PICK_COUNT = 3;
+const PVP_AUGMENT_ROUNDS = [1, 2, 3, 4, 5];
 const PVP_AUGMENT_TIER_WEIGHTS = [
   { tier: 'silver', weight: 55 },
   { tier: 'gold', weight: 35 },
@@ -9198,8 +9198,18 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
     const removed = removeRandomPvpBuff(target, card.removeBuffCount || 1);
     battle.logs.push(removed ? `${target.displayName}의 ${removed} 버프가 제거되었습니다.` : `${target.displayName}에게 제거할 버프가 없습니다.`);
   } else if (card.effectType === 'self_multi_hit') {
-    actor.extraHits = Math.max(Number(actor.extraHits || 0), scaleCount(card.hits) - 1);
-    actor.multiHitDamageMultiplier = 0.9;
+    if (isAugmentBattle && target && target.team !== actor.team) {
+      const previousExtraHits = Number(actor.extraHits || 0);
+      const previousMultiplier = Number(actor.multiHitDamageMultiplier || 1);
+      actor.extraHits = Math.max(previousExtraHits, scaleCount(card.hits) - 1);
+      actor.multiHitDamageMultiplier = 0.9;
+      performPvpBasicAttack(actor, target, battle);
+      actor.extraHits = previousExtraHits;
+      actor.multiHitDamageMultiplier = previousMultiplier;
+    } else {
+      actor.extraHits = Math.max(Number(actor.extraHits || 0), scaleCount(card.hits) - 1);
+      actor.multiHitDamageMultiplier = 0.9;
+    }
   } else if (card.effectType === 'self_fixed_multi_hit') {
     const hits = Math.max(1, Number(card.hits || 1));
     const damage = Math.max(1, scaleFlat(getPvpEffectiveLevel(actor) * Number(card.damagePerLevel || 0) * 0.9));
@@ -9335,9 +9345,18 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
     battle.logs.push(`${actor.displayName}의 팀 카드 쿨타임이 ${reduceAmount}턴 감소했습니다.`);
   } else if (card.effectType === 'self_bonus_damage') {
     actor.extraDamage = scaleFlat(getPvpEffectiveLevel(actor) * Number(card.bonusPerLevel || 0));
+    if (isAugmentBattle && target && target.team !== actor.team) {
+      performPvpBasicAttack(actor, target, battle);
+      actor.extraDamage = 0;
+    }
   } else if (card.effectType === 'self_per_hit_bonus') {
     actor.perHitBonusDamage = scaleFlat(getPvpEffectiveLevel(actor) * Number(card.bonusPerLevel || 0));
     actor.perHitBonusTurns = 1;
+    if (isAugmentBattle && target && target.team !== actor.team) {
+      performPvpBasicAttack(actor, target, battle);
+      actor.perHitBonusTurns = 0;
+      actor.perHitBonusDamage = 0;
+    }
   } else if (card.effectType === 'target_pair_guard_buff') {
     const negateHitCount = Number(card.negateHitCount || 0) > 0 ? scaleCount(card.negateHitCount) : 0;
     if (negateHitCount > 0) {
@@ -10026,6 +10045,13 @@ async function advancePvpModeStateUnlocked(mode, modeState, now = new Date()) {
     }
   }
 
+  if (modeState.battle?.phase === 'active' && isAugmentPvpMode(modeState.battle.mode)) {
+    const currentPlayer = getPvpPlayer(modeState.battle, modeState.battle.currentUserId);
+    if (currentPlayer?.pendingAction) {
+      await executePvpTurn(modeState.battle, now, { reserved: true });
+    }
+  }
+
   if (modeState.battle?.phase === 'active' && now.getTime() >= new Date(modeState.battle.turnEndsAt).getTime()) {
     await executePvpTurn(modeState.battle, now, { timedOut: true });
   }
@@ -10359,7 +10385,7 @@ function startPvpAugmentMatch(modeState, queuedPlayers, now = new Date()) {
     candidates,
     pickDone: Object.fromEntries(players.map((player) => [player.userId, false])),
     pickTurnIndex: 0,
-    logs: ['증강 2대2 면담 매칭이 성사되었습니다. 50초 안에 후보 3장 중 2장을 선택해주세요.']
+    logs: ['증강 2대2 면담 매칭이 성사되었습니다. 50초 안에 후보 5장 중 3장을 선택해주세요.']
   };
   bumpPvpVersion();
 }
@@ -10430,10 +10456,6 @@ const PVP_AUGMENT_ALLY_EFFECT_TYPES = new Set([
   'party_crit_bonus',
   'party_hype_crit',
   'random_party_attack_buff',
-  'self_counter',
-  'self_celine_buff',
-  'self_negate_hit',
-  'self_debuff_reflect',
   'target_pair_guard_buff',
   'lowest_level_buff',
   'ally_shield_enemy_multi_hit',
@@ -10445,10 +10467,7 @@ const PVP_AUGMENT_SELF_EFFECT_TYPES = new Set([
   'self_counter',
   'self_celine_buff',
   'self_negate_hit',
-  'self_debuff_reflect',
-  'self_bonus_damage',
-  'self_per_hit_bonus',
-  'self_multi_hit'
+  'self_debuff_reflect'
 ]);
 
 function isPvpAugmentAllySkill(card = {}) {
@@ -15399,7 +15418,7 @@ app.post('/api/pvp/augment-pick', async (req, res) => {
     if (requested.length) {
       const unique = [...new Set(requested)].filter((cardId) => candidateMap.has(cardId)).slice(0, PVP_AUGMENT_PICK_COUNT);
       if (unique.length !== PVP_AUGMENT_PICK_COUNT) {
-        return sendPvpStateError(res, user, now, 400, '후보 3장 중 2장을 선택해주세요.', pvpMode);
+        return sendPvpStateError(res, user, now, 400, '후보 5장 중 3장을 선택해주세요.', pvpMode);
       }
       match.picks[String(userId)] = unique.map((cardId) => ({ cardId, enhancementLevel: candidateMap.get(cardId).enhancementLevel ?? 5 }));
       const leftover = candidates.find((candidate) => !unique.includes(candidate.cardId));
