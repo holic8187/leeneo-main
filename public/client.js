@@ -300,6 +300,25 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-09-adventure-stamina-guard',
+    time: '2026-06-09 19:05',
+    title: '모험 행동력 차감 안정화',
+    items: [
+      '모험하기 사용 시 행동력이 비정상적으로 0까지 떨어질 수 있는 상황을 막기 위해 행동력 차감 전후 보정을 강화했습니다.',
+      '최대 행동력이 10을 넘는 유저도 현재 최대 행동력 기준으로 안전하게 차감/회복되도록 박카스 사용 로직도 함께 정리했습니다.'
+    ]
+  },
+  {
+    id: '2026-06-09-large-number-readable-ui',
+    time: '2026-06-09 18:40',
+    title: '큰 숫자 표시 개선',
+    items: [
+      '고레벨 구간의 경험치, 재산, 월급처럼 매우 큰 숫자는 한글 단위로 축약 표시되도록 개선했습니다.',
+      '경험치바 옆에는 현재 진행률 퍼센트를 먼저 보여주고, 괄호 안에 현재/필요 경험치를 축약해서 함께 표시합니다.',
+      '실제 저장값과 계산식은 변경하지 않고 화면 표시만 읽기 쉽게 정리했습니다.'
+    ]
+  },
+  {
     id: '2026-06-09-pvp-augment-raid-reward-hotfix',
     time: '2026-06-09 18:10',
     title: '증강 2대2와 회의 보상 안정화',
@@ -1800,11 +1819,60 @@ function playPvpSfx(type = 'hit') {
   setTimeout(() => context.close().catch(() => {}), Math.ceil((preset.duration + 0.05) * 1000));
 }
 
-function formatNumber(value, decimals = 0) {
-  return Number(value || 0).toLocaleString('ko-KR', {
+const KOREAN_NUMBER_UNITS = [
+  { value: 1e68, label: '무량대수' },
+  { value: 1e64, label: '불가사의' },
+  { value: 1e60, label: '나유타' },
+  { value: 1e56, label: '아승기' },
+  { value: 1e52, label: '항하사' },
+  { value: 1e48, label: '극' },
+  { value: 1e44, label: '재' },
+  { value: 1e40, label: '정' },
+  { value: 1e36, label: '간' },
+  { value: 1e32, label: '구' },
+  { value: 1e28, label: '양' },
+  { value: 1e24, label: '자' },
+  { value: 1e20, label: '해' },
+  { value: 1e16, label: '경' },
+  { value: 1e12, label: '조' },
+  { value: 1e8, label: '억' }
+];
+
+function normalizeNumber(value) {
+  const number = Number(value ?? 0);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function formatFullNumber(value, decimals = 0) {
+  return normalizeNumber(value).toLocaleString('ko-KR', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals
   });
+}
+
+function formatCompactKoreanNumber(value, decimals = 0) {
+  const number = normalizeNumber(value);
+  const abs = Math.abs(number);
+  if (abs < 100000000) return formatFullNumber(number, decimals);
+
+  const unit = KOREAN_NUMBER_UNITS.find((entry) => abs >= entry.value);
+  if (!unit) return formatFullNumber(number, decimals);
+
+  const scaled = abs / unit.value;
+  const fractionDigits = scaled >= 100 ? 0 : (scaled >= 10 ? 1 : 2);
+  const compact = scaled.toLocaleString('ko-KR', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: fractionDigits
+  });
+  return `${number < 0 ? '-' : ''}${compact}${unit.label}`;
+}
+
+function formatNumber(value, decimals = 0) {
+  return formatCompactKoreanNumber(value, decimals);
+}
+
+function formatPercent(value, decimals = 2) {
+  return `${formatFullNumber(value, decimals)}%`;
 }
 
 function formatDurationMs(ms) {
@@ -1878,6 +1946,17 @@ function applyCardVisualToElement(element, card = {}) {
 function setText(id, value) {
   const element = document.getElementById(id);
   if (element) element.textContent = value;
+}
+
+function setTextTitle(id, value, title) {
+  const element = document.getElementById(id);
+  if (!element) return;
+  element.textContent = value;
+  if (title == null || title === '') {
+    element.removeAttribute('title');
+  } else {
+    element.title = String(title);
+  }
 }
 
 function setHtml(id, value) {
@@ -8041,8 +8120,8 @@ function updateStatusUI(user) {
   if (!state) return;
 
   setText('userNickname', getMainName(user));
-  setText('money', formatNumber(Math.floor(state.money)));
-  setText('salaryRate', formatNumber(state.salaryPerMinute ?? 0, 2));
+  setTextTitle('money', formatNumber(Math.floor(state.money)), `${formatFullNumber(Math.floor(state.money || 0))}원`);
+  setTextTitle('salaryRate', formatNumber(state.salaryPerMinute ?? 0, 2), `${formatFullNumber(state.salaryPerMinute ?? 0, 2)}원/분`);
   setText('level', state.level);
   setText('stamina', `${formatNumber(state.stamina ?? 0, 1)}/${formatNumber(state.maxStamina ?? 0, 1)}`);
   setText('businessCardCount', formatNumber(getBusinessCardCount(user)));
@@ -8053,11 +8132,17 @@ function updateStatusUI(user) {
   stressEl.style.fontWeight = state.stress >= 100 ? 'bold' : 'normal';
 
   const maxExp = state.nextLevelExp || 1000;
-  setText('expText', `${formatNumber(state.exp)}/${formatNumber(maxExp)}`);
+  const expPercent = maxExp > 0 ? Math.min(100, Math.max(0, (Number(state.exp || 0) / Number(maxExp || 1)) * 100)) : 0;
+  setTextTitle(
+    'expText',
+    `${formatPercent(expPercent, 2)} (${formatNumber(state.exp)}/${formatNumber(maxExp)})`,
+    `${formatFullNumber(state.exp)} / ${formatFullNumber(maxExp)}`
+  );
   const expBar = document.getElementById('expBar');
   if (expBar) {
-    expBar.max = maxExp;
-    expBar.value = state.exp;
+    expBar.max = 100;
+    expBar.value = expPercent;
+    expBar.title = `${formatPercent(expPercent, 2)} 진행`;
   }
 
   const equippedTitle = getEquippedTitleDetail(user);

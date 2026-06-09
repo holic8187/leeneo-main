@@ -251,6 +251,13 @@ td {
   align-items: center;
   gap: 10px;
   flex: 1;
+  min-width: 0;
+}
+
+#expText {
+  min-width: 190px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 progress {

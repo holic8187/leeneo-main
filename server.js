@@ -12091,9 +12091,35 @@ function getEffectiveMaxStamina(user, now = new Date()) {
   return Number((user.gameState.maxStamina + derivedStats.maxStaminaBonus).toFixed(2));
 }
 
+function normalizeUserStamina(user, now = new Date()) {
+  ensureUserDefaults(user);
+  const maxStamina = getEffectiveMaxStamina(user, now);
+  const currentStamina = Number(user.gameState.stamina ?? maxStamina);
+  user.gameState.stamina = Number(Math.min(maxStamina, Math.max(0, Number.isFinite(currentStamina) ? currentStamina : maxStamina)).toFixed(2));
+  return user.gameState.stamina;
+}
+
+function spendUserStamina(user, cost, now = new Date()) {
+  const currentStamina = normalizeUserStamina(user, now);
+  const staminaCost = Number(cost || 0);
+  if (!Number.isFinite(staminaCost) || staminaCost < 0) {
+    throw createHttpError(500, '행동력 소모량 계산에 실패했습니다.');
+  }
+  if (currentStamina + 0.000001 < staminaCost) {
+    throw createHttpError(400, `행동력이 부족합니다. (필요: ${staminaCost})`);
+  }
+  user.gameState.stamina = Number(Math.max(0, currentStamina - staminaCost).toFixed(2));
+  return {
+    staminaBefore: currentStamina,
+    staminaAfter: user.gameState.stamina,
+    staminaCost
+  };
+}
+
 function getAdventureStaminaCost(user, now = new Date()) {
   const derivedStats = calculateDerivedStats(user, now);
-  return Number((1 * derivedStats.adventureStaminaMultiplier).toFixed(2));
+  const multiplier = Number(derivedStats.adventureStaminaMultiplier || 1);
+  return Number(Math.max(0, 1 * (Number.isFinite(multiplier) ? multiplier : 1)).toFixed(2));
 }
 
 function hasWorkOptimizationSkill(user) {
@@ -13051,12 +13077,14 @@ app.post('/api/action/adventure', async (req, res) => {
         throw createHttpError(429, `모험 준비 중입니다. ${remainingTenths.toFixed(1)}초 후 다시 시도해주세요.`);
       }
 
+      const staminaBefore = normalizeUserStamina(user, now);
       const staminaCost = getAdventureStaminaCost(user, now);
-      if (user.gameState.stamina < staminaCost) {
+      if (staminaBefore + 0.000001 < staminaCost) {
         throw createHttpError(400, `행동력이 부족합니다. (필요: ${staminaCost})`);
       }
 
       user.gameState.stamina = Number((user.gameState.stamina - staminaCost).toFixed(2));
+      const staminaAfter = normalizeUserStamina(user, now);
       user.gameState.lastActionTime = now;
       user.meta.lastAdventureAt = now;
 
@@ -13072,7 +13100,11 @@ app.post('/api/action/adventure', async (req, res) => {
           message: event.message,
           createdAt: now
         };
-        return buildAdventureChoiceResponse(user, now);
+        const choiceResponse = await buildAdventureChoiceResponse(user, now);
+        choiceResponse.adventureResult.staminaBefore = staminaBefore;
+        choiceResponse.adventureResult.staminaAfter = staminaAfter;
+        choiceResponse.adventureResult.staminaCost = staminaCost;
+        return choiceResponse;
       }
 
       const rewardText = applyAdventureReward(user, event.reward, now);
@@ -13085,7 +13117,10 @@ app.post('/api/action/adventure', async (req, res) => {
         requiresChoice: false,
         title: eventTitle,
         message: event.message,
-        rewardText
+        rewardText,
+        staminaBefore,
+        staminaAfter,
+        staminaCost
       };
       return response;
     }, { conflictLabel: 'Adventure action conflict' });
@@ -13967,7 +14002,8 @@ app.post('/api/inventory/use', async (req, res) => {
       }
 
       if (itemId === 'bacchus') {
-        const maxRecoverableStamina = Math.max(0, Math.floor(getEffectiveMaxStamina(user, now) - Number(user.gameState.stamina || 0)));
+        const currentStamina = normalizeUserStamina(user, now);
+        const maxRecoverableStamina = Math.max(0, Math.floor(getEffectiveMaxStamina(user, now) - currentStamina));
         if (maxRecoverableStamina <= 0) {
           throw createHttpError(400, '행동력이 이미 최대치라 박카스를 사용할 수 없습니다.');
         }
@@ -13998,7 +14034,7 @@ app.post('/api/inventory/use', async (req, res) => {
       }
 
       if (itemId === 'bacchus') {
-        user.gameState.stamina = Math.min(getEffectiveMaxStamina(user, now), Number(user.gameState.stamina || 0) + useQuantity);
+        user.gameState.stamina = Number(Math.min(getEffectiveMaxStamina(user, now), normalizeUserStamina(user, now) + useQuantity).toFixed(2));
         queueNotification(user, 'item_use', `박카스를 ${useQuantity}병 마셨습니다. 행동력이 ${useQuantity} 회복되었습니다.`);
       } else if (itemId === 'hot6') {
         addUserStress(user, -(10 * useQuantity));
