@@ -299,13 +299,24 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-09-pvp-augment-2v2-stability',
+    time: '2026-06-09 09:40',
+    title: '증강 2대2 면담 안정화',
+    items: [
+      '증강면담을 2대2로 조정하고 행동 제한 시간을 20초로 줄였습니다.',
+      '시간 안에 행동하지 않으면 사용 가능한 스킬 또는 기본공격이 랜덤 대상에게 자동 실행됩니다.',
+      '증강 선택 라운드는 모든 참가자에게 같은 등급의 증강 후보가 나오도록 변경했습니다.',
+      '팀원이 고른 카드와 증강을 볼 수 있도록 표시를 추가하고, 대상 선택과 일부 카드 효과 적용 오류를 수정했습니다.'
+    ]
+  },
+  {
     id: '2026-06-08-pvp-augment-3v3-beta',
     time: '2026-06-08 01:20',
-    title: '증강 3대3 면담 베타 출시',
+    title: '증강 면담 베타 출시',
     items: [
-      '개인면담 선택창에 <증강 3대3> 모드를 추가했습니다.',
-      '6명이 매칭되면 각자 랜덤 +5 카드 3장 중 2장을 선택하고, 남은 카드와 교체할 수 있습니다.',
-      '전투는 레드팀/블루팀 3대3으로 진행되며, 먼저 팀 합산 10킬을 달성하는 팀이 승리합니다.',
+      '개인면담 선택창에 랜덤 카드와 증강을 선택하는 팀전 모드를 추가했습니다.',
+      '각자 랜덤 +5 카드 3장 중 2장을 선택하고, 남은 카드와 교체할 수 있습니다.',
+      '팀 합산 4킬을 먼저 달성하는 팀이 승리합니다.',
       '시작 시, 3턴 시작 시, 5턴 시작 시 실버/골드/프리즘 등급 증강 중 하나를 선택할 수 있습니다.'
     ]
   },
@@ -4267,7 +4278,7 @@ async function handleMailboxClaimAll() {
 }
 
 function getPvpModeLabel(mode) {
-  if (mode === 'augment3v3') return '증강 3대3';
+  if (mode === 'augment3v3') return '증강 2대2';
   return mode === 'normal' ? '일반전' : '랭크';
 }
 
@@ -5230,12 +5241,60 @@ function getPvpAugmentTierLabel(tier) {
   return '실버';
 }
 
+function getPvpAugmentTeams(players = [], userId = '') {
+  const normalizedUserId = String(userId || '');
+  const self = players.find((player) => String(player.userId) === normalizedUserId);
+  const myTeam = self?.team || 'red';
+  return {
+    myTeam,
+    myPlayers: players.filter((player) => player.team === myTeam),
+    enemyPlayers: players.filter((player) => player.team !== myTeam),
+    redPlayers: players.filter((player) => player.team === 'red'),
+    bluePlayers: players.filter((player) => player.team === 'blue')
+  };
+}
+
+function hydratePvpAugmentMatchPlayers(match = {}) {
+  const players = Array.isArray(match.players) ? match.players : [];
+  return players.map((player) => {
+    const picks = Array.isArray(match.picks?.[player.userId]) ? match.picks[player.userId] : [];
+    const candidates = Array.isArray(match.candidates?.[player.userId]) ? match.candidates[player.userId] : [];
+    const candidateMap = new Map(candidates.map((card) => [card.cardId, card]));
+    return {
+      ...player,
+      cards: picks.map((pick, index) => ({
+        ...(candidateMap.get(pick.cardId) || pick),
+        slotIndex: index,
+        name: candidateMap.get(pick.cardId)?.name || pick.cardId
+      }))
+    };
+  });
+}
+
+function getPvpAugmentCardChipsHtml(player = {}) {
+  const cards = Array.isArray(player.cards) ? player.cards : [];
+  if (!cards.length) return '<span class="muted-text">카드 미선택</span>';
+  return cards.map((card) => `<span class="pvp-mini-card ${card.specialStyle === 'champion' ? 'champion-card' : ''}" title="${escapeAttr(card.skillDesc || '')}">${escapeHtml(card.name || card.baseName || card.cardId || '')}</span>`).join('');
+}
+
+function getPvpAugmentBadgesHtml(player = {}) {
+  const augments = Array.isArray(player.augments) ? player.augments : [];
+  if (!augments.length) return '<span class="muted-text">증강 없음</span>';
+  return augments.map((augment) => `
+    <span class="pvp-augment-badge ${escapeAttr(augment.tier || 'silver')}" title="${escapeAttr(augment.desc || '')}">
+      ${escapeHtml(augment.name || augment.id)}
+    </span>
+  `).join('');
+}
+
 function getPvpAugmentPlayerListHtml(players = [], viewerUserId = '') {
   return players.map((player) => `
     <div class="pvp-augment-roster-card ${player.hp <= 0 ? 'dead' : ''} ${player.isSelf ? 'self' : ''}">
       <strong>${compactDisplayHtml(player.displayName || '', 16)}</strong>
       <span>HP ${formatNumber(player.hp || 0)} / ${formatNumber(player.maxHp || 300)}</span>
       <span>${formatNumber(player.kills || 0)}킬 / ${formatNumber(player.deaths || 0)}데스</span>
+      <div class="pvp-augment-card-line">${getPvpAugmentCardChipsHtml(player)}</div>
+      <div class="pvp-augment-badge-line">${getPvpAugmentBadgesHtml(player)}</div>
       ${player.pendingAction ? '<span class="pvp-augment-ready">행동 예약됨</span>' : ''}
     </div>
   `).join('');
@@ -5267,10 +5326,10 @@ function renderPvpAugmentDraft(match, user) {
   pvpTurnTicker = null;
 
   const userId = String(user?._id || '');
-  const redPlayers = (match.players || []).filter((player) => player.team === 'red');
-  const bluePlayers = (match.players || []).filter((player) => player.team === 'blue');
-  renderPvpAugmentSidePanel('pvpMyPanel', redPlayers, '레드팀');
-  renderPvpAugmentSidePanel('pvpEnemyPanel', bluePlayers, '블루팀');
+  const displayPlayers = hydratePvpAugmentMatchPlayers(match);
+  const teams = getPvpAugmentTeams(displayPlayers, userId);
+  renderPvpAugmentSidePanel('pvpMyPanel', teams.myPlayers, match.isParticipant ? '우리팀' : '레드팀');
+  renderPvpAugmentSidePanel('pvpEnemyPanel', teams.enemyPlayers, match.isParticipant ? '상대팀' : '블루팀');
   renderSpectatorPanel('pvpSpectatorPanel', 'pvpSpectatorList', match.spectators || []);
   renderPvpDraftTimer(match);
 
@@ -5285,7 +5344,7 @@ function renderPvpAugmentDraft(match, user) {
     pvpDraftContextKey = contextKey;
   }
 
-  setText('pvpPhaseStatus', `증강 3대3 카드 선택 - 3장 중 2장을 선택하세요. 선택 후 남은 카드와 교체할 수 있습니다.`);
+  setText('pvpPhaseStatus', `증강 2대2 카드 선택 - 3장 중 2장을 선택하세요. 선택 후 남은 카드와 교체할 수 있습니다.`);
   const grid = document.getElementById('pvpCardGrid');
   if (!grid) return;
 
@@ -5368,12 +5427,11 @@ function renderPvpAugmentSelection(battle, user) {
   document.getElementById('pvpDraftView')?.classList.remove('hidden');
   document.getElementById('pvpBattleView')?.classList.add('hidden');
   const userId = String(user?._id || '');
-  const redPlayers = (battle.players || []).filter((player) => player.team === 'red');
-  const bluePlayers = (battle.players || []).filter((player) => player.team === 'blue');
-  renderPvpAugmentSidePanel('pvpMyPanel', redPlayers, '레드팀');
-  renderPvpAugmentSidePanel('pvpEnemyPanel', bluePlayers, '블루팀');
+  const teams = getPvpAugmentTeams(battle.players || [], userId);
+  renderPvpAugmentSidePanel('pvpMyPanel', teams.myPlayers, battle.isParticipant ? '우리팀' : '레드팀');
+  renderPvpAugmentSidePanel('pvpEnemyPanel', teams.enemyPlayers, battle.isParticipant ? '상대팀' : '블루팀');
   renderSpectatorPanel('pvpSpectatorPanel', 'pvpSpectatorList', battle.spectators || []);
-  setText('pvpPhaseStatus', `증강 선택 - ${formatNumber(battle.augmentRound || 1)}턴 시작 증강을 고르세요.`);
+  setText('pvpPhaseStatus', `증강 선택 - ${formatNumber(battle.augmentRound || 1)}턴 시작 / 이번 라운드: ${getPvpAugmentTierLabel(battle.augmentTier)} 증강`);
 
   const grid = document.getElementById('pvpCardGrid');
   const me = (battle.players || []).find((player) => String(player.userId) === userId);
@@ -5637,13 +5695,30 @@ function isPvpAugmentAllyCard(card = {}) {
     'party_negate_hit_by_level', 'party_bread_buff', 'party_cleanse',
     'party_crit_bonus', 'party_hype_crit', 'random_party_attack_buff',
     'random_party_negate_hit', 'self_counter', 'self_celine_buff',
-    'self_negate_hit', 'self_debuff_reflect'
+    'self_negate_hit', 'self_debuff_reflect', 'target_pair_guard_buff',
+    'lowest_level_buff', 'ally_shield_enemy_multi_hit',
+    'random_ally_sacrifice_buff', 'random_shield'
   ]);
   return allyTargets.has(card.targetType) || allyEffects.has(card.effectType);
 }
 
+function isPvpAugmentSelfCard(card = {}) {
+  return [
+    'self_counter',
+    'self_celine_buff',
+    'self_negate_hit',
+    'self_debuff_reflect',
+    'self_bonus_damage',
+    'self_per_hit_bonus',
+    'self_multi_hit'
+  ].includes(card.effectType);
+}
+
 function getPvpAugmentTargets(battle, actor, card = null, actionType = 'basic') {
   const players = Array.isArray(battle?.players) ? battle.players : [];
+  if (actionType === 'skill' && isPvpAugmentSelfCard(card)) {
+    return [actor].filter(Boolean);
+  }
   const wantsAlly = actionType === 'skill' && isPvpAugmentAllyCard(card);
   return players.filter((player) => {
     if (Number(player.hp || 0) <= 0) return false;
@@ -5741,6 +5816,8 @@ function renderPvpAugmentPlayerBattleCard(player, battle, user, currentUserId) {
       ${escapeHtml(effect.name)}${effect.turns ? ` ${formatNumber(effect.turns)}턴` : ''}${effect.count ? ` ${formatNumber(effect.count)}회` : ''}
     </span>
   `).join('');
+  const augmentBadges = getPvpAugmentBadgesHtml(player);
+  const cardChips = getPvpAugmentCardChipsHtml(player);
   const actionButtons = isSelf && battle.isParticipant && player.hp > 0 ? `
     <div class="pvp-augment-actions">
       <button class="pvp-card-skill-btn pvp-basic-turn-btn" onclick="openPvpAugmentTargetPicker('basic')">기본공격</button>
@@ -5761,6 +5838,8 @@ function renderPvpAugmentPlayerBattleCard(player, battle, user, currentUserId) {
         <span>${formatNumber(player.hp || 0)} / ${formatNumber(player.maxHp || 300)}</span>
       </div>
       <div class="menu-note">보호막 ${formatNumber(player.shield || 0)} / ${formatNumber(player.kills || 0)}킬 ${formatNumber(player.deaths || 0)}데스</div>
+      <div class="pvp-augment-card-line">${cardChips}</div>
+      <div class="pvp-augment-badge-line">${augmentBadges}</div>
       <div class="pvp-effect-list">${effects || '<span class="muted-text">버프/디버프 없음</span>'}</div>
       ${player.pendingAction ? '<div class="pvp-augment-ready">다음 행동 예약됨</div>' : ''}
       ${actionButtons}
@@ -5773,17 +5852,15 @@ function renderPvpAugmentBattle(battle, user) {
   document.getElementById('pvpDraftView')?.classList.add('hidden');
   document.getElementById('pvpBattleView')?.classList.remove('hidden');
   document.getElementById('pvpCountdownOverlay')?.classList.add('hidden');
-  closePvpAugmentTargetPicker();
-  const redPlayers = (battle.players || []).filter((player) => player.team === 'red');
-  const bluePlayers = (battle.players || []).filter((player) => player.team === 'blue');
+  const teams = getPvpAugmentTeams(battle.players || [], user?._id || '');
   const current = (battle.players || []).find((player) => player.userId === battle.currentUserId);
-  setText('pvpPhaseStatus', `증강 3대3 - 레드 ${formatNumber(battle.teamKills?.red || 0)} / 블루 ${formatNumber(battle.teamKills?.blue || 0)} / 목표 ${formatNumber(battle.killTarget || 10)}킬`);
+  setText('pvpPhaseStatus', `증강 2대2 - 레드 ${formatNumber(battle.teamKills?.red || 0)} / 블루 ${formatNumber(battle.teamKills?.blue || 0)} / 목표 ${formatNumber(battle.killTarget || 4)}킬`);
   setText('pvpBattleTurnLabel', `현재 ${formatNumber(battle.roundNumber || battle.turnNumber || 1)}턴`);
   setText('pvpBattleTurnActor', current ? `${current.team === 'red' ? '레드' : '블루'} ${current.teamSlot + 1}P - ${current.displayName} 행동` : '행동 대기');
   updatePvpTurnTimer();
   if (!pvpTurnTicker) pvpTurnTicker = setInterval(updatePvpTurnTimer, 200);
-  renderPvpAugmentBattlePanel('pvpEnemyBattlePanel', bluePlayers, battle, user);
-  renderPvpAugmentBattlePanel('pvpMyBattlePanel', redPlayers, battle, user);
+  renderPvpAugmentBattlePanel('pvpEnemyBattlePanel', teams.enemyPlayers, battle, user);
+  renderPvpAugmentBattlePanel('pvpMyBattlePanel', teams.myPlayers, battle, user);
   renderSpectatorPanel('pvpSpectatorPanel', 'pvpSpectatorList', battle.spectators || []);
   renderPvpBattleLog(battle);
   maybeShowPvpResult(battle, user);

@@ -1834,8 +1834,38 @@ progress {
 
 .pvp-augment-team-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+
+.pvp-augment-card-line,
+.pvp-augment-badge-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.pvp-augment-badge {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 2px 6px;
+  border: 1px solid #9ca3af;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #222;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.pvp-augment-badge.gold {
+  border-color: #c8941c;
+  background: #fff2b6;
+}
+
+.pvp-augment-badge.prism {
+  border-color: #9c66ff;
+  background: linear-gradient(135deg, #fff, #eaf7ff 35%, #ffe7ff 70%, #fff8d7);
 }
 
 .pvp-augment-player-card.red.active-turn {
@@ -1859,7 +1889,9 @@ progress {
   inset: 0;
   z-index: 1100;
   display: grid;
-  place-items: center;
+  justify-items: center;
+  align-items: start;
+  padding-top: 72px;
   background: rgba(0, 0, 0, 0.35);
 }
 

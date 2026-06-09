@@ -173,13 +173,24 @@ const PVP_POLL_VERSION_EMPTY = 0;
 const PVP_MODE_RANKED = 'ranked';
 const PVP_MODE_NORMAL = 'normal';
 const PVP_MODE_AUGMENT_3V3 = 'augment3v3';
-const PVP_AUGMENT_QUEUE_SIZE = 6;
+const PVP_AUGMENT_QUEUE_SIZE = 4;
 const PVP_AUGMENT_PICK_MS = 50 * 1000;
 const PVP_AUGMENT_SELECT_MS = 40 * 1000;
-const PVP_AUGMENT_KILL_TARGET = 10;
+const PVP_AUGMENT_TURN_MS = 20 * 1000;
+const PVP_AUGMENT_KILL_TARGET = 4;
 const PVP_AUGMENT_CANDIDATE_COUNT = 3;
 const PVP_AUGMENT_PICK_COUNT = 2;
 const PVP_AUGMENT_ROUNDS = [1, 3, 5];
+const PVP_AUGMENT_TIER_WEIGHTS = [
+  { tier: 'silver', weight: 55 },
+  { tier: 'gold', weight: 35 },
+  { tier: 'prism', weight: 10 }
+];
+const PVP_AUGMENT_TIER_LABELS = {
+  silver: '실버',
+  gold: '골드',
+  prism: '프리즘'
+};
 const PVP_WEEKLY_SEASON_SETTING_KEY = 'pvp_weekly_season';
 const PVP_WEEKLY_SEASON_CHECK_INTERVAL_MS = 60 * 1000;
 const PVP_RANKED_ANONYMOUS_OPPONENT_NAME = '익명의 상대';
@@ -201,20 +212,32 @@ const PVP_MODE_LABELS = {
   [PVP_MODE_RANKED]: '랭크',
   [PVP_MODE_NORMAL]: '일반'
 };
-PVP_MODE_LABELS[PVP_MODE_AUGMENT_3V3] = '증강 3대3';
+PVP_MODE_LABELS[PVP_MODE_AUGMENT_3V3] = '증강 2대2';
 const PVP_AUGMENT_DATA = {
   silver_backup_file: { id: 'silver_backup_file', tier: 'silver', name: '백업 파일', desc: '최대 HP +30', effects: { maxHp: 30 } },
   silver_focus_mode: { id: 'silver_focus_mode', tier: 'silver', name: '집중 모드', desc: '공격력 +12%', effects: { attackBonus: 0.12 } },
   silver_coffee_refill: { id: 'silver_coffee_refill', tier: 'silver', name: '커피 리필', desc: '자신의 턴 시작 시 HP 8 회복', effects: { turnHeal: 8 } },
   silver_fast_report: { id: 'silver_fast_report', tier: 'silver', name: '빠른 보고', desc: '선택 즉시 모든 카드 쿨타임 -1', effects: { reduceCooldownNow: 1 } },
+  silver_snack_drawer: { id: 'silver_snack_drawer', tier: 'silver', name: '간식 서랍', desc: '최대 HP +15, 자신의 턴 시작 시 HP 4 회복', effects: { maxHp: 15, turnHeal: 4 } },
+  silver_safety_helmet: { id: 'silver_safety_helmet', tier: 'silver', name: '안전모', desc: '처음 전투불능 피해를 1회 버티고 HP 1로 생존', effects: { deathCheat: 1 } },
+  silver_memo_master: { id: 'silver_memo_master', tier: 'silver', name: '메모왕', desc: '카드 효과 +8%', effects: { cardEffectBonus: 0.08 } },
+  silver_quick_patch: { id: 'silver_quick_patch', tier: 'silver', name: '응급 패치', desc: '선택 즉시 HP 35 회복', effects: { healNow: 35 } },
   gold_team_meeting: { id: 'gold_team_meeting', tier: 'gold', name: '팀 미팅', desc: '라운드 시작마다 생존 아군에게 보호막 10', effects: { teamRoundShield: 10 } },
   gold_finishing_touch: { id: 'gold_finishing_touch', tier: 'gold', name: '마무리 보고서', desc: 'HP 50% 이하 적에게 피해 +25%', effects: { executeBonus: 0.25 } },
   gold_second_wind: { id: 'gold_second_wind', tier: 'gold', name: '퇴근 전 각성', desc: '부활 시 HP 80 추가 회복', effects: { respawnHpBonus: 80 } },
   gold_shared_folder: { id: 'gold_shared_folder', tier: 'gold', name: '공유 폴더', desc: '카드 효과 +15%', effects: { cardEffectBonus: 0.15 } },
+  gold_lunch_break: { id: 'gold_lunch_break', tier: 'gold', name: '점심시간 활용', desc: '선택 즉시 HP 70 회복, 모든 카드 쿨타임 -1', effects: { healNow: 70, reduceCooldownNow: 1 } },
+  gold_emergency_manual: { id: 'gold_emergency_manual', tier: 'gold', name: '비상 매뉴얼', desc: '처음 전투불능 피해를 1회 버티고, 부활 아군에게 보호막 10', effects: { deathCheat: 1, teamRespawnShield: 10 } },
+  gold_deadline_runner: { id: 'gold_deadline_runner', tier: 'gold', name: '마감 질주', desc: '처치 시 모든 카드 쿨타임 -1, 자신의 턴 시작 시 HP 3 회복', effects: { cooldownOnKill: 1, turnHeal: 3 } },
+  gold_paper_shredder: { id: 'gold_paper_shredder', tier: 'gold', name: '문서 파쇄기', desc: '공격력 +8%, 카드 효과 +8%, 최대 HP +20', effects: { attackBonus: 0.08, cardEffectBonus: 0.08, maxHp: 20 } },
   prism_emergency_order: { id: 'prism_emergency_order', tier: 'prism', name: '긴급 결재', desc: '처치 시 모든 카드 쿨타임 -1', effects: { cooldownOnKill: 1 } },
-  prism_iron_will: { id: 'prism_iron_will', tier: 'prism', name: '철야 멘탈', desc: '처음 사망할 피해를 1회 버티고 HP 1로 생존', effects: { deathCheat: 1 } },
+  prism_iron_will: { id: 'prism_iron_will', tier: 'prism', name: '철야 멘탈', desc: '처음 전투불능 피해를 1회 버티고 HP 1로 생존', effects: { deathCheat: 1 } },
   prism_overtime_engine: { id: 'prism_overtime_engine', tier: 'prism', name: '야근 엔진', desc: '공격력 +35%, 받는 피해 +10%', effects: { attackBonus: 0.35, damageTakenBonus: 0.1 } },
-  prism_hr_intervention: { id: 'prism_hr_intervention', tier: 'prism', name: '인사팀 개입', desc: '아군이 부활할 때 보호막 30 부여', effects: { teamRespawnShield: 30 } }
+  prism_hr_intervention: { id: 'prism_hr_intervention', tier: 'prism', name: '인사팀 개입', desc: '아군이 부활할 때 보호막 30 부여', effects: { teamRespawnShield: 30 } },
+  prism_reset_vacation: { id: 'prism_reset_vacation', tier: 'prism', name: '반차 취소권', desc: '선택 즉시 모든 카드 쿨타임 초기화', effects: { reduceCooldownNow: 99 } },
+  prism_glass_ceiling: { id: 'prism_glass_ceiling', tier: 'prism', name: '유리천장 돌파', desc: '최대 HP +80, 카드 효과 +20%', effects: { maxHp: 80, cardEffectBonus: 0.2 } },
+  prism_ceo_call: { id: 'prism_ceo_call', tier: 'prism', name: '대표님 호출', desc: '공격력 +18%, 라운드 시작마다 생존 아군에게 보호막 24', effects: { attackBonus: 0.18, teamRoundShield: 24 } },
+  prism_miracle_report: { id: 'prism_miracle_report', tier: 'prism', name: '기적의 보고서', desc: '선택 즉시 HP 120 회복, 처음 전투불능 피해를 1회 생존', effects: { healNow: 120, deathCheat: 1 } }
 };
 const PVP_WEEKLY_REWARD_TIERS = [
   { rank: 1, bacchus: 100, businessCards: 100 },
@@ -7647,27 +7670,27 @@ function getAugmentOptionsForPlayer(player = {}) {
   return Array.isArray(player.augmentOptions) ? player.augmentOptions : [];
 }
 
-function pickAugmentOptions(count = 3) {
+function pickWeightedAugmentTier() {
+  const totalWeight = PVP_AUGMENT_TIER_WEIGHTS.reduce((sum, entry) => sum + Number(entry.weight || 0), 0);
+  let roll = Math.random() * totalWeight;
+  for (const entry of PVP_AUGMENT_TIER_WEIGHTS) {
+    roll -= Number(entry.weight || 0);
+    if (roll <= 0) return entry.tier;
+  }
+  return 'silver';
+}
+
+function pickAugmentOptions(count = 3, forcedTier = null) {
   const entries = Object.values(PVP_AUGMENT_DATA);
   const byTier = {
     silver: entries.filter((entry) => entry.tier === 'silver'),
     gold: entries.filter((entry) => entry.tier === 'gold'),
     prism: entries.filter((entry) => entry.tier === 'prism')
   };
-  const tierWeights = [
-    { tier: 'silver', weight: 55 },
-    { tier: 'gold', weight: 35 },
-    { tier: 'prism', weight: 10 }
-  ];
   const picked = [];
   const seen = new Set();
   while (picked.length < count && seen.size < entries.length) {
-    const roll = Math.random() * tierWeights.reduce((sum, entry) => sum + entry.weight, 0);
-    let acc = 0;
-    const tier = tierWeights.find((entry) => {
-      acc += entry.weight;
-      return roll <= acc;
-    })?.tier || 'silver';
+    const tier = forcedTier || pickWeightedAugmentTier();
     const pool = (byTier[tier] || []).filter((entry) => !seen.has(entry.id));
     const fallback = entries.filter((entry) => !seen.has(entry.id));
     const source = pool.length ? pool : fallback;
@@ -9154,6 +9177,13 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
   const friendlyTarget = target && (target.userId === actor.userId || (target.team && actor.team && target.team === actor.team))
     ? target
     : actor;
+  const isAugmentBattle = isAugmentPvpMode(battle?.mode);
+  const friendlyTargets = isAugmentBattle
+    ? getAliveAugmentTargets(getAugmentTeamPlayers(battle, actor.team))
+    : [friendlyTarget].filter(Boolean);
+  const enemyTargets = isAugmentBattle
+    ? getAliveAugmentTargets(getAugmentEnemyPlayers(battle, actor.team))
+    : [target].filter(Boolean);
 
   battle.logs.push(`${actor.displayName}이(가) ${cardLabel} 스킬을 사용했습니다.`);
 
@@ -9182,7 +9212,8 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
       if (actor.hp <= 0 || target.hp <= 0) break;
     }
   } else if (card.effectType === 'party_level_blast') {
-    const totalLevels = battle.players.reduce((sum, player) => sum + getPvpEffectiveLevel(player), 0);
+    const levelSource = isAugmentBattle ? getAugmentTeamPlayers(battle, actor.team) : battle.players;
+    const totalLevels = levelSource.reduce((sum, player) => sum + getPvpEffectiveLevel(player), 0);
     const damage = scaleFlat(totalLevels * Number(card.multiplierPerLevel || 0));
     if (!isPvpAttackMissed(actor, battle, cardLabel)) {
       applyPvpDamage(target, damage, battle);
@@ -9197,25 +9228,46 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
       triggerPvpPoisonOnAttack(actor, battle);
     }
   } else if (card.effectType === 'party_hype_crit') {
-    addPvpBuff(actor, { id: 'crit_bonus', name: '크리티컬 상승', turns: Number(card.turns || 1), value: scalePercent(card.critBonus), desc: `치명타 확률 +${Math.round(scalePercent(card.critBonus) * 100)}%` });
-    addPvpBuff(actor, { id: 'hype', name: '흥겨움', turns: Number(card.hypeTurns || 1), desc: '기본 공격 횟수 2배' });
-    grantPvpTemporaryShield(friendlyTarget, scaleFlat(card.shield || 0), target.userId);
+    friendlyTargets.forEach((ally) => {
+      addPvpBuff(ally, { id: 'crit_bonus', name: '크리티컬 상승', turns: Number(card.turns || 1), value: scalePercent(card.critBonus), desc: `치명타 확률 +${Math.round(scalePercent(card.critBonus) * 100)}%` });
+      addPvpBuff(ally, { id: 'hype', name: '흥겨움', turns: Number(card.hypeTurns || 1), desc: '기본 공격 횟수 2배' });
+      grantPvpTemporaryShield(ally, scaleFlat(card.shield || 0), target.userId);
+    });
   } else if (card.effectType === 'party_shield' || card.effectType === 'random_shield') {
-    grantPvpTemporaryShield(friendlyTarget, scaleFlat(card.shield || 0), target.userId);
+    if (card.effectType === 'party_shield' && isAugmentBattle) {
+      friendlyTargets.forEach((ally) => grantPvpTemporaryShield(ally, scaleFlat(card.shield || 0), target.userId));
+    } else if (card.effectType === 'random_shield' && isAugmentBattle) {
+      const targetCount = Math.max(1, Math.min(friendlyTargets.length, Math.floor(Number(card.targets || 1))));
+      const shieldTargets = [...friendlyTargets].sort(() => Math.random() - 0.5).slice(0, targetCount);
+      shieldTargets.forEach((ally) => grantPvpTemporaryShield(ally, scaleFlat(card.shield || 0), target.userId));
+      battle.logs.push(`${actor.displayName}이(가) 팀원 ${shieldTargets.length}명에게 보호막을 부여했습니다.`);
+    } else {
+      grantPvpTemporaryShield(friendlyTarget, scaleFlat(card.shield || 0), target.userId);
+    }
   } else if (card.effectType === 'party_heal' || card.effectType === 'target_heal') {
-    const healed = healPvpTarget(friendlyTarget, scaleFlat(card.heal || 0));
-    battle.logs.push(`${actor.displayName}의 HP가 ${healed.toLocaleString()} 회복되었습니다.`);
+    if (card.effectType === 'party_heal' && isAugmentBattle) {
+      const totalHealed = friendlyTargets.reduce((sum, ally) => sum + healPvpTarget(ally, scaleFlat(card.heal || 0)), 0);
+      battle.logs.push(`${actor.displayName}의 팀 HP가 총 ${totalHealed.toLocaleString()} 회복되었습니다.`);
+    } else {
+      const healed = healPvpTarget(friendlyTarget, scaleFlat(card.heal || 0));
+      battle.logs.push(`${friendlyTarget.displayName}의 HP가 ${healed.toLocaleString()} 회복되었습니다.`);
+    }
   } else if (card.effectType === 'party_crit_bonus') {
-    addPvpBuff(actor, { id: 'crit_bonus', name: '크리티컬 상승', turns: Number(card.turns || 1), value: scalePercent(card.critBonus), desc: `치명타 확률 +${Math.round(scalePercent(card.critBonus) * 100)}%` });
+    friendlyTargets.forEach((ally) => {
+      addPvpBuff(ally, { id: 'crit_bonus', name: '크리티컬 상승', turns: Number(card.turns || 1), value: scalePercent(card.critBonus), desc: `치명타 확률 +${Math.round(scalePercent(card.critBonus) * 100)}%` });
+    });
   } else if (card.effectType === 'self_celine_buff') {
     addPvpBuff(actor, { id: 'celine', name: '셀린느', turns: Number(card.turns || 1), value: scalePercent(card.attackBonusPercent), expireDamage: scaleFlat(getPvpEffectiveLevel(actor) * Number(card.expireDamagePerLevel || 0)), desc: `공격력 +${Math.round(scalePercent(card.attackBonusPercent) * 100)}%, 종료 시 피해` });
   } else if (card.effectType === 'self_counter') {
     addPvpBuff(actor, { id: 'counter', name: '반격', turns: Number(card.turns || 1) + 1, value: Number(card.counterDamageMultiplier || 1), desc: '피격 시 반격' });
     battle.logs.push(`${actor.displayName}이(가) ${Number(card.turns || 1)}턴 동안 반격 태세에 들어갔습니다.`);
   } else if (card.effectType === 'random_ally_sacrifice_buff') {
-    const selfDamage = applyPvpDamage(actor, Number(card.selfDamage || 0), battle, { ignoreNegate: true, skipBread: true });
+    const sacrificeTarget = isAugmentBattle && friendlyTargets.length
+      ? pickRandomEntry(friendlyTargets)
+      : actor;
+    const selfDamage = applyPvpDamage(sacrificeTarget, Number(card.selfDamage || 0), battle, { ignoreNegate: true, skipBread: true });
     const damageMultiplier = Number(card.damageMultiplier || 2);
-    addPvpBuff(actor, {
+    addPvpBuff(sacrificeTarget, {
       id: 'damage_multiplier',
       name: '피해 증폭',
       turns: 1,
@@ -9223,7 +9275,7 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
       pendingActivation: true,
       desc: `다음 자신의 공격 피해 x${damageMultiplier.toFixed(1)}`
     });
-    battle.logs.push(`${actor.displayName}의 HP가 ${selfDamage.toLocaleString()} 감소하고, 다음 자신의 공격 피해가 ${damageMultiplier.toFixed(1)}배가 됩니다.`);
+    battle.logs.push(`${sacrificeTarget.displayName}의 HP가 ${selfDamage.toLocaleString()} 감소하고, 다음 자신의 공격 피해가 ${damageMultiplier.toFixed(1)}배가 됩니다.`);
   } else if (card.effectType === 'target_missing_hp_heal') {
     const missingHp = Math.max(0, Number(friendlyTarget.maxHp || PVP_MAX_HP) - Number(friendlyTarget.hp || 0));
     const healed = healPvpTarget(friendlyTarget, Math.floor(missingHp * Math.max(0, scalePercent(card.healMissingHpPercent))));
@@ -9237,7 +9289,7 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
       value: reduction,
       desc: `상대가 우선 타겟팅합니다. 받는 최종 피해 ${Math.round(reduction * 100)}% 감소`
     });
-    battle.logs.push(`${actor.displayName}(이)가 <예? 저요?> 버프를 얻었습니다.`);
+    battle.logs.push(`${friendlyTarget.displayName}(이)가 <예? 저요?> 버프를 얻었습니다.`);
   } else if (card.effectType === 'self_negate_hit') {
     const negateCount = scaleCount(card.negateHitCount || 1);
     const buffId = card.id === 'solid_mental' ? 'solid_mental_negate_hit' : 'negate_hit';
@@ -9245,24 +9297,42 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
     addPvpBuff(actor, { id: buffId, name: '피격 무효', count: negateCount, desc });
     battle.logs.push(`${actor.displayName}(이)가 피격 무효 ${negateCount}회를 얻었습니다.`);
   } else if (card.effectType === 'party_cleanse') {
-    clearPvpDebuffs(actor, battle);
+    const cleanseTargets = isAugmentBattle ? friendlyTargets : [actor];
+    cleanseTargets.forEach((ally) => clearPvpDebuffs(ally, battle));
   } else if (card.effectType === 'party_bread_buff') {
     const breadCount = scaleCount(card.breadCount || 0);
     const breadHeal = Number(card.breadHeal || 5);
-    addPvpBuff(actor, {
-      id: 'bread',
-      name: '빵',
-      count: breadCount,
-      heal: breadHeal,
-      desc: `피격 시 HP ${breadHeal} 회복 후 1개 소모`
-    });
-    battle.logs.push(`${actor.displayName}이(가) 빵 ${breadCount}개를 챙겼습니다.`);
+    if (isAugmentBattle && friendlyTargets.length) {
+      for (let index = 0; index < breadCount; index += 1) {
+        const ally = pickRandomEntry(friendlyTargets);
+        addPvpBuff(ally, {
+          id: 'bread',
+          name: '빵',
+          count: 1,
+          heal: breadHeal,
+          desc: `피격 시 HP ${breadHeal} 회복 후 1개 소모`
+        });
+      }
+      battle.logs.push(`${actor.displayName}이(가) 팀원들에게 빵 ${breadCount}개를 나눠줬습니다.`);
+    } else {
+      addPvpBuff(actor, {
+        id: 'bread',
+        name: '빵',
+        count: breadCount,
+        heal: breadHeal,
+        desc: `피격 시 HP ${breadHeal} 회복 후 1개 소모`
+      });
+      battle.logs.push(`${actor.displayName}이(가) 빵 ${breadCount}개를 챙겼습니다.`);
+    }
   } else if (card.effectType === 'party_cooldown_reduce') {
     const reduceAmount = scaleCount(card.cooldownReduce || 1);
-    actor.cards.forEach((entry) => {
-      entry.cooldownRemaining = Math.max(0, Number(entry.cooldownRemaining || 0) - reduceAmount);
+    const cooldownTargets = isAugmentBattle ? friendlyTargets : [actor];
+    cooldownTargets.forEach((ally) => {
+      ally.cards.forEach((entry) => {
+        entry.cooldownRemaining = Math.max(0, Number(entry.cooldownRemaining || 0) - reduceAmount);
+      });
     });
-    battle.logs.push(`${actor.displayName}의 모든 카드 남은 쿨타임이 ${reduceAmount}턴 감소했습니다.`);
+    battle.logs.push(`${actor.displayName}의 팀 카드 쿨타임이 ${reduceAmount}턴 감소했습니다.`);
   } else if (card.effectType === 'self_bonus_damage') {
     actor.extraDamage = scaleFlat(getPvpEffectiveLevel(actor) * Number(card.bonusPerLevel || 0));
   } else if (card.effectType === 'self_per_hit_bonus') {
@@ -9276,11 +9346,43 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
     addPvpBuff(friendlyTarget, { id: 'debuff_guard', name: '디버프 무효', count: scaleCount(card.debuffImmuneCount || 1), desc: '디버프 무효' });
     addPvpBuff(friendlyTarget, { id: 'attack_bonus', name: '공격력 상승', turns: Number(card.turns || 1), value: scalePercent(card.attackBonusPercent), desc: `공격력 +${Math.round(scalePercent(card.attackBonusPercent) * 100)}%` });
   } else if (card.effectType === 'random_party_negate_hit' || card.effectType === 'party_negate_hit_by_level') {
-    addPvpBuff(friendlyTarget, { id: 'negate_hit', name: '피격 무효', count: scaleCount(card.negateHitCount || 1), desc: '피격 무효' });
+    const targetCount = isAugmentBattle
+      ? Math.max(1, Math.min(friendlyTargets.length, Math.floor(Number(card.targets || 1))))
+      : 1;
+    const targets = isAugmentBattle
+      ? [...friendlyTargets].sort(() => Math.random() - 0.5).slice(0, targetCount)
+      : [friendlyTarget];
+    targets.forEach((ally) => {
+      addPvpBuff(ally, { id: 'negate_hit', name: '피격 무효', count: scaleCount(card.negateHitCount || 1), desc: '피격 무효' });
+    });
   } else if (card.effectType === 'random_party_attack_buff' || card.effectType === 'target_attack_buff') {
-    addPvpBuff(friendlyTarget, { id: 'attack_bonus', name: '공격력 상승', turns: Number(card.turns || 1), value: scalePercent(card.attackBonusPercent), desc: `공격력 +${Math.round(scalePercent(card.attackBonusPercent) * 100)}%` });
+    const targetCount = card.effectType === 'random_party_attack_buff' && isAugmentBattle
+      ? Math.max(1, Math.min(friendlyTargets.length, Math.floor(Number(card.targets || 1))))
+      : 1;
+    const targets = card.effectType === 'random_party_attack_buff' && isAugmentBattle
+      ? [...friendlyTargets].sort(() => Math.random() - 0.5).slice(0, targetCount)
+      : [friendlyTarget];
+    targets.forEach((ally) => {
+      addPvpBuff(ally, { id: 'attack_bonus', name: '공격력 상승', turns: Number(card.turns || 1), value: scalePercent(card.attackBonusPercent), desc: `공격력 +${Math.round(scalePercent(card.attackBonusPercent) * 100)}%` });
+    });
   } else if (card.effectType === 'target_debuff_guard') {
     addPvpBuff(friendlyTarget, { id: 'debuff_guard', name: '디버프 무효', count: scaleCount(card.debuffImmuneCount || 1), desc: '디버프 무효' });
+  } else if (card.effectType === 'ally_shield_enemy_multi_hit') {
+    const shieldAmount = grantPvpTemporaryShield(friendlyTarget, scaleFlat(card.shield || 0), target.userId);
+    const damageTarget = pickRandomEntry(enemyTargets);
+    const hits = Math.max(1, Number(card.hits || 1));
+    const damage = scaleFlat(getPvpEffectiveLevel(actor) * Number(card.damagePerLevel || 0));
+    if (damageTarget) {
+      for (let index = 0; index < hits; index += 1) {
+        if (isPvpAttackMissed(actor, battle, `${cardLabel} ${index + 1}타`)) continue;
+        applyPvpDamage(damageTarget, damage, battle);
+        battle.logs.push(`${cardLabel} ${index + 1}타! ${damageTarget.displayName}에게 ${damage.toLocaleString()} 피해를 입혔습니다.`);
+        triggerPvpPoisonOnAttack(actor, battle);
+        if (damageTarget.hp > 0) performPvpCounterAttack(damageTarget, actor, battle);
+        if (actor.hp <= 0 || damageTarget.hp <= 0) break;
+      }
+    }
+    battle.logs.push(`${friendlyTarget.displayName}이(가) 보호막 ${shieldAmount.toLocaleString()}을 얻었습니다.`);
   } else if (card.effectType === 'self_status_blast') {
     const statusCount = actor.buffs.length + actor.debuffs.length;
     const hits = Math.max(1, Number(card.hits || 1));
@@ -9337,14 +9439,17 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
     }, actor, battle);
     battle.logs.push(`${actor.displayName}이(가) 보호막 ${shieldAmount.toLocaleString()}과 <챔피언의 가호>를 얻고, ${target.displayName}에게 <눈부심>을 적용했습니다.`);
   } else if (card.effectType === 'lowest_level_buff') {
-    addPvpBuff(actor, {
+    const subordinateTarget = isAugmentBattle
+      ? [...friendlyTargets].sort((a, b) => getPvpEffectiveLevel(a) - getPvpEffectiveLevel(b))[0] || actor
+      : actor;
+    addPvpBuff(subordinateTarget, {
       id: 'subordinate_level',
       name: '부하직원',
       turns: Number(card.turns || 2),
       value: Number(card.levelBonus || 10),
       desc: `레벨 +${Number(card.levelBonus || 10)}로 간주`
     });
-    battle.logs.push(`${actor.displayName}이(가) <부하직원> 버프를 얻어 ${Number(card.turns || 2)}턴 동안 레벨 +${Number(card.levelBonus || 10)}로 간주됩니다.`);
+    battle.logs.push(`${subordinateTarget.displayName}이(가) <부하직원> 버프를 얻어 ${Number(card.turns || 2)}턴 동안 레벨 +${Number(card.levelBonus || 10)}로 간주됩니다.`);
   } else if (card.effectType === 'poison_debuff') {
     const applied = addPvpDebuff(target, {
       id: 'poison',
@@ -9681,29 +9786,10 @@ function pickDefaultAugmentActionTarget(actor, battle, actionType = 'basic') {
 
 function resolveAugmentSkillTarget(actor, battle, card, targetUserId = null) {
   const target = battle.players.find((player) => player.userId === String(targetUserId || ''));
-  const allyTypes = new Set(['ally', 'ally_pair']);
-  const wantsAlly = allyTypes.has(card?.targetType) || [
-    'party_shield',
-    'party_heal',
-    'target_heal',
-    'target_missing_hp_heal',
-    'target_taunt_damage_reduction',
-    'target_attack_buff',
-    'target_debuff_guard',
-    'champion_guard',
-    'party_cooldown_reduce',
-    'random_party_negate_hit',
-    'party_negate_hit_by_level',
-    'party_bread_buff',
-    'party_cleanse',
-    'party_crit_bonus',
-    'party_hype_crit',
-    'self_counter',
-    'self_celine_buff',
-    'self_negate_hit',
-    'self_debuff_reflect'
-  ].includes(card?.effectType);
-  if (wantsAlly) {
+  if (isPvpAugmentSelfSkill(card)) {
+    return actor;
+  }
+  if (isPvpAugmentAllySkill(card)) {
     if (target && target.team === actor.team && target.hp > 0) return target;
     return pickDefaultAugmentActionTarget(actor, battle, 'ally');
   }
@@ -9733,7 +9819,36 @@ function handleAugmentKillIfNeeded(actor, target, battle) {
   return true;
 }
 
-async function executePvpAugmentTurn(battle, now = new Date()) {
+function pickRandomEntry(list = []) {
+  if (!Array.isArray(list) || !list.length) return null;
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+function getRandomAugmentTargetForAction(actor, battle, card = null, actionType = 'basic') {
+  if (!actor || !battle) return null;
+  if (actionType === 'skill') {
+    if (isPvpAugmentSelfSkill(card)) return actor;
+    if (isPvpAugmentAllySkill(card)) {
+      return pickRandomEntry(getAliveAugmentTargets(getAugmentTeamPlayers(battle, actor.team))) || actor;
+    }
+  }
+  return pickRandomEntry(getAliveAugmentTargets(getAugmentEnemyPlayers(battle, actor.team)));
+}
+
+function buildRandomAugmentAction(actor, battle) {
+  const usableSkills = (actor.cards || [])
+    .map((entry, index) => ({ entry, index, card: getPvpCardDefinitionFromSlot(actor, index) }))
+    .filter(({ entry, card }) => card && !card.passiveOnly && Number(entry.cooldownRemaining || 0) <= 0);
+  if (usableSkills.length && Math.random() < 0.65) {
+    const picked = pickRandomEntry(usableSkills);
+    const target = getRandomAugmentTargetForAction(actor, battle, picked.card, 'skill');
+    return { type: 'skill', cardIndex: picked.index, targetUserId: target?.userId || '' };
+  }
+  const target = getRandomAugmentTargetForAction(actor, battle, null, 'basic');
+  return { type: 'basic', targetUserId: target?.userId || '' };
+}
+
+async function executePvpAugmentTurn(battle, now = new Date(), options = {}) {
   if (!battle || battle.phase !== 'active') return;
   const order = getAugmentTurnOrderPlayers(battle);
   if (!order.length) return;
@@ -9756,7 +9871,10 @@ async function executePvpAugmentTurn(battle, now = new Date()) {
   } else {
     const turnHeal = (actor.augmentIds || []).reduce((sum, augmentId) => sum + Number(PVP_AUGMENT_DATA[augmentId]?.effects?.turnHeal || 0), 0);
     if (turnHeal > 0) healPvpTarget(actor, turnHeal);
-    const action = actor.pendingAction || { type: 'basic' };
+    const action = actor.pendingAction || (options.timedOut ? buildRandomAugmentAction(actor, battle) : { type: 'basic' });
+    if (options.timedOut && !actor.pendingAction) {
+      battle.logs.push(`${actor.displayName}이(가) 제한 시간 안에 행동하지 않아 랜덤 행동을 진행합니다.`);
+    }
     if (action.type === 'skill') {
       const slotIndex = Number(action.cardIndex);
       const card = getPvpCardDefinitionFromSlot(actor, slotIndex);
@@ -9764,6 +9882,9 @@ async function executePvpAugmentTurn(battle, now = new Date()) {
       const used = target ? applyPvpCardSkill(actor, target, battle, slotIndex) : false;
       if (used) {
         handleAugmentKillIfNeeded(actor, target, battle);
+        getAugmentEnemyPlayers(battle, actor.team).forEach((enemy) => {
+          handleAugmentKillIfNeeded(actor, enemy, battle);
+        });
       } else {
         battle.logs.push(`${actor.displayName}의 카드 사용이 실패해 기본공격으로 전환됩니다.`);
         const basicTarget = pickDefaultAugmentActionTarget(actor, battle, 'enemy');
@@ -9802,13 +9923,13 @@ async function executePvpAugmentTurn(battle, now = new Date()) {
   }
   const nextActor = getAugmentTurnOrderPlayers(battle)[battle.turnCursor] || order[0];
   battle.currentUserId = nextActor?.userId || null;
-  battle.turnEndsAt = new Date(now.getTime() + PVP_BATTLE_TURN_MS);
+  battle.turnEndsAt = new Date(now.getTime() + PVP_AUGMENT_TURN_MS);
   bumpPvpVersion();
 }
 
-async function executePvpTurn(battle, now = new Date()) {
+async function executePvpTurn(battle, now = new Date(), options = {}) {
   if (isAugmentPvpMode(battle?.mode)) {
-    await executePvpAugmentTurn(battle, now);
+    await executePvpAugmentTurn(battle, now, options);
     return;
   }
   const actor = getPvpPlayer(battle, battle.currentUserId);
@@ -9906,7 +10027,7 @@ async function advancePvpModeStateUnlocked(mode, modeState, now = new Date()) {
   }
 
   if (modeState.battle?.phase === 'active' && now.getTime() >= new Date(modeState.battle.turnEndsAt).getTime()) {
-    await executePvpTurn(modeState.battle, now);
+    await executePvpTurn(modeState.battle, now, { timedOut: true });
   }
 
   if (modeState.battle?.phase === 'finished' && modeState.battle.finishedAt && now.getTime() - new Date(modeState.battle.finishedAt).getTime() > 20000) {
@@ -10004,7 +10125,9 @@ function buildPvpBattleSnapshot(battle, viewerUserId = null) {
     roundNumber: battle.roundNumber || battle.turnNumber,
     turnEndsAt: battle.turnEndsAt,
     augmentRound: battle.augmentRound || null,
+    augmentTier: battle.augmentTier || null,
     augmentEndsAt: battle.augmentEndsAt || null,
+    augmentSelected: battle.augmentSelected || {},
     teamKills: battle.teamKills || null,
     killTarget: battle.killTarget || null,
     winnerTeam: battle.winnerTeam || null,
@@ -10028,6 +10151,15 @@ function buildPvpBattleSnapshot(battle, viewerUserId = null) {
       deaths: Number(player.deaths || 0),
       respawnAtRound: Number(player.respawnAtRound || 0),
       augmentIds: Array.isArray(player.augmentIds) ? player.augmentIds : [],
+      augments: (Array.isArray(player.augmentIds) ? player.augmentIds : [])
+        .map((augmentId) => PVP_AUGMENT_DATA[augmentId])
+        .filter(Boolean)
+        .map((augment) => ({
+          id: augment.id,
+          tier: augment.tier,
+          name: augment.name,
+          desc: augment.desc
+        })),
       augmentOptions: Array.isArray(player.augmentOptions) ? player.augmentOptions : [],
       pendingAction: player.pendingAction || null,
       lastHpLoss: player.lastHpLoss || 0,
@@ -10205,8 +10337,8 @@ function startPvpAugmentMatch(modeState, queuedPlayers, now = new Date()) {
   const shuffled = [...queuedPlayers].sort(() => Math.random() - 0.5).slice(0, PVP_AUGMENT_QUEUE_SIZE);
   const players = shuffled.map((entry, index) => ({
     ...entry,
-    team: index < 3 ? 'red' : 'blue',
-    teamSlot: index % 3
+    team: index < 2 ? 'red' : 'blue',
+    teamSlot: index % 2
   }));
   const candidates = buildAugmentCardCandidatesForPlayers(players);
   modeState.match = {
@@ -10227,7 +10359,7 @@ function startPvpAugmentMatch(modeState, queuedPlayers, now = new Date()) {
     candidates,
     pickDone: Object.fromEntries(players.map((player) => [player.userId, false])),
     pickTurnIndex: 0,
-    logs: ['증강 3대3 면담 매칭이 성사되었습니다. 50초 안에 후보 3장 중 2장을 선택해주세요.']
+    logs: ['증강 2대2 면담 매칭이 성사되었습니다. 50초 안에 후보 3장 중 2장을 선택해주세요.']
   };
   bumpPvpVersion();
 }
@@ -10264,9 +10396,7 @@ function getAugmentTurnOrderPlayers(battle) {
     byTeamSlot('red', 0),
     byTeamSlot('blue', 0),
     byTeamSlot('red', 1),
-    byTeamSlot('blue', 1),
-    byTeamSlot('red', 2),
-    byTeamSlot('blue', 2)
+    byTeamSlot('blue', 1)
   ].filter(Boolean);
 }
 
@@ -10282,6 +10412,53 @@ function getAliveAugmentTargets(players = []) {
   return players.filter((player) => Number(player.hp || 0) > 0);
 }
 
+const PVP_AUGMENT_ALLY_TARGET_TYPES = new Set(['ally', 'ally_pair']);
+const PVP_AUGMENT_ALLY_EFFECT_TYPES = new Set([
+  'party_shield',
+  'party_heal',
+  'target_heal',
+  'target_missing_hp_heal',
+  'target_taunt_damage_reduction',
+  'target_attack_buff',
+  'target_debuff_guard',
+  'champion_guard',
+  'party_cooldown_reduce',
+  'random_party_negate_hit',
+  'party_negate_hit_by_level',
+  'party_bread_buff',
+  'party_cleanse',
+  'party_crit_bonus',
+  'party_hype_crit',
+  'random_party_attack_buff',
+  'self_counter',
+  'self_celine_buff',
+  'self_negate_hit',
+  'self_debuff_reflect',
+  'target_pair_guard_buff',
+  'lowest_level_buff',
+  'ally_shield_enemy_multi_hit',
+  'random_ally_sacrifice_buff',
+  'random_shield'
+]);
+
+const PVP_AUGMENT_SELF_EFFECT_TYPES = new Set([
+  'self_counter',
+  'self_celine_buff',
+  'self_negate_hit',
+  'self_debuff_reflect',
+  'self_bonus_damage',
+  'self_per_hit_bonus',
+  'self_multi_hit'
+]);
+
+function isPvpAugmentAllySkill(card = {}) {
+  return PVP_AUGMENT_ALLY_TARGET_TYPES.has(card?.targetType) || PVP_AUGMENT_ALLY_EFFECT_TYPES.has(card?.effectType);
+}
+
+function isPvpAugmentSelfSkill(card = {}) {
+  return PVP_AUGMENT_SELF_EFFECT_TYPES.has(card?.effectType);
+}
+
 function applyAugmentEffectsToPlayer(player, augmentId) {
   const augment = PVP_AUGMENT_DATA[augmentId];
   if (!player || !augment) return;
@@ -10290,6 +10467,9 @@ function applyAugmentEffectsToPlayer(player, augmentId) {
   if (effects.maxHp) {
     player.maxHp += Number(effects.maxHp || 0);
     player.hp += Number(effects.maxHp || 0);
+  }
+  if (effects.healNow) {
+    player.hp = Math.min(Number(player.maxHp || PVP_MAX_HP), Number(player.hp || 0) + Number(effects.healNow || 0));
   }
   if (effects.attackBonus) player.augmentAttackBonus = Number(player.augmentAttackBonus || 0) + Number(effects.attackBonus || 0);
   if (effects.damageTakenBonus) player.augmentDamageTakenBonus = Number(player.augmentDamageTakenBonus || 0) + Number(effects.damageTakenBonus || 0);
@@ -10303,21 +10483,22 @@ function applyAugmentEffectsToPlayer(player, augmentId) {
 function prepareAugmentSelectionRound(battle, roundNumber, now = new Date()) {
   battle.phase = 'augment';
   battle.augmentRound = roundNumber;
+  battle.augmentTier = pickWeightedAugmentTier();
   battle.augmentEndsAt = new Date(now.getTime() + PVP_AUGMENT_SELECT_MS);
   battle.augmentSelected = {};
   battle.players.forEach((player) => {
     if (Number(player.hp || 0) > 0) {
-      player.augmentOptions = pickAugmentOptions(3);
+      player.augmentOptions = pickAugmentOptions(3, battle.augmentTier);
     }
   });
-  battle.logs.push(`${roundNumber}턴 증강 선택이 시작되었습니다. 40초 안에 증강을 선택해주세요.`);
+  battle.logs.push(`${roundNumber}턴 증강 선택이 시작되었습니다. 이번 라운드는 ${PVP_AUGMENT_TIER_LABELS[battle.augmentTier] || battle.augmentTier} 증강입니다. 40초 안에 선택해주세요.`);
 }
 
 function startAugmentActiveTurn(battle, now = new Date()) {
   battle.phase = 'active';
   battle.augmentEndsAt = null;
   battle.currentUserId = getAugmentTurnOrderPlayers(battle)[battle.turnCursor || 0]?.userId || battle.players[0]?.userId || null;
-  battle.turnEndsAt = new Date(now.getTime() + PVP_BATTLE_TURN_MS);
+  battle.turnEndsAt = new Date(now.getTime() + PVP_AUGMENT_TURN_MS);
 }
 
 async function createPvpAugmentBattleFromMatch(match, now = new Date()) {
@@ -10354,12 +10535,13 @@ async function createPvpAugmentBattleFromMatch(match, now = new Date()) {
     turnEndsAt: null,
     teamKills: { red: 0, blue: 0 },
     killTarget: PVP_AUGMENT_KILL_TARGET,
-    logs: ['증강 3대3 면담 전투가 시작되었습니다. 먼저 첫 번째 증강을 선택합니다.'],
+    logs: ['증강 2대2 면담 전투가 시작되었습니다. 먼저 첫 번째 증강을 선택합니다.'],
     winnerTeam: null,
     winnerUserId: null,
     loserUserId: null,
     finishedAt: null,
     augmentRound: 1,
+    augmentTier: null,
     augmentEndsAt: null,
     augmentSelected: {}
   };
@@ -15196,21 +15378,21 @@ app.post('/api/pvp/queue', async (req, res) => {
 
 app.post('/api/pvp/augment-pick', async (req, res) => {
   const { userId, cardIds, swapOutCardId, mode } = req.body;
-  if (!userId) return res.status(400).json({ msg: '?ъ슜??ID媛 ?꾩슂?⑸땲??' });
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
   try {
     const now = new Date();
     const pvpMode = normalizePvpMode(mode);
     const modeState = getPvpModeState(pvpMode);
     const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ msg: '?ъ슜?먮? 李얠쓣 ???놁뒿?덈떎.' });
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
     ensureUserDefaults(user);
     await advancePvpState(now);
     const match = modeState.match;
     if (!match || !isAugmentPvpMode(match.mode) || match.phase !== 'augment_pick') {
-      return sendPvpStateError(res, user, now, 400, '진행 중인 증강 3대3 픽 단계가 없습니다.', pvpMode);
+      return sendPvpStateError(res, user, now, 400, '진행 중인 증강 2대2 픽 단계가 없습니다.', pvpMode);
     }
     const player = getPvpPlayer(match, userId);
-    if (!player) return sendPvpStateError(res, user, now, 403, '증강 3대3 참가자가 아닙니다.', pvpMode);
+    if (!player) return sendPvpStateError(res, user, now, 403, '증강 2대2 참가자가 아닙니다.', pvpMode);
     const candidates = Array.isArray(match.candidates?.[String(userId)]) ? match.candidates[String(userId)] : [];
     const candidateMap = new Map(candidates.map((entry) => [entry.cardId, entry]));
     const requested = Array.isArray(cardIds) ? cardIds.map((id) => String(id || '')).filter(Boolean) : [];
@@ -15223,7 +15405,7 @@ app.post('/api/pvp/augment-pick', async (req, res) => {
       const leftover = candidates.find((candidate) => !unique.includes(candidate.cardId));
       if (leftover) match.leftovers[String(userId)] = { cardId: leftover.cardId, enhancementLevel: leftover.enhancementLevel ?? 5 };
       match.pickDone[String(userId)] = true;
-      match.logs.push(`${player.displayName}이(가) 증강 3대3 카드를 선택했습니다.`);
+      match.logs.push(`${player.displayName}이(가) 증강 2대2 카드를 선택했습니다.`);
     } else if (swapOutCardId) {
       const leftover = match.leftovers?.[String(userId)];
       const picks = Array.isArray(match.picks?.[String(userId)]) ? match.picks[String(userId)] : [];
@@ -15238,19 +15420,19 @@ app.post('/api/pvp/augment-pick', async (req, res) => {
     res.json({ pvp: await buildPvpStateResponse(user, now, pvpMode) });
   } catch (err) {
     console.error('PVP augment pick error:', err);
-    res.status(500).json({ msg: '?쒕쾭 ?ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.' });
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
   }
 });
 
 app.post('/api/pvp/augment-select', async (req, res) => {
   const { userId, augmentId, mode } = req.body;
-  if (!userId) return res.status(400).json({ msg: '?ъ슜??ID媛 ?꾩슂?⑸땲??' });
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
   try {
     const now = new Date();
     const pvpMode = normalizePvpMode(mode);
     const modeState = getPvpModeState(pvpMode);
     const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ msg: '?ъ슜?먮? 李얠쓣 ???놁뒿?덈떎.' });
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
     ensureUserDefaults(user);
     await advancePvpState(now);
     const battle = modeState.battle;
@@ -15258,7 +15440,7 @@ app.post('/api/pvp/augment-select', async (req, res) => {
       return sendPvpStateError(res, user, now, 400, '현재 증강 선택 단계가 아닙니다.', pvpMode);
     }
     const player = getPvpPlayer(battle, userId);
-    if (!player) return sendPvpStateError(res, user, now, 403, '증강 3대3 참가자가 아닙니다.', pvpMode);
+    if (!player) return sendPvpStateError(res, user, now, 403, '증강 2대2 참가자가 아닙니다.', pvpMode);
     if (!getAugmentOptionsForPlayer(player).some((entry) => entry.id === augmentId)) {
       return sendPvpStateError(res, user, now, 400, '선택할 수 없는 증강입니다.', pvpMode);
     }
@@ -15268,40 +15450,40 @@ app.post('/api/pvp/augment-select', async (req, res) => {
     res.json({ pvp: await buildPvpStateResponse(user, now, pvpMode) });
   } catch (err) {
     console.error('PVP augment select error:', err);
-    res.status(500).json({ msg: '?쒕쾭 ?ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.' });
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
   }
 });
 
 app.post('/api/pvp/augment-action', async (req, res) => {
   const { userId, type, cardIndex, targetUserId, mode } = req.body;
-  if (!userId) return res.status(400).json({ msg: '?ъ슜??ID媛 ?꾩슂?⑸땲??' });
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
   try {
     const now = new Date();
     const pvpMode = normalizePvpMode(mode);
     const modeState = getPvpModeState(pvpMode);
     const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ msg: '?ъ슜?먮? 李얠쓣 ???놁뒿?덈떎.' });
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
     ensureUserDefaults(user);
     await advancePvpState(now);
     const battle = modeState.battle;
     if (!battle || !isAugmentPvpMode(battle.mode) || battle.phase !== 'active') {
-      return sendPvpStateError(res, user, now, 400, '진행 중인 증강 3대3 전투가 없습니다.', pvpMode);
+      return sendPvpStateError(res, user, now, 400, '진행 중인 증강 2대2 전투가 없습니다.', pvpMode);
     }
     const player = getPvpPlayer(battle, userId);
-    if (!player) return sendPvpStateError(res, user, now, 403, '증강 3대3 참가자가 아닙니다.', pvpMode);
+    if (!player) return sendPvpStateError(res, user, now, 403, '증강 2대2 참가자가 아닙니다.', pvpMode);
     player.pendingAction = type === 'skill'
       ? { type: 'skill', cardIndex: Number(cardIndex), targetUserId: String(targetUserId || '') }
       : { type: 'basic', targetUserId: String(targetUserId || '') };
     if (battle.currentUserId === String(userId)) {
       await executePvpAugmentTurn(battle, now);
     } else {
-      battle.logs.push(`${player.displayName}??媛) ?ㅼ쓬 ?먯떊??李⑤? ?됰룞???덉빟?덉뒿?덈떎.`);
+      battle.logs.push(`${player.displayName}이(가) 다음 자신의 차례 행동을 예약했습니다.`);
       bumpPvpVersion();
     }
     res.json({ pvp: await buildPvpStateResponse(user, now, pvpMode) });
   } catch (err) {
     console.error('PVP augment action error:', err);
-    res.status(500).json({ msg: '?쒕쾭 ?ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.' });
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
   }
 });
 
