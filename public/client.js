@@ -300,6 +300,14 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-09-chunsik-art-2-emblem-refresh',
+    time: '2026-06-09 16:05',
+    title: '휘장 이미지 교체',
+    items: [
+      '<춘식이 작품2> 휘장 이미지를 새 버전으로 교체했습니다.'
+    ]
+  },
+  {
     id: '2026-06-09-adventure-exp-augment-action-frame',
     time: '2026-06-09 21:30',
     title: '모험 경험치 보상 및 증강 면담 연출 조정',
