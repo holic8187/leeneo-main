@@ -5869,7 +5869,7 @@ function isPvpAugmentAllyCard(card = {}) {
     'party_negate_hit_by_level', 'party_bread_buff', 'party_cleanse',
     'party_crit_bonus', 'party_hype_crit', 'random_party_attack_buff',
     'random_party_negate_hit', 'target_pair_guard_buff',
-    'lowest_level_buff', 'ally_shield_enemy_multi_hit',
+    'lowest_level_buff',
     'random_ally_sacrifice_buff', 'random_shield'
   ]);
   return allyTargets.has(card.targetType) || allyEffects.has(card.effectType);

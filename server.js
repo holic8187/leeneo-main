@@ -9283,13 +9283,12 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
     battle.logs.push(removed ? `${target.displayName}의 ${removed} 버프가 제거되었습니다.` : `${target.displayName}에게 제거할 버프가 없습니다.`);
   } else if (card.effectType === 'self_multi_hit') {
     if (isAugmentBattle && target && target.team !== actor.team) {
-      const previousExtraHits = Number(actor.extraHits || 0);
-      const previousMultiplier = Number(actor.multiHitDamageMultiplier || 1);
-      actor.extraHits = Math.max(previousExtraHits, scaleCount(card.hits) - 1);
-      actor.multiHitDamageMultiplier = 0.9;
-      performPvpBasicAttack(actor, target, battle);
-      actor.extraHits = previousExtraHits;
-      actor.multiHitDamageMultiplier = previousMultiplier;
+      performPvpBasicAttack(actor, target, battle, {
+        baseHitCount: scaleCount(card.hits),
+        hitMultiplier: 0.9,
+        randomizeEachHitTarget: true,
+        targetPool: enemyTargets
+      });
     } else {
       actor.extraHits = Math.max(Number(actor.extraHits || 0), scaleCount(card.hits) - 1);
       actor.multiHitDamageMultiplier = 0.9;
@@ -9298,12 +9297,21 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
     const hits = Math.max(1, Number(card.hits || 1));
     const damage = Math.max(1, scaleFlat(getPvpEffectiveLevel(actor) * Number(card.damagePerLevel || 0) * 0.9));
     for (let index = 0; index < hits; index += 1) {
-      if (isPvpAttackMissed(actor, battle, `${cardLabel} ${index + 1}타`)) continue;
-      applyPvpDamage(target, damage, battle);
-      battle.logs.push(`${cardLabel} ${index + 1}타! ${target.displayName}에게 ${damage.toLocaleString()} 피해를 입혔습니다.`);
-      triggerPvpPoisonOnAttack(actor, battle);
-      if (target.hp > 0) performPvpCounterAttack(target, actor, battle);
-      if (actor.hp <= 0 || target.hp <= 0) break;
+      const fixedTargets = isAugmentBattle ? enemyTargets.filter((entry) => entry && entry.hp > 0) : [target].filter(Boolean);
+      if (!fixedTargets.length) break;
+      for (const fixedTarget of fixedTargets) {
+        if (!fixedTarget || fixedTarget.hp <= 0) continue;
+        if (isPvpAttackMissed(actor, battle, `${cardLabel} ${index + 1}타`)) {
+          triggerPvpPoisonOnAttack(actor, battle);
+          continue;
+        }
+        applyPvpDamage(fixedTarget, damage, battle);
+        battle.logs.push(`${cardLabel} ${index + 1}타! ${fixedTarget.displayName}에게 ${damage.toLocaleString()} 피해를 입혔습니다.`);
+        triggerPvpPoisonOnAttack(actor, battle);
+        if (fixedTarget.hp > 0) performPvpCounterAttack(fixedTarget, actor, battle);
+        if (actor.hp <= 0) break;
+      }
+      if (actor.hp <= 0) break;
     }
   } else if (card.effectType === 'party_level_blast') {
     const levelSource = isAugmentBattle ? getAugmentTeamPlayers(battle, actor.team) : battle.players;
@@ -9472,7 +9480,9 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
     addPvpBuff(friendlyTarget, { id: 'debuff_guard', name: '디버프 무효', count: scaleCount(card.debuffImmuneCount || 1), desc: '디버프 무효' });
   } else if (card.effectType === 'ally_shield_enemy_multi_hit') {
     const shieldAmount = grantPvpTemporaryShield(friendlyTarget, scaleFlat(card.shield || 0), friendlyTarget.userId, battle);
-    const damageTarget = pickRandomEntry(enemyTargets);
+    const damageTarget = target && target.team !== actor.team
+      ? target
+      : pickRandomEntry(enemyTargets);
     const hits = Math.max(1, Number(card.hits || 1));
     const damage = scaleFlat(getPvpEffectiveLevel(actor) * Number(card.damagePerLevel || 0));
     if (damageTarget) {
@@ -9554,17 +9564,24 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
     });
     battle.logs.push(`${subordinateTarget.displayName}이(가) <부하직원> 버프를 얻어 ${Number(card.turns || 2)}턴 동안 레벨 +${Number(card.levelBonus || 10)}로 간주됩니다.`);
   } else if (card.effectType === 'poison_debuff') {
-    const applied = addPvpDebuff(target, {
-      id: 'poison',
-      name: '중독',
-      sourceUserId: actor.userId,
-      sourceDisplayName: actor.displayName,
-      sourceLevel: getPvpEffectiveLevel(actor),
-      damagePerLevel: Number(card.damagePerLevel || 10),
-      turns: Number(card.turns || 2),
-      desc: `공격할 때마다 ${actor.displayName}의 레벨 x ${Number(card.damagePerLevel || 10)} 피해를 받습니다.`
-    }, actor, battle);
-    battle.logs.push(applied ? `${target.displayName}이(가) 중독되었습니다.` : `${target.displayName}이(가) 중독을 막았습니다.`);
+    const poisonTargets = isAugmentBattle ? enemyTargets.filter((entry) => entry && entry.hp > 0) : [target].filter(Boolean);
+    let appliedCount = 0;
+    poisonTargets.forEach((poisonTarget) => {
+      const applied = addPvpDebuff(poisonTarget, {
+        id: 'poison',
+        name: '중독',
+        sourceUserId: actor.userId,
+        sourceDisplayName: actor.displayName,
+        sourceLevel: getPvpEffectiveLevel(actor),
+        damagePerLevel: Number(card.damagePerLevel || 10),
+        turns: Number(card.turns || 2),
+        desc: `공격할 때마다 ${actor.displayName}의 레벨 x ${Number(card.damagePerLevel || 10)} 피해를 받습니다.`
+      }, actor, battle);
+      if (applied) appliedCount += 1;
+    });
+    battle.logs.push(isAugmentBattle
+      ? `${actor.displayName}의 농약이 적 ${appliedCount.toLocaleString()}명에게 중독을 적용했습니다.`
+      : (appliedCount > 0 ? `${target.displayName}이(가) 중독되었습니다.` : `${target.displayName}이(가) 중독을 막았습니다.`));
   } else if (card.effectType === 'copy_ally_skill') {
     const opponentCards = target.cards
       .map((entry, index) => ({ entry, index, card: getCardDefinition(entry.cardId, entry.enhancementLevel) }))
@@ -9630,14 +9647,25 @@ function performPvpCounterAttack(counterActor, target, battle) {
   triggerPvpPoisonOnAttack(counterActor, battle);
 }
 
-function performPvpBasicAttack(actor, target, battle) {
+function performPvpBasicAttack(actor, target, battle, options = {}) {
   if (actor.basicAttackLockTurns > 0) {
     battle.logs.push(`${actor.displayName}은(는) 기본 공격을 할 수 없습니다.`);
     return;
   }
-  let hitCount = 1 + Number(actor.extraHits || 0) + Math.max(0, Math.floor(getPvpAugmentEffectSum(actor, 'extraBasicHits')));
+  const augmentExtraHits = Math.max(0, Math.floor(getPvpAugmentEffectSum(actor, 'extraBasicHits')));
+  const forcedBaseHitCount = Number.isFinite(Number(options.baseHitCount))
+    ? Math.max(1, Math.floor(Number(options.baseHitCount)))
+    : null;
+  const targetPool = Array.isArray(options.targetPool) ? options.targetPool : [];
+  const useRandomTargetPerHit = Boolean(options.randomizeEachHitTarget && targetPool.length);
+  let hitCount = forcedBaseHitCount === null
+    ? 1 + Number(actor.extraHits || 0) + augmentExtraHits
+    : forcedBaseHitCount + augmentExtraHits;
   if (actor.buffs.some((buff) => buff.id === 'hype' && !buff.pendingActivation)) hitCount *= 2;
-  const hitMultiplier = Math.max(0.1, Number(actor.multiHitDamageMultiplier || 1) + getPvpAugmentEffectSum(actor, 'basicHitMultiplierBonus'));
+  const baseHitMultiplier = options.hitMultiplier !== undefined
+    ? Number(options.hitMultiplier)
+    : Number(actor.multiHitDamageMultiplier || 1);
+  const hitMultiplier = Math.max(0.1, baseHitMultiplier + getPvpAugmentEffectSum(actor, 'basicHitMultiplierBonus'));
   const baseDamage = Math.max(1, Math.floor((getPvpEffectiveLevel(actor) / 2) * 20 * (1 + getPvpAttackBonus(actor)) * (1 + Number(actor.basicAttackEquipmentBonusPercent || 0))));
   const stackGain = Math.max(0, Math.floor(getPvpAugmentEffectSum(actor, 'basicStackGain')));
   const stackDamagePerStack = Math.max(0, Math.floor(getPvpAugmentEffectSum(actor, 'basicStackDamagePerStack')));
@@ -9648,6 +9676,10 @@ function performPvpBasicAttack(actor, target, battle) {
   const basicCooldownReduceChance = Math.max(0, Math.min(1, getPvpAugmentEffectSum(actor, 'basicCooldownReduceChance')));
   const basicCooldownReduce = Math.max(0, Math.floor(getPvpAugmentEffectSum(actor, 'basicCooldownReduce')));
   for (let index = 0; index < hitCount; index += 1) {
+    const hitTarget = useRandomTargetPerHit
+      ? pickRandomEntry(targetPool.filter((entry) => entry && entry.hp > 0))
+      : target;
+    if (!hitTarget || hitTarget.hp <= 0) break;
     const critical = Math.random() < getPvpCriticalChance(actor);
     let damage = Math.floor(baseDamage * hitMultiplier * (critical ? 1.5 : 1));
     if (isPvpAttackMissed(actor, battle, `기본 공격 ${index + 1}타`)) {
@@ -9655,34 +9687,34 @@ function performPvpBasicAttack(actor, target, battle) {
       if (actor.hp <= 0) break;
       continue;
     }
-    const executeBonus = target.hp <= Math.floor(Number(target.maxHp || PVP_MAX_HP) * 0.5)
+    const executeBonus = hitTarget.hp <= Math.floor(Number(hitTarget.maxHp || PVP_MAX_HP) * 0.5)
       ? getPvpAugmentEffectSum(actor, 'executeBonus')
       : 0;
     if (executeBonus > 0) damage = Math.floor(damage * (1 + executeBonus));
     if (actor.perHitBonusTurns > 0) damage += Number(actor.perHitBonusDamage || 0);
     damage += Math.max(0, Math.floor(getPvpAugmentEffectSum(actor, 'flatBasicDamage')));
     const stackKey = String(actor.userId || actor.displayName || 'unknown');
-    const currentStacks = Number(target.augmentDamageStacks?.[stackKey] || 0);
+    const currentStacks = Number(hitTarget.augmentDamageStacks?.[stackKey] || 0);
     if (stackDamagePerStack > 0 && currentStacks > 0) {
       damage += currentStacks * stackDamagePerStack;
     }
     const procActivated = basicProcChance > 0 && basicProcDamage > 0 && Math.random() < basicProcChance;
     if (procActivated) damage += basicProcDamage;
     if (index === 0 && actor.extraDamage > 0) damage += Number(actor.extraDamage || 0);
-    const dealt = applyPvpDamage(target, damage, battle);
+    const dealt = applyPvpDamage(hitTarget, damage, battle);
     if (dealt > 0) {
-      target.lastDamagedByUserId = actor.userId;
-      triggerPvpThorns(target, actor, battle);
+      hitTarget.lastDamagedByUserId = actor.userId;
+      triggerPvpThorns(hitTarget, actor, battle);
       if (stackGain > 0) {
-        target.augmentDamageStacks = target.augmentDamageStacks || {};
-        target.augmentDamageStacks[stackKey] = Math.min(99, currentStacks + stackGain);
+        hitTarget.augmentDamageStacks = hitTarget.augmentDamageStacks || {};
+        hitTarget.augmentDamageStacks[stackKey] = Math.min(99, currentStacks + stackGain);
       }
       if (basicHealOnHit > 0) {
         const healed = healPvpTarget(actor, basicHealOnHit);
         if (healed > 0) battle.logs.push(`${actor.displayName}의 증강 효과로 HP ${healed.toLocaleString()}를 회복했습니다.`);
       }
       if (basicSplashDamage > 0 && isAugmentPvpMode(battle?.mode)) {
-        const splashTarget = pickRandomEntry(getAliveAugmentTargets(getAugmentEnemyPlayers(battle, actor.team)).filter((enemy) => enemy.userId !== target.userId));
+        const splashTarget = pickRandomEntry(getAliveAugmentTargets(getAugmentEnemyPlayers(battle, actor.team)).filter((enemy) => enemy.userId !== hitTarget.userId));
         if (splashTarget) {
           const splashDealt = applyPvpDamage(splashTarget, basicSplashDamage, battle, { skipBread: true });
           if (splashDealt > 0) {
@@ -9696,11 +9728,16 @@ function performPvpBasicAttack(actor, target, battle) {
         battle.logs.push(`${actor.displayName}의 증강 효과로 카드 쿨타임이 ${basicCooldownReduce}턴 감소했습니다.`);
       }
     }
-    incrementPvpOvertimeRageStacks(target);
-    battle.logs.push(`${actor.displayName}의 기본 공격 ${index + 1}타! ${target.displayName}에게 ${damage.toLocaleString()} 피해를 입혔습니다.${critical ? ' (치명타)' : ''}`);
+    incrementPvpOvertimeRageStacks(hitTarget);
+    battle.logs.push(`${actor.displayName}의 기본 공격 ${index + 1}타! ${hitTarget.displayName}에게 ${damage.toLocaleString()} 피해를 입혔습니다.${critical ? ' (치명타)' : ''}`);
     triggerPvpPoisonOnAttack(actor, battle);
-    if (target.hp > 0) performPvpCounterAttack(target, actor, battle);
-    if (actor.hp <= 0 || target.hp <= 0) break;
+    if (hitTarget.hp > 0) performPvpCounterAttack(hitTarget, actor, battle);
+    if (actor.hp <= 0) break;
+    if (useRandomTargetPerHit) {
+      if (!targetPool.some((entry) => entry && entry.hp > 0)) break;
+    } else if (hitTarget.hp <= 0) {
+      break;
+    }
   }
 }
 
@@ -10745,7 +10782,6 @@ const PVP_AUGMENT_ALLY_EFFECT_TYPES = new Set([
   'random_party_attack_buff',
   'target_pair_guard_buff',
   'lowest_level_buff',
-  'ally_shield_enemy_multi_hit',
   'random_ally_sacrifice_buff',
   'random_shield'
 ]);
@@ -12678,7 +12714,7 @@ function getRemainingExpToNextLevel(user) {
 function getAdventureExpFractionScale(level) {
   const safeLevel = Math.max(1, Math.floor(Number(level) || 1));
   if (safeLevel <= 50) return 1;
-  return Math.pow(0.995, safeLevel - 50);
+  return Math.pow(0.9995, safeLevel - 50);
 }
 
 function getGeneralExpMultiplier(user, now = new Date()) {
