@@ -300,6 +300,17 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-09-pvp-augment-raid-reward-hotfix',
+    time: '2026-06-09 18:10',
+    title: '증강 2대2와 회의 보상 안정화',
+    items: [
+      '증강 2대2에서 팀 승리 여부가 같은 팀원 모두에게 동일하게 표시되도록 수정했습니다.',
+      '증강 2대2 증강 수를 크게 늘리고, 추가타/반사/사망 폭발/라운드 효과 등 새로운 유형의 증강을 추가했습니다.',
+      '무한야근 방어 Bot이 1번 스킬만 반복하지 않고 1~5번 스킬을 순서대로 확인한 뒤 사용 가능한 스킬을 쓰도록 보강했습니다.',
+      '회의 클리어 보상 저장 중 일부 유저에게 충돌이 발생해도 방을 바로 닫지 않고, 보상을 받지 못한 유저에게 재지급을 시도하도록 수정했습니다.'
+    ]
+  },
+  {
     id: '2026-06-09-pvp-augment-turn-order-hotfix',
     time: '2026-06-09 17:25',
     title: '증강 2대2 턴 순서 핫픽스',
