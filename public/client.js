@@ -300,6 +300,15 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-09-pvp-augment-turn-order-hotfix',
+    time: '2026-06-09 17:25',
+    title: '증강 2대2 턴 순서 핫픽스',
+    items: [
+      '증강 2대2 행동 순서가 레드1P-블루1P-레드2P-블루2P로 번갈아 진행되도록 보강했습니다.',
+      '증강 선택 라운드가 매 턴 뜨지 않고 1, 3, 5, 7, 9턴 시작 시에만 뜨도록 수정했습니다.'
+    ]
+  },
+  {
     id: '2026-06-09-pvp-augment-selection-target-hotfix',
     time: '2026-06-09 17:05',
     title: '증강 2대2 선택/예약 핫픽스',
@@ -315,7 +324,7 @@ const PATCH_NOTES = [
     title: '증강 2대2 템포 조정',
     items: [
       '증강 2대2 카드 선택을 후보 5장 중 3장 선택으로 변경했습니다.',
-      '증강 선택 횟수를 총 5회로 늘려 1~5턴 시작 시마다 증강을 고를 수 있게 했습니다.',
+      '증강 선택 횟수를 총 5회로 늘려 1, 3, 5, 7, 9턴 시작 시마다 증강을 고를 수 있게 했습니다.',
       '증강 2대2 승리 조건을 팀 합산 3킬로 낮췄습니다.'
     ]
   },
@@ -6199,11 +6208,15 @@ function maybeShowPvpResult(battle, user) {
   if (!battle || battle.phase !== 'finished' || !battle.isParticipant) return;
   if (lastPvpResultShownBattleId === battle.battleId) return;
   lastPvpResultShownBattleId = battle.battleId;
-  const won = String(battle.winnerUserId) === String(user._id);
+  const selfPlayer = (battle.players || []).find((player) => String(player.userId) === String(user._id));
+  const won = isPvpAugmentMode(battle.mode) && battle.winnerTeam
+    ? selfPlayer?.team === battle.winnerTeam
+    : String(battle.winnerUserId) === String(user._id);
   playPvpSfx('result');
-  const ratingDelta = won ? battle.ratingChange?.winnerDelta : battle.ratingChange?.loserDelta;
+  const ratingDelta = !isPvpAugmentMode(battle.mode) && won ? battle.ratingChange?.winnerDelta : battle.ratingChange?.loserDelta;
   const ratingText = Number.isFinite(Number(ratingDelta)) ? `\n점수 변동: ${ratingDelta > 0 ? '+' : ''}${formatNumber(ratingDelta)}점` : '';
-  alert(`${won ? 'WIN! 개인면담에서 승리했습니다.' : 'LOSE! 개인면담에서 패배했습니다.'}${ratingText}`);
+  const modeLabel = isPvpAugmentMode(battle.mode) ? '증강 2대2 면담' : '개인면담';
+  alert(`${won ? `WIN! ${modeLabel}에서 승리했습니다.` : `LOSE! ${modeLabel}에서 패배했습니다.`}${ratingText}`);
   if (pvpResultReturnTimer) clearTimeout(pvpResultReturnTimer);
   pvpResultReturnTimer = setTimeout(() => {
     if (!document.getElementById('pvp-screen')?.classList.contains('hidden')) {

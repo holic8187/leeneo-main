@@ -180,7 +180,7 @@ const PVP_AUGMENT_TURN_MS = 20 * 1000;
 const PVP_AUGMENT_KILL_TARGET = 3;
 const PVP_AUGMENT_CANDIDATE_COUNT = 5;
 const PVP_AUGMENT_PICK_COUNT = 3;
-const PVP_AUGMENT_ROUNDS = [1, 2, 3, 4, 5];
+const PVP_AUGMENT_ROUNDS = [1, 3, 5, 7, 9];
 const PVP_AUGMENT_TIER_WEIGHTS = [
   { tier: 'silver', weight: 55 },
   { tier: 'gold', weight: 35 },
@@ -9875,7 +9875,16 @@ async function executePvpAugmentTurn(battle, now = new Date(), options = {}) {
     respawnAugmentPlayersAtRoundStart(battle);
     applyAugmentRoundStartEffects(battle);
   }
-  const actor = battle.players.find((player) => player.userId === battle.currentUserId) || order[battle.turnCursor || 0];
+  let cursor = Math.max(0, Math.min(order.length - 1, Number(battle.turnCursor || 0)));
+  if (battle.currentUserId) {
+    const currentIndex = order.findIndex((player) => player.userId === battle.currentUserId);
+    if (currentIndex >= 0 && currentIndex !== cursor) {
+      cursor = currentIndex;
+      battle.turnCursor = cursor;
+    }
+  }
+  const actor = order[cursor] || order[0];
+  battle.currentUserId = actor?.userId || null;
   if (!actor) return;
   actor.lastHpLoss = 0;
   actor.lastShieldLoss = 0;
@@ -9930,7 +9939,7 @@ async function executePvpAugmentTurn(battle, now = new Date(), options = {}) {
     bumpPvpVersion();
     return;
   }
-  battle.turnCursor = (Number(battle.turnCursor || 0) + 1) % order.length;
+  battle.turnCursor = (cursor + 1) % order.length;
   if (battle.turnCursor === 0) {
     battle.roundNumber = Number(battle.roundNumber || 1) + 1;
     battle.turnNumber = battle.roundNumber;
@@ -10417,13 +10426,25 @@ function finalizePvpAugmentPicks(match) {
 }
 
 function getAugmentTurnOrderPlayers(battle) {
-  const byTeamSlot = (team, slot) => battle.players.find((player) => player.team === team && Number(player.teamSlot) === slot);
-  return [
-    byTeamSlot('red', 0),
-    byTeamSlot('blue', 0),
-    byTeamSlot('red', 1),
-    byTeamSlot('blue', 1)
-  ].filter(Boolean);
+  const players = Array.isArray(battle?.players) ? battle.players : [];
+  if (Array.isArray(battle?.turnOrderUserIds) && battle.turnOrderUserIds.length) {
+    const byId = new Map(players.map((player) => [String(player.userId), player]));
+    const ordered = battle.turnOrderUserIds.map((userId) => byId.get(String(userId))).filter(Boolean);
+    if (ordered.length) return ordered;
+  }
+  const redPlayers = players
+    .filter((player) => player.team === 'red')
+    .sort((left, right) => Number(left.teamSlot || 0) - Number(right.teamSlot || 0));
+  const bluePlayers = players
+    .filter((player) => player.team === 'blue')
+    .sort((left, right) => Number(left.teamSlot || 0) - Number(right.teamSlot || 0));
+  const order = [];
+  const maxSlots = Math.max(redPlayers.length, bluePlayers.length);
+  for (let slot = 0; slot < maxSlots; slot += 1) {
+    if (redPlayers[slot]) order.push(redPlayers[slot]);
+    if (bluePlayers[slot]) order.push(bluePlayers[slot]);
+  }
+  return order;
 }
 
 function getAugmentTeamPlayers(battle, team) {
@@ -10546,6 +10567,7 @@ async function createPvpAugmentBattleFromMatch(match, now = new Date()) {
     isRanked: false,
     phase: 'augment',
     players,
+    turnOrderUserIds: getAugmentTurnOrderPlayers({ players }).map((player) => player.userId),
     firstUserId: getAugmentTurnOrderPlayers({ players })[0]?.userId || players[0]?.userId,
     currentUserId: null,
     turnNumber: 1,
