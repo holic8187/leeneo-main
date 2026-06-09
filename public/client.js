@@ -300,6 +300,17 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-09-new-emblems-card-targeting',
+    time: '2026-06-09 17:15',
+    title: '신규 휘장과 카드 공격 범위 조정',
+    items: [
+      '<꼴데>, <망x러진곰>, <구마의식> 휘장을 추가하고 각각 일반 상점/파편 상점 구매 조건을 연결했습니다.',
+      '증강 2대2에서 다이어트 선언, 멍프의 주차, 김부장의 가발은 매 타마다 살아있는 적 중 랜덤 대상에게 들어가도록 조정했습니다.',
+      '네오의 특제 농약은 다중 적 전투에서 적 전체에게 중독을 적용하고, 옥상의 비둘기떼는 적 전체를 공격하도록 변경했습니다.',
+      '고레벨 모험 경험치 보정 감소율을 레벨당 0.5%에서 0.05%로 완화했습니다.'
+    ]
+  },
+  {
     id: '2026-06-09-chunsik-art-2-emblem-refresh',
     time: '2026-06-09 16:05',
     title: '휘장 이미지 교체',

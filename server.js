@@ -364,6 +364,37 @@ const EMBLEM_DATA = {
     shopType: 'fragment',
     effects: { stockFeeReduction: 10 }
   },
+  kkolde: {
+    id: 'kkolde',
+    name: '꼴데',
+    price: 2000000000000000000000,
+    desc: '일반 상점에서 구매할 수 있습니다. 보유 효과: 보스 경험치 추가 +5%',
+    imageUrl: '',
+    className: 'emblem-kkolde',
+    shopType: 'money',
+    effects: { raidExpBonus: 5 }
+  },
+  ruined_bear: {
+    id: 'ruined_bear',
+    name: '망x러진곰',
+    price: 0,
+    fragmentCost: 5000,
+    desc: '파편 상점에서 구매할 수 있습니다. 보유 효과: 보스 경험치 획득량 추가 +2%',
+    imageUrl: '',
+    className: 'emblem-ruined-bear',
+    shopType: 'fragment',
+    effects: { raidExpBonus: 2 }
+  },
+  guma_ritual: {
+    id: 'guma_ritual',
+    name: '구마의식',
+    price: 200000000000000000,
+    desc: '일반 상점에서 구매할 수 있습니다. 보유 효과: 주식 거래 수수료 5% 감소',
+    imageUrl: '',
+    className: 'emblem-guma-ritual',
+    shopType: 'money',
+    effects: { stockFeeReduction: 5 }
+  },
   idol: {
     id: 'idol',
     name: 'IDOL',
@@ -1561,6 +1592,15 @@ const FRAGMENT_SHOP_ITEMS = {
     quantity: 1,
     dailyLimit: 1,
     countField: 'dailyFragmentBitchNotEmblemPurchases'
+  },
+  ruined_bear_emblem: {
+    id: 'ruined_bear_emblem',
+    emblemId: 'ruined_bear',
+    name: '망x러진곰 휘장',
+    cost: 5000,
+    quantity: 1,
+    dailyLimit: 1,
+    countField: 'dailyFragmentRuinedBearEmblemPurchases'
   }
 };
 
@@ -2562,6 +2602,7 @@ const userSchema = new mongoose.Schema({
     dailyFragmentCatButlerEmblemPurchases: { type: Number, default: 0 },
     dailyFragmentIdolEmblemPurchases: { type: Number, default: 0 },
     dailyFragmentBitchNotEmblemPurchases: { type: Number, default: 0 },
+    dailyFragmentRuinedBearEmblemPurchases: { type: Number, default: 0 },
     lastShoppingAddictQualifiedDayKey: { type: String, default: null }
   },
   meta: {
@@ -3432,6 +3473,7 @@ function ensureUserDefaults(user) {
       dailyFragmentCatButlerEmblemPurchases: 0,
       dailyFragmentIdolEmblemPurchases: 0,
       dailyFragmentBitchNotEmblemPurchases: 0,
+      dailyFragmentRuinedBearEmblemPurchases: 0,
       lastShoppingAddictQualifiedDayKey: null
     };
   }
@@ -3445,6 +3487,7 @@ function ensureUserDefaults(user) {
   user.shopState.dailyFragmentCatButlerEmblemPurchases = Number(user.shopState.dailyFragmentCatButlerEmblemPurchases ?? 0);
   user.shopState.dailyFragmentIdolEmblemPurchases = Number(user.shopState.dailyFragmentIdolEmblemPurchases ?? 0);
   user.shopState.dailyFragmentBitchNotEmblemPurchases = Number(user.shopState.dailyFragmentBitchNotEmblemPurchases ?? 0);
+  user.shopState.dailyFragmentRuinedBearEmblemPurchases = Number(user.shopState.dailyFragmentRuinedBearEmblemPurchases ?? 0);
   user.shopState.lastShoppingAddictQualifiedDayKey = user.shopState.lastShoppingAddictQualifiedDayKey || null;
 
   normalizeBranchOffice(user);
@@ -3935,7 +3978,7 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
 
   switch (cardId) {
     case 'ineo_diet':
-      return `다음 자신의 턴에 기본 공격을 총 ${card.hits}회 합니다. 각 공격은 기본 공격 피해의 90%로 적용됩니다.`;
+      return `다음 자신의 턴에 기본 공격을 총 ${card.hits}회 합니다. 각 공격은 기본 공격 피해의 90%로 적용됩니다. 다중 적 전투에서는 매 타마다 살아있는 적 중 랜덤 단일 대상을 공격합니다.`;
     case 'gangnam_style':
       return `파티 전원에게 크리티컬률 ${formatCardPercentText(card.critBonus)}와 흥겨움을 부여하고, 해당 턴 보스 턴까지 유지되는 보호막 ${card.shield}을 제공합니다. 흥겨움 중 기본 공격은 2배 타격으로 적용됩니다.`;
     case 'delegate_lee':
@@ -3947,7 +3990,7 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
     case 'rebuttal':
       return `파티원 전체의 HP를 ${card.heal} 회복합니다.${card.includeSelf ? ' 자신도 포함됩니다.' : ' 자신은 제외됩니다.'}`;
     case 'parking_master':
-      return `다음 자신의 턴에 기본 공격을 총 ${card.hits}회 합니다. 각 공격은 기본 공격 피해의 90%로 적용됩니다.`;
+      return `다음 자신의 턴에 기본 공격을 총 ${card.hits}회 합니다. 각 공격은 기본 공격 피해의 90%로 적용됩니다. 다중 적 전투에서는 매 타마다 살아있는 적 중 랜덤 단일 대상을 공격합니다.`;
     case 'tissue_box':
       return `${card.turns}턴 동안 반격합니다. 피격당하면 기본 공격 ${Math.round(Number(card.counterDamageMultiplier || 1) * 100)}% 위력으로 반격합니다.`;
     case 'drinking_angle':
@@ -3973,7 +4016,7 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
     case 'ride_line':
       return `랜덤 파티원 ${card.targets}인의 공격력을 ${formatCardPercentText(card.attackBonusPercent)} 증가시킵니다.`;
     case 'wig':
-      return `다음 자신의 턴에 기본 공격을 총 ${card.hits}회 합니다. 각 공격은 기본 공격 피해의 90%로 적용됩니다.`;
+      return `다음 자신의 턴에 기본 공격을 총 ${card.hits}회 합니다. 각 공격은 기본 공격 피해의 90%로 적용됩니다. 다중 적 전투에서는 매 타마다 살아있는 적 중 랜덤 단일 대상을 공격합니다.`;
     case 'chatgpt':
       return `다음 자신의 턴 기본 공격에 더해 자신의 레벨 x ${card.bonusPerLevel} 추가 피해를 입힙니다.`;
     case 'pho':
@@ -3983,7 +4026,7 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
     case 'cider_comment':
       return `선택한 파티원 1인에게 디버프 무효 ${card.debuffImmuneCount}회를 제공합니다.`;
     case 'rooftop_pigeons':
-      return `자신의 레벨 x ${card.damagePerLevel}의 데미지로 ${card.hits}회 공격합니다. 각 공격은 90% 위력으로 적용됩니다.`;
+      return `자신의 레벨 x ${card.damagePerLevel}의 데미지로 ${card.hits}회 공격합니다. 각 공격은 90% 위력으로 적용되며, 다중 적 전투에서는 적 전체를 공격합니다.`;
     case 'sunscreen':
       return `${card.includeSelf ? '자신 포함 ' : ''}${card.targets >= 99 ? '파티 전원' : `랜덤 팀원 ${card.targets}인`}에게 피격 무효 ${card.negateHitCount}회를 부여합니다.`;
     case 'trial_and_growth':
@@ -4003,13 +4046,13 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
     case 'potato_rehab':
       return `보스전에서 현재 데미지 ${Number(card.fixedDamage || POTATO_REHAB_BASE_DAMAGE).toLocaleString()}의 고정 피해를 1회 입힙니다. 노멀 보스에서는 피해와 막타 성장량이 1/3로 적용됩니다. 한 판당 1회만 사용 가능하며, 이 스킬로 적을 처치하면 데미지가 플레이어의 현재 레벨만큼 영구 증가합니다. 개인면담에서는 선택할 수 없고 강화할 수 없습니다.`;
     case 'nosy_manager':
-      return '선택한 파티원 1명에게 보호막 ' + card.shield + '을 부여하고, 상대에게 자신의 레벨 x ' + card.damagePerLevel + ' 피해를 ' + (card.hits || 2) + '회 입힙니다.';
+      return '선택한 파티원 1명에게 보호막 ' + card.shield + '을 부여하고, 선택한 단일 적에게 자신의 레벨 x ' + card.damagePerLevel + ' 피해를 ' + (card.hits || 2) + '회 입힙니다.';
     case 'precise_strike':
       return `자신의 레벨 x ${card.multiplierPerLevel}의 데미지를 1회 주며, 방어막을 무시하고 HP에 직접 피해를 입힙니다.`;
     case 'umbrella_copy':
       return `${card.canSelectCopyTarget ? '선택한' : '랜덤'} 파티원 1명의 카드 효과를 ${Math.round(Number(card.copyEffectMultiplier || 0.5) * 100)}%만 적용해 따라 합니다.`;
     case 'neo_pesticide':
-      return `상대에게 ${card.turns || 2}턴 동안 <중독>을 적용합니다. 중독 중 공격할 때마다 스킬 시전자의 레벨 x ${card.damagePerLevel} 피해를 입습니다. 다단 타격은 매 타마다 적용됩니다.`;
+      return `상대에게 ${card.turns || 2}턴 동안 <중독>을 적용합니다. 다중 적 전투에서는 적 전체에게 적용됩니다. 중독 중 공격할 때마다 스킬 시전자의 레벨 x ${card.damagePerLevel} 피해를 입습니다. 다단 타격은 매 타마다 적용됩니다.`;
     case 'neo_self_esteem':
       return '자신에게 <자존감> 버프를 1회 부여합니다. 자존감 보유 중 디버프를 받으면 상대에게 반사하고 자존감은 사라집니다. 강화할 수 없는 카드입니다.';
     case 'mond_parental_leave':
@@ -9755,7 +9798,9 @@ function tickPvpPlayerEndOfTurn(player, battle) {
     if (Number(buff.turns || 0) > 0 && Number(buff.turns || 0) < 900) {
       buff.turns -= 1;
       if (buff.turns <= 0 && buff.id === 'celine' && Number(buff.expireDamage || 0) > 0) {
-        const target = getPvpOpponent(battle, player.userId);
+        const target = isAugmentPvpMode(battle?.mode)
+          ? pickRandomEntry(getAliveAugmentTargets(getAugmentEnemyPlayers(battle, player.team)))
+          : getPvpOpponent(battle, player.userId);
         if (target) {
           applyPvpDamage(target, Number(buff.expireDamage || 0), battle);
           battle.logs.push(`${player.displayName}의 셀린느가 종료되며 ${target.displayName}에게 ${Number(buff.expireDamage || 0).toLocaleString()} 피해를 입혔습니다.`);
@@ -10982,7 +11027,7 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
           rewardNotes.push('이번엔 될거같아 실패로 보상 없음');
         }
       }
-      const expBonusMultiplier = 1 + (derivedStats.expBonusPercent + (derivedStats.branchRaidExpBonusPercent || 0)) / 100;
+      const expBonusMultiplier = 1 + (derivedStats.expBonusPercent + (derivedStats.branchRaidExpBonusPercent || 0) + (derivedStats.raidExpBonusPercent || 0)) / 100;
       const expReward = Math.floor(getRequiredExp(participant.level) * rewardRatio * rewardMultiplier * expBonusMultiplier);
       const businessCards = Math.max(0, Math.round((sharedBaseRewards?.businessCards || 0) * rewardMultiplier));
       const bacchus = Math.max(0, Math.round((sharedBaseRewards?.bacchus || 0) * rewardMultiplier));
@@ -11311,6 +11356,7 @@ function syncDailyShopState(user, now = new Date()) {
     user.shopState.dailyFragmentCatButlerEmblemPurchases = 0;
     user.shopState.dailyFragmentIdolEmblemPurchases = 0;
     user.shopState.dailyFragmentBitchNotEmblemPurchases = 0;
+    user.shopState.dailyFragmentRuinedBearEmblemPurchases = 0;
   }
 }
 
@@ -11394,6 +11440,7 @@ function calculateEmblemStats(emblems = {}) {
     moneyBonus: 0,
     expBonus: 0,
     raidRewardBonus: 0,
+    raidExpBonus: 0,
     maintenanceReduction: 0,
     stockFeeReduction: 0,
     infiniteOvertimeRewardBonus: 0
@@ -11406,6 +11453,7 @@ function calculateEmblemStats(emblems = {}) {
     stats.moneyBonus += Number(effects.moneyBonus || 0);
     stats.expBonus += Number(effects.expBonus || 0);
     stats.raidRewardBonus += Number(effects.raidRewardBonus || 0);
+    stats.raidExpBonus += Number(effects.raidExpBonus || 0);
     stats.maintenanceReduction += Number(effects.maintenanceReduction || 0);
     stats.stockFeeReduction += Number(effects.stockFeeReduction || 0);
     stats.infiniteOvertimeRewardBonus += Number(effects.infiniteOvertimeRewardBonus || 0);
@@ -11414,6 +11462,7 @@ function calculateEmblemStats(emblems = {}) {
   stats.moneyBonus = Number(stats.moneyBonus.toFixed(2));
   stats.expBonus = Number(stats.expBonus.toFixed(2));
   stats.raidRewardBonus = Number(stats.raidRewardBonus.toFixed(2));
+  stats.raidExpBonus = Number(stats.raidExpBonus.toFixed(2));
   stats.maintenanceReduction = Number(stats.maintenanceReduction.toFixed(2));
   stats.stockFeeReduction = Number(stats.stockFeeReduction.toFixed(2));
   stats.infiniteOvertimeRewardBonus = Number(stats.infiniteOvertimeRewardBonus.toFixed(2));
@@ -12156,6 +12205,7 @@ function calculateDerivedStats(user, now = new Date()) {
     itemExpBonusPercent: itemStats.expBonus,
     emblemExpBonusPercent: emblemStats.expBonus,
     raidRewardBonusPercent: emblemStats.raidRewardBonus,
+    raidExpBonusPercent: emblemStats.raidExpBonus,
     maintenanceReductionPercent: emblemStats.maintenanceReduction,
     stockFeeReductionPercent: emblemStats.stockFeeReduction,
     infiniteOvertimeRewardBonusPercent: emblemStats.infiniteOvertimeRewardBonus,
@@ -12600,6 +12650,7 @@ function buildGameStateResponse(user, now = new Date()) {
       itemExpBonus: derivedStats.itemExpBonusPercent,
       emblemExpBonus: derivedStats.emblemExpBonusPercent,
       raidRewardBonus: derivedStats.raidRewardBonusPercent,
+      raidExpBonus: derivedStats.raidExpBonusPercent,
       maintenanceReduction: derivedStats.maintenanceReductionPercent,
       stockFeeReduction: derivedStats.stockFeeReductionPercent,
       infiniteOvertimeRewardBonus: derivedStats.infiniteOvertimeRewardBonusPercent,
