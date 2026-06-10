@@ -300,6 +300,15 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-10-overtime-manager-balance-tune',
+    time: '2026-06-10 00:45',
+    title: '황과장 보스 스킬 밸런스 조정',
+    items: [
+      '<포 괄 임 금> 보호막 계산식을 황과장은 잃은 HP 50%, 하수인은 최대 HP 40% 기준으로 변경했습니다.',
+      '<석 식 미 제 공> 회복량을 잃은 HP 30%로 상향하고, <카 페 인 도 핑>은 2턴 동안 받는 피해 40% 감소로 조정했습니다.'
+    ]
+  },
+  {
     id: '2026-06-10-stock-tournament-close-profit-rate',
     time: '2026-06-10 00:30',
     title: '주식 대회 종료 및 수익률 표시 수정',

@@ -1689,10 +1689,10 @@ const RAID_BOSS_DATA = {
       '패시브: 전투 시작 시 야근하다 미쳐버린 최주임, 야근하다 미쳐버린 정대리를 함께 생성합니다. 하수인이 살아있으면 도발로 공격을 대신 맞고 받는 피해가 35% 감소합니다.',
       '패시브: 하수인이 1명 쓰러질 때마다 황과장이 입히는 피해가 50% 증가합니다.',
       '하수인 행동: 플레이어 전원 행동 후 최주임, 정대리, 황과장 순서로 행동합니다. 하수인은 랜덤 대상에게 기본공격만 합니다.',
-      '1. 포 괄 임 금: 자신과 하수인 모두 현재 HP의 40%만큼 2턴 보호막을 얻습니다. 황과장의 보호막이 시간 만료로 사라지면 파티 전체에게 10 피해를 2회 줍니다.',
+      '1. 포 괄 임 금: 자신은 잃은 HP의 50%만큼, 하수인은 최대 HP의 40%만큼 2턴 보호막을 얻습니다. 황과장의 보호막이 시간 만료로 사라지면 파티 전체에게 10 피해를 2회 줍니다.',
       '2. 분 노 의 타 이 핑: 랜덤 4인에게 10 피해, 랜덤 3인에게 20 피해, 랜덤 2인에게 30 피해를 차례대로 줍니다.',
-      '3. 석 식 미 제 공: 자신과 하수인의 잃은 HP를 20% 회복하고, 파티 전체에게 10 피해를 2회 줍니다.',
-      '4. 카 페 인 도 핑: 자신은 3턴 동안 받는 피해 30% 감소를 얻고, 파티 전원에게 2턴 동안 실드 삭제 및 획득 불가 디버프를 적용합니다.'
+      '3. 석 식 미 제 공: 자신과 하수인의 잃은 HP를 30% 회복하고, 파티 전체에게 10 피해를 2회 줍니다.',
+      '4. 카 페 인 도 핑: 자신은 2턴 동안 받는 피해 40% 감소를 얻고, 파티 전원에게 2턴 동안 실드 삭제 및 획득 불가 디버프를 적용합니다.'
     ],
     rewardsText: RAID_BOSS_REWARDS_TEXT
   }
@@ -7396,7 +7396,8 @@ function performRaidBossAction(battle) {
 
   if (battle.bossId === RAID_BOSS_ID_OVERTIME_MANAGER) {
     if (pattern === 'inclusive_wage') {
-      const bossShield = Math.max(0, Math.floor(Number(battle.bossHp || 0) * 0.4));
+      const bossMissingHp = Math.max(0, Number(battle.bossMaxHp || 0) - Number(battle.bossHp || 0));
+      const bossShield = Math.max(0, Math.floor(bossMissingHp * 0.5));
       battle.bossShield = Number(battle.bossShield || 0) + bossShield;
       battle.bossShieldTurns = Math.max(Number(battle.bossShieldTurns || 0), 2);
       battle.bossShieldExpirePartyHits = 2;
@@ -7405,7 +7406,7 @@ function performRaidBossAction(battle) {
 
       const minionTexts = [];
       getAliveRaidBossMinions(battle).forEach((minion) => {
-        const minionShield = Math.max(0, Math.floor(Number(minion.hp || 0) * 0.4));
+        const minionShield = Math.max(0, Math.floor(Number(minion.maxHp || 0) * 0.4));
         minion.shield = Number(minion.shield || 0) + minionShield;
         minion.shieldTurns = Math.max(Number(minion.shieldTurns || 0), 2);
         minion.lastHpLoss = 0;
@@ -7442,7 +7443,7 @@ function performRaidBossAction(battle) {
 
     if (pattern === 'no_dinner') {
       const bossMissingHp = Math.max(0, Number(battle.bossMaxHp || 0) - Number(battle.bossHp || 0));
-      const bossHeal = Math.floor(bossMissingHp * 0.2);
+      const bossHeal = Math.floor(bossMissingHp * 0.3);
       if (bossHeal > 0) {
         battle.bossHp = Math.min(Number(battle.bossMaxHp || 0), Number(battle.bossHp || 0) + bossHeal);
         battle.bossLastHpLoss = 0;
@@ -7451,7 +7452,7 @@ function performRaidBossAction(battle) {
       getRaidBossMinions(battle).forEach((minion) => {
         if (Number(minion.hp || 0) <= 0) return;
         const missingHp = Math.max(0, Number(minion.maxHp || 0) - Number(minion.hp || 0));
-        const healed = Math.floor(missingHp * 0.2);
+        const healed = Math.floor(missingHp * 0.3);
         if (healed > 0) {
           minion.hp = Math.min(Number(minion.maxHp || 0), Number(minion.hp || 0) + healed);
           minion.lastHpLoss = 0;
@@ -7473,8 +7474,8 @@ function performRaidBossAction(battle) {
     }
 
     if (pattern === 'caffeine_doping') {
-      battle.bossDamageReductionTurns = Math.max(Number(battle.bossDamageReductionTurns || 0), 3);
-      battle.bossDamageReductionPercent = Math.max(Number(battle.bossDamageReductionPercent || 0), 0.3);
+      battle.bossDamageReductionTurns = Math.max(Number(battle.bossDamageReductionTurns || 0), 2);
+      battle.bossDamageReductionPercent = Math.max(Number(battle.bossDamageReductionPercent || 0), 0.4);
       const appliedNames = [];
       const resistedNames = [];
       aliveParticipants.forEach((participant) => {
