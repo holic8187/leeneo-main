@@ -300,6 +300,15 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-10-stock-tournament-close-profit-rate',
+    time: '2026-06-10 00:30',
+    title: '주식 대회 종료 및 수익률 표시 수정',
+    items: [
+      '제 1회 주식투자 대회를 종료 상태로 전환하고, 대회 거래와 고급 정보 사용을 중단했습니다.',
+      '회사 주식 보유 수익률이 현재가 변동을 즉시 반영하도록 평가액과 수익률 계산 기준을 정리했습니다.'
+    ]
+  },
+  {
     id: '2026-06-10-overtime-manager-raid-boss',
     time: '2026-06-10 00:00',
     title: '신규 회의 보스 추가',
@@ -3099,8 +3108,9 @@ function renderCompanyStockMarket() {
     const sellInputId = 'stock-sell-' + index;
     const currentPrice = Number(stock.price || 0);
     const averagePrice = Number(holding.averagePrice || 0);
-    const marketValue = Number(holding.marketValue || 0);
-    const profitRate = Number.isFinite(Number(holding.profitRate)) ? Number(holding.profitRate) : (averagePrice > 0 ? ((currentPrice - averagePrice) / averagePrice) * 100 : 0);
+    const shares = Number(holding.shares || 0);
+    const marketValue = Math.floor(currentPrice * shares);
+    const profitRate = averagePrice > 0 ? ((currentPrice - averagePrice) / averagePrice) * 100 : 0;
     const change = Number(stock.lastChangePct || 0);
     const changeClass = change >= 0 ? 'stock-change-up' : 'stock-change-down';
     const rumor = getCompanyStockRumorText(stock.companyId);
@@ -3111,7 +3121,7 @@ function renderCompanyStockMarket() {
       '<td>' + formatNumber(currentPrice) + '원</td>' +
       '<td class="' + changeClass + '">' + (change >= 0 ? '+' : '') + formatNumber(change, 2) + '%</td>' +
       '<td>' + buildCompanyStockChart(stock.history) + '</td>' +
-      '<td>' + formatNumber(holding.shares || 0) + '주<div class="muted-text">평가 ' + formatNumber(marketValue) + '원</div><div class="muted-text">평단 ' + formatNumber(averagePrice, 2) + '원</div><div class="muted-text ' + (profitRate >= 0 ? 'stock-change-up' : 'stock-change-down') + '">수익률 ' + (profitRate >= 0 ? '+' : '') + formatNumber(profitRate, 2) + '%</div></td>' +
+      '<td>' + formatNumber(shares) + '주<div class="muted-text">평가 ' + formatNumber(marketValue) + '원</div><div class="muted-text">평단 ' + formatNumber(averagePrice, 2) + '원</div><div class="muted-text ' + (profitRate >= 0 ? 'stock-change-up' : 'stock-change-down') + '">수익률 ' + (profitRate >= 0 ? '+' : '') + formatNumber(profitRate, 2) + '%</div></td>' +
       '<td><div class="stock-trade-row"><input id="' + buyInputId + '" class="stock-share-input" type="number" min="1" step="1" value="1"><button class="mini-btn" onclick="handleCompanyStockBuy(\'' + escapeHtml(stock.companyId) + '\', \'' + buyInputId + '\')">매수</button></div></td>' +
       '<td><div class="stock-trade-row"><input id="' + sellInputId + '" class="stock-share-input" type="number" min="1" max="' + Math.max(1, Number(holding.shares || 0)) + '" step="1" value="1"><button class="mini-btn" onclick="handleCompanyStockSell(\'' + escapeHtml(stock.companyId) + '\', \'' + sellInputId + '\')" ' + (Number(holding.shares || 0) <= 0 ? 'disabled' : '') + '>매도</button></div></td>' +
       '<td><button class="mini-btn" onclick="handleCompanyStockRumor(\'' + escapeHtml(stock.companyId) + '\')">찌라시</button>' + (rumor ? '<div class="company-stock-rumor">' + escapeHtml(rumor) + (rumorRemaining ? '<span class="company-stock-rumor-meta">' + escapeHtml(rumorRemaining) + '</span>' : '') + '</div>' : '') + '</td>';
@@ -3326,8 +3336,9 @@ function renderStockTournament() {
     const sellInputId = 'tournament-sell-' + index;
     const currentPrice = Number(stock.price || 0);
     const averagePrice = Number(holding.averagePrice || 0);
-    const marketValue = Number(holding.marketValue || 0);
-    const profitRate = Number.isFinite(Number(holding.profitRate)) ? Number(holding.profitRate) : (averagePrice > 0 ? ((currentPrice - averagePrice) / averagePrice) * 100 : 0);
+    const shares = Number(holding.shares || 0);
+    const marketValue = Math.floor(currentPrice * shares);
+    const profitRate = averagePrice > 0 ? ((currentPrice - averagePrice) / averagePrice) * 100 : 0;
     const change = Number(stock.lastChangePct || 0);
     const changeClass = change >= 0 ? 'stock-change-up' : 'stock-change-down';
     const info = getStockTournamentAdvancedInfo(stock.companyId);
@@ -3339,7 +3350,7 @@ function renderStockTournament() {
       '<td>' + formatNumber(currentPrice) + '원</td>' +
       '<td class="' + changeClass + '">' + (change >= 0 ? '+' : '') + formatNumber(change, 2) + '%</td>' +
       '<td>' + buildCompanyStockChart(stock.history) + '</td>' +
-      '<td>' + formatNumber(holding.shares || 0) + '주<div class="muted-text">평가 ' + formatNumber(marketValue) + '원</div><div class="muted-text">평단 ' + formatNumber(averagePrice, 2) + '원</div><div class="muted-text ' + (profitRate >= 0 ? 'stock-change-up' : 'stock-change-down') + '">수익률 ' + (profitRate >= 0 ? '+' : '') + formatNumber(profitRate, 2) + '%</div></td>' +
+      '<td>' + formatNumber(shares) + '주<div class="muted-text">평가 ' + formatNumber(marketValue) + '원</div><div class="muted-text">평단 ' + formatNumber(averagePrice, 2) + '원</div><div class="muted-text ' + (profitRate >= 0 ? 'stock-change-up' : 'stock-change-down') + '">수익률 ' + (profitRate >= 0 ? '+' : '') + formatNumber(profitRate, 2) + '%</div></td>' +
       '<td><div class="stock-trade-row"><input id="' + buyInputId + '" class="stock-share-input" type="number" min="1" step="1" value="1" ' + (tradeDisabled ? 'disabled' : '') + '><button class="mini-btn" onclick="handleStockTournamentBuy(\'' + escapeHtml(stock.companyId) + '\', \'' + buyInputId + '\')" ' + (tradeDisabled ? 'disabled' : '') + '>매수</button></div></td>' +
       '<td><div class="stock-trade-row"><input id="' + sellInputId + '" class="stock-share-input" type="number" min="1" max="' + Math.max(1, Number(holding.shares || 0)) + '" step="1" value="1" ' + (tradeDisabled ? 'disabled' : '') + '><button class="mini-btn" onclick="handleStockTournamentSell(\'' + escapeHtml(stock.companyId) + '\', \'' + sellInputId + '\')" ' + (tradeDisabled || Number(holding.shares || 0) <= 0 ? 'disabled' : '') + '>매도</button></div></td>' +
       '<td><button class="mini-btn" onclick="handleStockTournamentAdvancedInfo(\'' + escapeHtml(stock.companyId) + '\')" ' + (infoDisabled ? 'disabled' : '') + '>고급 정보</button>' + (info ? '<div class="company-stock-rumor">' + escapeHtml(info.text || '') + '</div>' : '') + '</td>';

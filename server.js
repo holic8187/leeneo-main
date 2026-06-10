@@ -59,7 +59,7 @@ let companyStockMarketSyncPromise = null;
 const STOCK_TOURNAMENT_ID = 'stock_tournament_1';
 const STOCK_TOURNAMENT_NAME = '제 1회 주식투자 대회';
 const STOCK_TOURNAMENT_START_AT = new Date('2026-06-03T00:00:00.000Z');
-const STOCK_TOURNAMENT_END_AT = new Date('2026-06-10T00:00:00.000Z');
+const STOCK_TOURNAMENT_END_AT = new Date('2026-06-09T15:00:00.000Z'); // 2026-06-10 00:00 KST
 const STOCK_TOURNAMENT_INITIAL_CASH = 100000000;
 const STOCK_TOURNAMENT_ADVANCED_INFO_LIMIT = 2;
 const STOCK_TOURNAMENT_ADVANCED_INFO_ACCURACY = 0.9;
@@ -2990,7 +2990,7 @@ async function buildCompanyStockMarketResponse(user, now = new Date()) {
   const sellFeeRate = user ? getEffectiveCompanyStockSellFeeRate(user, now, derivedStats) : COMPANY_STOCK_SELL_FEE_RATE;
   const holdings = portfolio.map((holding) => {
     const stock = companies.find((company) => company.companyId === holding.companyId);
-    const currentPrice = stock ? getStockTournamentValuationPrice(stock, now) : 0;
+    const currentPrice = stock ? Number(stock.price || 0) : 0;
     const shares = Number(holding.shares || 0);
     const averagePrice = Number(holding.averagePrice || 0);
     return {
@@ -3149,7 +3149,7 @@ async function buildStockTournamentResponse(user, now = new Date()) {
   const registered = isStockTournamentRegistered(user);
   const holdings = normalizeStockTournamentHoldingList(tournament.holdings).map((holding) => {
     const stock = companies.find((company) => company.companyId === holding.companyId);
-    const currentPrice = stock ? Number(stock.price || 0) : 0;
+    const currentPrice = stock ? getStockTournamentValuationPrice(stock, now) : 0;
     const shares = Number(holding.shares || 0);
     const averagePrice = Number(holding.averagePrice || 0);
     return {
@@ -3192,7 +3192,7 @@ async function buildStockTournamentResponse(user, now = new Date()) {
         companyName: company.companyName,
         ownerNickname: company.ownerNickname,
         companyValue: company.companyValue,
-        price: company.price,
+        price: getStockTournamentValuationPrice(company, now),
         lastChangePct: company.lastChangePct,
         rumor: company.rumor || null,
         history: company.history || []
