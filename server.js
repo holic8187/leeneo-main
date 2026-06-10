@@ -151,7 +151,8 @@ const RAID_SPECIAL_REWARD_CHANCE = 0.05;
 const RAID_BOSS_ID = 'burp_queen';
 const RAID_BOSS_ID_BALD_MANAGER = 'bald_manager';
 const RAID_BOSS_ID_HOI = 'hoi_msj_50';
-const RAID_BOSS_ROTATION_IDS = [RAID_BOSS_ID, RAID_BOSS_ID_BALD_MANAGER, RAID_BOSS_ID_HOI];
+const RAID_BOSS_ID_OVERTIME_MANAGER = 'overtime_manager_hwang';
+const RAID_BOSS_ROTATION_IDS = [RAID_BOSS_ID, RAID_BOSS_ID_BALD_MANAGER, RAID_BOSS_ID_HOI, RAID_BOSS_ID_OVERTIME_MANAGER];
 const RAID_BOSS_ROTATION_START_KEY = '2026-05-11';
 const RAID_POLL_VERSION_EMPTY = 0;
 const PVP_MIN_LEVEL = 50;
@@ -1670,6 +1671,28 @@ const RAID_BOSS_DATA = {
       '4. 손 톱 깎 기: 랜덤 1인에게 1턴 뒤 40 피해, 이후 30/20 피해로 최대 2회 튕김',
       '5. 먹고 싶은거 있어?: 전원에게 20 피해, 자신에게 피격 무효 10회 버프',
       '특수 기믹: 닉네임이 호이인 파티원이 있으면 그 파티원의 피해가 1.5배로 적용되고, 클리어 시 파티 전체 전리품이 1.5배가 됩니다.'
+    ],
+    rewardsText: RAID_BOSS_REWARDS_TEXT
+  },
+  [RAID_BOSS_ID_OVERTIME_MANAGER]: {
+    id: RAID_BOSS_ID_OVERTIME_MANAGER,
+    name: '야근하다 미쳐버린 황과장',
+    maxHp: 80000,
+    maxHpByMode: {
+      [RAID_MODE_NORMAL]: 80000,
+      [RAID_MODE_HARD]: 250000
+    },
+    imageLabel: '황과장',
+    portrait: 'assets/bosses/overtime_manager_hwang.png',
+    patternOrder: ['inclusive_wage', 'rage_typing', 'no_dinner', 'caffeine_doping'],
+    skillsText: [
+      '패시브: 전투 시작 시 야근하다 미쳐버린 최주임, 야근하다 미쳐버린 정대리를 함께 생성합니다. 하수인이 살아있으면 도발로 공격을 대신 맞고 받는 피해가 35% 감소합니다.',
+      '패시브: 하수인이 1명 쓰러질 때마다 황과장이 입히는 피해가 50% 증가합니다.',
+      '하수인 행동: 플레이어 전원 행동 후 최주임, 정대리, 황과장 순서로 행동합니다. 하수인은 랜덤 대상에게 기본공격만 합니다.',
+      '1. 포 괄 임 금: 자신과 하수인 모두 현재 HP의 40%만큼 2턴 보호막을 얻습니다. 황과장의 보호막이 시간 만료로 사라지면 파티 전체에게 10 피해를 2회 줍니다.',
+      '2. 분 노 의 타 이 핑: 랜덤 4인에게 10 피해, 랜덤 3인에게 20 피해, 랜덤 2인에게 30 피해를 차례대로 줍니다.',
+      '3. 석 식 미 제 공: 자신과 하수인의 잃은 HP를 20% 회복하고, 파티 전체에게 10 피해를 2회 줍니다.',
+      '4. 카 페 인 도 핑: 자신은 3턴 동안 받는 피해 30% 감소를 얻고, 파티 전원에게 2턴 동안 실드 삭제 및 획득 불가 디버프를 적용합니다.'
     ],
     rewardsText: RAID_BOSS_REWARDS_TEXT
   }
@@ -4937,6 +4960,7 @@ function createRaidParticipantFromUser(user) {
     lottoRewardSuccessChance: 0.5,
     healShieldReductionTurns: 0,
     healShieldReductionMultiplier: 1,
+    shieldBlockTurns: 0,
     nextHitDamageTakenMultiplier: 1,
     negateHitCount: 0,
     solidMentalNegateCount: 0,
@@ -5902,6 +5926,7 @@ function buildRaidParticipantStatusEffects(participant) {
   if (Number(participant.actionLockTurns || 0) > 0) effects.push({ type: 'debuff', name: '가발 찾는중..', turns: Number(participant.actionLockTurns || 0), desc: '기본 공격, 스킬 사용 불가' });
   if (Number(participant.basicAttackLockTurns || 0) > 0) effects.push({ type: 'debuff', name: '울 아들 만나봐', turns: Number(participant.basicAttackLockTurns || 0), desc: '기본 공격 불가' });
   if (Number(participant.healShieldReductionTurns || 0) > 0) effects.push({ type: 'debuff', name: '꼰대', turns: Number(participant.healShieldReductionTurns || 0), desc: '회복량 및 실드 획득량 50% 감소' });
+  if (Number(participant.shieldBlockTurns || 0) > 0) effects.push({ type: 'debuff', name: '실드 삭제 및 획득 불가', turns: Number(participant.shieldBlockTurns || 0), desc: '현재 실드가 제거되고 새 실드를 얻을 수 없습니다.' });
   if (Number(participant.nextHitDamageTakenMultiplier || 1) > 1) effects.push({ type: 'debuff', name: '4차까지?', desc: `다음 공격으로 받는 피해 x${Number(participant.nextHitDamageTakenMultiplier || 1).toFixed(1)}` });
   if (Number(participant.nailBounceDelayTurns || 0) > 0 && Number(participant.nailBounceDamage || 0) > 0) effects.push({ type: 'debuff', name: '튕겨나간 손톱', turns: Number(participant.nailBounceDelayTurns || 0), desc: `${Number(participant.nailBounceDamage || 0)} 피해 예정` });
   if (Number(participant.counterTurns || 0) > 0) effects.push({ type: 'buff', name: '반격', turns: Number(participant.counterTurns || 0), desc: '보스에게 피격당하면 기본 공격으로 반격' });
@@ -5950,6 +5975,23 @@ function buildRaidBossStatusEffects(battle) {
       type: 'buff',
       name: '나 먼저 퇴근할게',
       desc: '매 공격을 20% 확률로 회피합니다.'
+    });
+  }
+  if (battle.bossId === RAID_BOSS_ID_OVERTIME_MANAGER) {
+    const defeatedMinions = getRaidDeadMinionCount(battle);
+    effects.push({
+      type: 'buff',
+      name: '야근 광기',
+      count: defeatedMinions || null,
+      desc: `하수인이 쓰러질 때마다 황과장이 입히는 피해가 50% 증가합니다. 현재 피해 ${Math.round(getRaidBossOutgoingDamageMultiplier(battle) * 100)}%`
+    });
+  }
+  if (Number(battle.bossDamageReductionTurns || 0) > 0) {
+    effects.push({
+      type: 'buff',
+      name: '카페인 도핑',
+      turns: Number(battle.bossDamageReductionTurns || 0),
+      desc: `받는 피해 ${Math.round(Number(battle.bossDamageReductionPercent || 0) * 100)}% 감소`
     });
   }
   if (Number(battle.bossShield || 0) > 0) {
@@ -6041,11 +6083,61 @@ function getRaidRecoveryMultiplier(target) {
     : 1;
 }
 
+function getRaidBossMaxHpForMode(boss, mode = RAID_MODE_NORMAL) {
+  const normalizedMode = normalizeRaidMode(mode);
+  const modeOverride = boss?.maxHpByMode?.[normalizedMode];
+  if (Number.isFinite(Number(modeOverride)) && Number(modeOverride) > 0) {
+    return Math.round(Number(modeOverride));
+  }
+  const modeConfig = getRaidModeConfig(normalizedMode);
+  return Math.round(Number(boss?.maxHp || 0) * Number(modeConfig.hpMultiplier || 1));
+}
+
+function createRaidBossMinions(bossId, mode = RAID_MODE_NORMAL) {
+  if (bossId !== RAID_BOSS_ID_OVERTIME_MANAGER) return [];
+  const isHardMode = normalizeRaidMode(mode) === RAID_MODE_HARD;
+  const minionDefs = [
+    {
+      unitId: 'overtime_choi',
+      name: '야근하다 미쳐버린 최주임',
+      normalHp: 30000,
+      hardHp: 100000,
+      attackDamage: 10
+    },
+    {
+      unitId: 'overtime_jung',
+      name: '야근하다 미쳐버린 정대리',
+      normalHp: 50000,
+      hardHp: 150000,
+      attackDamage: 15
+    }
+  ];
+
+  return minionDefs.map((minion, index) => {
+    const maxHp = isHardMode ? minion.hardHp : minion.normalHp;
+    return {
+      unitId: minion.unitId,
+      name: minion.name,
+      turnOrder: index,
+      maxHp,
+      hp: maxHp,
+      shield: 0,
+      shieldTurns: 0,
+      lastHpLoss: 0,
+      lastShieldLoss: 0,
+      attackDamage: minion.attackDamage,
+      taunt: true,
+      damageReduction: 0.35,
+      defeatLogged: false
+    };
+  });
+}
+
 function getRaidLobbySummary(now = new Date(), mode = RAID_MODE_NORMAL) {
   const normalizedMode = normalizeRaidMode(mode);
   const modeConfig = getRaidModeConfig(normalizedMode);
   const boss = getRaidLobbyBoss(now, normalizedMode);
-  const maxHp = Math.round(Number(boss.maxHp || 0) * Number(modeConfig.hpMultiplier || 1));
+  const maxHp = getRaidBossMaxHpForMode(boss, normalizedMode);
   const skillsText = normalizedMode === RAID_MODE_HARD && boss.hardPassiveText
     ? [boss.hardPassiveText, ...(boss.skillsText || [])]
     : (boss.skillsText || []);
@@ -6083,6 +6175,65 @@ function getParticipantCard(participant) {
   return participant?.equippedCardId ? getCardDefinition(participant.equippedCardId, participant.equippedCardLevel || 0) : null;
 }
 
+function getRaidBossMinions(battle) {
+  return Array.isArray(battle?.bossMinions) ? battle.bossMinions : [];
+}
+
+function getAliveRaidBossMinions(battle) {
+  return getRaidBossMinions(battle).filter((minion) => Number(minion.hp || 0) > 0);
+}
+
+function getRaidTauntMinion(battle) {
+  return getAliveRaidBossMinions(battle).find((minion) => minion.taunt) || null;
+}
+
+function getRaidDeadMinionCount(battle) {
+  return getRaidBossMinions(battle).filter((minion) => Number(minion.hp || 0) <= 0).length;
+}
+
+function getRaidBossOutgoingDamageMultiplier(battle) {
+  if (battle?.bossId !== RAID_BOSS_ID_OVERTIME_MANAGER) return 1;
+  return 1 + (getRaidDeadMinionCount(battle) * 0.5);
+}
+
+function scaleRaidBossDamage(battle, damage) {
+  return Math.max(0, Math.floor(Number(damage || 0) * getRaidBossOutgoingDamageMultiplier(battle)));
+}
+
+function getRaidBossSideActors(battle) {
+  return [
+    ...getAliveRaidBossMinions(battle).map((minion) => ({ type: 'minion', unitId: minion.unitId, name: minion.name, minion })),
+    { type: 'boss', unitId: 'boss', name: (RAID_BOSS_DATA[battle?.bossId] || RAID_BOSS_DATA[RAID_BOSS_ID]).name }
+  ];
+}
+
+function getCurrentRaidBossSideActor(battle) {
+  const enemyIndex = Math.max(0, Number(battle?.turnIndex || 0) - (battle?.participants?.length || 0));
+  const actors = getRaidBossSideActors(battle);
+  return actors[enemyIndex] || actors[actors.length - 1] || { type: 'boss', unitId: 'boss', name: '보스' };
+}
+
+function buildRaidBossUnitStatusEffects(unit) {
+  const effects = [];
+  if (!unit) return effects;
+  if (Number(unit.hp || 0) > 0 && unit.taunt) {
+    effects.push({
+      type: 'buff',
+      name: '도발',
+      desc: `공격 타겟팅을 자신에게 돌리고 받는 피해가 ${Math.round(Number(unit.damageReduction || 0) * 100)}% 감소합니다.`
+    });
+  }
+  if (Number(unit.shield || 0) > 0) {
+    effects.push({
+      type: 'buff',
+      name: '보호막',
+      turns: Number(unit.shieldTurns || 0) || null,
+      desc: `남은 보호막 ${Number(unit.shield || 0).toLocaleString()}`
+    });
+  }
+  return effects;
+}
+
 function clearRoundShieldEffects(battle) {
   if (!battle?.participants?.length) return;
   battle.participants.forEach((participant) => {
@@ -6096,6 +6247,7 @@ function clearRoundShieldEffects(battle) {
 
 function grantRaidShield(target, amount, options = {}) {
   if (!target || target.hp <= 0) return 0;
+  if (Number(target.shieldBlockTurns || 0) > 0) return 0;
   const effectiveAmount = Math.max(0, Math.floor(Number(amount || 0) * getRaidRecoveryMultiplier(target)));
   if (effectiveAmount <= 0) return 0;
 
@@ -6142,6 +6294,7 @@ function cleanseRaidTarget(target) {
   target.actionLockTurns = 0;
   target.healShieldReductionTurns = 0;
   target.healShieldReductionMultiplier = 1;
+  target.shieldBlockTurns = 0;
   target.nextHitDamageTakenMultiplier = 1;
 }
 
@@ -6646,6 +6799,9 @@ function tickRaidParticipantEndOfTurn(participant, battle) {
       participant.healShieldReductionMultiplier = 1;
     }
   }
+  if (participant.shieldBlockTurns > 0) {
+    participant.shieldBlockTurns -= 1;
+  }
   if (participant.critBonusTurns > 0) {
     participant.critBonusTurns -= 1;
     if (participant.critBonusTurns <= 0) participant.critBonusValue = 0;
@@ -6798,9 +6954,46 @@ function applyHardRaidBossOnHitPassive(battle, attacker) {
   }
 }
 
+function applyRaidDamageToBossMinion(battle, minion, damage, options = {}) {
+  if (!battle || !minion || Number(minion.hp || 0) <= 0) return 0;
+  let remainingDamage = Math.max(0, Math.floor(Number(damage || 0)));
+  const reduction = Number(minion.taunt ? minion.damageReduction : 0) || 0;
+  if (reduction > 0) {
+    remainingDamage = Math.max(0, Math.floor(remainingDamage * (1 - Math.min(0.95, reduction))));
+  }
+
+  let blocked = 0;
+  if (!options.ignoreShield && Number(minion.shield || 0) > 0) {
+    blocked = Math.min(Number(minion.shield || 0), remainingDamage);
+    minion.shield = Math.max(0, Number(minion.shield || 0) - blocked);
+    remainingDamage -= blocked;
+  }
+
+  const wasAlive = Number(minion.hp || 0) > 0;
+  minion.hp = Math.max(0, Number(minion.hp || 0) - remainingDamage);
+  minion.lastShieldLoss = blocked;
+  minion.lastHpLoss = remainingDamage;
+  battle.bossLastHpLoss = 0;
+  battle.lastBossDamageTargetName = minion.name;
+
+  if (wasAlive && minion.hp <= 0 && !minion.defeatLogged) {
+    minion.defeatLogged = true;
+    minion.taunt = false;
+    minion.shield = 0;
+    minion.shieldTurns = 0;
+    battle.logs.push(`${minion.name}이(가) 쓰러졌습니다. 황과장의 야근 광기가 짙어집니다.`);
+  }
+
+  return remainingDamage;
+}
+
 function applyRaidDamageToBoss(battle, damage, options = {}) {
   const attacker = options.attacker || null;
   let incomingDamage = Math.max(0, Math.floor(Number(damage || 0)));
+  const tauntMinion = options.ignoreTaunt ? null : getRaidTauntMinion(battle);
+  if (tauntMinion) {
+    return applyRaidDamageToBossMinion(battle, tauntMinion, incomingDamage, options);
+  }
   if (attacker && isHardRaidBattle(battle) && battle.bossId === RAID_BOSS_ID_HOI && Math.random() < 0.2) {
     battle.bossLastHpLoss = 0;
     battle.logs.push(`HOI-M.S.J-50의 <나 먼저 퇴근할게>! ${attacker.displayName}의 공격을 회피했습니다.`);
@@ -6811,6 +7004,9 @@ function applyRaidDamageToBoss(battle, damage, options = {}) {
     if (stacks > 0) {
       incomingDamage = Math.max(0, Math.floor(incomingDamage * Math.pow(0.9, stacks)));
     }
+  }
+  if (Number(battle.bossDamageReductionTurns || 0) > 0) {
+    incomingDamage = Math.max(0, Math.floor(incomingDamage * (1 - Math.min(0.95, Number(battle.bossDamageReductionPercent || 0)))));
   }
   if (Number(battle.bossNegateHits || 0) > 0) {
     battle.bossNegateHits -= 1;
@@ -6826,6 +7022,7 @@ function applyRaidDamageToBoss(battle, damage, options = {}) {
   }
   battle.bossHp = Math.max(0, battle.bossHp - remainingDamage);
   battle.bossLastHpLoss = remainingDamage;
+  battle.lastBossDamageTargetName = (RAID_BOSS_DATA[battle.bossId] || RAID_BOSS_DATA[RAID_BOSS_ID]).name;
   applyHardRaidBossOnHitPassive(battle, attacker);
   return remainingDamage;
 }
@@ -6843,9 +7040,9 @@ function triggerRaidBossPoisonOnAttack(battle) {
   battle.bossPoisonDebuffs.forEach((entry) => {
     const damage = Math.max(1, Math.floor(Number(entry.damage || 0)));
     if (damage > 0) {
-      applyRaidDamageToBoss(battle, damage);
-      totalDamage += damage;
-      battle.logs.push(`${entry.displayName || '누군가'}의 중독 효과로 보스가 ${damage.toLocaleString()} 피해를 입었습니다.`);
+      const dealt = applyRaidDamageToBoss(battle, damage);
+      totalDamage += dealt;
+      battle.logs.push(`${entry.displayName || '누군가'}의 중독 효과로 ${battle.lastBossDamageTargetName || '보스'}이(가) ${dealt.toLocaleString()} 피해를 입었습니다.`);
     }
   });
   return totalDamage;
@@ -6857,6 +7054,21 @@ function tickRaidBossPoisonDebuffs(battle) {
     entry.turns = Math.max(0, Number(entry.turns || 0) - 1);
   });
   battle.bossPoisonDebuffs = battle.bossPoisonDebuffs.filter((entry) => Number(entry.turns || 0) > 0);
+}
+
+function tickRaidBossEndOfTurn(battle) {
+  tickRaidBossPoisonDebuffs(battle);
+  if (Number(battle.bossBlindTurns || 0) > 0) {
+    battle.bossBlindTurns -= 1;
+    if (battle.bossBlindTurns <= 0) battle.bossBlindMissChance = 0;
+  }
+  if (Number(battle.bossDamageReductionTurns || 0) > 0) {
+    battle.bossDamageReductionTurns -= 1;
+    if (battle.bossDamageReductionTurns <= 0) {
+      battle.bossDamageReductionPercent = 0;
+    }
+  }
+  battle.turnIndex = 0;
 }
 
 function normalizeRaidActionResult(result) {
@@ -6911,13 +7123,10 @@ function finalizeRaidSequence(battle) {
       tickRaidParticipantEndOfTurn(participant, battle);
     }
     battle.turnIndex += 1;
+  } else if (sequence.endTurnType === 'boss_minion') {
+    battle.turnIndex += 1;
   } else if (sequence.endTurnType === 'boss') {
-    tickRaidBossPoisonDebuffs(battle);
-    if (Number(battle.bossBlindTurns || 0) > 0) {
-      battle.bossBlindTurns -= 1;
-      if (battle.bossBlindTurns <= 0) battle.bossBlindMissChance = 0;
-    }
-    battle.turnIndex = 0;
+    tickRaidBossEndOfTurn(battle);
   }
 
   battle.pendingSequence = null;
@@ -6947,14 +7156,16 @@ function executeNextRaidSequenceStep(battle) {
         hitDamage = Math.floor(hitDamage * participant.damageMultiplierValue);
       }
       const dealtDamage = applyRaidDamageToBoss(battle, hitDamage, { attacker: participant, skillName: '기본 공격' });
+      const targetName = battle.lastBossDamageTargetName || '보스';
       incrementRaidOvertimeRageStacks(battle);
-      battle.logs.push(`${participant.displayName}의 기본 공격 ${step.hitIndex + 1}타! ${dealtDamage.toLocaleString()} 피해를 입혔습니다.${isCritical ? ' (치명타)' : ''}`);
+      battle.logs.push(`${participant.displayName}의 기본 공격 ${step.hitIndex + 1}타! ${targetName}에게 ${dealtDamage.toLocaleString()} 피해를 입혔습니다.${isCritical ? ' (치명타)' : ''}`);
     }
   } else if (step.type === 'player_fixed_skill_hit') {
     const participant = getRaidParticipant(battle, step.userId);
     if (participant && participant.hp > 0 && battle.bossHp > 0) {
       const dealtDamage = applyRaidDamageToBoss(battle, step.damage, { attacker: participant, skillName: step.skillName });
-      battle.logs.push(`${participant.displayName}의 ${step.skillName} ${step.hitIndex + 1}타! ${dealtDamage.toLocaleString()} 피해를 입혔습니다.`);
+      const targetName = battle.lastBossDamageTargetName || '보스';
+      battle.logs.push(`${participant.displayName}의 ${step.skillName} ${step.hitIndex + 1}타! ${targetName}에게 ${dealtDamage.toLocaleString()} 피해를 입혔습니다.`);
     }
   } else if (step.type === 'boss_random_hit') {
     const bossInfo = RAID_BOSS_DATA[battle.bossId] || RAID_BOSS_DATA[RAID_BOSS_ID];
@@ -6966,8 +7177,8 @@ function executeNextRaidSequenceStep(battle) {
     if (currentAlive.length > 0) {
       const target = pickRaidBossTarget(currentAlive);
       if (!target) return true;
-      applyRaidDamage(target, Number(step.damage || 0), { battle, source: 'boss' });
-      battle.logs.push(`${bossInfo.name}의 ${step.skillName} ${step.hitIndex + 1}타! ${target.displayName}에게 ${Number(step.damage || 0).toLocaleString()} 피해를 입혔습니다.`);
+      const dealt = applyRaidDamage(target, Number(step.damage || 0), { battle, source: 'boss' });
+      battle.logs.push(`${bossInfo.name}의 ${step.skillName} ${step.hitIndex + 1}타! ${target.displayName}에게 ${dealt.toLocaleString()} 피해를 입혔습니다.`);
     }
   } else if (step.type === 'boss_all_hit') {
     const bossInfo = RAID_BOSS_DATA[battle.bossId] || RAID_BOSS_DATA[RAID_BOSS_ID];
@@ -6976,10 +7187,11 @@ function executeNextRaidSequenceStep(battle) {
       return true;
     }
     const currentAlive = getAliveRaidParticipants(battle);
+    let totalDealt = 0;
     currentAlive.forEach((target) => {
-      applyRaidDamage(target, Number(step.damage || 0), { battle, source: 'boss' });
+      totalDealt += applyRaidDamage(target, Number(step.damage || 0), { battle, source: 'boss' });
     });
-    battle.logs.push(`${bossInfo.name}의 ${step.skillName} ${step.hitIndex + 1}타! 파티 전체가 ${Number(step.damage || 0).toLocaleString()} 피해를 받았습니다.`);
+    battle.logs.push(`${bossInfo.name}의 ${step.skillName} ${step.hitIndex + 1}타! 파티 전체가 총 ${totalDealt.toLocaleString()} 피해를 받았습니다.`);
   } else if (step.type === 'log' && step.text) {
     battle.logs.push(step.text);
   }
@@ -7130,18 +7342,159 @@ function selectRaidBossTargets(aliveParticipants, count) {
   return selected;
 }
 
-function performRaidBossAction(battle) {
-  const bossInfo = RAID_BOSS_DATA[battle.bossId] || RAID_BOSS_DATA[RAID_BOSS_ID];
-  if (battle.bossShieldTurns > 0) {
+function tickRaidBossSideShields(battle) {
+  if (!battle) return;
+  if (Number(battle.bossShieldTurns || 0) > 0) {
     battle.bossShieldTurns -= 1;
     if (battle.bossShieldTurns <= 0) {
+      const expiredShield = Number(battle.bossShield || 0);
       battle.bossShield = 0;
+      if (expiredShield > 0 && Number(battle.bossShieldExpirePartyHits || 0) > 0) {
+        const hits = Math.max(0, Number(battle.bossShieldExpirePartyHits || 0));
+        const damage = scaleRaidBossDamage(battle, Number(battle.bossShieldExpirePartyDamage || 0));
+        for (let hit = 0; hit < hits; hit += 1) {
+          getAliveRaidParticipants(battle).forEach((participant) => {
+            applyRaidDamage(participant, damage, { battle, source: 'boss' });
+          });
+          battle.logs.push(`황과장의 포괄임금 보호막이 만료되어 파티 전체가 ${damage.toLocaleString()} 피해를 받았습니다. (${hit + 1}타)`);
+        }
+      }
+      battle.bossShieldExpirePartyHits = 0;
+      battle.bossShieldExpirePartyDamage = 0;
     }
   }
+
+  getRaidBossMinions(battle).forEach((minion) => {
+    if (Number(minion.shieldTurns || 0) <= 0) return;
+    minion.shieldTurns -= 1;
+    if (minion.shieldTurns <= 0) {
+      minion.shield = 0;
+    }
+  });
+}
+
+function performRaidBossMinionAction(battle, minion) {
+  if (!battle || !minion || Number(minion.hp || 0) <= 0) {
+    return null;
+  }
+  const aliveParticipants = getAliveRaidParticipants(battle);
+  if (!aliveParticipants.length) return null;
+  const target = pickRaidBossTarget(aliveParticipants);
+  if (!target) return null;
+  const damage = Math.max(0, Math.floor(Number(minion.attackDamage || 0)));
+  const dealt = applyRaidDamage(target, damage, { battle, source: 'boss' });
+  return `${minion.name}의 기본 공격! ${target.displayName}에게 ${dealt.toLocaleString()} 피해를 입혔습니다.`;
+}
+
+function performRaidBossAction(battle) {
+  const bossInfo = RAID_BOSS_DATA[battle.bossId] || RAID_BOSS_DATA[RAID_BOSS_ID];
+  tickRaidBossSideShields(battle);
   const pattern = bossInfo.patternOrder[battle.bossPatternIndex % bossInfo.patternOrder.length];
   battle.bossPatternIndex += 1;
   const aliveParticipants = getAliveRaidParticipants(battle);
   if (aliveParticipants.length === 0) return `${bossInfo.name}이(가) 승리의 포즈를 취했습니다.`;
+
+  if (battle.bossId === RAID_BOSS_ID_OVERTIME_MANAGER) {
+    if (pattern === 'inclusive_wage') {
+      const bossShield = Math.max(0, Math.floor(Number(battle.bossHp || 0) * 0.4));
+      battle.bossShield = Number(battle.bossShield || 0) + bossShield;
+      battle.bossShieldTurns = Math.max(Number(battle.bossShieldTurns || 0), 2);
+      battle.bossShieldExpirePartyHits = 2;
+      battle.bossShieldExpirePartyDamage = 10;
+      battle.bossLastHpLoss = 0;
+
+      const minionTexts = [];
+      getAliveRaidBossMinions(battle).forEach((minion) => {
+        const minionShield = Math.max(0, Math.floor(Number(minion.hp || 0) * 0.4));
+        minion.shield = Number(minion.shield || 0) + minionShield;
+        minion.shieldTurns = Math.max(Number(minion.shieldTurns || 0), 2);
+        minion.lastHpLoss = 0;
+        minion.lastShieldLoss = 0;
+        minionTexts.push(`${minion.name} ${minionShield.toLocaleString()}`);
+      });
+      clearRoundShieldEffects(battle);
+      return `야근하다 미쳐버린 황과장의 포 괄 임 금! 황과장 ${bossShield.toLocaleString()}${minionTexts.length ? `, ${minionTexts.join(', ')}` : ''} 보호막을 얻었습니다.`;
+    }
+
+    if (pattern === 'rage_typing') {
+      const steps = [];
+      [
+        { count: 4, damage: 10 },
+        { count: 3, damage: 20 },
+        { count: 2, damage: 30 }
+      ].forEach((phase) => {
+        for (let hit = 0; hit < phase.count; hit += 1) {
+          steps.push({
+            type: 'boss_random_hit',
+            skillName: '분 노 의 타 이 핑',
+            damage: scaleRaidBossDamage(battle, phase.damage),
+            hitIndex: steps.length
+          });
+        }
+      });
+      return {
+        logs: ['야근하다 미쳐버린 황과장의 분 노 의 타 이 핑! 키보드가 불꽃처럼 두드려집니다.'],
+        steps,
+        delayUnits: Math.max(1, steps.length),
+        clearRoundShieldsAtEnd: true
+      };
+    }
+
+    if (pattern === 'no_dinner') {
+      const bossMissingHp = Math.max(0, Number(battle.bossMaxHp || 0) - Number(battle.bossHp || 0));
+      const bossHeal = Math.floor(bossMissingHp * 0.2);
+      if (bossHeal > 0) {
+        battle.bossHp = Math.min(Number(battle.bossMaxHp || 0), Number(battle.bossHp || 0) + bossHeal);
+        battle.bossLastHpLoss = 0;
+      }
+      const healTexts = bossHeal > 0 ? [`황과장 +${bossHeal.toLocaleString()}`] : [];
+      getRaidBossMinions(battle).forEach((minion) => {
+        if (Number(minion.hp || 0) <= 0) return;
+        const missingHp = Math.max(0, Number(minion.maxHp || 0) - Number(minion.hp || 0));
+        const healed = Math.floor(missingHp * 0.2);
+        if (healed > 0) {
+          minion.hp = Math.min(Number(minion.maxHp || 0), Number(minion.hp || 0) + healed);
+          minion.lastHpLoss = 0;
+          healTexts.push(`${minion.name} +${healed.toLocaleString()}`);
+        }
+      });
+      const steps = [0, 1].map((_, index) => ({
+        type: 'boss_all_hit',
+        skillName: '석 식 미 제 공',
+        damage: scaleRaidBossDamage(battle, 10),
+        hitIndex: index
+      }));
+      return {
+        logs: [`야근하다 미쳐버린 황과장의 석 식 미 제 공! ${healTexts.length ? healTexts.join(', ') : '회복할 HP가 없었습니다.'}`],
+        steps,
+        delayUnits: Math.max(1, steps.length),
+        clearRoundShieldsAtEnd: true
+      };
+    }
+
+    if (pattern === 'caffeine_doping') {
+      battle.bossDamageReductionTurns = Math.max(Number(battle.bossDamageReductionTurns || 0), 3);
+      battle.bossDamageReductionPercent = Math.max(Number(battle.bossDamageReductionPercent || 0), 0.3);
+      const appliedNames = [];
+      const resistedNames = [];
+      aliveParticipants.forEach((participant) => {
+        if (applyRaidDebuffImmunity(participant)) {
+          resistedNames.push(participant.displayName);
+          return;
+        }
+        participant.shield = 0;
+        participant.tempShieldAmount = 0;
+        participant.tempShieldTurns = 0;
+        participant.roundShieldAmount = 0;
+        participant.shieldBlockTurns = Math.max(Number(participant.shieldBlockTurns || 0), 2);
+        appliedNames.push(participant.displayName);
+      });
+      clearRoundShieldEffects(battle);
+      const appliedText = appliedNames.length ? `${appliedNames.join(', ')} 이(가) 실드 삭제 및 획득 불가 상태가 되었습니다.` : '모든 대상이 디버프를 막아냈습니다.';
+      const resistedText = resistedNames.length ? ` ${resistedNames.join(', ')} 은(는) 디버프를 막아냈습니다.` : '';
+      return `야근하다 미쳐버린 황과장의 카 페 인 도 핑! 황과장이 받는 피해 감소를 얻었습니다. ${appliedText}${resistedText}`;
+    }
+  }
 
   if (battle.bossId === RAID_BOSS_ID_HOI) {
     if (pattern === 'son_brag') {
@@ -7377,6 +7730,9 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
   const bossData = RAID_BOSS_DATA[activeBattle.bossId] || RAID_BOSS_DATA[RAID_BOSS_ID];
   const battleMode = getRaidModeFromBattle(activeBattle);
   const room = getRaidRoom(battleMode);
+  const currentEnemyActor = Number(activeBattle.turnIndex || 0) >= (activeBattle.participants?.length || 0)
+    ? getCurrentRaidBossSideActor(activeBattle)
+    : null;
   const sanitizedLogs = activeBattle.logs.slice(-8).map((line) => {
     let normalized = String(line || '');
     activeBattle.participants.forEach((participant) => {
@@ -7399,8 +7755,23 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
     bossShield: activeBattle.bossShield || 0,
     bossLastHpLoss: activeBattle.bossLastHpLoss || 0,
     bossStatusEffects: buildRaidBossStatusEffects(activeBattle),
+    bossMinions: getRaidBossMinions(activeBattle).map((minion) => ({
+      unitId: minion.unitId,
+      name: minion.name,
+      hp: Number(minion.hp || 0),
+      maxHp: Number(minion.maxHp || 0),
+      shield: Number(minion.shield || 0),
+      shieldTurns: Number(minion.shieldTurns || 0),
+      lastHpLoss: Number(minion.lastHpLoss || 0),
+      lastShieldLoss: Number(minion.lastShieldLoss || 0),
+      attackDamage: Number(minion.attackDamage || 0),
+      statusEffects: buildRaidBossUnitStatusEffects(minion)
+    })),
     phase: activeBattle.phase,
     currentTurnIndex: activeBattle.turnIndex,
+    currentEnemyUnitId: currentEnemyActor?.unitId || null,
+    currentEnemyName: currentEnemyActor?.name || null,
+    currentEnemyType: currentEnemyActor?.type || null,
     bossPatternIndex: activeBattle.bossPatternIndex,
     nextActionAt: activeBattle.nextActionAt,
     countdownEndsAt: activeBattle.countdownEndsAt || null,
@@ -7466,6 +7837,9 @@ function applyRaidBattleStartPassives(activeBattle) {
       participant.hoiRewardMultiplier = 1.5;
     });
     activeBattle.logs.push('HOI-M.S.J-50 특수 기믹으로 클리어 시 파티 전체 전리품이 1.5배가 됩니다.');
+  }
+  if (activeBattle.bossId === RAID_BOSS_ID_OVERTIME_MANAGER && getAliveRaidBossMinions(activeBattle).length) {
+    activeBattle.logs.push('황과장이 최주임과 정대리를 불러냈습니다. 하수인의 도발이 활성화됩니다.');
   }
   const sojuCards = activeBattle.participants
     .map((participant) => getParticipantCard(participant))
@@ -11253,25 +11627,33 @@ async function advanceRaidRoomState(mode = RAID_MODE_NORMAL, now = new Date()) {
         activeBattle.nextActionAt = new Date(now.getTime() + RAID_ACTION_DELAY_MS);
       }
     } else {
-      const bossResult = performRaidBossAction(activeBattle);
-      if (bossResult?.steps?.length) {
-        queueRaidSequence(activeBattle, bossResult.steps, {
-          endTurnType: 'boss',
-          clearRoundShieldsAtEnd: Boolean(bossResult.clearRoundShieldsAtEnd)
-        });
-        executeNextRaidSequenceStep(activeBattle);
-        if (activeBattle.pendingSequence?.steps?.length) {
-          activeBattle.nextActionAt = new Date(now.getTime() + RAID_ACTION_DELAY_MS);
+      const bossSideActor = getCurrentRaidBossSideActor(activeBattle);
+      if (bossSideActor.type === 'minion') {
+        appendRaidActionLogs(activeBattle, performRaidBossMinionAction(activeBattle, bossSideActor.minion));
+        activeBattle.turnIndex += 1;
+        activeBattle.nextActionAt = new Date(now.getTime() + RAID_ACTION_DELAY_MS);
+      } else {
+        const bossResult = performRaidBossAction(activeBattle);
+        if (bossResult?.steps?.length) {
+          const normalizedBossResult = normalizeRaidActionResult(bossResult);
+          normalizedBossResult.logs.forEach((line) => activeBattle.logs.push(line));
+          queueRaidSequence(activeBattle, bossResult.steps, {
+            endTurnType: 'boss',
+            clearRoundShieldsAtEnd: Boolean(bossResult.clearRoundShieldsAtEnd)
+          });
+          executeNextRaidSequenceStep(activeBattle);
+          if (activeBattle.pendingSequence?.steps?.length) {
+            activeBattle.nextActionAt = new Date(now.getTime() + RAID_ACTION_DELAY_MS);
+          } else {
+            finalizeRaidSequence(activeBattle);
+            activeBattle.nextActionAt = new Date(now.getTime() + RAID_ACTION_DELAY_MS);
+          }
         } else {
-          finalizeRaidSequence(activeBattle);
+          appendRaidActionLogs(activeBattle, bossResult);
+          clearRoundShieldEffects(activeBattle);
+          tickRaidBossEndOfTurn(activeBattle);
           activeBattle.nextActionAt = new Date(now.getTime() + RAID_ACTION_DELAY_MS);
         }
-      } else {
-        appendRaidActionLogs(activeBattle, bossResult);
-        clearRoundShieldEffects(activeBattle);
-        tickRaidBossPoisonDebuffs(activeBattle);
-        activeBattle.turnIndex = 0;
-        activeBattle.nextActionAt = new Date(now.getTime() + RAID_ACTION_DELAY_MS);
       }
     }
 
@@ -15258,8 +15640,7 @@ app.post('/api/raid/start', async (req, res) => {
     const countdownDurationMs = (RAID_COUNTDOWN_SECONDS * 1000) + RAID_COUNTDOWN_BUFFER_MS;
 
     const currentBoss = syncQueuedRaidBoss(now, normalizedMode) || getCurrentRaidBoss(now);
-    const modeConfig = getRaidModeConfig(normalizedMode);
-    const bossMaxHp = Math.round(Number(currentBoss.maxHp || 0) * Number(modeConfig.hpMultiplier || 1));
+    const bossMaxHp = getRaidBossMaxHpForMode(currentBoss, normalizedMode);
     room.activeBattle = {
       battleId: `raid-${Date.now()}`,
       mode: normalizedMode,
@@ -15270,6 +15651,11 @@ app.post('/api/raid/start', async (req, res) => {
       bossShieldTurns: 0,
       bossLastHpLoss: 0,
       bossSmoothScalpStacks: 0,
+      bossDamageReductionTurns: 0,
+      bossDamageReductionPercent: 0,
+      bossShieldExpirePartyHits: 0,
+      bossShieldExpirePartyDamage: 0,
+      bossMinions: createRaidBossMinions(currentBoss.id, normalizedMode),
       potatoRehabKillUserIds: [],
       bossOvertimeDebuffs: [],
       bossPoisonDebuffs: [],

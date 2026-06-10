@@ -300,6 +300,16 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-10-overtime-manager-raid-boss',
+    time: '2026-06-10 00:00',
+    title: '신규 회의 보스 추가',
+    items: [
+      '신규 보스 <야근하다 미쳐버린 황과장>을 추가했습니다.',
+      '황과장 전투에는 최주임, 정대리 하수인이 함께 등장하며, 하수인이 살아있는 동안 도발로 공격을 대신 받습니다.',
+      '황과장 전투 턴 순서는 플레이어 전원 행동 후 최주임, 정대리, 황과장 순서로 진행됩니다.'
+    ]
+  },
+  {
     id: '2026-06-09-new-emblems-card-targeting',
     time: '2026-06-09 17:15',
     title: '신규 휘장과 카드 공격 범위 조정',
@@ -7736,6 +7746,39 @@ function renderRaidBattle(raidState, user) {
       `)
       .join('') || '<span class="muted-text">보스 버프 / 디버프 없음</span>';
   }
+  const bossMinionList = document.getElementById('raidBossMinionList');
+  if (bossMinionList) {
+    const minions = battle.bossMinions || [];
+    bossMinionList.classList.toggle('hidden', minions.length === 0);
+    bossMinionList.innerHTML = minions.map((minion) => {
+      const hpRatio = minion.maxHp > 0 ? Math.max(0, Math.min(100, (minion.hp / minion.maxHp) * 100)) : 0;
+      const shieldRatio = minion.maxHp > 0 ? Math.max(0, Math.min(100, (Number(minion.shield || 0) / minion.maxHp) * 100)) : 0;
+      const effectBadges = (minion.statusEffects || [])
+        .map((effect) => `
+          <div class="raid-effect-badge ${effect.type === 'debuff' ? 'raid-effect-debuff' : 'raid-effect-buff'}" title="${escapeAttr(effect.desc || '')}">
+            <div class="raid-effect-name">${escapeHtml(effect.name)}${effect.turns ? ` (${formatNumber(effect.turns)}턴)` : ''}${effect.count ? ` (${formatNumber(effect.count)}회)` : ''}</div>
+          </div>
+        `)
+        .join('');
+      const lossTextParts = [];
+      if (Number(minion.lastShieldLoss || 0) > 0) lossTextParts.push(`실드 -${formatNumber(minion.lastShieldLoss || 0)}`);
+      if (Number(minion.lastHpLoss || 0) > 0) lossTextParts.push(`HP -${formatNumber(minion.lastHpLoss || 0)}`);
+      return `
+        <div class="raid-boss-minion-card ${battle.currentEnemyUnitId === minion.unitId ? 'active-turn' : ''} ${minion.hp <= 0 ? 'defeated' : ''}">
+          <div class="raid-boss-minion-header">
+            <strong>${escapeHtml(minion.name)}</strong>
+            <span>${formatNumber(minion.hp)} / ${formatNumber(minion.maxHp)}</span>
+          </div>
+          <div class="raid-mini-bar">
+            <div class="raid-mini-shield-fill" style="width:${shieldRatio}%"></div>
+            <div class="raid-mini-hp-fill" style="width:${hpRatio}%"></div>
+          </div>
+          <div class="raid-status-text">기본공격 ${formatNumber(minion.attackDamage || 0)}${lossTextParts.length ? ` · ${escapeHtml(lossTextParts.join(' / '))}` : ''}</div>
+          <div class="raid-effect-list">${effectBadges || '<span class="muted-text">상태 없음</span>'}</div>
+        </div>
+      `;
+    }).join('');
+  }
   renderSpectatorPanel('raidSpectatorPanel', 'raidSpectatorList', battle.spectators || []);
 
   const bossPortrait = document.getElementById('raidBossPortrait');
@@ -7749,7 +7792,7 @@ function renderRaidBattle(raidState, user) {
     const actingParticipant = !isBossTurn ? battle.participants?.[currentTurnIndex] : null;
     turnLabel.textContent = `현재 턴 ${formatNumber(turnNumber)}`;
     turnActor.textContent = isBossTurn
-      ? '보스 행동'
+      ? `보스측 행동${battle.currentEnemyName ? ` - ${battle.currentEnemyName}` : ''}`
       : `우리팀 행동${actingParticipant?.displayName ? ` - ${actingParticipant.displayName}` : ''}`;
     turnBanner.classList.toggle('party-turn', !isBossTurn);
     turnBanner.classList.toggle('boss-turn', isBossTurn);

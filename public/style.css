@@ -1384,6 +1384,64 @@ progress {
   z-index: 2;
 }
 
+.raid-boss-minion-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.raid-boss-minion-card {
+  border: var(--excel-border);
+  background: #fffaf0;
+  padding: 8px;
+}
+
+.raid-boss-minion-card.active-turn {
+  border: 2px solid #c62828;
+  background: #fff1f1;
+  box-shadow: 0 0 0 2px rgba(198, 40, 40, 0.12);
+}
+
+.raid-boss-minion-card.defeated {
+  opacity: 0.55;
+  background: #f3f3f3;
+}
+
+.raid-boss-minion-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  margin-bottom: 5px;
+}
+
+.raid-mini-bar {
+  position: relative;
+  height: 12px;
+  border: var(--excel-border);
+  background: #f2d4d4;
+  overflow: hidden;
+}
+
+.raid-mini-hp-fill,
+.raid-mini-shield-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+}
+
+.raid-mini-hp-fill {
+  background: linear-gradient(90deg, #7cc56b 0%, #2e7d32 100%);
+  z-index: 1;
+}
+
+.raid-mini-shield-fill {
+  background: rgba(255, 206, 61, 0.72);
+  z-index: 2;
+}
+
 .raid-battle-log {
   margin-top: 8px;
   min-height: 122px;
