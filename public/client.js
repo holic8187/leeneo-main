@@ -301,6 +301,16 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-11-raid-reward-mailbox',
+    time: '2026-06-11 00:30',
+    title: '레이드 보상 우편함 지급 안정화',
+    items: [
+      '보스 클리어 보상을 즉시 지급 대신 우편함으로 지급하도록 변경했습니다.',
+      '경험치는 클리어 당시 레벨 기준으로 확정되어, 나중에 수령해도 보상 경험치가 재계산되지 않습니다.',
+      '레이드 종료 처리 중 저장 충돌이 발생해도 같은 전투 보상 우편이 중복 없이 재시도되도록 보강했습니다.'
+    ]
+  },
+  {
     id: '2026-06-10-overtime-manager-balance-tune',
     time: '2026-06-10 00:45',
     title: '황과장 보스 스킬 밸런스 조정',

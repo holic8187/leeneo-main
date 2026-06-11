@@ -2719,7 +2719,7 @@ const GameSetting = mongoose.model('GameSetting', gameSettingSchema);
 
 const adminMailSchema = new mongoose.Schema({
   recipientId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  giftType: { type: String, enum: ['item', 'buff', 'package', 'title', 'fragment'], required: true },
+  giftType: { type: String, enum: ['item', 'buff', 'package', 'title', 'fragment', 'raidReward'], required: true },
   giftId: { type: String, required: true },
   quantity: { type: Number, default: 1 },
   title: { type: String, required: true },
@@ -5350,9 +5350,12 @@ function applySupportPackage(user, packageId) {
   return packageInfo;
 }
 
+const ADMIN_MAIL_EXPIRY_MS = 24 * 60 * 60 * 1000;
+const RAID_REWARD_MAIL_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
+
 function createAdminMailGiftPayload(giftType, giftId, quantity = 1, now = new Date()) {
   const giftQuantity = Math.max(1, Math.floor(Number(quantity) || 1));
-  const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  const expiresAt = new Date(now.getTime() + ADMIN_MAIL_EXPIRY_MS);
 
   if (giftType === 'item' || giftType === 'fragment') {
     const actualGiftItemId = getRewardVariantItemId(giftId);
@@ -5408,8 +5411,191 @@ function createAdminMailGiftPayload(giftType, giftId, quantity = 1, now = new Da
   };
 }
 
+function createRaidRewardMailPayload({ activeBattle, participant, user, sharedBaseRewards, sharedLottoOutcome, battleMode, now = new Date() }) {
+  ensureUserDefaults(user);
+  const modeConfig = getRaidModeConfig(battleMode);
+  const modeRewardMultiplier = Number(modeConfig.rewardMultiplier || 1);
+  let rewardMultiplier = modeRewardMultiplier;
+  const rewardNotes = [];
+  const derivedStats = calculateDerivedStats(user, now);
+
+  if (modeRewardMultiplier !== 1) {
+    rewardNotes.push(`${modeConfig.label} 모드 보상 ${modeRewardMultiplier.toFixed(1)}배`);
+  }
+
+  const levelRewardMultiplier = getRaidParticipantRewardMultiplierByLevel(participant.level, battleMode);
+  if (levelRewardMultiplier !== 1) {
+    rewardMultiplier *= levelRewardMultiplier;
+    rewardNotes.push(`${RAID_NORMAL_HIGH_LEVEL_REWARD_THRESHOLD}레벨 이상 노멀 참여 보정으로 기본 보상 1/3`);
+  }
+
+  if (derivedStats.raidRewardBonusPercent > 0) {
+    const emblemRewardMultiplier = 1 + derivedStats.raidRewardBonusPercent / 100;
+    rewardMultiplier *= emblemRewardMultiplier;
+    rewardNotes.push(`휘장 효과로 보스 보상 ${emblemRewardMultiplier.toFixed(2)}배`);
+  }
+
+  if (participant.sojuRewardBuff) {
+    rewardMultiplier *= Number(participant.sojuRewardMultiplier || 1);
+    rewardNotes.push(`소주각? 효과로 전리품 ${Number(participant.sojuRewardMultiplier || 1).toFixed(1)}배`);
+  }
+
+  if (participant.hoiRewardBuff) {
+    rewardMultiplier *= Number(participant.hoiRewardMultiplier || 1);
+    rewardNotes.push(`HOI 특수 기믹으로 전리품 ${Number(participant.hoiRewardMultiplier || 1).toFixed(1)}배`);
+  }
+
+  if (participant.lottoRewardBuff) {
+    if (sharedLottoOutcome === 'success') {
+      rewardMultiplier *= 3;
+      rewardNotes.push('이번엔 될거같아 성공으로 전리품 3배');
+    } else {
+      rewardMultiplier = 0;
+      rewardNotes.push('이번엔 될거같아 실패로 보상 없음');
+    }
+  }
+
+  const rewardRatio = getRaidBossRewardRatio(participant.level);
+  const expBonusMultiplier = 1 + (derivedStats.expBonusPercent + (derivedStats.branchRaidExpBonusPercent || 0) + (derivedStats.raidExpBonusPercent || 0)) / 100;
+  const expReward = Math.max(0, Math.floor(getRequiredExp(participant.level) * rewardRatio * rewardMultiplier * expBonusMultiplier));
+  const businessCards = Math.max(0, Math.round((sharedBaseRewards?.businessCards || 0) * rewardMultiplier));
+  const bacchus = Math.max(0, Math.round((sharedBaseRewards?.bacchus || 0) * rewardMultiplier));
+  const monami = Math.max(0, Math.round((sharedBaseRewards?.monami || 0) * rewardMultiplier));
+  const moneyReward = Math.max(0, Number(((sharedBaseRewards?.moneyReward || 0) * rewardMultiplier).toFixed(2)));
+  const fragments = Math.max(0, Math.round((sharedBaseRewards?.fragments || 0) * rewardMultiplier));
+  const equipmentCount = sharedBaseRewards?.equipment ? Math.max(0, Math.round(rewardMultiplier)) : 0;
+  const scrollCount = sharedBaseRewards?.scrollItemId ? Math.max(0, Math.round(rewardMultiplier)) : 0;
+  const itemRewards = [
+    { itemId: 'business_card', quantity: businessCards },
+    { itemId: 'bacchus', quantity: bacchus },
+    { itemId: 'reward_pen_monami', quantity: monami },
+    { itemId: 'equipment_fragment', quantity: fragments },
+    { itemId: sharedBaseRewards?.scrollItemId, quantity: scrollCount }
+  ].filter((entry) => entry.itemId && entry.quantity > 0);
+  const equipmentRewards = sharedBaseRewards?.equipment && equipmentCount > 0
+    ? Array.from({ length: equipmentCount }, () => cloneEquipmentEntry(sharedBaseRewards.equipment))
+    : [];
+  const potatoRehabGrowth = (activeBattle.potatoRehabKillUserIds || []).includes(participant.userId)
+    ? {
+        increment: getPotatoRehabGrowthIncrement(participant, activeBattle),
+        clearLevel: Math.max(1, Math.floor(Number(participant.level || 1)))
+      }
+    : null;
+
+  const rewardSummaryParts = [];
+  if (expReward > 0) rewardSummaryParts.push(`경험치 ${expReward.toLocaleString()}`);
+  itemRewards.forEach((entry) => {
+    rewardSummaryParts.push(`${ITEM_DATA[entry.itemId]?.name || entry.itemId} ${Number(entry.quantity).toLocaleString()}개`);
+  });
+  if (equipmentRewards.length > 0) rewardSummaryParts.push(`${buildEquipmentDisplayName(sharedBaseRewards.equipment)} ${Number(equipmentRewards.length).toLocaleString()}개`);
+  if (moneyReward > 0) rewardSummaryParts.push(`${Number(moneyReward).toLocaleString()}원`);
+  if (potatoRehabGrowth) rewardSummaryParts.push(`<감자의 재활훈련> 데미지 +${Number(potatoRehabGrowth.increment).toLocaleString()}`);
+
+  const bossName = RAID_BOSS_DATA[activeBattle.bossId]?.name || '보스';
+  const summaryText = rewardSummaryParts.length ? rewardSummaryParts.join(', ') : '획득한 보상이 없습니다.';
+  const noteText = rewardNotes.length ? `\n적용 보정: ${rewardNotes.join(', ')}` : '';
+
+  return {
+    giftType: 'raidReward',
+    giftId: `raid:${activeBattle.battleId}:${participant.userId}`,
+    quantity: 1,
+    title: `${bossName} 레이드 클리어 보상`,
+    description: `${summaryText}\n클리어 당시 Lv.${Math.max(1, Math.floor(Number(participant.level || 1)))} 기준 경험치로 확정되었습니다.${noteText}`,
+    payload: {
+      raidReward: {
+        battleId: activeBattle.battleId,
+        bossId: activeBattle.bossId,
+        bossName,
+        mode: battleMode,
+        participantLevel: Math.max(1, Math.floor(Number(participant.level || 1))),
+        expReward,
+        moneyReward,
+        items: itemRewards,
+        equipments: equipmentRewards,
+        potatoRehabGrowth,
+        notes: rewardNotes,
+        summary: summaryText
+      }
+    },
+    expiresAt: new Date(now.getTime() + RAID_REWARD_MAIL_EXPIRY_MS)
+  };
+}
+
+async function enqueueRaidRewardMail(recipientId, mailPayload) {
+  return AdminMail.findOneAndUpdate(
+    {
+      recipientId,
+      giftType: 'raidReward',
+      giftId: mailPayload.giftId
+    },
+    {
+      $setOnInsert: {
+        recipientId,
+        ...mailPayload,
+        status: 'pending',
+        createdAt: new Date()
+      }
+    },
+    {
+      upsert: true,
+      returnDocument: 'after',
+      setDefaultsOnInsert: true
+    }
+  );
+}
+
+function applyRaidRewardMailToUser(user, mail) {
+  ensureUserDefaults(user);
+  const reward = mail.payload?.raidReward || {};
+  const claimedParts = [];
+  const expReward = Math.max(0, Math.floor(Number(reward.expReward || 0)));
+  const moneyReward = Math.max(0, Number(reward.moneyReward || 0));
+
+  if (moneyReward > 0) {
+    user.gameState.money += moneyReward;
+    claimedParts.push(`${Number(moneyReward).toLocaleString()}원`);
+  }
+
+  (Array.isArray(reward.items) ? reward.items : []).forEach((entry) => {
+    const itemId = entry?.itemId;
+    const quantity = Math.max(0, Math.round(Number(entry?.quantity || 0)));
+    if (!itemId || quantity <= 0) return;
+    addItemToInventory(user, itemId, quantity);
+    claimedParts.push(`${ITEM_DATA[itemId]?.name || itemId} ${quantity.toLocaleString()}개`);
+  });
+
+  (Array.isArray(reward.equipments) ? reward.equipments : []).forEach((equipment) => {
+    if (!equipment?.equipmentType) return;
+    user.equipments.push(cloneEquipmentEntry(equipment));
+    claimedParts.push(buildEquipmentDisplayName(equipment));
+  });
+
+  if (expReward > 0) {
+    user.gameState.exp += expReward;
+    checkLevelUp(user);
+    claimedParts.push(`경험치 ${expReward.toLocaleString()}`);
+  }
+
+  if (reward.potatoRehabGrowth) {
+    const increment = Math.max(0, Math.floor(Number(reward.potatoRehabGrowth.increment || 0)));
+    if (increment > 0) {
+      const previousDamage = getPotatoRehabDamage(user);
+      user.meta.potatoRehabDamage = previousDamage + increment;
+      user.meta.potatoRehabKillCount = getPotatoRehabKillCount(user) + 1;
+      claimedParts.push(`<감자의 재활훈련> 데미지 +${increment.toLocaleString()}`);
+    }
+  }
+
+  reconcileEmblems(user);
+  return `${mail.title}을 수령했습니다. ${claimedParts.length ? claimedParts.join(', ') : '획득한 보상은 없습니다.'}`;
+}
+
 function applyAdminMailGiftToUser(user, mail) {
   ensureUserDefaults(user);
+
+  if (mail.giftType === 'raidReward') {
+    return applyRaidRewardMailToUser(user, mail);
+  }
 
   if (mail.giftType === 'item' || mail.giftType === 'fragment') {
     const itemId = mail.payload?.actualGiftItemId || getRewardVariantItemId(mail.giftId);
@@ -5510,7 +5696,8 @@ async function claimAdminMail(userId, mailId, now = new Date()) {
       user.gameState.lastActionTime = now;
       return claimMessage;
     }, {
-      conflictLabel: 'Admin mail claim conflict'
+      conflictLabel: 'Admin mail claim conflict',
+      snapshotBuilder: buildUserActionPersistenceSnapshot
     });
 
     mail.status = 'claimed';
@@ -11823,14 +12010,20 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
   for (const participant of activeBattle.participants) {
     if (rewardedParticipantIds.has(String(participant.userId))) continue;
     try {
-      await runUserMutationWithRetry(participant.userId, async (user) => {
-        applyRaidOutcomeToUser(user, participant);
-        return true;
-      }, {
-        maxRetries: 8,
-        conflictLabel: `Raid finalize conflict for ${participant.userId}`,
-        snapshotBuilder: buildUserActionPersistenceSnapshot
-      });
+      if (activeBattle.winner === 'players') {
+        const user = await User.findById(participant.userId);
+        if (!user) throw createHttpError(404, 'User not found');
+        const mailPayload = createRaidRewardMailPayload({
+          activeBattle,
+          participant,
+          user,
+          sharedBaseRewards,
+          sharedLottoOutcome,
+          battleMode,
+          now
+        });
+        await enqueueRaidRewardMail(user._id, mailPayload);
+      }
       rewardedParticipantIds.add(String(participant.userId));
       activeBattle.rewardedParticipantIds = [...rewardedParticipantIds];
     } catch (err) {
