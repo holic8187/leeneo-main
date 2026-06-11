@@ -439,6 +439,7 @@ const BRANCH_OFFICE_DIG_COST_PER_EMPLOYEE = 50000000;
 const BRANCH_OFFICE_SUCCESS_CAP = 15;
 const BRANCH_OFFICE_RARE_BONUS_RATE = 0.1;
 const BRANCH_OFFICE_BASE_EXCAVATION_MS = 15 * 60 * 1000;
+const BRANCH_AUTO_EXCAVATION_MAX_STEPS_PER_REQUEST = 4;
 const BRANCH_OFFICE_BREAKDOWN_CHANCE = 0.03;
 const BRANCH_OFFICE_BREAKDOWN_MS = 6 * 60 * 60 * 1000;
 const BRANCH_OFFICE_OVERTIME_START_HOUR = 18;
@@ -4477,6 +4478,14 @@ function buildUserSyncPersistenceSnapshot(user) {
   };
 }
 
+function buildUserActionPersistenceSnapshot(user) {
+  return {
+    ...buildUserSyncPersistenceSnapshot(user),
+    equipments: toPlainMongoValue(user.equipments),
+    equippedEquipment: toPlainMongoValue(user.equippedEquipment)
+  };
+}
+
 async function persistUserSnapshot(user, options = {}) {
   const snapshotBuilder = typeof options.snapshotBuilder === 'function'
     ? options.snapshotBuilder
@@ -4506,7 +4515,8 @@ async function runUserMutationWithRetry(userId, mutateUser, options = {}) {
   const {
     maxRetries = 5,
     conflictLabel = 'User mutation conflict',
-    afterSave = null
+    afterSave = null,
+    snapshotBuilder = buildUserPersistenceSnapshot
   } = options;
 
   let lastError = null;
@@ -4521,7 +4531,7 @@ async function runUserMutationWithRetry(userId, mutateUser, options = {}) {
     const result = await mutateUser(user, attempt);
 
     try {
-      await persistUserSnapshot(user);
+      await persistUserSnapshot(user, { snapshotBuilder });
       if (typeof afterSave === 'function') {
         return await afterSave(user, result, attempt);
       }
@@ -8135,7 +8145,13 @@ async function buildRaidStateResponse(user, now = new Date(), mode = RAID_MODE_N
     }
   } catch (err) {
     console.error('Raid state reconciliation error:', err);
-    [RAID_MODE_NORMAL, RAID_MODE_HARD].forEach((entryMode) => clearActiveRaidBattle(entryMode));
+    [RAID_MODE_NORMAL, RAID_MODE_HARD].forEach((entryMode) => {
+      const activeBattle = getRaidRoom(entryMode).activeBattle;
+      if (activeBattle?.finalizing) {
+        activeBattle.finalizing = false;
+        activeBattle.nextActionAt = new Date(now.getTime() + RAID_ACTION_DELAY_MS);
+      }
+    });
   }
 
   const normalizedMode = normalizeRaidMode(mode);
@@ -11806,37 +11822,24 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
 
   for (const participant of activeBattle.participants) {
     if (rewardedParticipantIds.has(String(participant.userId))) continue;
-    let finalized = false;
-    let lastFinalizeError = null;
-
-    for (let attempt = 0; attempt < 5 && !finalized; attempt += 1) {
-      const user = await User.findById(participant.userId);
-      if (!user) {
-        finalized = true;
-        rewardedParticipantIds.add(String(participant.userId));
-        activeBattle.rewardedParticipantIds = [...rewardedParticipantIds];
-        break;
-      }
-
-      try {
+    try {
+      await runUserMutationWithRetry(participant.userId, async (user) => {
         applyRaidOutcomeToUser(user, participant);
-        await persistUserSnapshot(user);
-        finalized = true;
+        return true;
+      }, {
+        maxRetries: 8,
+        conflictLabel: `Raid finalize conflict for ${participant.userId}`,
+        snapshotBuilder: buildUserActionPersistenceSnapshot
+      });
+      rewardedParticipantIds.add(String(participant.userId));
+      activeBattle.rewardedParticipantIds = [...rewardedParticipantIds];
+    } catch (err) {
+      if (err?.statusCode === 404) {
         rewardedParticipantIds.add(String(participant.userId));
         activeBattle.rewardedParticipantIds = [...rewardedParticipantIds];
-      } catch (err) {
-        lastFinalizeError = err;
-        if (isVersionConflictError(err) && attempt < 4) {
-          console.warn(`Raid finalize conflict for ${participant.userId}:`, err.message);
-          continue;
-        }
-        console.error(`Raid finalize error for ${participant.userId}:`, err);
-        break;
+      } else {
+        console.error(`Raid finalize failed for ${participant.userId}:`, err);
       }
-    }
-
-    if (!finalized && lastFinalizeError) {
-      console.error(`Raid finalize failed for ${participant.userId}:`, lastFinalizeError);
     }
   }
 
@@ -12018,7 +12021,16 @@ async function advanceRaidRoomState(mode = RAID_MODE_NORMAL, now = new Date()) {
   if (room.activeBattle?.winner) {
     if (room.activeBattle.finalizing || room.activeBattle.finalized) return;
     room.activeBattle.finalizing = true;
-    await finalizeRaidBattle(room.activeBattle, now);
+    try {
+      await finalizeRaidBattle(room.activeBattle, now);
+    } catch (err) {
+      console.error('Raid finalize crashed, will retry:', err);
+      if (room.activeBattle) {
+        room.activeBattle.finalizing = false;
+        room.activeBattle.nextActionAt = new Date(now.getTime() + RAID_ACTION_DELAY_MS);
+        bumpRaidVersion();
+      }
+    }
   }
 }
 
@@ -12238,6 +12250,22 @@ function getBranchMaxEmployees(source) {
   return BRANCH_OFFICE_MAX_EMPLOYEES + Math.floor(companyValue / BRANCH_OFFICE_COMPANY_VALUE_PER_EXTRA_EMPLOYEE);
 }
 
+function getBranchSalaryMoneyBonusPercent(user) {
+  const itemStats = calculateItemStats(user.inventory);
+  const emblemStats = calculateEmblemStats(user.emblems);
+  const titleEffects = getEquippedTitleDefinition(user)?.effects || {};
+  return Number((itemStats.moneyBonus + emblemStats.moneyBonus + Number(titleEffects.moneyBonus || 0)).toFixed(2));
+}
+
+function getBranchEmployeeFairDailySalaryFromBase(baseDailySalary, employee = {}) {
+  const grade = BRANCH_EMPLOYEE_GRADE_CONFIG[employee.grade] ? employee.grade : 'C';
+  const minContractSalary = Number(baseDailySalary || 0) * BRANCH_OFFICE_MIN_CONTRACT_PERCENT / 100;
+  const gradeMultiplier = BRANCH_EMPLOYEE_GRADE_SALARY_MULTIPLIER[grade] || 1;
+  const powerFactor = getBranchEmployeePowerSalaryFactor(employee);
+  const efficiency = getBranchEmployeeSalaryEfficiency(employee);
+  return Math.max(1, Math.floor(minContractSalary * gradeMultiplier * powerFactor * efficiency));
+}
+
 function normalizeBranchOffice(user) {
   if (!user.branchOffice || typeof user.branchOffice !== 'object') {
     user.branchOffice = getDefaultBranchOffice();
@@ -12248,6 +12276,8 @@ function normalizeBranchOffice(user) {
   office.foundedAt = office.foundedAt || null;
   office.companyValue = Math.max(0, Math.floor(Number(office.companyValue || 0)));
   office.storageSlots = Math.max(BRANCH_OFFICE_BASE_STORAGE_SLOTS, Math.min(BRANCH_OFFICE_MAX_STORAGE_SLOTS, Math.floor(Number(office.storageSlots || BRANCH_OFFICE_BASE_STORAGE_SLOTS))));
+  const salaryBaseStats = { moneyBonusPercent: getBranchSalaryMoneyBonusPercent(user) };
+  const fairDailyBase = getBranchEmployeeDailySalaryBase(user, new Date(), salaryBaseStats);
   office.employees = (Array.isArray(office.employees) ? office.employees : [])
     .filter((employee) => employee && employee.employeeId)
     .slice(0, Math.max(BRANCH_OFFICE_MAX_EMPLOYEES, getBranchMaxEmployees(office), Array.isArray(office.employees) ? office.employees.length : 0))
@@ -12263,7 +12293,7 @@ function normalizeBranchOffice(user) {
         contractPercent: Math.max(0, Math.min(50, Number(employee.contractPercent || 0))),
         hiredAt: employee.hiredAt || new Date()
       };
-      const fairDailySalary = getBranchEmployeeFairDailySalary(user, normalizedEmployee);
+      const fairDailySalary = getBranchEmployeeFairDailySalaryFromBase(fairDailyBase, normalizedEmployee);
       if (normalizedEmployee.dailySalary < fairDailySalary) {
         normalizedEmployee.dailySalary = fairDailySalary;
       }
@@ -12587,14 +12617,18 @@ function completeBranchExcavation(user, now = new Date(), options = {}) {
   return { completed: true, message, success, item: itemDetail, valueGain, pending: false };
 }
 
-function processBranchAutoExcavation(user, now = new Date()) {
+function processBranchAutoExcavation(user, now = new Date(), options = {}) {
   normalizeBranchOffice(user);
   const office = user.branchOffice;
   if (!office.isFounded || !office.autoExcavationEnabled) return [];
 
   const messages = [];
+  const maxSteps = Math.max(1, Math.min(
+    100,
+    Math.floor(Number(options.maxSteps || BRANCH_AUTO_EXCAVATION_MAX_STEPS_PER_REQUEST))
+  ));
   let guard = 0;
-  while (guard < 100) {
+  while (guard < maxSteps) {
     guard += 1;
     const brokenUntil = getBranchMachineBrokenUntil(user, now);
     if (brokenUntil) break;
@@ -12613,6 +12647,10 @@ function processBranchAutoExcavation(user, now = new Date()) {
     const started = startBranchExcavation(user, now, { auto: true });
     if (started.message) messages.push(started.message);
     break;
+  }
+
+  if (guard >= maxSteps) {
+    office.lastLog = '자동 발굴 정산이 많아 일부만 처리했습니다. 다음 동기화에서 이어서 처리됩니다.';
   }
 
   return messages;
@@ -13779,7 +13817,7 @@ app.post('/api/action/work', async (req, res) => {
         warning: antiCheat.warning
       };
       return response;
-    }, { conflictLabel: 'Work action conflict' });
+    }, { conflictLabel: 'Work action conflict', snapshotBuilder: buildUserActionPersistenceSnapshot });
 
     res.json(response);
   } catch (err) {
@@ -14040,7 +14078,7 @@ app.post('/api/action/adventure', async (req, res) => {
         staminaCost
       };
       return response;
-    }, { conflictLabel: 'Adventure action conflict' });
+    }, { conflictLabel: 'Adventure action conflict', snapshotBuilder: buildUserActionPersistenceSnapshot });
 
     res.json(response);
   } catch (err) {
@@ -14116,7 +14154,7 @@ app.post('/api/action/adventure/resolve', async (req, res) => {
         rewardText
       };
       return response;
-    }, { conflictLabel: 'Adventure resolve conflict' });
+    }, { conflictLabel: 'Adventure resolve conflict', snapshotBuilder: buildUserActionPersistenceSnapshot });
 
     res.json(response);
   } catch (err) {
@@ -15986,7 +16024,10 @@ app.post('/api/raid/start', async (req, res) => {
       await advanceRaidState(now);
     } catch (err) {
       console.error('Raid advance before start error:', err);
-      clearActiveRaidBattle(normalizedMode);
+      if (room.activeBattle?.finalizing) {
+        room.activeBattle.finalizing = false;
+        room.activeBattle.nextActionAt = new Date(now.getTime() + RAID_ACTION_DELAY_MS);
+      }
     }
     pruneExpiredRaidQueue(normalizedMode, now);
 
@@ -17282,7 +17323,7 @@ app.post('/api/branch-office/post-job', async (req, res) => {
       }
       user.branchOffice.lastLog = message;
       return { user: buildGameStateResponse(user, now), branchResult: { message, employee } };
-    }, { conflictLabel: 'Branch recruit conflict' });
+    }, { conflictLabel: 'Branch recruit conflict', snapshotBuilder: buildUserSyncPersistenceSnapshot });
     res.json(response);
   } catch (err) {
     console.error('Branch recruit error:', err);
