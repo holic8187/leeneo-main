@@ -272,6 +272,7 @@ let marketplaceState = { itemType: 'scroll', view: 'active', sort: 'time_desc', 
 let marketplaceRegisterState = { itemType: 'scroll', selected: null, sort: 'acquired' };
 let companyStockMarketState = { stocks: [], holdings: [], sellFeeRate: 0.03, totalMarketValue: 0, rumors: {} };
 let stockTournamentState = { stocks: [], holdings: [], leaderboard: [], advancedInfos: [], phase: 'before', isRegistered: false, canTrade: false, cash: 0, totalAssets: 0, returnPct: 0, advancedInfoRemaining: 0 };
+let interviewTournamentState = { phase: 'registering', isRegistered: false, canRegister: false, participantCount: 0, matches: [] };
 let mailboxState = { mails: [] };
 let raidBattleLogPinnedToBottom = true;
 let userMutationInFlightCount = 0;
@@ -1399,11 +1400,13 @@ function setupEventListeners() {
   bindClick('overtimeSwapSkipBtn', handleOvertimeSwapSkip);
   bindClick('pvpModeNormalBtn', () => handlePvpModeSelect('normal'));
   bindClick('pvpModeRankedBtn', () => handlePvpModeSelect('ranked'));
+  bindClick('pvpModePracticeBtn', () => handlePvpModeSelect('practice'));
   bindClick('pvpModeAugmentBtn', () => handlePvpModeSelect('augment3v3'));
   bindClick('pvpModeCloseBtn', () => hideModal('pvpModeModal'));
   bindClick('pvpAcceptBtn', () => handlePvpAccept(true));
   bindClick('pvpDeclineBtn', () => handlePvpAccept(false));
   bindClick('pvpBackBtn', handlePvpBackClick);
+  bindClick('pvpPracticeExitBtn', handlePvpPracticeExitClick);
   bindClick('pvpDraftActionBtn', handlePvpDraftAction);
   bindClick('pvpBetBtn', openPvpBetModal);
   bindClick('pvpBetCancelBtn', closePvpBetModal);
@@ -1449,10 +1452,13 @@ function setupEventListeners() {
   bindClick('stockMarketOpenBtn', openCompanyStockMarketModal);
   bindClick('stockMarketCloseBtn', closeCompanyStockMarketModal);
   bindClick('eventBtn', openEventModal);
+  bindClick('interviewTournamentBtn', openEventModal);
   bindClick('eventCloseBtn', closeEventModal);
+  bindClick('interviewTournamentRegisterBtn', handleInterviewTournamentRegister);
+  bindClick('interviewTournamentJoinMatchBtn', handleInterviewTournamentJoinMatch);
+  bindClick('interviewTournamentRefreshBtn', () => loadInterviewTournament().then(renderInterviewTournamentEventPanel).catch((err) => alert(err.message)));
   bindClick('stockTournamentRegisterBtn', handleStockTournamentRegister);
   bindClick('stockTournamentWatchBtn', openStockTournamentModal);
-  bindClick('stockTournamentEntryBtn', openStockTournamentModal);
   bindClick('stockTournamentCloseBtn', closeStockTournamentModal);
   bindClick('adminLogoutBtn', handleLogoutClick);
   bindClick('adminGiftBtn', handleAdminGift);
@@ -3203,6 +3209,125 @@ function updateStockTournamentEntryButton(user) {
   }
 }
 
+function mergeInterviewTournamentState(interviewTournament) {
+  if (!interviewTournament) return;
+  interviewTournamentState = {
+    ...interviewTournamentState,
+    ...interviewTournament,
+    matches: Array.isArray(interviewTournament.matches) ? interviewTournament.matches : [],
+    participants: Array.isArray(interviewTournament.participants) ? interviewTournament.participants : []
+  };
+}
+
+async function loadInterviewTournament() {
+  const user = getStoredUser();
+  if (!user?._id) return null;
+  const data = await getJson(API_URL + '/api/interview-tournament?userId=' + encodeURIComponent(user._id));
+  if (data.interviewTournament) mergeInterviewTournamentState(data.interviewTournament);
+  return interviewTournamentState;
+}
+
+function getInterviewTournamentPlayerName(player) {
+  return player?.displayName || '대기';
+}
+
+function renderInterviewTournamentBracket() {
+  const container = document.getElementById('interviewTournamentBracket');
+  if (!container) return;
+  const matches = interviewTournamentState.matches || [];
+  if (!matches.length) {
+    container.innerHTML = '<div class="menu-note">아직 대진표가 생성되지 않았습니다.</div>';
+    return;
+  }
+  const grouped = matches.reduce((map, match) => {
+    const key = match.isThirdPlace ? '3/4위전' : `${formatNumber(match.round || 1)}라운드`;
+    if (!map[key]) map[key] = [];
+    map[key].push(match);
+    return map;
+  }, {});
+  container.innerHTML = Object.entries(grouped).map(([roundName, roundMatches]) => `
+    <div class="event-bracket-round">
+      <strong>${escapeHtml(roundName)}</strong>
+      ${(roundMatches || []).map((match) => {
+        const readySet = new Set(match.readyUserIds || []);
+        const statusText = match.status === 'completed'
+          ? `승자: ${escapeHtml(getInterviewTournamentPlayerName(match.winner))}`
+          : match.status === 'in_progress'
+            ? '진행중'
+            : `대기중 ${formatNumber(readySet.size)}/2`;
+        return `
+          <div class="event-bracket-match ${match.status || 'waiting'}">
+            <span>${escapeHtml(getInterviewTournamentPlayerName(match.playerA))}</span>
+            <b>vs</b>
+            <span>${escapeHtml(getInterviewTournamentPlayerName(match.playerB))}</span>
+            <em>${statusText}</em>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `).join('');
+}
+
+function renderInterviewTournamentEventPanel() {
+  const status = document.getElementById('interviewTournamentEventStatus');
+  const registerBtn = document.getElementById('interviewTournamentRegisterBtn');
+  const joinBtn = document.getElementById('interviewTournamentJoinMatchBtn');
+  if (status) {
+    const deadline = getTournamentDateText(interviewTournamentState.registerDeadlineAt);
+    const currentMatch = interviewTournamentState.currentMatch;
+    const readyText = currentMatch
+      ? ` / 현재 대진 준비 ${formatNumber((interviewTournamentState.readyUserIds || []).length)}/2`
+      : '';
+    status.textContent = `${interviewTournamentState.phaseLabel || '상태 확인중'} / 참가자 ${formatNumber(interviewTournamentState.participantCount || 0)}명 / 신청 마감 ${deadline}${readyText}`;
+  }
+  if (registerBtn) {
+    registerBtn.disabled = !interviewTournamentState.canRegister;
+    registerBtn.textContent = interviewTournamentState.isRegistered ? '참가 신청 완료' : '참가 신청';
+  }
+  if (joinBtn) {
+    const canJoin = Boolean(interviewTournamentState.currentMatch && interviewTournamentState.phase === 'bracket');
+    joinBtn.disabled = !canJoin;
+    joinBtn.textContent = canJoin ? '대진 참여' : '참여 가능한 대진 없음';
+  }
+  renderInterviewTournamentBracket();
+}
+
+async function handleInterviewTournamentRegister() {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+  try {
+    const data = await postJson(API_URL + '/api/interview-tournament/register', { userId: user._id });
+    if (data.interviewTournament) mergeInterviewTournamentState(data.interviewTournament);
+    renderInterviewTournamentEventPanel();
+    alert('면담 토너먼트 참가 신청이 완료되었습니다.');
+  } catch (err) {
+    alert(err.message || '면담 토너먼트 참가 신청에 실패했습니다.');
+  }
+}
+
+async function handleInterviewTournamentJoinMatch() {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+  try {
+    const data = await postJson(API_URL + '/api/interview-tournament/join-match', { userId: user._id });
+    if (data.interviewTournament) mergeInterviewTournamentState(data.interviewTournament);
+    renderInterviewTournamentEventPanel();
+    if (data.pvp) {
+      latestPvpState = data.pvp;
+      selectedPvpMode = 'normal';
+      updatePvpButton(user, latestPvpState);
+      updatePvpMatchModal(latestPvpState);
+      if (latestPvpState.match || latestPvpState.battle) {
+        showPvpScreen();
+        renderPvpState(latestPvpState, user);
+        pollPvpState();
+      }
+    }
+  } catch (err) {
+    alert(err.message || '대진 참여에 실패했습니다.');
+  }
+}
+
 function mergeStockTournamentState(stockTournament) {
   if (!stockTournament) return;
   const market = stockTournament.stockMarket || {};
@@ -3225,13 +3350,13 @@ async function loadStockTournament() {
 
 async function openEventModal() {
   showModal('eventModal');
-  const status = document.getElementById('stockTournamentEventStatus');
-  if (status) status.textContent = '대회 정보를 불러오는 중입니다.';
+  const status = document.getElementById('interviewTournamentEventStatus');
+  if (status) status.textContent = '토너먼트 정보를 불러오는 중입니다.';
   try {
-    await loadStockTournament();
-    renderStockTournamentEventPanel();
+    await loadInterviewTournament();
+    renderInterviewTournamentEventPanel();
   } catch (err) {
-    if (status) status.textContent = err.message || '대회 정보를 불러오지 못했습니다.';
+    if (status) status.textContent = err.message || '토너먼트 정보를 불러오지 못했습니다.';
   }
 }
 
@@ -4467,11 +4592,13 @@ async function handleMailboxClaimAll() {
 
 function getPvpModeLabel(mode) {
   if (mode === 'augment3v3') return '증강 2대2';
+  if (mode === 'practice') return '연습모드';
   return mode === 'normal' ? '일반전' : '랭크';
 }
 
 function normalizePvpModeClient(mode) {
   if (mode === 'augment3v3') return 'augment3v3';
+  if (mode === 'practice') return 'practice';
   return mode === 'normal' ? 'normal' : 'ranked';
 }
 
@@ -4481,7 +4608,7 @@ function getPvpModeSummary(pvpState, mode = selectedPvpMode) {
 
 function getActivePvpModeFromState(pvpState, userId = null) {
   const modes = pvpState?.modes || {};
-  const entries = ['ranked', 'normal', 'augment3v3'].map((mode) => [mode, modes[mode]]).filter(([, summary]) => summary);
+  const entries = ['ranked', 'normal', 'practice', 'augment3v3'].map((mode) => [mode, modes[mode]]).filter(([, summary]) => summary);
   const participant = entries.find(([, summary]) => summary.isParticipant || summary.isQueued);
   if (participant) return participant[0];
   const active = entries.find(([, summary]) => summary.hasActiveSession);
@@ -4498,7 +4625,7 @@ function updatePvpModeModal(pvpState = latestPvpState) {
     if (summary.hasActiveSession) return `${getPvpModeLabel(mode)}: 진행중${summary.isParticipant ? ' / 참가중' : ' / 관전 가능'}`;
     return `${getPvpModeLabel(mode)}: 대기 가능`;
   };
-  status.textContent = `${describe('normal')} / ${describe('ranked')} / ${describe('augment3v3')}`;
+  status.textContent = `${describe('normal')} / ${describe('ranked')} / ${describe('practice')} / ${describe('augment3v3')}`;
 }
 
 function updatePvpButton(user, pvpState) {
@@ -5217,12 +5344,25 @@ function handlePvpBackClick() {
   document.getElementById('pvp-screen')?.classList.add('hidden');
   document.getElementById('game-screen')?.classList.remove('hidden');
   document.getElementById('pvpCountdownOverlay')?.classList.add('hidden');
+  document.getElementById('pvpPracticeExitBtn')?.classList.add('hidden');
   hideSpectatorPanel('pvpSpectatorPanel');
   if (pvpTurnTicker) clearInterval(pvpTurnTicker);
   if (pvpSpectatorReturnTimer) clearTimeout(pvpSpectatorReturnTimer);
   pvpTurnTicker = null;
   pvpSpectatorReturnTimer = null;
   startBgm('normal');
+}
+
+async function handlePvpPracticeExitClick() {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+  try {
+    const data = await postJson(`${API_URL}/api/pvp/cancel`, { userId: user._id, mode: 'practice' });
+    latestPvpState = data.pvp;
+  } catch (err) {
+    alert(err.message);
+  }
+  handlePvpBackClick();
 }
 
 async function fetchPvpStateForMode(mode = selectedPvpMode, options = {}) {
@@ -5264,7 +5404,7 @@ async function handlePvpModeSelect(mode) {
     return;
   }
 
-  if (Number(user.gameState?.level || 1) < 50) {
+  if (selectedPvpMode !== 'practice' && Number(user.gameState?.level || 1) < 50) {
     alert('개인면담 입장은 50레벨부터 가능합니다. 진행 중인 개인면담은 레벨과 상관없이 관전할 수 있습니다.');
     return;
   }
@@ -5274,6 +5414,13 @@ async function handlePvpModeSelect(mode) {
     latestPvpState = data.pvp;
     updatePvpButton(user, latestPvpState);
     updatePvpMatchModal(latestPvpState);
+    const shouldOpenPvpScreen = Boolean(
+      latestPvpState?.battle || (latestPvpState?.match && latestPvpState.match.phase !== 'accept')
+    );
+    if (shouldOpenPvpScreen) {
+      showPvpScreen();
+      pollPvpState();
+    }
     renderPvpState(latestPvpState, user);
   } catch (err) {
     alert(err.message);
@@ -5747,6 +5894,7 @@ function renderPvpState(pvpState, user) {
   } else {
     if (pvpTurnTicker) clearInterval(pvpTurnTicker);
     pvpTurnTicker = null;
+    document.getElementById('pvpPracticeExitBtn')?.classList.add('hidden');
     document.getElementById('pvpDraftView')?.classList.remove('hidden');
     document.getElementById('pvpBattleView')?.classList.add('hidden');
     hideSpectatorPanel('pvpSpectatorPanel');
@@ -6249,6 +6397,7 @@ function renderPvpBattle(battle, user) {
   document.getElementById('pvpDraftView')?.classList.add('hidden');
   document.getElementById('pvpBattleView')?.classList.remove('hidden');
   document.getElementById('pvpCountdownOverlay')?.classList.add('hidden');
+  document.getElementById('pvpPracticeExitBtn')?.classList.toggle('hidden', battle.mode !== 'practice');
   const { self, enemy } = getPvpPerspectivePlayers(battle.players || [], user._id);
   const current = (battle.players || []).find((player) => player.userId === battle.currentUserId);
   setText('pvpPhaseStatus', battle.phase === 'finished' ? '개인면담 종료' : `현재 턴 ${formatNumber(battle.turnNumber || 1)}`);
@@ -6371,6 +6520,13 @@ function maybeShowPvpResult(battle, user) {
     ? selfPlayer?.team === battle.winnerTeam
     : String(battle.winnerUserId) === String(user._id);
   playPvpSfx('result');
+  if (battle.mode === 'practice') {
+    alert(won ? '면담 연습이 종료되었습니다.' : '면담 연습모드에서 패배했습니다.');
+    postJson(`${API_URL}/api/pvp/cancel`, { userId: user._id, mode: 'practice' })
+      .catch((err) => console.error('Practice cleanup failed:', err))
+      .finally(() => handlePvpBackClick());
+    return;
+  }
   const ratingDelta = !isPvpAugmentMode(battle.mode) && won ? battle.ratingChange?.winnerDelta : battle.ratingChange?.loserDelta;
   const ratingText = Number.isFinite(Number(ratingDelta)) ? `\n점수 변동: ${ratingDelta > 0 ? '+' : ''}${formatNumber(ratingDelta)}점` : '';
   const modeLabel = isPvpAugmentMode(battle.mode) ? '증강 2대2 면담' : '개인면담';

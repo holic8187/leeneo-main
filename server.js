@@ -63,6 +63,9 @@ const STOCK_TOURNAMENT_END_AT = new Date('2026-06-09T15:00:00.000Z'); // 2026-06
 const STOCK_TOURNAMENT_INITIAL_CASH = 100000000;
 const STOCK_TOURNAMENT_ADVANCED_INFO_LIMIT = 2;
 const STOCK_TOURNAMENT_ADVANCED_INFO_ACCURACY = 0.9;
+const INTERVIEW_TOURNAMENT_SETTING_KEY = 'interview_tournament_1';
+const INTERVIEW_TOURNAMENT_NAME = '제 1회 면담 토너먼트';
+const INTERVIEW_TOURNAMENT_REGISTER_DEADLINE_AT = new Date('2026-06-12T00:00:00.000Z'); // 2026-06-12 09:00 KST
 const WORK_REPAIR_COUPON_DROP_CHANCE = 0.0005;
 const MARKETPLACE_TRADEABLE_ITEM_IDS = ['raid_entry_ticket', 'hagendaz', 'excavation_repair_coupon'];
 const MARKETPLACE_FEE_RATE = 0.1;
@@ -136,7 +139,7 @@ const RAID_MODE_CONFIG = {
     minLevel: RAID_HARD_MIN_LEVEL,
     maxLevel: Infinity,
     hpMultiplier: 3,
-    rewardMultiplier: 1.5
+    rewardMultiplier: 2.25
   }
 };
 const RAID_PARTY_SIZE = 5;
@@ -166,6 +169,7 @@ const PVP_DRAFT_SUBMIT_GRACE_MS = 1500;
 const PVP_BANS_PER_PLAYER = 3;
 const PVP_PICKS_PER_PLAYER = 5;
 const PVP_PICK_SEQUENCE_INDICES = [0, 1, 1, 0, 0, 1, 1, 0, 0, 1];
+const PVP_PRACTICE_PICK_SEQUENCE_INDICES = [0, 0, 0, 0, 0];
 const PVP_MAX_HP = 300;
 const PVP_AUGMENT_MAX_HP = 200;
 const PVP_RATING_BASE = 1000;
@@ -174,6 +178,7 @@ const PVP_BET_PAYOUT_MULTIPLIER = 1.3;
 const PVP_POLL_VERSION_EMPTY = 0;
 const PVP_MODE_RANKED = 'ranked';
 const PVP_MODE_NORMAL = 'normal';
+const PVP_MODE_PRACTICE = 'practice';
 const PVP_MODE_AUGMENT_3V3 = 'augment3v3';
 const PVP_AUGMENT_QUEUE_SIZE = 4;
 const PVP_AUGMENT_PICK_MS = 50 * 1000;
@@ -213,7 +218,8 @@ const INFINITE_OVERTIME_DRAFT_GRADE_WEIGHTS = [
 const INFINITE_OVERTIME_DRAFT_GRADE_ORDER = ['S', 'A', 'B', 'C'];
 const PVP_MODE_LABELS = {
   [PVP_MODE_RANKED]: '랭크',
-  [PVP_MODE_NORMAL]: '일반'
+  [PVP_MODE_NORMAL]: '일반',
+  [PVP_MODE_PRACTICE]: '연습모드'
 };
 PVP_MODE_LABELS[PVP_MODE_AUGMENT_3V3] = '증강 2대2';
 const PVP_AUGMENT_DATA = {
@@ -2404,7 +2410,8 @@ let pvpState = {
   version: PVP_POLL_VERSION_EMPTY,
   modes: {
     [PVP_MODE_RANKED]: createPvpModeState(),
-    [PVP_MODE_NORMAL]: createPvpModeState()
+    [PVP_MODE_NORMAL]: createPvpModeState(),
+    [PVP_MODE_PRACTICE]: createPvpModeState()
   }
 };
 let pvpAdvanceQueue = Promise.resolve();
@@ -3022,6 +3029,223 @@ async function buildCompanyStockMarketResponse(user, now = new Date()) {
   };
 }
 
+function createInterviewTournamentState(now = new Date()) {
+  return {
+    eventId: INTERVIEW_TOURNAMENT_SETTING_KEY,
+    name: INTERVIEW_TOURNAMENT_NAME,
+    registerDeadlineAt: INTERVIEW_TOURNAMENT_REGISTER_DEADLINE_AT,
+    participants: [],
+    matches: [],
+    bracketGeneratedAt: null,
+    championUserId: null,
+    thirdPlaceMatchId: null,
+    updatedAt: now
+  };
+}
+
+function getInterviewTournamentPhase(state, now = new Date()) {
+  if (now.getTime() < INTERVIEW_TOURNAMENT_REGISTER_DEADLINE_AT.getTime()) return 'registering';
+  if (!state?.bracketGeneratedAt) return 'pending_bracket';
+  if (state?.championUserId) {
+    const thirdPlaceMatch = state.thirdPlaceMatchId
+      ? (state.matches || []).find((match) => match.matchId === state.thirdPlaceMatchId)
+      : null;
+    if (!thirdPlaceMatch || thirdPlaceMatch.status === 'completed') return 'finished';
+  }
+  return 'bracket';
+}
+
+function getInterviewTournamentPhaseLabel(phase) {
+  if (phase === 'registering') return '참가 신청 접수중';
+  if (phase === 'pending_bracket') return '대진표 생성 대기';
+  if (phase === 'finished') return '토너먼트 종료';
+  return '대진 진행중';
+}
+
+function normalizeInterviewTournamentState(raw, now = new Date()) {
+  const state = raw && typeof raw === 'object' ? raw : createInterviewTournamentState(now);
+  state.eventId = INTERVIEW_TOURNAMENT_SETTING_KEY;
+  state.name = INTERVIEW_TOURNAMENT_NAME;
+  state.registerDeadlineAt = state.registerDeadlineAt || INTERVIEW_TOURNAMENT_REGISTER_DEADLINE_AT;
+  state.participants = Array.isArray(state.participants) ? state.participants
+    .filter((entry) => entry?.userId)
+    .map((entry) => ({
+      userId: String(entry.userId),
+      displayName: String(entry.displayName || '참가자'),
+      registeredAt: entry.registeredAt || now
+    })) : [];
+  state.matches = Array.isArray(state.matches) ? state.matches
+    .filter((entry) => entry?.matchId)
+    .map((entry) => ({
+      matchId: String(entry.matchId),
+      round: Math.max(1, Math.floor(Number(entry.round || 1))),
+      index: Math.max(0, Math.floor(Number(entry.index || 0))),
+      playerA: entry.playerA || null,
+      playerB: entry.playerB || null,
+      winner: entry.winner || null,
+      loser: entry.loser || null,
+      readyUserIds: Array.isArray(entry.readyUserIds) ? entry.readyUserIds.map(String) : [],
+      status: entry.status || 'waiting',
+      isThirdPlace: Boolean(entry.isThirdPlace),
+      createdAt: entry.createdAt || now,
+      startedAt: entry.startedAt || null,
+      completedAt: entry.completedAt || null
+    })) : [];
+  state.bracketGeneratedAt = state.bracketGeneratedAt || null;
+  state.championUserId = state.championUserId || null;
+  state.thirdPlaceMatchId = state.thirdPlaceMatchId || null;
+  state.updatedAt = state.updatedAt || now;
+  return state;
+}
+
+function shuffleInterviewTournamentParticipants(participants = []) {
+  return [...participants].sort(() => Math.random() - 0.5);
+}
+
+function createInterviewTournamentRoundMatches(players = [], round = 1, now = new Date()) {
+  const matches = [];
+  for (let index = 0; index < players.length; index += 2) {
+    const playerA = players[index] || null;
+    const playerB = players[index + 1] || null;
+    const byeWinner = playerA && !playerB ? playerA : null;
+    matches.push({
+      matchId: crypto.randomUUID(),
+      round,
+      index: matches.length,
+      playerA,
+      playerB,
+      winner: byeWinner,
+      loser: null,
+      readyUserIds: [],
+      status: byeWinner ? 'completed' : 'waiting',
+      isThirdPlace: false,
+      createdAt: now,
+      startedAt: null,
+      completedAt: byeWinner ? now : null
+    });
+  }
+  return matches;
+}
+
+function buildInterviewTournamentInitialBracket(state, now = new Date()) {
+  if (state.bracketGeneratedAt) return;
+  const participants = shuffleInterviewTournamentParticipants(state.participants);
+  state.matches = createInterviewTournamentRoundMatches(participants, 1, now);
+  state.bracketGeneratedAt = now;
+  advanceInterviewTournamentRounds(state, now);
+  state.updatedAt = now;
+}
+
+function getInterviewTournamentRoundMatches(state, round) {
+  return (state.matches || []).filter((match) => !match.isThirdPlace && Number(match.round || 0) === Number(round));
+}
+
+function getInterviewTournamentMaxRound(state) {
+  return (state.matches || [])
+    .filter((match) => !match.isThirdPlace)
+    .reduce((max, match) => Math.max(max, Number(match.round || 0)), 0);
+}
+
+function advanceInterviewTournamentRounds(state, now = new Date()) {
+  let guard = 0;
+  while (guard < 10) {
+    guard += 1;
+    const maxRound = getInterviewTournamentMaxRound(state);
+    if (!maxRound) return;
+    const matches = getInterviewTournamentRoundMatches(state, maxRound);
+    if (!matches.length || matches.some((match) => match.status !== 'completed')) return;
+    const winners = matches.map((match) => match.winner).filter(Boolean);
+    if (winners.length <= 1) {
+      state.championUserId = winners[0]?.userId || null;
+      return;
+    }
+    const nextRoundExists = getInterviewTournamentRoundMatches(state, maxRound + 1).length > 0;
+    if (nextRoundExists) return;
+    if (winners.length === 2 && matches.length === 2) {
+      state.matches.push(...createInterviewTournamentRoundMatches(winners, maxRound + 1, now));
+      const losers = matches.map((match) => match.loser).filter(Boolean);
+      if (losers.length === 2) {
+        const thirdPlaceMatch = createInterviewTournamentRoundMatches(losers, maxRound + 1, now)[0];
+        thirdPlaceMatch.isThirdPlace = true;
+        thirdPlaceMatch.matchId = crypto.randomUUID();
+        state.thirdPlaceMatchId = thirdPlaceMatch.matchId;
+        state.matches.push(thirdPlaceMatch);
+      }
+      return;
+    }
+    state.matches.push(...createInterviewTournamentRoundMatches(winners, maxRound + 1, now));
+  }
+}
+
+async function getInterviewTournamentState(now = new Date()) {
+  let setting = await GameSetting.findOne({ key: INTERVIEW_TOURNAMENT_SETTING_KEY });
+  let state = normalizeInterviewTournamentState(setting?.value, now);
+  if (!setting) {
+    setting = new GameSetting({ key: INTERVIEW_TOURNAMENT_SETTING_KEY, value: state, updatedAt: now });
+    await setting.save();
+  }
+  if (now.getTime() >= INTERVIEW_TOURNAMENT_REGISTER_DEADLINE_AT.getTime() && !state.bracketGeneratedAt) {
+    buildInterviewTournamentInitialBracket(state, now);
+    await GameSetting.updateOne(
+      { key: INTERVIEW_TOURNAMENT_SETTING_KEY },
+      { $set: { value: state, updatedAt: now } },
+      { upsert: true }
+    );
+  }
+  return state;
+}
+
+async function saveInterviewTournamentState(state, now = new Date()) {
+  state.updatedAt = now;
+  await GameSetting.updateOne(
+    { key: INTERVIEW_TOURNAMENT_SETTING_KEY },
+    { $set: { value: state, updatedAt: now } },
+    { upsert: true }
+  );
+}
+
+function buildInterviewTournamentResponse(state, userId = null, now = new Date()) {
+  const phase = getInterviewTournamentPhase(state, now);
+  const normalizedUserId = userId ? String(userId) : null;
+  const isRegistered = Boolean(normalizedUserId && state.participants.some((entry) => entry.userId === normalizedUserId));
+  const currentMatch = normalizedUserId
+    ? state.matches.find((match) => match.status === 'waiting'
+      && [match.playerA?.userId, match.playerB?.userId].includes(normalizedUserId)) || null
+    : null;
+  return {
+    eventId: INTERVIEW_TOURNAMENT_SETTING_KEY,
+    name: INTERVIEW_TOURNAMENT_NAME,
+    phase,
+    phaseLabel: getInterviewTournamentPhaseLabel(phase),
+    registerDeadlineAt: INTERVIEW_TOURNAMENT_REGISTER_DEADLINE_AT,
+    isRegistered,
+    canRegister: phase === 'registering' && !isRegistered,
+    participantCount: state.participants.length,
+    participants: state.participants,
+    matches: state.matches,
+    currentMatch,
+    readyUserIds: currentMatch?.readyUserIds || [],
+    championUserId: state.championUserId || null,
+    thirdPlaceMatchId: state.thirdPlaceMatchId || null
+  };
+}
+
+async function finalizeInterviewTournamentMatch(matchId, winnerUserId, loserUserId, now = new Date()) {
+  if (!matchId) return;
+  const state = await getInterviewTournamentState(now);
+  const match = state.matches.find((entry) => entry.matchId === String(matchId));
+  if (!match || match.status === 'completed') return;
+  const winner = [match.playerA, match.playerB].find((player) => player?.userId === String(winnerUserId));
+  const loser = [match.playerA, match.playerB].find((player) => player?.userId === String(loserUserId));
+  if (!winner) return;
+  match.winner = winner;
+  match.loser = loser || null;
+  match.status = 'completed';
+  match.completedAt = now;
+  match.readyUserIds = [];
+  advanceInterviewTournamentRounds(state, now);
+  await saveInterviewTournamentState(state, now);
+}
 
 function getStockTournamentPhase(now = new Date()) {
   const time = now.getTime();
@@ -6154,7 +6378,7 @@ function getRaidLobbySummary(now = new Date(), mode = RAID_MODE_NORMAL) {
     rewardMultiplier: modeConfig.rewardMultiplier,
     skillsText,
     rewardsText: normalizedMode === RAID_MODE_HARD
-      ? [...(boss.rewardsText || []), '하드 모드 보상: 노멀 보상의 1.5배']
+      ? [...(boss.rewardsText || []), `하드 모드 보상: 노멀 보상의 ${Number(modeConfig.rewardMultiplier || 1).toFixed(2)}배`]
       : [...(boss.rewardsText || []), '150레벨 이상 유저가 노멀 모드에 참가하면 기본 보상은 1/3로 지급됩니다.']
   };
 }
@@ -7968,6 +8192,7 @@ function bumpPvpVersion() {
 
 function normalizePvpMode(mode) {
   if (mode === PVP_MODE_AUGMENT_3V3) return PVP_MODE_AUGMENT_3V3;
+  if (mode === PVP_MODE_PRACTICE) return PVP_MODE_PRACTICE;
   return mode === PVP_MODE_NORMAL ? PVP_MODE_NORMAL : PVP_MODE_RANKED;
 }
 
@@ -7983,11 +8208,15 @@ function getPvpModeState(mode = PVP_MODE_RANKED) {
 }
 
 function getPvpModeEntries() {
-  return [PVP_MODE_RANKED, PVP_MODE_NORMAL, PVP_MODE_AUGMENT_3V3].map((mode) => [mode, getPvpModeState(mode)]);
+  return [PVP_MODE_RANKED, PVP_MODE_NORMAL, PVP_MODE_PRACTICE, PVP_MODE_AUGMENT_3V3].map((mode) => [mode, getPvpModeState(mode)]);
 }
 
 function isRankedPvpMode(mode) {
   return normalizePvpMode(mode) === PVP_MODE_RANKED;
+}
+
+function isPracticePvpMode(mode) {
+  return normalizePvpMode(mode) === PVP_MODE_PRACTICE;
 }
 
 function getPvpModeStateForMatch(match) {
@@ -8538,10 +8767,18 @@ function getPvpTurnPlayerId(match) {
   return match?.turnUserId || match?.players?.[0]?.userId || null;
 }
 
+function getPvpPickSequence(match) {
+  if (Array.isArray(match?.pickSequenceIndices) && match.pickSequenceIndices.length) {
+    return match.pickSequenceIndices;
+  }
+  return isPracticePvpMode(match?.mode) ? PVP_PRACTICE_PICK_SEQUENCE_INDICES : PVP_PICK_SEQUENCE_INDICES;
+}
+
 function getPvpPickTurnPlayerId(match) {
   const pickTurnIndex = Number(match?.pickTurnIndex || 0);
-  if (pickTurnIndex < 0 || pickTurnIndex >= PVP_PICK_SEQUENCE_INDICES.length) return null;
-  const playerIndex = PVP_PICK_SEQUENCE_INDICES[pickTurnIndex] ?? 0;
+  const sequence = getPvpPickSequence(match);
+  if (pickTurnIndex < 0 || pickTurnIndex >= sequence.length) return null;
+  const playerIndex = sequence[pickTurnIndex] ?? 0;
   return match?.players?.[playerIndex]?.userId || match?.players?.[0]?.userId || null;
 }
 
@@ -8558,7 +8795,8 @@ function advancePvpDraftTurn(match, now = new Date()) {
     let guard = 0;
     match.pickTurnIndex = Number(match.pickTurnIndex || 0) + 1;
 
-    while (match.pickTurnIndex < PVP_PICK_SEQUENCE_INDICES.length && guard <= PVP_PICK_SEQUENCE_INDICES.length) {
+    const sequence = getPvpPickSequence(match);
+    while (match.pickTurnIndex < sequence.length && guard <= sequence.length) {
       const nextUserId = getPvpPickTurnPlayerId(match);
       const alreadyFull = nextUserId && (match.picks[nextUserId] || []).length >= PVP_PICKS_PER_PLAYER;
       if (nextUserId && !match.pickDone[nextUserId] && !alreadyFull) {
@@ -8594,7 +8832,7 @@ function startPvpBattleCountdown(match, now = new Date()) {
   match.phase = 'starting';
   match.turnUserId = null;
   match.turnEndsAt = null;
-  match.pickTurnIndex = Math.max(Number(match.pickTurnIndex || 0), PVP_PICK_SEQUENCE_INDICES.length);
+  match.pickTurnIndex = Math.max(Number(match.pickTurnIndex || 0), getPvpPickSequence(match).length);
   match.startsAt = new Date(now.getTime() + PVP_START_COUNTDOWN_MS);
   match.logs.push('전투가 곧 시작됩니다.');
 }
@@ -8725,6 +8963,30 @@ function createPvpParticipantFromUser(user, match, picks) {
   };
 }
 
+function createPvpPracticeBotParticipant() {
+  return {
+    userId: 'practice_bot_jm',
+    displayName: 'JM이햄',
+    isBot: true,
+    level: 1,
+    maxHp: PVP_MAX_HP,
+    hp: PVP_MAX_HP,
+    shield: 0,
+    tempShieldAmount: 0,
+    shieldExpiresAfterUserId: null,
+    lastHpLoss: 0,
+    lastShieldLoss: 0,
+    basicAttackEquipmentBonusPercent: 0,
+    cardEffectEquipmentBonusPercent: 0,
+    plannedCardIndex: null,
+    basicAttackLockTurns: 0,
+    actionLockTurns: 0,
+    buffs: [],
+    debuffs: [],
+    cards: []
+  };
+}
+
 async function createPvpBattleFromMatch(match, now = new Date()) {
   const userIds = match.players.map((player) => player.userId);
   const users = await User.find({ _id: { $in: userIds } });
@@ -8735,6 +8997,9 @@ async function createPvpBattleFromMatch(match, now = new Date()) {
     ensureUserDefaults(user);
     return createPvpParticipantFromUser(user, match, match.picks[player.userId] || []);
   }).filter(Boolean);
+  if (isPracticePvpMode(match.mode) && players.length === 1) {
+    players.push(createPvpPracticeBotParticipant());
+  }
 
   const battle = {
     battleId: crypto.randomUUID(),
@@ -8743,14 +9008,15 @@ async function createPvpBattleFromMatch(match, now = new Date()) {
     isRanked: isRankedPvpMode(match.mode),
     phase: 'active',
     players,
-    firstUserId: match.players[0].userId,
-    currentUserId: match.players[0].userId,
+    firstUserId: players[0]?.userId || match.players[0].userId,
+    currentUserId: players[0]?.userId || match.players[0].userId,
     turnNumber: 1,
     turnEndsAt: new Date(now.getTime() + PVP_BATTLE_TURN_MS),
-    logs: ['개인면담이 시작되었습니다.'],
+    logs: [isPracticePvpMode(match.mode) ? '면담 연습모드가 시작되었습니다.' : '개인면담이 시작되었습니다.'],
     winnerUserId: null,
     loserUserId: null,
     finishedAt: null,
+    tournamentMatchId: match.tournamentMatchId || null,
     bets: { ...(match.bets || {}) }
   };
   applyPvpBattleStartPassives(battle);
@@ -10242,6 +10508,10 @@ async function settlePvpBets(battle, winnerUserId) {
 async function finalizePvpBattleOutcome(winnerUserId, loserUserId, battle) {
   if (!winnerUserId || !loserUserId || battle?.outcomeFinalized) return;
   battle.outcomeFinalized = true;
+  if (isPracticePvpMode(battle?.mode)) {
+    battle.ratingChange = null;
+    return;
+  }
   try {
     const [winnerSnapshot, loserSnapshot] = await Promise.all([
       User.findById(winnerUserId),
@@ -10251,6 +10521,9 @@ async function finalizePvpBattleOutcome(winnerUserId, loserUserId, battle) {
     ensureUserDefaults(winnerSnapshot);
     ensureUserDefaults(loserSnapshot);
     const ranked = isRankedPvpMode(battle?.mode);
+    if (battle?.tournamentMatchId) {
+      await finalizeInterviewTournamentMatch(battle.tournamentMatchId, winnerUserId, loserUserId, new Date());
+    }
 
     if (!ranked) {
       await withUserMutationLock(winnerUserId, async () => {
@@ -10672,6 +10945,15 @@ async function executePvpTurn(battle, now = new Date(), options = {}) {
   target.lastHpLoss = 0;
   target.lastShieldLoss = 0;
 
+  if (isPracticePvpMode(battle.mode) && actor.isBot) {
+    battle.logs.push('JM이햄은 참고 있습니다.');
+    battle.currentUserId = target.userId;
+    battle.turnNumber += 1;
+    battle.turnEndsAt = new Date(now.getTime() + PVP_BATTLE_TURN_MS);
+    bumpPvpVersion();
+    return;
+  }
+
   if (actor.hp <= 0) {
     battle.logs.push(`${actor.displayName}은(는) 전투불능입니다.`);
   } else {
@@ -10946,7 +11228,7 @@ function buildPvpModeSummary(mode, modeState, userId, user) {
     mode: normalizedMode,
     label: getPvpModeLabel(normalizedMode),
     isRanked: isRankedPvpMode(normalizedMode),
-    canQueue: Boolean(user && user.gameState.level >= PVP_MIN_LEVEL && !modeState.battle && !modeState.match && !isUserInAnyPvpSession(userId)),
+    canQueue: Boolean(user && (isPracticePvpMode(normalizedMode) || user.gameState.level >= PVP_MIN_LEVEL) && !modeState.battle && !modeState.match && !isUserInAnyPvpSession(userId)),
     isQueued: queued,
     queueCount: modeState.queue.length,
     hasActiveSession: Boolean(modeState.match || modeState.battle),
@@ -11088,6 +11370,70 @@ function startPvpAcceptMatch(modeState, mode, playerA, playerB, now = new Date()
     pickTurnIndex: 0,
     logs: [`${getPvpModeLabel(mode)} 개인면담 매칭이 성사되었습니다. 5초 안에 입장해주세요. 1P/2P 순서는 무작위로 배정되었습니다.`]
   };
+  bumpPvpVersion();
+}
+
+function startPvpPracticeMatch(modeState, player, now = new Date()) {
+  modeState.queue = modeState.queue.filter((entry) => entry.userId !== player.userId);
+  modeState.match = {
+    matchId: crypto.randomUUID(),
+    mode: PVP_MODE_PRACTICE,
+    modeLabel: getPvpModeLabel(PVP_MODE_PRACTICE),
+    isRanked: false,
+    phase: 'pick',
+    players: [player],
+    accepted: { [player.userId]: true },
+    acceptEndsAt: null,
+    turnUserId: player.userId,
+    turnEndsAt: new Date(now.getTime() + PVP_PICK_TURN_MS),
+    startsAt: null,
+    bans: { [player.userId]: [] },
+    picks: { [player.userId]: [] },
+    bets: {},
+    pickDone: { [player.userId]: false },
+    pickTurnIndex: 0,
+    pickSequenceIndices: [...PVP_PRACTICE_PICK_SEQUENCE_INDICES],
+    logs: ['면담 연습모드 카드 선택을 시작합니다. 밴 없이 내 카드 5장을 고르면 바로 입장합니다.']
+  };
+  bumpPvpVersion();
+}
+
+function startPvpTournamentMatch(modeState, playerA, playerB, tournamentMatchId, now = new Date()) {
+  const players = Math.random() < 0.5 ? [playerA, playerB] : [playerB, playerA];
+  const [firstPlayer, secondPlayer] = players;
+  modeState.match = {
+    matchId: crypto.randomUUID(),
+    mode: PVP_MODE_NORMAL,
+    modeLabel: getPvpModeLabel(PVP_MODE_NORMAL),
+    isRanked: false,
+    phase: 'pick',
+    players,
+    accepted: {
+      [firstPlayer.userId]: true,
+      [secondPlayer.userId]: true
+    },
+    acceptEndsAt: null,
+    turnUserId: firstPlayer.userId,
+    turnEndsAt: new Date(now.getTime() + PVP_PICK_TURN_MS),
+    startsAt: null,
+    bans: {
+      [firstPlayer.userId]: [],
+      [secondPlayer.userId]: []
+    },
+    picks: {
+      [firstPlayer.userId]: [],
+      [secondPlayer.userId]: []
+    },
+    bets: {},
+    pickDone: {
+      [firstPlayer.userId]: false,
+      [secondPlayer.userId]: false
+    },
+    pickTurnIndex: 0,
+    tournamentMatchId: String(tournamentMatchId || ''),
+    logs: ['면담 토너먼트 대진이 시작되었습니다. 밴 없이 픽부터 진행합니다.']
+  };
+  startPvpPickPhase(modeState.match, now);
   bumpPvpVersion();
 }
 
@@ -14081,6 +14427,97 @@ app.post('/api/company-stock-market/rumor', async (req, res) => {
   }
 });
 
+app.get('/api/interview-tournament', async (req, res) => {
+  const { userId } = req.query || {};
+  try {
+    const now = new Date();
+    const state = await getInterviewTournamentState(now);
+    res.json({ interviewTournament: buildInterviewTournamentResponse(state, userId, now) });
+  } catch (err) {
+    console.error('Interview tournament load error:', err);
+    res.status(500).json({ msg: '면담 토너먼트 정보를 불러오지 못했습니다.' });
+  }
+});
+
+app.post('/api/interview-tournament/register', async (req, res) => {
+  const { userId } = req.body || {};
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+  try {
+    const now = new Date();
+    const user = await User.findById(userId).select('_id username nickname');
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    const state = await getInterviewTournamentState(now);
+    if (getInterviewTournamentPhase(state, now) !== 'registering') {
+      return res.status(400).json({ msg: '현재 토너먼트 참가 신청 기간이 아닙니다.' });
+    }
+    const normalizedUserId = String(user._id);
+    if (!state.participants.some((entry) => entry.userId === normalizedUserId)) {
+      state.participants.push({
+        userId: normalizedUserId,
+        displayName: getCompactNickname(user, 18),
+        registeredAt: now
+      });
+      await saveInterviewTournamentState(state, now);
+    }
+    res.json({ interviewTournament: buildInterviewTournamentResponse(state, normalizedUserId, now) });
+  } catch (err) {
+    console.error('Interview tournament register error:', err);
+    res.status(500).json({ msg: '면담 토너먼트 참가 신청에 실패했습니다.' });
+  }
+});
+
+app.post('/api/interview-tournament/join-match', async (req, res) => {
+  const { userId } = req.body || {};
+  if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
+  try {
+    const now = new Date();
+    await advancePvpState(now);
+    const user = await User.findById(userId).select('_id username nickname gameState.level');
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    ensureUserDefaults(user);
+    const state = await getInterviewTournamentState(now);
+    const normalizedUserId = String(user._id);
+    const match = state.matches.find((entry) => entry.status === 'waiting'
+      && [entry.playerA?.userId, entry.playerB?.userId].includes(normalizedUserId));
+    if (!match) {
+      return res.status(400).json({ msg: '참여 가능한 현재 대진이 없습니다.' });
+    }
+    match.readyUserIds = Array.isArray(match.readyUserIds) ? match.readyUserIds.map(String) : [];
+    if (!match.readyUserIds.includes(normalizedUserId)) match.readyUserIds.push(normalizedUserId);
+
+    if (match.playerA?.userId && match.playerB?.userId
+      && match.readyUserIds.includes(match.playerA.userId)
+      && match.readyUserIds.includes(match.playerB.userId)) {
+      const normalState = getPvpModeState(PVP_MODE_NORMAL);
+      if (normalState.match || normalState.battle) {
+        await saveInterviewTournamentState(state, now);
+        return res.status(400).json({ msg: '현재 일반 면담이 진행 중이라 잠시 후 다시 대진 참여를 눌러주세요.' });
+      }
+      if (isUserInAnyPvpSession(match.playerA.userId) || isUserInAnyPvpSession(match.playerB.userId)) {
+        await saveInterviewTournamentState(state, now);
+        return res.status(400).json({ msg: '대진 참가자 중 이미 다른 면담에 참여 중인 유저가 있습니다.' });
+      }
+      match.status = 'in_progress';
+      match.startedAt = now;
+      startPvpTournamentMatch(
+        normalState,
+        { userId: match.playerA.userId, displayName: match.playerA.displayName },
+        { userId: match.playerB.userId, displayName: match.playerB.displayName },
+        match.matchId,
+        now
+      );
+    }
+    await saveInterviewTournamentState(state, now);
+    res.json({
+      interviewTournament: buildInterviewTournamentResponse(state, normalizedUserId, now),
+      pvp: await buildPvpStateResponse(user, now, PVP_MODE_NORMAL)
+    });
+  } catch (err) {
+    console.error('Interview tournament join error:', err);
+    res.status(500).json({ msg: '면담 토너먼트 대진 참여에 실패했습니다.' });
+  }
+});
+
 
 app.get('/api/stock-tournament', async (req, res) => {
   const { userId } = req.query;
@@ -16197,10 +16634,14 @@ app.post('/api/pvp/queue', async (req, res) => {
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
     ensureUserDefaults(user);
 
-    if (user.gameState.level < PVP_MIN_LEVEL) {
+    if (!isPracticePvpMode(pvpMode) && user.gameState.level < PVP_MIN_LEVEL) {
       return res.status(400).json({ msg: '개인면담 입장은 50레벨부터 가능합니다.' });
     }
     if (modeState.battle || modeState.match) {
+      const activePvp = modeState.battle || modeState.match;
+      if (activePvp?.players?.some((player) => player.userId === String(userId))) {
+        return res.json({ pvp: await buildPvpStateResponse(user, now, pvpMode) });
+      }
       return res.status(400).json({ msg: `이미 ${getPvpModeLabel(pvpMode)} 개인면담이 진행 중입니다. 관전으로 참여해주세요.` });
     }
     if (isUserInAnyPvpSession(userId)) {
@@ -16208,6 +16649,11 @@ app.post('/api/pvp/queue', async (req, res) => {
     }
 
     const entry = createPvpQueueEntry(user);
+    if (isPracticePvpMode(pvpMode)) {
+      startPvpPracticeMatch(modeState, entry, now);
+      return res.json({ pvp: await buildPvpStateResponse(user, now, pvpMode) });
+    }
+
     if (isAugmentPvpMode(pvpMode)) {
       modeState.queue.push(entry);
       if (modeState.queue.length >= PVP_AUGMENT_QUEUE_SIZE) {
@@ -16644,6 +17090,15 @@ app.post('/api/pvp/cancel', async (req, res) => {
     if (modeState.match?.phase === 'accept' && getPvpPlayer(modeState.match, userId)) {
       modeState.match.players.forEach((player) => removePvpQueueUser(player.userId));
       modeState.match = null;
+    }
+    if (isPracticePvpMode(pvpMode)) {
+      if (modeState.match && getPvpPlayer(modeState.match, userId)) {
+        modeState.match = null;
+      }
+      if (modeState.battle && getPvpPlayer(modeState.battle, userId)) {
+        modeState.battle = null;
+        modeState.viewers = {};
+      }
     }
     bumpPvpVersion();
     res.json({ pvp: await buildPvpStateResponse(user, new Date(), pvpMode) });
