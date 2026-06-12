@@ -301,6 +301,15 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-12-interview-tournament-spectate',
+    time: '2026-06-12 00:20',
+    title: '면담 토너먼트 관전 추가',
+    items: [
+      '면담 토너먼트 대진표에서 진행 중인 대진을 관전할 수 있는 버튼을 추가했습니다.',
+      '관전 요청은 현재 진행 중인 토너먼트 대진과 실제 면담 세션이 일치할 때만 열리도록 검증합니다.'
+    ]
+  },
+  {
     id: '2026-06-11-raid-reward-mailbox',
     time: '2026-06-11 00:30',
     title: '레이드 보상 우편함 지급 안정화',
@@ -3265,12 +3274,16 @@ function renderInterviewTournamentBracket() {
           : match.status === 'in_progress'
             ? '진행중'
             : `대기중 ${formatNumber(readySet.size)}/2`;
+        const spectateButton = match.status === 'in_progress'
+          ? `<button class="mini-btn tournament-spectate-btn" onclick="handleInterviewTournamentSpectateMatch('${escapeAttr(match.matchId)}')">관전</button>`
+          : '';
         return `
           <div class="event-bracket-match ${match.status || 'waiting'}">
             <span>${escapeHtml(getInterviewTournamentPlayerName(match.playerA))}</span>
             <b>vs</b>
             <span>${escapeHtml(getInterviewTournamentPlayerName(match.playerB))}</span>
             <em>${statusText}</em>
+            ${spectateButton}
           </div>
         `;
       }).join('')}
@@ -3335,6 +3348,30 @@ async function handleInterviewTournamentJoinMatch() {
     }
   } catch (err) {
     alert(err.message || '대진 참여에 실패했습니다.');
+  }
+}
+
+async function handleInterviewTournamentSpectateMatch(matchId) {
+  const user = getStoredUser();
+  if (!user?._id || !matchId) return handleLogoutClick();
+  try {
+    const data = await postJson(API_URL + '/api/interview-tournament/spectate-match', {
+      userId: user._id,
+      matchId
+    });
+    if (data.interviewTournament) mergeInterviewTournamentState(data.interviewTournament);
+    renderInterviewTournamentEventPanel();
+    if (data.pvp) {
+      latestPvpState = data.pvp;
+      selectedPvpMode = 'normal';
+      updatePvpButton(user, latestPvpState);
+      updatePvpMatchModal(latestPvpState);
+      showPvpScreen();
+      renderPvpState(latestPvpState, user);
+      pollPvpState();
+    }
+  } catch (err) {
+    alert(err.message || '토너먼트 관전에 실패했습니다.');
   }
 }
 

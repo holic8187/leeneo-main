@@ -14749,6 +14749,42 @@ app.post('/api/interview-tournament/join-match', async (req, res) => {
   }
 });
 
+app.post('/api/interview-tournament/spectate-match', async (req, res) => {
+  const { userId, matchId } = req.body || {};
+  if (!userId || !matchId) return res.status(400).json({ msg: '사용자 ID와 대진 정보가 필요합니다.' });
+  try {
+    const now = new Date();
+    await advancePvpState(now);
+    const user = await User.findById(userId)
+      .select('nickname username gameState.level cards enhancedCards equippedCardId equippedCardLevel meta.potatoRehabDamage meta.potatoRehabKillCount');
+    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    ensureUserDefaults(user);
+
+    const state = await getInterviewTournamentState(now);
+    const match = state.matches.find((entry) => String(entry.matchId) === String(matchId));
+    if (!match || match.status !== 'in_progress') {
+      return res.status(400).json({ msg: '현재 관전 가능한 진행 중 대진이 아닙니다.' });
+    }
+
+    const normalState = getPvpModeState(PVP_MODE_NORMAL);
+    const activePvp = normalState.battle || normalState.match;
+    if (!activePvp || String(activePvp.tournamentMatchId || '') !== String(matchId)) {
+      return res.status(400).json({ msg: '해당 토너먼트 대진의 면담이 아직 열려 있지 않습니다.' });
+    }
+
+    const isParticipant = activePvp.players?.some((player) => player.userId === String(userId));
+    if (!isParticipant) registerViewer(normalState.viewers, user, now);
+
+    res.json({
+      interviewTournament: buildInterviewTournamentResponse(state, String(user._id), now),
+      pvp: await buildPvpStateResponse(user, now, PVP_MODE_NORMAL, { poll: true })
+    });
+  } catch (err) {
+    console.error('Interview tournament spectate error:', err);
+    res.status(500).json({ msg: '면담 토너먼트 관전에 실패했습니다.' });
+  }
+});
+
 
 app.get('/api/stock-tournament', async (req, res) => {
   const { userId } = req.query;

@@ -3303,7 +3303,7 @@ progress {
 
 .event-bracket-match {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto auto;
   gap: 8px;
   align-items: center;
   margin-top: 8px;
@@ -3311,6 +3311,10 @@ progress {
   background: #f8f8f8;
   border: 1px solid #dddddd;
   font-size: 13px;
+}
+
+.event-bracket-match .tournament-spectate-btn {
+  min-width: 48px;
 }
 
 .event-bracket-match span {
