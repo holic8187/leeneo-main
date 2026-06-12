@@ -1634,15 +1634,24 @@ const RAID_BOSS_DATA = {
     id: RAID_BOSS_ID,
     name: '트름녀',
     maxHp: 60000,
+    maxHpByMode: {
+      [RAID_MODE_HARD]: 400000
+    },
     imageLabel: '트름녀',
     portrait: 'assets/bosses/burp_queen.png',
     patternOrder: ['burp', 'ice', 'smack', 'shield'],
-    hardPassiveText: '패시브. 가시갑옷: 1회 피격당할 때마다 공격자에게 5 피해를 반사합니다.',
+    hardPassiveText: '패시브. 가시갑옷: 1회 피격당할 때마다 공격자에게 5 피해를 반사합니다. 자신의 잃은 체력에 비례해 매 타격당 입는 데미지가 최대 75%까지 감소합니다.',
     skillsText: [
       '1. 트름하기: 파티 전체에게 30 피해',
       '2. 얼음씹기: 랜덤 3명에게 30 피해, 1턴 침묵',
       '3. 쩝쩝거리기: 랜덤 대상에게 20 피해씩 총 4회',
       '4. 눈 새 행동: 1턴 지속 보호막 10,000 획득'
+    ],
+    hardSkillsText: [
+      '1. 트름하기: 파티 전체에게 10 피해, 총 3회',
+      '2. 얼음씹기: 랜덤 3명에게 40 피해 + 4턴 침묵',
+      '3. 쩝쩝거리기: 랜덤 대상에게 20 피해, 총 4회',
+      '4. 눈 새 행동: 자신의 총 잃은 체력의 50% 회복, 자신에게 3턴 지속 150,000 보호막'
     ],
     rewardsText: RAID_BOSS_REWARDS_TEXT
   },
@@ -1650,10 +1659,13 @@ const RAID_BOSS_DATA = {
     id: RAID_BOSS_ID_BALD_MANAGER,
     name: '대머리 김부장',
     maxHp: 60000,
+    maxHpByMode: {
+      [RAID_MODE_HARD]: 350000
+    },
     imageLabel: '대머리 김부장',
     portrait: 'assets/bosses/bald_manager.png',
     patternOrder: ['wig_search', 'mz', 'afterparty', 'sauna'],
-    hardPassiveText: '패시브. 매끈한 두피: 1P 행동 시작부터 다음 1P 행동 시작 전까지 1회 타격당할 때마다 이후 받는 피해가 10%씩 곱연산으로 감소합니다. 다음 턴 1P 행동 시작 시 사라집니다.',
+    hardPassiveText: '패시브. 매끈한 두피: 1P 행동 시작부터 다음 1P 행동 시작 전까지, 플레이어에게 1회 타격당할 때마다 이후 받는 피해가 10%씩 곱연산 감소합니다. 다음 턴 1P 행동 시작 시 스택이 초기화됩니다. 매 자신의 턴마다 잃은 체력의 20%를 회복합니다.',
     skillsText: [
       '1. 내 가발 어디갔어?!: 랜덤 3명에게 20 피해, 2턴 동안 기본 공격/스킬 사용 불가',
       '2. 허허, 요즘 엠제트세대란..: 랜덤 4명에게 10 피해, 2턴 동안 회복량/실드 획득량 50% 감소',
@@ -1661,16 +1673,27 @@ const RAID_BOSS_DATA = {
       '4. 사우나나 갈까?: 파티 전체에게 20 피해',
       '보너스 규칙: 파티에 <김부장의 가발> 장착자가 있으면 1번 스킬이 어이쿠 가발이 여기있네..로 바뀝니다.'
     ],
+    hardSkillsText: [
+      '1. 내 가발 어디갔어?!: 랜덤 3명에게 30 피해 + 4턴 기본공격/스킬 사용 불가',
+      '1-변형. 어이쿠 가발이 여기있네..: 파티에 김부장의 가발 카드 장착자가 있으면 해당 장착자에게 20 피해 + 1턴 피해 3배 버프',
+      '2. 허허, 요즘 엠제트세대란..: 랜덤 4명에게 6 피해, 총 5회 + 4턴 회복량/보호막 획득량 70% 감소',
+      '3. 비기: 회식은 3차부터: 자신에게 4턴 지속 100,000 보호막 + 파티 전원에게 다음 피격 피해 3배 디버프',
+      '4. 사우나나 갈까?: 파티 전체에게 10 피해, 총 3회'
+    ],
     rewardsText: RAID_BOSS_REWARDS_TEXT
   },
   [RAID_BOSS_ID_HOI]: {
     id: RAID_BOSS_ID_HOI,
     name: 'HOI-M.S.J-50',
     maxHp: 60000,
+    maxHpByMode: {
+      [RAID_MODE_HARD]: 400000
+    },
     imageLabel: 'HOI-M.S.J-50',
     portrait: 'assets/bosses/hoi_msj_50.png',
     patternOrder: ['son_brag', 'son_mix', 'ass_hit', 'nail_clip', 'food_question'],
-    hardPassiveText: '패시브. 나 먼저 퇴근할게: 매 공격을 20% 확률로 회피합니다.',
+    hardPatternOrder: ['son_brag', 'ass_hit', 'nail_clip', 'food_question', 'son_mix'],
+    hardPassiveText: '패시브. 나 먼저 퇴근할게: 매 공격을 20% 확률로 회피합니다. 회피 성공시마다 총 잃은 체력의 10%를 회복합니다.',
     skillsText: [
       '1. 아들자랑 MK.1: 전원의 버프 제거, 제거된 버프 1개당 10 피해, 랜덤 2인에게 2턴 기본 공격 불가',
       '2. 아들이랑 엮기 MK.2: 자신 버프 1개당 6000 회복, 버프가 없으면 보호막 5000 획득',
@@ -1678,6 +1701,14 @@ const RAID_BOSS_DATA = {
       '4. 손 톱 깎 기: 랜덤 1인에게 1턴 뒤 40 피해, 이후 30/20 피해로 최대 2회 튕김',
       '5. 먹고 싶은거 있어?: 전원에게 20 피해, 자신에게 피격 무효 10회 버프',
       '특수 기믹: 닉네임이 호이인 파티원이 있으면 그 파티원의 피해가 1.5배로 적용되고, 클리어 시 파티 전체 전리품이 1.5배가 됩니다.'
+    ],
+    hardSkillsText: [
+      '1. 아들자랑 MK.1: 모든 플레이어의 버프 제거. 제거된 버프 1개당 20 피해. 랜덤 2명에게 5턴 기본공격 불가',
+      '2. ASS-HIT MK.3: 파티 전체에게 8 피해, 총 5회',
+      '3. 손 톱 깎 기: 랜덤 1명에게 손톱 디버프. 1턴 뒤 20 피해, 이후 다른 대상에게 30, 40으로 튕김',
+      '4. 먹고 싶은거 있어?: 파티 전체에게 10 피해 2회 + 자신에게 1회 피격 무효화 20스택',
+      '5. 아들이랑 엮기 MK.2: 보스 버프 1개당 6,000 HP 회복. 버프가 없으면 80,000 보호막',
+      '특수 기믹: 파티에 닉네임 호이 유저가 있으면 해당 유저 피해 1.5배, 클리어 시 파티 전체 보상 1.5배.'
     ],
     rewardsText: RAID_BOSS_REWARDS_TEXT
   },
@@ -3095,8 +3126,47 @@ function normalizeInterviewTournamentState(raw, now = new Date()) {
   state.bracketGeneratedAt = state.bracketGeneratedAt || null;
   state.championUserId = state.championUserId || null;
   state.thirdPlaceMatchId = state.thirdPlaceMatchId || null;
+  state.rankedModeHotfixApplied = Boolean(state.rankedModeHotfixApplied);
   state.updatedAt = state.updatedAt || now;
   return state;
+}
+
+function applyInterviewTournamentRankedModeHotfix(state, now = new Date()) {
+  if (!state || state.rankedModeHotfixApplied) return false;
+  const completedMatches = (state.matches || [])
+    .filter((match) => match.status === 'completed'
+      && match.playerA?.userId
+      && match.playerB?.userId
+      && match.winner?.userId)
+    .sort((a, b) => new Date(b.completedAt || b.startedAt || b.createdAt || 0).getTime()
+      - new Date(a.completedAt || a.startedAt || a.createdAt || 0).getTime());
+
+  const resetMatch = completedMatches[0] || null;
+  if (resetMatch) {
+    const resetRound = Number(resetMatch.round || 1);
+    const resetMatchId = String(resetMatch.matchId || '');
+    resetMatch.winner = null;
+    resetMatch.loser = null;
+    resetMatch.readyUserIds = [];
+    resetMatch.status = 'waiting';
+    resetMatch.startedAt = null;
+    resetMatch.completedAt = null;
+
+    if (!resetMatch.isThirdPlace) {
+      state.matches = (state.matches || []).filter((match) => (
+        String(match.matchId || '') === resetMatchId
+        || (match.isThirdPlace ? Number(match.round || 0) <= resetRound : Number(match.round || 0) <= resetRound)
+      ));
+      state.championUserId = null;
+      if (state.thirdPlaceMatchId && !(state.matches || []).some((match) => match.matchId === state.thirdPlaceMatchId)) {
+        state.thirdPlaceMatchId = null;
+      }
+    }
+  }
+
+  state.rankedModeHotfixApplied = true;
+  state.updatedAt = now;
+  return true;
 }
 
 function shuffleInterviewTournamentParticipants(participants = []) {
@@ -3181,12 +3251,19 @@ function advanceInterviewTournamentRounds(state, now = new Date()) {
 async function getInterviewTournamentState(now = new Date()) {
   let setting = await GameSetting.findOne({ key: INTERVIEW_TOURNAMENT_SETTING_KEY });
   let state = normalizeInterviewTournamentState(setting?.value, now);
+  let shouldSave = false;
   if (!setting) {
     setting = new GameSetting({ key: INTERVIEW_TOURNAMENT_SETTING_KEY, value: state, updatedAt: now });
     await setting.save();
   }
   if (now.getTime() >= INTERVIEW_TOURNAMENT_REGISTER_DEADLINE_AT.getTime() && !state.bracketGeneratedAt) {
     buildInterviewTournamentInitialBracket(state, now);
+    shouldSave = true;
+  }
+  if (applyInterviewTournamentRankedModeHotfix(state, now)) {
+    shouldSave = true;
+  }
+  if (shouldSave) {
     await GameSetting.updateOne(
       { key: INTERVIEW_TOURNAMENT_SETTING_KEY },
       { $set: { value: state, updatedAt: now } },
@@ -5224,7 +5301,8 @@ function createRaidParticipantFromUser(user) {
     specialDamageMultiplier: 1,
     nailBounceDelayTurns: 0,
     nailBounceDamage: 0,
-    nailBounceRemainingBounces: 0
+    nailBounceRemainingBounces: 0,
+    nailBounceDamageStep: 0
   };
 }
 
@@ -6346,7 +6424,10 @@ function buildRaidParticipantStatusEffects(participant) {
   if (Number(participant.silenceTurns || 0) > 0) effects.push({ type: 'debuff', name: '침묵', turns: Number(participant.silenceTurns || 0), desc: '스킬 사용 불가' });
   if (Number(participant.actionLockTurns || 0) > 0) effects.push({ type: 'debuff', name: '가발 찾는중..', turns: Number(participant.actionLockTurns || 0), desc: '기본 공격, 스킬 사용 불가' });
   if (Number(participant.basicAttackLockTurns || 0) > 0) effects.push({ type: 'debuff', name: '울 아들 만나봐', turns: Number(participant.basicAttackLockTurns || 0), desc: '기본 공격 불가' });
-  if (Number(participant.healShieldReductionTurns || 0) > 0) effects.push({ type: 'debuff', name: '꼰대', turns: Number(participant.healShieldReductionTurns || 0), desc: '회복량 및 실드 획득량 50% 감소' });
+  if (Number(participant.healShieldReductionTurns || 0) > 0) {
+    const reductionPercent = Math.round((1 - Number(participant.healShieldReductionMultiplier || 1)) * 100);
+    effects.push({ type: 'debuff', name: '꼰대', turns: Number(participant.healShieldReductionTurns || 0), desc: `회복량 및 실드 획득량 ${Math.max(0, reductionPercent)}% 감소` });
+  }
   if (Number(participant.shieldBlockTurns || 0) > 0) effects.push({ type: 'debuff', name: '실드 삭제 및 획득 불가', turns: Number(participant.shieldBlockTurns || 0), desc: '현재 실드가 제거되고 새 실드를 얻을 수 없습니다.' });
   if (Number(participant.nextHitDamageTakenMultiplier || 1) > 1) effects.push({ type: 'debuff', name: '4차까지?', desc: `다음 공격으로 받는 피해 x${Number(participant.nextHitDamageTakenMultiplier || 1).toFixed(1)}` });
   if (Number(participant.nailBounceDelayTurns || 0) > 0 && Number(participant.nailBounceDamage || 0) > 0) effects.push({ type: 'debuff', name: '튕겨나간 손톱', turns: Number(participant.nailBounceDelayTurns || 0), desc: `${Number(participant.nailBounceDamage || 0)} 피해 예정` });
@@ -6376,10 +6457,14 @@ function buildRaidBossStatusEffects(battle) {
   if (!battle) return effects;
   const isHardMode = getRaidModeFromBattle(battle) === RAID_MODE_HARD;
   if (isHardMode && battle.bossId === RAID_BOSS_ID) {
+    const missingRatio = Number(battle.bossMaxHp || 0) > 0
+      ? Math.max(0, Math.min(1, (Number(battle.bossMaxHp || 0) - Number(battle.bossHp || 0)) / Number(battle.bossMaxHp || 1)))
+      : 0;
+    const reductionPercent = Math.round(Math.min(0.75, missingRatio * 0.75) * 100);
     effects.push({
       type: 'buff',
       name: '가시갑옷',
-      desc: '1회 피격당할 때마다 공격자에게 5 피해를 반사합니다.'
+      desc: `1회 피격당할 때마다 공격자에게 5 피해를 반사합니다. 잃은 체력 비례 피해 감소 ${reductionPercent}%`
     });
   }
   if (isHardMode && battle.bossId === RAID_BOSS_ID_BALD_MANAGER) {
@@ -6388,14 +6473,14 @@ function buildRaidBossStatusEffects(battle) {
       type: 'buff',
       name: '매끈한 두피',
       count: stacks || null,
-      desc: `1P 행동 시작부터 다음 1P 행동 시작 전까지 피격될 때마다 이후 받는 피해가 10%씩 곱연산으로 감소합니다.${stacks > 0 ? ` 현재 피해 수령 ${Math.round(Math.pow(0.9, stacks) * 100)}%` : ''}`
+      desc: `1P 행동 시작부터 다음 1P 행동 시작 전까지 피격될 때마다 이후 받는 피해가 10%씩 곱연산으로 감소하고, 자신의 턴마다 잃은 체력의 20%를 회복합니다.${stacks > 0 ? ` 현재 피해 수령 ${Math.round(Math.pow(0.9, stacks) * 100)}%` : ''}`
     });
   }
   if (isHardMode && battle.bossId === RAID_BOSS_ID_HOI) {
     effects.push({
       type: 'buff',
       name: '나 먼저 퇴근할게',
-      desc: '매 공격을 20% 확률로 회피합니다.'
+      desc: '매 공격을 20% 확률로 회피합니다. 회피 성공 시 총 잃은 체력의 10%를 회복합니다.'
     });
   }
   if (battle.bossId === RAID_BOSS_ID_OVERTIME_MANAGER) {
@@ -6559,9 +6644,12 @@ function getRaidLobbySummary(now = new Date(), mode = RAID_MODE_NORMAL) {
   const modeConfig = getRaidModeConfig(normalizedMode);
   const boss = getRaidLobbyBoss(now, normalizedMode);
   const maxHp = getRaidBossMaxHpForMode(boss, normalizedMode);
-  const skillsText = normalizedMode === RAID_MODE_HARD && boss.hardPassiveText
-    ? [boss.hardPassiveText, ...(boss.skillsText || [])]
+  const modeSkillsText = normalizedMode === RAID_MODE_HARD && Array.isArray(boss.hardSkillsText)
+    ? boss.hardSkillsText
     : (boss.skillsText || []);
+  const skillsText = normalizedMode === RAID_MODE_HARD && boss.hardPassiveText
+    ? [boss.hardPassiveText, ...modeSkillsText]
+    : modeSkillsText;
   return {
     mode: normalizedMode,
     modeLabel: modeConfig.label,
@@ -7003,6 +7091,7 @@ function useRaidCardSkill(participant, battle) {
     participant.nailBounceDelayTurns = 0;
     participant.nailBounceDamage = 0;
     participant.nailBounceRemainingBounces = 0;
+    participant.nailBounceDamageStep = 0;
     participant.plannedTargetUserId = null;
     participant.plannedTargetUserId2 = null;
     return {
@@ -7302,14 +7391,17 @@ function tickRaidParticipantEndOfTurn(participant, battle) {
         const candidates = getAliveRaidParticipants(battle).filter((entry) => entry.userId !== participant.userId);
         if (candidates.length > 0) {
           const target = candidates[Math.floor(Math.random() * candidates.length)];
+          const damageStep = Number.isFinite(Number(participant.nailBounceDamageStep)) ? Number(participant.nailBounceDamageStep) : -10;
           target.nailBounceDelayTurns = Math.max(target.nailBounceDelayTurns, 1);
-          target.nailBounceDamage = Math.max(0, pendingDamage - 10);
+          target.nailBounceDamage = Math.max(0, pendingDamage + damageStep);
           target.nailBounceRemainingBounces = Math.max(0, Number(participant.nailBounceRemainingBounces || 0) - 1);
+          target.nailBounceDamageStep = damageStep;
           battle.logs.push(`튕겨나간 손톱이 ${target.displayName}에게 튕겨갔습니다.`);
         }
       }
       participant.nailBounceDamage = 0;
       participant.nailBounceRemainingBounces = 0;
+      participant.nailBounceDamageStep = 0;
     }
   }
   participant.extraHits = 0;
@@ -7416,14 +7508,27 @@ function applyRaidDamageToBoss(battle, damage, options = {}) {
     return applyRaidDamageToBossMinion(battle, tauntMinion, incomingDamage, options);
   }
   if (attacker && isHardRaidBattle(battle) && battle.bossId === RAID_BOSS_ID_HOI && Math.random() < 0.2) {
+    const missingHp = Math.max(0, Number(battle.bossMaxHp || 0) - Number(battle.bossHp || 0));
+    const healAmount = Math.floor(missingHp * 0.1);
+    if (healAmount > 0) {
+      battle.bossHp = Math.min(Number(battle.bossMaxHp || 0), Number(battle.bossHp || 0) + healAmount);
+    }
     battle.bossLastHpLoss = 0;
-    battle.logs.push(`HOI-M.S.J-50의 <나 먼저 퇴근할게>! ${attacker.displayName}의 공격을 회피했습니다.`);
+    battle.logs.push(`HOI-M.S.J-50의 <나 먼저 퇴근할게>! ${attacker.displayName}의 공격을 회피하고 ${healAmount.toLocaleString()} HP를 회복했습니다.`);
     return 0;
   }
   if (attacker && isHardRaidBattle(battle) && battle.bossId === RAID_BOSS_ID_BALD_MANAGER) {
     const stacks = Math.max(0, Number(battle.bossSmoothScalpStacks || 0));
     if (stacks > 0) {
       incomingDamage = Math.max(0, Math.floor(incomingDamage * Math.pow(0.9, stacks)));
+    }
+  }
+  if (attacker && isHardRaidBattle(battle) && battle.bossId === RAID_BOSS_ID) {
+    const maxHp = Math.max(1, Number(battle.bossMaxHp || 1));
+    const missingRatio = Math.max(0, Math.min(1, (maxHp - Number(battle.bossHp || 0)) / maxHp));
+    const reduction = Math.min(0.75, missingRatio * 0.75);
+    if (reduction > 0) {
+      incomingDamage = Math.max(0, Math.floor(incomingDamage * (1 - reduction)));
     }
   }
   if (Number(battle.bossDamageReductionTurns || 0) > 0) {
@@ -7613,6 +7718,12 @@ function executeNextRaidSequenceStep(battle) {
       totalDealt += applyRaidDamage(target, Number(step.damage || 0), { battle, source: 'boss' });
     });
     battle.logs.push(`${bossInfo.name}의 ${step.skillName} ${step.hitIndex + 1}타! 파티 전체가 총 ${totalDealt.toLocaleString()} 피해를 받았습니다.`);
+  } else if (step.type === 'boss_add_negate_hits') {
+    const addCount = Math.max(0, Math.floor(Number(step.count || 0)));
+    if (addCount > 0) {
+      battle.bossNegateHits = Number(battle.bossNegateHits || 0) + addCount;
+      battle.logs.push(step.text || `${(RAID_BOSS_DATA[battle.bossId] || RAID_BOSS_DATA[RAID_BOSS_ID]).name}이(가) 피격 무효 ${addCount.toLocaleString()}회를 얻었습니다.`);
+    }
   } else if (step.type === 'log' && step.text) {
     battle.logs.push(step.text);
   }
@@ -7810,10 +7921,23 @@ function performRaidBossMinionAction(battle, minion) {
 function performRaidBossAction(battle) {
   const bossInfo = RAID_BOSS_DATA[battle.bossId] || RAID_BOSS_DATA[RAID_BOSS_ID];
   tickRaidBossSideShields(battle);
-  const pattern = bossInfo.patternOrder[battle.bossPatternIndex % bossInfo.patternOrder.length];
+  const patternOrder = isHardRaidBattle(battle) && Array.isArray(bossInfo.hardPatternOrder) && bossInfo.hardPatternOrder.length
+    ? bossInfo.hardPatternOrder
+    : bossInfo.patternOrder;
+  const pattern = patternOrder[battle.bossPatternIndex % patternOrder.length];
   battle.bossPatternIndex += 1;
   const aliveParticipants = getAliveRaidParticipants(battle);
   if (aliveParticipants.length === 0) return `${bossInfo.name}이(가) 승리의 포즈를 취했습니다.`;
+
+  if (isHardRaidBattle(battle) && battle.bossId === RAID_BOSS_ID_BALD_MANAGER) {
+    const missingHp = Math.max(0, Number(battle.bossMaxHp || 0) - Number(battle.bossHp || 0));
+    const healAmount = Math.floor(missingHp * 0.2);
+    if (healAmount > 0) {
+      battle.bossHp = Math.min(Number(battle.bossMaxHp || 0), Number(battle.bossHp || 0) + healAmount);
+      battle.bossLastHpLoss = 0;
+      battle.logs.push(`대머리 김부장의 <매끈한 두피>! 자신의 턴을 맞아 ${healAmount.toLocaleString()} HP를 회복했습니다.`);
+    }
+  }
 
   if (battle.bossId === RAID_BOSS_ID_OVERTIME_MANAGER) {
     if (pattern === 'inclusive_wage') {
@@ -7920,13 +8044,14 @@ function performRaidBossAction(battle) {
 
   if (battle.bossId === RAID_BOSS_ID_HOI) {
     if (pattern === 'son_brag') {
+      const isHardMode = isHardRaidBattle(battle);
       const targets = selectRaidBossTargets(aliveParticipants, 2);
       const affectedNames = [];
       const resistedNames = [];
       aliveParticipants.forEach((participant) => {
         const removedBuffCount = buildRaidParticipantStatusEffects(participant).filter((effect) => effect.type === 'buff').length;
         if (removedBuffCount > 0) {
-          applyRaidDamage(participant, removedBuffCount * 10, { battle, source: 'boss', allowCounter: false });
+          applyRaidDamage(participant, removedBuffCount * (isHardMode ? 20 : 10), { battle, source: 'boss', allowCounter: false });
         }
         participant.critBonusTurns = 0;
         participant.critBonusValue = 0;
@@ -7951,7 +8076,7 @@ function performRaidBossAction(battle) {
         if (applyRaidDebuffImmunity(participant)) {
           resistedNames.push(participant.displayName);
         } else {
-          participant.basicAttackLockTurns = Math.max(participant.basicAttackLockTurns, 2);
+          participant.basicAttackLockTurns = Math.max(participant.basicAttackLockTurns, isHardMode ? 5 : 2);
           affectedNames.push(participant.displayName);
         }
       });
@@ -7967,19 +8092,22 @@ function performRaidBossAction(battle) {
         battle.bossLastHpLoss = 0;
         return `HOI-M.S.J-50의 아들이랑 엮기 MK.2! 보유 버프 ${bossBuffCount}개로 HP를 ${healAmount.toLocaleString()} 회복했습니다.`;
       }
-      battle.bossShield = Number(battle.bossShield || 0) + 5000;
+      const shieldAmount = isHardRaidBattle(battle) ? 80000 : 5000;
+      battle.bossShield = Number(battle.bossShield || 0) + shieldAmount;
       battle.bossShieldTurns = Math.max(Number(battle.bossShieldTurns || 0), 1);
       battle.bossLastHpLoss = 0;
-      return 'HOI-M.S.J-50의 아들이랑 엮기 MK.2! 버프가 없어 보호막 5000을 얻었습니다.';
+      return `HOI-M.S.J-50의 아들이랑 엮기 MK.2! 버프가 없어 보호막 ${shieldAmount.toLocaleString()}을 얻었습니다.`;
     }
 
     if (pattern === 'ass_hit') {
       const steps = [];
-      for (let count = 0; count < 3; count += 1) {
+      const hitCount = isHardRaidBattle(battle) ? 5 : 3;
+      const hitDamage = isHardRaidBattle(battle) ? 8 : 10;
+      for (let count = 0; count < hitCount; count += 1) {
         steps.push({
           type: 'boss_all_hit',
           skillName: 'ASS-HIT MK.3',
-          damage: 10,
+          damage: hitDamage,
           hitIndex: count
         });
       }
@@ -7994,14 +8122,35 @@ function performRaidBossAction(battle) {
       const target = pickRaidBossTarget(aliveParticipants);
       if (target && !applyRaidDebuffImmunity(target)) {
         target.nailBounceDelayTurns = Math.max(target.nailBounceDelayTurns, 1);
-        target.nailBounceDamage = Math.max(target.nailBounceDamage, 40);
+        target.nailBounceDamage = Math.max(target.nailBounceDamage, isHardRaidBattle(battle) ? 20 : 40);
         target.nailBounceRemainingBounces = Math.max(target.nailBounceRemainingBounces, 2);
+        target.nailBounceDamageStep = isHardRaidBattle(battle) ? 10 : -10;
         return `HOI-M.S.J-50의 손 톱 깎 기! ${target.displayName}에게 튕겨나간 손톱 디버프를 부여했습니다.`;
       }
       return `HOI-M.S.J-50의 손 톱 깎 기! ${target.displayName}은(는) 디버프를 막아냈습니다.`;
     }
 
     if (pattern === 'food_question') {
+      const isHardMode = isHardRaidBattle(battle);
+      if (isHardMode) {
+        const steps = [0, 1].map((_, index) => ({
+          type: 'boss_all_hit',
+          skillName: '먹고 싶은거 있어?',
+          damage: 10,
+          hitIndex: index
+        }));
+        steps.push({
+          type: 'boss_add_negate_hits',
+          count: 20,
+          text: 'HOI-M.S.J-50이 <난 그건 싫은데?> 피격 무효 20회를 얻었습니다.'
+        });
+        return {
+          logs: ['HOI-M.S.J-50의 먹고 싶은거 있어?! 파티 전체에게 10 피해를 2회 줍니다.'],
+          steps,
+          delayUnits: Math.max(1, steps.length),
+          clearRoundShieldsAtEnd: true
+        };
+      }
       aliveParticipants.forEach((participant) => {
         applyRaidDamage(participant, 20, { battle, source: 'boss' });
       });
@@ -8012,13 +8161,14 @@ function performRaidBossAction(battle) {
   }
 
   if (battle.bossId === RAID_BOSS_ID_BALD_MANAGER) {
+    const isHardMode = isHardRaidBattle(battle);
     if (pattern === 'wig_search') {
       const wigTargets = aliveParticipants.filter((participant) => participant.equippedCardId === 'wig');
       if (wigTargets.length > 0) {
         const target = wigTargets[Math.floor(Math.random() * wigTargets.length)];
         applyRaidDamage(target, 20, { battle, source: 'boss' });
         target.damageMultiplierTurns = Math.max(target.damageMultiplierTurns, 1);
-        target.damageMultiplierValue = Math.max(Number(target.damageMultiplierValue || 1), 2.5);
+        target.damageMultiplierValue = Math.max(Number(target.damageMultiplierValue || 1), isHardMode ? 3 : 2.5);
         clearRoundShieldEffects(battle);
         return `대머리 김부장의 어이쿠 가발이 여기있네..! ${target.displayName}에게 20 피해를 입히고 <수고했네> 버프를 부여했습니다.`;
       }
@@ -8027,18 +8177,18 @@ function performRaidBossAction(battle) {
       const lockedNames = [];
       const resistedNames = [];
       targets.forEach((participant) => {
-        applyRaidDamage(participant, 20, { battle, source: 'boss' });
+        applyRaidDamage(participant, isHardMode ? 30 : 20, { battle, source: 'boss' });
         if (applyRaidDebuffImmunity(participant)) {
           resistedNames.push(participant.displayName);
         } else {
-          participant.actionLockTurns = Math.max(participant.actionLockTurns, 2);
+          participant.actionLockTurns = Math.max(participant.actionLockTurns, isHardMode ? 4 : 2);
           lockedNames.push(participant.displayName);
         }
       });
-      const lockedText = lockedNames.length ? `${lockedNames.join(', ')} 이(가) 2턴 동안 가발 찾는중.. 상태에 빠졌습니다.` : '모든 대상이 디버프를 막아냈습니다.';
+      const lockedText = lockedNames.length ? `${lockedNames.join(', ')} 이(가) ${isHardMode ? 4 : 2}턴 동안 가발 찾는중.. 상태에 빠졌습니다.` : '모든 대상이 디버프를 막아냈습니다.';
       const resistedText = resistedNames.length ? ` ${resistedNames.join(', ')} 은(는) 디버프를 막아냈습니다.` : '';
       clearRoundShieldEffects(battle);
-      return `대머리 김부장의 내 가발 어디갔어?! 대상 3명이 20 피해를 받았습니다. ${lockedText}${resistedText}`;
+      return `대머리 김부장의 내 가발 어디갔어?! 대상 3명이 ${isHardMode ? 30 : 20} 피해를 받았습니다. ${lockedText}${resistedText}`;
     }
 
     if (pattern === 'mz') {
@@ -8046,24 +8196,30 @@ function performRaidBossAction(battle) {
       const debuffedNames = [];
       const resistedNames = [];
       targets.forEach((participant) => {
-        applyRaidDamage(participant, 10, { battle, source: 'boss' });
+        const hitCount = isHardMode ? 5 : 1;
+        const hitDamage = isHardMode ? 6 : 10;
+        for (let hit = 0; hit < hitCount; hit += 1) {
+          applyRaidDamage(participant, hitDamage, { battle, source: 'boss' });
+        }
         if (applyRaidDebuffImmunity(participant)) {
           resistedNames.push(participant.displayName);
         } else {
-          participant.healShieldReductionTurns = Math.max(participant.healShieldReductionTurns, 2);
-          participant.healShieldReductionMultiplier = Math.min(Number(participant.healShieldReductionMultiplier || 1), 0.5);
+          participant.healShieldReductionTurns = Math.max(participant.healShieldReductionTurns, isHardMode ? 4 : 2);
+          participant.healShieldReductionMultiplier = Math.min(Number(participant.healShieldReductionMultiplier || 1), isHardMode ? 0.3 : 0.5);
           debuffedNames.push(participant.displayName);
         }
       });
       const debuffedText = debuffedNames.length ? `${debuffedNames.join(', ')} 이(가) 꼰대 디버프에 걸렸습니다.` : '모든 대상이 디버프를 막아냈습니다.';
       const resistedText = resistedNames.length ? ` ${resistedNames.join(', ')} 은(는) 디버프를 막아냈습니다.` : '';
       clearRoundShieldEffects(battle);
-      return `대머리 김부장의 허허, 요즘 엠제트세대란..! 대상 4명이 10 피해를 받았습니다. ${debuffedText}${resistedText}`;
+      return `대머리 김부장의 허허, 요즘 엠제트세대란..! 대상 4명이 ${isHardMode ? '6 피해를 5회씩' : '10 피해를'} 받았습니다. ${debuffedText}${resistedText}`;
     }
 
     if (pattern === 'afterparty') {
-      battle.bossShield = Number(battle.bossShield || 0) + 7000;
-      battle.bossShieldTurns = Math.max(Number(battle.bossShieldTurns || 0), 2);
+      const shieldAmount = isHardMode ? 100000 : 7000;
+      const shieldTurns = isHardMode ? 4 : 2;
+      battle.bossShield = Number(battle.bossShield || 0) + shieldAmount;
+      battle.bossShieldTurns = Math.max(Number(battle.bossShieldTurns || 0), shieldTurns);
       battle.bossLastHpLoss = 0;
       const appliedNames = [];
       const resistedNames = [];
@@ -8078,10 +8234,24 @@ function performRaidBossAction(battle) {
       clearRoundShieldEffects(battle);
       const appliedText = appliedNames.length ? `${appliedNames.join(', ')} 이(가) 4차까지? 디버프에 걸렸습니다.` : '모든 대상이 디버프를 막아냈습니다.';
       const resistedText = resistedNames.length ? ` ${resistedNames.join(', ')} 은(는) 디버프를 막아냈습니다.` : '';
-      return `대머리 김부장의 비기: 회식은 3차부터! 2턴 지속되는 7000의 실드를 획득했습니다. ${appliedText}${resistedText}`;
+      return `대머리 김부장의 비기: 회식은 3차부터! ${shieldTurns}턴 지속되는 ${shieldAmount.toLocaleString()}의 실드를 획득했습니다. ${appliedText}${resistedText}`;
     }
 
     if (pattern === 'sauna') {
+      if (isHardMode) {
+        const steps = [0, 1, 2].map((_, index) => ({
+          type: 'boss_all_hit',
+          skillName: '사우나나 갈까?',
+          damage: 10,
+          hitIndex: index
+        }));
+        return {
+          logs: ['대머리 김부장의 사우나나 갈까?! 파티 전체에게 10 피해를 3회 줍니다.'],
+          steps,
+          delayUnits: Math.max(1, steps.length),
+          clearRoundShieldsAtEnd: true
+        };
+      }
       aliveParticipants.forEach((participant) => {
         applyRaidDamage(participant, 20, { battle, source: 'boss' });
       });
@@ -8093,6 +8263,20 @@ function performRaidBossAction(battle) {
   }
 
   if (pattern === 'burp') {
+    if (isHardRaidBattle(battle) && battle.bossId === RAID_BOSS_ID) {
+      const steps = [0, 1, 2].map((_, index) => ({
+        type: 'boss_all_hit',
+        skillName: '트름하기',
+        damage: 10,
+        hitIndex: index
+      }));
+      return {
+        logs: ['트름녀의 트름하기! 파티 전체에게 10 피해를 3회 줍니다.'],
+        steps,
+        delayUnits: Math.max(1, steps.length),
+        clearRoundShieldsAtEnd: true
+      };
+    }
     aliveParticipants.forEach((participant) => {
       applyRaidDamage(participant, 30, { battle, source: 'boss' });
     });
@@ -8101,22 +8285,23 @@ function performRaidBossAction(battle) {
   }
 
   if (pattern === 'ice') {
+    const isHardMode = isHardRaidBattle(battle) && battle.bossId === RAID_BOSS_ID;
     const targets = selectRaidBossTargets(aliveParticipants, 3);
     const silencedNames = [];
     const resistedNames = [];
     targets.forEach((participant) => {
-      applyRaidDamage(participant, 30, { battle, source: 'boss' });
+      applyRaidDamage(participant, isHardMode ? 40 : 30, { battle, source: 'boss' });
       if (applyRaidDebuffImmunity(participant)) {
         resistedNames.push(participant.displayName);
       } else {
-        participant.silenceTurns = Math.max(participant.silenceTurns, 1);
+        participant.silenceTurns = Math.max(participant.silenceTurns, isHardMode ? 4 : 1);
         silencedNames.push(participant.displayName);
       }
     });
-    const silencedText = silencedNames.length ? `${silencedNames.join(', ')} 이(가) 1턴 침묵에 걸렸습니다.` : '모든 대상이 침묵을 막아냈습니다.';
+    const silencedText = silencedNames.length ? `${silencedNames.join(', ')} 이(가) ${isHardMode ? 4 : 1}턴 침묵에 걸렸습니다.` : '모든 대상이 침묵을 막아냈습니다.';
     const resistedText = resistedNames.length ? ` ${resistedNames.join(', ')} 은(는) 디버프를 막아냈습니다.` : '';
     clearRoundShieldEffects(battle);
-    return `트름녀의 얼음씹기! 대상 3명이 30 피해를 받았습니다. ${silencedText}${resistedText}`;
+    return `트름녀의 얼음씹기! 대상 3명이 ${isHardMode ? 40 : 30} 피해를 받았습니다. ${silencedText}${resistedText}`;
   }
 
   if (pattern === 'smack') {
@@ -8137,11 +8322,22 @@ function performRaidBossAction(battle) {
   }
 
   if (pattern === 'shield') {
-    battle.bossShield = Number(battle.bossShield || 0) + 10000;
-    battle.bossShieldTurns = Math.max(Number(battle.bossShieldTurns || 0), 1);
+    const isHardMode = isHardRaidBattle(battle) && battle.bossId === RAID_BOSS_ID;
+    let healAmount = 0;
+    if (isHardMode) {
+      const missingHp = Math.max(0, Number(battle.bossMaxHp || 0) - Number(battle.bossHp || 0));
+      healAmount = Math.floor(missingHp * 0.5);
+      if (healAmount > 0) {
+        battle.bossHp = Math.min(Number(battle.bossMaxHp || 0), Number(battle.bossHp || 0) + healAmount);
+      }
+    }
+    const shieldAmount = isHardMode ? 150000 : 10000;
+    const shieldTurns = isHardMode ? 3 : 1;
+    battle.bossShield = Number(battle.bossShield || 0) + shieldAmount;
+    battle.bossShieldTurns = Math.max(Number(battle.bossShieldTurns || 0), shieldTurns);
     battle.bossLastHpLoss = 0;
     clearRoundShieldEffects(battle);
-    return '트름녀의 눈 새 행동! 1턴 지속되는 10000의 실드를 획득했습니다.';
+    return `트름녀의 눈 새 행동! ${healAmount > 0 ? `${healAmount.toLocaleString()} HP를 회복하고 ` : ''}${shieldTurns}턴 지속되는 ${shieldAmount.toLocaleString()}의 실드를 획득했습니다.`;
   }
 
   return `${bossInfo.name}이(가) 잠시 숨을 골랐습니다.`;
@@ -11606,10 +11802,10 @@ function startPvpTournamentMatch(modeState, playerA, playerB, tournamentMatchId,
   const [firstPlayer, secondPlayer] = players;
   modeState.match = {
     matchId: crypto.randomUUID(),
-    mode: PVP_MODE_NORMAL,
-    modeLabel: getPvpModeLabel(PVP_MODE_NORMAL),
-    isRanked: false,
-    phase: 'pick',
+    mode: PVP_MODE_RANKED,
+    modeLabel: getPvpModeLabel(PVP_MODE_RANKED),
+    isRanked: true,
+    phase: 'ban',
     players,
     accepted: {
       [firstPlayer.userId]: true,
@@ -11617,7 +11813,7 @@ function startPvpTournamentMatch(modeState, playerA, playerB, tournamentMatchId,
     },
     acceptEndsAt: null,
     turnUserId: firstPlayer.userId,
-    turnEndsAt: new Date(now.getTime() + PVP_PICK_TURN_MS),
+    turnEndsAt: new Date(now.getTime() + PVP_BAN_TURN_MS),
     startsAt: null,
     bans: {
       [firstPlayer.userId]: [],
@@ -11633,10 +11829,10 @@ function startPvpTournamentMatch(modeState, playerA, playerB, tournamentMatchId,
       [secondPlayer.userId]: false
     },
     pickTurnIndex: 0,
+    pickSequenceIndices: [...PVP_PICK_SEQUENCE_INDICES],
     tournamentMatchId: String(tournamentMatchId || ''),
-    logs: ['면담 토너먼트 대진이 시작되었습니다. 밴 없이 픽부터 진행합니다.']
+    logs: ['면담 토너먼트 대진이 시작되었습니다. 랭크 규칙으로 밴픽을 진행합니다.']
   };
-  startPvpPickPhase(modeState.match, now);
   bumpPvpVersion();
 }
 
@@ -14719,10 +14915,10 @@ app.post('/api/interview-tournament/join-match', async (req, res) => {
     if (match.playerA?.userId && match.playerB?.userId
       && match.readyUserIds.includes(match.playerA.userId)
       && match.readyUserIds.includes(match.playerB.userId)) {
-      const normalState = getPvpModeState(PVP_MODE_NORMAL);
-      if (normalState.match || normalState.battle) {
+      const tournamentModeState = getPvpModeState(PVP_MODE_RANKED);
+      if (tournamentModeState.match || tournamentModeState.battle) {
         await saveInterviewTournamentState(state, now);
-        return res.status(400).json({ msg: '현재 일반 면담이 진행 중이라 잠시 후 다시 대진 참여를 눌러주세요.' });
+        return res.status(400).json({ msg: '현재 랭크 면담이 진행 중이라 잠시 후 다시 대진 참여를 눌러주세요.' });
       }
       if (isUserInAnyPvpSession(match.playerA.userId) || isUserInAnyPvpSession(match.playerB.userId)) {
         await saveInterviewTournamentState(state, now);
@@ -14731,7 +14927,7 @@ app.post('/api/interview-tournament/join-match', async (req, res) => {
       match.status = 'in_progress';
       match.startedAt = now;
       startPvpTournamentMatch(
-        normalState,
+        tournamentModeState,
         { userId: match.playerA.userId, displayName: match.playerA.displayName },
         { userId: match.playerB.userId, displayName: match.playerB.displayName },
         match.matchId,
@@ -14741,7 +14937,7 @@ app.post('/api/interview-tournament/join-match', async (req, res) => {
     await saveInterviewTournamentState(state, now);
     res.json({
       interviewTournament: buildInterviewTournamentResponse(state, normalizedUserId, now),
-      pvp: await buildPvpStateResponse(user, now, PVP_MODE_NORMAL)
+      pvp: await buildPvpStateResponse(user, now, PVP_MODE_RANKED)
     });
   } catch (err) {
     console.error('Interview tournament join error:', err);
@@ -14766,18 +14962,18 @@ app.post('/api/interview-tournament/spectate-match', async (req, res) => {
       return res.status(400).json({ msg: '현재 관전 가능한 진행 중 대진이 아닙니다.' });
     }
 
-    const normalState = getPvpModeState(PVP_MODE_NORMAL);
-    const activePvp = normalState.battle || normalState.match;
+    const tournamentModeState = getPvpModeState(PVP_MODE_RANKED);
+    const activePvp = tournamentModeState.battle || tournamentModeState.match;
     if (!activePvp || String(activePvp.tournamentMatchId || '') !== String(matchId)) {
       return res.status(400).json({ msg: '해당 토너먼트 대진의 면담이 아직 열려 있지 않습니다.' });
     }
 
     const isParticipant = activePvp.players?.some((player) => player.userId === String(userId));
-    if (!isParticipant) registerViewer(normalState.viewers, user, now);
+    if (!isParticipant) registerViewer(tournamentModeState.viewers, user, now);
 
     res.json({
       interviewTournament: buildInterviewTournamentResponse(state, String(user._id), now),
-      pvp: await buildPvpStateResponse(user, now, PVP_MODE_NORMAL, { poll: true })
+      pvp: await buildPvpStateResponse(user, now, PVP_MODE_RANKED, { poll: true })
     });
   } catch (err) {
     console.error('Interview tournament spectate error:', err);

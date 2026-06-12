@@ -301,6 +301,27 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-12-interview-tournament-ranked-fix',
+    time: '2026-06-12 01:10',
+    title: '면담 토너먼트 진행 규칙 수정',
+    items: [
+      '면담 토너먼트가 일반전 규칙으로 시작되던 문제를 수정해, 이제 밴픽이 있는 랭크 면담 규칙으로 진행됩니다.',
+      '이미 일반전으로 완료된 최근 토너먼트 대진 결과는 1회 무효 처리되고, 같은 대진으로 다시 준비할 수 있게 보정됩니다.',
+      '토너먼트 관전도 랭크 면담 진행 상태를 기준으로 따라가도록 수정했습니다.'
+    ]
+  },
+  {
+    id: '2026-06-12-hard-boss-rebalance',
+    time: '2026-06-12 00:45',
+    title: '하드 보스 대규모 상향',
+    items: [
+      '하드 트름녀, 대머리 김부장, HOI-M.S.J-50의 체력과 스킬 수치를 상향했습니다.',
+      '트름녀는 잃은 체력에 비례해 받는 피해가 줄어들고, 눈 새 행동으로 회복과 대형 보호막을 얻습니다.',
+      '김부장은 자신의 턴마다 잃은 체력 일부를 회복하며, 하드 스킬들의 디버프 지속시간과 보호막 수치가 강화됩니다.',
+      'HOI-M.S.J-50은 회피 성공 시 회복하고, 하드 전용 패턴 순서와 손톱 튕김 피해 구조가 적용됩니다.'
+    ]
+  },
+  {
     id: '2026-06-12-interview-tournament-spectate',
     time: '2026-06-12 00:20',
     title: '면담 토너먼트 관전 추가',
@@ -3337,7 +3358,7 @@ async function handleInterviewTournamentJoinMatch() {
     renderInterviewTournamentEventPanel();
     if (data.pvp) {
       latestPvpState = data.pvp;
-      selectedPvpMode = 'normal';
+      selectedPvpMode = 'ranked';
       updatePvpButton(user, latestPvpState);
       updatePvpMatchModal(latestPvpState);
       if (latestPvpState.match || latestPvpState.battle) {
@@ -3363,7 +3384,7 @@ async function handleInterviewTournamentSpectateMatch(matchId) {
     renderInterviewTournamentEventPanel();
     if (data.pvp) {
       latestPvpState = data.pvp;
-      selectedPvpMode = 'normal';
+      selectedPvpMode = 'ranked';
       updatePvpButton(user, latestPvpState);
       updatePvpMatchModal(latestPvpState);
       showPvpScreen();
