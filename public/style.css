@@ -3323,6 +3323,18 @@ progress {
   white-space: nowrap;
 }
 
+.event-bracket-match em {
+  font-style: normal;
+}
+
+.event-bracket-match em small {
+  display: block;
+  margin-top: 2px;
+  color: #444444;
+  line-height: 1.25;
+  white-space: normal;
+}
+
 .event-bracket-match.completed {
   background: #eef8eb;
 }

@@ -301,6 +301,16 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-12-interview-tournament-best-of-three',
+    time: '2026-06-12 01:35',
+    title: '면담 토너먼트 4강/결승 3판 2선승 적용',
+    items: [
+      '면담 토너먼트의 4강전과 결승전을 3판 2선승제로 변경했습니다.',
+      '3판 2선승 대진은 매 판마다 1P 순서가 번갈아 적용됩니다.',
+      '이벤트 대진표에서 각 선수의 현재 승수를 확인할 수 있게 표시를 추가했습니다.'
+    ]
+  },
+  {
     id: '2026-06-12-interview-tournament-ranked-fix',
     time: '2026-06-12 01:10',
     title: '면담 토너먼트 진행 규칙 수정',
@@ -3271,6 +3281,15 @@ function getInterviewTournamentPlayerName(player) {
   return player?.displayName || '대기';
 }
 
+function getInterviewTournamentSeriesText(match) {
+  const bestOf = Math.max(1, Number(match?.bestOf || 1));
+  if (bestOf <= 1) return '';
+  const targetWins = Math.ceil(bestOf / 2);
+  const playerAName = escapeHtml(getInterviewTournamentPlayerName(match.playerA));
+  const playerBName = escapeHtml(getInterviewTournamentPlayerName(match.playerB));
+  return `${playerAName} ${formatNumber(match.scoreA || 0)}승 : ${playerBName} ${formatNumber(match.scoreB || 0)}승 (${targetWins}선승)`;
+}
+
 function renderInterviewTournamentBracket() {
   const container = document.getElementById('interviewTournamentBracket');
   if (!container) return;
@@ -3295,6 +3314,7 @@ function renderInterviewTournamentBracket() {
           : match.status === 'in_progress'
             ? '진행중'
             : `대기중 ${formatNumber(readySet.size)}/2`;
+        const seriesText = getInterviewTournamentSeriesText(match);
         const spectateButton = match.status === 'in_progress'
           ? `<button class="mini-btn tournament-spectate-btn" onclick="handleInterviewTournamentSpectateMatch('${escapeAttr(match.matchId)}')">관전</button>`
           : '';
@@ -3303,7 +3323,7 @@ function renderInterviewTournamentBracket() {
             <span>${escapeHtml(getInterviewTournamentPlayerName(match.playerA))}</span>
             <b>vs</b>
             <span>${escapeHtml(getInterviewTournamentPlayerName(match.playerB))}</span>
-            <em>${statusText}</em>
+            <em>${statusText}${seriesText ? `<small>${seriesText}</small>` : ''}</em>
             ${spectateButton}
           </div>
         `;

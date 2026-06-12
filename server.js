@@ -3119,6 +3119,11 @@ function normalizeInterviewTournamentState(raw, now = new Date()) {
       readyUserIds: Array.isArray(entry.readyUserIds) ? entry.readyUserIds.map(String) : [],
       status: entry.status || 'waiting',
       isThirdPlace: Boolean(entry.isThirdPlace),
+      bestOf: Math.max(1, Math.floor(Number(entry.bestOf || 1))),
+      scoreA: Math.max(0, Math.floor(Number(entry.scoreA || 0))),
+      scoreB: Math.max(0, Math.floor(Number(entry.scoreB || 0))),
+      gamesPlayed: Math.max(0, Math.floor(Number(entry.gamesPlayed || 0))),
+      seriesFirstUserId: entry.seriesFirstUserId ? String(entry.seriesFirstUserId) : null,
       createdAt: entry.createdAt || now,
       startedAt: entry.startedAt || null,
       completedAt: entry.completedAt || null
@@ -3149,6 +3154,10 @@ function applyInterviewTournamentRankedModeHotfix(state, now = new Date()) {
     resetMatch.loser = null;
     resetMatch.readyUserIds = [];
     resetMatch.status = 'waiting';
+    resetMatch.scoreA = 0;
+    resetMatch.scoreB = 0;
+    resetMatch.gamesPlayed = 0;
+    resetMatch.seriesFirstUserId = null;
     resetMatch.startedAt = null;
     resetMatch.completedAt = null;
 
@@ -3190,6 +3199,11 @@ function createInterviewTournamentRoundMatches(players = [], round = 1, now = ne
       readyUserIds: [],
       status: byeWinner ? 'completed' : 'waiting',
       isThirdPlace: false,
+      bestOf: 1,
+      scoreA: 0,
+      scoreB: 0,
+      gamesPlayed: 0,
+      seriesFirstUserId: null,
       createdAt: now,
       startedAt: null,
       completedAt: byeWinner ? now : null
@@ -3215,6 +3229,80 @@ function getInterviewTournamentMaxRound(state) {
   return (state.matches || [])
     .filter((match) => !match.isThirdPlace)
     .reduce((max, match) => Math.max(max, Number(match.round || 0)), 0);
+}
+
+function getInterviewTournamentMatchBestOf(state, match) {
+  if (!state || !match || match.isThirdPlace || !match.playerA?.userId || !match.playerB?.userId) return 1;
+  const round = Number(match.round || 0);
+  const roundMatches = getInterviewTournamentRoundMatches(state, round);
+  const isSemifinal = roundMatches.length === 2;
+  const isFinal = roundMatches.length === 1 && round === getInterviewTournamentMaxRound(state);
+  return isSemifinal || isFinal ? 3 : 1;
+}
+
+function normalizeInterviewTournamentMatchSeries(state, match) {
+  if (!match) return false;
+  let changed = false;
+  const bestOf = getInterviewTournamentMatchBestOf(state, match);
+  if (Number(match.bestOf || 1) !== bestOf) {
+    match.bestOf = bestOf;
+    changed = true;
+  }
+  const scoreA = Math.max(0, Math.floor(Number(match.scoreA || 0)));
+  const scoreB = Math.max(0, Math.floor(Number(match.scoreB || 0)));
+  const gamesPlayed = Math.max(scoreA + scoreB, Math.floor(Number(match.gamesPlayed || 0)));
+  if (Number(match.scoreA || 0) !== scoreA) {
+    match.scoreA = scoreA;
+    changed = true;
+  }
+  if (Number(match.scoreB || 0) !== scoreB) {
+    match.scoreB = scoreB;
+    changed = true;
+  }
+  if (Number(match.gamesPlayed || 0) !== gamesPlayed) {
+    match.gamesPlayed = gamesPlayed;
+    changed = true;
+  }
+  if (bestOf <= 1 && match.seriesFirstUserId) {
+    match.seriesFirstUserId = null;
+    changed = true;
+  }
+  if (
+    bestOf > 1
+    && match.status === 'completed'
+    && match.winner?.userId
+    && scoreA + scoreB === 0
+  ) {
+    const targetWins = Math.ceil(bestOf / 2);
+    if (String(match.winner.userId) === String(match.playerA?.userId)) {
+      match.scoreA = targetWins;
+      match.scoreB = 0;
+    } else if (String(match.winner.userId) === String(match.playerB?.userId)) {
+      match.scoreA = 0;
+      match.scoreB = targetWins;
+    }
+    match.gamesPlayed = Math.max(Number(match.scoreA || 0) + Number(match.scoreB || 0), Number(match.gamesPlayed || 0));
+    changed = true;
+  }
+  return changed;
+}
+
+function normalizeInterviewTournamentSeriesMeta(state) {
+  return (state.matches || []).reduce((changed, match) => (
+    normalizeInterviewTournamentMatchSeries(state, match) || changed
+  ), false);
+}
+
+function getInterviewTournamentNextFirstPlayerUserId(match) {
+  if (!match?.playerA?.userId || !match?.playerB?.userId || Number(match.bestOf || 1) <= 1) return null;
+  const playerAId = String(match.playerA.userId);
+  const playerBId = String(match.playerB.userId);
+  if (![playerAId, playerBId].includes(String(match.seriesFirstUserId || ''))) {
+    match.seriesFirstUserId = Math.random() < 0.5 ? playerAId : playerBId;
+  }
+  const firstGameFirstUserId = String(match.seriesFirstUserId);
+  const otherUserId = firstGameFirstUserId === playerAId ? playerBId : playerAId;
+  return Number(match.gamesPlayed || 0) % 2 === 0 ? firstGameFirstUserId : otherUserId;
 }
 
 function advanceInterviewTournamentRounds(state, now = new Date()) {
@@ -3261,6 +3349,9 @@ async function getInterviewTournamentState(now = new Date()) {
     shouldSave = true;
   }
   if (applyInterviewTournamentRankedModeHotfix(state, now)) {
+    shouldSave = true;
+  }
+  if (normalizeInterviewTournamentSeriesMeta(state)) {
     shouldSave = true;
   }
   if (shouldSave) {
@@ -3313,9 +3404,30 @@ async function finalizeInterviewTournamentMatch(matchId, winnerUserId, loserUser
   const state = await getInterviewTournamentState(now);
   const match = state.matches.find((entry) => entry.matchId === String(matchId));
   if (!match || match.status === 'completed') return;
+  normalizeInterviewTournamentMatchSeries(state, match);
   const winner = [match.playerA, match.playerB].find((player) => player?.userId === String(winnerUserId));
   const loser = [match.playerA, match.playerB].find((player) => player?.userId === String(loserUserId));
   if (!winner) return;
+  const bestOf = Math.max(1, Number(match.bestOf || 1));
+  if (bestOf > 1) {
+    const targetWins = Math.ceil(bestOf / 2);
+    if (String(winner.userId) === String(match.playerA?.userId)) {
+      match.scoreA = Math.max(0, Number(match.scoreA || 0)) + 1;
+    } else if (String(winner.userId) === String(match.playerB?.userId)) {
+      match.scoreB = Math.max(0, Number(match.scoreB || 0)) + 1;
+    }
+    match.gamesPlayed = Math.max(Number(match.gamesPlayed || 0) + 1, Number(match.scoreA || 0) + Number(match.scoreB || 0));
+    if (Number(match.scoreA || 0) < targetWins && Number(match.scoreB || 0) < targetWins) {
+      match.winner = null;
+      match.loser = null;
+      match.status = 'waiting';
+      match.startedAt = null;
+      match.completedAt = null;
+      match.readyUserIds = [];
+      await saveInterviewTournamentState(state, now);
+      return;
+    }
+  }
   match.winner = winner;
   match.loser = loser || null;
   match.status = 'completed';
@@ -11797,9 +11909,22 @@ function startPvpPracticeMatch(modeState, player, now = new Date()) {
   bumpPvpVersion();
 }
 
-function startPvpTournamentMatch(modeState, playerA, playerB, tournamentMatchId, now = new Date()) {
-  const players = Math.random() < 0.5 ? [playerA, playerB] : [playerB, playerA];
+function startPvpTournamentMatch(modeState, playerA, playerB, tournamentMatchId, now = new Date(), options = {}) {
+  const requestedFirstUserId = options.firstPlayerUserId ? String(options.firstPlayerUserId) : '';
+  let players;
+  if (requestedFirstUserId && String(playerB?.userId || '') === requestedFirstUserId) {
+    players = [playerB, playerA];
+  } else if (requestedFirstUserId && String(playerA?.userId || '') === requestedFirstUserId) {
+    players = [playerA, playerB];
+  } else {
+    players = Math.random() < 0.5 ? [playerA, playerB] : [playerB, playerA];
+  }
   const [firstPlayer, secondPlayer] = players;
+  const bestOf = Math.max(1, Math.floor(Number(options.bestOf || 1)));
+  const gameNumber = Math.max(1, Math.floor(Number(options.gameNumber || 1)));
+  const seriesScoreText = bestOf > 1
+    ? ` 현재 스코어 ${Number(options.scoreA || 0)}:${Number(options.scoreB || 0)}, ${gameNumber}세트입니다.`
+    : '';
   modeState.match = {
     matchId: crypto.randomUUID(),
     mode: PVP_MODE_RANKED,
@@ -11831,7 +11956,7 @@ function startPvpTournamentMatch(modeState, playerA, playerB, tournamentMatchId,
     pickTurnIndex: 0,
     pickSequenceIndices: [...PVP_PICK_SEQUENCE_INDICES],
     tournamentMatchId: String(tournamentMatchId || ''),
-    logs: ['면담 토너먼트 대진이 시작되었습니다. 랭크 규칙으로 밴픽을 진행합니다.']
+    logs: [`면담 토너먼트 대진이 시작되었습니다. 랭크 규칙으로 밴픽을 진행합니다.${seriesScoreText}`]
   };
   bumpPvpVersion();
 }
@@ -14926,12 +15051,22 @@ app.post('/api/interview-tournament/join-match', async (req, res) => {
       }
       match.status = 'in_progress';
       match.startedAt = now;
+      normalizeInterviewTournamentMatchSeries(state, match);
+      const firstPlayerUserId = getInterviewTournamentNextFirstPlayerUserId(match);
+      const gameNumber = Math.max(1, Number(match.gamesPlayed || 0) + 1);
       startPvpTournamentMatch(
         tournamentModeState,
         { userId: match.playerA.userId, displayName: match.playerA.displayName },
         { userId: match.playerB.userId, displayName: match.playerB.displayName },
         match.matchId,
-        now
+        now,
+        {
+          firstPlayerUserId,
+          bestOf: Number(match.bestOf || 1),
+          gameNumber,
+          scoreA: Number(match.scoreA || 0),
+          scoreB: Number(match.scoreB || 0)
+        }
       );
     }
     await saveInterviewTournamentState(state, now);
