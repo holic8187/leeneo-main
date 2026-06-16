@@ -301,6 +301,27 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-16-new-baseball-emblems-hwang-chaos-off',
+    time: '2026-06-16 09:30',
+    title: '신규 휘장과 황과장 레이드 모드 조정',
+    items: [
+      '<호랭이> 휘장이 파편 상점에 추가되었습니다. 파편 10,000개로 구매할 수 있으며, 보유 시 보스 보상이 5% 증가합니다.',
+      '<칰> 휘장이 일반 상점에 추가되었습니다. 10경 원으로 구매할 수 있으며, 보유 시 주식 거래 수수료가 5% 감소합니다.',
+      '야근하다 미쳐버린 황과장은 당분간 일반/하드 모드만 운영되도록 카오스 모드 선택에서 제외했습니다.'
+    ]
+  },
+  {
+    id: '2026-06-15-chaos-raid-admin-tournament-result',
+    time: '2026-06-15 23:30',
+    title: '카오스 레이드와 토너먼트 운영 기능 추가',
+    items: [
+      '트름녀, 대머리 김부장, HOI-M.S.J-50의 최근 강화 하드 사양을 카오스 모드로 분리했습니다.',
+      '하드 모드는 이전 하드 난이도로 되돌렸고, 야근하다 미쳐버린 황과장은 기존 하드 사양을 유지합니다.',
+      '카오스 모드 보상은 하드 모드 보상의 2배로 적용됩니다.',
+      '운영자 화면에서 면담 토너먼트 대진의 승자를 직접 확정할 수 있게 했습니다.'
+    ]
+  },
+  {
     id: '2026-06-12-interview-tournament-best-of-three',
     time: '2026-06-12 01:35',
     title: '면담 토너먼트 4강/결승 3판 2선승 적용',
@@ -1483,6 +1504,7 @@ function setupEventListeners() {
   bindClick('raidStartBtn', handleRaidStartClick);
   bindClick('raidModeNormalBtn', () => handleRaidModeChange('normal'));
   bindClick('raidModeHardBtn', () => handleRaidModeChange('hard'));
+  bindClick('raidModeChaosBtn', () => handleRaidModeChange('chaos'));
   bindClick('raidCountdownCancelBtn', handleRaidCountdownCancelClick);
   bindClick('raidBackBtn', handleRaidBackClick);
   bindClick('cardDrawBtn', handleCardDraw);
@@ -1516,6 +1538,7 @@ function setupEventListeners() {
   bindClick('adminSetLevelBtn', handleAdminSetLevel);
   bindClick('adminGrantMoneyBtn', handleAdminGrantMoney);
   bindClick('adminSetRaidBossBtn', handleAdminSetRaidBoss);
+  bindClick('adminForceTournamentResultBtn', handleAdminForceTournamentResult);
 
   const giftType = document.getElementById('giftTypeSelect');
   if (giftType) {
@@ -4504,7 +4527,7 @@ function showRaidScreen() {
 }
 
 function handleRaidModeChange(mode) {
-  selectedRaidMode = mode === 'hard' ? 'hard' : 'normal';
+  selectedRaidMode = mode === 'chaos' ? 'chaos' : (mode === 'hard' ? 'hard' : 'normal');
   updateRaidLobbyUI(latestRaidState, getStoredUser());
   pollRaidState();
 }
@@ -8797,11 +8820,13 @@ async function loadAdminUsers() {
       ...session,
       giftCatalog: data.giftCatalog,
       currentRaidBossId: data.currentRaidBossId,
-      raidBossOptions: data.raidBossOptions || []
+      raidBossOptions: data.raidBossOptions || [],
+      interviewTournament: data.interviewTournament || null
     });
     renderAdminUsers(data.users);
     renderAdminGiftOptions();
     renderAdminRaidBossControls(data.currentRaidBossId, data.raidBossOptions || []);
+    renderAdminTournamentControls(data.interviewTournament);
     setText('adminStatus', `대상 유저 ${data.users.length}명을 불러왔습니다.`);
   } catch (err) {
     alert(err.message);
@@ -8892,6 +8917,60 @@ function renderAdminRaidBossControls(currentRaidBossId, raidBossOptions) {
   const nextBoss = options.find((entry) => entry.id !== currentRaidBossId) || currentBoss;
   currentLabel.textContent = currentBoss ? `현재 보스: ${currentBoss.name}` : '현재 보스: -';
   nextLabel.textContent = nextBoss ? `다음날 자동 변경: ${nextBoss.name}` : '다음날 자동 변경: -';
+}
+
+function getAdminTournamentPlayerLabel(player) {
+  return player?.displayName || '-';
+}
+
+function renderAdminTournamentControls(tournament) {
+  const matchSelect = document.getElementById('adminTournamentMatchSelect');
+  const winnerSelect = document.getElementById('adminTournamentWinnerSelect');
+  if (!matchSelect || !winnerSelect) return;
+
+  const matches = Array.isArray(tournament?.matches) ? tournament.matches : [];
+  const selectableMatches = matches
+    .filter((match) => match?.playerA?.userId && match?.playerB?.userId)
+    .sort((a, b) => {
+      const statusA = a.status === 'completed' ? 1 : 0;
+      const statusB = b.status === 'completed' ? 1 : 0;
+      if (statusA !== statusB) return statusA - statusB;
+      if (Number(a.round || 0) !== Number(b.round || 0)) return Number(a.round || 0) - Number(b.round || 0);
+      return Number(a.index || 0) - Number(b.index || 0);
+    });
+
+  matchSelect.innerHTML = '';
+  if (!selectableMatches.length) {
+    matchSelect.innerHTML = '<option value="">확정 가능한 대진 없음</option>';
+    winnerSelect.innerHTML = '<option value="">승자 없음</option>';
+    return;
+  }
+
+  selectableMatches.forEach((match) => {
+    const roundLabel = match.isThirdPlace ? '3/4위전' : `${formatNumber(match.round || 1)}라운드`;
+    const statusLabel = match.status === 'completed' ? '완료' : (match.status === 'in_progress' ? '진행중' : '대기중');
+    const seriesLabel = Number(match.bestOf || 1) > 1
+      ? ` ${formatNumber(match.scoreA || 0)}:${formatNumber(match.scoreB || 0)}`
+      : '';
+    matchSelect.insertAdjacentHTML(
+      'beforeend',
+      `<option value="${escapeHtml(match.matchId)}">${escapeHtml(roundLabel)} ${escapeHtml(getAdminTournamentPlayerLabel(match.playerA))} vs ${escapeHtml(getAdminTournamentPlayerLabel(match.playerB))} (${escapeHtml(statusLabel)}${seriesLabel})</option>`
+    );
+  });
+
+  const renderWinnerOptions = () => {
+    const selectedMatch = selectableMatches.find((match) => String(match.matchId) === String(matchSelect.value)) || selectableMatches[0];
+    winnerSelect.innerHTML = '';
+    [selectedMatch?.playerA, selectedMatch?.playerB].filter(Boolean).forEach((player) => {
+      winnerSelect.insertAdjacentHTML(
+        'beforeend',
+        `<option value="${escapeHtml(player.userId)}">${escapeHtml(getAdminTournamentPlayerLabel(player))}</option>`
+      );
+    });
+  };
+
+  matchSelect.onchange = renderWinnerOptions;
+  renderWinnerOptions();
 }
 
 async function handleAdminGift() {
@@ -9065,6 +9144,44 @@ async function handleAdminSetRaidBoss() {
     alert(`오늘의 보스를 ${data.currentRaidBossName}(으)로 변경했습니다. 다음날에는 ${data.nextRaidBossName}(으)로 자동 변경됩니다.`);
   } catch (err) {
     alert(err.message);
+  }
+}
+
+async function handleAdminForceTournamentResult() {
+  const session = getStoredAdmin();
+  if (!session?.token) return handleLogoutClick();
+
+  const matchSelect = document.getElementById('adminTournamentMatchSelect');
+  const winnerSelect = document.getElementById('adminTournamentWinnerSelect');
+  const matchId = matchSelect?.value || '';
+  const winnerUserId = winnerSelect?.value || '';
+  if (!matchId || !winnerUserId) {
+    alert('승패를 확정할 대진과 승자를 선택해주세요.');
+    return;
+  }
+
+  const matchLabel = matchSelect.options[matchSelect.selectedIndex]?.textContent || '선택 대진';
+  const winnerLabel = winnerSelect.options[winnerSelect.selectedIndex]?.textContent || '선택 승자';
+  if (!confirm(`${matchLabel}\n승자를 ${winnerLabel}(으)로 확정할까요?`)) {
+    return;
+  }
+
+  try {
+    const data = await postJson(
+      `${API_URL}/api/admin/interview-tournament/force-result`,
+      { matchId, winnerUserId },
+      getAdminAuthHeaders()
+    );
+    const nextSession = {
+      ...session,
+      interviewTournament: data.interviewTournament || null
+    };
+    saveStoredAdmin(nextSession);
+    renderAdminTournamentControls(data.interviewTournament);
+    setText('adminStatus', `${winnerLabel} 승리로 토너먼트 대진을 확정했습니다.`);
+    alert(`${winnerLabel} 승리로 확정했습니다.`);
+  } catch (err) {
+    alert(err.message || '토너먼트 승패 확정에 실패했습니다.');
   }
 }
 
@@ -9463,7 +9580,13 @@ function updateShopUI(user) {
 
 function updateRaidLobbyUI(raidState, user) {
   updateRaidBossPortraitToggleButtons();
+  const availableModes = Array.isArray(raidState?.modes) ? raidState.modes : [];
+  const availableModeSet = new Set(availableModes.map((entry) => entry.mode));
+  if (availableModeSet.size && !availableModeSet.has(selectedRaidMode)) {
+    selectedRaidMode = availableModeSet.has('hard') ? 'hard' : (availableModes[0]?.mode || 'normal');
+  }
   document.querySelectorAll('[data-raid-mode]').forEach((button) => {
+    button.classList.toggle('hidden', availableModeSet.size > 0 && !availableModeSet.has(button.dataset.raidMode));
     button.classList.toggle('active', button.dataset.raidMode === selectedRaidMode);
   });
   const slotGrid = document.getElementById('raidSlotGrid');

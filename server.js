@@ -124,6 +124,8 @@ const RAID_NORMAL_HIGH_LEVEL_REWARD_MULTIPLIER = 1 / 3;
 const RAID_HARD_MIN_LEVEL = 150;
 const RAID_MODE_NORMAL = 'normal';
 const RAID_MODE_HARD = 'hard';
+const RAID_MODE_CHAOS = 'chaos';
+const RAID_MODE_LIST = [RAID_MODE_NORMAL, RAID_MODE_HARD, RAID_MODE_CHAOS];
 const RAID_MODE_CONFIG = {
   [RAID_MODE_NORMAL]: {
     id: RAID_MODE_NORMAL,
@@ -140,6 +142,14 @@ const RAID_MODE_CONFIG = {
     maxLevel: Infinity,
     hpMultiplier: 3,
     rewardMultiplier: 2.25
+  },
+  [RAID_MODE_CHAOS]: {
+    id: RAID_MODE_CHAOS,
+    label: '카오스',
+    minLevel: RAID_HARD_MIN_LEVEL,
+    maxLevel: Infinity,
+    hpMultiplier: 3,
+    rewardMultiplier: 4.5
   }
 };
 const RAID_PARTY_SIZE = 5;
@@ -317,6 +327,27 @@ const EMBLEM_DATA = {
     className: 'emblem-cat-butler',
     shopType: 'fragment',
     effects: { raidRewardBonus: 5 }
+  },
+  tiger: {
+    id: 'tiger',
+    name: '호랭이',
+    price: 0,
+    fragmentCost: 10000,
+    desc: '파편 상점에서 구매할 수 있습니다. 보유 효과: 보스 보상 +5%',
+    imageUrl: '',
+    className: 'emblem-tiger',
+    shopType: 'fragment',
+    effects: { raidRewardBonus: 5 }
+  },
+  chik: {
+    id: 'chik',
+    name: '칰',
+    price: 100000000000000000,
+    desc: '일반 상점에서 구매할 수 있습니다. 보유 효과: 주식 거래 수수료 5% 감소',
+    imageUrl: '',
+    className: 'emblem-chik',
+    shopType: 'money',
+    effects: { stockFeeReduction: 5 }
   },
   chunsik_art: {
     id: 'chunsik_art',
@@ -1583,6 +1614,15 @@ const FRAGMENT_SHOP_ITEMS = {
     dailyLimit: 1,
     countField: 'dailyFragmentCatButlerEmblemPurchases'
   },
+  tiger_emblem: {
+    id: 'tiger_emblem',
+    emblemId: 'tiger',
+    name: '호랭이 휘장',
+    cost: 10000,
+    quantity: 1,
+    dailyLimit: 1,
+    countField: 'dailyFragmentTigerEmblemPurchases'
+  },
   idol_emblem: {
     id: 'idol_emblem',
     emblemId: 'idol',
@@ -1635,11 +1675,12 @@ const RAID_BOSS_DATA = {
     name: '트름녀',
     maxHp: 60000,
     maxHpByMode: {
-      [RAID_MODE_HARD]: 400000
+      [RAID_MODE_CHAOS]: 400000
     },
     imageLabel: '트름녀',
     portrait: 'assets/bosses/burp_queen.png',
     patternOrder: ['burp', 'ice', 'smack', 'shield'],
+    legacyHardPassiveText: '패시브. 가시갑옷: 1회 피격당할 때마다 공격자에게 5 피해를 반사합니다.',
     hardPassiveText: '패시브. 가시갑옷: 1회 피격당할 때마다 공격자에게 5 피해를 반사합니다. 자신의 잃은 체력에 비례해 매 타격당 입는 데미지가 최대 75%까지 감소합니다.',
     skillsText: [
       '1. 트름하기: 파티 전체에게 30 피해',
@@ -1660,11 +1701,12 @@ const RAID_BOSS_DATA = {
     name: '대머리 김부장',
     maxHp: 60000,
     maxHpByMode: {
-      [RAID_MODE_HARD]: 350000
+      [RAID_MODE_CHAOS]: 350000
     },
     imageLabel: '대머리 김부장',
     portrait: 'assets/bosses/bald_manager.png',
     patternOrder: ['wig_search', 'mz', 'afterparty', 'sauna'],
+    legacyHardPassiveText: '패시브. 매끈한 두피: 1P 행동 시작부터 다음 1P 행동 시작 전까지, 플레이어에게 1회 타격당할 때마다 이후 받는 피해가 10%씩 곱연산 감소합니다. 다음 턴 1P 행동 시작 시 스택이 초기화됩니다.',
     hardPassiveText: '패시브. 매끈한 두피: 1P 행동 시작부터 다음 1P 행동 시작 전까지, 플레이어에게 1회 타격당할 때마다 이후 받는 피해가 10%씩 곱연산 감소합니다. 다음 턴 1P 행동 시작 시 스택이 초기화됩니다. 매 자신의 턴마다 잃은 체력의 20%를 회복합니다.',
     skillsText: [
       '1. 내 가발 어디갔어?!: 랜덤 3명에게 20 피해, 2턴 동안 기본 공격/스킬 사용 불가',
@@ -1687,12 +1729,13 @@ const RAID_BOSS_DATA = {
     name: 'HOI-M.S.J-50',
     maxHp: 60000,
     maxHpByMode: {
-      [RAID_MODE_HARD]: 400000
+      [RAID_MODE_CHAOS]: 400000
     },
     imageLabel: 'HOI-M.S.J-50',
     portrait: 'assets/bosses/hoi_msj_50.png',
     patternOrder: ['son_brag', 'son_mix', 'ass_hit', 'nail_clip', 'food_question'],
     hardPatternOrder: ['son_brag', 'ass_hit', 'nail_clip', 'food_question', 'son_mix'],
+    legacyHardPassiveText: '패시브. 나 먼저 퇴근할게: 매 공격을 20% 확률로 회피합니다.',
     hardPassiveText: '패시브. 나 먼저 퇴근할게: 매 공격을 20% 확률로 회피합니다. 회피 성공시마다 총 잃은 체력의 10%를 회복합니다.',
     skillsText: [
       '1. 아들자랑 MK.1: 전원의 버프 제거, 제거된 버프 1개당 10 피해, 랜덤 2인에게 2턴 기본 공격 불가',
@@ -2421,7 +2464,8 @@ let raidState = {
   version: RAID_POLL_VERSION_EMPTY,
   modes: {
     [RAID_MODE_NORMAL]: createRaidRoomState(),
-    [RAID_MODE_HARD]: createRaidRoomState()
+    [RAID_MODE_HARD]: createRaidRoomState(),
+    [RAID_MODE_CHAOS]: createRaidRoomState()
   },
   manualBossOverrideDayKey: null,
   manualBossOverrideId: null,
@@ -3437,6 +3481,73 @@ async function finalizeInterviewTournamentMatch(matchId, winnerUserId, loserUser
   await saveInterviewTournamentState(state, now);
 }
 
+function clearInterviewTournamentPvpSession(matchId) {
+  const targetMatchId = String(matchId || '');
+  if (!targetMatchId) return;
+  const modeState = getPvpModeState(PVP_MODE_RANKED);
+  let changed = false;
+  if (modeState.match && String(modeState.match.tournamentMatchId || '') === targetMatchId) {
+    modeState.match = null;
+    changed = true;
+  }
+  if (modeState.battle && String(modeState.battle.tournamentMatchId || '') === targetMatchId) {
+    modeState.battle = null;
+    changed = true;
+  }
+  if (changed) bumpPvpVersion();
+}
+
+function pruneInterviewTournamentFutureMatches(state, match) {
+  if (!state || !match || match.isThirdPlace) return;
+  const matchRound = Number(match.round || 0);
+  const matchId = String(match.matchId || '');
+  const finalRound = getInterviewTournamentMaxRound(state);
+  const keepThirdPlace = matchRound >= finalRound;
+  state.matches = (state.matches || []).filter((entry) => (
+    String(entry.matchId || '') === matchId
+    || (keepThirdPlace && entry.isThirdPlace)
+    || (!entry.isThirdPlace && Number(entry.round || 0) <= matchRound)
+  ));
+  state.championUserId = null;
+  if (!keepThirdPlace) state.thirdPlaceMatchId = null;
+}
+
+async function forceInterviewTournamentMatchResult(matchId, winnerUserId, now = new Date()) {
+  const state = await getInterviewTournamentState(now);
+  const match = state.matches.find((entry) => String(entry.matchId) === String(matchId));
+  if (!match) throw createHttpError(404, '토너먼트 대진을 찾을 수 없습니다.');
+  if (!match.playerA?.userId || !match.playerB?.userId) {
+    throw createHttpError(400, '승패를 확정할 수 없는 대진입니다.');
+  }
+
+  normalizeInterviewTournamentMatchSeries(state, match);
+  const winner = [match.playerA, match.playerB].find((player) => String(player?.userId || '') === String(winnerUserId || ''));
+  if (!winner) throw createHttpError(400, '승자로 지정할 참가자가 해당 대진에 없습니다.');
+  const loser = String(winner.userId) === String(match.playerA.userId) ? match.playerB : match.playerA;
+
+  if (match.status === 'completed') {
+    pruneInterviewTournamentFutureMatches(state, match);
+  }
+
+  const bestOf = Math.max(1, Number(match.bestOf || getInterviewTournamentMatchBestOf(state, match) || 1));
+  const targetWins = Math.ceil(bestOf / 2);
+  match.bestOf = bestOf;
+  match.scoreA = String(winner.userId) === String(match.playerA.userId) ? targetWins : 0;
+  match.scoreB = String(winner.userId) === String(match.playerB.userId) ? targetWins : 0;
+  match.gamesPlayed = targetWins;
+  match.winner = winner;
+  match.loser = loser || null;
+  match.status = 'completed';
+  match.readyUserIds = [];
+  match.startedAt = match.startedAt || now;
+  match.completedAt = now;
+
+  clearInterviewTournamentPvpSession(match.matchId);
+  advanceInterviewTournamentRounds(state, now);
+  await saveInterviewTournamentState(state, now);
+  return { state, match };
+}
+
 function getStockTournamentPhase(now = new Date()) {
   const time = now.getTime();
   if (time < STOCK_TOURNAMENT_START_AT.getTime()) return 'before';
@@ -3667,17 +3778,39 @@ function getCurrentRaidBoss(now = new Date()) {
 }
 
 function normalizeRaidMode(mode) {
+  if (mode === RAID_MODE_CHAOS) return RAID_MODE_CHAOS;
   return mode === RAID_MODE_HARD ? RAID_MODE_HARD : RAID_MODE_NORMAL;
+}
+
+function getRaidAvailableModesForBossId(bossId) {
+  return bossId === RAID_BOSS_ID_OVERTIME_MANAGER
+    ? [RAID_MODE_NORMAL, RAID_MODE_HARD]
+    : RAID_MODE_LIST;
+}
+
+function getRaidAvailableModes(now = new Date()) {
+  return getRaidAvailableModesForBossId(getCurrentRaidBossId(now));
+}
+
+function isRaidModeAvailableForBoss(mode, bossId) {
+  return getRaidAvailableModesForBossId(bossId).includes(normalizeRaidMode(mode));
+}
+
+function normalizeRaidModeForCurrentBoss(mode, now = new Date()) {
+  const normalizedMode = normalizeRaidMode(mode);
+  if (getRaidAvailableModes(now).includes(normalizedMode)) return normalizedMode;
+  return normalizedMode === RAID_MODE_CHAOS ? RAID_MODE_HARD : RAID_MODE_NORMAL;
 }
 
 function ensureRaidRooms() {
   if (!raidState.modes || typeof raidState.modes !== 'object') {
     raidState.modes = {
       [RAID_MODE_NORMAL]: createRaidRoomState(),
-      [RAID_MODE_HARD]: createRaidRoomState()
+      [RAID_MODE_HARD]: createRaidRoomState(),
+      [RAID_MODE_CHAOS]: createRaidRoomState()
     };
   }
-  [RAID_MODE_NORMAL, RAID_MODE_HARD].forEach((mode) => {
+  RAID_MODE_LIST.forEach((mode) => {
     if (!raidState.modes[mode]) raidState.modes[mode] = createRaidRoomState();
     if (!Array.isArray(raidState.modes[mode].slots)) raidState.modes[mode].slots = Array(RAID_PARTY_SIZE).fill(null);
     if (!Array.isArray(raidState.modes[mode].slotQueuedAt)) raidState.modes[mode].slotQueuedAt = Array(RAID_PARTY_SIZE).fill(null);
@@ -3695,7 +3828,7 @@ function getRaidRoom(mode = RAID_MODE_NORMAL) {
 
 function findRaidRoomWithParticipant(userId) {
   ensureRaidRooms();
-  return [RAID_MODE_NORMAL, RAID_MODE_HARD]
+  return RAID_MODE_LIST
     .map((mode) => ({ mode, room: getRaidRoom(mode) }))
     .find(({ room }) => room.activeBattle && isRaidUserParticipant(room.activeBattle, userId)) || null;
 }
@@ -3726,7 +3859,7 @@ function syncQueuedRaidBoss(now = new Date(), mode = RAID_MODE_NORMAL) {
 }
 
 function pruneExpiredRaidQueue(mode = null, now = new Date()) {
-  const modes = mode ? [normalizeRaidMode(mode)] : [RAID_MODE_NORMAL, RAID_MODE_HARD];
+  const modes = mode ? [normalizeRaidMode(mode)] : RAID_MODE_LIST;
   let changed = false;
   modes.forEach((entryMode) => {
     const room = getRaidRoom(entryMode);
@@ -5228,7 +5361,7 @@ function findQueuedRaidSlotIndex(userId, mode = RAID_MODE_NORMAL) {
 }
 
 function clearQueuedRaidUser(userId, mode = null) {
-  const modes = mode ? [normalizeRaidMode(mode)] : [RAID_MODE_NORMAL, RAID_MODE_HARD];
+  const modes = mode ? [normalizeRaidMode(mode)] : RAID_MODE_LIST;
   modes.forEach((entryMode) => {
     const room = getRaidRoom(entryMode);
     const slotIndex = findQueuedRaidSlotIndex(userId, entryMode);
@@ -6567,16 +6700,19 @@ function buildRaidParticipantStatusEffects(participant) {
 function buildRaidBossStatusEffects(battle) {
   const effects = [];
   if (!battle) return effects;
-  const isHardMode = getRaidModeFromBattle(battle) === RAID_MODE_HARD;
+  const isHardMode = isHardOrChaosRaidBattle(battle);
+  const isChaosMode = isChaosRaidBattle(battle);
   if (isHardMode && battle.bossId === RAID_BOSS_ID) {
     const missingRatio = Number(battle.bossMaxHp || 0) > 0
       ? Math.max(0, Math.min(1, (Number(battle.bossMaxHp || 0) - Number(battle.bossHp || 0)) / Number(battle.bossMaxHp || 1)))
       : 0;
-    const reductionPercent = Math.round(Math.min(0.75, missingRatio * 0.75) * 100);
+    const reductionPercent = isChaosRaidBattle(battle) ? Math.round(Math.min(0.75, missingRatio * 0.75) * 100) : 0;
     effects.push({
       type: 'buff',
       name: '가시갑옷',
-      desc: `1회 피격당할 때마다 공격자에게 5 피해를 반사합니다. 잃은 체력 비례 피해 감소 ${reductionPercent}%`
+      desc: isChaosMode
+        ? `1회 피격당할 때마다 공격자에게 5 피해를 반사합니다. 잃은 체력 비례 피해 감소 ${reductionPercent}%`
+        : '1회 피격당할 때마다 공격자에게 5 피해를 반사합니다.'
     });
   }
   if (isHardMode && battle.bossId === RAID_BOSS_ID_BALD_MANAGER) {
@@ -6585,14 +6721,18 @@ function buildRaidBossStatusEffects(battle) {
       type: 'buff',
       name: '매끈한 두피',
       count: stacks || null,
-      desc: `1P 행동 시작부터 다음 1P 행동 시작 전까지 피격될 때마다 이후 받는 피해가 10%씩 곱연산으로 감소하고, 자신의 턴마다 잃은 체력의 20%를 회복합니다.${stacks > 0 ? ` 현재 피해 수령 ${Math.round(Math.pow(0.9, stacks) * 100)}%` : ''}`
+      desc: isChaosMode
+        ? `1P 행동 시작부터 다음 1P 행동 시작 전까지 피격될 때마다 이후 받는 피해가 10%씩 곱연산으로 감소하고, 자신의 턴마다 잃은 체력의 20%를 회복합니다.${stacks > 0 ? ` 현재 피해 수령 ${Math.round(Math.pow(0.9, stacks) * 100)}%` : ''}`
+        : `1P 행동 시작부터 다음 1P 행동 시작 전까지 피격될 때마다 이후 받는 피해가 10%씩 곱연산으로 감소합니다.${stacks > 0 ? ` 현재 피해 수령 ${Math.round(Math.pow(0.9, stacks) * 100)}%` : ''}`
     });
   }
   if (isHardMode && battle.bossId === RAID_BOSS_ID_HOI) {
     effects.push({
       type: 'buff',
       name: '나 먼저 퇴근할게',
-      desc: '매 공격을 20% 확률로 회피합니다. 회피 성공 시 총 잃은 체력의 10%를 회복합니다.'
+      desc: isChaosMode
+        ? '매 공격을 20% 확률로 회피합니다. 회피 성공 시 총 잃은 체력의 10%를 회복합니다.'
+        : '매 공격을 20% 확률로 회피합니다.'
     });
   }
   if (battle.bossId === RAID_BOSS_ID_OVERTIME_MANAGER) {
@@ -6713,7 +6853,8 @@ function getRaidBossMaxHpForMode(boss, mode = RAID_MODE_NORMAL) {
 
 function createRaidBossMinions(bossId, mode = RAID_MODE_NORMAL) {
   if (bossId !== RAID_BOSS_ID_OVERTIME_MANAGER) return [];
-  const isHardMode = normalizeRaidMode(mode) === RAID_MODE_HARD;
+  const normalizedMode = normalizeRaidMode(mode);
+  const isHardMode = normalizedMode === RAID_MODE_HARD || normalizedMode === RAID_MODE_CHAOS;
   const minionDefs = [
     {
       unitId: 'overtime_choi',
@@ -6756,11 +6897,16 @@ function getRaidLobbySummary(now = new Date(), mode = RAID_MODE_NORMAL) {
   const modeConfig = getRaidModeConfig(normalizedMode);
   const boss = getRaidLobbyBoss(now, normalizedMode);
   const maxHp = getRaidBossMaxHpForMode(boss, normalizedMode);
-  const modeSkillsText = normalizedMode === RAID_MODE_HARD && Array.isArray(boss.hardSkillsText)
+  const usesEnhancedText = normalizedMode === RAID_MODE_CHAOS
+    || (normalizedMode === RAID_MODE_HARD && boss.id === RAID_BOSS_ID_OVERTIME_MANAGER);
+  const modeSkillsText = usesEnhancedText && Array.isArray(boss.hardSkillsText)
     ? boss.hardSkillsText
     : (boss.skillsText || []);
-  const skillsText = normalizedMode === RAID_MODE_HARD && boss.hardPassiveText
-    ? [boss.hardPassiveText, ...modeSkillsText]
+  const passiveText = normalizedMode === RAID_MODE_CHAOS
+    ? boss.hardPassiveText
+    : (normalizedMode === RAID_MODE_HARD ? (boss.legacyHardPassiveText || boss.hardPassiveText) : null);
+  const skillsText = passiveText
+    ? [passiveText, ...modeSkillsText]
     : modeSkillsText;
   return {
     mode: normalizedMode,
@@ -6774,8 +6920,8 @@ function getRaidLobbySummary(now = new Date(), mode = RAID_MODE_NORMAL) {
     maxLevel: Number.isFinite(modeConfig.maxLevel) ? modeConfig.maxLevel : null,
     rewardMultiplier: modeConfig.rewardMultiplier,
     skillsText,
-    rewardsText: normalizedMode === RAID_MODE_HARD
-      ? [...(boss.rewardsText || []), `하드 모드 보상: 노멀 보상의 ${Number(modeConfig.rewardMultiplier || 1).toFixed(2)}배`]
+    rewardsText: normalizedMode !== RAID_MODE_NORMAL
+      ? [...(boss.rewardsText || []), `${modeConfig.label} 모드 보상: 노멀 보상의 ${Number(modeConfig.rewardMultiplier || 1).toFixed(2)}배`]
       : [...(boss.rewardsText || []), '150레벨 이상 유저가 노멀 모드에 참가하면 기본 보상은 1/3로 지급됩니다.']
   };
 }
@@ -7558,13 +7704,28 @@ function isHardRaidBattle(battle) {
   return getRaidModeFromBattle(battle) === RAID_MODE_HARD;
 }
 
+function isChaosRaidBattle(battle) {
+  return getRaidModeFromBattle(battle) === RAID_MODE_CHAOS;
+}
+
+function isHardOrChaosRaidBattle(battle) {
+  const mode = getRaidModeFromBattle(battle);
+  return mode === RAID_MODE_HARD || mode === RAID_MODE_CHAOS;
+}
+
+function usesEnhancedRaidBossTuning(battle) {
+  if (!battle) return false;
+  return isChaosRaidBattle(battle)
+    || (isHardRaidBattle(battle) && battle.bossId === RAID_BOSS_ID_OVERTIME_MANAGER);
+}
+
 function resetRaidBossRoundPassiveState(battle) {
   if (!battle) return;
   battle.bossSmoothScalpStacks = 0;
 }
 
 function applyHardRaidBossOnHitPassive(battle, attacker) {
-  if (!battle || !attacker || !isHardRaidBattle(battle)) return;
+  if (!battle || !attacker || !isHardOrChaosRaidBattle(battle)) return;
   if (battle.bossId === RAID_BOSS_ID) {
     const reflectedDamage = 5;
     const dealt = applyRaidDamage(attacker, reflectedDamage, {
@@ -7619,23 +7780,23 @@ function applyRaidDamageToBoss(battle, damage, options = {}) {
   if (tauntMinion) {
     return applyRaidDamageToBossMinion(battle, tauntMinion, incomingDamage, options);
   }
-  if (attacker && isHardRaidBattle(battle) && battle.bossId === RAID_BOSS_ID_HOI && Math.random() < 0.2) {
+  if (attacker && isHardOrChaosRaidBattle(battle) && battle.bossId === RAID_BOSS_ID_HOI && Math.random() < 0.2) {
     const missingHp = Math.max(0, Number(battle.bossMaxHp || 0) - Number(battle.bossHp || 0));
-    const healAmount = Math.floor(missingHp * 0.1);
+    const healAmount = isChaosRaidBattle(battle) ? Math.floor(missingHp * 0.1) : 0;
     if (healAmount > 0) {
       battle.bossHp = Math.min(Number(battle.bossMaxHp || 0), Number(battle.bossHp || 0) + healAmount);
     }
     battle.bossLastHpLoss = 0;
-    battle.logs.push(`HOI-M.S.J-50의 <나 먼저 퇴근할게>! ${attacker.displayName}의 공격을 회피하고 ${healAmount.toLocaleString()} HP를 회복했습니다.`);
+    battle.logs.push(`HOI-M.S.J-50의 <나 먼저 퇴근할게>! ${attacker.displayName}의 공격을 회피했습니다.${healAmount > 0 ? ` ${healAmount.toLocaleString()} HP를 회복했습니다.` : ''}`);
     return 0;
   }
-  if (attacker && isHardRaidBattle(battle) && battle.bossId === RAID_BOSS_ID_BALD_MANAGER) {
+  if (attacker && isHardOrChaosRaidBattle(battle) && battle.bossId === RAID_BOSS_ID_BALD_MANAGER) {
     const stacks = Math.max(0, Number(battle.bossSmoothScalpStacks || 0));
     if (stacks > 0) {
       incomingDamage = Math.max(0, Math.floor(incomingDamage * Math.pow(0.9, stacks)));
     }
   }
-  if (attacker && isHardRaidBattle(battle) && battle.bossId === RAID_BOSS_ID) {
+  if (attacker && isChaosRaidBattle(battle) && battle.bossId === RAID_BOSS_ID) {
     const maxHp = Math.max(1, Number(battle.bossMaxHp || 1));
     const missingRatio = Math.max(0, Math.min(1, (maxHp - Number(battle.bossHp || 0)) / maxHp));
     const reduction = Math.min(0.75, missingRatio * 0.75);
@@ -8033,7 +8194,7 @@ function performRaidBossMinionAction(battle, minion) {
 function performRaidBossAction(battle) {
   const bossInfo = RAID_BOSS_DATA[battle.bossId] || RAID_BOSS_DATA[RAID_BOSS_ID];
   tickRaidBossSideShields(battle);
-  const patternOrder = isHardRaidBattle(battle) && Array.isArray(bossInfo.hardPatternOrder) && bossInfo.hardPatternOrder.length
+  const patternOrder = usesEnhancedRaidBossTuning(battle) && Array.isArray(bossInfo.hardPatternOrder) && bossInfo.hardPatternOrder.length
     ? bossInfo.hardPatternOrder
     : bossInfo.patternOrder;
   const pattern = patternOrder[battle.bossPatternIndex % patternOrder.length];
@@ -8041,7 +8202,7 @@ function performRaidBossAction(battle) {
   const aliveParticipants = getAliveRaidParticipants(battle);
   if (aliveParticipants.length === 0) return `${bossInfo.name}이(가) 승리의 포즈를 취했습니다.`;
 
-  if (isHardRaidBattle(battle) && battle.bossId === RAID_BOSS_ID_BALD_MANAGER) {
+  if (isChaosRaidBattle(battle) && battle.bossId === RAID_BOSS_ID_BALD_MANAGER) {
     const missingHp = Math.max(0, Number(battle.bossMaxHp || 0) - Number(battle.bossHp || 0));
     const healAmount = Math.floor(missingHp * 0.2);
     if (healAmount > 0) {
@@ -8156,7 +8317,7 @@ function performRaidBossAction(battle) {
 
   if (battle.bossId === RAID_BOSS_ID_HOI) {
     if (pattern === 'son_brag') {
-      const isHardMode = isHardRaidBattle(battle);
+      const isHardMode = isChaosRaidBattle(battle);
       const targets = selectRaidBossTargets(aliveParticipants, 2);
       const affectedNames = [];
       const resistedNames = [];
@@ -8204,7 +8365,7 @@ function performRaidBossAction(battle) {
         battle.bossLastHpLoss = 0;
         return `HOI-M.S.J-50의 아들이랑 엮기 MK.2! 보유 버프 ${bossBuffCount}개로 HP를 ${healAmount.toLocaleString()} 회복했습니다.`;
       }
-      const shieldAmount = isHardRaidBattle(battle) ? 80000 : 5000;
+      const shieldAmount = isChaosRaidBattle(battle) ? 80000 : 5000;
       battle.bossShield = Number(battle.bossShield || 0) + shieldAmount;
       battle.bossShieldTurns = Math.max(Number(battle.bossShieldTurns || 0), 1);
       battle.bossLastHpLoss = 0;
@@ -8213,8 +8374,8 @@ function performRaidBossAction(battle) {
 
     if (pattern === 'ass_hit') {
       const steps = [];
-      const hitCount = isHardRaidBattle(battle) ? 5 : 3;
-      const hitDamage = isHardRaidBattle(battle) ? 8 : 10;
+      const hitCount = isChaosRaidBattle(battle) ? 5 : 3;
+      const hitDamage = isChaosRaidBattle(battle) ? 8 : 10;
       for (let count = 0; count < hitCount; count += 1) {
         steps.push({
           type: 'boss_all_hit',
@@ -8234,16 +8395,16 @@ function performRaidBossAction(battle) {
       const target = pickRaidBossTarget(aliveParticipants);
       if (target && !applyRaidDebuffImmunity(target)) {
         target.nailBounceDelayTurns = Math.max(target.nailBounceDelayTurns, 1);
-        target.nailBounceDamage = Math.max(target.nailBounceDamage, isHardRaidBattle(battle) ? 20 : 40);
+        target.nailBounceDamage = Math.max(target.nailBounceDamage, isChaosRaidBattle(battle) ? 20 : 40);
         target.nailBounceRemainingBounces = Math.max(target.nailBounceRemainingBounces, 2);
-        target.nailBounceDamageStep = isHardRaidBattle(battle) ? 10 : -10;
+        target.nailBounceDamageStep = isChaosRaidBattle(battle) ? 10 : -10;
         return `HOI-M.S.J-50의 손 톱 깎 기! ${target.displayName}에게 튕겨나간 손톱 디버프를 부여했습니다.`;
       }
       return `HOI-M.S.J-50의 손 톱 깎 기! ${target.displayName}은(는) 디버프를 막아냈습니다.`;
     }
 
     if (pattern === 'food_question') {
-      const isHardMode = isHardRaidBattle(battle);
+      const isHardMode = isChaosRaidBattle(battle);
       if (isHardMode) {
         const steps = [0, 1].map((_, index) => ({
           type: 'boss_all_hit',
@@ -8273,7 +8434,7 @@ function performRaidBossAction(battle) {
   }
 
   if (battle.bossId === RAID_BOSS_ID_BALD_MANAGER) {
-    const isHardMode = isHardRaidBattle(battle);
+    const isHardMode = isChaosRaidBattle(battle);
     if (pattern === 'wig_search') {
       const wigTargets = aliveParticipants.filter((participant) => participant.equippedCardId === 'wig');
       if (wigTargets.length > 0) {
@@ -8375,7 +8536,7 @@ function performRaidBossAction(battle) {
   }
 
   if (pattern === 'burp') {
-    if (isHardRaidBattle(battle) && battle.bossId === RAID_BOSS_ID) {
+    if (isChaosRaidBattle(battle) && battle.bossId === RAID_BOSS_ID) {
       const steps = [0, 1, 2].map((_, index) => ({
         type: 'boss_all_hit',
         skillName: '트름하기',
@@ -8397,7 +8558,7 @@ function performRaidBossAction(battle) {
   }
 
   if (pattern === 'ice') {
-    const isHardMode = isHardRaidBattle(battle) && battle.bossId === RAID_BOSS_ID;
+    const isHardMode = isChaosRaidBattle(battle) && battle.bossId === RAID_BOSS_ID;
     const targets = selectRaidBossTargets(aliveParticipants, 3);
     const silencedNames = [];
     const resistedNames = [];
@@ -8434,7 +8595,7 @@ function performRaidBossAction(battle) {
   }
 
   if (pattern === 'shield') {
-    const isHardMode = isHardRaidBattle(battle) && battle.bossId === RAID_BOSS_ID;
+    const isHardMode = isChaosRaidBattle(battle) && battle.bossId === RAID_BOSS_ID;
     let healAmount = 0;
     if (isHardMode) {
       const missingHp = Math.max(0, Number(battle.bossMaxHp || 0) - Number(battle.bossHp || 0));
@@ -8548,10 +8709,14 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
 }
 
 function applyRaidBattleStartPassives(activeBattle) {
-  if (isHardRaidBattle(activeBattle)) {
+  if (isHardOrChaosRaidBattle(activeBattle)) {
     const bossInfo = RAID_BOSS_DATA[activeBattle.bossId] || RAID_BOSS_DATA[RAID_BOSS_ID];
-    if (bossInfo.hardPassiveText) {
-      activeBattle.logs.push(`${bossInfo.name} 하드 패시브 적용: ${bossInfo.hardPassiveText.replace(/^패시브\.\s*/, '')}`);
+    const passiveText = isChaosRaidBattle(activeBattle)
+      ? bossInfo.hardPassiveText
+      : (bossInfo.legacyHardPassiveText || bossInfo.hardPassiveText);
+    if (passiveText) {
+      const modeLabel = getRaidModeConfig(getRaidModeFromBattle(activeBattle)).label;
+      activeBattle.logs.push(`${bossInfo.name} ${modeLabel} 패시브 적용: ${passiveText.replace(/^패시브\.\s*/, '')}`);
     }
   }
   const hoiBoosted = activeBattle.bossId === RAID_BOSS_ID_HOI
@@ -8640,7 +8805,7 @@ async function buildRaidStateResponse(user, now = new Date(), mode = RAID_MODE_N
     }
   } catch (err) {
     console.error('Raid state reconciliation error:', err);
-    [RAID_MODE_NORMAL, RAID_MODE_HARD].forEach((entryMode) => {
+    RAID_MODE_LIST.forEach((entryMode) => {
       const activeBattle = getRaidRoom(entryMode).activeBattle;
       if (activeBattle?.finalizing) {
         activeBattle.finalizing = false;
@@ -8649,7 +8814,7 @@ async function buildRaidStateResponse(user, now = new Date(), mode = RAID_MODE_N
     });
   }
 
-  const normalizedMode = normalizeRaidMode(mode);
+  const normalizedMode = normalizeRaidModeForCurrentBoss(mode, now);
   const room = getRaidRoom(normalizedMode);
   const queuedUserIds = room.slots.filter(Boolean);
   const queuedUsers = queuedUserIds.length
@@ -8670,7 +8835,7 @@ async function buildRaidStateResponse(user, now = new Date(), mode = RAID_MODE_N
   return {
     version: raidState.version,
     mode: normalizedMode,
-    modes: [RAID_MODE_NORMAL, RAID_MODE_HARD].map((entryMode) => buildRaidModeStatus(user, entryMode, now)),
+    modes: getRaidAvailableModes(now).map((entryMode) => buildRaidModeStatus(user, entryMode, now)),
     lobby: getRaidLobbySummary(now, normalizedMode),
     slots,
     queuedSlotIndex: slotIndex,
@@ -8692,7 +8857,8 @@ async function buildRaidStateResponse(user, now = new Date(), mode = RAID_MODE_N
     activeBattle: buildRaidBattleSnapshot(room.activeBattle, user._id),
     activeBattles: {
       [RAID_MODE_NORMAL]: buildRaidBattleSnapshot(getRaidRoom(RAID_MODE_NORMAL).activeBattle, user._id),
-      [RAID_MODE_HARD]: buildRaidBattleSnapshot(getRaidRoom(RAID_MODE_HARD).activeBattle, user._id)
+      [RAID_MODE_HARD]: buildRaidBattleSnapshot(getRaidRoom(RAID_MODE_HARD).activeBattle, user._id),
+      [RAID_MODE_CHAOS]: buildRaidBattleSnapshot(getRaidRoom(RAID_MODE_CHAOS).activeBattle, user._id)
     }
   };
 }
@@ -12549,8 +12715,9 @@ async function advanceRaidRoomState(mode = RAID_MODE_NORMAL, now = new Date()) {
 }
 
 async function advanceRaidState(now = new Date()) {
-  await advanceRaidRoomState(RAID_MODE_NORMAL, now);
-  await advanceRaidRoomState(RAID_MODE_HARD, now);
+  for (const mode of RAID_MODE_LIST) {
+    await advanceRaidRoomState(mode, now);
+  }
 }
 
 function unlockTitle(user, titleId, options = {}) {
@@ -16436,7 +16603,7 @@ app.post('/api/cards/equip', async (req, res) => {
       return res.status(400).json({ msg: '보유하지 않은 카드입니다.' });
     }
 
-    for (const mode of [RAID_MODE_NORMAL, RAID_MODE_HARD]) {
+    for (const mode of RAID_MODE_LIST) {
       const queuedSlotIndex = findQueuedRaidSlotIndex(user._id, mode);
       if (queuedSlotIndex >= 0 && cardId) {
         const otherQueuedUserIds = getRaidRoom(mode).slots
@@ -16483,7 +16650,7 @@ app.post('/api/raid/state', async (req, res) => {
     user.meta = user.meta || {};
 
     const now = new Date();
-    const normalizedMode = normalizeRaidMode(mode);
+    const normalizedMode = normalizeRaidModeForCurrentBoss(mode, now);
     const room = getRaidRoom(normalizedMode);
     if (viewing && room.activeBattle && !isRaidUserParticipant(room.activeBattle, userId)) {
       registerViewer(room.viewers, user, now);
@@ -16512,6 +16679,9 @@ app.post('/api/raid/toggle-slot', async (req, res) => {
     const now = new Date();
     calculateOfflineGains(user, now);
     const normalizedMode = normalizeRaidMode(mode);
+    if (!isRaidModeAvailableForBoss(normalizedMode, getCurrentRaidBossId(now))) {
+      return res.status(400).json({ msg: '오늘 보스는 카오스 모드를 지원하지 않습니다.' });
+    }
     const room = getRaidRoom(normalizedMode);
     pruneExpiredRaidQueue(normalizedMode, now);
 
@@ -16580,6 +16750,9 @@ app.post('/api/raid/start', async (req, res) => {
     ensureUserDefaults(starter);
     const now = new Date();
     calculateOfflineGains(starter, now);
+    if (!isRaidModeAvailableForBoss(normalizedMode, getCurrentRaidBossId(now))) {
+      return res.status(400).json({ msg: '오늘 보스는 카오스 모드를 지원하지 않습니다.' });
+    }
     try {
       await advanceRaidState(now);
     } catch (err) {
@@ -16718,7 +16891,7 @@ app.post('/api/raid/start', async (req, res) => {
     const raid = {
       version: raidState.version,
       mode: normalizedMode,
-      modes: [RAID_MODE_NORMAL, RAID_MODE_HARD].map((entryMode) => buildRaidModeStatus(responseUser, entryMode, now)),
+      modes: getRaidAvailableModes(now).map((entryMode) => buildRaidModeStatus(responseUser, entryMode, now)),
       lobby: getRaidLobbySummary(now, normalizedMode),
       slots: Array(RAID_PARTY_SIZE).fill(null),
       queuedSlotIndex: -1,
@@ -16736,7 +16909,8 @@ app.post('/api/raid/start', async (req, res) => {
       activeBattle: buildRaidBattleSnapshot(room.activeBattle, userId),
       activeBattles: {
         [RAID_MODE_NORMAL]: buildRaidBattleSnapshot(getRaidRoom(RAID_MODE_NORMAL).activeBattle, userId),
-        [RAID_MODE_HARD]: buildRaidBattleSnapshot(getRaidRoom(RAID_MODE_HARD).activeBattle, userId)
+        [RAID_MODE_HARD]: buildRaidBattleSnapshot(getRaidRoom(RAID_MODE_HARD).activeBattle, userId),
+        [RAID_MODE_CHAOS]: buildRaidBattleSnapshot(getRaidRoom(RAID_MODE_CHAOS).activeBattle, userId)
       }
     };
     res.json({ raid });
@@ -18243,6 +18417,8 @@ app.get('/api/admin/users', async (req, res) => {
   if (!requireAdmin(req, res)) return;
 
   try {
+    const now = new Date();
+    const tournamentState = await getInterviewTournamentState(now);
     const users = await User.find({})
       .sort({ nickname: 1, username: 1 })
       .select('username nickname');
@@ -18259,7 +18435,8 @@ app.get('/api/admin/users', async (req, res) => {
       raidBossOptions: RAID_BOSS_ROTATION_IDS.map((bossId) => ({
         id: bossId,
         name: RAID_BOSS_DATA[bossId]?.name || bossId
-      }))
+      })),
+      interviewTournament: buildInterviewTournamentResponse(tournamentState, null, now)
     });
   } catch (err) {
     console.error('Admin user list error:', err);
@@ -18456,6 +18633,29 @@ app.post('/api/admin/grant-money', async (req, res) => {
   }
 });
 
+app.post('/api/admin/interview-tournament/force-result', async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+
+  const { matchId, winnerUserId } = req.body || {};
+  if (!matchId || !winnerUserId) {
+    return res.status(400).json({ msg: '대진과 승자를 선택해주세요.' });
+  }
+
+  try {
+    const now = new Date();
+    const { state, match } = await forceInterviewTournamentMatchResult(matchId, winnerUserId, now);
+    res.json({
+      success: true,
+      matchId: match.matchId,
+      winner: match.winner,
+      interviewTournament: buildInterviewTournamentResponse(state, null, now)
+    });
+  } catch (err) {
+    console.error('Admin tournament force-result error:', err);
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '토너먼트 승패 확정에 실패했습니다.' });
+  }
+});
+
 app.post('/api/admin/set-raid-boss', async (req, res) => {
   if (!requireAdmin(req, res)) return;
 
@@ -18464,7 +18664,7 @@ app.post('/api/admin/set-raid-boss', async (req, res) => {
     return res.status(400).json({ msg: '변경할 보스가 올바르지 않습니다.' });
   }
 
-  if ([RAID_MODE_NORMAL, RAID_MODE_HARD].some((mode) => {
+  if (RAID_MODE_LIST.some((mode) => {
     const room = getRaidRoom(mode);
     return room.activeBattle || room.slots.some(Boolean);
   })) {

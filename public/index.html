@@ -93,6 +93,16 @@
           <button id="adminSetRaidBossBtn" class="menu-action-btn">오늘의 보스 변경</button>
           <p class="menu-note">오늘만 선택한 보스로 고정되고, 다음날에는 자동으로 다른 보스로 변경됩니다.</p>
         </div>
+
+        <div class="admin-card">
+          <h3>면담 토너먼트 승패 확정</h3>
+          <label for="adminTournamentMatchSelect">대상 대진</label>
+          <select id="adminTournamentMatchSelect"></select>
+          <label for="adminTournamentWinnerSelect">승자 선택</label>
+          <select id="adminTournamentWinnerSelect"></select>
+          <button id="adminForceTournamentResultBtn" class="menu-action-btn">선택 승자 확정</button>
+          <p class="menu-note">불참자가 있을 때 운영자가 해당 대진의 승자를 직접 확정합니다. 3판 2선승 대진은 선택 유저의 최종 승리로 처리됩니다.</p>
+        </div>
       </div>
     </div>
   </div>
@@ -798,6 +808,7 @@
       <div class="raid-mode-tabs">
         <button id="raidModeNormalBtn" class="mini-btn raid-mode-tab active" data-raid-mode="normal">노멀 모드</button>
         <button id="raidModeHardBtn" class="mini-btn raid-mode-tab" data-raid-mode="hard">하드 모드</button>
+        <button id="raidModeChaosBtn" class="mini-btn raid-mode-tab" data-raid-mode="chaos">카오스 모드</button>
       </div>
       <div class="raid-lobby-grid">
         <div>

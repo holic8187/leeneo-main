@@ -441,6 +441,56 @@ progress {
   display: none;
 }
 
+.emblem-tiger {
+  color: #ffffff;
+  font-weight: 900;
+  background:
+    linear-gradient(90deg, rgba(120, 0, 20, .26) 0%, rgba(255, 255, 255, .05) 48%, rgba(255, 105, 42, .18) 100%),
+    url('/assets/emblems/tiger-banner.png') center center / cover no-repeat;
+  box-shadow: inset 0 0 0 1px rgba(217, 24, 55, .78), inset 0 0 24px rgba(255, 112, 48, .28);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .95), 0 0 9px rgba(255, 80, 30, .52);
+}
+
+.emblem-tiger::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, .42) 45%, transparent 61%);
+  transform: translateX(-120%);
+  animation: emblem-sheen 3.45s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.emblem-tiger .ranking-emblem-icon,
+.emblem-tiger .emblem-preview-icon {
+  display: none;
+}
+
+.emblem-chik {
+  color: #3d1f00;
+  font-weight: 900;
+  background:
+    linear-gradient(90deg, rgba(255, 248, 235, .42) 0%, rgba(255, 255, 255, .08) 48%, rgba(255, 110, 20, .28) 100%),
+    url('/assets/emblems/chik-banner.png') center center / cover no-repeat;
+  box-shadow: inset 0 0 0 1px rgba(245, 104, 20, .74), inset 0 0 24px rgba(255, 146, 38, .30);
+  text-shadow: 0 1px 1px rgba(255, 255, 255, .78), 0 0 8px rgba(255, 180, 80, .55);
+}
+
+.emblem-chik::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, .42) 45%, transparent 61%);
+  transform: translateX(-120%);
+  animation: emblem-sheen 3.55s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.emblem-chik .ranking-emblem-icon,
+.emblem-chik .emblem-preview-icon {
+  display: none;
+}
+
 .emblem-chunsik-art {
   color: #f8fbff;
   font-weight: 800;
@@ -667,6 +717,8 @@ progress {
 
 .ranking-name-cell.emblem-neo-office-ledger,
 .ranking-name-cell.emblem-cat-butler,
+.ranking-name-cell.emblem-tiger,
+.ranking-name-cell.emblem-chik,
 .ranking-name-cell.emblem-chunsik-art,
 .ranking-name-cell.emblem-carbon-fiber,
 .ranking-name-cell.emblem-winter-manager-season,
@@ -681,6 +733,8 @@ progress {
 
 .ranking-name-cell.emblem-neo-office-ledger,
 .ranking-name-cell.emblem-cat-butler,
+.ranking-name-cell.emblem-tiger,
+.ranking-name-cell.emblem-chik,
 .ranking-name-cell.emblem-chunsik-art,
 .ranking-name-cell.emblem-carbon-fiber,
 .ranking-name-cell.emblem-winter-manager-season,
@@ -692,6 +746,8 @@ progress {
 .ranking-name-cell.emblem-idol,
 .emblem-preview-cell.emblem-neo-office-ledger,
 .emblem-preview-cell.emblem-cat-butler,
+.emblem-preview-cell.emblem-tiger,
+.emblem-preview-cell.emblem-chik,
 .emblem-preview-cell.emblem-chunsik-art,
 .emblem-preview-cell.emblem-carbon-fiber,
 .emblem-preview-cell.emblem-winter-manager-season,
