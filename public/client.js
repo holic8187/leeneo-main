@@ -73,11 +73,12 @@ const ITEM_DATA = {
 
 const CARD_DATA = {
   chunsik_not_hyeji: { name: '춘식이혜지아니다.', grade: 'S', color: '#c62828', skillName: '춘식이혜지아니다.', skillDesc: '지정한 아군 1인의 총 잃은 체력 비율을 회복합니다.', cooldown: 8, targetType: 'ally' },
+  after_work_chimek: { name: '퇴근 후 유튜브, 치킨 그리고 맥주', grade: 'S', color: '#c62828', skillName: '퇴근 후 치맥', skillDesc: '파티원 전원의 HP를 10 + 잃은 체력 비율만큼 회복하고 피격 무효 1회를 부여합니다.', cooldown: 6, targetType: null },
   flexible_blame: { name: '유연한 남탓: 제가 한거 아닌데요?', grade: 'A', color: '#f9a825', skillName: '제가 한거 아닌데요?', skillDesc: '지정한 아군 1인에게 <예? 저요?>를 부여해 우선 타겟팅되게 하고 받는 최종 피해를 감소시킵니다.', cooldown: 5, targetType: 'ally' },
   solid_mental: { name: '굳건한 멘탈의 소유자', grade: 'S', color: '#c62828', skillName: '굳건한 멘탈', skillDesc: '자기 자신에게 피격 무효화를 여러 회 부여합니다. 피격 무효를 모두 소모한 뒤 쿨타임이 시작됩니다.', cooldown: 8, targetType: null },
   nosy_manager: { name: '노처녀 신차장의 오지랖', grade: 'A', color: '#f9a825', skillName: '오지랖', skillDesc: '선택한 파티원 1명에게 보호막을 부여하고, 상대에게 자신의 레벨 기반 피해를 2회 입힙니다.', cooldown: 5, targetType: 'ally' },
   mingu_champion: { name: '제 1회 면담대회 우승자 밍구의 품격', grade: 'S', color: '#c62828', skillName: '챔피언의 품격', skillDesc: '지정한 파티원 1인에게 보호막 20과 <챔피언의 가호>를, 상대에게 <눈부심>을 부여합니다.', cooldown: 7, targetType: 'ally', specialStyle: 'champion' },
-  winter_subordinate: { name: '겨울 부장의 부하직원 육성', grade: 'S', color: '#c62828', skillName: '부하직원 육성', skillDesc: '파티원 중 가장 레벨이 낮은 1명을 2턴 동안 레벨 +1~+5로 간주합니다. +5강은 쿨타임이 7턴입니다.', cooldown: 8, targetType: null },
+  winter_subordinate: { name: '겨울 부장의 부하직원 육성', grade: 'S', color: '#c62828', skillName: '부하직원 육성', skillDesc: '선택한 파티원 1인의 최종 데미지를 2턴 동안 증가시킵니다.', cooldown: 7, targetType: 'ally' },
   potato_rehab: { name: '감자의 재활훈련', grade: 'S', color: '#c62828', skillName: '재활훈련', skillDesc: '보스전에서 현재 데미지의 고정 피해를 1회 입힙니다. 노멀 보스에서는 피해와 막타 성장량이 1/3로 적용됩니다. 한 판당 1회만 사용할 수 있고, 이 스킬로 처치하면 데미지가 플레이어의 현재 레벨만큼 영구 증가합니다. 개인면담에서는 선택할 수 없습니다.', cooldown: 0, targetType: null, specialStyle: 'potato-rehab' },
   ineo_diet: { name: '이네오의 다이어트 선언', grade: 'S', color: '#c62828', skillName: '다이어트 선언', skillDesc: '돌아오는 턴에 기본 공격을 총 10회 합니다. 각 공격은 기본 공격 피해의 90%로 적용되며 크리티컬이 적용될 수 있습니다.', cooldown: 3, targetType: null },
   gangnam_style: { name: '일 중에 몰래 듣는 강남스타일', grade: 'S', color: '#c62828', skillName: '강남스타일', skillDesc: '1턴 동안 모든 팀원에게 크리티컬률 20%와 흥겨움 버프를 부여하고, 보호막 10을 제공합니다. 흥겨움 동안 기본 공격 횟수가 2배가 됩니다.', cooldown: 2, targetType: null },
@@ -300,6 +301,16 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-06-16-card-sunscreen-chimek-winter-rework',
+    time: '2026-06-16 10:40',
+    title: '카드 밸런스 및 신규 S카드 추가',
+    items: [
+      '썬크림 +5강의 피격 무효화 횟수가 2회에서 3회로 증가했습니다.',
+      '신규 S카드 <퇴근 후 유튜브, 치킨 그리고 맥주>가 추가되었습니다. 파티 전원 회복과 피격 무효화 1회를 제공합니다.',
+      '<겨울 부장의 부하직원 육성>이 선택한 파티원 1인의 최종 데미지를 2턴 동안 증가시키는 스킬로 리워크되었습니다.'
+    ]
+  },
   {
     id: '2026-06-16-new-baseball-emblems-hwang-chaos-off',
     time: '2026-06-16 09:30',
@@ -6163,8 +6174,8 @@ function renderPvpCountdown(match) {
 function isPvpAugmentAllyCard(card = {}) {
   const allyTargets = new Set(['ally', 'ally_pair']);
   const allyEffects = new Set([
-    'party_shield', 'party_heal', 'target_heal', 'target_missing_hp_heal',
-    'target_taunt_damage_reduction', 'target_attack_buff', 'target_debuff_guard',
+    'party_shield', 'party_heal', 'party_missing_hp_heal_negate', 'target_heal', 'target_missing_hp_heal',
+    'target_taunt_damage_reduction', 'target_attack_buff', 'target_final_damage_buff', 'target_debuff_guard',
     'champion_guard', 'party_cooldown_reduce', 'random_party_negate_hit',
     'party_negate_hit_by_level', 'party_bread_buff', 'party_cleanse',
     'party_crit_bonus', 'party_hype_crit', 'random_party_attack_buff',

@@ -1252,6 +1252,20 @@ const CARD_DATA = {
     targetType: 'ally',
     healMissingHpPercent: 0.3
   },
+  after_work_chimek: {
+    id: 'after_work_chimek',
+    name: '퇴근 후 유튜브, 치킨 그리고 맥주',
+    grade: 'S',
+    rate: 0.00025,
+    skillName: '퇴근 후 치맥',
+    skillDesc: '파티원 전원의 HP를 10 + 잃은 체력의 15%만큼 회복하고, 피격 무효화 1회를 부여합니다.',
+    cooldown: 6,
+    effectType: 'party_missing_hp_heal_negate',
+    targetType: null,
+    healFlat: 10,
+    healMissingHpPercent: 0.15,
+    negateHitCount: 1
+  },
   flexible_blame: {
     id: 'flexible_blame',
     name: '유연한 남탓: 제가 한거 아닌데요?',
@@ -1301,12 +1315,12 @@ const CARD_DATA = {
     grade: 'S',
     rate: 0.00025,
     skillName: '부하직원 육성',
-    skillDesc: '파티원 중 가장 레벨이 낮은 1명을 2턴 동안 레벨 +1~+5로 간주합니다.',
-    cooldown: 8,
-    effectType: 'lowest_level_buff',
-    targetType: null,
+    skillDesc: '선택한 파티원 1인의 최종 데미지를 2턴 동안 50% 증가시킵니다.',
+    cooldown: 7,
+    effectType: 'target_final_damage_buff',
+    targetType: 'ally',
     turns: 2,
-    levelBonus: 1
+    finalDamageBonusPercent: 0.5
   },
   potato_rehab: {
     id: 'potato_rehab',
@@ -1474,14 +1488,15 @@ const CARD_ENHANCE_RULES = {
   coca_cola: { attackBonusPercent: { 0: 0.2, 1: 0.25, 3: 0.3, 4: 0.35 }, turns: { 0: 1, 5: 2 }, cooldown: { 0: 5, 2: 4 } },
   cider_comment: { debuffImmuneCount: { 0: 1, 5: 2 }, cooldown: { 0: 6, 1: 5, 2: 4, 3: 3, 4: 2 } },
   rooftop_pigeons: { damagePerLevel: { 0: 5, 1: 6, 2: 7, 3: 8, 4: 9, 5: 10 } },
-  sunscreen: { targets: { 0: 3, 2: 4, 3: 99 }, negateHitCount: { 0: 1, 4: 2 }, includeSelf: { 0: 0, 3: 1 }, cooldown: { 0: 6, 1: 5, 5: 4 } },
+  sunscreen: { targets: { 0: 3, 2: 4, 3: 99 }, negateHitCount: { 0: 1, 4: 2, 5: 3 }, includeSelf: { 0: 0, 3: 1 }, cooldown: { 0: 6, 1: 5, 5: 4 } },
   trial_and_growth: { multiplierPerStatus: { 0: 5, 1: 5, 2: 6, 3: 7, 4: 7, 5: 8 }, cooldown: { 0: 5, 1: 4, 4: 3 } },
   hoi_overtime: { rageDamagePerStackPerLevel: { 0: 5, 1: 6, 2: 7, 3: 8, 4: 9 }, cooldown: { 0: 4, 5: 3 } },
   chunsik_not_hyeji: { healMissingHpPercent: { 0: 0.3, 2: 0.35, 3: 0.4, 5: 0.45 }, cooldown: { 0: 8, 1: 7, 4: 6 } },
+  after_work_chimek: { healMissingHpPercent: { 0: 0.15, 1: 0.2, 3: 0.25, 5: 0.3 }, cooldown: { 0: 6, 2: 5, 4: 4 } },
   flexible_blame: { damageReductionPercent: { 0: 0.02, 1: 0.04, 2: 0.06, 3: 0.08, 4: 0.1 }, cooldown: { 0: 5, 5: 4 } },
   solid_mental: { negateHitCount: { 0: 3, 1: 4, 2: 5, 4: 6, 5: 7 }, cooldown: { 0: 8, 3: 7 } },
   mingu_champion: { attackBonusPercent: { 0: 0.1, 3: 0.15, 5: 0.2 }, cooldown: { 0: 7, 2: 6, 4: 5 } },
-  winter_subordinate: { levelBonus: { 0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 5 }, cooldown: { 0: 8, 5: 7 } },
+  winter_subordinate: { finalDamageBonusPercent: { 0: 0.5, 1: 0.6, 3: 0.7, 5: 0.8 }, cooldown: { 0: 7, 2: 6, 4: 5 } },
   precise_strike: { multiplierPerLevel: { 0: 40, 2: 45, 3: 50, 4: 55 }, cooldown: { 0: 5, 1: 4, 5: 3 } },
   umbrella_copy: { copyEffectMultiplier: { 0: 0.5, 2: 0.6, 3: 0.7 }, canSelectCopyTarget: { 4: 1 }, cooldown: { 0: 6, 1: 5, 5: 4 } },
   neo_pesticide: { damagePerLevel: { 0: 10, 2: 11, 4: 12, 5: 15 }, cooldown: { 0: 7, 1: 6, 3: 5 } },
@@ -4515,6 +4530,8 @@ function getCardDurationText(cardId, enhancementLevel = 0) {
       return '첫 사용은 쿨타임 없음 / 재사용 시 즉시 폭발 후 쿨타임';
     case 'chunsik_not_hyeji':
       return '즉시';
+    case 'after_work_chimek':
+      return '즉시 / 피격 무효 1회';
     case 'flexible_blame':
       return `${card.turns || 2}턴`;
     case 'solid_mental':
@@ -4605,6 +4622,8 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
       return `상대에게 <야근>을 적용합니다. 첫 사용은 쿨타임이 돌지 않고, 야근 중 기본 공격 피격마다 <내면의 분노>가 쌓입니다. 이후 자신의 턴에 재사용하면 스택 x 레벨 x ${card.rageDamagePerStackPerLevel} 피해를 주고 야근과 스택을 소진한 뒤 쿨타임이 시작됩니다. 야근이 정화되면 폭발 재사용은 불가능해지고 즉시 쿨타임이 시작됩니다.`;
     case 'chunsik_not_hyeji':
       return `지정한 아군 1인의 총 잃은 체력의 ${formatCardPercentText(card.healMissingHpPercent)}를 회복합니다.`;
+    case 'after_work_chimek':
+      return `파티원 전원의 HP를 10 + 잃은 체력의 ${formatCardPercentText(card.healMissingHpPercent)}만큼 회복하고, 파티원 전원에게 피격 무효 ${card.negateHitCount || 1}회를 부여합니다.`;
     case 'flexible_blame':
       return `지정한 아군 1인에게 ${card.turns || 2}턴 동안 <예? 저요?> 버프를 부여합니다. 상대방은 버프 보유자를 우선 타겟팅하고, 광역/다중 대상 공격에는 버프 보유자가 우선 포함됩니다. 버프 보유자는 받는 최종 피해가 ${formatCardPercentText(card.damageReductionPercent)} 감소합니다.`;
     case 'solid_mental':
@@ -4612,7 +4631,7 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
     case 'mingu_champion':
       return `지정한 파티원 1인에게 보호막 ${card.shield}, ${card.turns}턴 동안 <챔피언의 가호>를 부여하고 상대에게 ${card.blindTurns}턴 동안 <눈부심>을 부여합니다. 챔피언의 가호: 공격력 +${Math.round(Number(card.attackBonusPercent || 0) * 100)}%, 크리티컬 확률 +${Math.round(Number(card.critBonus || 0) * 100)}%. 눈부심: 모든 공격 명중률 ${Math.round(Number(card.blindMissChance || 0.3) * 100)}% 감소.`;
     case 'winter_subordinate':
-      return `파티원 중 가장 레벨이 낮은 1명에게 ${card.turns}턴 동안 <부하직원>을 부여합니다. 부하직원은 현재 레벨보다 +${card.levelBonus} 높게 간주되어 레벨 기반 공격력과 스킬에 적용됩니다.`;
+      return `선택한 파티원 1인에게 ${card.turns}턴 동안 <부하직원 육성>을 부여합니다. 버프 보유자는 가하는 최종 데미지가 ${formatCardPercentText(card.finalDamageBonusPercent)} 증가합니다.`;
     case 'potato_rehab':
       return `보스전에서 현재 데미지 ${Number(card.fixedDamage || POTATO_REHAB_BASE_DAMAGE).toLocaleString()}의 고정 피해를 1회 입힙니다. 노멀 보스에서는 피해와 막타 성장량이 1/3로 적용됩니다. 한 판당 1회만 사용 가능하며, 이 스킬로 적을 처치하면 데미지가 플레이어의 현재 레벨만큼 영구 증가합니다. 개인면담에서는 선택할 수 없고 강화할 수 없습니다.`;
     case 'nosy_manager':
@@ -5535,6 +5554,8 @@ function createRaidParticipantFromUser(user) {
     championGuardCritBonus: 0,
     subordinateTurns: 0,
     subordinateLevelBonus: 0,
+    finalDamageBonusTurns: 0,
+    finalDamageBonusPercent: 0,
     cardEffectEquipmentBonusPercent: Number(equippedCardEffect?.statValue || 0) / 100,
     basicAttackEquipmentBonusPercent: Number(equippedBasicAttack?.statValue || 0) / 100,
     celineTurns: 0,
@@ -6687,6 +6708,7 @@ function buildRaidParticipantStatusEffects(participant) {
   if (Number(participant.attackBonusTurns || 0) > 0) effects.push({ type: 'buff', name: '공격력 상승', turns: Number(participant.attackBonusTurns || 0), desc: `공격력 +${Math.round(Number(participant.attackBonusPercent || 0) * 100)}%` });
   if (Number(participant.championGuardTurns || 0) > 0) effects.push({ type: 'buff', name: '챔피언의 가호', turns: Number(participant.championGuardTurns || 0), desc: `공격력 +${Math.round(Number(participant.championGuardAttackBonus || 0) * 100)}%, 치명타 확률 +${Math.round(Number(participant.championGuardCritBonus || 0) * 100)}%` });
   if (Number(participant.subordinateTurns || 0) > 0) effects.push({ type: 'buff', name: '부하직원', turns: Number(participant.subordinateTurns || 0), desc: `레벨 +${Number(participant.subordinateLevelBonus || 0)}` });
+  if (Number(participant.finalDamageBonusTurns || 0) > 0) effects.push({ type: 'buff', name: '부하직원 육성', turns: Number(participant.finalDamageBonusTurns || 0), desc: `최종 데미지 +${Math.round(Number(participant.finalDamageBonusPercent || 0) * 100)}%` });
   if (Number(participant.damageMultiplierTurns || 0) > 0) effects.push({ type: 'buff', name: '피해 증폭', turns: Number(participant.damageMultiplierTurns || 0), desc: `가하는 피해 x${Number(participant.damageMultiplierValue || 1).toFixed(2)}` });
   if (Number(participant.perHitBonusTurns || 0) > 0) effects.push({ type: 'buff', name: '추가 타격 피해', turns: Number(participant.perHitBonusTurns || 0), desc: `공격마다 +${Number(participant.perHitBonusDamage || 0).toLocaleString()} 피해` });
   if (Number(participant.celineTurns || 0) > 0) effects.push({ type: 'buff', name: '셀린느', turns: Number(participant.celineTurns || 0), desc: `공격력 +${Math.round(Number(participant.celineAttackBonusPercent || 0) * 100)}%, 종료 시 추가 피해` });
@@ -7259,6 +7281,18 @@ function useRaidCardSkill(participant, battle) {
     const missingHp = Math.max(0, Number(target.maxHp || 0) - Number(target.hp || 0));
     const actualHeal = healRaidTarget(target, Math.floor(missingHp * percent));
     logText = `${participant.displayName}(이)가 ${card.name}로 ${target.displayName}의 잃은 체력 ${formatCardPercentText(percent)}만큼 HP ${actualHeal.toLocaleString()}를 회복시켰습니다.`;
+  } else if (card.effectType === 'party_missing_hp_heal_negate') {
+    const aliveAllies = getAliveRaidParticipants(battle);
+    const percent = Math.max(0, scalePercent(card.healMissingHpPercent));
+    const flatHeal = scaleFlat(card.healFlat || 0);
+    const negateCount = scaleCount(card.negateHitCount || 1);
+    let totalHealed = 0;
+    aliveAllies.forEach((ally) => {
+      const missingHp = Math.max(0, Number(ally.maxHp || 0) - Number(ally.hp || 0));
+      totalHealed += healRaidTarget(ally, flatHeal + Math.floor(missingHp * percent));
+      ally.negateHitCount += negateCount;
+    });
+    logText = `${participant.displayName}(이)가 ${card.name}로 파티 전원의 HP를 총 ${totalHealed.toLocaleString()} 회복시키고 피격 무효 ${negateCount}회를 부여했습니다.`;
   } else if (card.effectType === 'target_taunt_damage_reduction') {
     const selectedTargetId = participant.plannedTargetUserId;
     const target = getRaidParticipant(battle, selectedTargetId) || participant;
@@ -7385,12 +7419,13 @@ function useRaidCardSkill(participant, battle) {
     battle.bossBlindTurns = Math.max(Number(battle.bossBlindTurns || 0), Number(card.blindTurns || 1));
     battle.bossBlindMissChance = Math.max(Number(battle.bossBlindMissChance || 0), Number(card.blindMissChance || 0.3));
     logText = `${participant.displayName}(이)가 ${card.name}로 ${target.displayName}에게 <챔피언의 가호>와 보호막 ${shieldAmount.toLocaleString()}을 부여하고, 보스에게 <눈부심>을 적용했습니다.`;
-  } else if (card.effectType === 'lowest_level_buff') {
-    const aliveAllies = getAliveRaidParticipants(battle);
-    const target = aliveAllies.sort((a, b) => Number(a.level || 1) - Number(b.level || 1))[0] || participant;
-    target.subordinateTurns = Math.max(Number(target.subordinateTurns || 0), Number(card.turns || 2));
-    target.subordinateLevelBonus = Math.max(Number(target.subordinateLevelBonus || 0), Number(card.levelBonus || 10));
-    logText = `${participant.displayName}(이)가 ${card.name}로 ${target.displayName}에게 <부하직원>을 부여했습니다. ${card.turns || 2}턴 동안 레벨 +${Number(card.levelBonus || 10)}로 간주됩니다.`;
+  } else if (card.effectType === 'target_final_damage_buff') {
+    const selectedTargetId = participant.plannedTargetUserId;
+    const target = getRaidParticipant(battle, selectedTargetId) || getAliveRaidParticipants(battle)[0] || participant;
+    const finalDamageBonus = Math.max(0, scalePercent(card.finalDamageBonusPercent));
+    target.finalDamageBonusTurns = Math.max(Number(target.finalDamageBonusTurns || 0), Number(card.turns || 2));
+    target.finalDamageBonusPercent = Math.max(Number(target.finalDamageBonusPercent || 0), finalDamageBonus);
+    logText = `${participant.displayName}(이)가 ${card.name}로 ${target.displayName}의 최종 데미지를 ${formatCardPercentText(finalDamageBonus)} 증가시켰습니다.`;
   } else if (card.effectType === 'poison_debuff') {
     battle.bossPoisonDebuffs = Array.isArray(battle.bossPoisonDebuffs) ? battle.bossPoisonDebuffs : [];
     const damage = scaleFlat(getRaidEffectiveLevel(participant) * Number(card.damagePerLevel || 10));
@@ -7488,6 +7523,18 @@ function useRaidCardSkill(participant, battle) {
           if (target) target.breadCount = Number(target.breadCount || 0) + 1;
         }
         logText = `${participant.displayName}(이)가 ${sourceParticipant.displayName}의 ${copiedCard.name}를 흉내 내 빵 ${breadCount}개를 나눠줬습니다.`;
+      } else if (copiedCard.effectType === 'party_missing_hp_heal_negate') {
+        const aliveAllies = getAliveRaidParticipants(battle);
+        const percent = Math.max(0, Number(copiedCard.healMissingHpPercent || 0) * copyScale);
+        const flatHeal = Math.max(0, Math.floor(Number(copiedCard.healFlat || 0) * copyScale));
+        const negateCount = Math.max(1, Math.ceil(Number(copiedCard.negateHitCount || 1) * copyScale));
+        let totalHealed = 0;
+        aliveAllies.forEach((ally) => {
+          const missingHp = Math.max(0, Number(ally.maxHp || 0) - Number(ally.hp || 0));
+          totalHealed += healRaidTarget(ally, flatHeal + Math.floor(missingHp * percent));
+          ally.negateHitCount += negateCount;
+        });
+        logText = `${participant.displayName}(이)가 ${sourceParticipant.displayName}의 ${copiedCard.name}를 흉내 내 파티 HP를 총 ${totalHealed.toLocaleString()} 회복시키고 피격 무효 ${negateCount}회를 부여했습니다.`;
       } else if (copiedCard.effectType === 'party_cooldown_reduce') {
         const reduceAmount = Math.max(1, Math.ceil(Number(copiedCard.cooldownReduce || 1) * copyScale));
         getAliveRaidParticipants(battle).forEach((ally) => {
@@ -7501,6 +7548,12 @@ function useRaidCardSkill(participant, battle) {
           target.negateHitCount += Math.max(1, Math.floor((Number(copiedCard.negateHitCount || 1) || 1) * copyScale));
         });
         logText = `${participant.displayName}(이)가 ${sourceParticipant.displayName}의 ${copiedCard.name}를 흉내 내 방어 버프를 부여했습니다.`;
+      } else if (copiedCard.effectType === 'target_final_damage_buff') {
+        const target = getRaidParticipant(battle, participant.plannedTargetUserId) || participant;
+        const finalDamageBonus = Math.max(0, Number(copiedCard.finalDamageBonusPercent || 0) * copyScale);
+        target.finalDamageBonusTurns = Math.max(Number(target.finalDamageBonusTurns || 0), Number(copiedCard.turns || 2));
+        target.finalDamageBonusPercent = Math.max(Number(target.finalDamageBonusPercent || 0), finalDamageBonus);
+        logText = `${participant.displayName}(이)가 ${sourceParticipant.displayName}의 ${copiedCard.name}를 흉내 내 ${target.displayName}의 최종 데미지를 ${formatCardPercentText(finalDamageBonus)} 증가시켰습니다.`;
       } else {
         const damage = Math.max(1, Math.floor(getRaidEffectiveLevel(participant) * 20 * copyScale));
         const dealtDamage = applyRaidDamageToBoss(battle, damage, { attacker: participant, skillName: copiedCard.name });
@@ -7623,6 +7676,10 @@ function tickRaidParticipantEndOfTurn(participant, battle) {
     participant.subordinateTurns -= 1;
     if (participant.subordinateTurns <= 0) participant.subordinateLevelBonus = 0;
   }
+  if (participant.finalDamageBonusTurns > 0) {
+    participant.finalDamageBonusTurns -= 1;
+    if (participant.finalDamageBonusTurns <= 0) participant.finalDamageBonusPercent = 0;
+  }
   if (participant.cardEffectAmpTurns > 0) {
     participant.cardEffectAmpTurns -= 1;
     if (participant.cardEffectAmpTurns <= 0) participant.cardEffectAmpValue = 1;
@@ -7698,6 +7755,12 @@ function getRaidAttackBonusPercent(participant) {
   const celineBonus = participant.celineTurns > 0 ? Number(participant.celineAttackBonusPercent || 0) : 0;
   const championBonus = participant.championGuardTurns > 0 ? Number(participant.championGuardAttackBonus || 0) : 0;
   return baseBonus + celineBonus + championBonus;
+}
+
+function getRaidFinalDamageBonusPercent(participant) {
+  return participant && Number(participant.finalDamageBonusTurns || 0) > 0
+    ? Math.max(0, Number(participant.finalDamageBonusPercent || 0))
+    : 0;
 }
 
 function isHardRaidBattle(battle) {
@@ -7776,6 +7839,12 @@ function applyRaidDamageToBossMinion(battle, minion, damage, options = {}) {
 function applyRaidDamageToBoss(battle, damage, options = {}) {
   const attacker = options.attacker || null;
   let incomingDamage = Math.max(0, Math.floor(Number(damage || 0)));
+  if (attacker) {
+    const finalDamageBonus = getRaidFinalDamageBonusPercent(attacker);
+    if (finalDamageBonus > 0) {
+      incomingDamage = Math.max(0, Math.floor(incomingDamage * (1 + finalDamageBonus)));
+    }
+  }
   const tauntMinion = options.ignoreTaunt ? null : getRaidTauntMinion(battle);
   if (tauntMinion) {
     return applyRaidDamageToBossMinion(battle, tauntMinion, incomingDamage, options);
@@ -10382,6 +10451,18 @@ function getPvpAttackBonus(player) {
     }, 0);
 }
 
+function getPvpFinalDamageBonus(player) {
+  return (player?.buffs || [])
+    .filter((buff) => buff.id === 'final_damage_bonus' && !buff.pendingActivation)
+    .reduce((sum, buff) => sum + Math.max(0, Number(buff.value || 0)), 0);
+}
+
+function applyPvpOutgoingDamageBonus(player, amount) {
+  const bonus = getPvpFinalDamageBonus(player);
+  const baseAmount = Math.max(0, Math.floor(Number(amount || 0)));
+  return bonus > 0 ? Math.max(0, Math.floor(baseAmount * (1 + bonus))) : baseAmount;
+}
+
 function getPvpEffectiveLevel(player) {
   const subordinateBonus = (player.buffs || [])
     .filter((buff) => buff.id === 'subordinate_level' && !buff.pendingActivation)
@@ -10666,8 +10747,9 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
           triggerPvpPoisonOnAttack(actor, battle);
           continue;
         }
-        applyPvpDamage(fixedTarget, damage, battle);
-        battle.logs.push(`${cardLabel} ${index + 1}타! ${fixedTarget.displayName}에게 ${damage.toLocaleString()} 피해를 입혔습니다.`);
+        const outgoingDamage = applyPvpOutgoingDamageBonus(actor, damage);
+        applyPvpDamage(fixedTarget, outgoingDamage, battle);
+        battle.logs.push(`${cardLabel} ${index + 1}타! ${fixedTarget.displayName}에게 ${outgoingDamage.toLocaleString()} 피해를 입혔습니다.`);
         triggerPvpPoisonOnAttack(actor, battle);
         if (fixedTarget.hp > 0) performPvpCounterAttack(fixedTarget, actor, battle);
         if (actor.hp <= 0) break;
@@ -10677,14 +10759,14 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
   } else if (card.effectType === 'party_level_blast') {
     const levelSource = isAugmentBattle ? getAugmentTeamPlayers(battle, actor.team) : battle.players;
     const totalLevels = levelSource.reduce((sum, player) => sum + getPvpEffectiveLevel(player), 0);
-    const damage = scaleFlat(totalLevels * Number(card.multiplierPerLevel || 0));
+    const damage = applyPvpOutgoingDamageBonus(actor, scaleFlat(totalLevels * Number(card.multiplierPerLevel || 0)));
     if (!isPvpAttackMissed(actor, battle, cardLabel)) {
       applyPvpDamage(target, damage, battle);
       battle.logs.push(`${target.displayName}에게 ${damage.toLocaleString()} 피해를 입혔습니다.`);
       triggerPvpPoisonOnAttack(actor, battle);
     }
   } else if (card.effectType === 'direct_hp_strike') {
-    const damage = scaleFlat(getPvpEffectiveLevel(actor) * Number(card.multiplierPerLevel || 0));
+    const damage = applyPvpOutgoingDamageBonus(actor, scaleFlat(getPvpEffectiveLevel(actor) * Number(card.multiplierPerLevel || 0)));
     if (!isPvpAttackMissed(actor, battle, cardLabel)) {
       applyPvpDamage(target, damage, battle, { ignoreShield: true });
       battle.logs.push(`${target.displayName}의 보호막을 무시하고 ${damage.toLocaleString()} 피해를 입혔습니다.`);
@@ -10743,6 +10825,18 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
     const missingHp = Math.max(0, Number(friendlyTarget.maxHp || PVP_MAX_HP) - Number(friendlyTarget.hp || 0));
     const healed = healPvpTarget(friendlyTarget, Math.floor(missingHp * Math.max(0, scalePercent(card.healMissingHpPercent))));
     battle.logs.push(`${actor.displayName}의 HP가 ${healed.toLocaleString()} 회복되었습니다.`);
+  } else if (card.effectType === 'party_missing_hp_heal_negate') {
+    const healTargets = isAugmentBattle ? friendlyTargets : [actor];
+    const percent = Math.max(0, scalePercent(card.healMissingHpPercent));
+    const flatHeal = scaleFlat(card.healFlat || 0);
+    const negateCount = scaleCount(card.negateHitCount || 1);
+    let totalHealed = 0;
+    healTargets.forEach((ally) => {
+      const missingHp = Math.max(0, Number(ally.maxHp || PVP_MAX_HP) - Number(ally.hp || 0));
+      totalHealed += healPvpTarget(ally, flatHeal + Math.floor(missingHp * percent));
+      addPvpBuff(ally, { id: 'negate_hit', name: '피격 무효', count: negateCount, desc: '피격 무효' });
+    });
+    battle.logs.push(`${actor.displayName}이(가) 파티 HP를 총 ${totalHealed.toLocaleString()} 회복시키고 피격 무효 ${negateCount}회를 부여했습니다.`);
   } else if (card.effectType === 'target_taunt_damage_reduction') {
     const reduction = Math.max(0, Math.min(0.95, scalePercent(card.damageReductionPercent)));
     addPvpBuff(friendlyTarget, {
@@ -10837,6 +10931,16 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
     targets.forEach((ally) => {
       addPvpBuff(ally, { id: 'attack_bonus', name: '공격력 상승', turns: Number(card.turns || 1), value: scalePercent(card.attackBonusPercent), desc: `공격력 +${Math.round(scalePercent(card.attackBonusPercent) * 100)}%` });
     });
+  } else if (card.effectType === 'target_final_damage_buff') {
+    const finalDamageBonus = Math.max(0, scalePercent(card.finalDamageBonusPercent));
+    addPvpBuff(friendlyTarget, {
+      id: 'final_damage_bonus',
+      name: '부하직원 육성',
+      turns: Number(card.turns || 2),
+      value: finalDamageBonus,
+      desc: `최종 데미지 +${Math.round(finalDamageBonus * 100)}%`
+    });
+    battle.logs.push(`${friendlyTarget.displayName}의 최종 데미지가 ${Math.round(finalDamageBonus * 100)}% 증가합니다.`);
   } else if (card.effectType === 'target_debuff_guard') {
     addPvpBuff(friendlyTarget, { id: 'debuff_guard', name: '디버프 무효', count: scaleCount(card.debuffImmuneCount || 1), desc: '디버프 무효' });
   } else if (card.effectType === 'ally_shield_enemy_multi_hit') {
@@ -10845,7 +10949,7 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
       ? target
       : pickRandomEntry(enemyTargets);
     const hits = Math.max(1, Number(card.hits || 1));
-    const damage = scaleFlat(getPvpEffectiveLevel(actor) * Number(card.damagePerLevel || 0));
+    const damage = applyPvpOutgoingDamageBonus(actor, scaleFlat(getPvpEffectiveLevel(actor) * Number(card.damagePerLevel || 0)));
     if (damageTarget) {
       for (let index = 0; index < hits; index += 1) {
         if (isPvpAttackMissed(actor, battle, `${cardLabel} ${index + 1}타`)) continue;
@@ -10860,7 +10964,7 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
   } else if (card.effectType === 'self_status_blast') {
     const statusCount = actor.buffs.length + actor.debuffs.length;
     const hits = Math.max(1, Number(card.hits || 1));
-    const damage = scaleFlat(statusCount * getPvpEffectiveLevel(actor) * Number(card.multiplierPerStatus || 0));
+    const damage = applyPvpOutgoingDamageBonus(actor, scaleFlat(statusCount * getPvpEffectiveLevel(actor) * Number(card.multiplierPerStatus || 0)));
     for (let index = 0; index < hits; index += 1) {
       if (isPvpAttackMissed(actor, battle, `${cardLabel} ${index + 1}타`)) continue;
       applyPvpDamage(target, damage, battle);
@@ -10874,7 +10978,7 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
     const existing = target.debuffs.find((debuff) => debuff.id === 'overtime' && debuff.sourceUserId === actor.userId);
     if (existing) {
       const stacks = Math.max(0, Number(existing.count || 0));
-      const damage = scaleFlat(stacks * getPvpEffectiveLevel(actor) * Number(card.rageDamagePerStackPerLevel || 0));
+      const damage = applyPvpOutgoingDamageBonus(actor, scaleFlat(stacks * getPvpEffectiveLevel(actor) * Number(card.rageDamagePerStackPerLevel || 0)));
       if (damage > 0 && !isPvpAttackMissed(actor, battle, cardLabel)) applyPvpDamage(target, damage, battle);
       target.debuffs = target.debuffs.filter((debuff) => debuff !== existing);
       battle.logs.push(`${target.displayName}의 내면의 분노 ${stacks.toLocaleString()}스택이 폭발해 ${damage.toLocaleString()} 피해를 입었습니다.`);
@@ -10997,7 +11101,7 @@ function performPvpCounterAttack(counterActor, target, battle) {
   if (isPvpAttackMissed(counterActor, battle, '반격')) return;
   const baseDamage = Math.max(1, Math.floor((getPvpEffectiveLevel(counterActor) / 2) * 20 * (1 + getPvpAttackBonus(counterActor)) * (1 + Number(counterActor.basicAttackEquipmentBonusPercent || 0))));
   const critical = Math.random() < getPvpCriticalChance(counterActor);
-  const damage = Math.max(1, Math.floor(baseDamage * Number(counterBuff.value || 1) * (critical ? 1.5 : 1)));
+  const damage = applyPvpOutgoingDamageBonus(counterActor, Math.max(1, Math.floor(baseDamage * Number(counterBuff.value || 1) * (critical ? 1.5 : 1))));
   const dealt = applyPvpDamage(target, damage, battle);
   if (dealt > 0) {
     target.lastDamagedByUserId = counterActor.userId;
@@ -11062,6 +11166,7 @@ function performPvpBasicAttack(actor, target, battle, options = {}) {
     const procActivated = basicProcChance > 0 && basicProcDamage > 0 && Math.random() < basicProcChance;
     if (procActivated) damage += basicProcDamage;
     if (index === 0 && actor.extraDamage > 0) damage += Number(actor.extraDamage || 0);
+    damage = applyPvpOutgoingDamageBonus(actor, damage);
     const dealt = applyPvpDamage(hitTarget, damage, battle);
     if (dealt > 0) {
       hitTarget.lastDamagedByUserId = actor.userId;
@@ -11120,8 +11225,9 @@ function tickPvpPlayerEndOfTurn(player, battle) {
           ? pickRandomEntry(getAliveAugmentTargets(getAugmentEnemyPlayers(battle, player.team)))
           : getPvpOpponent(battle, player.userId);
         if (target) {
-          applyPvpDamage(target, Number(buff.expireDamage || 0), battle);
-          battle.logs.push(`${player.displayName}의 셀린느가 종료되며 ${target.displayName}에게 ${Number(buff.expireDamage || 0).toLocaleString()} 피해를 입혔습니다.`);
+          const expireDamage = applyPvpOutgoingDamageBonus(player, Number(buff.expireDamage || 0));
+          applyPvpDamage(target, expireDamage, battle);
+          battle.logs.push(`${player.displayName}의 셀린느가 종료되며 ${target.displayName}에게 ${expireDamage.toLocaleString()} 피해를 입혔습니다.`);
         }
       }
     }
@@ -12222,10 +12328,12 @@ const PVP_AUGMENT_ALLY_TARGET_TYPES = new Set(['ally', 'ally_pair']);
 const PVP_AUGMENT_ALLY_EFFECT_TYPES = new Set([
   'party_shield',
   'party_heal',
+  'party_missing_hp_heal_negate',
   'target_heal',
   'target_missing_hp_heal',
   'target_taunt_damage_reduction',
   'target_attack_buff',
+  'target_final_damage_buff',
   'target_debuff_guard',
   'champion_guard',
   'party_cooldown_reduce',
