@@ -302,6 +302,14 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-16-belch-woman-heal-nerf',
+    time: '2026-06-16 11:15',
+    title: '트름녀 눈 새 행동 조정',
+    items: [
+      '카오스 트름녀의 눈 새 행동 회복량이 잃은 체력의 50%에서 20%로 감소했습니다.'
+    ]
+  },
+  {
     id: '2026-06-16-card-sunscreen-chimek-winter-rework',
     time: '2026-06-16 10:40',
     title: '카드 밸런스 및 신규 S카드 추가',

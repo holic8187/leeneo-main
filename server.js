@@ -1707,7 +1707,7 @@ const RAID_BOSS_DATA = {
       '1. 트름하기: 파티 전체에게 10 피해, 총 3회',
       '2. 얼음씹기: 랜덤 3명에게 40 피해 + 4턴 침묵',
       '3. 쩝쩝거리기: 랜덤 대상에게 20 피해, 총 4회',
-      '4. 눈 새 행동: 자신의 총 잃은 체력의 50% 회복, 자신에게 3턴 지속 150,000 보호막'
+      '4. 눈 새 행동: 자신의 총 잃은 체력의 20% 회복, 자신에게 3턴 지속 150,000 보호막'
     ],
     rewardsText: RAID_BOSS_REWARDS_TEXT
   },
@@ -8668,7 +8668,7 @@ function performRaidBossAction(battle) {
     let healAmount = 0;
     if (isHardMode) {
       const missingHp = Math.max(0, Number(battle.bossMaxHp || 0) - Number(battle.bossHp || 0));
-      healAmount = Math.floor(missingHp * 0.5);
+      healAmount = Math.floor(missingHp * 0.2);
       if (healAmount > 0) {
         battle.bossHp = Math.min(Number(battle.bossMaxHp || 0), Number(battle.bossHp || 0) + healAmount);
       }
