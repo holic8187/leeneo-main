@@ -206,6 +206,8 @@ let rankingInterval;
 let rankingMode = 'level';
 let branchContractPercentDraft = '1';
 let branchEmployeeSortMode = { key: "grade", direction: "desc" };
+let branchAutoResolveInFlight = false;
+let branchAutoResolveKey = '';
 let shopModalMode = 'fragment';
 let syncInterval;
 let animationInterval;
@@ -301,6 +303,15 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-06-18-branch-auto-complete-resolve',
+    time: '2026-06-18 00:20',
+    title: '자동 발굴 완료 정산 보강',
+    items: [
+      '회사 운영 창에서 자동 발굴 ON 상태로 발굴이 완료되면 결과 확인 버튼을 기다리지 않고 자동으로 정산을 시도하도록 보강했습니다.',
+      '자동 정산 중에는 발굴 버튼 문구가 자동 정산 중으로 표시되며, 정산 후 다음 발굴이 이어서 시작됩니다.'
+    ]
+  },
   {
     id: '2026-06-17-tiger-emblem-image-replace',
     time: '2026-06-17 12:35',
@@ -7080,18 +7091,21 @@ function renderBranchOfficeModal(user = getStoredUser()) {
   const pendingProgress = Math.max(0, Math.min(100, Number(pendingExcavation?.progressPercent || 0)));
   const brokenRemainingMs = Number(branch.excavationBrokenRemainingMs || 0);
   const branchMachineBroken = brokenRemainingMs > 0;
+  const autoExcavationEnabled = Boolean(branch.autoExcavationEnabled);
+  const autoPendingResolution = Boolean(autoExcavationEnabled && pendingComplete && !branchMachineBroken);
   const excavationButtonText = pendingExcavation
-    ? (pendingComplete ? '발굴 결과 확인' : `발굴 진행 중 (${formatDurationMs(pendingRemainingMs)} 남음)`)
+    ? (pendingComplete ? (autoPendingResolution ? '자동 정산 중' : '발굴 결과 확인') : `발굴 진행 중 (${formatDurationMs(pendingRemainingMs)} 남음)`)
     : '발굴 시작';
-  const excavationButtonDisabled = (pendingExcavation && !pendingComplete) || branchMachineBroken ? 'disabled' : '';
+  const excavationButtonDisabled = (pendingExcavation && !pendingComplete) || branchMachineBroken || autoPendingResolution ? 'disabled' : '';
   const excavationStatus = branchMachineBroken
     ? `발굴 기계 수리 중입니다. 남은 시간: ${formatDurationMs(brokenRemainingMs)}`
     : (pendingExcavation
         ? (pendingComplete
-            ? '발굴이 완료되었습니다. 결과 확인 버튼을 눌러주세요.'
+            ? (autoPendingResolution
+                ? '발굴이 완료되었습니다. 자동 정산 후 다음 발굴을 이어서 시작합니다.'
+                : '발굴이 완료되었습니다. 결과 확인 버튼을 눌러주세요.')
             : `진행률 ${formatNumber(pendingProgress, 1)}% / 완료까지 ${formatDurationMs(pendingRemainingMs)}`)
         : `기본 소요 시간 ${formatDurationMs(branch.excavationDurationMs || 0)} / 수집품 효과로 단축될 수 있습니다.`);
-  const autoExcavationEnabled = Boolean(branch.autoExcavationEnabled);
   const autoExcavationButtonText = autoExcavationEnabled ? '자동 발굴 ON' : '자동 발굴 OFF';
   const autoExcavationHint = autoExcavationEnabled
     ? 'ON 상태에서는 완료된 발굴을 자동 정산하고 다음 발굴을 이어서 시작합니다.'
@@ -7180,6 +7194,8 @@ function renderBranchOfficeModal(user = getStoredUser()) {
       <div class="branch-codex-list">${employeeCodex}</div>
     </div>
   `;
+
+  maybeResolveCompletedBranchAutoExcavation(branch);
 }
 
 async function runBranchAction(endpoint, body = {}) {
@@ -7189,6 +7205,36 @@ async function runBranchAction(endpoint, body = {}) {
   updateLocalUserState(data, { force: true });
   if (data.branchResult?.message) alert(data.branchResult.message);
   renderBranchOfficeModal(getStoredUser());
+}
+
+function maybeResolveCompletedBranchAutoExcavation(branch = {}) {
+  const pending = branch.pendingExcavation || null;
+  if (!branch.autoExcavationEnabled || !pending?.isComplete || Number(branch.excavationBrokenRemainingMs || 0) > 0) {
+    if (!pending || !pending.isComplete) branchAutoResolveKey = '';
+    return;
+  }
+  const key = String(pending.completesAt || pending.startedAt || 'complete');
+  if (branchAutoResolveInFlight || branchAutoResolveKey === key) return;
+  branchAutoResolveKey = key;
+  window.setTimeout(() => resolveCompletedBranchAutoExcavation(key), 250);
+}
+
+async function resolveCompletedBranchAutoExcavation(resolveKey) {
+  const user = getStoredUser();
+  if (!user?._id || branchAutoResolveInFlight) return;
+  try {
+    branchAutoResolveInFlight = true;
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/branch-office/excavate`, { userId: user._id }));
+    updateLocalUserState(data, { force: true });
+    renderBranchOfficeModal(getStoredUser());
+  } catch (err) {
+    console.warn('Branch auto excavation resolve failed:', err);
+    if (branchAutoResolveKey === resolveKey) {
+      branchAutoResolveKey = '';
+    }
+  } finally {
+    branchAutoResolveInFlight = false;
+  }
 }
 
 async function handleBranchFound() {
