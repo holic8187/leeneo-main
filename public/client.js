@@ -302,6 +302,15 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-17-tiger-emblem-image-replace',
+    time: '2026-06-17 12:35',
+    title: '호랭이 휘장 이미지 교체',
+    items: [
+      '<호랭이> 휘장 이미지를 새 파일로 교체했습니다.',
+      '호랭이 휘장만 따로 축소하던 표시 설정을 제거하고, 다른 휘장과 같은 방식으로 표시되도록 되돌렸습니다.'
+    ]
+  },
+  {
     id: '2026-06-17-tiger-emblem-override-fix',
     time: '2026-06-17 12:20',
     title: '호랭이 휘장 잘림 추가 수정',

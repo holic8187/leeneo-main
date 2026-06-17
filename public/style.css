@@ -446,7 +446,7 @@ progress {
   font-weight: 900;
   background:
     linear-gradient(90deg, rgba(120, 0, 20, .26) 0%, rgba(255, 255, 255, .05) 48%, rgba(255, 105, 42, .18) 100%),
-    url('/assets/emblems/tiger-banner.png') center center / 94% auto no-repeat;
+    url('/assets/emblems/tiger-banner.jpg') center center / cover no-repeat;
   box-shadow: inset 0 0 0 1px rgba(217, 24, 55, .78), inset 0 0 24px rgba(255, 112, 48, .28);
   text-shadow: 0 1px 2px rgba(0, 0, 0, .95), 0 0 9px rgba(255, 80, 30, .52);
 }
@@ -760,12 +760,6 @@ progress {
   background-size: auto, cover;
   background-position: center center, center center;
   background-repeat: no-repeat, no-repeat;
-}
-
-.ranking-name-cell.emblem-tiger,
-.emblem-preview-cell.emblem-tiger {
-  background-size: auto, 88% auto;
-  background-position: center center, center center;
 }
 
 @keyframes emblem-sheen {
