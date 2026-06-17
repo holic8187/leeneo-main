@@ -302,6 +302,32 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-17-branch-auto-extra-drop',
+    time: '2026-06-17 11:05',
+    title: '자동 발굴 안정화와 추가 보상',
+    items: [
+      '자동 발굴 ON 상태에서 완료된 발굴 정산과 다음 발굴 시작이 더 안정적으로 이어지도록 재개 처리를 보강했습니다.',
+      '발굴 완료 시 낮은 확률로 무한야근 입장권 또는 회의 추가 입장권을 추가 획득할 수 있게 했습니다.',
+      '회사 운영 창에 최근 발굴 추가 보상 기록을 따로 표시해 수집품 외 보상도 확인할 수 있게 했습니다.'
+    ]
+  },
+  {
+    id: '2026-06-17-buff-stack-fix',
+    time: '2026-06-17 10:10',
+    title: '버프 중첩 적용 개선',
+    items: [
+      '코카의 콜라, 호이의 세금계산서, 밍구, 겨울 부장의 부하직원 육성 등 공격/최종 데미지 계열 버프가 같은 대상에게 정상적으로 중첩되도록 수정했습니다.'
+    ]
+  },
+  {
+    id: '2026-06-16-belch-woman-shield-nerf',
+    time: '2026-06-16 11:25',
+    title: '트름녀 보호막 지속시간 조정',
+    items: [
+      '카오스 트름녀의 눈 새 행동 보호막 지속시간이 3턴에서 2턴으로 감소했습니다.'
+    ]
+  },
+  {
     id: '2026-06-16-belch-woman-heal-nerf',
     time: '2026-06-16 11:15',
     title: '트름녀 눈 새 행동 조정',
@@ -6992,6 +7018,13 @@ function renderBranchOfficeModal(user = getStoredUser()) {
     <span class="branch-codex-chip" title="${escapeAttr(item.effectText || '')}">${escapeHtml(item.emoji || '')} ${escapeHtml(item.name || '')}</span>
   `).join('') || '<span class="menu-note">아직 발견한 수집품이 없습니다.</span>';
   const employeeCodex = (branch.employeeCodex || []).map((name) => `<span class="branch-codex-chip">${escapeHtml(name)}</span>`).join('') || '<span class="menu-note">아직 고용 기록이 없습니다.</span>';
+  const excavationRewardLog = (branch.excavationRewardLog || []).slice().reverse().map((entry) => `
+    <div class="branch-reward-log-row">
+      <strong>${escapeHtml(entry.name || entry.itemId || '추가 보상')}</strong>
+      <span>x${formatNumber(entry.quantity || 1)}</span>
+      <span class="menu-note">${escapeHtml(formatMarketDate(entry.acquiredAt))}</span>
+    </div>
+  `).join('') || '<span class="menu-note">아직 발굴 추가 보상 기록이 없습니다.</span>';
   const activeContractInput = document.getElementById('branchContractPercentInput');
   if (activeContractInput && activeContractInput.value !== '') branchContractPercentDraft = activeContractInput.value;
   const contractPercentValue = branchContractPercentDraft || '1';
@@ -7055,6 +7088,7 @@ function renderBranchOfficeModal(user = getStoredUser()) {
       <p>발굴 비용: <strong>${formatNumber(branch.digCost || 0)}원</strong> / 성공률: <strong>${formatBranchPercent(branch.successChance)}</strong> / 소요 시간: <strong>${formatDurationMs(branch.excavationDurationMs || 0)}</strong></p>
       <p class="branch-stat-note">발굴 확률 상한: <strong>${formatBranchPercent(branch.excavationSuccessCap || 15)}</strong> / 초과 발굴력 희귀 보정: <strong>${formatBranchPercent(branch.rareItemBonusChance || 0)}</strong></p>
       <p class="menu-note">${escapeHtml(overtimeExcavationNotice)} / 고장 확률: ${formatNumber(branch.breakdownChancePercent || 3, 2)}%</p>
+      <p class="menu-note">발굴 완료 시 낮은 확률로 무한야근 입장권 또는 회의 추가 입장권을 추가 획득할 수 있습니다.</p>
       <p class="menu-note">${escapeHtml(excavationStatus)}</p>
       ${pendingExcavation ? `<div class="branch-excavation-progress"><div style="width:${pendingProgress}%"></div></div>` : ''}
       <div class="branch-auto-row">
@@ -7062,6 +7096,11 @@ function renderBranchOfficeModal(user = getStoredUser()) {
         <span class="menu-note">${escapeHtml(autoExcavationHint)}</span>
       </div>
       <button class="menu-action-btn" ${excavationButtonDisabled} onclick="handleBranchExcavate()">${escapeHtml(excavationButtonText)}</button>
+    </div>
+
+    <div class="branch-card">
+      <h4>최근 발굴 추가 보상</h4>
+      <div class="branch-reward-log">${excavationRewardLog}</div>
     </div>
 
     <div class="branch-card">

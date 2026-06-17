@@ -3160,6 +3160,21 @@ progress {
   background: #f5f5f5;
 }
 
+.branch-reward-log {
+  display: grid;
+  gap: 6px;
+}
+
+.branch-reward-log-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid #d9e5d0;
+  background: #f6fbf3;
+  padding: 6px 8px;
+}
+
 .branch-storage-actions {
   display: flex;
   justify-content: space-between;

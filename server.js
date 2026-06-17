@@ -471,6 +471,12 @@ const BRANCH_OFFICE_SUCCESS_CAP = 15;
 const BRANCH_OFFICE_RARE_BONUS_RATE = 0.1;
 const BRANCH_OFFICE_BASE_EXCAVATION_MS = 15 * 60 * 1000;
 const BRANCH_AUTO_EXCAVATION_MAX_STEPS_PER_REQUEST = 4;
+const BRANCH_EXCAVATION_EXTRA_DROP_CHANCE = 0.05;
+const BRANCH_EXCAVATION_EXTRA_DROP_LOG_LIMIT = 12;
+const BRANCH_EXCAVATION_EXTRA_DROPS = [
+  { itemId: 'infinite_overtime_ticket' },
+  { itemId: 'raid_entry_ticket' }
+];
 const BRANCH_OFFICE_BREAKDOWN_CHANCE = 0.03;
 const BRANCH_OFFICE_BREAKDOWN_MS = 6 * 60 * 60 * 1000;
 const BRANCH_OFFICE_OVERTIME_START_HOUR = 18;
@@ -1707,7 +1713,7 @@ const RAID_BOSS_DATA = {
       '1. 트름하기: 파티 전체에게 10 피해, 총 3회',
       '2. 얼음씹기: 랜덤 3명에게 40 피해 + 4턴 침묵',
       '3. 쩝쩝거리기: 랜덤 대상에게 20 피해, 총 4회',
-      '4. 눈 새 행동: 자신의 총 잃은 체력의 20% 회복, 자신에게 3턴 지속 150,000 보호막'
+      '4. 눈 새 행동: 자신의 총 잃은 체력의 20% 회복, 자신에게 2턴 지속 150,000 보호막'
     ],
     rewardsText: RAID_BOSS_REWARDS_TEXT
   },
@@ -2659,6 +2665,12 @@ const userSchema = new mongoose.Schema({
     excavationBrokenUntil: { type: Date, default: null },
     itemCodex: { type: [String], default: [] },
     employeeCodex: { type: [String], default: [] },
+    excavationRewardLog: [{
+      itemId: { type: String, default: '' },
+      name: { type: String, default: '' },
+      quantity: { type: Number, default: 0 },
+      acquiredAt: { type: Date, default: Date.now }
+    }],
     lastSettlementDayKey: { type: String, default: '' },
     missedMaintenanceDays: { type: Number, default: 0 },
     lastTaxAt: { type: Date, default: null },
@@ -5545,6 +5557,7 @@ function createRaidParticipantFromUser(user) {
     tauntDamageReductionPercent: 0,
     tauntSourceUserId: null,
     breadCount: 0,
+    attackBonusBuffs: [],
     attackBonusTurns: 0,
     attackBonusPercent: 0,
     perHitBonusTurns: 0,
@@ -6685,6 +6698,53 @@ async function findNewsTypingPrompt(promptId) {
   return prompts.find((prompt) => prompt.id === promptId) || null;
 }
 
+function getActiveRaidAttackBonusBuffs(participant) {
+  return (Array.isArray(participant?.attackBonusBuffs) ? participant.attackBonusBuffs : [])
+    .map((buff) => ({
+      source: buff.source || buff.name || '공격력 상승',
+      value: Math.max(0, Number(buff.value || 0)),
+      turns: Math.max(0, Number(buff.turns || 0))
+    }))
+    .filter((buff) => buff.value > 0 && buff.turns > 0);
+}
+
+function syncRaidAttackBonusFields(participant) {
+  if (!participant || !Array.isArray(participant.attackBonusBuffs)) return;
+  const activeBuffs = getActiveRaidAttackBonusBuffs(participant);
+  participant.attackBonusBuffs = activeBuffs;
+  participant.attackBonusTurns = activeBuffs.length
+    ? Math.max(...activeBuffs.map((buff) => buff.turns))
+    : 0;
+  participant.attackBonusPercent = activeBuffs.reduce((sum, buff) => sum + buff.value, 0);
+}
+
+function addRaidAttackBonusBuff(participant, value, turns, source = '공격력 상승') {
+  if (!participant) return;
+  const buffValue = Math.max(0, Number(value || 0));
+  const buffTurns = Math.max(0, Number(turns || 0));
+  if (buffValue <= 0 || buffTurns <= 0) return;
+
+  if (!Array.isArray(participant.attackBonusBuffs)) {
+    participant.attackBonusBuffs = [];
+    const legacyTurns = Math.max(0, Number(participant.attackBonusTurns || 0));
+    const legacyValue = Math.max(0, Number(participant.attackBonusPercent || 0));
+    if (legacyTurns > 0 && legacyValue > 0) {
+      participant.attackBonusBuffs.push({
+        source: '기존 공격력 상승',
+        value: legacyValue,
+        turns: legacyTurns
+      });
+    }
+  }
+
+  participant.attackBonusBuffs.push({
+    source,
+    value: buffValue,
+    turns: buffTurns
+  });
+  syncRaidAttackBonusFields(participant);
+}
+
 function buildRaidParticipantStatusEffects(participant) {
   const effects = [];
   if (Number(participant.silenceTurns || 0) > 0) effects.push({ type: 'debuff', name: '침묵', turns: Number(participant.silenceTurns || 0), desc: '스킬 사용 불가' });
@@ -6705,7 +6765,21 @@ function buildRaidParticipantStatusEffects(participant) {
   if (Number(participant.breadCount || 0) > 0) effects.push({ type: 'buff', name: '빵', count: Number(participant.breadCount || 0), desc: '피격 시 HP 5 회복 후 1개 소모' });
   if (Number(participant.critBonusTurns || 0) > 0) effects.push({ type: 'buff', name: '크리티컬 상승', turns: Number(participant.critBonusTurns || 0), desc: `치명타 확률 +${Math.round(Number(participant.critBonusValue || 0) * 100)}%` });
   if (Number(participant.hypeTurns || 0) > 0) effects.push({ type: 'buff', name: '흥겨움', turns: Number(participant.hypeTurns || 0), desc: '기본 공격 횟수 2배' });
-  if (Number(participant.attackBonusTurns || 0) > 0) effects.push({ type: 'buff', name: '공격력 상승', turns: Number(participant.attackBonusTurns || 0), desc: `공격력 +${Math.round(Number(participant.attackBonusPercent || 0) * 100)}%` });
+  const activeAttackBuffs = getActiveRaidAttackBonusBuffs(participant);
+  if (activeAttackBuffs.length > 0) {
+    const totalAttackBonus = activeAttackBuffs.reduce((sum, buff) => sum + buff.value, 0);
+    const detailText = activeAttackBuffs
+      .map((buff) => `${buff.source} +${Math.round(buff.value * 100)}%`)
+      .join(', ');
+    effects.push({
+      type: 'buff',
+      name: '공격력 상승',
+      turns: Math.max(...activeAttackBuffs.map((buff) => buff.turns)),
+      desc: `공격력 +${Math.round(totalAttackBonus * 100)}%${detailText ? ` (${detailText})` : ''}`
+    });
+  } else if (Number(participant.attackBonusTurns || 0) > 0) {
+    effects.push({ type: 'buff', name: '공격력 상승', turns: Number(participant.attackBonusTurns || 0), desc: `공격력 +${Math.round(Number(participant.attackBonusPercent || 0) * 100)}%` });
+  }
   if (Number(participant.championGuardTurns || 0) > 0) effects.push({ type: 'buff', name: '챔피언의 가호', turns: Number(participant.championGuardTurns || 0), desc: `공격력 +${Math.round(Number(participant.championGuardAttackBonus || 0) * 100)}%, 치명타 확률 +${Math.round(Number(participant.championGuardCritBonus || 0) * 100)}%` });
   if (Number(participant.subordinateTurns || 0) > 0) effects.push({ type: 'buff', name: '부하직원', turns: Number(participant.subordinateTurns || 0), desc: `레벨 +${Number(participant.subordinateLevelBonus || 0)}` });
   if (Number(participant.finalDamageBonusTurns || 0) > 0) effects.push({ type: 'buff', name: '부하직원 육성', turns: Number(participant.finalDamageBonusTurns || 0), desc: `최종 데미지 +${Math.round(Number(participant.finalDamageBonusPercent || 0) * 100)}%` });
@@ -7338,8 +7412,7 @@ function useRaidCardSkill(participant, battle) {
     [first, second].forEach((target) => {
       target.negateHitCount += negateCount;
       target.debuffImmuneCount += debuffGuardCount;
-      target.attackBonusTurns = Math.max(target.attackBonusTurns, card.turns);
-      target.attackBonusPercent = Math.max(Number(target.attackBonusPercent || 0), attackBonusPercent);
+      addRaidAttackBonusBuff(target, attackBonusPercent, card.turns, card.name);
     });
     logText = `${participant.displayName}(이)가 ${card.name}로 ${first.displayName}${second.userId !== first.userId ? `, ${second.displayName}` : ''}에게 보호 버프를 부여했습니다.`;
   } else if (card.effectType === 'random_party_negate_hit') {
@@ -7565,16 +7638,14 @@ function useRaidCardSkill(participant, battle) {
     const shuffled = [...aliveAllies].sort(() => Math.random() - 0.5).slice(0, Math.min(card.targets, aliveAllies.length));
     const attackBonusPercent = scalePercent(card.attackBonusPercent);
     shuffled.forEach((target) => {
-      target.attackBonusTurns = Math.max(target.attackBonusTurns, card.turns);
-      target.attackBonusPercent = Math.max(Number(target.attackBonusPercent || 0), attackBonusPercent);
+      addRaidAttackBonusBuff(target, attackBonusPercent, card.turns, card.name);
     });
     logText = `${participant.displayName}(이)가 ${card.name}로 ${shuffled.map((target) => target.displayName).join(', ')}의 공격력을 높였습니다.`;
   } else if (card.effectType === 'target_attack_buff') {
     const selectedTargetId = participant.plannedTargetUserId;
     const target = getRaidParticipant(battle, selectedTargetId) || getAliveRaidParticipants(battle)[0] || participant;
     const attackBonusPercent = scalePercent(card.attackBonusPercent);
-    target.attackBonusTurns = Math.max(target.attackBonusTurns, card.turns);
-    target.attackBonusPercent = Math.max(Number(target.attackBonusPercent || 0), attackBonusPercent);
+    addRaidAttackBonusBuff(target, attackBonusPercent, card.turns, card.name);
     logText = `${participant.displayName}(이)가 ${card.name}로 ${target.displayName}의 공격력을 높였습니다.`;
   } else if (card.effectType === 'target_debuff_guard') {
     const selectedTargetId = participant.plannedTargetUserId;
@@ -7657,7 +7728,15 @@ function tickRaidParticipantEndOfTurn(participant, battle) {
     participant.counterTurns -= 1;
     if (participant.counterTurns <= 0) participant.counterDamageMultiplier = 1;
   }
-  if (participant.attackBonusTurns > 0) {
+  if (Array.isArray(participant.attackBonusBuffs)) {
+    participant.attackBonusBuffs = participant.attackBonusBuffs
+      .map((buff) => ({
+        ...buff,
+        turns: Math.max(0, Number(buff.turns || 0) - 1)
+      }))
+      .filter((buff) => Number(buff.turns || 0) > 0 && Number(buff.value || 0) > 0);
+    syncRaidAttackBonusFields(participant);
+  } else if (participant.attackBonusTurns > 0) {
     participant.attackBonusTurns -= 1;
     if (participant.attackBonusTurns <= 0) participant.attackBonusPercent = 0;
   }
@@ -7751,7 +7830,10 @@ function triggerRaidTurnStartPassives(participant, battle) {
 }
 
 function getRaidAttackBonusPercent(participant) {
-  const baseBonus = participant.attackBonusTurns > 0 ? Number(participant.attackBonusPercent || 0) : 0;
+  const attackBuffs = getActiveRaidAttackBonusBuffs(participant);
+  const baseBonus = attackBuffs.length > 0
+    ? attackBuffs.reduce((sum, buff) => sum + buff.value, 0)
+    : (participant.attackBonusTurns > 0 ? Number(participant.attackBonusPercent || 0) : 0);
   const celineBonus = participant.celineTurns > 0 ? Number(participant.celineAttackBonusPercent || 0) : 0;
   const championBonus = participant.championGuardTurns > 0 ? Number(participant.championGuardAttackBonus || 0) : 0;
   return baseBonus + celineBonus + championBonus;
@@ -8400,6 +8482,7 @@ function performRaidBossAction(battle) {
         participant.hypeTurns = 0;
         participant.counterTurns = 0;
         participant.counterDamageMultiplier = 1;
+        participant.attackBonusBuffs = [];
         participant.attackBonusTurns = 0;
         participant.attackBonusPercent = 0;
         participant.damageMultiplierTurns = 0;
@@ -8674,7 +8757,7 @@ function performRaidBossAction(battle) {
       }
     }
     const shieldAmount = isHardMode ? 150000 : 10000;
-    const shieldTurns = isHardMode ? 3 : 1;
+    const shieldTurns = isHardMode ? 2 : 1;
     battle.bossShield = Number(battle.bossShield || 0) + shieldAmount;
     battle.bossShieldTurns = Math.max(Number(battle.bossShieldTurns || 0), shieldTurns);
     battle.bossLastHpLoss = 0;
@@ -10910,7 +10993,7 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
       addPvpBuff(friendlyTarget, { id: 'negate_hit', name: '피격 무효', count: negateHitCount, desc: '피격 무효' });
     }
     addPvpBuff(friendlyTarget, { id: 'debuff_guard', name: '디버프 무효', count: scaleCount(card.debuffImmuneCount || 1), desc: '디버프 무효' });
-    addPvpBuff(friendlyTarget, { id: 'attack_bonus', name: '공격력 상승', turns: Number(card.turns || 1), value: scalePercent(card.attackBonusPercent), desc: `공격력 +${Math.round(scalePercent(card.attackBonusPercent) * 100)}%` });
+    addPvpBuff(friendlyTarget, { id: 'attack_bonus', name: '공격력 상승', turns: Number(card.turns || 1), value: scalePercent(card.attackBonusPercent), stackDistinct: true, desc: `공격력 +${Math.round(scalePercent(card.attackBonusPercent) * 100)}%` });
   } else if (card.effectType === 'random_party_negate_hit' || card.effectType === 'party_negate_hit_by_level') {
     const targetCount = isAugmentBattle
       ? Math.max(1, Math.min(friendlyTargets.length, Math.floor(Number(card.targets || 1))))
@@ -10929,7 +11012,7 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
       ? [...friendlyTargets].sort(() => Math.random() - 0.5).slice(0, targetCount)
       : [friendlyTarget];
     targets.forEach((ally) => {
-      addPvpBuff(ally, { id: 'attack_bonus', name: '공격력 상승', turns: Number(card.turns || 1), value: scalePercent(card.attackBonusPercent), desc: `공격력 +${Math.round(scalePercent(card.attackBonusPercent) * 100)}%` });
+      addPvpBuff(ally, { id: 'attack_bonus', name: '공격력 상승', turns: Number(card.turns || 1), value: scalePercent(card.attackBonusPercent), stackDistinct: true, desc: `공격력 +${Math.round(scalePercent(card.attackBonusPercent) * 100)}%` });
     });
   } else if (card.effectType === 'target_final_damage_buff') {
     const finalDamageBonus = Math.max(0, scalePercent(card.finalDamageBonusPercent));
@@ -10938,6 +11021,7 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
       name: '부하직원 육성',
       turns: Number(card.turns || 2),
       value: finalDamageBonus,
+      stackDistinct: true,
       desc: `최종 데미지 +${Math.round(finalDamageBonus * 100)}%`
     });
     battle.logs.push(`${friendlyTarget.displayName}의 최종 데미지가 ${Math.round(finalDamageBonus * 100)}% 증가합니다.`);
@@ -11006,6 +11090,7 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
       turns: Number(card.turns || 2),
       value: scalePercent(card.attackBonusPercent),
       critBonus: scalePercent(card.critBonus),
+      stackDistinct: true,
       desc: `공격력 +${Math.round(scalePercent(card.attackBonusPercent) * 100)}%, 치명타 확률 +${Math.round(scalePercent(card.critBonus) * 100)}%`
     });
     if (championEnemyTarget) addPvpDebuff(championEnemyTarget, {
@@ -13026,6 +13111,7 @@ function getDefaultBranchOffice() {
     excavationBrokenUntil: null,
     itemCodex: [],
     employeeCodex: [],
+    excavationRewardLog: [],
     lastSettlementDayKey: '',
     missedMaintenanceDays: 0,
     lastTaxAt: null,
@@ -13113,6 +13199,18 @@ function normalizeBranchOffice(user) {
   office.excavationBrokenUntil = brokenUntil && Number.isFinite(brokenUntil.getTime()) ? brokenUntil : null;
   office.itemCodex = [...new Set(Array.isArray(office.itemCodex) ? office.itemCodex.filter((itemId) => BRANCH_COLLECTIBLE_ITEMS[itemId]) : [])];
   office.employeeCodex = [...new Set(Array.isArray(office.employeeCodex) ? office.employeeCodex.map((name) => String(name || '').slice(0, 24)).filter(Boolean) : [])];
+  office.excavationRewardLog = (Array.isArray(office.excavationRewardLog) ? office.excavationRewardLog : [])
+    .filter((entry) => entry && entry.itemId)
+    .map((entry) => {
+      const itemDef = INVENTORY_ITEM_DEFS[entry.itemId] || {};
+      return {
+        itemId: String(entry.itemId),
+        name: String(entry.name || itemDef.name || entry.itemId).slice(0, 40),
+        quantity: Math.max(1, Math.floor(Number(entry.quantity || 1))),
+        acquiredAt: entry.acquiredAt || new Date()
+      };
+    })
+    .slice(-BRANCH_EXCAVATION_EXTRA_DROP_LOG_LIMIT);
   office.lastSettlementDayKey = office.lastSettlementDayKey || '';
   office.missedMaintenanceDays = Math.max(0, Math.floor(Number(office.missedMaintenanceDays || 0)));
   office.lastTaxAt = office.lastTaxAt || null;
@@ -13314,6 +13412,34 @@ function getBranchMachineBrokenUntil(user, now = new Date()) {
   return brokenUntil;
 }
 
+function appendBranchExcavationRewardLog(user, reward, now = new Date()) {
+  if (!reward?.itemId) return;
+  normalizeBranchOffice(user);
+  const itemDef = INVENTORY_ITEM_DEFS[reward.itemId] || {};
+  const entry = {
+    itemId: reward.itemId,
+    name: reward.name || itemDef.name || reward.itemId,
+    quantity: Math.max(1, Math.floor(Number(reward.quantity || 1))),
+    acquiredAt: now
+  };
+  user.branchOffice.excavationRewardLog = [
+    ...(Array.isArray(user.branchOffice.excavationRewardLog) ? user.branchOffice.excavationRewardLog : []),
+    entry
+  ].slice(-BRANCH_EXCAVATION_EXTRA_DROP_LOG_LIMIT);
+}
+
+function rollBranchExcavationExtraDrop(user, now = new Date()) {
+  if (Math.random() * 100 >= BRANCH_EXCAVATION_EXTRA_DROP_CHANCE) return null;
+  const drop = pickRandom(BRANCH_EXCAVATION_EXTRA_DROPS);
+  if (!drop?.itemId || !INVENTORY_ITEM_DEFS[drop.itemId]) return null;
+  const quantity = 1;
+  addItemToInventory(user, drop.itemId, quantity);
+  const itemDef = INVENTORY_ITEM_DEFS[drop.itemId];
+  const reward = { itemId: drop.itemId, name: itemDef.name, quantity };
+  appendBranchExcavationRewardLog(user, reward, now);
+  return reward;
+}
+
 function startBranchExcavation(user, now = new Date(), options = {}) {
   normalizeBranchOffice(user);
   if (!user.branchOffice.isFounded) {
@@ -13401,9 +13527,14 @@ function completeBranchExcavation(user, now = new Date(), options = {}) {
     message += '발굴 실패. 아무것도 찾지 못했습니다. (성공률 ' + successChance + '%)';
   }
 
+  const extraDrop = rollBranchExcavationExtraDrop(user, now);
+  if (extraDrop) {
+    message += ' / 추가 보상: ' + extraDrop.name + ' ' + extraDrop.quantity.toLocaleString() + '개';
+  }
+
   clearBranchPendingExcavation(user);
   user.branchOffice.lastLog = message;
-  return { completed: true, message, success, item: itemDetail, valueGain, pending: false };
+  return { completed: true, message, success, item: itemDetail, valueGain, extraDrop, pending: false };
 }
 
 function processBranchAutoExcavation(user, now = new Date(), options = {}) {
@@ -13641,6 +13772,12 @@ function buildBranchOfficePublicState(user, now = new Date(), derivedStats = nul
     itemCodexTotal: Object.keys(BRANCH_COLLECTIBLE_ITEMS).length,
     employeeCodex: office.employeeCodex,
     employeeCodexCount: office.employeeCodex.length,
+    excavationRewardLog: office.excavationRewardLog.map((entry) => ({
+      itemId: entry.itemId,
+      name: entry.name,
+      quantity: entry.quantity,
+      acquiredAt: entry.acquiredAt
+    })),
     digCost: getBranchExcavationCost(user, now),
     overtimeExcavationActive: isBranchOvertimeExcavationTime(now),
     overtimeExcavationMultiplier: BRANCH_OFFICE_OVERTIME_COST_MULTIPLIER,
@@ -13649,6 +13786,7 @@ function buildBranchOfficePublicState(user, now = new Date(), derivedStats = nul
     excavationSuccessCap: getBranchExcavationCap(user),
     rareItemBonusChance: getBranchRareItemBonusChance(user),
     excavationDurationMs: getBranchExcavationDurationMs(user),
+    extraDropChancePercent: BRANCH_EXCAVATION_EXTRA_DROP_CHANCE,
     autoExcavationEnabled: Boolean(office.autoExcavationEnabled),
     excavationBrokenUntil: getBranchMachineBrokenUntil(user, now),
     excavationBrokenRemainingMs: (() => {
@@ -14139,6 +14277,9 @@ function buildEmblemShopState(user) {
 }
 
 function buildGameStateResponse(user, now = new Date()) {
+  if (user.branchOffice?.autoExcavationEnabled) {
+    processBranchAutoExcavation(user, now, { maxSteps: 1 });
+  }
   const derivedStats = calculateDerivedStats(user, now);
   const gameState = user.gameState.toObject ? user.gameState.toObject() : { ...user.gameState };
   gameState.maxStamina = getEffectiveMaxStamina(user, now);
