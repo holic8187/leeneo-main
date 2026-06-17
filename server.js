@@ -5813,7 +5813,14 @@ function createRaidRewardMailPayload({ activeBattle, participant, user, sharedBa
   }
 
   const rewardRatio = getRaidBossRewardRatio(participant.level);
-  const expBonusMultiplier = 1 + (derivedStats.expBonusPercent + (derivedStats.branchRaidExpBonusPercent || 0) + (derivedStats.raidExpBonusPercent || 0)) / 100;
+  const activeExpBuffEffects = getActiveBuffEffects(user, now);
+  const activeExpBuffMultiplier = Math.max(0, 1 + Number(activeExpBuffEffects.expBonusAdd || 0));
+  const expBonusMultiplier =
+    (1 + (derivedStats.expBonusPercent + (derivedStats.branchRaidExpBonusPercent || 0) + (derivedStats.raidExpBonusPercent || 0)) / 100)
+    * activeExpBuffMultiplier;
+  if (activeExpBuffMultiplier !== 1) {
+    rewardNotes.push(`임시 경험치 버프로 경험치 ${activeExpBuffMultiplier.toFixed(2)}배`);
+  }
   const expReward = Math.max(0, Math.floor(getRequiredExp(participant.level) * rewardRatio * rewardMultiplier * expBonusMultiplier));
   const businessCards = Math.max(0, Math.round((sharedBaseRewards?.businessCards || 0) * rewardMultiplier));
   const bacchus = Math.max(0, Math.round((sharedBaseRewards?.bacchus || 0) * rewardMultiplier));
@@ -12631,7 +12638,14 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
           rewardNotes.push('이번엔 될거같아 실패로 보상 없음');
         }
       }
-      const expBonusMultiplier = 1 + (derivedStats.expBonusPercent + (derivedStats.branchRaidExpBonusPercent || 0) + (derivedStats.raidExpBonusPercent || 0)) / 100;
+      const activeExpBuffEffects = getActiveBuffEffects(user, now);
+      const activeExpBuffMultiplier = Math.max(0, 1 + Number(activeExpBuffEffects.expBonusAdd || 0));
+      const expBonusMultiplier =
+        (1 + (derivedStats.expBonusPercent + (derivedStats.branchRaidExpBonusPercent || 0) + (derivedStats.raidExpBonusPercent || 0)) / 100)
+        * activeExpBuffMultiplier;
+      if (activeExpBuffMultiplier !== 1) {
+        rewardNotes.push(`임시 경험치 버프로 경험치 ${activeExpBuffMultiplier.toFixed(2)}배`);
+      }
       const expReward = Math.floor(getRequiredExp(participant.level) * rewardRatio * rewardMultiplier * expBonusMultiplier);
       const businessCards = Math.max(0, Math.round((sharedBaseRewards?.businessCards || 0) * rewardMultiplier));
       const bacchus = Math.max(0, Math.round((sharedBaseRewards?.bacchus || 0) * rewardMultiplier));

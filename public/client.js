@@ -302,6 +302,15 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-17-raid-mail-temp-exp-buff',
+    time: '2026-06-17 11:35',
+    title: '보스 우편 경험치 버프 적용',
+    items: [
+      '보스 클리어 보상 우편 생성 시점에 자신감, 고양이의 보은, 업무 최적화 같은 임시 경험치 버프가 경험치 보상에 함께 적용되도록 변경했습니다.',
+      '우편 수령 시점이 아니라 클리어 당시 적용 중이던 버프 기준으로 경험치가 확정됩니다.'
+    ]
+  },
+  {
     id: '2026-06-17-branch-auto-extra-drop',
     time: '2026-06-17 11:05',
     title: '자동 발굴 안정화와 추가 보상',
