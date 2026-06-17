@@ -173,6 +173,7 @@ const PVP_ACCEPT_MS = 5 * 1000;
 const PVP_BAN_TURN_MS = 30000;
 const PVP_PICK_TURN_MS = 45000;
 const PVP_BATTLE_TURN_MS = 30000;
+const PVP_PRACTICE_BOT_TURN_MS = 5 * 1000;
 const PVP_START_COUNTDOWN_MS = 5000;
 const PVP_DRAFT_AUTO_GRACE_MS = 0;
 const PVP_DRAFT_SUBMIT_GRACE_MS = 1500;
@@ -11869,7 +11870,10 @@ async function executePvpTurn(battle, now = new Date(), options = {}) {
 
   battle.currentUserId = target.userId;
   battle.turnNumber += 1;
-  battle.turnEndsAt = new Date(now.getTime() + PVP_BATTLE_TURN_MS);
+  const nextTurnMs = isPracticePvpMode(battle.mode) && target.isBot
+    ? PVP_PRACTICE_BOT_TURN_MS
+    : PVP_BATTLE_TURN_MS;
+  battle.turnEndsAt = new Date(now.getTime() + nextTurnMs);
   bumpPvpVersion();
 }
 

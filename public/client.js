@@ -302,6 +302,23 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-17-pvp-practice-exit-turn',
+    time: '2026-06-17 12:05',
+    title: '면담 연습모드 편의 개선',
+    items: [
+      '연습모드 전투 중 연습 종료하기 버튼으로 즉시 연습을 종료하고 메인 화면으로 돌아갈 수 있게 했습니다.',
+      'JM이햄의 봇 차례가 즉시 넘어가지 않고 5초만 진행되도록 조정했습니다.'
+    ]
+  },
+  {
+    id: '2026-06-17-tiger-emblem-fit',
+    time: '2026-06-17 11:50',
+    title: '호랭이 휘장 표시 조정',
+    items: [
+      '<호랭이> 휘장의 오른쪽 이미지가 랭킹 칸에서 잘려 보이지 않도록 배경 표시 크기를 조정했습니다.'
+    ]
+  },
+  {
     id: '2026-06-17-raid-mail-temp-exp-buff',
     time: '2026-06-17 11:35',
     title: '보스 우편 경험치 버프 적용',
@@ -5521,13 +5538,14 @@ function handlePvpBackClick() {
 async function handlePvpPracticeExitClick() {
   const user = getStoredUser();
   if (!user?._id) return handleLogoutClick();
+  if (!confirm('면담 연습모드를 종료하고 메인 화면으로 돌아갈까요?')) return;
   try {
     const data = await postJson(`${API_URL}/api/pvp/cancel`, { userId: user._id, mode: 'practice' });
     latestPvpState = data.pvp;
+    handlePvpBackClick();
   } catch (err) {
     alert(err.message);
   }
-  handlePvpBackClick();
 }
 
 async function fetchPvpStateForMode(mode = selectedPvpMode, options = {}) {
