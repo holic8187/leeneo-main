@@ -762,6 +762,12 @@ progress {
   background-repeat: no-repeat, no-repeat;
 }
 
+.ranking-name-cell.emblem-tiger,
+.emblem-preview-cell.emblem-tiger {
+  background-size: auto, 88% auto;
+  background-position: center center, center center;
+}
+
 @keyframes emblem-sheen {
   0%, 52% { transform: translateX(-120%); }
   78%, 100% { transform: translateX(120%); }

@@ -302,6 +302,15 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-17-tiger-emblem-override-fix',
+    time: '2026-06-17 12:20',
+    title: '호랭이 휘장 잘림 추가 수정',
+    items: [
+      '랭킹 공통 휘장 배경 규칙이 <호랭이> 전용 표시 설정을 덮어쓰던 문제를 수정했습니다.',
+      '<호랭이> 휘장이 랭킹 칸 안에서 오른쪽 로고까지 보이도록 표시 크기를 다시 조정했습니다.'
+    ]
+  },
+  {
     id: '2026-06-17-pvp-practice-exit-turn',
     time: '2026-06-17 12:05',
     title: '면담 연습모드 편의 개선',
