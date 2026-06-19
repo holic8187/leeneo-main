@@ -223,6 +223,9 @@ let latestGlobalState = { activeShoutText: '', activeShoutKey: '' };
 let lastRenderedShoutKey = '';
 let latestRaidState = null;
 let selectedRaidMode = 'normal';
+let chaosRaidExtraCardCandidates = [];
+let raidExtraCardResolver = null;
+let raidExtraCardModalRequiresSelection = false;
 let latestPvpState = null;
 let selectedPvpMode = 'ranked';
 let selectedPvpCardId = null;
@@ -1633,6 +1636,8 @@ function setupEventListeners() {
   bindClick('raidModeNormalBtn', () => handleRaidModeChange('normal'));
   bindClick('raidModeHardBtn', () => handleRaidModeChange('hard'));
   bindClick('raidModeChaosBtn', () => handleRaidModeChange('chaos'));
+  bindClick('raidChaosExtraCardChangeBtn', () => openChaosRaidExtraCardModal({ required: false }));
+  bindClick('raidExtraCardCloseBtn', () => closeChaosRaidExtraCardModal(false));
   bindClick('raidCountdownCancelBtn', handleRaidCountdownCancelClick);
   bindClick('raidBackBtn', handleRaidBackClick);
   bindClick('cardDrawBtn', handleCardDraw);
@@ -4650,6 +4655,7 @@ function openRaidLobby() {
 }
 
 function closeRaidLobby() {
+  closeChaosRaidExtraCardModal(false);
   hideModal('raidLobbyModal');
 }
 
@@ -8587,6 +8593,100 @@ function hasValidChaosRaidExtraCard(user) {
   return getChaosRaidExtraCardCandidates(user).some((card) => getCardVariantKey(card.cardId, card.enhancementLevel || 0) === selectedKey);
 }
 
+function getChaosRaidExtraCardSelection(user) {
+  const selection = user?.raidExtraCardSelection || {};
+  if (!selection.cardId) return null;
+  const selectedKey = getCardVariantKey(selection.cardId, selection.level || 0);
+  return getChaosRaidExtraCardCandidates(user)
+    .find((card) => getCardVariantKey(card.cardId, card.enhancementLevel || 0) === selectedKey) || null;
+}
+
+function getChaosRaidExtraCardLabel(card) {
+  if (!card) return '추가 카드를 선택해주세요.';
+  const level = Number(card.enhancementLevel || 0);
+  return `[${card.grade || '-'}] ${card.name || card.baseName || card.cardId}${level > 0 ? ` +${level}` : ''}`;
+}
+
+function closeChaosRaidExtraCardModal(result = false) {
+  hideModal('raidExtraCardModal');
+  chaosRaidExtraCardCandidates = [];
+  raidExtraCardModalRequiresSelection = false;
+  const resolver = raidExtraCardResolver;
+  raidExtraCardResolver = null;
+  if (resolver) resolver(Boolean(result));
+}
+
+function renderChaosRaidExtraCardModal() {
+  const user = getStoredUser();
+  const currentEl = document.getElementById('raidExtraCardCurrent');
+  const listEl = document.getElementById('raidExtraCardList');
+  if (!currentEl || !listEl) return;
+
+  chaosRaidExtraCardCandidates = getChaosRaidExtraCardCandidates(user);
+  const current = getChaosRaidExtraCardSelection(user);
+  currentEl.textContent = current
+    ? `현재 선택: ${getChaosRaidExtraCardLabel(current)}`
+    : '현재 선택된 추가 카드가 없습니다.';
+
+  if (!chaosRaidExtraCardCandidates.length) {
+    listEl.innerHTML = '<div class="modal-note">카오스 레이드에는 기본 장착 카드와 다른 추가 카드 1장이 필요합니다. 가방에서 다른 카드를 먼저 준비해주세요.</div>';
+    return;
+  }
+
+  const currentKey = current ? getCardVariantKey(current.cardId, current.enhancementLevel || 0) : '';
+  listEl.innerHTML = chaosRaidExtraCardCandidates.map((card, index) => {
+    const cardKey = getCardVariantKey(card.cardId, card.enhancementLevel || 0);
+    const isSelected = cardKey === currentKey;
+    const skillText = [card.skillName, card.skillDesc].filter(Boolean).join(' - ');
+    return `
+      <button type="button" class="raid-extra-card-option ${isSelected ? 'selected' : ''}" onclick="handleChaosRaidExtraCardSelect(${index})">
+        <span class="grade-badge" style="background:${escapeAttr(card.color || '#666666')}">${escapeHtml(card.grade || '-')}</span>
+        <span class="raid-extra-card-main">
+          <strong>${escapeHtml(getChaosRaidExtraCardLabel(card))}</strong>
+          <small>${escapeHtml(skillText || '스킬 정보 없음')}</small>
+        </span>
+        ${isSelected ? '<span class="raid-extra-card-selected-mark">선택됨</span>' : ''}
+      </button>
+    `;
+  }).join('');
+}
+
+function openChaosRaidExtraCardModal(options = {}) {
+  raidExtraCardModalRequiresSelection = Boolean(options.required);
+  renderChaosRaidExtraCardModal();
+  showModal('raidExtraCardModal');
+  return new Promise((resolve) => {
+    raidExtraCardResolver = resolve;
+  });
+}
+
+async function handleChaosRaidExtraCardSelect(candidateIndex) {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+  const selectedCard = chaosRaidExtraCardCandidates[Number(candidateIndex)];
+  if (!selectedCard) {
+    alert('선택할 카드를 다시 확인해주세요.');
+    return;
+  }
+
+  try {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/raid/select-extra-card`, {
+      userId: user._id,
+      cardId: selectedCard.cardId,
+      enhancementLevel: selectedCard.enhancementLevel || 0
+    }));
+    updateLocalUserState(data);
+    const shouldRefreshRaidState = !raidExtraCardModalRequiresSelection;
+    closeChaosRaidExtraCardModal(true);
+    updateRaidLobbyUI(latestRaidState, getStoredUser());
+    if (shouldRefreshRaidState) {
+      window.setTimeout(() => pollRaidState(), 0);
+    }
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
 async function ensureChaosRaidExtraCardSelected() {
   const user = getStoredUser();
   if (!user?._id || selectedRaidMode !== 'chaos' || hasValidChaosRaidExtraCard(user)) return true;
@@ -8597,25 +8697,7 @@ async function ensureChaosRaidExtraCardSelected() {
     return false;
   }
 
-  const choiceText = candidates
-    .map((card, index) => `${index + 1}. [${card.grade}] ${card.name} - ${card.skillName || ''}`)
-    .join('\n');
-  const answer = window.prompt(`카오스 레이드에 추가로 들고 갈 카드 번호를 입력해주세요.\n\n${choiceText}`);
-  if (answer == null) return false;
-  const selectedIndex = Math.floor(Number(answer) || 0) - 1;
-  const selectedCard = candidates[selectedIndex];
-  if (!selectedCard) {
-    alert('올바른 카드 번호를 입력해주세요.');
-    return false;
-  }
-
-  const data = await runWithUserMutation(() => postJson(`${API_URL}/api/raid/select-extra-card`, {
-    userId: user._id,
-    cardId: selectedCard.cardId,
-    enhancementLevel: selectedCard.enhancementLevel || 0
-  }));
-  updateLocalUserState(data);
-  return true;
+  return openChaosRaidExtraCardModal({ required: true });
 }
 
 async function handleRaidSlotClick(slotIndex) {
@@ -10009,6 +10091,26 @@ function updateRaidLobbyUI(raidState, user) {
     button.classList.toggle('hidden', availableModeSet.size > 0 && !availableModeSet.has(button.dataset.raidMode));
     button.classList.toggle('active', button.dataset.raidMode === selectedRaidMode);
   });
+  const chaosExtraPanel = document.getElementById('raidChaosExtraCardPanel');
+  const chaosExtraText = document.getElementById('raidChaosExtraCardText');
+  const chaosExtraButton = document.getElementById('raidChaosExtraCardChangeBtn');
+  if (chaosExtraPanel) {
+    const isChaosMode = selectedRaidMode === 'chaos';
+    chaosExtraPanel.classList.toggle('hidden', !isChaosMode);
+    if (isChaosMode) {
+      const currentExtraCard = getChaosRaidExtraCardSelection(user);
+      const candidateCount = getChaosRaidExtraCardCandidates(user).length;
+      if (chaosExtraText) {
+        chaosExtraText.textContent = currentExtraCard
+          ? `현재 추가 카드: ${getChaosRaidExtraCardLabel(currentExtraCard)}`
+          : (candidateCount ? '추가 카드를 선택해주세요.' : '기본 장착 카드와 다른 보유 카드가 필요합니다.');
+      }
+      if (chaosExtraButton) {
+        chaosExtraButton.disabled = candidateCount <= 0;
+        chaosExtraButton.textContent = currentExtraCard ? '추가 카드 변경' : '추가 카드 선택';
+      }
+    }
+  }
   const slotGrid = document.getElementById('raidSlotGrid');
   const rewardList = document.getElementById('raidRewardList');
   const skillList = document.getElementById('raidBossSkillList');

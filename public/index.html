@@ -810,6 +810,13 @@
         <button id="raidModeHardBtn" class="mini-btn raid-mode-tab" data-raid-mode="hard">하드 모드</button>
         <button id="raidModeChaosBtn" class="mini-btn raid-mode-tab" data-raid-mode="chaos">카오스 모드</button>
       </div>
+      <div id="raidChaosExtraCardPanel" class="raid-chaos-extra-card-panel hidden">
+        <div>
+          <strong>카오스 추가 카드</strong>
+          <div id="raidChaosExtraCardText" class="menu-note">추가 카드를 선택해주세요.</div>
+        </div>
+        <button id="raidChaosExtraCardChangeBtn" class="mini-btn">추가 카드 선택/변경</button>
+      </div>
       <div class="raid-lobby-grid">
         <div>
           <h4 id="raidBossName">오늘의 보스 정보</h4>
@@ -830,6 +837,18 @@
       <div class="modal-buttons raid-modal-actions">
         <button id="raidLobbyCloseBtn" class="mini-btn">닫기</button>
         <button id="raidStartBtn" class="mini-btn">입장</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="raidExtraCardModal" class="modal-overlay hidden">
+    <div class="excel-sheet modal-panel raid-extra-card-modal-panel">
+      <h3>카오스 추가 카드 선택</h3>
+      <p class="menu-note">카오스 레이드에서는 기본 장착 카드와 다른 카드 1장을 추가로 들고 갈 수 있습니다. 대기 중에도 이 창에서 변경할 수 있습니다.</p>
+      <div id="raidExtraCardCurrent" class="modal-note"></div>
+      <div id="raidExtraCardList" class="raid-extra-card-list"></div>
+      <div class="modal-buttons">
+        <button id="raidExtraCardCloseBtn" class="mini-btn">닫기</button>
       </div>
     </div>
   </div>

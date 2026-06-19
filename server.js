@@ -17332,6 +17332,24 @@ app.post('/api/raid/select-extra-card', async (req, res) => {
         if (user.equippedCardId === cardId) {
           throw createHttpError(400, '기본 장착 카드와 같은 카드는 추가 카드로 선택할 수 없습니다.');
         }
+        const chaosSlotIndex = findQueuedRaidSlotIndex(user._id, RAID_MODE_CHAOS);
+        if (chaosSlotIndex >= 0) {
+          const queuedOtherUserIds = getRaidRoom(RAID_MODE_CHAOS).slots
+            .filter(Boolean)
+            .filter((slotUserId) => String(slotUserId) !== String(user._id));
+          if (queuedOtherUserIds.length) {
+            const queuedUsers = await User.find({ _id: { $in: queuedOtherUserIds } })
+              .select('nickname username equippedCardId equippedCardLevel raidExtraCardSelection cards enhancedCards');
+            const duplicateCardUser = queuedUsers.find((queuedUser) => {
+              ensureUserDefaults(queuedUser);
+              return buildRaidCardEntriesForUser(queuedUser, RAID_MODE_CHAOS)
+                .some((entry) => entry.cardId === cardId);
+            });
+            if (duplicateCardUser) {
+              throw createHttpError(400, '중복된 카드를 들고 온 참가자가 이미 있습니다.');
+            }
+          }
+        }
         user.raidExtraCardSelection = { cardId, level: normalizedLevel };
       }
       user.gameState.lastActionTime = now;

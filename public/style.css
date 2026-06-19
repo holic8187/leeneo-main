@@ -1127,6 +1127,64 @@ progress {
   margin-bottom: 16px;
 }
 
+.raid-chaos-extra-card-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 10px 0 14px;
+  padding: 10px;
+  border: 1px solid #c9a227;
+  background: #fff9df;
+}
+
+.raid-extra-card-modal-panel {
+  width: min(760px, calc(100vw - 40px));
+  max-height: min(84vh, 760px);
+  overflow-y: auto;
+}
+
+.raid-extra-card-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.raid-extra-card-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #d8d8d8;
+  background: #ffffff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.raid-extra-card-option:hover,
+.raid-extra-card-option.selected {
+  border-color: #1f7a3b;
+  background: #eef9f0;
+}
+
+.raid-extra-card-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.raid-extra-card-main small {
+  color: #555555;
+  white-space: normal;
+}
+
+.raid-extra-card-selected-mark {
+  color: #1f7a3b;
+  font-weight: bold;
+}
+
 .raid-lobby-boss-portrait {
   width: 96px;
   height: 96px;
