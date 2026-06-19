@@ -304,6 +304,16 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-19-chaos-second-card-card-lock-artifacts',
+    time: '2026-06-19 00:30',
+    title: '카오스 레이드 2장 카드와 카드 잠금',
+    items: [
+      '카오스 레이드에서 기본 장착 카드에 더해 추가 카드 1장을 선택해 총 2개의 스킬 중 하나를 사용할 수 있게 했습니다.',
+      '가방 카드에 잠금 버튼을 추가하고, 잠금 카드가 합성 재료로 들어가지 않도록 서버와 화면에서 함께 보호합니다.',
+      '능력치와 회사 운영 화면에서 보유 유물 효과를 한눈에 확인할 수 있게 정리했습니다.'
+    ]
+  },
+  {
     id: '2026-06-18-branch-extra-drop-rare-bonus',
     time: '2026-06-18 01:05',
     title: '발굴 추가 입장권 드랍 보정',
@@ -3841,7 +3851,7 @@ function getFusionSelectionCountMap() {
 
 function getFusionOwnedCards(user) {
   return (user.cardVariantDetails || [])
-    .filter((card) => Number(card.quantity || 0) > 0 && Number(card.enhancementLevel || 0) < 5)
+    .filter((card) => Number(card.quantity || 0) > 0 && Number(card.enhancementLevel || 0) < 5 && !card.locked)
     .map((card) => ({
       ...card,
       id: getCardVariantKey(card.cardId, card.enhancementLevel || 0)
@@ -4408,6 +4418,22 @@ async function handleToggleCardEquip(cardId, enhancementLevel = 0) {
 
   try {
     const data = await runWithUserMutation(() => postJson(`${API_URL}/api/cards/equip`, {
+      userId: user._id,
+      cardId,
+      enhancementLevel
+    }));
+    updateLocalUserState(data);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleToggleCardLock(cardId, enhancementLevel = 0) {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+
+  try {
+    const data = await runWithUserMutation(() => postJson(`${API_URL}/api/cards/toggle-lock`, {
       userId: user._id,
       cardId,
       enhancementLevel
@@ -7011,6 +7037,31 @@ function renderBranchEffectBadges(item) {
   return '<span class="branch-effect-badge">' + escapeHtml(effectText) + '</span>';
 }
 
+function getBranchArtifactEffectEntries(effects = {}) {
+  const entries = [
+    ['매시간 경험치', Number(effects.hourlyExpPercent || 0), '+', '%'],
+    ['직원별 발굴 확률', Number(effects.excavationPowerBonus || 0), '+', '%'],
+    ['보스 경험치', Number(effects.bossRaidExpBonus || 0), '+', '%'],
+    ['회사 가치 증가량', Number(effects.companyValueBonus || 0), '+', '%'],
+    ['발굴 소요 시간', Number(effects.excavationTimeReductionPercent || 0), '-', '%'],
+    ['발굴 확률 최대치', Number(effects.excavationSuccessCapBonus || 0), '+', '%']
+  ];
+  return entries
+    .filter(([, value]) => Math.abs(value) > 0.0001)
+    .map(([label, value, prefix, suffix]) => `${label} ${prefix}${formatNumber(value, 2)}${suffix}`);
+}
+
+function formatBranchArtifactEffectSummary(effects = {}) {
+  const entries = getBranchArtifactEffectEntries(effects);
+  return entries.length ? entries.map(escapeHtml).join('<br>') : '보유 유물 효과 없음';
+}
+
+function renderBranchArtifactEffectList(effects = {}) {
+  const entries = getBranchArtifactEffectEntries(effects);
+  if (!entries.length) return '<div class="menu-note">보유 유물 효과가 없습니다.</div>';
+  return entries.map((entry) => `<span class="branch-effect-badge">${escapeHtml(entry)}</span>`).join('');
+}
+
 function openBranchOfficeModal() {
   renderBranchOfficeModal(getStoredUser());
   showModal('branchOfficeModal');
@@ -7102,6 +7153,7 @@ function renderBranchOfficeModal(user = getStoredUser()) {
   const activeContractInput = document.getElementById('branchContractPercentInput');
   if (activeContractInput && activeContractInput.value !== '') branchContractPercentDraft = activeContractInput.value;
   const contractPercentValue = branchContractPercentDraft || '1';
+  const artifactEffectListHtml = renderBranchArtifactEffectList(branch.itemEffects || {});
   const postPreview = Number(branch.dailySalaryBase || 0);
   const pendingExcavation = branch.pendingExcavation || null;
   const pendingRemainingMs = Number(pendingExcavation?.remainingMs || 0);
@@ -7140,6 +7192,11 @@ function renderBranchOfficeModal(user = getStoredUser()) {
       <div class="branch-stat"><span>창고</span><strong>${formatNumber(branch.storageUsed || 0)} / ${formatNumber(branch.storageSlots || 0)}</strong></div>
       <div class="branch-stat"><span>일일 유지비</span><strong>${formatNumber(branch.dailyMaintenanceCost || 0)}원</strong></div>
       <div class="branch-stat"><span>직원</span><strong>${formatNumber(branch.employeeCount || 0)} / ${formatNumber(branch.maxEmployees || 0)}</strong></div>
+    </div>
+
+    <div class="branch-card">
+      <h4>유물 효과</h4>
+      <div class="branch-codex-list">${artifactEffectListHtml}</div>
     </div>
 
     <div class="branch-card">
@@ -8509,20 +8566,74 @@ async function pollRaidState() {
   }
 }
 
+function getChaosRaidExtraCardCandidates(user) {
+  const equippedCardId = user?.equippedCardId || '';
+  return (user?.cardVariantDetails || [])
+    .filter((card) => Number(card.quantity || 0) > 0)
+    .filter((card) => card.cardId !== equippedCardId)
+    .sort((a, b) => {
+      const gradeOrder = { S: 0, A: 1, B: 2, C: 3 };
+      return (gradeOrder[a.grade] ?? 9) - (gradeOrder[b.grade] ?? 9)
+        || Number(b.enhancementLevel || 0) - Number(a.enhancementLevel || 0)
+        || String(a.baseName || a.name || '').localeCompare(String(b.baseName || b.name || ''), 'ko');
+    });
+}
+
+function hasValidChaosRaidExtraCard(user) {
+  if (selectedRaidMode !== 'chaos') return true;
+  const selection = user?.raidExtraCardSelection || {};
+  if (!selection.cardId) return false;
+  const selectedKey = getCardVariantKey(selection.cardId, selection.level || 0);
+  return getChaosRaidExtraCardCandidates(user).some((card) => getCardVariantKey(card.cardId, card.enhancementLevel || 0) === selectedKey);
+}
+
+async function ensureChaosRaidExtraCardSelected() {
+  const user = getStoredUser();
+  if (!user?._id || selectedRaidMode !== 'chaos' || hasValidChaosRaidExtraCard(user)) return true;
+
+  const candidates = getChaosRaidExtraCardCandidates(user);
+  if (!candidates.length) {
+    alert('카오스 레이드에는 기본 장착 카드와 다른 추가 카드 1장이 필요합니다.');
+    return false;
+  }
+
+  const choiceText = candidates
+    .map((card, index) => `${index + 1}. [${card.grade}] ${card.name} - ${card.skillName || ''}`)
+    .join('\n');
+  const answer = window.prompt(`카오스 레이드에 추가로 들고 갈 카드 번호를 입력해주세요.\n\n${choiceText}`);
+  if (answer == null) return false;
+  const selectedIndex = Math.floor(Number(answer) || 0) - 1;
+  const selectedCard = candidates[selectedIndex];
+  if (!selectedCard) {
+    alert('올바른 카드 번호를 입력해주세요.');
+    return false;
+  }
+
+  const data = await runWithUserMutation(() => postJson(`${API_URL}/api/raid/select-extra-card`, {
+    userId: user._id,
+    cardId: selectedCard.cardId,
+    enhancementLevel: selectedCard.enhancementLevel || 0
+  }));
+  updateLocalUserState(data);
+  return true;
+}
+
 async function handleRaidSlotClick(slotIndex) {
   const user = getStoredUser();
   if (!user?._id) return handleLogoutClick();
 
   try {
+    if (!(await ensureChaosRaidExtraCardSelected())) return;
+    const latestUser = getStoredUser() || user;
     const data = await postJson(`${API_URL}/api/raid/toggle-slot`, {
-      userId: user._id,
+      userId: latestUser._id,
       slotIndex,
       mode: selectedRaidMode
     });
     latestRaidState = data.raid;
     if (latestRaidState?.mode) selectedRaidMode = latestRaidState.mode;
-    updateRaidButton(user, latestRaidState);
-    updateRaidLobbyUI(latestRaidState, user);
+    updateRaidButton(latestUser, latestRaidState);
+    updateRaidLobbyUI(latestRaidState, latestUser);
   } catch (err) {
     alert(err.message);
   }
@@ -8783,9 +8894,7 @@ function updateStatsTab(user) {
   const itemStats = user.itemStats || {};
   const equippedTitle = getEquippedTitleDetail(user);
   const equippedCard = getEquippedCardDetail(user);
-  const pendingStock = user.pendingStockInvestment?.amount > 0
-    ? `${formatNumber(user.pendingStockInvestment.amount)}원 투자 완료`
-    : '없음';
+  const branchArtifactEffects = user.branchOffice?.itemEffects || {};
   const now = new Date();
   const kstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
   const todayKey = `${kstNow.getUTCFullYear()}-${String(kstNow.getUTCMonth() + 1).padStart(2, '0')}-${String(kstNow.getUTCDate()).padStart(2, '0')}`;
@@ -8809,7 +8918,7 @@ function updateStatsTab(user) {
     <tr><td>보유 명함</td><td>${formatNumber(getBusinessCardCount(user))}장</td></tr>
     <tr><td>칭호 변경 가능 여부</td><td>${escapeHtml(titleChangeStatus)}</td></tr>
     <tr><td>고양이 참치캔 누적 지급</td><td>${formatNumber(user.meta?.catFoodGivenCount || 0)}회</td></tr>
-    <tr><td>주식 투자 현황</td><td>${escapeHtml(pendingStock)}</td></tr>
+    <tr><td>회사 유물 효과</td><td>${formatBranchArtifactEffectSummary(branchArtifactEffects)}</td></tr>
     <tr><td>오늘 쇼핑 누적</td><td>${formatNumber(user.shopState?.dailySpend || 0)}원</td></tr>
   `;
 }
@@ -9389,6 +9498,7 @@ window.handleCompanyStockSell = handleCompanyStockSell;
 window.handleCompanyStockRumor = handleCompanyStockRumor;
 window.handleToggleTitle = handleToggleTitle;
 window.handleToggleCardEquip = handleToggleCardEquip;
+window.handleToggleCardLock = handleToggleCardLock;
 window.handleCardFusionAdd = handleCardFusionAdd;
 window.handleCardFusionAutoFill = handleCardFusionAutoFill;
 window.handleCardFusionSlotRemove = handleCardFusionSlotRemove;
@@ -9503,6 +9613,144 @@ async function handleRaidTargetSelect(userId, targetSlot, targetUserId) {
 window.handleRaidSkillToggle = handleRaidSkillToggle;
 window.handleRaidTargetSelect = handleRaidTargetSelect;
 window.handleCardEnhanceSelect = handleCardEnhanceSelect;
+
+function getRaidParticipantCardsForUI(participant) {
+  const raidCards = Array.isArray(participant?.raidCards) ? participant.raidCards.filter(Boolean) : [];
+  if (raidCards.length) return raidCards;
+  if (!participant?.equippedCardId) return [];
+  return [{
+    cardSlot: 0,
+    cardId: participant.equippedCardId,
+    enhancementLevel: participant.equippedCardLevel || 0,
+    name: participant.equippedCardName,
+    skillName: participant.skillName,
+    skillDesc: participant.skillDesc,
+    targetType: participant.targetType,
+    passiveOnly: participant.passiveOnly,
+    skillCooldown: participant.skillCooldown || 0,
+    plannedSkill: participant.plannedSkill,
+    oncePerBattle: participant.oncePerBattle,
+    oncePerBattleUsed: participant.oncePerBattleUsed
+  }];
+}
+
+function buildRaidTargetButtons(participant, participants, targetSlot, disabled, cardSlot = 0) {
+  const selectedTargetId = targetSlot === 2 ? participant.plannedTargetUserId2 : participant.plannedTargetUserId;
+  return participants
+    .filter((entry) => entry.hp > 0)
+    .map((entry) => `
+      <button
+        class="mini-btn raid-target-btn ${entry.userId === selectedTargetId ? 'selected' : ''}"
+        ${disabled ? 'disabled' : ''}
+        onclick="handleRaidTargetSelect('${participant.userId}', ${targetSlot}, '${entry.userId}', ${Number(cardSlot || 0)})"
+      >
+        ${compactDisplayHtml(entry.displayName, 12)}
+      </button>
+    `)
+    .join('');
+}
+
+function buildRaidSkillControls(participant, participants) {
+  const raidCards = getRaidParticipantCardsForUI(participant);
+  if (!raidCards.length) {
+    return '<div class="raid-skill-row"><span class="muted-text">장착한 카드가 없어 기본 공격만 사용합니다.</span></div>';
+  }
+
+  const silenced = Number(participant.silenceTurns || 0) > 0;
+  const isDead = participant.hp <= 0;
+  const targetDisabled = isDead;
+
+  return raidCards.map((card, index) => {
+    const cardSlot = Number(card.cardSlot ?? index);
+    if (card.passiveOnly) {
+      return `<div class="raid-skill-row"><span class="muted-text">[${escapeHtml(card.name || '')}] 전투 시작 시 자동 적용되는 패시브 카드입니다.</span></div>`;
+    }
+
+    const needsPrimaryTarget = card.targetType === 'ally' || card.targetType === 'ally_pair';
+    const needsSecondaryTarget = card.targetType === 'ally_pair';
+    const missingPrimaryTarget = needsPrimaryTarget && !participant.plannedTargetUserId;
+    const missingSecondaryTarget = needsSecondaryTarget && !participant.plannedTargetUserId2;
+    const onceUsed = Boolean(card.oncePerBattleUsed);
+    const planned = Boolean(card.plannedSkill);
+    const cooldown = Number(card.skillCooldown || 0);
+    const toggleDisabled = planned
+      ? (isDead || onceUsed)
+      : (isDead || onceUsed || silenced || cooldown > 0 || missingPrimaryTarget || missingSecondaryTarget);
+    const statusText = onceUsed
+      ? '이번 전투 사용 완료'
+      : silenced
+        ? `침묵 ${formatNumber(participant.silenceTurns)}턴`
+        : (cooldown > 0 ? `쿨타임 ${formatNumber(cooldown)}턴` : '예약 가능');
+
+    return `
+      <div class="raid-skill-row">
+        <button
+          class="mini-btn"
+          ${toggleDisabled ? 'disabled' : ''}
+          title="${escapeHtml(card.skillDesc || '')}"
+          onclick="handleRaidSkillToggle('${participant.userId}', ${planned ? 'false' : 'true'}, ${cardSlot})"
+        >
+          ${planned ? `[${escapeHtml(card.name || '')}] 사용 예약됨` : `[${escapeHtml(card.name || '')}] 다음 턴 사용`}
+        </button>
+        <span class="menu-note">${statusText}</span>
+      </div>
+      ${needsPrimaryTarget ? `
+        <div class="raid-target-group">
+          <div class="raid-target-label">${card.targetType === 'ally_pair' ? '1번 대상' : '버프 대상'}</div>
+          <div class="raid-target-buttons">${buildRaidTargetButtons(participant, participants, 1, targetDisabled, cardSlot)}</div>
+        </div>
+      ` : ''}
+      ${needsSecondaryTarget ? `
+        <div class="raid-target-group">
+          <div class="raid-target-label">2번 대상</div>
+          <div class="raid-target-buttons">${buildRaidTargetButtons(participant, participants, 2, targetDisabled, cardSlot)}</div>
+        </div>
+      ` : ''}
+    `;
+  }).join('');
+}
+
+async function handleRaidSkillToggle(userId, useSkill, cardSlot = 0) {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+
+  try {
+    const data = await postJson(`${API_URL}/api/raid/plan-skill`, {
+      userId: user._id,
+      useSkill,
+      cardSlot
+    });
+    if (latestRaidState) {
+      latestRaidState.activeBattle = data.raid;
+    }
+    renderRaidBattle(latestRaidState, user);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleRaidTargetSelect(userId, targetSlot, targetUserId, cardSlot = 0) {
+  const user = getStoredUser();
+  if (!user?._id) return handleLogoutClick();
+
+  try {
+    const data = await postJson(`${API_URL}/api/raid/set-target`, {
+      userId: user._id,
+      targetSlot,
+      targetUserId,
+      cardSlot
+    });
+    if (latestRaidState) {
+      latestRaidState.activeBattle = data.raid;
+    }
+    renderRaidBattle(latestRaidState, user);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+window.handleRaidSkillToggle = handleRaidSkillToggle;
+window.handleRaidTargetSelect = handleRaidTargetSelect;
 
 
 function getInventoryQuantityFromUser(user, itemId) {
@@ -9623,19 +9871,24 @@ function updateInventoryUI(user) {
   } else {
     cardDetails.forEach((card) => {
       const actionText = card.equipped ? '해제' : '장착';
+      const lockText = card.locked ? '잠금해제' : '잠금';
+      const lockedBadge = card.locked ? '<span class="menu-note"> / 잠금</span>' : '';
       cardList.insertAdjacentHTML(
         'beforeend',
         `
           <tr>
             <td><span class="card-name-chip ${getCardVisualClass(card)}" style="border-color:${escapeHtml(card.borderColor || 'transparent')}; ${escapeAttr(getCardVisualStyle(card))}">${escapeHtml(card.name)}</span></td>
             <td><span class="grade-badge" style="background:${escapeHtml(card.color || '#666666')}">${escapeHtml(card.grade)}</span></td>
-            <td>${formatNumber(card.quantity)}장 보유</td>
+            <td>${formatNumber(card.quantity)}장 보유${lockedBadge}</td>
             <td>
               <strong>${escapeHtml(card.skillName || '')}</strong>
               <div class="menu-note">${escapeHtml(card.skillDesc || '')}</div>
               <div class="menu-note">지속/적용: ${escapeHtml(card.durationText || '즉시')} / 쿨타임 ${formatNumber(card.cooldown || 0)}턴</div>
             </td>
-            <td><button class="mini-btn" onclick="handleToggleCardEquip('${card.cardId}', ${Number(card.enhancementLevel || 0)})">${actionText}</button></td>
+            <td>
+              <button class="mini-btn" onclick="handleToggleCardEquip('${card.cardId}', ${Number(card.enhancementLevel || 0)})">${actionText}</button>
+              <button class="mini-btn" onclick="handleToggleCardLock('${card.cardId}', ${Number(card.enhancementLevel || 0)})">${lockText}</button>
+            </td>
           </tr>
         `
       );
@@ -9814,7 +10067,8 @@ function updateRaidLobbyUI(raidState, user) {
           equippedCardBorderColor: participant.equippedCardBorderColor,
           equippedCardPotatoRehabKillCount: participant.equippedCardPotatoRehabKillCount,
           equippedCardPotatoRehabAuraStrength: participant.equippedCardPotatoRehabAuraStrength,
-          equippedCardCooldown: participant.skillCooldown
+          equippedCardCooldown: participant.skillCooldown,
+          raidCards: participant.raidCards || []
         })),
         ...Array(5).fill(null)
       ].slice(0, 5)
@@ -9825,13 +10079,25 @@ function updateRaidLobbyUI(raidState, user) {
       specialStyle: slot.equippedCardSpecialStyle,
       potatoRehabAuraStrength: slot.equippedCardPotatoRehabAuraStrength
     } : {};
+    const slotRaidCards = slot
+      ? (Array.isArray(slot.raidCards) && slot.raidCards.length
+          ? slot.raidCards
+          : [{
+              name: slot.equippedCardName,
+              skillName: slot.equippedCardSkillName,
+              skillDesc: slot.equippedCardSkillDesc,
+              passiveOnly: slot.equippedCardPassiveOnly,
+              skillCooldown: slot.equippedCardCooldown
+            }])
+      : [];
+    const slotRaidCardNames = slotRaidCards.map((card) => card.name).filter(Boolean).join(' / ') || '장착 카드 없음';
     const cardTooltip = slot
-      ? [
-          slot.equippedCardName || '장착 카드 없음',
-          slot.equippedCardSkillName ? `스킬: ${slot.equippedCardSkillName}` : '',
-          slot.equippedCardSkillDesc || '',
-          slot.equippedCardName ? (slot.equippedCardPassiveOnly ? '패시브 카드' : `쿨타임 ${formatNumber(slot.equippedCardCooldown || 0)}턴`) : ''
-        ].filter(Boolean).join('\n')
+      ? slotRaidCards.map((card) => [
+          card.name || '장착 카드 없음',
+          card.skillName ? `스킬: ${card.skillName}` : '',
+          card.skillDesc || '',
+          card.name ? (card.passiveOnly ? '패시브 카드' : `쿨타임 ${formatNumber(card.skillCooldown || 0)}턴`) : ''
+        ].filter(Boolean).join('\n')).join('\n\n')
       : '';
     slotGrid.insertAdjacentHTML(
       'beforeend',
@@ -9840,7 +10106,7 @@ function updateRaidLobbyUI(raidState, user) {
           ${slot
             ? `<div class="raid-slot-name"><span class="raid-name-chip" style="border-color:${escapeHtml(slot.equippedCardBorderColor || 'transparent')}" title="${escapeAttr(slot.displayName || '')}">${escapeHtml(getCompactDisplayName(slot.displayName || '', 12))}</span></div>
                <div>Lv.${formatNumber(slot.level)}</div>
-               <div class="raid-slot-card ${getCardVisualClass(slotCardVisual)}" style="${escapeAttr(getCardVisualStyle(slotCardVisual))}" title="${escapeHtml(cardTooltip)}">${escapeHtml(slot.equippedCardName || '장착 카드 없음')}</div>`
+               <div class="raid-slot-card ${getCardVisualClass(slotCardVisual)}" style="${escapeAttr(getCardVisualStyle(slotCardVisual))}" title="${escapeHtml(cardTooltip)}">${escapeHtml(slotRaidCardNames)}</div>`
             : `<div class="raid-slot-name">${index + 1}번 슬롯</div><div>클릭해 참가 대기</div>`}
         </button>
       `

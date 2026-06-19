@@ -2601,6 +2601,10 @@ const userSchema = new mongoose.Schema({
     level: { type: Number, default: 1 },
     quantity: { type: Number, default: 1 }
   }],
+  lockedCards: [{
+    cardId: { type: String, required: true },
+    level: { type: Number, default: 0 }
+  }],
   equipments: [{
     equipmentId: { type: String, required: true },
     equipmentType: { type: String, required: true },
@@ -2613,6 +2617,10 @@ const userSchema = new mongoose.Schema({
   },
   equippedCardId: { type: String, default: null },
   equippedCardLevel: { type: Number, default: 0 },
+  raidExtraCardSelection: {
+    cardId: { type: String, default: null },
+    level: { type: Number, default: 0 }
+  },
   pvpStats: {
     rating: { type: Number, default: 1000 },
     played: { type: Number, default: 0 },
@@ -3992,6 +4000,7 @@ function ensureUserDefaults(user) {
   }
   if (!Array.isArray(user.cards)) user.cards = [];
   if (!Array.isArray(user.enhancedCards)) user.enhancedCards = [];
+  if (!Array.isArray(user.lockedCards)) user.lockedCards = [];
   if (!Array.isArray(user.equipments)) user.equipments = [];
   if (!user.equippedEquipment || typeof user.equippedEquipment !== 'object') {
     user.equippedEquipment = { cardEffect: null, basicAttack: null };
@@ -4000,6 +4009,13 @@ function ensureUserDefaults(user) {
   user.equippedEquipment.basicAttack = user.equippedEquipment.basicAttack || null;
   if (!CARD_DATA[user.equippedCardId]) user.equippedCardId = null;
   user.equippedCardLevel = Math.max(0, Math.min(5, Number(user.equippedCardLevel ?? 0)));
+  if (!user.raidExtraCardSelection || typeof user.raidExtraCardSelection !== 'object') {
+    user.raidExtraCardSelection = { cardId: null, level: 0 };
+  }
+  user.raidExtraCardSelection.cardId = CARD_DATA[user.raidExtraCardSelection.cardId]
+    ? user.raidExtraCardSelection.cardId
+    : null;
+  user.raidExtraCardSelection.level = normalizeCardEnhancementLevel(user.raidExtraCardSelection.level || 0);
   if (!user.pvpStats || typeof user.pvpStats !== 'object') {
     user.pvpStats = { rating: 1000, played: 0, wins: 0, losses: 0 };
   }
@@ -4260,6 +4276,25 @@ function ensureUserDefaults(user) {
   if (user.equippedCardId && getOwnedCardVariantQuantity(user, user.equippedCardId, user.equippedCardLevel || 0) <= 0) {
     user.equippedCardId = null;
     user.equippedCardLevel = 0;
+  }
+  user.lockedCards = (user.lockedCards || [])
+    .filter((entry) => entry && CARD_DATA[entry.cardId])
+    .map((entry) => ({
+      cardId: String(entry.cardId),
+      level: normalizeCardEnhancementLevel(entry.level || 0)
+    }))
+    .filter((entry, index, list) =>
+      getOwnedCardVariantQuantity(user, entry.cardId, entry.level) > 0
+      && list.findIndex((candidate) => candidate.cardId === entry.cardId && Number(candidate.level) === Number(entry.level)) === index
+    );
+  if (
+    user.raidExtraCardSelection.cardId
+    && (
+      getOwnedCardVariantQuantity(user, user.raidExtraCardSelection.cardId, user.raidExtraCardSelection.level || 0) <= 0
+      || user.equippedCardId === user.raidExtraCardSelection.cardId
+    )
+  ) {
+    user.raidExtraCardSelection = { cardId: null, level: 0 };
   }
 }
 
@@ -4813,10 +4848,12 @@ function buildUserPersistenceSnapshot(user) {
     inventory: toPlainMongoValue(user.inventory),
     cards: toPlainMongoValue(user.cards),
     enhancedCards: toPlainMongoValue(user.enhancedCards),
+    lockedCards: toPlainMongoValue(user.lockedCards),
     equipments: toPlainMongoValue(user.equipments),
     equippedEquipment: toPlainMongoValue(user.equippedEquipment),
     equippedCardId: user.equippedCardId || null,
     equippedCardLevel: normalizeCardEnhancementLevel(user.equippedCardLevel || 0),
+    raidExtraCardSelection: toPlainMongoValue(user.raidExtraCardSelection),
     pvpStats: toPlainMongoValue(user.pvpStats),
     infiniteOvertime: toPlainMongoValue(user.infiniteOvertime),
     branchOffice: toPlainMongoValue(user.branchOffice),
@@ -4981,6 +5018,23 @@ function getEnhancedCardQuantity(user, cardId, level) {
 function getOwnedCardVariantQuantity(user, cardId, level = 0) {
   const normalizedLevel = normalizeCardEnhancementLevel(level);
   return normalizedLevel <= 0 ? getCardQuantity(user, cardId) : getEnhancedCardQuantity(user, cardId, normalizedLevel);
+}
+
+function getCardVariantKey(cardId, level = 0) {
+  return `${String(cardId || '')}::${normalizeCardEnhancementLevel(level)}`;
+}
+
+function getLockedCardKeySet(user) {
+  const lockedCards = Array.isArray(user?.lockedCards) ? user.lockedCards : [];
+  return new Set(
+    lockedCards
+      .filter((entry) => entry && CARD_DATA[entry.cardId])
+      .map((entry) => getCardVariantKey(entry.cardId, entry.level || 0))
+  );
+}
+
+function isCardVariantLocked(user, cardId, level = 0) {
+  return getLockedCardKeySet(user).has(getCardVariantKey(cardId, level));
 }
 
 function getTotalOwnedCardQuantity(user, cardId) {
@@ -5202,6 +5256,39 @@ function getEquippedCardInfo(user) {
   return getCardDefinition(user.equippedCardId, user.equippedCardLevel || 0);
 }
 
+function buildRaidCardEntry(cardId, level = 0) {
+  const normalizedLevel = normalizeCardEnhancementLevel(level || 0);
+  const card = getCardDefinition(cardId, normalizedLevel);
+  if (!card) return null;
+  return {
+    cardId: card.id,
+    enhancementLevel: normalizedLevel
+  };
+}
+
+function getRaidExtraCardEntryForUser(user) {
+  const selection = user?.raidExtraCardSelection || {};
+  const cardId = selection.cardId || null;
+  const level = normalizeCardEnhancementLevel(selection.level || 0);
+  if (!cardId || !CARD_DATA[cardId]) return null;
+  if (getOwnedCardVariantQuantity(user, cardId, level) <= 0) return null;
+  if (user.equippedCardId === cardId) return null;
+  return buildRaidCardEntry(cardId, level);
+}
+
+function buildRaidCardEntriesForUser(user, mode = RAID_MODE_NORMAL) {
+  const entries = [];
+  const equippedEntry = buildRaidCardEntry(user.equippedCardId, user.equippedCardLevel || 0);
+  if (equippedEntry) entries.push(equippedEntry);
+  if (normalizeRaidMode(mode) === RAID_MODE_CHAOS) {
+    const extraEntry = getRaidExtraCardEntryForUser(user);
+    if (extraEntry && !entries.some((entry) => entry.cardId === extraEntry.cardId)) {
+      entries.push(extraEntry);
+    }
+  }
+  return entries;
+}
+
 function buildCardDetails(user) {
   return Object.values(CARD_DATA).map((card) => ({
     id: card.id,
@@ -5242,6 +5329,7 @@ function buildCardVariantDetails(user) {
         borderColor: resolved.borderColor,
         quantity: baseQuantity,
         equipped,
+        locked: isCardVariantLocked(user, card.id, 0),
         skillName: resolved.skillName,
         skillDesc: buildUserCardSkillDescription(user, card.id, 0),
         cooldown: resolved.cooldown,
@@ -5288,6 +5376,7 @@ function buildCardVariantDetails(user) {
         borderColor: resolved.borderColor,
         quantity: Number(entry.quantity),
         equipped,
+        locked: isCardVariantLocked(user, entry.cardId, normalizedLevel),
         skillName: resolved.skillName,
         skillDesc: buildUserCardSkillDescription(user, entry.cardId, normalizedLevel),
         cooldown: resolved.cooldown,
@@ -5503,13 +5592,37 @@ function getRaidParticipantRewardMultiplierByLevel(level, mode = RAID_MODE_NORMA
   return 1;
 }
 
-function buildQueuedSlotSnapshot(user) {
-  const equippedCard = getEquippedCardInfo(user);
+function buildRaidCardSnapshotFromEntry(user, entry) {
+  const card = entry ? getCardDefinition(entry.cardId, entry.enhancementLevel || 0) : null;
+  if (!card) return null;
+  return {
+    cardId: card.id,
+    enhancementLevel: Number(card.enhancementLevel || entry.enhancementLevel || 0),
+    name: card.displayName || card.name,
+    grade: card.grade || null,
+    skillName: card.skillName || '',
+    skillDesc: buildUserCardSkillDescription(user, card.id, card.enhancementLevel || 0),
+    cooldown: Number(card.cooldown || 0),
+    passiveOnly: Boolean(card.passiveOnly),
+    targetType: card.targetType || null,
+    borderColor: card.borderColor || '',
+    specialStyle: card.specialStyle || '',
+    potatoRehabKillCount: card.id === 'potato_rehab' ? getPotatoRehabKillCount(user) : 0,
+    potatoRehabAuraStrength: card.id === 'potato_rehab' ? getPotatoRehabAuraStrength(user) : 0
+  };
+}
+
+function buildQueuedSlotSnapshot(user, mode = RAID_MODE_NORMAL) {
+  const raidCards = buildRaidCardEntriesForUser(user, mode)
+    .map((entry) => buildRaidCardSnapshotFromEntry(user, entry))
+    .filter(Boolean);
+  const equippedCard = raidCards[0] ? getCardDefinition(raidCards[0].cardId, raidCards[0].enhancementLevel || 0) : getEquippedCardInfo(user);
   return {
     userId: String(user._id),
     displayName: getCompactNickname(user, 16),
     nickname: getCompactNickname(user, 16),
     level: user.gameState.level,
+    raidCards,
     equippedCardName: equippedCard?.displayName || equippedCard?.name || '장착 카드 없음',
     equippedCardGrade: equippedCard?.grade || null,
     equippedCardSkillName: equippedCard?.skillName || '',
@@ -5524,10 +5637,12 @@ function buildQueuedSlotSnapshot(user) {
   };
 }
 
-function createRaidParticipantFromUser(user) {
+function createRaidParticipantFromUser(user, mode = RAID_MODE_NORMAL) {
   const equippedEquipment = getEquippedEquipment(user);
   const equippedCardEffect = equippedEquipment?.equipmentType === EQUIPMENT_TYPE_CARD ? equippedEquipment : null;
   const equippedBasicAttack = equippedEquipment?.equipmentType === EQUIPMENT_TYPE_ATTACK ? equippedEquipment : null;
+  const raidCards = buildRaidCardEntriesForUser(user, mode);
+  const primaryCard = raidCards[0] || buildRaidCardEntry(user.equippedCardId, user.equippedCardLevel || 0);
   return {
     userId: String(user._id),
     displayName: getCompactNickname(user, 18),
@@ -5545,11 +5660,14 @@ function createRaidParticipantFromUser(user) {
     actionLockTurns: 0,
     basicAttackLockTurns: 0,
     plannedSkill: false,
+    plannedCardSlot: null,
     plannedTargetUserId: null,
     plannedTargetUserId2: null,
     skillCooldown: 0,
-    equippedCardId: user.equippedCardId || null,
-    equippedCardLevel: normalizeCardEnhancementLevel(user.equippedCardLevel || 0),
+    skillCooldowns: raidCards.map(() => 0),
+    raidCards,
+    equippedCardId: primaryCard?.cardId || null,
+    equippedCardLevel: normalizeCardEnhancementLevel(primaryCard?.enhancementLevel || 0),
     potatoRehabDamage: getPotatoRehabDamage(user),
     potatoRehabKillCount: getPotatoRehabKillCount(user),
     potatoRehabAuraStrength: getPotatoRehabAuraStrength(user),
@@ -6973,11 +7091,14 @@ function getRaidRecoveryMultiplier(target) {
 function getRaidBossMaxHpForMode(boss, mode = RAID_MODE_NORMAL) {
   const normalizedMode = normalizeRaidMode(mode);
   const modeOverride = boss?.maxHpByMode?.[normalizedMode];
+  let baseHp;
   if (Number.isFinite(Number(modeOverride)) && Number(modeOverride) > 0) {
-    return Math.round(Number(modeOverride));
+    baseHp = Number(modeOverride);
+  } else {
+    const modeConfig = getRaidModeConfig(normalizedMode);
+    baseHp = Number(boss?.maxHp || 0) * Number(modeConfig.hpMultiplier || 1);
   }
-  const modeConfig = getRaidModeConfig(normalizedMode);
-  return Math.round(Number(boss?.maxHp || 0) * Number(modeConfig.hpMultiplier || 1));
+  return Math.round(baseHp * (normalizedMode === RAID_MODE_CHAOS ? 3 : 1));
 }
 
 function createRaidBossMinions(bossId, mode = RAID_MODE_NORMAL) {
@@ -7067,8 +7188,62 @@ function getRaidParticipant(activeBattle, userId) {
   return activeBattle?.participants?.find((participant) => participant.userId === String(userId)) || null;
 }
 
-function getParticipantCard(participant) {
-  return participant?.equippedCardId ? getCardDefinition(participant.equippedCardId, participant.equippedCardLevel || 0) : null;
+function getParticipantCardEntries(participant) {
+  if (Array.isArray(participant?.raidCards) && participant.raidCards.length) {
+    return participant.raidCards
+      .map((entry) => buildRaidCardEntry(entry.cardId, entry.enhancementLevel || entry.level || 0))
+      .filter(Boolean);
+  }
+  const fallback = buildRaidCardEntry(participant?.equippedCardId, participant?.equippedCardLevel || 0);
+  return fallback ? [fallback] : [];
+}
+
+function getParticipantCard(participant, slot = null) {
+  const entries = getParticipantCardEntries(participant);
+  const selectedSlot = Number.isInteger(slot)
+    ? slot
+    : (Number.isInteger(participant?.plannedCardSlot) ? participant.plannedCardSlot : 0);
+  const entry = entries[Math.max(0, Math.min(entries.length - 1, selectedSlot))];
+  return entry ? getCardDefinition(entry.cardId, entry.enhancementLevel || 0) : null;
+}
+
+function getParticipantCards(participant) {
+  return getParticipantCardEntries(participant)
+    .map((entry) => getCardDefinition(entry.cardId, entry.enhancementLevel || 0))
+    .filter(Boolean);
+}
+
+function getRaidSkillCooldown(participant, slot = 0) {
+  const normalizedSlot = Math.max(0, Math.floor(Number(slot) || 0));
+  if (Array.isArray(participant?.skillCooldowns)) {
+    return Math.max(0, Number(participant.skillCooldowns[normalizedSlot] || 0));
+  }
+  return normalizedSlot === 0 ? Math.max(0, Number(participant?.skillCooldown || 0)) : 0;
+}
+
+function setRaidSkillCooldown(participant, slot = 0, value = 0) {
+  const normalizedSlot = Math.max(0, Math.floor(Number(slot) || 0));
+  if (!Array.isArray(participant.skillCooldowns)) {
+    participant.skillCooldowns = getParticipantCardEntries(participant).map((_, index) => index === 0 ? Number(participant.skillCooldown || 0) : 0);
+  }
+  while (participant.skillCooldowns.length <= normalizedSlot) {
+    participant.skillCooldowns.push(0);
+  }
+  participant.skillCooldowns[normalizedSlot] = Math.max(0, Number(value || 0));
+  if (normalizedSlot === 0) participant.skillCooldown = participant.skillCooldowns[0];
+}
+
+function tickRaidSkillCooldowns(participant) {
+  const entries = getParticipantCardEntries(participant);
+  if (!Array.isArray(participant.skillCooldowns)) {
+    participant.skillCooldowns = entries.map((_, index) => index === 0 ? Number(participant.skillCooldown || 0) : 0);
+  }
+  participant.skillCooldowns = entries.map((entry, index) => {
+    const paused = entry.cardId === 'solid_mental' && Number(participant.solidMentalNegateCount || 0) > 0;
+    const current = getRaidSkillCooldown(participant, index);
+    return current > 0 && !paused ? current - 1 : current;
+  });
+  participant.skillCooldown = participant.skillCooldowns[0] || 0;
 }
 
 function getRaidBossMinions(battle) {
@@ -7200,7 +7375,8 @@ function getSelectableRaidTargets(battle) {
 }
 
 function useRaidCardSkill(participant, battle) {
-  const card = getParticipantCard(participant);
+  const plannedCardSlot = Number.isInteger(participant.plannedCardSlot) ? participant.plannedCardSlot : 0;
+  const card = getParticipantCard(participant, plannedCardSlot);
   if (!card || card.passiveOnly) return null;
 
   if (participant.silenceTurns > 0) {
@@ -7211,7 +7387,8 @@ function useRaidCardSkill(participant, battle) {
   battle.bossOvertimeDebuffs = Array.isArray(battle.bossOvertimeDebuffs) ? battle.bossOvertimeDebuffs : [];
   const canResolveOvertime = card.effectType === 'overtime_rage'
     && battle.bossOvertimeDebuffs.some((entry) => entry.userId === participant.userId);
-  if (!participant.plannedSkill || (participant.skillCooldown > 0 && !canResolveOvertime)) {
+  const currentCooldown = getRaidSkillCooldown(participant, plannedCardSlot);
+  if (!participant.plannedSkill || (currentCooldown > 0 && !canResolveOvertime)) {
     return null;
   }
 
@@ -7230,8 +7407,9 @@ function useRaidCardSkill(participant, battle) {
   const scaleBonusMultiplier = (value) => Number((1 + ((Number(value || 1) - 1) * totalValueMultiplier)).toFixed(4));
 
   const startsCooldownAfterNegate = card.id === 'solid_mental';
-  participant.skillCooldown = startsCooldownAfterNegate ? Number(card.cooldown || 0) : Number(card.cooldown || 0) + 1;
+  setRaidSkillCooldown(participant, plannedCardSlot, startsCooldownAfterNegate ? Number(card.cooldown || 0) : Number(card.cooldown || 0) + 1);
   participant.plannedSkill = false;
+  participant.plannedCardSlot = null;
   let logText = `${participant.displayName}(이)가 ${card.name} 스킬을 사용했습니다.`;
 
   if (card.effectType === 'self_multi_hit') {
@@ -7349,7 +7527,9 @@ function useRaidCardSkill(participant, battle) {
     const reduceAmount = scaleCount(card.cooldownReduce || 1);
     aliveAllies.forEach((ally) => {
       if (ally.userId === participant.userId) return;
-      ally.skillCooldown = Math.max(0, Number(ally.skillCooldown || 0) - reduceAmount);
+      getParticipantCardEntries(ally).forEach((_, cooldownSlot) => {
+        setRaidSkillCooldown(ally, cooldownSlot, Math.max(0, getRaidSkillCooldown(ally, cooldownSlot) - reduceAmount));
+      });
     });
     logText = `${participant.displayName}(이)가 ${card.name}로 파티원들의 남은 스킬 쿨타임을 ${reduceAmount}턴 줄였습니다.`;
   } else if (card.effectType === 'ally_shield_enemy_multi_hit') {
@@ -7512,7 +7692,7 @@ function useRaidCardSkill(participant, battle) {
         stacks: 0
       });
       logText = `${participant.displayName}(이)가 ${card.name}로 보스에게 <야근>을 적용했습니다.`;
-      participant.skillCooldown = 0;
+      setRaidSkillCooldown(participant, plannedCardSlot, 0);
     }
   } else if (card.effectType === 'champion_guard') {
     const selectedTargetId = participant.plannedTargetUserId;
@@ -7645,7 +7825,9 @@ function useRaidCardSkill(participant, battle) {
         const reduceAmount = Math.max(1, Math.ceil(Number(copiedCard.cooldownReduce || 1) * copyScale));
         getAliveRaidParticipants(battle).forEach((ally) => {
           if (ally.userId === participant.userId) return;
-          ally.skillCooldown = Math.max(0, Number(ally.skillCooldown || 0) - reduceAmount);
+          getParticipantCardEntries(ally).forEach((_, cooldownSlot) => {
+            setRaidSkillCooldown(ally, cooldownSlot, Math.max(0, getRaidSkillCooldown(ally, cooldownSlot) - reduceAmount));
+          });
         });
         logText = `${participant.displayName}(이)가 ${sourceParticipant.displayName}의 ${copiedCard.name}를 흉내 내 파티원들의 남은 스킬 쿨타임을 ${reduceAmount}턴 줄였습니다.`;
       } else if (copiedCard.effectType === 'random_party_negate_hit' || copiedCard.effectType === 'party_negate_hit_by_level') {
@@ -7713,8 +7895,7 @@ function useRaidCardSkill(participant, battle) {
 }
 
 function tickRaidParticipantEndOfTurn(participant, battle) {
-  const solidMentalCooldownPaused = participant.equippedCardId === 'solid_mental' && Number(participant.solidMentalNegateCount || 0) > 0;
-  if (participant.skillCooldown > 0 && !solidMentalCooldownPaused) participant.skillCooldown -= 1;
+  tickRaidSkillCooldowns(participant);
   if (participant.silenceTurns > 0) participant.silenceTurns -= 1;
   if (participant.actionLockTurns > 0) participant.actionLockTurns -= 1;
   if (participant.basicAttackLockTurns > 0) participant.basicAttackLockTurns -= 1;
@@ -7846,7 +8027,7 @@ function getRaidEffectiveLevel(participant) {
 }
 
 function triggerRaidTurnStartPassives(participant, battle) {
-  const card = getParticipantCard(participant);
+  const card = getParticipantCards(participant).find((entry) => entry.effectType === 'passive_rotation_amp');
   if (!card || participant.hp <= 0) return null;
   if (card.effectType !== 'passive_rotation_amp') return null;
 
@@ -8621,7 +8802,7 @@ function performRaidBossAction(battle) {
   if (battle.bossId === RAID_BOSS_ID_BALD_MANAGER) {
     const isHardMode = isChaosRaidBattle(battle);
     if (pattern === 'wig_search') {
-      const wigTargets = aliveParticipants.filter((participant) => participant.equippedCardId === 'wig');
+      const wigTargets = aliveParticipants.filter((participant) => getParticipantCards(participant).some((card) => card.id === 'wig'));
       if (wigTargets.length > 0) {
         const target = wigTargets[Math.floor(Math.random() * wigTargets.length)];
         applyRaidDamage(target, 20, { battle, source: 'boss' });
@@ -8855,7 +9036,29 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
     isParticipant: viewerUserId ? isRaidUserParticipant(activeBattle, viewerUserId) : false,
     spectators: buildSpectatorList(room.viewers, activeBattle.participants.map((participant) => participant.userId)),
     participants: activeBattle.participants.map((participant, index) => {
-      const card = getParticipantCard(participant);
+      const raidCards = getParticipantCardEntries(participant).map((entry, cardSlot) => {
+        const card = getCardDefinition(entry.cardId, entry.enhancementLevel || 0);
+        return card ? {
+          cardSlot,
+          cardId: card.id,
+          enhancementLevel: normalizeCardEnhancementLevel(card.enhancementLevel || entry.enhancementLevel || 0),
+          name: card.displayName || card.name,
+          grade: card.grade || null,
+          borderColor: card.borderColor || '',
+          specialStyle: card.specialStyle || '',
+          potatoRehabKillCount: card.id === 'potato_rehab' ? getPotatoRehabKillCount(participant) : 0,
+          potatoRehabAuraStrength: card.id === 'potato_rehab' ? getPotatoRehabAuraStrength(participant) : 0,
+          skillName: card.skillName || '',
+          skillDesc: buildRaidParticipantCardSkillDescription(participant, card),
+          targetType: card.targetType || null,
+          passiveOnly: Boolean(card.passiveOnly),
+          skillCooldown: getRaidSkillCooldown(participant, cardSlot),
+          plannedSkill: Boolean(participant.plannedSkill && Number(participant.plannedCardSlot || 0) === cardSlot),
+          oncePerBattle: Boolean(card.oncePerBattle),
+          oncePerBattleUsed: Boolean(card.oncePerBattle && participant.potatoRehabUsed)
+        } : null;
+      }).filter(Boolean);
+      const card = getParticipantCard(participant, 0);
       return {
         turnOrder: Number.isInteger(participant.turnOrder) ? participant.turnOrder : index,
         userId: participant.userId,
@@ -8869,8 +9072,10 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
         silenceTurns: participant.silenceTurns,
         skillCooldown: participant.skillCooldown,
         plannedSkill: participant.plannedSkill,
+        plannedCardSlot: Number.isInteger(participant.plannedCardSlot) ? participant.plannedCardSlot : null,
         plannedTargetUserId: participant.plannedTargetUserId || null,
         plannedTargetUserId2: participant.plannedTargetUserId2 || null,
+        raidCards,
         equippedCardId: participant.equippedCardId || null,
         equippedCardLevel: normalizeCardEnhancementLevel(participant.equippedCardLevel || 0),
         equippedCardName: card?.displayName || card?.name || '장착 카드 없음',
@@ -8922,7 +9127,7 @@ function applyRaidBattleStartPassives(activeBattle) {
     activeBattle.logs.push('황과장이 최주임과 정대리를 불러냈습니다. 하수인의 도발이 활성화됩니다.');
   }
   const sojuCards = activeBattle.participants
-    .map((participant) => getParticipantCard(participant))
+    .flatMap((participant) => getParticipantCards(participant))
     .filter((card) => card?.id === 'drinking_angle');
   if (sojuCards.length) {
     const rewardMultiplier = Math.max(...sojuCards.map((card) => Number(card.rewardMultiplier || 1)));
@@ -8933,7 +9138,7 @@ function applyRaidBattleStartPassives(activeBattle) {
     activeBattle.logs.push('야채곱창이 파티 전원에게 소주각? 버프를 부여했습니다.');
   }
   const lottoCards = activeBattle.participants
-    .map((participant) => getParticipantCard(participant))
+    .flatMap((participant) => getParticipantCards(participant))
     .filter((card) => card?.id === 'lotto_numbers');
   if (lottoCards.length) {
     const successChance = Math.max(...lottoCards.map((card) => Number(card.successChance || 0.5)));
@@ -9003,7 +9208,7 @@ async function buildRaidStateResponse(user, now = new Date(), mode = RAID_MODE_N
   const room = getRaidRoom(normalizedMode);
   const queuedUserIds = room.slots.filter(Boolean);
   const queuedUsers = queuedUserIds.length
-    ? await User.find({ _id: { $in: queuedUserIds } }).select('nickname username gameState.level equippedCardId equippedCardLevel cards enhancedCards titles')
+    ? await User.find({ _id: { $in: queuedUserIds } }).select('nickname username gameState.level equippedCardId equippedCardLevel raidExtraCardSelection cards enhancedCards titles')
     : [];
   const queuedMap = new Map(queuedUsers.map((queuedUser) => [String(queuedUser._id), queuedUser]));
 
@@ -9012,7 +9217,7 @@ async function buildRaidStateResponse(user, now = new Date(), mode = RAID_MODE_N
     const queuedUser = queuedMap.get(String(slotUserId));
     if (!queuedUser) return null;
     ensureUserDefaults(queuedUser);
-    return buildQueuedSlotSnapshot(queuedUser);
+    return buildQueuedSlotSnapshot(queuedUser, normalizedMode);
   });
 
   const slotIndex = findQueuedRaidSlotIndex(user._id, normalizedMode);
@@ -14361,8 +14566,10 @@ function buildGameStateResponse(user, now = new Date()) {
     equippedEquipment: user.equippedEquipment,
     cards: user.cards,
     enhancedCards: user.enhancedCards,
+    lockedCards: user.lockedCards,
     equippedCardId: user.equippedCardId,
     equippedCardLevel: normalizeCardEnhancementLevel(user.equippedCardLevel || 0),
+    raidExtraCardSelection: user.raidExtraCardSelection,
     pvpStats: {
       rating: Math.round(Number(user.pvpStats?.rating ?? PVP_RATING_BASE)),
       played: Math.max(0, Math.floor(Number(user.pvpStats?.played || 0))),
@@ -16762,6 +16969,9 @@ app.post('/api/cards/fuse', async (req, res) => {
         if (enhancementLevel >= 5) {
           throw createHttpError(400, '5강 카드는 합성 재료로 사용할 수 없습니다.');
         }
+        if (isCardVariantLocked(user, cardId, enhancementLevel)) {
+          throw createHttpError(400, '잠금 처리된 카드는 합성 재료로 사용할 수 없습니다.');
+        }
         if (!sourceGrade) {
           sourceGrade = cardInfo.grade;
         } else if (sourceGrade !== cardInfo.grade) {
@@ -16818,6 +17028,41 @@ app.post('/api/cards/fuse', async (req, res) => {
   } catch (err) {
     console.error('Card fusion error:', err);
     res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/cards/toggle-lock', async (req, res) => {
+  const { userId, cardId, enhancementLevel } = req.body;
+  if (!userId || !cardId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+
+  try {
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      ensureUserDefaults(user);
+      const normalizedLevel = normalizeCardEnhancementLevel(enhancementLevel || 0);
+      if (!CARD_DATA[cardId]) {
+        throw createHttpError(400, '존재하지 않는 카드입니다.');
+      }
+      if (getOwnedCardVariantQuantity(user, cardId, normalizedLevel) <= 0) {
+        throw createHttpError(400, '보유 중인 카드만 잠금할 수 있습니다.');
+      }
+      const variantKey = getCardVariantKey(cardId, normalizedLevel);
+      const currentLocked = isCardVariantLocked(user, cardId, normalizedLevel);
+      user.lockedCards = (user.lockedCards || []).filter((entry) => getCardVariantKey(entry.cardId, entry.level || 0) !== variantKey);
+      if (!currentLocked) {
+        user.lockedCards.push({ cardId, level: normalizedLevel });
+      }
+      user.gameState.lastActionTime = now;
+      const response = await buildFastUserResponseWithGlobals(user, now);
+      response.cardLockResult = { cardId, enhancementLevel: normalizedLevel, locked: !currentLocked };
+      return response;
+    }, { conflictLabel: 'Card lock conflict' });
+
+    res.json(response);
+  } catch (err) {
+    console.error('Card lock error:', err);
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '?쒕쾭 ?ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.' });
   }
 });
 
@@ -16903,6 +17148,7 @@ app.post('/api/cards/equip', async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
 
+    ensureUserDefaults(user);
     const now = new Date();
     calculateOfflineGains(user, now);
 
@@ -16918,10 +17164,13 @@ app.post('/api/cards/equip', async (req, res) => {
           .filter(Boolean)
           .filter((slotUserId) => String(slotUserId) !== String(user._id));
         if (otherQueuedUserIds.length) {
-          const duplicateCardUser = await User.findOne({
-            _id: { $in: otherQueuedUserIds },
-            equippedCardId: cardId
-          }).select('nickname username');
+          const queuedUsers = await User.find({ _id: { $in: otherQueuedUserIds } })
+            .select('nickname username equippedCardId equippedCardLevel raidExtraCardSelection cards enhancedCards');
+          const duplicateCardUser = queuedUsers.find((queuedUser) => {
+            ensureUserDefaults(queuedUser);
+            return buildRaidCardEntriesForUser(queuedUser, mode)
+              .some((entry) => entry.cardId === cardId);
+          });
           if (duplicateCardUser) {
             return res.status(400).json({ msg: '같은 카드를 든 참가자가 이미 대기 중이라 교체할 수 없습니다.' });
           }
@@ -16935,6 +17184,13 @@ app.post('/api/cards/equip', async (req, res) => {
     } else {
       user.equippedCardId = cardId || null;
       user.equippedCardLevel = cardId ? targetLevel : 0;
+    }
+    if (
+      user.raidExtraCardSelection?.cardId
+      && user.raidExtraCardSelection.cardId === user.equippedCardId
+      && Number(user.raidExtraCardSelection.level || 0) === Number(user.equippedCardLevel || 0)
+    ) {
+      user.raidExtraCardSelection = { cardId: null, level: 0 };
     }
     const response = await buildUserResponseWithGlobals(user, now);
     await persistUserSnapshot(user);
@@ -17010,15 +17266,23 @@ app.post('/api/raid/toggle-slot', async (req, res) => {
       syncQueuedRaidBoss(now, normalizedMode);
       bumpRaidVersion();
     } else {
-      if (user.equippedCardId) {
+      const requestedRaidCards = buildRaidCardEntriesForUser(user, normalizedMode);
+      if (normalizedMode === RAID_MODE_CHAOS && requestedRaidCards.length < 2) {
+        return res.status(400).json({ msg: '카오스 레이드는 기본 장착 카드와 다른 추가 카드 1장이 필요합니다.' });
+      }
+      if (requestedRaidCards.length) {
         const queuedOtherUserIds = room.slots
           .filter(Boolean)
           .filter((slotUserId) => String(slotUserId) !== String(user._id));
         if (queuedOtherUserIds.length) {
-          const duplicateCardUser = await User.findOne({
-            _id: { $in: queuedOtherUserIds },
-            equippedCardId: user.equippedCardId
-          }).select('nickname username');
+          const queuedUsers = await User.find({ _id: { $in: queuedOtherUserIds } })
+            .select('nickname username equippedCardId equippedCardLevel raidExtraCardSelection cards enhancedCards');
+          const requestedCardIds = new Set(requestedRaidCards.map((entry) => entry.cardId).filter(Boolean));
+          const duplicateCardUser = queuedUsers.find((queuedUser) => {
+            ensureUserDefaults(queuedUser);
+            return buildRaidCardEntriesForUser(queuedUser, normalizedMode)
+              .some((entry) => requestedCardIds.has(entry.cardId));
+          });
           if (duplicateCardUser) {
             return res.status(400).json({ msg: '중복된 카드를 들고 온 참가자가 이미 있습니다.' });
           }
@@ -17043,6 +17307,41 @@ app.post('/api/raid/toggle-slot', async (req, res) => {
   } catch (err) {
     console.error('Raid slot toggle error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/raid/select-extra-card', async (req, res) => {
+  const { userId, cardId, enhancementLevel } = req.body;
+  if (!userId) return res.status(400).json({ msg: '?ъ슜??ID媛 ?꾩슂?⑸땲??' });
+
+  try {
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      ensureUserDefaults(user);
+      const normalizedLevel = normalizeCardEnhancementLevel(enhancementLevel || 0);
+      if (!cardId) {
+        user.raidExtraCardSelection = { cardId: null, level: 0 };
+      } else {
+        if (!CARD_DATA[cardId]) {
+          throw createHttpError(400, '존재하지 않는 카드입니다.');
+        }
+        if (getOwnedCardVariantQuantity(user, cardId, normalizedLevel) <= 0) {
+          throw createHttpError(400, '보유 중인 카드만 카오스 추가 카드로 선택할 수 있습니다.');
+        }
+        if (user.equippedCardId === cardId) {
+          throw createHttpError(400, '기본 장착 카드와 같은 카드는 추가 카드로 선택할 수 없습니다.');
+        }
+        user.raidExtraCardSelection = { cardId, level: normalizedLevel };
+      }
+      user.gameState.lastActionTime = now;
+      return buildFastUserResponseWithGlobals(user, now);
+    }, { conflictLabel: 'Raid extra card selection conflict' });
+
+    res.json(response);
+  } catch (err) {
+    console.error('Raid extra card selection error:', err);
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '?쒕쾭 ?ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.' });
   }
 });
 
@@ -17103,12 +17402,15 @@ app.post('/api/raid/start', async (req, res) => {
       if (!isRaidLevelEligible(user.gameState.level, normalizedMode)) {
         return res.status(400).json({ msg: `${user.nickname || user.username} 님은 ${getRaidModeConfig(normalizedMode).label} 레이드 입장 기준(${getRaidLevelRequirementText(normalizedMode)})에 맞지 않습니다.` });
       }
-      participants.push(createRaidParticipantFromUser(user));
+      if (normalizedMode === RAID_MODE_CHAOS && buildRaidCardEntriesForUser(user, normalizedMode).length < 2) {
+        return res.status(400).json({ msg: `${user.nickname || user.username} 님은 카오스 레이드 추가 카드 선택이 필요합니다.` });
+      }
+      participants.push(createRaidParticipantFromUser(user, normalizedMode));
       participantUsers.push(user);
     }
 
     const duplicateCardIds = participants
-      .map((participant) => participant.equippedCardId)
+      .flatMap((participant) => getParticipantCardEntries(participant).map((entry) => entry.cardId))
       .filter(Boolean)
       .filter((cardId, index, list) => list.indexOf(cardId) !== index);
     if (duplicateCardIds.length) {
@@ -17153,7 +17455,7 @@ app.post('/api/raid/start', async (req, res) => {
 
         await persistUserSnapshot(latestUser);
         participantUsers[participantIndex] = latestUser;
-        participants[participantIndex] = createRaidParticipantFromUser(latestUser);
+        participants[participantIndex] = createRaidParticipantFromUser(latestUser, normalizedMode);
         consumedUsers.push(latestUser);
       }
     }
@@ -17298,7 +17600,7 @@ app.post('/api/raid/cancel-countdown', async (req, res) => {
 });
 
 app.post('/api/raid/plan-skill', async (req, res) => {
-  const { userId, useSkill, targetUserId, targetUserId2 } = req.body;
+  const { userId, useSkill, targetUserId, targetUserId2, cardSlot } = req.body;
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
@@ -17314,7 +17616,9 @@ app.post('/api/raid/plan-skill', async (req, res) => {
       return res.status(403).json({ msg: '현재 레이드 참가자가 아닙니다.' });
     }
 
-    const card = getParticipantCard(participant);
+    const participantCardEntries = getParticipantCardEntries(participant);
+    const normalizedCardSlot = Math.max(0, Math.min(participantCardEntries.length - 1, Math.floor(Number(cardSlot) || 0)));
+    const card = getParticipantCard(participant, normalizedCardSlot);
     if (!card) {
       return res.status(400).json({ msg: '장착한 카드가 없습니다.' });
     }
@@ -17349,6 +17653,7 @@ app.post('/api/raid/plan-skill', async (req, res) => {
     }
 
     participant.plannedSkill = Boolean(useSkill);
+    participant.plannedCardSlot = useSkill ? normalizedCardSlot : null;
     bumpRaidVersion();
     res.json({ raid: buildRaidBattleSnapshot(activeBattle, userId) });
   } catch (err) {
@@ -17358,7 +17663,7 @@ app.post('/api/raid/plan-skill', async (req, res) => {
 });
 
 app.post('/api/raid/set-target', async (req, res) => {
-  const { userId, targetUserId, targetSlot } = req.body;
+  const { userId, targetUserId, targetSlot, cardSlot } = req.body;
   if (!userId || !targetUserId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
 
   try {
@@ -17374,11 +17679,14 @@ app.post('/api/raid/set-target', async (req, res) => {
       return res.status(403).json({ msg: '현재 레이드 참가자가 아닙니다.' });
     }
 
-    const card = getParticipantCard(participant);
+    const participantCardEntries = getParticipantCardEntries(participant);
+    const normalizedCardSlot = Math.max(0, Math.min(participantCardEntries.length - 1, Math.floor(Number(cardSlot ?? participant.plannedCardSlot ?? 0) || 0)));
+    const card = getParticipantCard(participant, normalizedCardSlot);
     if (!card || !['ally', 'ally_pair'].includes(card.targetType)) {
       return res.status(400).json({ msg: '대상을 선택하는 스킬이 아닙니다.' });
     }
 
+    participant.plannedCardSlot = normalizedCardSlot;
     const selectableTargets = getSelectableRaidTargets(activeBattle);
     if (!selectableTargets.includes(String(targetUserId))) {
       return res.status(400).json({ msg: '선택할 수 없는 대상입니다.' });
