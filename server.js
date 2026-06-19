@@ -941,6 +941,20 @@ const CARD_DATA = {
     hypeTurns: 1,
     shield: 10
   },
+  click_this_is_click: {
+    id: 'click_this_is_click',
+    name: '자 이게 클릭이야',
+    grade: 'S',
+    rate: 0.00025,
+    skillName: '인턴',
+    skillDesc: '패시브. 전투 시작 시 자신에게 <인턴> 버프를 부여합니다. 인턴 버프를 가진 동안 파티원의 기본 공격 시 확률적으로 함께 기본 공격을 지원합니다.',
+    cooldown: 0,
+    effectType: 'passive_intern_followup',
+    passiveOnly: true,
+    internChance: 0.25,
+    internDamageMultiplier: 0.3,
+    targetType: null
+  },
   delegate_lee: {
     id: 'delegate_lee',
     name: '이것 좀 대신 해줘 이대리',
@@ -1383,6 +1397,19 @@ const CARD_DATA = {
     damagePerLevel: 10,
     targetType: null
   },
+  tangerine_after_brushing: {
+    id: 'tangerine_after_brushing',
+    name: '양치 후 귤 먹이기',
+    grade: 'A',
+    rate: 0.008,
+    skillName: '양치 후 귤',
+    skillDesc: '상대방의 치유 효과를 2턴 동안 15% 감소시킵니다.',
+    cooldown: 7,
+    effectType: 'enemy_heal_reduction',
+    turns: 2,
+    healReductionPercent: 0.15,
+    targetType: null
+  },
   neo_self_esteem: {
     id: 'neo_self_esteem',
     name: '네오의 자존감',
@@ -1474,6 +1501,7 @@ const CARD_ENHANCE_BORDER_COLORS = {
 const CARD_ENHANCE_RULES = {
   ineo_diet: { hits: { 0: 7, 1: 8, 3: 10, 5: 11 }, cooldown: { 0: 5, 2: 4, 4: 3 } },
   gangnam_style: { critBonus: { 0: 0.1, 1: 0.15, 3: 0.2 }, shield: { 0: 10, 2: 15, 5: 20 }, cooldown: { 0: 3, 4: 2 } },
+  click_this_is_click: { internChance: { 0: 0.25, 1: 0.3, 2: 0.35, 5: 0.4 }, internDamageMultiplier: { 0: 0.3, 3: 0.35, 4: 0.4 } },
   delegate_lee: { multiplierPerLevel: { 0: 20, 1: 25, 3: 30, 4: 35 }, cooldown: { 0: 6, 2: 5, 5: 4 } },
   celine_tears: { attackBonusPercent: { 0: 0.3, 1: 0.4, 4: 0.5 }, expireDamagePerLevel: { 0: 50, 3: 60, 5: 65 }, cooldown: { 0: 3, 2: 2 } },
   strawberry_latte: { shield: { 0: 20, 1: 25, 3: 30, 4: 35, 5: 40 }, shieldTurns: { 5: 1 }, cooldown: { 0: 4, 2: 3 } },
@@ -1509,6 +1537,7 @@ const CARD_ENHANCE_RULES = {
   precise_strike: { multiplierPerLevel: { 0: 40, 2: 45, 3: 50, 4: 55 }, cooldown: { 0: 5, 1: 4, 5: 3 } },
   umbrella_copy: { copyEffectMultiplier: { 0: 0.5, 2: 0.6, 3: 0.7 }, canSelectCopyTarget: { 4: 1 }, cooldown: { 0: 6, 1: 5, 5: 4 } },
   neo_pesticide: { damagePerLevel: { 0: 10, 2: 11, 4: 12, 5: 15 }, cooldown: { 0: 7, 1: 6, 3: 5 } },
+  tangerine_after_brushing: { healReductionPercent: { 0: 0.15, 1: 0.2, 2: 0.25, 3: 0.3, 4: 0.35, 5: 0.4 } },
   nosy_manager: { shield: { 0: 30, 1: 35, 4: 40 }, damagePerLevel: { 0: 20, 2: 25, 5: 30 }, cooldown: { 0: 5, 3: 4 } },
   mond_parental_leave: { cooldown: { 0: 9, 1: 8, 3: 7, 5: 6 } },
   jor_bongo: { breadCount: { 0: 6, 1: 7, 2: 8, 3: 9, 4: 10 }, cooldown: { 0: 5, 5: 4 } },
@@ -1716,7 +1745,7 @@ const RAID_BOSS_DATA = {
       '1. 트름하기: 파티 전체에게 10 피해, 총 3회',
       '2. 얼음씹기: 랜덤 3명에게 40 피해 + 4턴 침묵',
       '3. 쩝쩝거리기: 랜덤 대상에게 20 피해, 총 4회',
-      '4. 눈 새 행동: 자신의 총 잃은 체력의 20% 회복, 자신에게 2턴 지속 150,000 보호막'
+      '4. 눈 새 행동: 70,000 + 잃은 체력의 10% 회복, 자신에게 2턴 지속 150,000 보호막'
     ],
     rewardsText: RAID_BOSS_REWARDS_TEXT
   },
@@ -4547,6 +4576,8 @@ function getCardDurationText(cardId, enhancementLevel = 0) {
       return `${card.turns || 1}턴`;
     case 'gangnam_style':
       return `버프 ${card.turns || 1}턴 / 보호막은 해당 턴의 보스 턴까지`;
+    case 'click_this_is_click':
+      return '전투 종료까지';
     case 'strawberry_latte':
     case 'pho':
       return '해당 턴의 보스 턴까지';
@@ -4596,6 +4627,8 @@ function getCardDurationText(cardId, enhancementLevel = 0) {
       return '즉시 / 복사한 카드 효과는 반감';
     case 'neo_pesticide':
       return `${card.turns || 2}턴`;
+    case 'tangerine_after_brushing':
+      return `${card.turns || 2}턴`;
     case 'neo_self_esteem':
       return '1회';
     case 'mond_parental_leave':
@@ -4618,6 +4651,8 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
       return `다음 자신의 턴에 기본 공격을 총 ${card.hits}회 합니다. 각 공격은 기본 공격 피해의 90%로 적용됩니다. 다중 적 전투에서는 매 타마다 살아있는 적 중 랜덤 단일 대상을 공격합니다.`;
     case 'gangnam_style':
       return `파티 전원에게 크리티컬률 ${formatCardPercentText(card.critBonus)}와 흥겨움을 부여하고, 해당 턴 보스 턴까지 유지되는 보호막 ${card.shield}을 제공합니다. 흥겨움 중 기본 공격은 2배 타격으로 적용됩니다.`;
+    case 'click_this_is_click':
+      return `패시브. 전투 시작 시 자신에게 <인턴> 버프를 부여합니다. 인턴 버프를 가진 동안 파티원(자신 포함)이 기본 공격할 때마다 ${formatCardPercentText(card.internChance)} 확률로 함께 기본 공격을 지원합니다. 인턴 지원 공격은 자신의 기본 공격 피해의 ${formatCardPercentText(card.internDamageMultiplier)}로 적용되며, 인턴 지원 공격으로는 다시 인턴이 발동하지 않습니다.`;
     case 'delegate_lee':
       return `현재 입장한 파티원의 전체 레벨 합 x ${card.multiplierPerLevel}의 데미지를 1회 가합니다.`;
     case 'celine_tears':
@@ -4692,6 +4727,8 @@ function buildCardSkillDescription(cardId, enhancementLevel = 0) {
       return `${card.canSelectCopyTarget ? '선택한' : '랜덤'} 파티원 1명의 카드 효과를 ${Math.round(Number(card.copyEffectMultiplier || 0.5) * 100)}%만 적용해 따라 합니다.`;
     case 'neo_pesticide':
       return `상대에게 ${card.turns || 2}턴 동안 <중독>을 적용합니다. 다중 적 전투에서는 적 전체에게 적용됩니다. 중독 중 공격할 때마다 스킬 시전자의 레벨 x ${card.damagePerLevel} 피해를 입습니다. 다단 타격은 매 타마다 적용됩니다.`;
+    case 'tangerine_after_brushing':
+      return `상대방의 치유 효과를 ${card.turns || 2}턴 동안 ${formatCardPercentText(card.healReductionPercent)} 감소시킵니다.`;
     case 'neo_self_esteem':
       return '자신에게 <자존감> 버프를 1회 부여합니다. 자존감 보유 중 디버프를 받으면 상대에게 반사하고 자존감은 사라집니다. 강화할 수 없는 카드입니다.';
     case 'mond_parental_leave':
@@ -5689,6 +5726,9 @@ function createRaidParticipantFromUser(user, mode = RAID_MODE_NORMAL) {
     sojuRewardMultiplier: 1,
     lottoRewardBuff: false,
     lottoRewardSuccessChance: 0.5,
+    internBuff: false,
+    internChance: 0,
+    internDamageMultiplier: 0.3,
     healShieldReductionTurns: 0,
     healShieldReductionMultiplier: 1,
     shieldBlockTurns: 0,
@@ -6916,6 +6956,13 @@ function buildRaidParticipantStatusEffects(participant) {
   if (Number(participant.breadCount || 0) > 0) effects.push({ type: 'buff', name: '빵', count: Number(participant.breadCount || 0), desc: '피격 시 HP 5 회복 후 1개 소모' });
   if (Number(participant.critBonusTurns || 0) > 0) effects.push({ type: 'buff', name: '크리티컬 상승', turns: Number(participant.critBonusTurns || 0), desc: `치명타 확률 +${Math.round(Number(participant.critBonusValue || 0) * 100)}%` });
   if (Number(participant.hypeTurns || 0) > 0) effects.push({ type: 'buff', name: '흥겨움', turns: Number(participant.hypeTurns || 0), desc: '기본 공격 횟수 2배' });
+  if (participant.internBuff) {
+    effects.push({
+      type: 'buff',
+      name: '인턴',
+      desc: `파티원이 기본 공격할 때 ${formatCardPercentText(participant.internChance || 0)} 확률로 ${formatCardPercentText(participant.internDamageMultiplier || 0.3)} 위력의 지원 기본 공격`
+    });
+  }
   const activeAttackBuffs = getActiveRaidAttackBonusBuffs(participant);
   if (activeAttackBuffs.length > 0) {
     const totalAttackBonus = activeAttackBuffs.reduce((sum, buff) => sum + buff.value, 0);
@@ -7031,6 +7078,15 @@ function buildRaidBossStatusEffects(battle) {
       desc: `공격 명중률 ${Math.round(Number(battle.bossBlindMissChance || 0.3) * 100)}% 감소`
     });
   }
+  if (Number(battle.bossHealingReductionTurns || 0) > 0) {
+    const reductionPercent = Math.round((1 - Number(battle.bossHealingReductionMultiplier || 1)) * 100);
+    effects.push({
+      type: 'debuff',
+      name: '양치 후 귤',
+      turns: Number(battle.bossHealingReductionTurns || 0),
+      desc: `치유 효과 ${Math.max(0, reductionPercent)}% 감소`
+    });
+  }
   (battle.bossPoisonDebuffs || []).forEach((entry) => {
     effects.push({
       type: 'debuff',
@@ -7086,6 +7142,23 @@ function getRaidRecoveryMultiplier(target) {
   return Number(target.healShieldReductionTurns || 0) > 0
     ? Number(target.healShieldReductionMultiplier || 1)
     : 1;
+}
+
+function getRaidBossHealingMultiplier(battle) {
+  return Number(battle?.bossHealingReductionTurns || 0) > 0
+    ? Math.max(0, Math.min(1, Number(battle.bossHealingReductionMultiplier || 1)))
+    : 1;
+}
+
+function healRaidBoss(battle, amount) {
+  if (!battle || Number(battle.bossHp || 0) <= 0) return 0;
+  const previousHp = Number(battle.bossHp || 0);
+  const missingHp = Math.max(0, Number(battle.bossMaxHp || 0) - previousHp);
+  const effectiveAmount = Math.min(missingHp, Math.max(0, Math.floor(Number(amount || 0) * getRaidBossHealingMultiplier(battle))));
+  if (effectiveAmount <= 0) return 0;
+  battle.bossHp = Math.min(Number(battle.bossMaxHp || 0), previousHp + effectiveAmount);
+  battle.bossLastHpLoss = 0;
+  return effectiveAmount;
 }
 
 function getRaidBossMaxHpForMode(boss, mode = RAID_MODE_NORMAL) {
@@ -7729,6 +7802,11 @@ function useRaidCardSkill(participant, battle) {
       });
     }
     logText = `${participant.displayName}(이)가 ${card.name}로 보스에게 <중독>을 적용했습니다. 보스가 공격할 때마다 ${damage.toLocaleString()} 피해를 받습니다.`;
+  } else if (card.effectType === 'enemy_heal_reduction') {
+    const reduction = Math.max(0, Math.min(0.95, scalePercent(card.healReductionPercent || 0)));
+    battle.bossHealingReductionTurns = Math.max(Number(battle.bossHealingReductionTurns || 0), Number(card.turns || 2));
+    battle.bossHealingReductionMultiplier = Math.min(Number(battle.bossHealingReductionMultiplier || 1), Math.max(0, 1 - reduction));
+    logText = `${participant.displayName}(이)가 ${card.name}로 보스의 치유 효과를 ${formatCardPercentText(reduction)} 감소시켰습니다.`;
   } else if (card.effectType === 'direct_hp_strike') {
     const damage = scaleFlat(getRaidEffectiveLevel(participant) * Number(card.multiplierPerLevel || 0));
     const dealtDamage = applyRaidDamageToBoss(battle, damage, { attacker: participant, skillName: card.name, ignoreShield: true });
@@ -8147,11 +8225,7 @@ function applyRaidDamageToBoss(battle, damage, options = {}) {
   }
   if (attacker && isHardOrChaosRaidBattle(battle) && battle.bossId === RAID_BOSS_ID_HOI && Math.random() < 0.2) {
     const missingHp = Math.max(0, Number(battle.bossMaxHp || 0) - Number(battle.bossHp || 0));
-    const healAmount = isChaosRaidBattle(battle) ? Math.floor(missingHp * 0.1) : 0;
-    if (healAmount > 0) {
-      battle.bossHp = Math.min(Number(battle.bossMaxHp || 0), Number(battle.bossHp || 0) + healAmount);
-    }
-    battle.bossLastHpLoss = 0;
+    const healAmount = isChaosRaidBattle(battle) ? healRaidBoss(battle, Math.floor(missingHp * 0.1)) : 0;
     battle.logs.push(`HOI-M.S.J-50의 <나 먼저 퇴근할게>! ${attacker.displayName}의 공격을 회피했습니다.${healAmount > 0 ? ` ${healAmount.toLocaleString()} HP를 회복했습니다.` : ''}`);
     return 0;
   }
@@ -8232,6 +8306,12 @@ function tickRaidBossEndOfTurn(battle) {
       battle.bossDamageReductionPercent = 0;
     }
   }
+  if (Number(battle.bossHealingReductionTurns || 0) > 0) {
+    battle.bossHealingReductionTurns -= 1;
+    if (battle.bossHealingReductionTurns <= 0) {
+      battle.bossHealingReductionMultiplier = 1;
+    }
+  }
   battle.turnIndex = 0;
 }
 
@@ -8296,6 +8376,21 @@ function finalizeRaidSequence(battle) {
   battle.pendingSequence = null;
 }
 
+function buildRaidInternFollowupSteps(battle, triggerParticipant) {
+  if (!battle || !triggerParticipant) return [];
+  return getAliveRaidParticipants(battle)
+    .filter((participant) => participant.internBuff && Number(participant.internChance || 0) > 0)
+    .filter((participant) => Math.random() < Math.max(0, Math.min(1, Number(participant.internChance || 0))))
+    .map((participant) => ({
+      type: 'player_basic_hit',
+      userId: participant.userId,
+      hitIndex: 0,
+      damageMultiplier: Math.max(0.1, Number(participant.internDamageMultiplier || 0.3)),
+      internFollowup: true,
+      triggerUserId: triggerParticipant.userId
+    }));
+}
+
 function executeNextRaidSequenceStep(battle) {
   const sequence = battle.pendingSequence;
   if (!sequence || !Array.isArray(sequence.steps) || !sequence.steps.length) return false;
@@ -8319,10 +8414,17 @@ function executeNextRaidSequenceStep(battle) {
       if (participant.damageMultiplierTurns > 0) {
         hitDamage = Math.floor(hitDamage * participant.damageMultiplierValue);
       }
-      const dealtDamage = applyRaidDamageToBoss(battle, hitDamage, { attacker: participant, skillName: '기본 공격' });
+      const skillName = step.internFollowup ? '인턴 지원 공격' : '기본 공격';
+      const dealtDamage = applyRaidDamageToBoss(battle, hitDamage, { attacker: participant, skillName });
       const targetName = battle.lastBossDamageTargetName || '보스';
       incrementRaidOvertimeRageStacks(battle);
-      battle.logs.push(`${participant.displayName}의 기본 공격 ${step.hitIndex + 1}타! ${targetName}에게 ${dealtDamage.toLocaleString()} 피해를 입혔습니다.${isCritical ? ' (치명타)' : ''}`);
+      battle.logs.push(`${participant.displayName}의 ${step.internFollowup ? '<인턴> 지원 공격' : `기본 공격 ${step.hitIndex + 1}타`}! ${targetName}에게 ${dealtDamage.toLocaleString()} 피해를 입혔습니다.${isCritical ? ' (치명타)' : ''}`);
+      if (!step.internFollowup && battle.bossHp > 0) {
+        const followupSteps = buildRaidInternFollowupSteps(battle, participant);
+        if (followupSteps.length) {
+          sequence.steps = [...followupSteps, ...sequence.steps];
+        }
+      }
     }
   } else if (step.type === 'player_fixed_skill_hit') {
     const participant = getRaidParticipant(battle, step.userId);
@@ -8569,10 +8671,8 @@ function performRaidBossAction(battle) {
 
   if (isChaosRaidBattle(battle) && battle.bossId === RAID_BOSS_ID_BALD_MANAGER) {
     const missingHp = Math.max(0, Number(battle.bossMaxHp || 0) - Number(battle.bossHp || 0));
-    const healAmount = Math.floor(missingHp * 0.2);
+    const healAmount = healRaidBoss(battle, Math.floor(missingHp * 0.2));
     if (healAmount > 0) {
-      battle.bossHp = Math.min(Number(battle.bossMaxHp || 0), Number(battle.bossHp || 0) + healAmount);
-      battle.bossLastHpLoss = 0;
       battle.logs.push(`대머리 김부장의 <매끈한 두피>! 자신의 턴을 맞아 ${healAmount.toLocaleString()} HP를 회복했습니다.`);
     }
   }
@@ -8626,11 +8726,7 @@ function performRaidBossAction(battle) {
 
     if (pattern === 'no_dinner') {
       const bossMissingHp = Math.max(0, Number(battle.bossMaxHp || 0) - Number(battle.bossHp || 0));
-      const bossHeal = Math.floor(bossMissingHp * 0.3);
-      if (bossHeal > 0) {
-        battle.bossHp = Math.min(Number(battle.bossMaxHp || 0), Number(battle.bossHp || 0) + bossHeal);
-        battle.bossLastHpLoss = 0;
-      }
+      const bossHeal = healRaidBoss(battle, Math.floor(bossMissingHp * 0.3));
       const healTexts = bossHeal > 0 ? [`황과장 +${bossHeal.toLocaleString()}`] : [];
       getRaidBossMinions(battle).forEach((minion) => {
         if (Number(minion.hp || 0) <= 0) return;
@@ -8726,9 +8822,7 @@ function performRaidBossAction(battle) {
     if (pattern === 'son_mix') {
       const bossBuffCount = Math.max(0, Number(battle.bossNegateHits || 0));
       if (bossBuffCount > 0) {
-        const healAmount = bossBuffCount * 6000;
-        battle.bossHp = Math.min(battle.bossMaxHp, battle.bossHp + healAmount);
-        battle.bossLastHpLoss = 0;
+        const healAmount = healRaidBoss(battle, bossBuffCount * 6000);
         return `HOI-M.S.J-50의 아들이랑 엮기 MK.2! 보유 버프 ${bossBuffCount}개로 HP를 ${healAmount.toLocaleString()} 회복했습니다.`;
       }
       const shieldAmount = isChaosRaidBattle(battle) ? 80000 : 5000;
@@ -8965,10 +9059,10 @@ function performRaidBossAction(battle) {
     let healAmount = 0;
     if (isHardMode) {
       const missingHp = Math.max(0, Number(battle.bossMaxHp || 0) - Number(battle.bossHp || 0));
-      healAmount = Math.floor(missingHp * 0.2);
-      if (healAmount > 0) {
-        battle.bossHp = Math.min(Number(battle.bossMaxHp || 0), Number(battle.bossHp || 0) + healAmount);
-      }
+      const rawHealAmount = isChaosRaidBattle(battle)
+        ? 70000 + Math.floor(missingHp * 0.1)
+        : Math.floor(missingHp * 0.2);
+      healAmount = healRaidBoss(battle, rawHealAmount);
     }
     const shieldAmount = isHardMode ? 150000 : 10000;
     const shieldTurns = isHardMode ? 2 : 1;
@@ -9148,6 +9242,14 @@ function applyRaidBattleStartPassives(activeBattle) {
     });
     activeBattle.logs.push('모래의 로또번호가 파티 전원에게 이번엔 될거같아 버프를 부여했습니다.');
   }
+  activeBattle.participants.forEach((participant) => {
+    const internCard = getParticipantCards(participant).find((card) => card?.effectType === 'passive_intern_followup');
+    if (!internCard) return;
+    participant.internBuff = true;
+    participant.internChance = Number(internCard.internChance || 0);
+    participant.internDamageMultiplier = Number(internCard.internDamageMultiplier || 0.3);
+    activeBattle.logs.push(`${participant.displayName}이(가) ${internCard.name} 효과로 <인턴> 버프를 얻었습니다.`);
+  });
 }
 
 function buildRaidModeStatus(user, mode = RAID_MODE_NORMAL, now = new Date()) {
@@ -10122,6 +10224,16 @@ function applyPvpBattleStartPassives(battle) {
           turns: 999
         });
         battle.logs.push(`${player.displayName}의 모래의 로또번호가 <이번엔 될거같아> 버프를 부여했습니다.`);
+      } else if (card.effectType === 'passive_intern_followup') {
+        addPvpBuff(player, {
+          id: 'intern_followup',
+          name: '인턴',
+          desc: `아군이 기본 공격할 때 ${formatCardPercentText(card.internChance || 0)} 확률로 ${formatCardPercentText(card.internDamageMultiplier || 0.3)} 위력의 기본 공격을 지원합니다.`,
+          value: Number(card.internChance || 0),
+          damageMultiplier: Number(card.internDamageMultiplier || 0.3),
+          turns: 999
+        });
+        battle.logs.push(`${player.displayName}이(가) ${card.name} 효과로 <인턴> 버프를 얻었습니다.`);
       }
     });
   });
@@ -10890,7 +11002,14 @@ function triggerPvpThorns(defender, attacker, battle) {
 
 function healPvpTarget(target, amount) {
   const previousHp = Number(target.hp || 0);
-  target.hp = Math.min(Number(target.maxHp || PVP_MAX_HP), previousHp + Math.max(0, Math.floor(Number(amount || 0))));
+  const healReduction = (target.debuffs || [])
+    .filter((debuff) => debuff.id === 'heal_reduction')
+    .reduce((max, debuff) => Math.max(max, Number(debuff.value || 0)), 0);
+  const effectiveAmount = Math.max(
+    0,
+    Math.floor(Number(amount || 0) * (1 - Math.max(0, Math.min(0.95, healReduction))))
+  );
+  target.hp = Math.min(Number(target.maxHp || PVP_MAX_HP), previousHp + effectiveAmount);
   return Number(target.hp || 0) - previousHp;
 }
 
@@ -11370,6 +11489,25 @@ function applyPvpCardSkill(actor, target, battle, slotIndex, options = {}) {
     battle.logs.push(isAugmentBattle
       ? `${actor.displayName}의 농약이 적 ${appliedCount.toLocaleString()}명에게 중독을 적용했습니다.`
       : (appliedCount > 0 ? `${target.displayName}이(가) 중독되었습니다.` : `${target.displayName}이(가) 중독을 막았습니다.`));
+  } else if (card.effectType === 'enemy_heal_reduction') {
+    const reduction = Math.max(0, Math.min(0.95, scalePercent(card.healReductionPercent || 0)));
+    const healReductionTargets = isAugmentBattle
+      ? enemyTargets.filter((entry) => entry && entry.hp > 0)
+      : [target].filter(Boolean);
+    let appliedCount = 0;
+    healReductionTargets.forEach((healTarget) => {
+      const applied = addPvpDebuff(healTarget, {
+        id: 'heal_reduction',
+        name: '양치 후 귤',
+        turns: Number(card.turns || 2),
+        value: reduction,
+        desc: `치유 효과 ${Math.round(reduction * 100)}% 감소`
+      }, actor, battle);
+      if (applied) appliedCount += 1;
+    });
+    battle.logs.push(isAugmentBattle
+      ? `${actor.displayName}이(가) ${card.name}로 적 ${appliedCount.toLocaleString()}명의 치유 효과를 ${Math.round(reduction * 100)}% 감소시켰습니다.`
+      : (appliedCount > 0 ? `${target.displayName}의 치유 효과가 ${Math.round(reduction * 100)}% 감소했습니다.` : `${target.displayName}이(가) 치유 감소를 막았습니다.`));
   } else if (card.effectType === 'copy_ally_skill') {
     const opponentCards = target.cards
       .map((entry, index) => ({ entry, index, card: getCardDefinition(entry.cardId, entry.enhancementLevel) }))
@@ -11433,6 +11571,21 @@ function performPvpCounterAttack(counterActor, target, battle) {
   incrementPvpOvertimeRageStacks(target);
   battle.logs.push(`${counterActor.displayName}의 반격! ${target.displayName}에게 ${damage.toLocaleString()} 피해를 입혔습니다.${critical ? ' (치명타)' : ''}`);
   triggerPvpPoisonOnAttack(counterActor, battle);
+}
+
+function getPvpInternBuff(player) {
+  return (player?.buffs || []).find((buff) => buff.id === 'intern_followup' && !buff.pendingActivation);
+}
+
+function getPvpInternFollowupAllies(actor, battle) {
+  if (!actor || !battle) return [];
+  const allies = isAugmentPvpMode(battle?.mode)
+    ? getAliveAugmentTargets(getAugmentTeamPlayers(battle, actor.team))
+    : [actor].filter((entry) => entry && entry.hp > 0);
+  return allies.filter((player) => {
+    const internBuff = getPvpInternBuff(player);
+    return internBuff && Math.random() < Math.max(0, Math.min(1, Number(internBuff.value || 0)));
+  });
 }
 
 function performPvpBasicAttack(actor, target, battle, options = {}) {
@@ -11518,9 +11671,25 @@ function performPvpBasicAttack(actor, target, battle, options = {}) {
       }
     }
     incrementPvpOvertimeRageStacks(hitTarget);
-    battle.logs.push(`${actor.displayName}의 기본 공격 ${index + 1}타! ${hitTarget.displayName}에게 ${damage.toLocaleString()} 피해를 입혔습니다.${critical ? ' (치명타)' : ''}`);
+    const attackLabel = options.internFollowup ? '<인턴> 지원 공격' : `기본 공격 ${index + 1}타`;
+    battle.logs.push(`${actor.displayName}의 ${attackLabel}! ${hitTarget.displayName}에게 ${damage.toLocaleString()} 피해를 입혔습니다.${critical ? ' (치명타)' : ''}`);
     triggerPvpPoisonOnAttack(actor, battle);
     if (hitTarget.hp > 0) performPvpCounterAttack(hitTarget, actor, battle);
+    if (!options.internFollowup && actor.hp > 0) {
+      const internAllies = getPvpInternFollowupAllies(actor, battle);
+      internAllies.forEach((internActor) => {
+        const internBuff = getPvpInternBuff(internActor);
+        const internTarget = isAugmentPvpMode(battle?.mode)
+          ? pickRandomEntry(getAliveAugmentTargets(getAugmentEnemyPlayers(battle, internActor.team)))
+          : hitTarget;
+        if (!internTarget || internTarget.hp <= 0 || internActor.hp <= 0) return;
+        performPvpBasicAttack(internActor, internTarget, battle, {
+          baseHitCount: 1,
+          hitMultiplier: Math.max(0.1, Number(internBuff?.damageMultiplier || 0.3)),
+          internFollowup: true
+        });
+      });
+    }
     if (actor.hp <= 0) break;
     if (useRandomTargetPerHit) {
       if (!targetPool.some((entry) => entry && entry.hp > 0)) break;
@@ -17494,6 +17663,8 @@ app.post('/api/raid/start', async (req, res) => {
       bossSmoothScalpStacks: 0,
       bossDamageReductionTurns: 0,
       bossDamageReductionPercent: 0,
+      bossHealingReductionTurns: 0,
+      bossHealingReductionMultiplier: 1,
       bossShieldExpirePartyHits: 0,
       bossShieldExpirePartyDamage: 0,
       bossMinions: createRaidBossMinions(currentBoss.id, normalizedMode),

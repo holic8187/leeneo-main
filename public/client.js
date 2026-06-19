@@ -82,6 +82,7 @@ const CARD_DATA = {
   potato_rehab: { name: '감자의 재활훈련', grade: 'S', color: '#c62828', skillName: '재활훈련', skillDesc: '보스전에서 현재 데미지의 고정 피해를 1회 입힙니다. 노멀 보스에서는 피해와 막타 성장량이 1/3로 적용됩니다. 한 판당 1회만 사용할 수 있고, 이 스킬로 처치하면 데미지가 플레이어의 현재 레벨만큼 영구 증가합니다. 개인면담에서는 선택할 수 없습니다.', cooldown: 0, targetType: null, specialStyle: 'potato-rehab' },
   ineo_diet: { name: '이네오의 다이어트 선언', grade: 'S', color: '#c62828', skillName: '다이어트 선언', skillDesc: '돌아오는 턴에 기본 공격을 총 10회 합니다. 각 공격은 기본 공격 피해의 90%로 적용되며 크리티컬이 적용될 수 있습니다.', cooldown: 3, targetType: null },
   gangnam_style: { name: '일 중에 몰래 듣는 강남스타일', grade: 'S', color: '#c62828', skillName: '강남스타일', skillDesc: '1턴 동안 모든 팀원에게 크리티컬률 20%와 흥겨움 버프를 부여하고, 보호막 10을 제공합니다. 흥겨움 동안 기본 공격 횟수가 2배가 됩니다.', cooldown: 2, targetType: null },
+  click_this_is_click: { name: '자 이게 클릭이야', grade: 'S', color: '#c62828', skillName: '인턴', skillDesc: '패시브. 전투 시작 시 자신에게 <인턴> 버프를 부여합니다. 인턴 버프를 가진 동안 파티원(자신 포함)의 기본 공격 시 확률적으로 함께 기본 공격을 지원합니다.', cooldown: 0, targetType: null, passiveOnly: true },
   delegate_lee: { name: '이것 좀 대신 해줘 이대리', grade: 'S', color: '#c62828', skillName: '이것 좀 대신 해줘', skillDesc: '현재 입장한 파티원의 전체 레벨 합 x 30의 데미지를 1회 가합니다.', cooldown: 6, targetType: null },
   celine_tears: { name: '구마의 눈물 젖은 셀린느', grade: 'S', color: '#c62828', skillName: '셀린느', skillDesc: '1턴 동안 <셀린느> 버프를 얻어 공격력이 50% 증가하고, 버프가 끝날 때 자신의 레벨 x 60 피해를 입힙니다.', cooldown: 2, targetType: null },
   strawberry_latte: { name: '딸기라떼', grade: 'A', color: '#f9a825', skillName: '딸기라떼', skillDesc: '다음 턴까지 지속되는 보호막 40을 파티원 전원에게 제공합니다.', cooldown: 2, targetType: null },
@@ -91,6 +92,7 @@ const CARD_DATA = {
   drinking_angle: { name: '야채곱창', grade: 'A', color: '#f9a825', skillName: '소주각?', skillDesc: '액티브 스킬 없음. 전투 시작 시 모든 파티원에게 <소주각?> 버프를 부여합니다. 버프를 지닌 상태로 전투 승리 시 전리품을 2배로 획득합니다.', cooldown: 0, targetType: null, passiveOnly: true },
   tax_invoice: { name: '호이의 세금계산서', grade: 'A', color: '#f9a825', skillName: '세금계산서', skillDesc: '파티원 2인을 선택하여 1회 피격 무효화, 1턴 공격력 25% 증가, 1회 디버프 무효화를 부여합니다.', cooldown: 3, targetType: 'ally_pair' },
   rotation_blind_date: { name: '코카의 로테이션 소개팅', grade: 'A', color: '#f9a825', skillName: '소개팅 상대', skillDesc: '액티브 스킬 없음. 매 턴 자신을 제외한 파티원 1명에게 카드 효과를 1.5배로 증폭하는 <소개팅 상대> 버프를 차례대로 줍니다.', cooldown: 0, targetType: null, passiveOnly: true },
+  tangerine_after_brushing: { name: '양치 후 귤 먹이기', grade: 'A', color: '#f9a825', skillName: '양치 후 귤', skillDesc: '상대방의 치유 효과를 2턴 동안 감소시킵니다.', cooldown: 7, targetType: null },
   sherlock: { name: '셜록몬드의 추리', grade: 'B', color: '#1565c0', skillName: '셜록몬드의 추리', skillDesc: '다다음 턴까지 파티원 전원의 크리티컬 확률을 50% 증가시킵니다.', cooldown: 5, targetType: null },
   lotto_numbers: { name: '모래의 로또번호', grade: 'B', color: '#1565c0', skillName: '이번엔 될거같아', skillDesc: '액티브 스킬 없음. 전투 시작 시 모든 파티원에게 <이번엔 될거같아> 버프를 부여합니다. 버프를 지닌 상태로 전투 승리 시 절반 확률로 보상을 3배로 획득하거나 보상을 획득하지 못합니다.', cooldown: 0, targetType: null, passiveOnly: true },
   blind_date: { name: '심심이의 소개팅', grade: 'B', color: '#1565c0', skillName: '심심이의 소개팅', skillDesc: '랜덤 파티원 1명의 HP를 30 감소시키지만 다음 공격 피해를 2배로 증가시킵니다.', cooldown: 3, targetType: null },
@@ -306,6 +308,16 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-06-19-chaos-trum-intern-tangerine',
+    time: '2026-06-19 01:15',
+    title: '카오스 트름녀 밸런스와 신규 카드 2종',
+    items: [
+      '카오스 트름녀의 눈 새 행동 회복량을 70,000 + 잃은 체력의 10%로 조정했습니다. 보호막 수치는 그대로 유지됩니다.',
+      'A등급 카드 <양치 후 귤 먹이기>를 추가했습니다. 상대의 치유 효과를 2턴 동안 감소시킵니다.',
+      'S등급 패시브 카드 <자 이게 클릭이야>를 추가했습니다. 전투 시작 시 인턴 버프를 얻고, 파티원의 기본 공격에 확률적으로 지원 공격을 합니다.'
+    ]
+  },
   {
     id: '2026-06-19-chaos-second-card-card-lock-artifacts',
     time: '2026-06-19 00:30',
