@@ -473,6 +473,8 @@ const BRANCH_OFFICE_RARE_BONUS_RATE = 0.1;
 const BRANCH_OFFICE_BASE_EXCAVATION_MS = 15 * 60 * 1000;
 const BRANCH_AUTO_EXCAVATION_MAX_STEPS_PER_REQUEST = 4;
 const BRANCH_EXCAVATION_EXTRA_DROP_CHANCE = 0.05;
+const BRANCH_EXCAVATION_EXTRA_DROP_MAX_CHANCE = 5;
+const BRANCH_EXCAVATION_EXTRA_DROP_RARE_BONUS_SCALE = 100;
 const BRANCH_EXCAVATION_EXTRA_DROP_LOG_LIMIT = 12;
 const BRANCH_EXCAVATION_EXTRA_DROPS = [
   { itemId: 'infinite_overtime_ticket' },
@@ -4715,6 +4717,27 @@ function buildRaidParticipantCardSkillDescription(participant, card) {
 
 function queueNotification(user, type, text) {
   if (type === 'infinite_overtime_reward') return;
+  if (!Array.isArray(user.pendingNotifications)) user.pendingNotifications = [];
+  if (type === 'level_up') {
+    const existingIndex = user.pendingNotifications.findIndex((notification) => notification?.type === 'level_up');
+    if (existingIndex >= 0) {
+      const existingText = String(user.pendingNotifications[existingIndex]?.text || '');
+      const nextText = String(text || '');
+      const existingLevel = Number((existingText.match(/레벨\s*([\d,]+)/) || [])[1]?.replace(/,/g, '') || 0);
+      const nextLevel = Number((nextText.match(/레벨\s*([\d,]+)/) || [])[1]?.replace(/,/g, '') || 0);
+      const existingBacchus = Number((existingText.match(/박카스\s*([\d,]+)병/) || [])[1]?.replace(/,/g, '') || 0);
+      const nextBacchus = Number((nextText.match(/박카스\s*([\d,]+)병/) || [])[1]?.replace(/,/g, '') || 0);
+      const mergedLevel = Math.max(existingLevel, nextLevel) || nextLevel || existingLevel;
+      const mergedBacchus = existingBacchus + nextBacchus;
+      user.pendingNotifications[existingIndex] = {
+        type,
+        text: mergedLevel && mergedBacchus
+          ? `레벨 ${mergedLevel.toLocaleString()} 달성! 레벨업 보상으로 박카스 ${mergedBacchus.toLocaleString()}병을 받았습니다.`
+          : nextText
+      };
+      return;
+    }
+  }
   user.pendingNotifications.push({ type, text });
 }
 
@@ -5392,9 +5415,11 @@ function findQueuedRaidSlotIndex(userId, mode = RAID_MODE_NORMAL) {
   return getRaidRoom(mode).slots.findIndex((slotUserId) => String(slotUserId) === String(userId));
 }
 
-function clearQueuedRaidUser(userId, mode = null) {
+function clearQueuedRaidUser(userId, mode = null, options = {}) {
   const modes = mode ? [normalizeRaidMode(mode)] : RAID_MODE_LIST;
+  const excludeModes = new Set((options.excludeModes || []).map((entryMode) => normalizeRaidMode(entryMode)));
   modes.forEach((entryMode) => {
+    if (excludeModes.has(entryMode)) return;
     const room = getRaidRoom(entryMode);
     const slotIndex = findQueuedRaidSlotIndex(userId, entryMode);
     if (slotIndex >= 0) {
@@ -13446,8 +13471,19 @@ function appendBranchExcavationRewardLog(user, reward, now = new Date()) {
   ].slice(-BRANCH_EXCAVATION_EXTRA_DROP_LOG_LIMIT);
 }
 
-function rollBranchExcavationExtraDrop(user, now = new Date()) {
-  if (Math.random() * 100 >= BRANCH_EXCAVATION_EXTRA_DROP_CHANCE) return null;
+function getBranchExcavationExtraDropChancePercent(rareItemBonusChance = 0) {
+  const rareBonus = Math.max(0, Number(rareItemBonusChance || 0));
+  const scaledBonus = rareBonus > 0
+    ? rareBonus / (rareBonus + BRANCH_EXCAVATION_EXTRA_DROP_RARE_BONUS_SCALE)
+    : 0;
+  const chance = BRANCH_EXCAVATION_EXTRA_DROP_CHANCE
+    + (BRANCH_EXCAVATION_EXTRA_DROP_MAX_CHANCE - BRANCH_EXCAVATION_EXTRA_DROP_CHANCE) * scaledBonus;
+  return Number(Math.min(BRANCH_EXCAVATION_EXTRA_DROP_MAX_CHANCE, chance).toFixed(4));
+}
+
+function rollBranchExcavationExtraDrop(user, now = new Date(), rareItemBonusChance = 0) {
+  const chancePercent = getBranchExcavationExtraDropChancePercent(rareItemBonusChance);
+  if (Math.random() * 100 >= chancePercent) return null;
   const drop = pickRandom(BRANCH_EXCAVATION_EXTRA_DROPS);
   if (!drop?.itemId || !INVENTORY_ITEM_DEFS[drop.itemId]) return null;
   const quantity = 1;
@@ -13545,7 +13581,7 @@ function completeBranchExcavation(user, now = new Date(), options = {}) {
     message += '발굴 실패. 아무것도 찾지 못했습니다. (성공률 ' + successChance + '%)';
   }
 
-  const extraDrop = rollBranchExcavationExtraDrop(user, now);
+  const extraDrop = rollBranchExcavationExtraDrop(user, now, rareItemBonusChance);
   if (extraDrop) {
     message += ' / 추가 보상: ' + extraDrop.name + ' ' + extraDrop.quantity.toLocaleString() + '개';
   }
@@ -13804,7 +13840,7 @@ function buildBranchOfficePublicState(user, now = new Date(), derivedStats = nul
     excavationSuccessCap: getBranchExcavationCap(user),
     rareItemBonusChance: getBranchRareItemBonusChance(user),
     excavationDurationMs: getBranchExcavationDurationMs(user),
-    extraDropChancePercent: BRANCH_EXCAVATION_EXTRA_DROP_CHANCE,
+    extraDropChancePercent: getBranchExcavationExtraDropChancePercent(getBranchRareItemBonusChance(user)),
     autoExcavationEnabled: Boolean(office.autoExcavationEnabled),
     excavationBrokenUntil: getBranchMachineBrokenUntil(user, now),
     excavationBrokenRemainingMs: (() => {
@@ -14131,6 +14167,7 @@ function checkLevelUp(user) {
   user.gameState.exp = Math.max(0, Number(user.gameState.exp || 0));
 
   let leveledUp = false;
+  let levelUpCount = 0;
   let safety = 0;
   while (safety < 1000) {
     const requiredExp = getRequiredExp(user.gameState.level);
@@ -14139,7 +14176,7 @@ function checkLevelUp(user) {
     user.gameState.exp = Number((user.gameState.exp - requiredExp).toFixed(6));
     user.gameState.level += 1;
     addItemToInventory(user, 'bacchus', 1);
-    queueNotification(user, 'level_up', `레벨 ${user.gameState.level} 달성! 레벨업 보상으로 박카스 1병을 받았습니다.`);
+    levelUpCount += 1;
     leveledUp = true;
     safety += 1;
   }
@@ -14147,6 +14184,10 @@ function checkLevelUp(user) {
   if (leveledUp) {
     user.gameState.passiveExpCarry = 0;
     reconcileEmblems(user);
+    const rewardText = levelUpCount === 1
+      ? '박카스 1병'
+      : `박카스 ${levelUpCount.toLocaleString()}병`;
+    queueNotification(user, 'level_up', `레벨 ${user.gameState.level} 달성! 레벨업 보상으로 ${rewardText}을 받았습니다.`);
   }
   return leveledUp;
 }
@@ -16990,6 +17031,7 @@ app.post('/api/raid/toggle-slot', async (req, res) => {
         room.slots[existingSlot] = null;
         room.slotQueuedAt[existingSlot] = null;
       }
+      clearQueuedRaidUser(user._id, null, { excludeModes: [normalizedMode] });
       room.slots[targetSlot] = String(user._id);
       room.slotQueuedAt[targetSlot] = now;
       syncQueuedRaidBoss(now, normalizedMode);

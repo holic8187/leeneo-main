@@ -304,6 +304,24 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-18-branch-extra-drop-rare-bonus',
+    time: '2026-06-18 01:05',
+    title: '발굴 추가 입장권 드랍 보정',
+    items: [
+      '발굴 완료 시 낮은 확률로 얻는 무한야근 입장권과 회의 추가 입장권 드랍률이 초과 발굴력 희귀 보정의 영향을 받도록 변경했습니다.',
+      '추가 입장권 드랍률은 완만하게 증가하며 최대 5%를 넘지 않도록 상한을 적용했습니다.'
+    ]
+  },
+  {
+    id: '2026-06-18-raid-mail-levelup-queue-fix',
+    time: '2026-06-18 00:45',
+    title: '보스 우편 레벨업 알림과 대기열 개선',
+    items: [
+      '보스 보상 우편 경험치로 여러 레벨이 올라도 레벨업 알림이 한 번만 표시되도록 조정했습니다.',
+      '일반/하드/카오스 레이드 대기열 중 한 난이도에만 대기할 수 있게 했고, 다른 난이도에 대기하면 기존 대기는 자동 취소됩니다.'
+    ]
+  },
+  {
     id: '2026-06-18-branch-auto-complete-resolve',
     time: '2026-06-18 00:20',
     title: '자동 발굴 완료 정산 보강',
@@ -7147,7 +7165,7 @@ function renderBranchOfficeModal(user = getStoredUser()) {
       <p>발굴 비용: <strong>${formatNumber(branch.digCost || 0)}원</strong> / 성공률: <strong>${formatBranchPercent(branch.successChance)}</strong> / 소요 시간: <strong>${formatDurationMs(branch.excavationDurationMs || 0)}</strong></p>
       <p class="branch-stat-note">발굴 확률 상한: <strong>${formatBranchPercent(branch.excavationSuccessCap || 15)}</strong> / 초과 발굴력 희귀 보정: <strong>${formatBranchPercent(branch.rareItemBonusChance || 0)}</strong></p>
       <p class="menu-note">${escapeHtml(overtimeExcavationNotice)} / 고장 확률: ${formatNumber(branch.breakdownChancePercent || 3, 2)}%</p>
-      <p class="menu-note">발굴 완료 시 낮은 확률로 무한야근 입장권 또는 회의 추가 입장권을 추가 획득할 수 있습니다.</p>
+      <p class="menu-note">발굴 완료 시 낮은 확률로 무한야근 입장권 또는 회의 추가 입장권을 추가 획득할 수 있습니다. 현재 추가 드랍률: ${formatNumber(branch.extraDropChancePercent || 0, 4)}%</p>
       <p class="menu-note">${escapeHtml(excavationStatus)}</p>
       ${pendingExcavation ? `<div class="branch-excavation-progress"><div style="width:${pendingProgress}%"></div></div>` : ''}
       <div class="branch-auto-row">
