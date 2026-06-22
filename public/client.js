@@ -310,6 +310,16 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-22-daily-augment-expanded-reroll-click',
+    time: '2026-06-22 15:30',
+    title: '오늘의 증강 확장과 선택 연출 추가',
+    items: [
+      '실버/골드/프리즘 증강에 사내 소문, 회의록 조작, 야근의 신 등 신규 효과를 대폭 추가했습니다.',
+      '각 증강 후보 아래에 1회 다시 굴리기 버튼을 추가했습니다. 선택한 증강은 오늘 동안 유지됩니다.',
+      '증강 선택 시 빛이 터지는 선택 연출을 추가했고, 회의실 프리패스 선택 직후 회의 입장 가능 횟수를 즉시 갱신합니다.'
+    ]
+  },
+  {
     id: '2026-06-22-augment-card-shine',
     time: '2026-06-22 14:45',
     title: '증강 카드 광택 연출 추가',
@@ -2502,34 +2512,75 @@ function getDailyAugmentOverlay() {
 
 function openDailyAugmentChoiceOverlay(dailyAugment) {
   const overlay = getDailyAugmentOverlay();
-  const options = Array.isArray(dailyAugment?.options) ? dailyAugment.options : [];
-  if (!overlay || !options.length) return Promise.resolve(null);
-
-  overlay.innerHTML = `
-    <div class="daily-augment-choice-list daily-augment-floating-list">
-      ${options.map((augment) => `
-        <button type="button" class="daily-augment-choice-card ${escapeAttr(augment.tier || 'silver')}" data-augment-id="${escapeAttr(augment.id)}">
-          <div class="daily-augment-choice-title">
-            <span>${escapeHtml(augment.tierLabel || getPvpAugmentTierLabel(augment.tier))}</span>
-            <strong>${escapeHtml(augment.name)}</strong>
-          </div>
-          <div class="daily-augment-choice-desc">${escapeHtml(augment.desc || '')}</div>
-          <div class="daily-augment-choice-hint">이 증강 선택</div>
-        </button>
-      `).join('')}
-    </div>
-  `;
-  overlay.classList.remove('hidden');
+  let state = dailyAugment || {};
+  if (!overlay || !Array.isArray(state.options) || !state.options.length) return Promise.resolve(null);
 
   return new Promise((resolve) => {
-    overlay.querySelectorAll('[data-augment-id]').forEach((card) => {
-      card.addEventListener('click', () => {
-        const selectedId = card.getAttribute('data-augment-id');
-        overlay.classList.add('hidden');
-        overlay.innerHTML = '';
-        resolve(selectedId);
+    let resolved = false;
+
+    const render = () => {
+      const options = Array.isArray(state?.options) ? state.options : [];
+      const rerolledSlots = Array.isArray(state?.rerolledSlots) ? state.rerolledSlots.map(Number) : [];
+      overlay.innerHTML = '<div class="daily-augment-choice-list daily-augment-floating-list">' + options.map((augment, index) => {
+        const rerolled = rerolledSlots.includes(index);
+        return '<div class="daily-augment-option-wrap">' +
+          '<button type="button" class="daily-augment-choice-card ' + escapeAttr(augment.tier || 'silver') + '" data-augment-id="' + escapeAttr(augment.id) + '">' +
+            '<div class="daily-augment-choice-title">' +
+              '<span>' + escapeHtml(augment.tierLabel || getPvpAugmentTierLabel(augment.tier)) + '</span>' +
+              '<strong>' + escapeHtml(augment.name) + '</strong>' +
+            '</div>' +
+            '<div class="daily-augment-choice-desc">' + escapeHtml(augment.desc || '') + '</div>' +
+            '<div class="daily-augment-choice-hint">이 증강 선택</div>' +
+          '</button>' +
+          '<button type="button" class="daily-augment-reroll-btn" data-reroll-slot="' + index + '" ' + (rerolled ? 'disabled' : '') + '>' +
+            (rerolled ? '다시 굴림 완료' : '이 증강 다시 굴리기') +
+          '</button>' +
+        '</div>';
+      }).join('') + '</div>';
+      overlay.classList.remove('hidden');
+
+      overlay.querySelectorAll('[data-augment-id]').forEach((card) => {
+        card.addEventListener('click', () => {
+          if (resolved) return;
+          resolved = true;
+          const selectedId = card.getAttribute('data-augment-id');
+          overlay.querySelectorAll('button').forEach((button) => { button.disabled = true; });
+          card.classList.add('selected', 'selecting');
+          card.insertAdjacentHTML('beforeend', '<span class="daily-augment-pick-burst"></span>');
+          setTimeout(() => {
+            overlay.classList.add('hidden');
+            overlay.innerHTML = '';
+            resolve(selectedId);
+          }, 720);
+        });
       });
-    });
+
+      overlay.querySelectorAll('[data-reroll-slot]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          if (resolved || button.disabled) return;
+          const currentUser = getStoredUser();
+          const slotIndex = Number(button.getAttribute('data-reroll-slot'));
+          if (!currentUser?._id || !Number.isInteger(slotIndex)) return;
+          button.disabled = true;
+          button.textContent = '교체 중...';
+          try {
+            const data = await postJson(`${API_URL}/api/daily-augment/reroll`, {
+              userId: currentUser._id,
+              slotIndex
+            });
+            updateLocalUserState(data);
+            state = getStoredUser()?.dailyAugment || data?.user?.dailyAugment || state;
+            render();
+          } catch (err) {
+            button.disabled = false;
+            button.textContent = '이 증강 다시 굴리기';
+            alert(err.message || '증강을 다시 굴리지 못했습니다.');
+          }
+        });
+      });
+    };
+
+    render();
   });
 }
 
@@ -2555,6 +2606,7 @@ async function maybeShowDailyAugmentOnce(attempt = 0) {
       augmentId: selectedId
     });
     updateLocalUserState(data);
+    if (typeof pollRaidState === 'function') await pollRaidState();
   } catch (err) {
     alert(err.message || '오늘의 증강 선택에 실패했습니다.');
   } finally {
@@ -4865,7 +4917,7 @@ function updateRaidButton(user, raidState) {
   if (queueCountEl) queueCountEl.textContent = `현재 입장 대기중 ${queuedCountText}`;
   button.textContent = queuedStatus ? '회의 참석 대기중' : '회의 참석';
 
-  if (todayUsed) {
+  if (todayUsed && remainingEntries <= 0) {
     button.disabled = true;
     hint.textContent = '오늘은 이미 보스 레이드에 입장했습니다.';
   } else if (selectedStatus && !selectedStatus.levelEligible) {

@@ -2174,6 +2174,75 @@ progress {
   }
 }
 
+
+.daily-augment-option-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.daily-augment-reroll-btn {
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 999px;
+  padding: 9px 12px;
+  color: #fff8d7;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  background: linear-gradient(135deg, #20314f, #465f94 55%, #26334f);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.24);
+  transition: transform 0.16s ease, filter 0.16s ease, opacity 0.16s ease;
+}
+
+.daily-augment-reroll-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  filter: brightness(1.12) saturate(1.08);
+}
+
+.daily-augment-reroll-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  filter: grayscale(0.35);
+}
+
+.daily-augment-overlay .daily-augment-choice-card.selected {
+  transform: translateY(-8px) scale(1.035);
+  outline: 4px solid rgba(255, 241, 118, 0.92);
+  box-shadow:
+    0 0 0 8px rgba(255, 207, 64, 0.18),
+    0 0 44px rgba(255, 232, 102, 0.76),
+    0 30px 80px rgba(0, 0, 0, 0.46);
+}
+
+.daily-augment-overlay .daily-augment-choice-card.selecting {
+  animation: daily-augment-selected-pop 0.72s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.daily-augment-pick-burst {
+  position: absolute;
+  z-index: 3;
+  inset: -24%;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.9) 0 7%, rgba(255, 221, 88, 0.55) 13%, transparent 31%),
+    conic-gradient(from 0deg, transparent, rgba(255, 255, 255, 0.78), transparent, rgba(255, 210, 73, 0.72), transparent);
+  mix-blend-mode: screen;
+  animation: daily-augment-pick-burst 0.72s ease-out both;
+}
+
+@keyframes daily-augment-selected-pop {
+  0% { filter: saturate(1); }
+  34% { transform: translateY(-10px) scale(1.08); filter: saturate(1.35) brightness(1.1); }
+  100% { transform: translateY(-8px) scale(1.035); filter: saturate(1.16) brightness(1.04); }
+}
+
+@keyframes daily-augment-pick-burst {
+  0% { opacity: 0; transform: scale(0.62) rotate(0deg); }
+  24% { opacity: 1; }
+  100% { opacity: 0; transform: scale(1.55) rotate(28deg); }
+}
+
 .daily-augment-choice-list {
   display: grid;
   gap: 8px;

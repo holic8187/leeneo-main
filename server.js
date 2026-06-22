@@ -211,7 +211,7 @@ const PVP_AUGMENT_TIER_LABELS = {
   prism: '프리즘'
 };
 const DAILY_AUGMENT_OPTION_COUNT = 3;
-const DAILY_AUGMENT_VERSION = '2026-06-22-extra-effects-v2';
+const DAILY_AUGMENT_VERSION = '2026-06-22-expanded-daily-augments-v1';
 const DAILY_AUGMENT_DATA = {
   daily_silver_salary_plus: {
     id: 'daily_silver_salary_plus',
@@ -238,7 +238,7 @@ const DAILY_AUGMENT_DATA = {
     id: 'daily_silver_random_gold',
     tier: 'silver',
     name: '금빛 야근 복권',
-    desc: '오늘 자정까지 무작위 골드 오늘의 증강 1개를 추가로 획득합니다.',
+    desc: '오늘 자정까지 무작위 골드 오늘의 증강 1개를 추가로 획득합니다. 운이 좋으면 프리즘 증강까지 이어질 수 있습니다.',
     effects: { grantTier: 'gold' }
   },
   daily_silver_exp_plus: {
@@ -254,6 +254,69 @@ const DAILY_AUGMENT_DATA = {
     name: '회의 보상 첫 단추',
     desc: '오늘 첫 1회에 한해 회의 보상이 10% 증가합니다.',
     effects: { raidRewardOnceBonusPercent: 10 }
+  },
+  daily_silver_first_adventure_rumor: {
+    id: 'daily_silver_first_adventure_rumor',
+    tier: 'silver',
+    name: '사내 소문',
+    desc: '오늘 첫 모험 보상은 2배가 됩니다. 대신 두 번째 모험은 보상을 얻지 못합니다.',
+    effects: { adventureFirstRewardMultiplier: 2, adventureSecondRewardBlocked: 1 }
+  },
+  daily_silver_coffee_sip: {
+    id: 'daily_silver_coffee_sip',
+    tier: 'silver',
+    name: '커피 한 모금',
+    desc: '오늘 매 1시간마다 행동력 +1을 얻습니다. 하루 최대 3회까지 적용됩니다.',
+    effects: { hourlyStamina: 1, hourlyStaminaLimit: 3 }
+  },
+  daily_silver_sneaky_logout: {
+    id: 'daily_silver_sneaky_logout',
+    tier: 'silver',
+    name: '눈치껏 퇴근',
+    desc: '퇴근하기 시 3% 확률로 박카스 1개를 획득합니다.',
+    effects: { logoutBacchusChance: 0.03 }
+  },
+  daily_silver_fast_hands: {
+    id: 'daily_silver_fast_hands',
+    tier: 'silver',
+    name: '오늘따라 손이 빠름',
+    desc: '서류작업 클릭 보상이 5% 증가하지만 스트레스 증가량도 5% 증가합니다.',
+    effects: { workClickRewardBonusPercent: 5, workClickStressBonusPercent: 5 }
+  },
+  daily_silver_tiny_rebellion: {
+    id: 'daily_silver_tiny_rebellion',
+    tier: 'silver',
+    name: '소심한 반항',
+    desc: '보스에게 피격 시 10% 확률로 레벨 x10 피해를 반사합니다.',
+    effects: { bossHitReflectChance: 0.1, bossHitReflectLevelMultiplier: 10 }
+  },
+  daily_silver_pork_lunch: {
+    id: 'daily_silver_pork_lunch',
+    tier: 'silver',
+    name: '점심 메뉴 제육볶음',
+    desc: '오늘 첫 상점 구매가 5% 할인됩니다.',
+    effects: { shopOnceDiscountPercent: 5 }
+  },
+  daily_silver_company_dj: {
+    id: 'daily_silver_company_dj',
+    tier: 'silver',
+    name: '사내방송 DJ',
+    desc: '오늘 전체 외치기 쿨타임이 사라집니다.',
+    effects: { shoutNoCooldown: 1 }
+  },
+  daily_silver_executive_patrol: {
+    id: 'daily_silver_executive_patrol',
+    tier: 'silver',
+    name: '대표님 순찰',
+    desc: '모험에서 사장/대표 관련 이벤트 보상이 10% 증가합니다.',
+    effects: { adventureExecutiveRewardBonusPercent: 10 }
+  },
+  daily_silver_afterwork_chicken: {
+    id: 'daily_silver_afterwork_chicken',
+    tier: 'silver',
+    name: '퇴근 후 치킨',
+    desc: '오늘 18시부터 24시까지 회의 보상이 5% 증가합니다.',
+    effects: { raidEveningRewardBonus: 5 }
   },
   daily_gold_pvp_rating: {
     id: 'daily_gold_pvp_rating',
@@ -318,6 +381,55 @@ const DAILY_AUGMENT_DATA = {
     desc: '오늘 스트레스가 90 이상일 때 모든 경험치 획득량이 5% 증가합니다.',
     effects: { stressHighExpBonus: 5 }
   },
+  daily_gold_minutes_forged: {
+    id: 'daily_gold_minutes_forged',
+    tier: 'gold',
+    name: '회의록 조작',
+    desc: '보스 클리어 보상 중 하나를 20% 확률로 +1개 획득합니다. 보스 클리어 3회차까지 적용됩니다.',
+    effects: { raidItemBonusChance: 0.2, raidItemBonusAmount: 1, raidItemBonusLimit: 3 }
+  },
+  daily_gold_escape_calculator: {
+    id: 'daily_gold_escape_calculator',
+    tier: 'gold',
+    name: '퇴근각 계산기',
+    desc: '행동력이 0이 될 때 하루 1회 한정으로 행동력 +3을 획득합니다.',
+    effects: { staminaZeroRestore: 3, staminaZeroRestoreLimit: 1 }
+  },
+  daily_gold_company_politics: {
+    id: 'daily_gold_company_politics',
+    tier: 'gold',
+    name: '사내 정치',
+    desc: '면담 랭킹 1~3위 유저에게 가하는 피해가 3% 증가합니다. 그 외 유저에게는 경험치 2%를 추가 획득합니다.',
+    effects: { pvpTopDamageBonusPercent: 3, nonTopExpBonusPercent: 2 }
+  },
+  daily_gold_not_my_fault: {
+    id: 'daily_gold_not_my_fault',
+    tier: 'gold',
+    name: '아무튼 제 탓 아님',
+    desc: '디버프를 받을 때 15% 확률로 무효화합니다.',
+    effects: { debuffNullifyChance: 0.15 }
+  },
+  daily_gold_overtime_body: {
+    id: 'daily_gold_overtime_body',
+    tier: 'gold',
+    name: '야근 체질',
+    desc: '오늘 18시부터 24시까지 모든 경험치 획득량이 5% 증가합니다.',
+    effects: { eveningExpBonus: 5 }
+  },
+  daily_gold_office_ghost: {
+    id: 'daily_gold_office_ghost',
+    tier: 'gold',
+    name: '사무실 괴담',
+    desc: '모험에서 부정 이벤트 확률이 10% 증가하는 대신 긍정 이벤트 보상이 10% 증가합니다.',
+    effects: { adventureNegativeChanceBonus: 10, adventurePositiveRewardBonusPercent: 10 }
+  },
+  daily_gold_lupin_dignity: {
+    id: 'daily_gold_lupin_dignity',
+    tier: 'gold',
+    name: '월급루팡의 품격',
+    desc: '온라인 상태로 10분간 아무 행동도 하지 않을 때마다 전체 경험치통의 1%를 획득합니다.',
+    effects: { idleExpPercentPer10m: 1 }
+  },
   daily_prism_stock_fee_free: {
     id: 'daily_prism_stock_fee_free',
     tier: 'prism',
@@ -366,6 +478,69 @@ const DAILY_AUGMENT_DATA = {
     name: '회의실 프리패스',
     desc: '오늘 회의 입장권과 기본 입장 횟수를 소모하지 않고 회의에 2회 입장할 수 있습니다.',
     effects: { raidFreeEntries: 2 }
+  },
+  daily_prism_main_character: {
+    id: 'daily_prism_main_character',
+    tier: 'prism',
+    name: '오늘의 주인공',
+    desc: '하루 1회, 보상을 획득할 때 해당 보상을 2배로 바꿀 수 있는 선택권을 얻습니다.',
+    effects: { rewardDoubleChoiceCharges: 1 }
+  },
+  daily_prism_otherworld_transfer: {
+    id: 'daily_prism_otherworld_transfer',
+    tier: 'prism',
+    name: '이세계 전근',
+    desc: '오늘 모험 결과를 최대 5회 다시 굴릴 수 있습니다.',
+    effects: { adventureRerollCharges: 5 }
+  },
+  daily_prism_chairman_mood: {
+    id: 'daily_prism_chairman_mood',
+    tier: 'prism',
+    name: '회장님의 기분',
+    desc: '접속 중인 모든 유저에게 30분간 경험치 +10%, 자신에게는 +20% 버프를 줄 수 있는 티켓 1장을 획득합니다. 티켓은 24시간 뒤 사라집니다.',
+    effects: { chairmanMoodTicket: 1 }
+  },
+  daily_prism_future_invoice: {
+    id: 'daily_prism_future_invoice',
+    tier: 'prism',
+    name: '미래의 나에게 청구',
+    desc: '오늘 첫 보스 보상이 30% 증가하지만 내일 첫 보스 보상이 15% 감소합니다.',
+    effects: { raidRewardOnceBonusPercent: 30, raidTomorrowPenaltyPercent: 15 }
+  },
+  daily_prism_overtime_god: {
+    id: 'daily_prism_overtime_god',
+    tier: 'prism',
+    name: '야근의 신',
+    desc: '무한야근 보상이 10% 증가하고, 중간에 패배해도 마지막 층 보상의 30%를 지급합니다.',
+    effects: { infiniteOvertimeRewardBonus: 10, infiniteOvertimeDefeatRewardPercent: 30 }
+  },
+  daily_prism_money_rain: {
+    id: 'daily_prism_money_rain',
+    tier: 'prism',
+    name: '돈으로 맞는 비',
+    desc: '오늘 내내 모든 상점 가격이 20% 할인됩니다. 대신 모든 경험치 획득량이 10% 감소합니다.',
+    effects: { shopDiscountPercent: 20, expPenaltyPercent: 10 }
+  },
+  daily_prism_one_shot_life: {
+    id: 'daily_prism_one_shot_life',
+    tier: 'prism',
+    name: '인생 한방이다',
+    desc: '모험 부정 이벤트 확률이 50% 증가하지만 즉시 레벨업 확률도 10% 증가합니다.',
+    effects: { adventureNegativeChanceBonus: 50, instantLevelUpChanceBonus: 10 }
+  },
+  daily_prism_chosen_report: {
+    id: 'daily_prism_chosen_report',
+    tier: 'prism',
+    name: '보고서가 나를 선택했다',
+    desc: '서류작업 장비/주문서 드랍 판정을 2회 추가합니다.',
+    effects: { workDropExtraAttempts: 2 }
+  },
+  daily_prism_no_quit_order: {
+    id: 'daily_prism_no_quit_order',
+    tier: 'prism',
+    name: '퇴근 금지령',
+    desc: '오늘 행동력 최대치가 5 증가합니다. 대신 모든 경험치 획득량이 5% 감소합니다.',
+    effects: { maxStaminaBonus: 5, expPenaltyPercent: 5 }
   }
 };
 const PVP_WEEKLY_SEASON_SETTING_KEY = 'pvp_weekly_season';
@@ -2977,7 +3152,8 @@ const userSchema = new mongoose.Schema({
     dailyAugmentDayKey: { type: String, default: '' },
     dailyAugmentTier: { type: String, default: '' },
     dailyAugmentOptions: { type: [String], default: [] },
-    dailyAugmentSelectedId: { type: String, default: '' }
+    dailyAugmentSelectedId: { type: String, default: '' },
+    dailyAugmentRerolledSlots: { type: [Number], default: [] }
   },
   pendingAdventure: {
     eventId: { type: String, default: null },
@@ -4022,6 +4198,21 @@ function getDailyAugmentOptionsForUser(user, dayKey, tier) {
     .map((augment) => augment.id);
 }
 
+function getDailyAugmentRerollOption(user, dayKey, tier, slotIndex) {
+  const userKey = String(user?._id || user?.username || 'guest');
+  const options = Array.isArray(user?.meta?.dailyAugmentOptions) ? user.meta.dailyAugmentOptions : [];
+  const excluded = new Set(options.filter(Boolean));
+  const selectedId = String(user?.meta?.dailyAugmentSelectedId || '');
+  if (selectedId) excluded.add(selectedId);
+  const candidates = Object.values(DAILY_AUGMENT_DATA)
+    .filter((augment) => augment?.tier === tier && !excluded.has(augment.id))
+    .sort((a, b) =>
+      hashStringToUint32(`daily-augment-reroll:${dayKey}:${userKey}:${slotIndex}:${a.id}`)
+      - hashStringToUint32(`daily-augment-reroll:${dayKey}:${userKey}:${slotIndex}:${b.id}`)
+    );
+  return candidates[0]?.id || '';
+}
+
 function serializeDailyAugment(augmentId, extra = {}) {
   const augment = DAILY_AUGMENT_DATA[augmentId];
   if (!augment) return null;
@@ -4081,7 +4272,41 @@ function getDailyAugmentEffectTotals(user, now = new Date()) {
     itemCopyChance: 0,
     raidFreeEntries: 0,
     shopOnceDiscountPercent: 0,
-    stressHighExpBonus: 0
+    stressHighExpBonus: 0,
+    adventureFirstRewardMultiplier: 0,
+    adventureSecondRewardBlocked: 0,
+    hourlyStamina: 0,
+    hourlyStaminaLimit: 0,
+    logoutBacchusChance: 0,
+    workClickRewardBonusPercent: 0,
+    workClickStressBonusPercent: 0,
+    bossHitReflectChance: 0,
+    bossHitReflectLevelMultiplier: 0,
+    shoutNoCooldown: 0,
+    adventureExecutiveRewardBonusPercent: 0,
+    raidEveningRewardBonus: 0,
+    raidItemBonusChance: 0,
+    raidItemBonusAmount: 0,
+    raidItemBonusLimit: 0,
+    staminaZeroRestore: 0,
+    staminaZeroRestoreLimit: 0,
+    pvpTopDamageBonusPercent: 0,
+    nonTopExpBonusPercent: 0,
+    debuffNullifyChance: 0,
+    eveningExpBonus: 0,
+    adventureNegativeChanceBonus: 0,
+    adventurePositiveRewardBonusPercent: 0,
+    idleExpPercentPer10m: 0,
+    rewardDoubleChoiceCharges: 0,
+    adventureRerollCharges: 0,
+    chairmanMoodTicket: 0,
+    raidTomorrowPenaltyPercent: 0,
+    infiniteOvertimeDefeatRewardPercent: 0,
+    shopDiscountPercent: 0,
+    expPenaltyPercent: 0,
+    instantLevelUpChanceBonus: 0,
+    workDropExtraAttempts: 0,
+    maxStaminaBonus: 0
   };
 
   getResolvedDailyAugmentIds(user, now).forEach((augmentId) => {
@@ -4145,7 +4370,13 @@ function ensureDailyAugmentState(user, now = new Date()) {
     user.meta.dailyAugmentVersion = DAILY_AUGMENT_VERSION;
     user.meta.dailyAugmentOptions = [];
     user.meta.dailyAugmentSelectedId = '';
+    user.meta.dailyAugmentRerolledSlots = [];
   }
+  user.meta.dailyAugmentRerolledSlots = Array.isArray(user.meta.dailyAugmentRerolledSlots)
+    ? [...new Set(user.meta.dailyAugmentRerolledSlots
+      .map((slot) => Math.floor(Number(slot)))
+      .filter((slot) => Number.isInteger(slot) && slot >= 0 && slot < DAILY_AUGMENT_OPTION_COUNT))]
+    : [];
   const savedOptions = Array.isArray(user.meta.dailyAugmentOptions)
     ? user.meta.dailyAugmentOptions.filter((augmentId) => DAILY_AUGMENT_DATA[augmentId]?.tier === tier)
     : [];
@@ -4160,11 +4391,13 @@ function ensureDailyAugmentState(user, now = new Date()) {
     user.meta.dailyAugmentVersion = DAILY_AUGMENT_VERSION;
     user.meta.dailyAugmentOptions = options;
     user.meta.dailyAugmentSelectedId = '';
+    user.meta.dailyAugmentRerolledSlots = [];
     return;
   }
 
   if (savedOptions.length < Math.min(DAILY_AUGMENT_OPTION_COUNT, Object.values(DAILY_AUGMENT_DATA).filter((augment) => augment.tier === tier).length)) {
     user.meta.dailyAugmentOptions = options;
+    user.meta.dailyAugmentRerolledSlots = [];
   } else {
     user.meta.dailyAugmentOptions = savedOptions;
   }
@@ -4187,6 +4420,7 @@ function buildDailyAugmentState(user, now = new Date()) {
     granted: grantedIds.map((augmentId) => serializeDailyAugment(augmentId, { grantedBy: selectedId })).filter(Boolean),
     active: activeIds.map((augmentId) => serializeDailyAugment(augmentId, augmentId === selectedId ? {} : { grantedBy: selectedId })).filter(Boolean),
     options: options.map(serializeDailyAugment).filter(Boolean),
+    rerolledSlots: Array.isArray(user.meta.dailyAugmentRerolledSlots) ? [...user.meta.dailyAugmentRerolledSlots] : [],
     needsSelection: !selectedId
   };
 }
@@ -4566,7 +4800,8 @@ function ensureUserDefaults(user) {
       dailyAugmentDayKey: '',
       dailyAugmentTier: '',
       dailyAugmentOptions: [],
-      dailyAugmentSelectedId: ''
+      dailyAugmentSelectedId: '',
+      dailyAugmentRerolledSlots: []
     };
   }
   user.meta.loginCount = Number(user.meta.loginCount ?? 0);
@@ -4638,6 +4873,11 @@ function ensureUserDefaults(user) {
   user.meta.dailyAugmentSelectedId = DAILY_AUGMENT_DATA[user.meta.dailyAugmentSelectedId]
     ? user.meta.dailyAugmentSelectedId
     : '';
+  user.meta.dailyAugmentRerolledSlots = Array.isArray(user.meta.dailyAugmentRerolledSlots)
+    ? [...new Set(user.meta.dailyAugmentRerolledSlots
+      .map((slot) => Math.floor(Number(slot)))
+      .filter((slot) => Number.isInteger(slot) && slot >= 0 && slot < DAILY_AUGMENT_OPTION_COUNT))]
+    : [];
   ensureDailyAugmentState(user);
   resetDailyAugmentUsageIfNeeded(user);
 
@@ -14793,9 +15033,14 @@ function calculateDerivedStats(user, now = new Date()) {
   const dailyStressExpBonus = Number(user.gameState?.stress || 0) >= 90
     ? Number(dailyAugmentStats.stressHighExpBonus || 0)
     : 0;
+  const kstHour = getKSTHour(now);
+  const dailyEveningExpBonus = kstHour >= 18 && kstHour < 24
+    ? Number(dailyAugmentStats.eveningExpBonus || 0)
+    : 0;
+  const dailyExpPenalty = Number(dailyAugmentStats.expPenaltyPercent || 0);
 
   const moneyBonusPercent = itemStats.moneyBonus + emblemStats.moneyBonus + (titleEffects.moneyBonus || 0) + dailyAugmentStats.moneyBonus;
-  const expBonusPercent = itemStats.expBonus + emblemStats.expBonus + dailyAugmentStats.expBonus + dailyStressExpBonus;
+  const expBonusPercent = itemStats.expBonus + emblemStats.expBonus + dailyAugmentStats.expBonus + dailyStressExpBonus + dailyEveningExpBonus - dailyExpPenalty;
   const titleStressMultiplier = titleEffects.titleStressMultiplier || 1;
   const passiveExpMultiplier = Math.max(0, 1 + activeBuffEffects.expBonusAdd + activeBuffEffects.passiveExpBonusAdd);
   const clickExpMultiplier = Math.max(0, 1 + activeBuffEffects.expBonusAdd + activeBuffEffects.clickExpBonusAdd);
@@ -14812,9 +15057,11 @@ function calculateDerivedStats(user, now = new Date()) {
     expBonusPercent: Number(expBonusPercent.toFixed(2)),
     itemExpBonusPercent: itemStats.expBonus,
     emblemExpBonusPercent: emblemStats.expBonus,
-    dailyAugmentExpBonusPercent: Number((dailyAugmentStats.expBonus + dailyStressExpBonus).toFixed(4)),
+    dailyAugmentExpBonusPercent: Number((dailyAugmentStats.expBonus + dailyStressExpBonus + dailyEveningExpBonus - dailyExpPenalty).toFixed(4)),
     dailyAugmentStressExpBonusPercent: dailyStressExpBonus,
-    raidRewardBonusPercent: Number((emblemStats.raidRewardBonus + dailyAugmentStats.raidRewardBonus).toFixed(4)),
+    dailyAugmentEveningExpBonusPercent: dailyEveningExpBonus,
+    dailyAugmentExpPenaltyPercent: dailyExpPenalty,
+    raidRewardBonusPercent: Number((emblemStats.raidRewardBonus + dailyAugmentStats.raidRewardBonus + (kstHour >= 18 && kstHour < 24 ? dailyAugmentStats.raidEveningRewardBonus : 0)).toFixed(4)),
     raidRewardOnceBonusPercent: dailyAugmentStats.raidRewardOnceBonusPercent,
     raidExpBonusPercent: emblemStats.raidExpBonus,
     maintenanceReductionPercent: emblemStats.maintenanceReduction,
@@ -14826,7 +15073,7 @@ function calculateDerivedStats(user, now = new Date()) {
     raidTurn3DamageBonusPercent: dailyAugmentStats.raidTurn3DamageBonusPercent,
     itemCopyChance: dailyAugmentStats.itemCopyChance,
     raidFreeEntries: dailyAugmentStats.raidFreeEntries,
-    shopOnceDiscountPercent: dailyAugmentStats.shopOnceDiscountPercent,
+    shopOnceDiscountPercent: Number((dailyAugmentStats.shopOnceDiscountPercent + dailyAugmentStats.shopDiscountPercent).toFixed(4)),
     branchHourlyExpPercent: branchItemStats.hourlyExpPercent,
     branchExcavationBonusPercent: getBranchEffectiveExcavationPowerBonus(user.branchOffice),
     branchRaidExpBonusPercent: branchItemStats.bossRaidExpBonus,
@@ -14840,7 +15087,7 @@ function calculateDerivedStats(user, now = new Date()) {
     clickExpMultiplier,
     typingExpMultiplier,
     noStress: activeBuffEffects.noStress,
-    maxStaminaBonus: Number(titleEffects.staminaBonus || 0),
+    maxStaminaBonus: Number(titleEffects.staminaBonus || 0) + Number(dailyAugmentStats.maxStaminaBonus || 0),
     adventureStaminaMultiplier: Number(titleEffects.adventureStaminaMultiplier || 1)
   };
 }
@@ -15601,6 +15848,56 @@ app.post('/api/login', async (req, res) => {
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+
+app.post('/api/daily-augment/reroll', async (req, res) => {
+  const { userId } = req.body;
+  const slotIndex = Math.floor(Number(req.body?.slotIndex));
+  if (!userId || !Number.isInteger(slotIndex)) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+
+  try {
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      reconcileTitles(user, now);
+      ensureDailyAugmentState(user, now);
+
+      if (user.meta.dailyAugmentSelectedId) {
+        throw createHttpError(400, '이미 오늘의 증강을 선택했습니다.');
+      }
+      if (slotIndex < 0 || slotIndex >= DAILY_AUGMENT_OPTION_COUNT) {
+        throw createHttpError(400, '다시 굴릴 증강 위치가 올바르지 않습니다.');
+      }
+
+      const rerolledSlots = Array.isArray(user.meta.dailyAugmentRerolledSlots)
+        ? [...new Set(user.meta.dailyAugmentRerolledSlots.map((slot) => Math.floor(Number(slot))).filter((slot) => Number.isInteger(slot)))]
+        : [];
+      if (rerolledSlots.includes(slotIndex)) {
+        throw createHttpError(400, '이미 다시 굴린 증강입니다.');
+      }
+
+      const nextAugmentId = getDailyAugmentRerollOption(user, user.meta.dailyAugmentDayKey, user.meta.dailyAugmentTier, slotIndex);
+      if (!nextAugmentId) {
+        throw createHttpError(400, '더 이상 바꿀 증강 후보가 없습니다.');
+      }
+
+      const options = Array.isArray(user.meta.dailyAugmentOptions) ? [...user.meta.dailyAugmentOptions] : [];
+      options[slotIndex] = nextAugmentId;
+      user.meta.dailyAugmentOptions = options;
+      user.meta.dailyAugmentRerolledSlots = [...rerolledSlots, slotIndex];
+      user.gameState.lastActionTime = now;
+      return buildFastUserResponseWithGlobals(user, now);
+    }, { conflictLabel: 'Daily augment reroll conflict' });
+
+    res.json(response);
+  } catch (err) {
+    if (err?.statusCode) {
+      return res.status(err.statusCode).json({ msg: err.message });
+    }
+    console.error('Daily augment reroll error:', err);
+    res.status(500).json({ msg: '증강 다시 굴리기에 실패했습니다.' });
   }
 });
 
