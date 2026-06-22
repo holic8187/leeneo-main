@@ -2098,6 +2098,154 @@ progress {
   outline: 3px solid #1f7a3a;
 }
 
+.daily-augment-choice-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.daily-augment-choice-card {
+  border: 1px solid #cfd6df;
+  background: #f8fbff;
+  padding: 10px;
+  text-align: left;
+  color: #111827;
+  font: inherit;
+}
+
+.daily-augment-choice-card.gold {
+  border-color: #d7a72d;
+  background: #fff8dc;
+}
+
+.daily-augment-choice-card.prism {
+  border-color: #a06dff;
+  background: linear-gradient(135deg, #ffffff, #eef8ff 38%, #ffeafa 76%, #fff7da);
+}
+
+.daily-augment-choice-title {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.daily-augment-choice-title span {
+  color: #555;
+  font-size: 12px;
+}
+
+.daily-augment-select-btn {
+  min-width: 110px;
+}
+
+.daily-augment-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(18, 22, 30, 0.56);
+  backdrop-filter: blur(7px) grayscale(0.25);
+}
+
+.daily-augment-overlay.hidden {
+  display: none;
+}
+
+.daily-augment-floating-list {
+  width: min(940px, calc(100vw - 40px));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  margin: 0;
+}
+
+.daily-augment-overlay .daily-augment-choice-card {
+  min-height: 230px;
+  border-width: 2px;
+  border-radius: 22px;
+  cursor: pointer;
+  box-shadow: 0 22px 55px rgba(0, 0, 0, 0.32);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+}
+
+.daily-augment-overlay .daily-augment-choice-card:hover {
+  transform: translateY(-7px);
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.42);
+  filter: saturate(1.08);
+}
+
+.daily-augment-overlay .daily-augment-choice-card.silver {
+  background: linear-gradient(145deg, #f8fbff, #dfe7f1);
+  border-color: #bdc7d4;
+}
+
+.daily-augment-overlay .daily-augment-choice-card.gold {
+  background: linear-gradient(145deg, #fff8db, #f7ca55);
+}
+
+.daily-augment-overlay .daily-augment-choice-card.prism {
+  background: linear-gradient(135deg, #ffffff, #dff6ff 35%, #ffe4fb 72%, #fff2bd);
+  box-shadow: 0 22px 55px rgba(99, 77, 255, 0.28), 0 0 26px rgba(255, 255, 255, 0.42);
+}
+
+.daily-augment-overlay .daily-augment-choice-title {
+  display: grid;
+  gap: 8px;
+  align-items: start;
+  margin-bottom: 14px;
+}
+
+.daily-augment-overlay .daily-augment-choice-title span {
+  font-size: 13px;
+  font-weight: 800;
+  color: #4b5563;
+  letter-spacing: 0.08em;
+}
+
+.daily-augment-overlay .daily-augment-choice-title strong {
+  font-size: clamp(20px, 2.5vw, 28px);
+  line-height: 1.16;
+}
+
+.daily-augment-overlay .daily-augment-choice-desc {
+  font-size: 15px;
+  line-height: 1.55;
+  word-break: keep-all;
+}
+
+.daily-augment-choice-hint {
+  margin-top: 18px;
+  font-weight: 800;
+  color: #0f5132;
+}
+
+.daily-augment-buff {
+  border-color: #c8941c;
+  background: #fff5c2;
+}
+
+@media (max-width: 760px) {
+  .daily-augment-overlay {
+    align-items: flex-start;
+    overflow-y: auto;
+    padding: 28px 16px;
+  }
+
+  .daily-augment-floating-list {
+    width: min(390px, 100%);
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .daily-augment-overlay .daily-augment-choice-card {
+    min-height: 170px;
+    border-radius: 18px;
+  }
+}
+
 .pvp-augment-team-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -285,6 +285,7 @@ let mailboxState = { mails: [] };
 let raidBattleLogPinnedToBottom = true;
 let userMutationInFlightCount = 0;
 let loginRequestSerial = 0;
+let dailyAugmentPromptInFlight = false;
 let currentNewsTypingPrompt = null;
 let newsTypingLoading = false;
 let newsTypingSubmitting = false;
@@ -308,6 +309,26 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-06-22-daily-augment-effects-ui',
+    time: '2026-06-22 13:55',
+    title: '오늘의 증강 효과 적용',
+    items: [
+      '매일 첫 접속 시 선택하는 오늘의 증강 목록과 실제 효과를 적용했습니다.',
+      '월급, 경험치, 주식 수수료, 회의 피해/보상/회복/보호막, 면담 승리 점수, 무한야근 보상에 오늘의 증강 효과가 반영됩니다.',
+      '증강 선택 화면은 별도 팝업 박스 없이 배경만 흐리게 처리하고 증강 카드 3장만 표시되도록 변경했습니다.'
+    ]
+  },
+  {
+    id: '2026-06-22-daily-augment-foundation',
+    time: '2026-06-22 00:30',
+    title: '오늘의 증강 선택 시스템',
+    items: [
+      '매일 첫 접속 시 오늘의 증강 3개 중 하나를 선택하는 팝업이 표시되도록 시스템을 추가했습니다.',
+      '그날의 증강 등급은 모든 유저에게 동일하게 적용되며, 선택한 증강은 자정까지 버프창에 표시됩니다.',
+      '증강 선택을 완료하면 같은 날에는 다시 선택 팝업이 뜨지 않습니다.'
+    ]
+  },
   {
     id: '2026-06-19-chaos-trum-intern-tangerine',
     time: '2026-06-19 01:15',
@@ -2429,6 +2450,99 @@ function maybeShowPatchNotesOnce(attempt = 0) {
   openPatchNotesModal({ markSeen: true });
 }
 
+function buildDailyAugmentDetailsHtml(dailyAugment) {
+  const options = Array.isArray(dailyAugment?.options) ? dailyAugment.options : [];
+  if (!options.length) return '<p class="menu-note">오늘 선택 가능한 증강을 불러오지 못했습니다.</p>';
+  return `
+    <div class="daily-augment-choice-list">
+      ${options.map((augment) => `
+        <div class="daily-augment-choice-card ${escapeAttr(augment.tier || 'silver')}">
+          <div class="daily-augment-choice-title">
+            <span>${escapeHtml(augment.tierLabel || getPvpAugmentTierLabel(augment.tier))}</span>
+            <strong>${escapeHtml(augment.name)}</strong>
+          </div>
+          <div class="daily-augment-choice-desc">${escapeHtml(augment.desc || '')}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function getDailyAugmentOverlay() {
+  let overlay = document.getElementById('dailyAugmentOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'dailyAugmentOverlay';
+    overlay.className = 'modal-overlay daily-augment-overlay hidden';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    document.body.appendChild(overlay);
+  }
+  return overlay;
+}
+
+function openDailyAugmentChoiceOverlay(dailyAugment) {
+  const overlay = getDailyAugmentOverlay();
+  const options = Array.isArray(dailyAugment?.options) ? dailyAugment.options : [];
+  if (!overlay || !options.length) return Promise.resolve(null);
+
+  overlay.innerHTML = `
+    <div class="daily-augment-choice-list daily-augment-floating-list">
+      ${options.map((augment) => `
+        <button type="button" class="daily-augment-choice-card ${escapeAttr(augment.tier || 'silver')}" data-augment-id="${escapeAttr(augment.id)}">
+          <div class="daily-augment-choice-title">
+            <span>${escapeHtml(augment.tierLabel || getPvpAugmentTierLabel(augment.tier))}</span>
+            <strong>${escapeHtml(augment.name)}</strong>
+          </div>
+          <div class="daily-augment-choice-desc">${escapeHtml(augment.desc || '')}</div>
+          <div class="daily-augment-choice-hint">이 증강 선택</div>
+        </button>
+      `).join('')}
+    </div>
+  `;
+  overlay.classList.remove('hidden');
+
+  return new Promise((resolve) => {
+    overlay.querySelectorAll('[data-augment-id]').forEach((card) => {
+      card.addEventListener('click', () => {
+        const selectedId = card.getAttribute('data-augment-id');
+        overlay.classList.add('hidden');
+        overlay.innerHTML = '';
+        resolve(selectedId);
+      });
+    });
+  });
+}
+
+async function maybeShowDailyAugmentOnce(attempt = 0) {
+  const currentUser = getStoredUser();
+  const dailyAugment = currentUser?.dailyAugment;
+  if (!currentUser?._id || !dailyAugment?.needsSelection) return;
+  if (!Array.isArray(dailyAugment.options) || dailyAugment.options.length === 0) return;
+  if (dailyAugmentPromptInFlight) return;
+
+  if (isAnyModalOpen() && attempt < 30) {
+    setTimeout(() => maybeShowDailyAugmentOnce(attempt + 1), 1000);
+    return;
+  }
+
+  dailyAugmentPromptInFlight = true;
+  try {
+    const selectedId = await openDailyAugmentChoiceOverlay(dailyAugment);
+    if (!selectedId) return;
+
+    const data = await postJson(`${API_URL}/api/daily-augment/select`, {
+      userId: currentUser._id,
+      augmentId: selectedId
+    });
+    updateLocalUserState(data);
+  } catch (err) {
+    alert(err.message || '오늘의 증강 선택에 실패했습니다.');
+  } finally {
+    dailyAugmentPromptInFlight = false;
+  }
+}
+
 function closeDecisionModal(result = null) {
   const overlay = document.getElementById('decisionModal');
   if (overlay) overlay.classList.add('hidden');
@@ -4530,6 +4644,7 @@ function updateLocalUserState(data, options = {}) {
   applyGlobalState(data.global);
   if (latestUser) {
     updateGameUI(latestUser);
+    setTimeout(() => maybeShowDailyAugmentOnce(), 300);
   }
   if (isFusionModalOpen()) {
     renderCardFusionModal(latestUser);
@@ -4645,7 +4760,8 @@ function showGameScreen(user) {
     });
   }
 
-  setTimeout(() => maybeShowPatchNotesOnce(), 500);
+  setTimeout(() => maybeShowDailyAugmentOnce(), 500);
+  setTimeout(() => maybeShowPatchNotesOnce(), 900);
 }
 
 function openRaidLobby() {
@@ -8912,6 +9028,33 @@ function updateBuffUI(user) {
           <span class="buff-tooltip">
             <strong>${escapeHtml(equippedTitle.name)}</strong><br>
             ${escapeHtml(equippedTitle.desc)}
+          </span>
+        </div>
+      `
+    );
+  }
+
+  const dailyAugment = user.dailyAugment?.selected;
+  if (dailyAugment) {
+    hasAnyBuff = true;
+    const grantedAugments = Array.isArray(user.dailyAugment?.granted) ? user.dailyAugment.granted : [];
+    const grantedText = grantedAugments.length
+      ? `<br><br><strong>추가 증강</strong><br>${grantedAugments.map((augment) =>
+        `${escapeHtml(augment.tierLabel || getPvpAugmentTierLabel(augment.tier))} - ${escapeHtml(augment.name)}: ${escapeHtml(augment.desc || '')}`
+      ).join('<br>')}`
+      : '';
+    const expiresAt = user.dailyAugment?.expiresAt ? new Date(user.dailyAugment.expiresAt) : null;
+    const remainText = expiresAt && expiresAt > now
+      ? `<br><br>자정까지 유지 (${formatDurationMs(expiresAt.getTime() - now.getTime())} 남음)`
+      : '';
+    buffListEl.insertAdjacentHTML(
+      'beforeend',
+      `
+        <div class="buff-item title-buff daily-augment-buff">
+          오늘의 증강: ${escapeHtml(dailyAugment.name)}${grantedAugments.length ? ` +${grantedAugments.length}` : ''}
+          <span class="buff-tooltip">
+            <strong>${escapeHtml(dailyAugment.tierLabel || getPvpAugmentTierLabel(dailyAugment.tier))} 증강 - ${escapeHtml(dailyAugment.name)}</strong><br>
+            ${escapeHtml(dailyAugment.desc || '')}${grantedText}${remainText}
           </span>
         </div>
       `

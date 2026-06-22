@@ -210,6 +210,121 @@ const PVP_AUGMENT_TIER_LABELS = {
   gold: '골드',
   prism: '프리즘'
 };
+const DAILY_AUGMENT_OPTION_COUNT = 3;
+const DAILY_AUGMENT_DATA = {
+  daily_silver_salary_plus: {
+    id: 'daily_silver_salary_plus',
+    tier: 'silver',
+    name: '월급 루팡의 미소',
+    desc: '오늘 자정까지 월급 획득량이 2% 증가합니다.',
+    effects: { moneyBonus: 2 }
+  },
+  daily_silver_overtime_reward: {
+    id: 'daily_silver_overtime_reward',
+    tier: 'silver',
+    name: '야근 수당 영수증',
+    desc: '오늘 자정까지 무한야근 보상이 5% 증가합니다.',
+    effects: { infiniteOvertimeRewardBonus: 5 }
+  },
+  daily_silver_stock_fee_half: {
+    id: 'daily_silver_stock_fee_half',
+    tier: 'silver',
+    name: '수수료 깎는 손',
+    desc: '오늘 자정까지 주식 판매 수수료가 50% 감소합니다.',
+    effects: { stockFeeReduction: 50 }
+  },
+  daily_silver_random_gold: {
+    id: 'daily_silver_random_gold',
+    tier: 'silver',
+    name: '금빛 야근 복권',
+    desc: '오늘 자정까지 무작위 골드 오늘의 증강 1개를 추가로 획득합니다.',
+    effects: { grantTier: 'gold' }
+  },
+  daily_silver_exp_plus: {
+    id: 'daily_silver_exp_plus',
+    tier: 'silver',
+    name: '작은 깨달음',
+    desc: '오늘 자정까지 모든 경험치 획득량이 1% 증가합니다.',
+    effects: { expBonus: 1 }
+  },
+  daily_gold_pvp_rating: {
+    id: 'daily_gold_pvp_rating',
+    tier: 'gold',
+    name: '면담 승리 세레머니',
+    desc: '오늘 자정까지 랭크 개인면담 승리 시 획득 점수가 10% 증가합니다.',
+    effects: { pvpWinRatingBonus: 10 }
+  },
+  daily_gold_stock_fee_discount: {
+    id: 'daily_gold_stock_fee_discount',
+    tier: 'gold',
+    name: '증권사 친구 찬스',
+    desc: '오늘 자정까지 주식 판매 수수료가 80% 감소합니다.',
+    effects: { stockFeeReduction: 80 }
+  },
+  daily_gold_raid_damage: {
+    id: 'daily_gold_raid_damage',
+    tier: 'gold',
+    name: '회의실 죽창',
+    desc: '오늘 자정까지 회의에서 자신이 입히는 피해가 2% 증가합니다.',
+    effects: { raidDamageBonusPercent: 2 }
+  },
+  daily_gold_raid_reward: {
+    id: 'daily_gold_raid_reward',
+    tier: 'gold',
+    name: '회의록 보너스 페이지',
+    desc: '오늘 자정까지 회의 보상이 1.5% 증가합니다.',
+    effects: { raidRewardBonus: 1.5 }
+  },
+  daily_gold_random_prism: {
+    id: 'daily_gold_random_prism',
+    tier: 'gold',
+    name: '프리즘 결재 서류',
+    desc: '오늘 자정까지 무작위 프리즘 오늘의 증강 1개를 추가로 획득합니다.',
+    effects: { grantTier: 'prism' }
+  },
+  daily_gold_raid_recovery: {
+    id: 'daily_gold_raid_recovery',
+    tier: 'gold',
+    name: '탕비실 응급키트',
+    desc: '오늘 자정까지 회의에서 받는 회복량과 보호막 획득량이 10% 증가합니다.',
+    effects: { raidHealShieldBonusPercent: 10 }
+  },
+  daily_prism_stock_fee_free: {
+    id: 'daily_prism_stock_fee_free',
+    tier: 'prism',
+    name: '수수료 프리패스',
+    desc: '오늘 자정까지 주식 판매 수수료가 무료가 됩니다.',
+    effects: { stockFeeReduction: 100 }
+  },
+  daily_prism_pvp_rating: {
+    id: 'daily_prism_pvp_rating',
+    tier: 'prism',
+    name: '면담왕의 왕관',
+    desc: '오늘 자정까지 랭크 개인면담 승리 시 획득 점수가 20% 증가합니다.',
+    effects: { pvpWinRatingBonus: 20 }
+  },
+  daily_prism_raid_damage: {
+    id: 'daily_prism_raid_damage',
+    tier: 'prism',
+    name: '회의실 최종병기',
+    desc: '오늘 자정까지 회의에서 자신이 입히는 피해가 5% 증가합니다.',
+    effects: { raidDamageBonusPercent: 5 }
+  },
+  daily_prism_raid_reward: {
+    id: 'daily_prism_raid_reward',
+    tier: 'prism',
+    name: '대표님 사인 보상안',
+    desc: '오늘 자정까지 회의 보상이 5% 증가합니다.',
+    effects: { raidRewardBonus: 5 }
+  },
+  daily_prism_raid_recovery: {
+    id: 'daily_prism_raid_recovery',
+    tier: 'prism',
+    name: '사내 의료보험 각성',
+    desc: '오늘 자정까지 회의에서 받는 회복량과 보호막 획득량이 20% 증가합니다.',
+    effects: { raidHealShieldBonusPercent: 20 }
+  }
+};
 const PVP_WEEKLY_SEASON_SETTING_KEY = 'pvp_weekly_season';
 const PVP_WEEKLY_SEASON_CHECK_INTERVAL_MS = 60 * 1000;
 const PVP_RANKED_ANONYMOUS_OPPONENT_NAME = '익명의 상대';
@@ -2809,7 +2924,11 @@ const userSchema = new mongoose.Schema({
     lastAdventureAt: { type: Date, default: null },
     lastAdventureLog: { type: String, default: '' },
     potatoRehabDamage: { type: Number, default: POTATO_REHAB_BASE_DAMAGE },
-    potatoRehabKillCount: { type: Number, default: 0 }
+    potatoRehabKillCount: { type: Number, default: 0 },
+    dailyAugmentDayKey: { type: String, default: '' },
+    dailyAugmentTier: { type: String, default: '' },
+    dailyAugmentOptions: { type: [String], default: [] },
+    dailyAugmentSelectedId: { type: String, default: '' }
   },
   pendingAdventure: {
     eventId: { type: String, default: null },
@@ -3804,6 +3923,170 @@ function getKSTDateKey(date = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
+function getNextKSTMidnight(date = new Date()) {
+  const kst = new Date(date.getTime() + KST_OFFSET_MS);
+  const nextMidnightUtcMs = Date.UTC(
+    kst.getUTCFullYear(),
+    kst.getUTCMonth(),
+    kst.getUTCDate() + 1,
+    0,
+    0,
+    0,
+    0
+  ) - KST_OFFSET_MS;
+  return new Date(nextMidnightUtcMs);
+}
+
+function hashStringToUint32(value) {
+  let hash = 2166136261;
+  const text = String(value ?? '');
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function hashStringToUnit(value) {
+  return hashStringToUint32(value) / 0x100000000;
+}
+
+function getDailyAugmentTier(dayKey) {
+  const totalWeight = PVP_AUGMENT_TIER_WEIGHTS.reduce((sum, entry) => sum + Number(entry.weight || 0), 0);
+  let roll = hashStringToUnit(`daily-augment-tier:${dayKey}`) * Math.max(1, totalWeight);
+  for (const entry of PVP_AUGMENT_TIER_WEIGHTS) {
+    roll -= Number(entry.weight || 0);
+    if (roll <= 0) return entry.tier;
+  }
+  return PVP_AUGMENT_TIER_WEIGHTS[0]?.tier || 'silver';
+}
+
+function getDailyAugmentOptionsForUser(user, dayKey, tier) {
+  const userKey = String(user?._id || user?.username || 'guest');
+  return Object.values(DAILY_AUGMENT_DATA)
+    .filter((augment) => augment?.tier === tier)
+    .sort((a, b) =>
+      hashStringToUint32(`daily-augment-option:${dayKey}:${userKey}:${a.id}`)
+      - hashStringToUint32(`daily-augment-option:${dayKey}:${userKey}:${b.id}`)
+    )
+    .slice(0, DAILY_AUGMENT_OPTION_COUNT)
+    .map((augment) => augment.id);
+}
+
+function serializeDailyAugment(augmentId, extra = {}) {
+  const augment = DAILY_AUGMENT_DATA[augmentId];
+  if (!augment) return null;
+  return {
+    id: augment.id,
+    tier: augment.tier,
+    tierLabel: PVP_AUGMENT_TIER_LABELS[augment.tier] || augment.tier,
+    name: augment.name,
+    desc: augment.desc,
+    ...extra
+  };
+}
+
+function getDailyGrantedAugmentId(user, dayKey, sourceAugmentId, targetTier) {
+  const userKey = String(user?._id || user?.username || 'guest');
+  const candidates = Object.values(DAILY_AUGMENT_DATA)
+    .filter((augment) => augment?.tier === targetTier && !augment?.effects?.grantTier)
+    .sort((a, b) =>
+      hashStringToUint32(`daily-augment-grant:${dayKey}:${userKey}:${sourceAugmentId}:${a.id}`)
+      - hashStringToUint32(`daily-augment-grant:${dayKey}:${userKey}:${sourceAugmentId}:${b.id}`)
+    );
+  return candidates[0]?.id || '';
+}
+
+function getResolvedDailyAugmentIds(user, now = new Date()) {
+  ensureDailyAugmentState(user, now);
+  const dayKey = user?.meta?.dailyAugmentDayKey || getKSTDateKey(now);
+  const selectedId = String(user?.meta?.dailyAugmentSelectedId || '');
+  if (!DAILY_AUGMENT_DATA[selectedId]) return [];
+
+  const ids = [selectedId];
+  const grantTier = DAILY_AUGMENT_DATA[selectedId]?.effects?.grantTier;
+  if (grantTier) {
+    const grantedId = getDailyGrantedAugmentId(user, dayKey, selectedId, grantTier);
+    if (grantedId && !ids.includes(grantedId)) ids.push(grantedId);
+  }
+  return ids;
+}
+
+function getDailyAugmentEffectTotals(user, now = new Date()) {
+  const totals = {
+    moneyBonus: 0,
+    expBonus: 0,
+    stockFeeReduction: 0,
+    infiniteOvertimeRewardBonus: 0,
+    raidRewardBonus: 0,
+    pvpWinRatingBonus: 0,
+    raidDamageBonusPercent: 0,
+    raidHealShieldBonusPercent: 0
+  };
+
+  getResolvedDailyAugmentIds(user, now).forEach((augmentId) => {
+    const effects = DAILY_AUGMENT_DATA[augmentId]?.effects || {};
+    Object.keys(totals).forEach((key) => {
+      totals[key] += Number(effects[key] || 0);
+    });
+  });
+
+  totals.stockFeeReduction = Math.min(100, Math.max(0, totals.stockFeeReduction));
+  Object.keys(totals).forEach((key) => {
+    totals[key] = Number(totals[key].toFixed(4));
+  });
+  return totals;
+}
+
+function ensureDailyAugmentState(user, now = new Date()) {
+  if (!user.meta) user.meta = {};
+  const dayKey = getKSTDateKey(now);
+  const tier = getDailyAugmentTier(dayKey);
+  const options = getDailyAugmentOptionsForUser(user, dayKey, tier);
+  const savedOptions = Array.isArray(user.meta.dailyAugmentOptions)
+    ? user.meta.dailyAugmentOptions.filter((augmentId) => DAILY_AUGMENT_DATA[augmentId]?.tier === tier)
+    : [];
+  const selectedId = String(user.meta.dailyAugmentSelectedId || '');
+  const selectedIsValid = selectedId
+    && DAILY_AUGMENT_DATA[selectedId]?.tier === tier
+    && savedOptions.includes(selectedId);
+
+  if (user.meta.dailyAugmentDayKey !== dayKey || user.meta.dailyAugmentTier !== tier) {
+    user.meta.dailyAugmentDayKey = dayKey;
+    user.meta.dailyAugmentTier = tier;
+    user.meta.dailyAugmentOptions = options;
+    user.meta.dailyAugmentSelectedId = '';
+    return;
+  }
+
+  if (savedOptions.length < Math.min(DAILY_AUGMENT_OPTION_COUNT, Object.values(DAILY_AUGMENT_DATA).filter((augment) => augment.tier === tier).length)) {
+    user.meta.dailyAugmentOptions = options;
+  } else {
+    user.meta.dailyAugmentOptions = savedOptions;
+  }
+  if (!selectedIsValid) user.meta.dailyAugmentSelectedId = '';
+}
+
+function buildDailyAugmentState(user, now = new Date()) {
+  ensureDailyAugmentState(user, now);
+  const selectedId = user.meta.dailyAugmentSelectedId || '';
+  const options = Array.isArray(user.meta.dailyAugmentOptions) ? user.meta.dailyAugmentOptions : [];
+  const activeIds = getResolvedDailyAugmentIds(user, now);
+  const grantedIds = activeIds.filter((augmentId) => augmentId !== selectedId);
+  return {
+    dayKey: user.meta.dailyAugmentDayKey || getKSTDateKey(now),
+    tier: user.meta.dailyAugmentTier || getDailyAugmentTier(getKSTDateKey(now)),
+    tierLabel: PVP_AUGMENT_TIER_LABELS[user.meta.dailyAugmentTier] || user.meta.dailyAugmentTier || '실버',
+    expiresAt: getNextKSTMidnight(now),
+    selectedId,
+    selected: serializeDailyAugment(selectedId),
+    granted: grantedIds.map((augmentId) => serializeDailyAugment(augmentId, { grantedBy: selectedId })).filter(Boolean),
+    active: activeIds.map((augmentId) => serializeDailyAugment(augmentId, augmentId === selectedId ? {} : { grantedBy: selectedId })).filter(Boolean),
+    options: options.map(serializeDailyAugment).filter(Boolean),
+    needsSelection: !selectedId
+  };
+}
+
 function getKSTWeekStartKey(date = new Date()) {
   const kst = new Date(date.getTime() + KST_OFFSET_MS);
   const dayOfWeek = kst.getUTCDay();
@@ -4169,7 +4452,11 @@ function ensureUserDefaults(user) {
       lastAdventureAt: null,
       lastAdventureLog: '',
       potatoRehabDamage: POTATO_REHAB_BASE_DAMAGE,
-      potatoRehabKillCount: 0
+      potatoRehabKillCount: 0,
+      dailyAugmentDayKey: '',
+      dailyAugmentTier: '',
+      dailyAugmentOptions: [],
+      dailyAugmentSelectedId: ''
     };
   }
   user.meta.loginCount = Number(user.meta.loginCount ?? 0);
@@ -4227,6 +4514,15 @@ function ensureUserDefaults(user) {
     Math.floor(Number(user.meta.potatoRehabDamage || POTATO_REHAB_BASE_DAMAGE))
   );
   user.meta.potatoRehabKillCount = Math.max(0, Math.floor(Number(user.meta.potatoRehabKillCount || 0)));
+  user.meta.dailyAugmentDayKey = user.meta.dailyAugmentDayKey || '';
+  user.meta.dailyAugmentTier = PVP_AUGMENT_TIER_LABELS[user.meta.dailyAugmentTier] ? user.meta.dailyAugmentTier : '';
+  user.meta.dailyAugmentOptions = Array.isArray(user.meta.dailyAugmentOptions)
+    ? user.meta.dailyAugmentOptions.filter((augmentId) => DAILY_AUGMENT_DATA[augmentId])
+    : [];
+  user.meta.dailyAugmentSelectedId = DAILY_AUGMENT_DATA[user.meta.dailyAugmentSelectedId]
+    ? user.meta.dailyAugmentSelectedId
+    : '';
+  ensureDailyAugmentState(user);
 
   if (!user.pendingAdventure || typeof user.pendingAdventure !== 'object') {
     user.pendingAdventure = {
@@ -5678,6 +5974,7 @@ function createRaidParticipantFromUser(user, mode = RAID_MODE_NORMAL) {
   const equippedEquipment = getEquippedEquipment(user);
   const equippedCardEffect = equippedEquipment?.equipmentType === EQUIPMENT_TYPE_CARD ? equippedEquipment : null;
   const equippedBasicAttack = equippedEquipment?.equipmentType === EQUIPMENT_TYPE_ATTACK ? equippedEquipment : null;
+  const derivedStats = calculateDerivedStats(user);
   const raidCards = buildRaidCardEntriesForUser(user, mode);
   const primaryCard = raidCards[0] || buildRaidCardEntry(user.equippedCardId, user.equippedCardLevel || 0);
   return {
@@ -5753,6 +6050,8 @@ function createRaidParticipantFromUser(user, mode = RAID_MODE_NORMAL) {
     subordinateLevelBonus: 0,
     finalDamageBonusTurns: 0,
     finalDamageBonusPercent: 0,
+    dailyRaidDamageBonusPercent: Number(derivedStats.raidDamageBonusPercent || 0),
+    dailyRaidHealShieldBonusPercent: Number(derivedStats.raidHealShieldBonusPercent || 0),
     cardEffectEquipmentBonusPercent: Number(equippedCardEffect?.statValue || 0) / 100,
     basicAttackEquipmentBonusPercent: Number(equippedBasicAttack?.statValue || 0) / 100,
     celineTurns: 0,
@@ -5971,9 +6270,9 @@ function createRaidRewardMailPayload({ activeBattle, participant, user, sharedBa
   }
 
   if (derivedStats.raidRewardBonusPercent > 0) {
-    const emblemRewardMultiplier = 1 + derivedStats.raidRewardBonusPercent / 100;
-    rewardMultiplier *= emblemRewardMultiplier;
-    rewardNotes.push(`휘장 효과로 보스 보상 ${emblemRewardMultiplier.toFixed(2)}배`);
+    const rewardBonusMultiplier = 1 + derivedStats.raidRewardBonusPercent / 100;
+    rewardMultiplier *= rewardBonusMultiplier;
+    rewardNotes.push(`보상 증가 효과로 보스 보상 ${rewardBonusMultiplier.toFixed(2)}배`);
   }
 
   if (participant.sojuRewardBuff) {
@@ -7139,9 +7438,11 @@ function rollCardDraw() {
 
 function getRaidRecoveryMultiplier(target) {
   if (!target) return 1;
-  return Number(target.healShieldReductionTurns || 0) > 0
+  const reductionMultiplier = Number(target.healShieldReductionTurns || 0) > 0
     ? Number(target.healShieldReductionMultiplier || 1)
     : 1;
+  const dailyBonusMultiplier = 1 + Math.max(0, Number(target.dailyRaidHealShieldBonusPercent || 0)) / 100;
+  return Number((reductionMultiplier * dailyBonusMultiplier).toFixed(4));
 }
 
 function getRaidBossHealingMultiplier(battle) {
@@ -8217,6 +8518,10 @@ function applyRaidDamageToBoss(battle, damage, options = {}) {
     const finalDamageBonus = getRaidFinalDamageBonusPercent(attacker);
     if (finalDamageBonus > 0) {
       incomingDamage = Math.max(0, Math.floor(incomingDamage * (1 + finalDamageBonus)));
+    }
+    const dailyDamageBonus = Math.max(0, Number(attacker.dailyRaidDamageBonusPercent || 0));
+    if (dailyDamageBonus > 0) {
+      incomingDamage = Math.max(0, Math.floor(incomingDamage * (1 + dailyDamageBonus / 100)));
     }
   }
   const tauntMinion = options.ignoreTaunt ? null : getRaidTauntMinion(battle);
@@ -11829,9 +12134,12 @@ async function finalizePvpBattleOutcome(winnerUserId, loserUserId, battle) {
 
     const winnerOldRating = getPvpUserRating(winnerSnapshot);
     const loserOldRating = getPvpUserRating(loserSnapshot);
-    const delta = calculatePvpRatingDelta(winnerOldRating, loserOldRating);
-    const winnerNewRating = winnerOldRating + delta;
-    const loserNewRating = Math.max(0, loserOldRating - delta);
+    const baseDelta = calculatePvpRatingDelta(winnerOldRating, loserOldRating);
+    const winnerRatingBonusPercent = Math.max(0, Number(calculateDerivedStats(winnerSnapshot, new Date()).pvpWinRatingBonusPercent || 0));
+    const winnerDelta = Math.max(1, Math.round(baseDelta * (1 + winnerRatingBonusPercent / 100)));
+    const loserDelta = baseDelta;
+    const winnerNewRating = winnerOldRating + winnerDelta;
+    const loserNewRating = Math.max(0, loserOldRating - loserDelta);
 
     await withUserMutationLock(winnerUserId, async () => {
       const user = await User.findById(winnerUserId);
@@ -11848,7 +12156,7 @@ async function finalizePvpBattleOutcome(winnerUserId, loserUserId, battle) {
       addItemToInventory(user, 'raid_entry_ticket', 1);
       addItemToInventory(user, 'equipment_fragment', fragmentReward);
       addItemToInventory(user, 'bacchus', 1);
-      queueNotification(user, 'pvp_victory_reward', `랭크 개인면담 승리! +${delta}점, 회의 추가 입장권 1장, 박카스 1개, 경험치 ${expReward.toLocaleString()}, 장비 파편 ${fragmentReward}개를 획득했습니다.`);
+      queueNotification(user, 'pvp_victory_reward', `랭크 개인면담 승리! +${winnerDelta}점, 회의 추가 입장권 1장, 박카스 1개, 경험치 ${expReward.toLocaleString()}, 장비 파편 ${fragmentReward}개를 획득했습니다.`);
       await persistUserSnapshot(user);
     });
     await withUserMutationLock(loserUserId, async () => {
@@ -11862,10 +12170,10 @@ async function finalizePvpBattleOutcome(winnerUserId, loserUserId, battle) {
       const expReward = Math.floor(getRequiredExp(user.gameState.level) * 0.02 * expMultiplier);
       user.gameState.exp += expReward;
       checkLevelUp(user);
-      queueNotification(user, 'pvp_rating_loss', `랭크 개인면담 패배로 -${delta}점이 반영되었습니다. 패배 보상으로 경험치 ${expReward.toLocaleString()}를 획득했습니다.`);
+      queueNotification(user, 'pvp_rating_loss', `랭크 개인면담 패배로 -${loserDelta}점이 반영되었습니다. 패배 보상으로 경험치 ${expReward.toLocaleString()}를 획득했습니다.`);
       await persistUserSnapshot(user);
     });
-    battle.ratingChange = { winnerDelta: delta, loserDelta: -delta, winnerNewRating, loserNewRating };
+    battle.ratingChange = { winnerDelta, loserDelta: -loserDelta, winnerNewRating, loserNewRating };
     await settlePvpBets(battle, winnerUserId);
   } catch (err) {
     battle.outcomeFinalized = false;
@@ -13020,9 +13328,9 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
         rewardNotes.push(`${RAID_NORMAL_HIGH_LEVEL_REWARD_THRESHOLD}레벨 이상 노멀 참여 보정으로 기본 보상 1/3`);
       }
       if (derivedStats.raidRewardBonusPercent > 0) {
-        const emblemRewardMultiplier = 1 + derivedStats.raidRewardBonusPercent / 100;
-        rewardMultiplier *= emblemRewardMultiplier;
-        rewardNotes.push(`휘장 효과로 보스 보상 ${emblemRewardMultiplier.toFixed(2)}배`);
+        const rewardBonusMultiplier = 1 + derivedStats.raidRewardBonusPercent / 100;
+        rewardMultiplier *= rewardBonusMultiplier;
+        rewardNotes.push(`보상 증가 효과로 보스 보상 ${rewardBonusMultiplier.toFixed(2)}배`);
       }
       if (participant.sojuRewardBuff) {
         rewardMultiplier *= Number(participant.sojuRewardMultiplier || 1);
@@ -14308,9 +14616,10 @@ function calculateDerivedStats(user, now = new Date()) {
   const titleDef = getEquippedTitleDefinition(user);
   const titleEffects = titleDef?.effects || {};
   const activeBuffEffects = getActiveBuffEffects(user, now);
+  const dailyAugmentStats = getDailyAugmentEffectTotals(user, now);
 
-  const moneyBonusPercent = itemStats.moneyBonus + emblemStats.moneyBonus + (titleEffects.moneyBonus || 0);
-  const expBonusPercent = itemStats.expBonus + emblemStats.expBonus;
+  const moneyBonusPercent = itemStats.moneyBonus + emblemStats.moneyBonus + (titleEffects.moneyBonus || 0) + dailyAugmentStats.moneyBonus;
+  const expBonusPercent = itemStats.expBonus + emblemStats.expBonus + dailyAugmentStats.expBonus;
   const titleStressMultiplier = titleEffects.titleStressMultiplier || 1;
   const passiveExpMultiplier = Math.max(0, 1 + activeBuffEffects.expBonusAdd + activeBuffEffects.passiveExpBonusAdd);
   const clickExpMultiplier = Math.max(0, 1 + activeBuffEffects.expBonusAdd + activeBuffEffects.clickExpBonusAdd);
@@ -14323,14 +14632,19 @@ function calculateDerivedStats(user, now = new Date()) {
     itemMoneyBonusPercent: itemStats.moneyBonus,
     emblemMoneyBonusPercent: emblemStats.moneyBonus,
     titleMoneyBonusPercent: Number((titleEffects.moneyBonus || 0).toFixed(2)),
+    dailyAugmentMoneyBonusPercent: dailyAugmentStats.moneyBonus,
     expBonusPercent: Number(expBonusPercent.toFixed(2)),
     itemExpBonusPercent: itemStats.expBonus,
     emblemExpBonusPercent: emblemStats.expBonus,
-    raidRewardBonusPercent: emblemStats.raidRewardBonus,
+    dailyAugmentExpBonusPercent: dailyAugmentStats.expBonus,
+    raidRewardBonusPercent: Number((emblemStats.raidRewardBonus + dailyAugmentStats.raidRewardBonus).toFixed(4)),
     raidExpBonusPercent: emblemStats.raidExpBonus,
     maintenanceReductionPercent: emblemStats.maintenanceReduction,
-    stockFeeReductionPercent: emblemStats.stockFeeReduction,
-    infiniteOvertimeRewardBonusPercent: emblemStats.infiniteOvertimeRewardBonus,
+    stockFeeReductionPercent: Math.min(100, Number((emblemStats.stockFeeReduction + dailyAugmentStats.stockFeeReduction).toFixed(4))),
+    infiniteOvertimeRewardBonusPercent: Number((emblemStats.infiniteOvertimeRewardBonus + dailyAugmentStats.infiniteOvertimeRewardBonus).toFixed(4)),
+    pvpWinRatingBonusPercent: dailyAugmentStats.pvpWinRatingBonus,
+    raidDamageBonusPercent: dailyAugmentStats.raidDamageBonusPercent,
+    raidHealShieldBonusPercent: dailyAugmentStats.raidHealShieldBonusPercent,
     branchHourlyExpPercent: branchItemStats.hourlyExpPercent,
     branchExcavationBonusPercent: getBranchEffectiveExcavationPowerBonus(user.branchOffice),
     branchRaidExpBonusPercent: branchItemStats.bossRaidExpBonus,
@@ -14757,6 +15071,7 @@ function buildGameStateResponse(user, now = new Date()) {
     pendingStockInvestment: user.pendingStockInvestment,
     stockPortfolio: user.stockPortfolio,
     stockTournament: buildStockTournamentUserSummary(user, now),
+    dailyAugment: buildDailyAugmentState(user, now),
     pendingAdventure: user.pendingAdventure,
     shopState: user.shopState,
     fragmentShop: buildFragmentShopState(user, now),
@@ -14778,14 +15093,19 @@ function buildGameStateResponse(user, now = new Date()) {
       itemMoneyBonus: derivedStats.itemMoneyBonusPercent,
       emblemMoneyBonus: derivedStats.emblemMoneyBonusPercent,
       titleMoneyBonus: derivedStats.titleMoneyBonusPercent,
+      dailyAugmentMoneyBonus: derivedStats.dailyAugmentMoneyBonusPercent,
       expBonus: derivedStats.expBonusPercent,
       itemExpBonus: derivedStats.itemExpBonusPercent,
       emblemExpBonus: derivedStats.emblemExpBonusPercent,
+      dailyAugmentExpBonus: derivedStats.dailyAugmentExpBonusPercent,
       raidRewardBonus: derivedStats.raidRewardBonusPercent,
       raidExpBonus: derivedStats.raidExpBonusPercent,
       maintenanceReduction: derivedStats.maintenanceReductionPercent,
       stockFeeReduction: derivedStats.stockFeeReductionPercent,
       infiniteOvertimeRewardBonus: derivedStats.infiniteOvertimeRewardBonusPercent,
+      pvpWinRatingBonus: derivedStats.pvpWinRatingBonusPercent,
+      raidDamageBonus: derivedStats.raidDamageBonusPercent,
+      raidHealShieldBonus: derivedStats.raidHealShieldBonusPercent,
       branchHourlyExp: derivedStats.branchHourlyExpPercent,
       branchExcavationBonus: derivedStats.branchExcavationBonusPercent,
       branchRaidExpBonus: derivedStats.branchRaidExpBonusPercent,
@@ -15095,6 +15415,40 @@ app.post('/api/login', async (req, res) => {
     });
   } catch (err) {
     console.error('Login error:', err);
+    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/daily-augment/select', async (req, res) => {
+  const { userId, augmentId } = req.body;
+  if (!userId || !augmentId) return res.status(400).json({ msg: '필수 정보가 누락되었습니다.' });
+
+  try {
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      reconcileTitles(user, now);
+      ensureDailyAugmentState(user, now);
+
+      const options = Array.isArray(user.meta.dailyAugmentOptions) ? user.meta.dailyAugmentOptions : [];
+      if (user.meta.dailyAugmentSelectedId) {
+        throw createHttpError(400, '오늘의 증강은 이미 선택했습니다.');
+      }
+      if (!options.includes(augmentId) || !DAILY_AUGMENT_DATA[augmentId]) {
+        throw createHttpError(400, '오늘 선택 가능한 증강이 아닙니다.');
+      }
+
+      user.meta.dailyAugmentSelectedId = augmentId;
+      user.gameState.lastActionTime = now;
+      return buildFastUserResponseWithGlobals(user, now);
+    }, { conflictLabel: 'Daily augment select conflict' });
+
+    res.json(response);
+  } catch (err) {
+    if (err?.statusCode) {
+      return res.status(err.statusCode).json({ msg: err.message });
+    }
+    console.error('Daily augment select error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
   }
 });
