@@ -211,6 +211,7 @@ const PVP_AUGMENT_TIER_LABELS = {
   prism: '프리즘'
 };
 const DAILY_AUGMENT_OPTION_COUNT = 3;
+const DAILY_AUGMENT_VERSION = '2026-06-22-extra-effects-v2';
 const DAILY_AUGMENT_DATA = {
   daily_silver_salary_plus: {
     id: 'daily_silver_salary_plus',
@@ -246,6 +247,13 @@ const DAILY_AUGMENT_DATA = {
     name: '작은 깨달음',
     desc: '오늘 자정까지 모든 경험치 획득량이 1% 증가합니다.',
     effects: { expBonus: 1 }
+  },
+  daily_silver_raid_reward_once: {
+    id: 'daily_silver_raid_reward_once',
+    tier: 'silver',
+    name: '회의 보상 첫 단추',
+    desc: '오늘 첫 1회에 한해 회의 보상이 10% 증가합니다.',
+    effects: { raidRewardOnceBonusPercent: 10 }
   },
   daily_gold_pvp_rating: {
     id: 'daily_gold_pvp_rating',
@@ -289,6 +297,27 @@ const DAILY_AUGMENT_DATA = {
     desc: '오늘 자정까지 회의에서 받는 회복량과 보호막 획득량이 10% 증가합니다.',
     effects: { raidHealShieldBonusPercent: 10 }
   },
+  daily_gold_raid_turn3_damage: {
+    id: 'daily_gold_raid_turn3_damage',
+    tier: 'gold',
+    name: '3턴짜리 결재 타이밍',
+    desc: '오늘 회의 입장 시 3번째 턴에 자신이 입히는 피해가 10% 증가합니다.',
+    effects: { raidTurn3DamageBonusPercent: 10 }
+  },
+  daily_gold_shop_once_discount: {
+    id: 'daily_gold_shop_once_discount',
+    tier: 'gold',
+    name: '법카 찬스 1회권',
+    desc: '오늘 첫 1회에 한해 모든 상점 물품 가격이 10% 할인됩니다.',
+    effects: { shopOnceDiscountPercent: 10 }
+  },
+  daily_gold_high_stress_exp: {
+    id: 'daily_gold_high_stress_exp',
+    tier: 'gold',
+    name: '벼랑 끝 집중력',
+    desc: '오늘 스트레스가 90 이상일 때 모든 경험치 획득량이 5% 증가합니다.',
+    effects: { stressHighExpBonus: 5 }
+  },
   daily_prism_stock_fee_free: {
     id: 'daily_prism_stock_fee_free',
     tier: 'prism',
@@ -323,6 +352,20 @@ const DAILY_AUGMENT_DATA = {
     name: '사내 의료보험 각성',
     desc: '오늘 자정까지 회의에서 받는 회복량과 보호막 획득량이 20% 증가합니다.',
     effects: { raidHealShieldBonusPercent: 20 }
+  },
+  daily_prism_item_copy: {
+    id: 'daily_prism_item_copy',
+    tier: 'prism',
+    name: '복사 붙여넣기 요정',
+    desc: '오늘 구매를 제외한 아이템 획득 시 10% 확률로 해당 아이템을 1개 더 획득합니다.',
+    effects: { itemCopyChance: 0.1 }
+  },
+  daily_prism_raid_free_entries: {
+    id: 'daily_prism_raid_free_entries',
+    tier: 'prism',
+    name: '회의실 프리패스',
+    desc: '오늘 회의 입장권과 기본 입장 횟수를 소모하지 않고 회의에 2회 입장할 수 있습니다.',
+    effects: { raidFreeEntries: 2 }
   }
 };
 const PVP_WEEKLY_SEASON_SETTING_KEY = 'pvp_weekly_season';
@@ -2902,6 +2945,12 @@ const userSchema = new mongoose.Schema({
     raidEntryDayKey: { type: String, default: null },
     raidEntryUsedCount: { type: Number, default: 0 },
     raidEntryBonusCount: { type: Number, default: 0 },
+    dailyAugmentRaidFreeEntryDayKey: { type: String, default: '' },
+    dailyAugmentRaidFreeEntryUsedCount: { type: Number, default: 0 },
+    dailyAugmentRaidRewardOnceDayKey: { type: String, default: '' },
+    dailyAugmentShopDiscountDayKey: { type: String, default: '' },
+    lastRaidEntryConsumeType: { type: String, default: '' },
+    dailyAugmentVersion: { type: String, default: '' },
     catFoodGivenCount: { type: Number, default: 0 },
     lastTitleChangeDayKey: { type: String, default: null },
     lastWorkOptimizationAt: { type: Date, default: null },
@@ -3986,10 +4035,10 @@ function serializeDailyAugment(augmentId, extra = {}) {
   };
 }
 
-function getDailyGrantedAugmentId(user, dayKey, sourceAugmentId, targetTier) {
+function getDailyGrantedAugmentId(user, dayKey, sourceAugmentId, targetTier, excludedIds = new Set()) {
   const userKey = String(user?._id || user?.username || 'guest');
   const candidates = Object.values(DAILY_AUGMENT_DATA)
-    .filter((augment) => augment?.tier === targetTier && !augment?.effects?.grantTier)
+    .filter((augment) => augment?.tier === targetTier && !excludedIds.has(augment.id))
     .sort((a, b) =>
       hashStringToUint32(`daily-augment-grant:${dayKey}:${userKey}:${sourceAugmentId}:${a.id}`)
       - hashStringToUint32(`daily-augment-grant:${dayKey}:${userKey}:${sourceAugmentId}:${b.id}`)
@@ -4003,11 +4052,16 @@ function getResolvedDailyAugmentIds(user, now = new Date()) {
   const selectedId = String(user?.meta?.dailyAugmentSelectedId || '');
   if (!DAILY_AUGMENT_DATA[selectedId]) return [];
 
-  const ids = [selectedId];
-  const grantTier = DAILY_AUGMENT_DATA[selectedId]?.effects?.grantTier;
-  if (grantTier) {
-    const grantedId = getDailyGrantedAugmentId(user, dayKey, selectedId, grantTier);
-    if (grantedId && !ids.includes(grantedId)) ids.push(grantedId);
+  const ids = [];
+  const seen = new Set();
+  let currentId = selectedId;
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (!currentId || seen.has(currentId) || !DAILY_AUGMENT_DATA[currentId]) break;
+    ids.push(currentId);
+    seen.add(currentId);
+    const grantTier = DAILY_AUGMENT_DATA[currentId]?.effects?.grantTier;
+    if (!grantTier) break;
+    currentId = getDailyGrantedAugmentId(user, dayKey, currentId, grantTier, seen);
   }
   return ids;
 }
@@ -4021,7 +4075,13 @@ function getDailyAugmentEffectTotals(user, now = new Date()) {
     raidRewardBonus: 0,
     pvpWinRatingBonus: 0,
     raidDamageBonusPercent: 0,
-    raidHealShieldBonusPercent: 0
+    raidHealShieldBonusPercent: 0,
+    raidTurn3DamageBonusPercent: 0,
+    raidRewardOnceBonusPercent: 0,
+    itemCopyChance: 0,
+    raidFreeEntries: 0,
+    shopOnceDiscountPercent: 0,
+    stressHighExpBonus: 0
   };
 
   getResolvedDailyAugmentIds(user, now).forEach((augmentId) => {
@@ -4038,11 +4098,54 @@ function getDailyAugmentEffectTotals(user, now = new Date()) {
   return totals;
 }
 
+function resetDailyAugmentUsageIfNeeded(user, now = new Date()) {
+  if (!user?.meta) return;
+  const dayKey = getKSTDateKey(now);
+  if (user.meta.dailyAugmentRaidFreeEntryDayKey !== dayKey) {
+    user.meta.dailyAugmentRaidFreeEntryDayKey = dayKey;
+    user.meta.dailyAugmentRaidFreeEntryUsedCount = 0;
+  }
+}
+
+function getDailyAugmentRaidRewardOnceBonusPercent(user, now = new Date()) {
+  const dayKey = getKSTDateKey(now);
+  if (user?.meta?.dailyAugmentRaidRewardOnceDayKey === dayKey) return 0;
+  return Math.max(0, Number(getDailyAugmentEffectTotals(user, now).raidRewardOnceBonusPercent || 0));
+}
+
+function markDailyAugmentRaidRewardOnceUsed(user, now = new Date()) {
+  if (!user?.meta) return;
+  user.meta.dailyAugmentRaidRewardOnceDayKey = getKSTDateKey(now);
+}
+
+function getDailyAugmentShopDiscountPercent(user, now = new Date()) {
+  const dayKey = getKSTDateKey(now);
+  if (user?.meta?.dailyAugmentShopDiscountDayKey === dayKey) return 0;
+  return Math.max(0, Number(getDailyAugmentEffectTotals(user, now).shopOnceDiscountPercent || 0));
+}
+
+function markDailyAugmentShopDiscountUsed(user, now = new Date()) {
+  if (!user?.meta) return;
+  user.meta.dailyAugmentShopDiscountDayKey = getKSTDateKey(now);
+}
+
+function applyDailyAugmentShopDiscount(user, price, now = new Date()) {
+  const basePrice = Math.max(0, Number(price || 0));
+  const discountPercent = getDailyAugmentShopDiscountPercent(user, now);
+  if (discountPercent <= 0) return basePrice;
+  return Math.max(0, Math.ceil(basePrice * (1 - Math.min(100, discountPercent) / 100)));
+}
+
 function ensureDailyAugmentState(user, now = new Date()) {
   if (!user.meta) user.meta = {};
   const dayKey = getKSTDateKey(now);
   const tier = getDailyAugmentTier(dayKey);
   const options = getDailyAugmentOptionsForUser(user, dayKey, tier);
+  if (user.meta.dailyAugmentVersion !== DAILY_AUGMENT_VERSION) {
+    user.meta.dailyAugmentVersion = DAILY_AUGMENT_VERSION;
+    user.meta.dailyAugmentOptions = [];
+    user.meta.dailyAugmentSelectedId = '';
+  }
   const savedOptions = Array.isArray(user.meta.dailyAugmentOptions)
     ? user.meta.dailyAugmentOptions.filter((augmentId) => DAILY_AUGMENT_DATA[augmentId]?.tier === tier)
     : [];
@@ -4054,6 +4157,7 @@ function ensureDailyAugmentState(user, now = new Date()) {
   if (user.meta.dailyAugmentDayKey !== dayKey || user.meta.dailyAugmentTier !== tier) {
     user.meta.dailyAugmentDayKey = dayKey;
     user.meta.dailyAugmentTier = tier;
+    user.meta.dailyAugmentVersion = DAILY_AUGMENT_VERSION;
     user.meta.dailyAugmentOptions = options;
     user.meta.dailyAugmentSelectedId = '';
     return;
@@ -4430,6 +4534,12 @@ function ensureUserDefaults(user) {
       raidEntryDayKey: null,
       raidEntryUsedCount: 0,
       raidEntryBonusCount: 0,
+      dailyAugmentRaidFreeEntryDayKey: '',
+      dailyAugmentRaidFreeEntryUsedCount: 0,
+      dailyAugmentRaidRewardOnceDayKey: '',
+      dailyAugmentShopDiscountDayKey: '',
+      lastRaidEntryConsumeType: '',
+      dailyAugmentVersion: '',
       catFoodGivenCount: 0,
       lastTitleChangeDayKey: null,
       lastWorkOptimizationAt: null,
@@ -4467,6 +4577,12 @@ function ensureUserDefaults(user) {
   user.meta.raidEntryDayKey = user.meta.raidEntryDayKey || null;
   user.meta.raidEntryUsedCount = Number(user.meta.raidEntryUsedCount ?? 0);
   user.meta.raidEntryBonusCount = Number(user.meta.raidEntryBonusCount ?? 0);
+  user.meta.dailyAugmentRaidFreeEntryDayKey = user.meta.dailyAugmentRaidFreeEntryDayKey || '';
+  user.meta.dailyAugmentRaidFreeEntryUsedCount = Math.max(0, Number(user.meta.dailyAugmentRaidFreeEntryUsedCount ?? 0));
+  user.meta.dailyAugmentRaidRewardOnceDayKey = user.meta.dailyAugmentRaidRewardOnceDayKey || '';
+  user.meta.dailyAugmentShopDiscountDayKey = user.meta.dailyAugmentShopDiscountDayKey || '';
+  user.meta.lastRaidEntryConsumeType = user.meta.lastRaidEntryConsumeType || '';
+  user.meta.dailyAugmentVersion = user.meta.dailyAugmentVersion || '';
   user.meta.catFoodGivenCount = Number(user.meta.catFoodGivenCount ?? 0);
   user.meta.lastTitleChangeDayKey = user.meta.lastTitleChangeDayKey || null;
   user.meta.lastWorkOptimizationAt = user.meta.lastWorkOptimizationAt || null;
@@ -4523,6 +4639,7 @@ function ensureUserDefaults(user) {
     ? user.meta.dailyAugmentSelectedId
     : '';
   ensureDailyAugmentState(user);
+  resetDailyAugmentUsageIfNeeded(user);
 
   if (!user.pendingAdventure || typeof user.pendingAdventure !== 'object') {
     user.pendingAdventure = {
@@ -5377,18 +5494,26 @@ function getTotalOwnedCardQuantity(user, cardId) {
       .reduce((sum, card) => sum + Math.max(0, Number(card.quantity) || 0), 0);
 }
 
-function addItemToInventory(user, itemId, amount = 1) {
+function addItemToInventory(user, itemId, amount = 1, options = {}) {
   if (amount <= 0) return;
+  let finalAmount = Math.max(0, Math.floor(Number(amount || 0)));
+  if (options.allowDailyAugmentCopy !== false && finalAmount > 0) {
+    const copyChance = Math.max(0, Number(getDailyAugmentEffectTotals(user, options.now || new Date()).itemCopyChance || 0));
+    if (copyChance > 0 && Math.random() < Math.min(1, copyChance)) {
+      finalAmount += 1;
+    }
+  }
+  if (finalAmount <= 0) return;
   const item = getInventoryItem(user, itemId);
   if (item) {
-    item.quantity += amount;
+    item.quantity += finalAmount;
     const duplicateItems = getInventoryItems(user, itemId).slice(1);
     if (duplicateItems.length > 0) {
       item.quantity += duplicateItems.reduce((sum, entry) => sum + Math.max(0, Number(entry.quantity) || 0), 0);
       user.inventory = user.inventory.filter((entry, index) => entry.itemId !== itemId || index === user.inventory.indexOf(item));
     }
   } else {
-    user.inventory.push({ itemId, quantity: amount });
+    user.inventory.push({ itemId, quantity: finalAmount });
   }
 }
 
@@ -5856,6 +5981,7 @@ function clearQueuedRaidUser(userId, mode = null, options = {}) {
 function syncRaidEntryState(user, now = new Date()) {
   const todayKey = getKSTDateKey(now);
   const legacyUsedToday = user.meta.lastRaidDayKey === todayKey ? 1 : 0;
+  resetDailyAugmentUsageIfNeeded(user, now);
 
   if (user.meta.raidEntryDayKey !== todayKey) {
     user.meta.raidEntryDayKey = todayKey;
@@ -5872,9 +5998,21 @@ function getRaidEntryLimit(user, now = new Date()) {
   return RAID_DAILY_LIMIT + Math.max(0, Number(user.meta.raidEntryBonusCount || 0));
 }
 
+function getDailyAugmentRaidFreeEntryLimit(user, now = new Date()) {
+  resetDailyAugmentUsageIfNeeded(user, now);
+  return Math.max(0, Math.floor(Number(getDailyAugmentEffectTotals(user, now).raidFreeEntries || 0)));
+}
+
+function getDailyAugmentRaidFreeRemainingEntries(user, now = new Date()) {
+  const limit = getDailyAugmentRaidFreeEntryLimit(user, now);
+  const used = Math.max(0, Number(user.meta.dailyAugmentRaidFreeEntryUsedCount || 0));
+  return Math.max(0, limit - used);
+}
+
 function getRaidRemainingEntries(user, now = new Date()) {
   syncRaidEntryState(user, now);
-  return Math.max(0, getRaidEntryLimit(user, now) - Math.max(0, Number(user.meta.raidEntryUsedCount || 0)));
+  const regularRemaining = Math.max(0, getRaidEntryLimit(user, now) - Math.max(0, Number(user.meta.raidEntryUsedCount || 0)));
+  return regularRemaining + getDailyAugmentRaidFreeRemainingEntries(user, now);
 }
 
 function isRaidAlreadyUsedToday(user, now = new Date()) {
@@ -5882,15 +6020,28 @@ function isRaidAlreadyUsedToday(user, now = new Date()) {
 }
 
 function consumeRaidEntry(user, now = new Date()) {
+  syncRaidEntryState(user, now);
+  if (getDailyAugmentRaidFreeRemainingEntries(user, now) > 0) {
+    user.meta.dailyAugmentRaidFreeEntryUsedCount += 1;
+    user.meta.lastRaidEntryConsumeType = 'dailyAugmentFree';
+    return true;
+  }
   if (isRaidAlreadyUsedToday(user, now)) return false;
   user.meta.raidEntryUsedCount += 1;
   user.meta.lastRaidDayKey = getKSTDateKey(now);
+  user.meta.lastRaidEntryConsumeType = 'regular';
   return true;
 }
 
 function refundRaidEntry(user, now = new Date()) {
   syncRaidEntryState(user, now);
+  if (user.meta.lastRaidEntryConsumeType === 'dailyAugmentFree') {
+    user.meta.dailyAugmentRaidFreeEntryUsedCount = Math.max(0, Number(user.meta.dailyAugmentRaidFreeEntryUsedCount || 0) - 1);
+    user.meta.lastRaidEntryConsumeType = '';
+    return;
+  }
   user.meta.raidEntryUsedCount = Math.max(0, Number(user.meta.raidEntryUsedCount || 0) - 1);
+  user.meta.lastRaidEntryConsumeType = '';
   if (user.meta.raidEntryUsedCount <= 0) {
     user.meta.lastRaidDayKey = null;
   }
@@ -6052,6 +6203,7 @@ function createRaidParticipantFromUser(user, mode = RAID_MODE_NORMAL) {
     finalDamageBonusPercent: 0,
     dailyRaidDamageBonusPercent: Number(derivedStats.raidDamageBonusPercent || 0),
     dailyRaidHealShieldBonusPercent: Number(derivedStats.raidHealShieldBonusPercent || 0),
+    dailyRaidTurn3DamageBonusPercent: Number(derivedStats.raidTurn3DamageBonusPercent || 0),
     cardEffectEquipmentBonusPercent: Number(equippedCardEffect?.statValue || 0) / 100,
     basicAttackEquipmentBonusPercent: Number(equippedBasicAttack?.statValue || 0) / 100,
     celineTurns: 0,
@@ -6101,35 +6253,33 @@ function getItemPrice(user, itemId) {
   return itemInfo.price;
 }
 
-function getShopPricesForUser(user) {
+function getShopPricesForUser(user, now = new Date()) {
   const prices = {};
   for (const itemId of Object.keys(ITEM_DATA)) {
     if (ITEM_DATA[itemId].shopHidden) continue;
     if (ITEM_DATA[itemId].type === 'special' && itemId !== 'business_card') continue;
-    prices[itemId] = getItemPrice(user, itemId);
+    prices[itemId] = applyDailyAugmentShopDiscount(user, getItemPrice(user, itemId), now);
   }
   return prices;
 }
 
-function getTotalBuyPrice(user, itemId, quantity) {
+function getTotalBuyPrice(user, itemId, quantity, now = new Date()) {
   if (quantity <= 0) return 0;
   const itemInfo = ITEM_DATA[itemId];
   if (!itemInfo) return 0;
 
-  if (itemId === 'business_card') {
-    return 200000 * quantity;
-  }
-
-  if (!isPenShopItemId(itemId)) {
-    return getItemPrice(user, itemId) * quantity;
-  }
-
-  const currentOwned = getInventoryQuantity(user, itemId);
   let total = 0;
-  for (let offset = 0; offset < quantity; offset += 1) {
-    total += Math.round(itemInfo.price * getMonamiPriceMultiplier(currentOwned + offset));
+  if (itemId === 'business_card') {
+    total = 200000 * quantity;
+  } else if (!isPenShopItemId(itemId)) {
+    total = getItemPrice(user, itemId) * quantity;
+  } else {
+    const currentOwned = getInventoryQuantity(user, itemId);
+    for (let offset = 0; offset < quantity; offset += 1) {
+      total += Math.round(itemInfo.price * getMonamiPriceMultiplier(currentOwned + offset));
+    }
   }
-  return total;
+  return applyDailyAugmentShopDiscount(user, total, now);
 }
 
 function getRemainingBusinessCardPurchases(user) {
@@ -6274,6 +6424,14 @@ function createRaidRewardMailPayload({ activeBattle, participant, user, sharedBa
     rewardMultiplier *= rewardBonusMultiplier;
     rewardNotes.push(`보상 증가 효과로 보스 보상 ${rewardBonusMultiplier.toFixed(2)}배`);
   }
+  const dailyOnceRewardBonusPercent = getDailyAugmentRaidRewardOnceBonusPercent(user, now);
+  const dailyOnceRewardBonusUsed = dailyOnceRewardBonusPercent > 0;
+  if (dailyOnceRewardBonusUsed) {
+    const rewardBonusMultiplier = 1 + dailyOnceRewardBonusPercent / 100;
+    rewardMultiplier *= rewardBonusMultiplier;
+    markDailyAugmentRaidRewardOnceUsed(user, now);
+    rewardNotes.push(`오늘의 증강 첫 회의 보상 ${rewardBonusMultiplier.toFixed(2)}배`);
+  }
 
   if (participant.sojuRewardBuff) {
     rewardMultiplier *= Number(participant.sojuRewardMultiplier || 1);
@@ -6360,6 +6518,7 @@ function createRaidRewardMailPayload({ activeBattle, participant, user, sharedBa
         items: itemRewards,
         equipments: equipmentRewards,
         potatoRehabGrowth,
+        dailyOnceRewardBonusUsed,
         notes: rewardNotes,
         summary: summaryText
       }
@@ -8523,6 +8682,10 @@ function applyRaidDamageToBoss(battle, damage, options = {}) {
     if (dailyDamageBonus > 0) {
       incomingDamage = Math.max(0, Math.floor(incomingDamage * (1 + dailyDamageBonus / 100)));
     }
+    const turn3DamageBonus = Math.max(0, Number(attacker.dailyRaidTurn3DamageBonusPercent || 0));
+    if (turn3DamageBonus > 0 && Math.max(1, Number(battle.turnNumber || 1)) === 3) {
+      incomingDamage = Math.max(0, Math.floor(incomingDamage * (1 + turn3DamageBonus / 100)));
+    }
   }
   const tauntMinion = options.ignoreTaunt ? null : getRaidTauntMinion(battle);
   if (tauntMinion) {
@@ -8617,6 +8780,7 @@ function tickRaidBossEndOfTurn(battle) {
       battle.bossHealingReductionMultiplier = 1;
     }
   }
+  battle.turnNumber = Math.max(1, Number(battle.turnNumber || 1)) + 1;
   battle.turnIndex = 0;
 }
 
@@ -9424,6 +9588,7 @@ function buildRaidBattleSnapshot(activeBattle, viewerUserId = null) {
       statusEffects: buildRaidBossUnitStatusEffects(minion)
     })),
     phase: activeBattle.phase,
+    turnNumber: Math.max(1, Number(activeBattle.turnNumber || 1)),
     currentTurnIndex: activeBattle.turnIndex,
     currentEnemyUnitId: currentEnemyActor?.unitId || null,
     currentEnemyName: currentEnemyActor?.name || null,
@@ -13428,6 +13593,12 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
           now
         });
         await enqueueRaidRewardMail(user._id, mailPayload);
+        if (mailPayload?.payload?.raidReward?.dailyOnceRewardBonusUsed) {
+          await User.updateOne(
+            { _id: user._id },
+            { $set: { 'meta.dailyAugmentRaidRewardOnceDayKey': user.meta.dailyAugmentRaidRewardOnceDayKey || getKSTDateKey(now) } }
+          );
+        }
       }
       rewardedParticipantIds.add(String(participant.userId));
       activeBattle.rewardedParticipantIds = [...rewardedParticipantIds];
@@ -13710,6 +13881,7 @@ function buildFragmentShopState(user, now = new Date()) {
       const purchased = Math.max(0, Number(user.shopState?.[entry.countField] || 0));
       const isEmblem = Boolean(entry.emblemId);
       const owned = isEmblem && user.emblems.unlocked.includes(entry.emblemId);
+      const cost = applyDailyAugmentShopDiscount(user, entry.cost, now);
       return {
         id: entry.id,
         itemId: entry.itemId,
@@ -13717,13 +13889,14 @@ function buildFragmentShopState(user, now = new Date()) {
         type: isEmblem ? 'emblem' : 'item',
         name: entry.name,
         desc: isEmblem ? (EMBLEM_DATA[entry.emblemId]?.desc || '') : (entry.desc || ''),
-        cost: entry.cost,
+        cost,
+        originalCost: entry.cost,
         quantity: entry.quantity,
         dailyLimit: entry.dailyLimit,
         purchasedToday: purchased,
         remainingToday: Math.max(0, entry.dailyLimit - purchased),
         owned,
-        canBuy: ownedFragments >= entry.cost && purchased < entry.dailyLimit && !owned
+        canBuy: ownedFragments >= cost && purchased < entry.dailyLimit && !owned
       };
     })
   };
@@ -14617,9 +14790,12 @@ function calculateDerivedStats(user, now = new Date()) {
   const titleEffects = titleDef?.effects || {};
   const activeBuffEffects = getActiveBuffEffects(user, now);
   const dailyAugmentStats = getDailyAugmentEffectTotals(user, now);
+  const dailyStressExpBonus = Number(user.gameState?.stress || 0) >= 90
+    ? Number(dailyAugmentStats.stressHighExpBonus || 0)
+    : 0;
 
   const moneyBonusPercent = itemStats.moneyBonus + emblemStats.moneyBonus + (titleEffects.moneyBonus || 0) + dailyAugmentStats.moneyBonus;
-  const expBonusPercent = itemStats.expBonus + emblemStats.expBonus + dailyAugmentStats.expBonus;
+  const expBonusPercent = itemStats.expBonus + emblemStats.expBonus + dailyAugmentStats.expBonus + dailyStressExpBonus;
   const titleStressMultiplier = titleEffects.titleStressMultiplier || 1;
   const passiveExpMultiplier = Math.max(0, 1 + activeBuffEffects.expBonusAdd + activeBuffEffects.passiveExpBonusAdd);
   const clickExpMultiplier = Math.max(0, 1 + activeBuffEffects.expBonusAdd + activeBuffEffects.clickExpBonusAdd);
@@ -14636,8 +14812,10 @@ function calculateDerivedStats(user, now = new Date()) {
     expBonusPercent: Number(expBonusPercent.toFixed(2)),
     itemExpBonusPercent: itemStats.expBonus,
     emblemExpBonusPercent: emblemStats.expBonus,
-    dailyAugmentExpBonusPercent: dailyAugmentStats.expBonus,
+    dailyAugmentExpBonusPercent: Number((dailyAugmentStats.expBonus + dailyStressExpBonus).toFixed(4)),
+    dailyAugmentStressExpBonusPercent: dailyStressExpBonus,
     raidRewardBonusPercent: Number((emblemStats.raidRewardBonus + dailyAugmentStats.raidRewardBonus).toFixed(4)),
+    raidRewardOnceBonusPercent: dailyAugmentStats.raidRewardOnceBonusPercent,
     raidExpBonusPercent: emblemStats.raidExpBonus,
     maintenanceReductionPercent: emblemStats.maintenanceReduction,
     stockFeeReductionPercent: Math.min(100, Number((emblemStats.stockFeeReduction + dailyAugmentStats.stockFeeReduction).toFixed(4))),
@@ -14645,6 +14823,10 @@ function calculateDerivedStats(user, now = new Date()) {
     pvpWinRatingBonusPercent: dailyAugmentStats.pvpWinRatingBonus,
     raidDamageBonusPercent: dailyAugmentStats.raidDamageBonusPercent,
     raidHealShieldBonusPercent: dailyAugmentStats.raidHealShieldBonusPercent,
+    raidTurn3DamageBonusPercent: dailyAugmentStats.raidTurn3DamageBonusPercent,
+    itemCopyChance: dailyAugmentStats.itemCopyChance,
+    raidFreeEntries: dailyAugmentStats.raidFreeEntries,
+    shopOnceDiscountPercent: dailyAugmentStats.shopOnceDiscountPercent,
     branchHourlyExpPercent: branchItemStats.hourlyExpPercent,
     branchExcavationBonusPercent: getBranchEffectiveExcavationPowerBonus(user.branchOffice),
     branchRaidExpBonusPercent: branchItemStats.bossRaidExpBonus,
@@ -15009,15 +15191,18 @@ function buildEmblemDetails(user) {
     }));
 }
 
-function buildEmblemShopState(user) {
+function buildEmblemShopState(user, now = new Date()) {
   ensureUserDefaults(user);
   return {
     items: Object.values(EMBLEM_DATA).filter((emblem) => emblem.shopType === 'money').map((emblem) => {
       const owned = user.emblems.unlocked.includes(emblem.id);
+      const price = applyDailyAugmentShopDiscount(user, emblem.price, now);
       return getEmblemPublicDetail(emblem.id, {
+        price,
+        originalPrice: emblem.price,
         owned,
         equipped: user.emblems.equipped === emblem.id,
-        canBuy: !owned && Number(user.gameState?.money || 0) >= emblem.price
+        canBuy: !owned && Number(user.gameState?.money || 0) >= price
       });
     })
   };
@@ -15066,7 +15251,7 @@ function buildGameStateResponse(user, now = new Date()) {
     titleDetails: buildTitleDetails(user, now),
     emblems: user.emblems,
     emblemDetails: buildEmblemDetails(user),
-    emblemShop: buildEmblemShopState(user),
+    emblemShop: buildEmblemShopState(user, now),
     branchOffice: buildBranchOfficePublicState(user, now, derivedStats),
     pendingStockInvestment: user.pendingStockInvestment,
     stockPortfolio: user.stockPortfolio,
@@ -15121,7 +15306,7 @@ function buildGameStateResponse(user, now = new Date()) {
       maxStaminaBonus: derivedStats.maxStaminaBonus,
       adventureStaminaMultiplier: derivedStats.adventureStaminaMultiplier
     },
-    shopPrices: getShopPricesForUser(user),
+    shopPrices: getShopPricesForUser(user, now),
     skills: buildSkillDetails(user, now)
   };
 }
@@ -16613,14 +16798,18 @@ app.post('/api/shop/buy', async (req, res) => {
       }
     }
 
-    const totalPrice = getTotalBuyPrice(user, itemId, buyQuantity);
+    const shopDiscountPercent = getDailyAugmentShopDiscountPercent(user, now);
+    const totalPrice = getTotalBuyPrice(user, itemId, buyQuantity, now);
 
     if (user.gameState.money < totalPrice) {
       return res.status(400).json({ msg: '잔고가 부족합니다.' });
     }
 
     user.gameState.money -= totalPrice;
-    addItemToInventory(user, itemId, buyQuantity);
+    addItemToInventory(user, itemId, buyQuantity, { allowDailyAugmentCopy: false, now });
+    if (shopDiscountPercent > 0) {
+      markDailyAugmentShopDiscountUsed(user, now);
+    }
     if (itemId === 'business_card') {
       user.shopState.dailyBusinessCardPurchases += buyQuantity;
     } else if (itemId === 'bacchus') {
@@ -16680,17 +16869,22 @@ app.post('/api/fragment-shop/buy', async (req, res) => {
         return res.status(400).json({ msg: '이미 보유 중인 휘장입니다.' });
       }
     }
-    if (getInventoryQuantity(user, 'equipment_fragment') < shopItem.cost) {
+    const fragmentShopDiscountPercent = getDailyAugmentShopDiscountPercent(user, now);
+    const fragmentShopCost = applyDailyAugmentShopDiscount(user, shopItem.cost, now);
+    if (getInventoryQuantity(user, 'equipment_fragment') < fragmentShopCost) {
       return res.status(400).json({ msg: '장비 파편이 부족합니다.' });
     }
-    if (!removeItemFromInventory(user, 'equipment_fragment', shopItem.cost)) {
+    if (!removeItemFromInventory(user, 'equipment_fragment', fragmentShopCost)) {
       return res.status(400).json({ msg: '장비 파편이 부족합니다.' });
+    }
+    if (fragmentShopDiscountPercent > 0) {
+      markDailyAugmentShopDiscountUsed(user, now);
     }
 
     if (shopItem.emblemId) {
       unlockEmblem(user, shopItem.emblemId, { notify: false });
     } else {
-      addItemToInventory(user, shopItem.itemId, shopItem.quantity);
+      addItemToInventory(user, shopItem.itemId, shopItem.quantity, { allowDailyAugmentCopy: false, now });
     }
     user.shopState[shopItem.countField] = purchasedToday + 1;
     user.gameState.lastActionTime = now;
@@ -16703,7 +16897,8 @@ app.post('/api/fragment-shop/buy', async (req, res) => {
       emblemId: shopItem.emblemId || null,
       itemName: shopItem.emblemId ? EMBLEM_DATA[shopItem.emblemId]?.name : (ITEM_DATA[shopItem.itemId]?.name || shopItem.name),
       quantity: shopItem.quantity,
-      cost: shopItem.cost
+      cost: fragmentShopCost,
+      originalCost: shopItem.cost
     };
     await persistUserSnapshot(user);
     res.json(response);
@@ -16733,11 +16928,16 @@ app.post('/api/emblem-shop/buy', async (req, res) => {
       if (user.emblems.unlocked.includes(emblemId)) {
         return res.status(400).json({ msg: '이미 보유 중인 휘장입니다.' });
       }
-      if (Number(user.gameState.money || 0) < emblem.price) {
+      const emblemShopDiscountPercent = getDailyAugmentShopDiscountPercent(user, now);
+      const emblemPrice = applyDailyAugmentShopDiscount(user, emblem.price, now);
+      if (Number(user.gameState.money || 0) < emblemPrice) {
         return res.status(400).json({ msg: '잔고가 부족합니다.' });
       }
 
-      user.gameState.money -= emblem.price;
+      user.gameState.money -= emblemPrice;
+      if (emblemShopDiscountPercent > 0) {
+        markDailyAugmentShopDiscountUsed(user, now);
+      }
       user.emblems.unlocked.push(emblemId);
       if (!user.emblems.equipped) user.emblems.equipped = emblemId;
       user.gameState.lastActionTime = now;
@@ -16746,7 +16946,8 @@ app.post('/api/emblem-shop/buy', async (req, res) => {
       response.emblemShopPurchase = {
         emblemId,
         emblemName: emblem.name,
-        price: emblem.price
+        price: emblemPrice,
+        originalPrice: emblem.price
       };
       await persistUserSnapshot(user);
       res.json(response);
@@ -17252,7 +17453,7 @@ app.post('/api/marketplace/buy', async (req, res) => {
       if (reservedListing.itemType === 'equipment') {
         user.equipments.push(cloneEquipmentEntry(reservedListing.equipmentSnapshot));
       } else {
-        addItemToInventory(user, reservedListing.itemId, Number(reservedListing.quantity || 1));
+        addItemToInventory(user, reservedListing.itemId, Number(reservedListing.quantity || 1), { allowDailyAugmentCopy: false, now });
       }
       user.gameState.lastActionTime = now;
       return null;
@@ -17313,7 +17514,7 @@ app.post('/api/marketplace/cancel', async (req, res) => {
       if (cancelledListing.itemType === 'equipment') {
         user.equipments.push(cloneEquipmentEntry(cancelledListing.equipmentSnapshot, { preserveId: true }));
       } else {
-        addItemToInventory(user, cancelledListing.itemId, Number(cancelledListing.quantity || 1));
+        addItemToInventory(user, cancelledListing.itemId, Number(cancelledListing.quantity || 1), { allowDailyAugmentCopy: false, now });
       }
       user.gameState.lastActionTime = now;
       return null;
@@ -18030,6 +18231,7 @@ app.post('/api/raid/start', async (req, res) => {
       countdownEndsAt: new Date(now.getTime() + countdownDurationMs),
       readyEndsAt: null,
       nextActionAt: new Date(now.getTime() + countdownDurationMs),
+      turnNumber: 1,
       turnIndex: 0,
       bossPatternIndex: 0,
       logs: ['레이드가 곧 시작됩니다. 3, 2, 1'],

@@ -310,6 +310,25 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-22-augment-card-shine',
+    time: '2026-06-22 14:45',
+    title: '증강 카드 광택 연출 추가',
+    items: [
+      '오늘의 증강 선택 카드와 증강 2대2 선택 카드에 등급별 광택 애니메이션을 추가했습니다.',
+      '실버, 골드, 프리즘 등급마다 다른 색감의 빛이 카드 위를 지나가도록 연출했습니다.'
+    ]
+  },
+  {
+    id: '2026-06-22-daily-augment-extra-effects-reroll',
+    time: '2026-06-22 14:20',
+    title: '오늘의 증강 추가 효과와 재선택',
+    items: [
+      '오늘의 증강에 회의 3턴 피해 증가, 첫 회의 보상 증가, 아이템 복사, 회의 무료 입장, 첫 상점 할인, 고스트레스 경험치 증가 효과를 추가했습니다.',
+      '실버의 무작위 골드 증강이 무작위 프리즘 증강으로 이어질 수 있게 변경했습니다.',
+      '증강 풀이 늘어난 만큼 기존 오늘의 증강 선택과 후보를 초기화하고, 유저별 후보 3장을 다시 뽑도록 변경했습니다.'
+    ]
+  },
+  {
     id: '2026-06-22-daily-augment-effects-ui',
     time: '2026-06-22 13:55',
     title: '오늘의 증강 효과 적용',

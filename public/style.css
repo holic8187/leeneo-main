@@ -2077,25 +2077,101 @@ progress {
   gap: 10px;
   text-align: left;
   cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  --augment-shine-color: rgba(255, 255, 255, 0.78);
+  --augment-shine-edge: rgba(211, 226, 255, 0.18);
+  --augment-shine-duration: 3.8s;
 }
 
 .pvp-augment-choice.silver {
   border-color: #aeb7c2;
+  --augment-shine-color: rgba(255, 255, 255, 0.82);
+  --augment-shine-edge: rgba(178, 202, 230, 0.2);
 }
 
 .pvp-augment-choice.gold {
   border-color: #c8941c;
   background: linear-gradient(180deg, #fff8da, #fff1b0);
+  --augment-shine-color: rgba(255, 244, 170, 0.88);
+  --augment-shine-edge: rgba(255, 210, 71, 0.24);
 }
 
 .pvp-augment-choice.prism {
   border-color: #9c66ff;
   background: linear-gradient(135deg, #fff, #eaf7ff 35%, #ffe7ff 70%, #fff8d7);
   box-shadow: 0 0 16px rgba(156, 102, 255, 0.3);
+  --augment-shine-color: rgba(255, 255, 255, 0.92);
+  --augment-shine-edge: rgba(180, 116, 255, 0.32);
+  --augment-shine-duration: 3.2s;
 }
 
 .pvp-augment-choice.selected {
   outline: 3px solid #1f7a3a;
+}
+
+.pvp-augment-choice > *,
+.daily-augment-choice-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.pvp-augment-choice::after,
+.daily-augment-choice-card::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  top: -45%;
+  bottom: -45%;
+  left: -70%;
+  width: 42%;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      105deg,
+      transparent 0%,
+      var(--augment-shine-edge) 28%,
+      var(--augment-shine-color) 49%,
+      var(--augment-shine-edge) 66%,
+      transparent 100%
+    );
+  filter: blur(0.2px);
+  transform: translateX(-150%) skewX(-18deg);
+  animation: augment-card-shine var(--augment-shine-duration, 3.8s) ease-in-out infinite;
+}
+
+.pvp-augment-choice.prism::after,
+.daily-augment-choice-card.prism::after {
+  background:
+    linear-gradient(
+      105deg,
+      transparent 0%,
+      rgba(100, 210, 255, 0.22) 22%,
+      rgba(255, 255, 255, 0.92) 42%,
+      rgba(255, 135, 240, 0.34) 58%,
+      rgba(255, 225, 88, 0.24) 74%,
+      transparent 100%
+    );
+}
+
+@keyframes augment-card-shine {
+  0%,
+  32% {
+    opacity: 0;
+    transform: translateX(-150%) skewX(-18deg);
+  }
+  42% {
+    opacity: 0.9;
+  }
+  64% {
+    opacity: 0.75;
+    transform: translateX(410%) skewX(-18deg);
+  }
+  76%,
+  100% {
+    opacity: 0;
+    transform: translateX(410%) skewX(-18deg);
+  }
 }
 
 .daily-augment-choice-list {
@@ -2111,16 +2187,26 @@ progress {
   text-align: left;
   color: #111827;
   font: inherit;
+  position: relative;
+  overflow: hidden;
+  --augment-shine-color: rgba(255, 255, 255, 0.8);
+  --augment-shine-edge: rgba(199, 219, 246, 0.18);
+  --augment-shine-duration: 3.8s;
 }
 
 .daily-augment-choice-card.gold {
   border-color: #d7a72d;
   background: #fff8dc;
+  --augment-shine-color: rgba(255, 244, 170, 0.88);
+  --augment-shine-edge: rgba(255, 210, 71, 0.24);
 }
 
 .daily-augment-choice-card.prism {
   border-color: #a06dff;
   background: linear-gradient(135deg, #ffffff, #eef8ff 38%, #ffeafa 76%, #fff7da);
+  --augment-shine-color: rgba(255, 255, 255, 0.92);
+  --augment-shine-edge: rgba(180, 116, 255, 0.32);
+  --augment-shine-duration: 3.2s;
 }
 
 .daily-augment-choice-title {
