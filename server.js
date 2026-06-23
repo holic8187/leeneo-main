@@ -3172,6 +3172,9 @@ const userSchema = new mongoose.Schema({
     potatoRehabKillCount: { type: Number, default: 0 },
     dailyAugmentDayKey: { type: String, default: '' },
     dailyAugmentTier: { type: String, default: '' },
+    dailyAugmentSeedKey: { type: String, default: '' },
+    dailyAugmentResetSeed: { type: String, default: '' },
+    dailyAugmentResetDayKey: { type: String, default: '' },
     dailyAugmentOptions: { type: [String], default: [] },
     dailyAugmentSelectedId: { type: String, default: '' },
     dailyAugmentRerolledSlots: { type: [Number], default: [] }
@@ -4197,9 +4200,15 @@ function hashStringToUnit(value) {
   return hashStringToUint32(value) / 0x100000000;
 }
 
-function getDailyAugmentTier(dayKey) {
+function getDailyAugmentSeedKey(user, dayKey) {
+  const resetSeed = String(user?.meta?.dailyAugmentResetSeed || '').trim();
+  const resetDayKey = String(user?.meta?.dailyAugmentResetDayKey || '').trim();
+  return resetSeed && resetDayKey === dayKey ? `${dayKey}:${resetSeed}` : dayKey;
+}
+
+function getDailyAugmentTier(seedKey) {
   const totalWeight = PVP_AUGMENT_TIER_WEIGHTS.reduce((sum, entry) => sum + Number(entry.weight || 0), 0);
-  let roll = hashStringToUnit(`daily-augment-tier:${dayKey}`) * Math.max(1, totalWeight);
+  let roll = hashStringToUnit(`daily-augment-tier:${seedKey}`) * Math.max(1, totalWeight);
   for (const entry of PVP_AUGMENT_TIER_WEIGHTS) {
     roll -= Number(entry.weight || 0);
     if (roll <= 0) return entry.tier;
@@ -4207,13 +4216,13 @@ function getDailyAugmentTier(dayKey) {
   return PVP_AUGMENT_TIER_WEIGHTS[0]?.tier || 'silver';
 }
 
-function getDailyAugmentOptionsForUser(user, dayKey, tier) {
+function getDailyAugmentOptionsForUser(user, seedKey, tier) {
   const userKey = String(user?._id || user?.username || 'guest');
   return Object.values(DAILY_AUGMENT_DATA)
     .filter((augment) => augment?.tier === tier)
     .sort((a, b) =>
-      hashStringToUint32(`daily-augment-option:${dayKey}:${userKey}:${a.id}`)
-      - hashStringToUint32(`daily-augment-option:${dayKey}:${userKey}:${b.id}`)
+      hashStringToUint32(`daily-augment-option:${seedKey}:${userKey}:${a.id}`)
+      - hashStringToUint32(`daily-augment-option:${seedKey}:${userKey}:${b.id}`)
     )
     .slice(0, DAILY_AUGMENT_OPTION_COUNT)
     .map((augment) => augment.id);
@@ -4221,6 +4230,7 @@ function getDailyAugmentOptionsForUser(user, dayKey, tier) {
 
 function getDailyAugmentRerollOption(user, dayKey, tier, slotIndex) {
   const userKey = String(user?._id || user?.username || 'guest');
+  const seedKey = String(user?.meta?.dailyAugmentSeedKey || getDailyAugmentSeedKey(user, dayKey));
   const options = Array.isArray(user?.meta?.dailyAugmentOptions) ? user.meta.dailyAugmentOptions : [];
   const excluded = new Set(options.filter(Boolean));
   const selectedId = String(user?.meta?.dailyAugmentSelectedId || '');
@@ -4228,8 +4238,8 @@ function getDailyAugmentRerollOption(user, dayKey, tier, slotIndex) {
   const candidates = Object.values(DAILY_AUGMENT_DATA)
     .filter((augment) => augment?.tier === tier && !excluded.has(augment.id))
     .sort((a, b) =>
-      hashStringToUint32(`daily-augment-reroll:${dayKey}:${userKey}:${slotIndex}:${a.id}`)
-      - hashStringToUint32(`daily-augment-reroll:${dayKey}:${userKey}:${slotIndex}:${b.id}`)
+      hashStringToUint32(`daily-augment-reroll:${seedKey}:${userKey}:${slotIndex}:${a.id}`)
+      - hashStringToUint32(`daily-augment-reroll:${seedKey}:${userKey}:${slotIndex}:${b.id}`)
     );
   return candidates[0]?.id || '';
 }
@@ -4273,7 +4283,8 @@ function getResolvedDailyAugmentIds(user, now = new Date()) {
     seen.add(currentId);
     const grantTier = DAILY_AUGMENT_DATA[currentId]?.effects?.grantTier;
     if (!grantTier) break;
-    currentId = getDailyGrantedAugmentId(user, dayKey, currentId, grantTier, seen);
+    const seedKey = String(user?.meta?.dailyAugmentSeedKey || getDailyAugmentSeedKey(user, dayKey));
+    currentId = getDailyGrantedAugmentId(user, seedKey, currentId, grantTier, seen);
   }
   return ids;
 }
@@ -4385,8 +4396,9 @@ function applyDailyAugmentShopDiscount(user, price, now = new Date()) {
 function ensureDailyAugmentState(user, now = new Date()) {
   if (!user.meta) user.meta = {};
   const dayKey = getKSTDateKey(now);
-  const tier = getDailyAugmentTier(dayKey);
-  const options = getDailyAugmentOptionsForUser(user, dayKey, tier);
+  const seedKey = getDailyAugmentSeedKey(user, dayKey);
+  const tier = getDailyAugmentTier(seedKey);
+  const options = getDailyAugmentOptionsForUser(user, seedKey, tier);
   if (user.meta.dailyAugmentVersion !== DAILY_AUGMENT_VERSION) {
     user.meta.dailyAugmentVersion = DAILY_AUGMENT_VERSION;
   }
@@ -4403,9 +4415,10 @@ function ensureDailyAugmentState(user, now = new Date()) {
     && DAILY_AUGMENT_DATA[selectedId]?.tier === tier
     && savedOptions.includes(selectedId);
 
-  if (user.meta.dailyAugmentDayKey !== dayKey || user.meta.dailyAugmentTier !== tier) {
+  if (user.meta.dailyAugmentDayKey !== dayKey || user.meta.dailyAugmentTier !== tier || user.meta.dailyAugmentSeedKey !== seedKey) {
     user.meta.dailyAugmentDayKey = dayKey;
     user.meta.dailyAugmentTier = tier;
+    user.meta.dailyAugmentSeedKey = seedKey;
     user.meta.dailyAugmentVersion = DAILY_AUGMENT_VERSION;
     user.meta.dailyAugmentOptions = options;
     user.meta.dailyAugmentSelectedId = '';
@@ -4430,7 +4443,7 @@ function buildDailyAugmentState(user, now = new Date()) {
   const grantedIds = activeIds.filter((augmentId) => augmentId !== selectedId);
   return {
     dayKey: user.meta.dailyAugmentDayKey || getKSTDateKey(now),
-    tier: user.meta.dailyAugmentTier || getDailyAugmentTier(getKSTDateKey(now)),
+    tier: user.meta.dailyAugmentTier || getDailyAugmentTier(getDailyAugmentSeedKey(user, getKSTDateKey(now))),
     tierLabel: PVP_AUGMENT_TIER_LABELS[user.meta.dailyAugmentTier] || user.meta.dailyAugmentTier || '실버',
     expiresAt: getNextKSTMidnight(now),
     selectedId,
@@ -4823,6 +4836,9 @@ function ensureUserDefaults(user) {
       potatoRehabKillCount: 0,
       dailyAugmentDayKey: '',
       dailyAugmentTier: '',
+      dailyAugmentSeedKey: '',
+      dailyAugmentResetSeed: '',
+      dailyAugmentResetDayKey: '',
       dailyAugmentOptions: [],
       dailyAugmentSelectedId: '',
       dailyAugmentRerolledSlots: []
@@ -4890,6 +4906,9 @@ function ensureUserDefaults(user) {
   );
   user.meta.potatoRehabKillCount = Math.max(0, Math.floor(Number(user.meta.potatoRehabKillCount || 0)));
   user.meta.dailyAugmentDayKey = user.meta.dailyAugmentDayKey || '';
+  user.meta.dailyAugmentSeedKey = user.meta.dailyAugmentSeedKey || '';
+  user.meta.dailyAugmentResetSeed = user.meta.dailyAugmentResetSeed || '';
+  user.meta.dailyAugmentResetDayKey = user.meta.dailyAugmentResetDayKey || '';
   user.meta.dailyAugmentTier = PVP_AUGMENT_TIER_LABELS[user.meta.dailyAugmentTier] ? user.meta.dailyAugmentTier : '';
   user.meta.dailyAugmentOptions = Array.isArray(user.meta.dailyAugmentOptions)
     ? user.meta.dailyAugmentOptions.filter((augmentId) => DAILY_AUGMENT_DATA[augmentId])
@@ -15524,6 +15543,42 @@ function buildEmblemShopState(user, now = new Date()) {
   };
 }
 
+function buildDerivedItemStatsResponse(derivedStats) {
+  return {
+    moneyBonus: derivedStats.moneyBonusPercent,
+    itemMoneyBonus: derivedStats.itemMoneyBonusPercent,
+    emblemMoneyBonus: derivedStats.emblemMoneyBonusPercent,
+    titleMoneyBonus: derivedStats.titleMoneyBonusPercent,
+    dailyAugmentMoneyBonus: derivedStats.dailyAugmentMoneyBonusPercent,
+    expBonus: derivedStats.expBonusPercent,
+    itemExpBonus: derivedStats.itemExpBonusPercent,
+    emblemExpBonus: derivedStats.emblemExpBonusPercent,
+    dailyAugmentExpBonus: derivedStats.dailyAugmentExpBonusPercent,
+    raidRewardBonus: derivedStats.raidRewardBonusPercent,
+    raidExpBonus: derivedStats.raidExpBonusPercent,
+    maintenanceReduction: derivedStats.maintenanceReductionPercent,
+    stockFeeReduction: derivedStats.stockFeeReductionPercent,
+    infiniteOvertimeRewardBonus: derivedStats.infiniteOvertimeRewardBonusPercent,
+    pvpWinRatingBonus: derivedStats.pvpWinRatingBonusPercent,
+    raidDamageBonus: derivedStats.raidDamageBonusPercent,
+    raidHealShieldBonus: derivedStats.raidHealShieldBonusPercent,
+    branchHourlyExp: derivedStats.branchHourlyExpPercent,
+    branchExcavationBonus: derivedStats.branchExcavationBonusPercent,
+    branchRaidExpBonus: derivedStats.branchRaidExpBonusPercent,
+    branchCompanyValueBonus: derivedStats.branchCompanyValueBonusPercent,
+    stressMultiplier: derivedStats.stressMultiplier,
+    stressReduction: derivedStats.stressReductionPercent,
+    clickStressRelief: derivedStats.clickStressRelief,
+    hourlyStressRelief: derivedStats.hourlyStressRelief,
+    shopStressRelief: derivedStats.shopStressRelief,
+    passiveExpMultiplier: derivedStats.passiveExpMultiplier,
+    clickExpMultiplier: derivedStats.clickExpMultiplier,
+    typingExpMultiplier: derivedStats.typingExpMultiplier,
+    maxStaminaBonus: derivedStats.maxStaminaBonus,
+    adventureStaminaMultiplier: derivedStats.adventureStaminaMultiplier
+  };
+}
+
 function buildGameStateResponse(user, now = new Date()) {
   if (user.branchOffice?.autoExcavationEnabled) {
     processBranchAutoExcavation(user, now, { maxSteps: 1 });
@@ -15589,42 +15644,83 @@ function buildGameStateResponse(user, now = new Date()) {
       workOptimizationSkillNotified: user.meta.workOptimizationSkillNotified,
       lastAdventureLog: user.meta.lastAdventureLog
     },
-    itemStats: {
-      moneyBonus: derivedStats.moneyBonusPercent,
-      itemMoneyBonus: derivedStats.itemMoneyBonusPercent,
-      emblemMoneyBonus: derivedStats.emblemMoneyBonusPercent,
-      titleMoneyBonus: derivedStats.titleMoneyBonusPercent,
-      dailyAugmentMoneyBonus: derivedStats.dailyAugmentMoneyBonusPercent,
-      expBonus: derivedStats.expBonusPercent,
-      itemExpBonus: derivedStats.itemExpBonusPercent,
-      emblemExpBonus: derivedStats.emblemExpBonusPercent,
-      dailyAugmentExpBonus: derivedStats.dailyAugmentExpBonusPercent,
-      raidRewardBonus: derivedStats.raidRewardBonusPercent,
-      raidExpBonus: derivedStats.raidExpBonusPercent,
-      maintenanceReduction: derivedStats.maintenanceReductionPercent,
-      stockFeeReduction: derivedStats.stockFeeReductionPercent,
-      infiniteOvertimeRewardBonus: derivedStats.infiniteOvertimeRewardBonusPercent,
-      pvpWinRatingBonus: derivedStats.pvpWinRatingBonusPercent,
-      raidDamageBonus: derivedStats.raidDamageBonusPercent,
-      raidHealShieldBonus: derivedStats.raidHealShieldBonusPercent,
-      branchHourlyExp: derivedStats.branchHourlyExpPercent,
-      branchExcavationBonus: derivedStats.branchExcavationBonusPercent,
-      branchRaidExpBonus: derivedStats.branchRaidExpBonusPercent,
-      branchCompanyValueBonus: derivedStats.branchCompanyValueBonusPercent,
-      stressMultiplier: derivedStats.stressMultiplier,
-      stressReduction: derivedStats.stressReductionPercent,
-      clickStressRelief: derivedStats.clickStressRelief,
-      hourlyStressRelief: derivedStats.hourlyStressRelief,
-      shopStressRelief: derivedStats.shopStressRelief,
-      passiveExpMultiplier: derivedStats.passiveExpMultiplier,
-      clickExpMultiplier: derivedStats.clickExpMultiplier,
-      typingExpMultiplier: derivedStats.typingExpMultiplier,
-      maxStaminaBonus: derivedStats.maxStaminaBonus,
-      adventureStaminaMultiplier: derivedStats.adventureStaminaMultiplier
-    },
+    itemStats: buildDerivedItemStatsResponse(derivedStats),
     shopPrices: getShopPricesForUser(user, now),
     skills: buildSkillDetails(user, now)
   };
+}
+
+function buildLightGameStateResponse(user, now = new Date()) {
+  if (user.branchOffice?.autoExcavationEnabled) {
+    processBranchAutoExcavation(user, now, { maxSteps: 1 });
+  }
+  const derivedStats = calculateDerivedStats(user, now);
+  const gameState = user.gameState.toObject ? user.gameState.toObject() : { ...user.gameState };
+  gameState.maxStamina = getEffectiveMaxStamina(user, now);
+  gameState.stamina = Math.min(gameState.stamina, gameState.maxStamina);
+  gameState.nextLevelExp = getRequiredExp(gameState.level);
+  gameState.passiveDailyExp = Number(getPassiveDailyExp(gameState.level).toFixed(2));
+  gameState.salaryPerMinute = Number(getSalaryPerMinute(gameState.level, derivedStats.moneyBonusPercent).toFixed(2));
+  gameState.clickExp = getClickExp(gameState.level);
+
+  return {
+    _id: user._id,
+    username: user.username,
+    nickname: user.nickname,
+    displayName: buildDisplayName(user),
+    workHours: user.workHours,
+    gameState,
+    inventory: user.inventory,
+    buffs: user.buffs,
+    pvpStats: {
+      rating: Math.round(Number(user.pvpStats?.rating ?? PVP_RATING_BASE)),
+      played: Math.max(0, Math.floor(Number(user.pvpStats?.played || 0))),
+      wins: Math.max(0, Math.floor(Number(user.pvpStats?.wins || 0))),
+      losses: Math.max(0, Math.floor(Number(user.pvpStats?.losses || 0)))
+    },
+    infiniteOvertime: user.infiniteOvertime,
+    branchOffice: buildBranchOfficePublicState(user, now, derivedStats),
+    pendingStockInvestment: user.pendingStockInvestment,
+    stockPortfolio: user.stockPortfolio,
+    stockTournament: buildStockTournamentUserSummary(user, now),
+    dailyAugment: buildDailyAugmentState(user, now),
+    pendingAdventure: user.pendingAdventure,
+    shopState: user.shopState,
+    fragmentShop: buildFragmentShopState(user, now),
+    meta: {
+      loginCount: user.meta.loginCount,
+      lastShoutAt: user.meta.lastShoutAt,
+      lastRaidDayKey: user.meta.lastRaidDayKey,
+      raidEntryDayKey: user.meta.raidEntryDayKey,
+      raidEntryUsedCount: user.meta.raidEntryUsedCount,
+      raidEntryBonusCount: user.meta.raidEntryBonusCount,
+      catFoodGivenCount: user.meta.catFoodGivenCount,
+      lastTitleChangeDayKey: user.meta.lastTitleChangeDayKey,
+      lastWorkOptimizationAt: user.meta.lastWorkOptimizationAt,
+      workOptimizationSkillNotified: user.meta.workOptimizationSkillNotified,
+      lastAdventureLog: user.meta.lastAdventureLog
+    },
+    itemStats: buildDerivedItemStatsResponse(derivedStats)
+  };
+}
+
+function buildLightUserResponse(user, now = new Date()) {
+  return {
+    userPatch: buildLightGameStateResponse(user, now),
+    notifications: consumeNotifications(user)
+  };
+}
+
+async function buildLightUserResponseWithGlobals(user, now = new Date(), options = {}) {
+  const response = buildLightUserResponse(user, now);
+  response.global = getGlobalState(now);
+
+  if (options.includePendingCounts !== false) {
+    response.marketplaceSoldPendingCount = await getMarketplaceSoldPendingCount(user._id);
+    response.adminMailPendingCount = await getPendingAdminMailCount(user._id, now);
+  }
+
+  return response;
 }
 
 function buildUserResponse(user, now = new Date()) {
@@ -19707,7 +19803,7 @@ app.post('/api/sync', async (req, res) => {
       reconcileTitles(user, now);
 
       const hadPendingNotifications = Array.isArray(user.pendingNotifications) && user.pendingNotifications.length > 0;
-      const syncResponse = await buildUserResponseWithGlobals(user, now, {
+      const syncResponse = await buildLightUserResponseWithGlobals(user, now, {
         includePendingCounts: shouldIncludePendingCounts
       });
       const throttleKey = String(user._id);
@@ -19736,7 +19832,7 @@ app.post('/api/sync', async (req, res) => {
         ensureUserDefaults(latestUser);
         const now = new Date();
         const recoveryResponse = {
-          user: buildGameStateResponse(latestUser, now),
+          userPatch: buildLightGameStateResponse(latestUser, now),
           notifications: Array.isArray(latestUser.pendingNotifications) ? [...latestUser.pendingNotifications] : [],
           global: getGlobalState(now)
         };
@@ -20423,20 +20519,26 @@ app.post('/api/admin/daily-augment/reset', async (req, res) => {
   if (!requireAdmin(req, res)) return;
   try {
     const now = new Date();
+    const resetSeed = `${now.getTime()}-${Math.random().toString(36).slice(2, 10)}`;
     const result = await User.updateMany(
       {},
       {
         $set: {
           'meta.dailyAugmentVersion': DAILY_AUGMENT_VERSION,
-          'meta.dailyAugmentDayKey': getKSTDateKey(now),
-          'meta.dailyAugmentTier': getDailyAugmentTier(getKSTDateKey(now)),
+          'meta.dailyAugmentDayKey': '',
+          'meta.dailyAugmentTier': '',
+          'meta.dailyAugmentSeedKey': '',
+          'meta.dailyAugmentResetSeed': resetSeed,
+          'meta.dailyAugmentResetDayKey': getKSTDateKey(now),
           'meta.dailyAugmentOptions': [],
           'meta.dailyAugmentSelectedId': '',
           'meta.dailyAugmentRerolledSlots': []
         }
       }
     );
-    res.json({ ok: true, modifiedCount: result.modifiedCount || 0 });
+    const dayKey = getKSTDateKey(now);
+    const nextTier = getDailyAugmentTier(`${dayKey}:${resetSeed}`);
+    res.json({ ok: true, modifiedCount: result.modifiedCount || 0, resetSeed, tier: nextTier });
   } catch (err) {
     console.error('Admin daily augment reset error:', err);
     res.status(500).json({ msg: '증강 선택 초기화 중 서버 오류가 발생했습니다.' });

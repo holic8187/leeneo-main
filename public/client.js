@@ -316,6 +316,16 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-23-light-sync-daily-augment-seed-reset',
+    time: '2026-06-23 10:35',
+    title: 'Sync 경량화 및 증강 전체 초기화 개선',
+    items: [
+      '반복 sync 응답을 전체 유저 데이터 대신 변경 중심 patch 응답으로 분리해 화면 반응 부담을 줄였습니다.',
+      '운영자 증강 선택 초기화가 오늘의 등급과 선택지 seed까지 새로 뽑도록 변경되었습니다.',
+      'sync 충돌 복구 응답도 같은 경량 응답을 사용하도록 맞췄습니다.'
+    ]
+  },
+  {
     id: '2026-06-23-fusion-s-target-admin-reset-mail-safety',
     time: '2026-06-23 09:55',
     title: '합성창 표시, S 선택 합성, 증강 초기화, 보상 우편 안정화',
@@ -1795,6 +1805,23 @@ function getStoredUser() {
 
 function saveStoredUser(user) {
   localStorage.setItem('user', JSON.stringify(user));
+}
+
+function isPlainMergeObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function mergeUserStatePatch(base, patch) {
+  if (!isPlainMergeObject(patch)) return base;
+  const merged = isPlainMergeObject(base) ? { ...base } : {};
+  Object.entries(patch).forEach(([key, value]) => {
+    if (isPlainMergeObject(value) && isPlainMergeObject(merged[key])) {
+      merged[key] = mergeUserStatePatch(merged[key], value);
+    } else {
+      merged[key] = value;
+    }
+  });
+  return merged;
 }
 
 function getUserIdentity(user) {
@@ -4784,6 +4811,12 @@ async function handleToggleEmblem(emblemId) {
 }
 
 function updateLocalUserState(data, options = {}) {
+  if (data?.userPatch) {
+    data = {
+      ...data,
+      user: mergeUserStatePatch(getStoredUser(), data.userPatch)
+    };
+  }
   if (!data?.user) return;
   const mergedOptions = {
     force: options.force !== false
