@@ -54,6 +54,11 @@ const ITEM_DATA = {
     hoverDesc: '사용 시 즉시 1레벨 상승하며 현재 경험치는 0으로 초기화됩니다.',
     shopHidden: true
   },
+  exp_5_percent_potion: {
+    name: '경험치 5% 포션',
+    desc: '현재 레벨 경험치통의 5% 획득',
+    hoverDesc: '사용 즉시 현재 레벨 기준 필요 경험치의 5%를 획득합니다.'
+  },
   business_card: {
     name: '명함',
     desc: '카드 뽑기에 사용하는 재화',
@@ -265,6 +270,7 @@ let raidCountdownDisplayStartMs = 0;
 let raidReadyTicker = null;
 let raidReadyEndsAtMs = 0;
 let cardFusionSelection = [];
+let selectedFusionTargetCardId = null;
 let selectedEnhanceCardKey = null;
 let selectedEquipmentEnhanceId = null;
 let selectedEquipmentScrollId = null;
@@ -309,6 +315,17 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-06-23-s-fusion-exp-potion-raid-ticket-augment',
+    time: '2026-06-23 09:30',
+    title: 'S등급 선택 합성, 경험치 포션, 회의권 증강 개선',
+    items: [
+      'S등급 카드 10장을 합성하면 원하는 S등급 카드 1장을 선택해 획득할 수 있게 변경했습니다.',
+      '파편 상점에 경험치 5% 포션을 추가했습니다. 주간 3회 구매 가능하며 매주 월요일 초기화됩니다.',
+      '회의 무료 입장 증강은 선택 즉시 회의 추가 입장권 4장을 지급하는 방식으로 변경했습니다.',
+      '이미 처리된 모험 선택지 요청은 서버 오류를 띄우지 않고 조용히 정리되도록 개선했습니다.'
+    ]
+  },
   {
     id: '2026-06-22-daily-augment-expanded-reroll-click',
     time: '2026-06-22 15:30',
@@ -4036,11 +4053,35 @@ function isEnhanceModalOpen() {
   return !document.getElementById('enhanceModal')?.classList.contains('hidden');
 }
 
+function getFusionRequiredCount(grade = null) {
+  return grade === 'S' ? 10 : 5;
+}
+
 function getFusionProbabilityText(grade = null) {
+  if (grade === 'S') return 'S 10장 합성: 원하는 S등급 카드 1장을 선택해 획득';
   if (grade === 'C') return 'C 5장 합성: B 30% / 랜덤 C 70%';
   if (grade === 'B') return 'B 5장 합성: A 20% / 랜덤 B 80%';
   if (grade === 'A') return 'A 5장 합성: S 10% / 랜덤 A 90%';
-  return 'C 5장: B 30% / C 70%, B 5장: A 20% / B 80%, A 5장: S 10% / A 90%';
+  return 'C/B/A는 5장 합성, S는 10장 선택 합성입니다.';
+}
+
+function getFusionTargetOptionsHtml() {
+  const options = Object.entries(CARD_DATA)
+    .filter(([, card]) => card.grade === 'S')
+    .sort(([, a], [, b]) => String(a.name || '').localeCompare(String(b.name || ''), 'ko'))
+    .map(([cardId, card]) => {
+      const selected = selectedFusionTargetCardId === cardId ? 'selected' : '';
+      return `<option value="${escapeAttr(cardId)}" ${selected}>${escapeHtml(card.name || cardId)}</option>`;
+    })
+    .join('');
+  return `
+    <label class="fusion-target-select">
+      획득할 S등급 카드
+      <select id="fusionTargetSCardSelect" onchange="selectedFusionTargetCardId = this.value">
+        ${options}
+      </select>
+    </label>
+  `;
 }
 
 function getFusionSelectionCountMap() {
@@ -4089,7 +4130,7 @@ function normalizeCardFusionSelection(user) {
 
   for (const cardId of cardFusionSelection) {
     const cardInfo = cardInfoMap.get(cardId) || getFusionCardInfo(user, cardId);
-    if (!cardInfo || cardInfo.grade === 'S') continue;
+    if (!cardInfo) continue;
 
     if (lockedGrade && lockedGrade !== cardInfo.grade) continue;
     const used = usedCounts.get(cardId) || 0;
@@ -4099,7 +4140,7 @@ function normalizeCardFusionSelection(user) {
     lockedGrade ||= cardInfo.grade;
     normalized.push(cardId);
     usedCounts.set(cardId, used + 1);
-    if (normalized.length >= 5) break;
+    if (normalized.length >= getFusionRequiredCount(lockedGrade)) break;
   }
 
   cardFusionSelection = normalized;
@@ -4116,6 +4157,7 @@ function renderCardFusionModal(user) {
   normalizeCardFusionSelection(user);
   const selectedCounts = getFusionSelectionCountMap();
   const lockedGrade = getLockedFusionGrade(user);
+  const requiredCount = getFusionRequiredCount(lockedGrade);
   const ownedCards = getFusionOwnedCards(user)
     .sort((a, b) => {
       const gradeOrder = { S: 0, A: 1, B: 2, C: 3 };
@@ -4124,19 +4166,29 @@ function renderCardFusionModal(user) {
         || Number(a.enhancementLevel || 0) - Number(b.enhancementLevel || 0);
     });
 
-  probabilityText.textContent = getFusionProbabilityText(lockedGrade);
-  confirmButton.disabled = cardFusionSelection.length !== 5;
+  if (lockedGrade !== 'S') {
+    selectedFusionTargetCardId = null;
+  } else {
+    const sCardIds = Object.entries(CARD_DATA).filter(([, card]) => card.grade === 'S').map(([cardId]) => cardId);
+    if (!sCardIds.includes(selectedFusionTargetCardId)) selectedFusionTargetCardId = sCardIds[0] || null;
+  }
+  probabilityText.innerHTML = `
+    <div>${escapeHtml(getFusionProbabilityText(lockedGrade))}</div>
+    ${lockedGrade === 'S' ? getFusionTargetOptionsHtml() : ''}
+  `;
+  confirmButton.disabled = cardFusionSelection.length !== requiredCount || (lockedGrade === 'S' && !selectedFusionTargetCardId);
   if (bulkControls) {
     bulkControls.innerHTML = `
       <div class="menu-note">등급별 자동 등록</div>
       <button class="mini-btn" onclick="handleCardFusionAutoFill('C')" ${lockedGrade && lockedGrade !== 'C' ? 'disabled' : ''}>C급 일괄 등록</button>
       <button class="mini-btn" onclick="handleCardFusionAutoFill('B')" ${lockedGrade && lockedGrade !== 'B' ? 'disabled' : ''}>B급 일괄 등록</button>
       <button class="mini-btn" onclick="handleCardFusionAutoFill('A')" ${lockedGrade && lockedGrade !== 'A' ? 'disabled' : ''}>A급 일괄 등록</button>
+      <button class="mini-btn" onclick="handleCardFusionAutoFill('S')" ${lockedGrade && lockedGrade !== 'S' ? 'disabled' : ''}>S급 일괄 등록</button>
     `;
   }
 
   slotList.innerHTML = '';
-  for (let index = 0; index < 5; index += 1) {
+  for (let index = 0; index < requiredCount; index += 1) {
     const cardId = cardFusionSelection[index];
     if (!cardId) {
       slotList.insertAdjacentHTML(
@@ -4162,7 +4214,7 @@ function renderCardFusionModal(user) {
   }
 
   sourceList.innerHTML = '';
-  const sourceCards = ownedCards.filter((card) => card.grade !== 'S');
+  const sourceCards = ownedCards;
   if (!sourceCards.length) {
     sourceList.innerHTML = '<div class="fusion-slot empty">합성 가능한 카드가 없습니다.</div>';
     return;
@@ -4206,12 +4258,14 @@ function openCardFusionModal() {
   const user = getStoredUser();
   if (!user?._id) return handleLogoutClick();
   cardFusionSelection = [];
+  selectedFusionTargetCardId = null;
   showModal('fusionModal');
   renderCardFusionModal(user);
 }
 
 function closeCardFusionModal() {
   cardFusionSelection = [];
+  selectedFusionTargetCardId = null;
   hideModal('fusionModal');
 }
 
@@ -4418,10 +4472,6 @@ function handleCardFusionAdd(cardId, inputId = null) {
     alert('보유한 카드를 찾을 수 없습니다.');
     return;
   }
-  if (card.grade === 'S') {
-    alert('S등급 카드는 합성할 수 없습니다.');
-    return;
-  }
 
   normalizeCardFusionSelection(user);
   const lockedGrade = getLockedFusionGrade(user);
@@ -4437,9 +4487,10 @@ function handleCardFusionAdd(cardId, inputId = null) {
     return;
   }
 
-  const remainingSlots = 5 - cardFusionSelection.length;
+  const targetGrade = lockedGrade || card.grade;
+  const remainingSlots = getFusionRequiredCount(targetGrade) - cardFusionSelection.length;
   if (remainingSlots <= 0) {
-    alert('합성 리스트는 최대 5장까지 등록할 수 있습니다.');
+    alert(`합성 리스트는 최대 ${getFusionRequiredCount(targetGrade)}장까지 등록할 수 있습니다.`);
     return;
   }
 
@@ -4463,27 +4514,28 @@ function handleCardFusionAutoFill(grade) {
   }
 
   const selectedCounts = getFusionSelectionCountMap();
-  const remainingSlots = 5 - cardFusionSelection.length;
+  const remainingSlots = getFusionRequiredCount(lockedGrade || grade) - cardFusionSelection.length;
   if (remainingSlots <= 0) {
     alert('합성 리스트가 이미 가득 찼습니다.');
     return;
   }
 
   const candidates = getFusionOwnedCards(user)
-    .filter((card) => card.grade === grade && card.grade !== 'S')
+    .filter((card) => card.grade === grade)
     .sort((a, b) => Number(a.enhancementLevel || 0) - Number(b.enhancementLevel || 0)
       || String(a.baseName || a.name || '').localeCompare(String(b.baseName || b.name || ''), 'ko'));
 
   let added = 0;
+  const maxSlots = getFusionRequiredCount(lockedGrade || grade);
   for (const card of candidates) {
     const used = selectedCounts.get(card.id) || 0;
     const available = Math.max(0, Number(card.quantity || 0) - used);
-    for (let index = 0; index < available && cardFusionSelection.length < 5; index += 1) {
+    for (let index = 0; index < available && cardFusionSelection.length < maxSlots; index += 1) {
       cardFusionSelection.push(card.id);
       selectedCounts.set(card.id, (selectedCounts.get(card.id) || 0) + 1);
       added += 1;
     }
-    if (cardFusionSelection.length >= 5) break;
+    if (cardFusionSelection.length >= maxSlots) break;
   }
 
   if (added <= 0) {
@@ -4506,8 +4558,17 @@ async function handleCardFusionConfirm() {
   if (!user?._id) return handleLogoutClick();
 
   normalizeCardFusionSelection(user);
-  if (cardFusionSelection.length !== 5) {
-    alert('합성 리스트를 5장으로 채워주세요.');
+  const lockedGrade = getLockedFusionGrade(user);
+  const requiredCount = getFusionRequiredCount(lockedGrade);
+  if (cardFusionSelection.length !== requiredCount) {
+    alert(`합성 리스트를 ${requiredCount}장으로 채워주세요.`);
+    return;
+  }
+  const targetCardId = lockedGrade === 'S'
+    ? (document.getElementById('fusionTargetSCardSelect')?.value || selectedFusionTargetCardId)
+    : null;
+  if (lockedGrade === 'S' && !targetCardId) {
+    alert('획득할 S등급 카드를 선택해주세요.');
     return;
   }
 
@@ -4515,9 +4576,11 @@ async function handleCardFusionConfirm() {
     const data = await runWithUserMutation(() => postJson(`${API_URL}/api/cards/fuse`, {
       userId: user._id,
       cards: cardFusionSelection.map(parseCardVariantKey),
-      cardIds: [...cardFusionSelection]
+      cardIds: [...cardFusionSelection],
+      targetCardId
     }));
     cardFusionSelection = [];
+    selectedFusionTargetCardId = null;
     updateLocalUserState(data);
     const result = data.fusionResult?.result;
     if (result) {
@@ -7642,20 +7705,29 @@ function renderFragmentShopModalLegacy(user = getStoredUser()) {
     }
   ];
   list.innerHTML = items.map((item) => {
-    const remaining = Math.max(0, item.dailyLimit - item.purchasedToday);
-    const disabled = count < item.cost || remaining <= 0;
-    const status = remaining > 0
-      ? `오늘 남은 구매 가능: ${formatNumber(remaining)}/${formatNumber(item.dailyLimit)}`
-      : '오늘 구매 한도 도달';
+    const isWeekly = item.limitType === 'weekly' || Number(item.weeklyLimit || 0) > 0;
+    const limit = Number(isWeekly ? item.weeklyLimit : item.dailyLimit || 0);
+    const purchased = Number(isWeekly ? item.purchasedThisWeek : item.purchasedToday || 0);
+    const remaining = Math.max(0, Number(isWeekly ? item.remainingThisWeek : item.remainingToday ?? (limit - purchased)));
+    const disabled = item.owned || item.canBuy === false || count < Number(item.cost || 0) || remaining <= 0;
+    const status = item.owned
+      ? '이미 보유 중'
+      : remaining > 0
+      ? `${isWeekly ? '이번 주' : '오늘'} 남은 구매 가능: ${formatNumber(remaining)}/${formatNumber(limit)}`
+      : `${isWeekly ? '이번 주' : '오늘'} 구매 한도 도달`;
+    const buttonLabel = item.owned
+      ? '보유 중'
+      : `파편 ${formatNumber(item.cost || 0)}개 구매`;
     return `
       <div class="fragment-shop-item">
         <div>
           <strong>${escapeHtml(item.name)}</strong>
-          <div class="menu-note">${escapeHtml(item.desc)}</div>
+          ${item.desc ? `<div class="menu-note">${escapeHtml(item.desc)}</div>` : ''}
+          <div class="menu-note">파편 ${formatNumber(item.cost || 0)}개로 구매합니다.</div>
           <div class="menu-note">${escapeHtml(status)}</div>
         </div>
         <button class="mini-btn" ${disabled ? 'disabled' : ''} onclick="handleFragmentShopBuy('${item.id}')">
-          파편 ${formatNumber(item.cost)}개 구매
+          ${buttonLabel}
         </button>
       </div>
     `;
@@ -7674,13 +7746,16 @@ function renderFragmentShopModal(user = getStoredUser()) {
   ];
 
   list.innerHTML = items.map((item) => {
-    const remaining = Math.max(0, Number(item.remainingToday ?? (Number(item.dailyLimit || 0) - Number(item.purchasedToday || 0))));
+    const isWeekly = item.limitType === 'weekly' || Number(item.weeklyLimit || 0) > 0;
+    const limit = Number(isWeekly ? item.weeklyLimit : item.dailyLimit || 0);
+    const purchased = Number(isWeekly ? item.purchasedThisWeek : item.purchasedToday || 0);
+    const remaining = Math.max(0, Number(isWeekly ? item.remainingThisWeek : item.remainingToday ?? (limit - purchased)));
     const disabled = item.owned || item.canBuy === false || count < Number(item.cost || 0) || remaining <= 0;
     const status = item.owned
       ? '이미 보유 중'
       : remaining > 0
-      ? `오늘 남은 구매 가능: ${formatNumber(remaining)}/${formatNumber(item.dailyLimit || 0)}`
-      : '오늘 구매 한도 도달';
+      ? `${isWeekly ? '이번 주' : '오늘'} 남은 구매 가능: ${formatNumber(remaining)}/${formatNumber(limit)}`
+      : `${isWeekly ? '이번 주' : '오늘'} 구매 한도 도달`;
     const buttonLabel = item.owned
       ? '보유 중'
       : `파편 ${formatNumber(item.cost || 0)}개 구매`;

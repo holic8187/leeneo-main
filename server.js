@@ -211,7 +211,7 @@ const PVP_AUGMENT_TIER_LABELS = {
   prism: '프리즘'
 };
 const DAILY_AUGMENT_OPTION_COUNT = 3;
-const DAILY_AUGMENT_VERSION = '2026-06-22-expanded-daily-augments-v1';
+const DAILY_AUGMENT_VERSION = '2026-06-23-s-fusion-exp-potion-ticket-grant-v1';
 const DAILY_AUGMENT_DATA = {
   daily_silver_salary_plus: {
     id: 'daily_silver_salary_plus',
@@ -475,9 +475,9 @@ const DAILY_AUGMENT_DATA = {
   daily_prism_raid_free_entries: {
     id: 'daily_prism_raid_free_entries',
     tier: 'prism',
-    name: '회의실 프리패스',
-    desc: '오늘 회의 입장권과 기본 입장 횟수를 소모하지 않고 회의에 2회 입장할 수 있습니다.',
-    effects: { raidFreeEntries: 2 }
+    name: '회의 입장권 봉투',
+    desc: '선택 즉시 회의 추가 입장권 4장을 획득합니다.',
+    effects: { raidEntryTicketGrant: 4 }
   },
   daily_prism_main_character: {
     id: 'daily_prism_main_character',
@@ -1069,6 +1069,14 @@ const ITEM_DATA = {
     shopHidden: true,
     desc: '고장난 발굴 기계를 즉시 수리',
     hoverDesc: '회사 운영 중 발굴 기계가 고장났을 때 사용하면 즉시 수리됩니다.'
+  },
+  exp_5_percent_potion: {
+    name: '경험치 5% 포션',
+    price: 0,
+    type: 'consumable',
+    shopHidden: true,
+    desc: '사용 즉시 현재 레벨 경험치통의 5% 획득',
+    hoverDesc: '사용하면 현재 레벨 기준 필요 경험치의 5%를 즉시 획득합니다.'
   },
   business_card: {
     name: '명함',
@@ -1990,6 +1998,16 @@ const FRAGMENT_SHOP_ITEMS = {
     quantity: 10,
     dailyLimit: 2,
     countField: 'dailyFragmentBusinessCardPurchases'
+  },
+  exp_5_percent_potion: {
+    id: 'exp_5_percent_potion',
+    itemId: 'exp_5_percent_potion',
+    name: '경험치 5% 포션',
+    desc: '사용 즉시 현재 레벨 경험치통의 5%를 획득합니다. 매주 3회 구매 가능.',
+    cost: 1000,
+    quantity: 1,
+    weeklyLimit: 3,
+    countField: 'weeklyFragmentExpPotionPurchases'
   },
   cat_butler_emblem: {
     id: 'cat_butler_emblem',
@@ -3105,7 +3123,10 @@ const userSchema = new mongoose.Schema({
     dailyHot6Purchases: { type: Number, default: 0 },
     dailyFragmentRaidTicketPurchases: { type: Number, default: 0 },
     dailyFragmentBusinessCardPurchases: { type: Number, default: 0 },
+    weeklyFragmentExpPotionWeekKey: { type: String, default: '' },
+    weeklyFragmentExpPotionPurchases: { type: Number, default: 0 },
     dailyFragmentCatButlerEmblemPurchases: { type: Number, default: 0 },
+    dailyFragmentTigerEmblemPurchases: { type: Number, default: 0 },
     dailyFragmentIdolEmblemPurchases: { type: Number, default: 0 },
     dailyFragmentBitchNotEmblemPurchases: { type: Number, default: 0 },
     dailyFragmentRuinedBearEmblemPurchases: { type: Number, default: 0 },
@@ -4736,7 +4757,10 @@ function ensureUserDefaults(user) {
       dailyHot6Purchases: 0,
       dailyFragmentRaidTicketPurchases: 0,
       dailyFragmentBusinessCardPurchases: 0,
+      weeklyFragmentExpPotionWeekKey: '',
+      weeklyFragmentExpPotionPurchases: 0,
       dailyFragmentCatButlerEmblemPurchases: 0,
+      dailyFragmentTigerEmblemPurchases: 0,
       dailyFragmentIdolEmblemPurchases: 0,
       dailyFragmentBitchNotEmblemPurchases: 0,
       dailyFragmentRuinedBearEmblemPurchases: 0,
@@ -4750,7 +4774,10 @@ function ensureUserDefaults(user) {
   user.shopState.dailyHot6Purchases = Number(user.shopState.dailyHot6Purchases ?? 0);
   user.shopState.dailyFragmentRaidTicketPurchases = Number(user.shopState.dailyFragmentRaidTicketPurchases ?? 0);
   user.shopState.dailyFragmentBusinessCardPurchases = Number(user.shopState.dailyFragmentBusinessCardPurchases ?? 0);
+  user.shopState.weeklyFragmentExpPotionWeekKey = user.shopState.weeklyFragmentExpPotionWeekKey || '';
+  user.shopState.weeklyFragmentExpPotionPurchases = Number(user.shopState.weeklyFragmentExpPotionPurchases ?? 0);
   user.shopState.dailyFragmentCatButlerEmblemPurchases = Number(user.shopState.dailyFragmentCatButlerEmblemPurchases ?? 0);
+  user.shopState.dailyFragmentTigerEmblemPurchases = Number(user.shopState.dailyFragmentTigerEmblemPurchases ?? 0);
   user.shopState.dailyFragmentIdolEmblemPurchases = Number(user.shopState.dailyFragmentIdolEmblemPurchases ?? 0);
   user.shopState.dailyFragmentBitchNotEmblemPurchases = Number(user.shopState.dailyFragmentBitchNotEmblemPurchases ?? 0);
   user.shopState.dailyFragmentRuinedBearEmblemPurchases = Number(user.shopState.dailyFragmentRuinedBearEmblemPurchases ?? 0);
@@ -5488,6 +5515,8 @@ function createHttpError(statusCode, message) {
 }
 
 const userMutationLocks = new Map();
+const userSyncPersistThrottle = new Map();
+const SYNC_PERSIST_MIN_INTERVAL_MS = 15000;
 
 async function withUserMutationLock(userId, operation) {
   const key = String(userId || '');
@@ -14105,23 +14134,37 @@ function syncDailyShopState(user, now = new Date()) {
     user.shopState.dailyFragmentRaidTicketPurchases = 0;
     user.shopState.dailyFragmentBusinessCardPurchases = 0;
     user.shopState.dailyFragmentCatButlerEmblemPurchases = 0;
+    user.shopState.dailyFragmentTigerEmblemPurchases = 0;
     user.shopState.dailyFragmentIdolEmblemPurchases = 0;
     user.shopState.dailyFragmentBitchNotEmblemPurchases = 0;
     user.shopState.dailyFragmentRuinedBearEmblemPurchases = 0;
   }
 }
 
+function syncWeeklyFragmentShopState(user, now = new Date()) {
+  ensureUserDefaults(user);
+  const weekKey = getKSTWeekStartKey(now);
+  if (user.shopState.weeklyFragmentExpPotionWeekKey !== weekKey) {
+    user.shopState.weeklyFragmentExpPotionWeekKey = weekKey;
+    user.shopState.weeklyFragmentExpPotionPurchases = 0;
+  }
+}
+
 function buildFragmentShopState(user, now = new Date()) {
   ensureUserDefaults(user);
   syncDailyShopState(user, now);
+  syncWeeklyFragmentShopState(user, now);
   const ownedFragments = getInventoryQuantity(user, 'equipment_fragment');
   return {
     fragments: ownedFragments,
     items: Object.values(FRAGMENT_SHOP_ITEMS).map((entry) => {
+      const isWeekly = Number(entry.weeklyLimit || 0) > 0;
+      const limit = Math.max(0, Number(isWeekly ? entry.weeklyLimit : entry.dailyLimit || 0));
       const purchased = Math.max(0, Number(user.shopState?.[entry.countField] || 0));
       const isEmblem = Boolean(entry.emblemId);
       const owned = isEmblem && user.emblems.unlocked.includes(entry.emblemId);
       const cost = applyDailyAugmentShopDiscount(user, entry.cost, now);
+      const remaining = Math.max(0, limit - purchased);
       return {
         id: entry.id,
         itemId: entry.itemId,
@@ -14132,11 +14175,15 @@ function buildFragmentShopState(user, now = new Date()) {
         cost,
         originalCost: entry.cost,
         quantity: entry.quantity,
-        dailyLimit: entry.dailyLimit,
-        purchasedToday: purchased,
-        remainingToday: Math.max(0, entry.dailyLimit - purchased),
+        dailyLimit: isWeekly ? null : limit,
+        weeklyLimit: isWeekly ? limit : null,
+        limitType: isWeekly ? 'weekly' : 'daily',
+        purchasedToday: isWeekly ? 0 : purchased,
+        purchasedThisWeek: isWeekly ? purchased : 0,
+        remainingToday: isWeekly ? 0 : remaining,
+        remainingThisWeek: isWeekly ? remaining : 0,
         owned,
-        canBuy: ownedFragments >= cost && purchased < entry.dailyLimit && !owned
+        canBuy: ownedFragments >= cost && remaining > 0 && !owned
       };
     })
   };
@@ -15921,6 +15968,12 @@ app.post('/api/daily-augment/select', async (req, res) => {
       }
 
       user.meta.dailyAugmentSelectedId = augmentId;
+      const selectedAugmentEffects = DAILY_AUGMENT_DATA[augmentId]?.effects || {};
+      const ticketGrant = Math.max(0, Math.floor(Number(selectedAugmentEffects.raidEntryTicketGrant || 0)));
+      if (ticketGrant > 0) {
+        addItemToInventory(user, 'raid_entry_ticket', ticketGrant, { allowDailyAugmentCopy: false, now });
+        queueNotification(user, 'daily_augment_reward', `오늘의 증강 보상으로 회의 추가 입장권 ${ticketGrant}장을 획득했습니다.`);
+      }
       user.gameState.lastActionTime = now;
       return buildFastUserResponseWithGlobals(user, now);
     }, { conflictLabel: 'Daily augment select conflict' });
@@ -16299,7 +16352,16 @@ app.post('/api/action/adventure/resolve', async (req, res) => {
       cleanupExpiredBuffs(user, now);
 
       if (!user.pendingAdventure?.eventId) {
-        throw createHttpError(400, '진행 중인 모험 선택지가 없습니다.');
+        clearPendingAdventure(user);
+        const response = await buildFastUserResponseWithGlobals(user, now);
+        response.adventureResult = {
+          requiresChoice: false,
+          alreadyResolved: true,
+          title: '모험 선택지',
+          message: '이미 처리된 모험 선택지입니다.',
+          rewardText: ''
+        };
+        return response;
       }
 
       const eventTitle = `${user.pendingAdventure.location} / ${user.pendingAdventure.actor}`;
@@ -17156,10 +17218,14 @@ app.post('/api/fragment-shop/buy', async (req, res) => {
     calculateOfflineGains(user, now);
     ensureUserDefaults(user);
     syncDailyShopState(user, now);
+    syncWeeklyFragmentShopState(user, now);
 
-    const purchasedToday = Math.max(0, Number(user.shopState?.[shopItem.countField] || 0));
-    if (purchasedToday >= shopItem.dailyLimit) {
-      return res.status(400).json({ msg: '오늘은 해당 항목을 더 이상 구매할 수 없습니다.' });
+    const isWeeklyLimited = Number(shopItem.weeklyLimit || 0) > 0;
+    const purchaseLimit = Math.max(0, Number(isWeeklyLimited ? shopItem.weeklyLimit : shopItem.dailyLimit || 0));
+    const purchasedCount = Math.max(0, Number(user.shopState?.[shopItem.countField] || 0));
+    if (purchasedCount >= purchaseLimit) {
+      const limitLabel = isWeeklyLimited ? '이번 주' : '오늘';
+      return res.status(400).json({ msg: `${limitLabel}는 해당 항목을 더 이상 구매할 수 없습니다.` });
     }
     if (shopItem.emblemId) {
       if (user.emblems.unlocked.includes(shopItem.emblemId)) {
@@ -17183,7 +17249,7 @@ app.post('/api/fragment-shop/buy', async (req, res) => {
     } else {
       addItemToInventory(user, shopItem.itemId, shopItem.quantity, { allowDailyAugmentCopy: false, now });
     }
-    user.shopState[shopItem.countField] = purchasedToday + 1;
+    user.shopState[shopItem.countField] = purchasedCount + 1;
     user.gameState.lastActionTime = now;
 
     const response = await buildFastUserResponseWithGlobals(user, now);
@@ -17368,6 +17434,15 @@ app.post('/api/inventory/use', async (req, res) => {
         user.gameState.exp = 0;
         user.gameState.passiveExpCarry = 0;
         queueNotification(user, 'item_use', `하겐다즈 ${useQuantity}개를 사용해 즉시 ${useQuantity}레벨 상승했습니다.`);
+      } else if (itemId === 'exp_5_percent_potion') {
+        let totalExpGain = 0;
+        for (let index = 0; index < useQuantity; index += 1) {
+          const expGain = Math.max(1, Math.floor(getRequiredExp(user.gameState.level) * 0.05));
+          user.gameState.exp += expGain;
+          totalExpGain += expGain;
+          checkLevelUp(user);
+        }
+        queueNotification(user, 'item_use', `경험치 5% 포션 ${useQuantity}개를 사용해 경험치 ${totalExpGain.toLocaleString()}을 획득했습니다.`);
       }
 
       if (itemId === 'excavation_repair_coupon') {
@@ -17950,7 +18025,7 @@ app.post('/api/cards/draw', async (req, res) => {
 });
 
 app.post('/api/cards/fuse', async (req, res) => {
-  const { userId, cardIds, cards } = req.body;
+  const { userId, cardIds, cards, targetCardId } = req.body;
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
   const requestedCards = Array.isArray(cards)
     ? cards.map((entry) => ({
@@ -17965,8 +18040,8 @@ app.post('/api/cards/fuse', async (req, res) => {
       };
     }) : []);
 
-  if (requestedCards.length !== 5) {
-    return res.status(400).json({ msg: '합성에는 카드 5장이 필요합니다.' });
+  if (![5, 10].includes(requestedCards.length)) {
+    return res.status(400).json({ msg: '합성에는 카드 5장 또는 S등급 카드 10장이 필요합니다.' });
   }
 
   try {
@@ -17983,9 +18058,6 @@ app.post('/api/cards/fuse', async (req, res) => {
         const cardInfo = CARD_DATA[cardId];
         if (!cardInfo) {
           throw createHttpError(400, '존재하지 않는 카드가 포함되어 있습니다.');
-        }
-        if (cardInfo.grade === 'S') {
-          throw createHttpError(400, 'S등급 카드는 합성할 수 없습니다.');
         }
         if (enhancementLevel >= 5) {
           throw createHttpError(400, '5강 카드는 합성 재료로 사용할 수 없습니다.');
@@ -18006,6 +18078,20 @@ app.post('/api/cards/fuse', async (req, res) => {
         });
       }
 
+      const isSelectiveSFusion = sourceGrade === 'S';
+      const requiredCount = isSelectiveSFusion ? 10 : 5;
+      if (requestedCards.length !== requiredCount) {
+        throw createHttpError(400, isSelectiveSFusion
+          ? 'S등급 선택 합성에는 S등급 카드 10장이 필요합니다.'
+          : '일반 합성에는 같은 등급 카드 5장이 필요합니다.');
+      }
+      if (isSelectiveSFusion) {
+        const targetInfo = CARD_DATA[targetCardId];
+        if (!targetInfo || targetInfo.grade !== 'S') {
+          throw createHttpError(400, '획득할 S등급 카드를 선택해주세요.');
+        }
+      }
+
       for (const { cardId, enhancementLevel, amount } of quantityMap.values()) {
         if (getOwnedCardVariantQuantity(user, cardId, enhancementLevel) < amount) {
           throw createHttpError(400, '보유 카드 수량이 부족합니다.');
@@ -18021,8 +18107,8 @@ app.post('/api/cards/fuse', async (req, res) => {
         }
       }
 
-      const resultGrade = getFusionOutcomeGrade(sourceGrade);
-      const resultCardId = getRandomCardIdByGrade(resultGrade);
+      const resultGrade = isSelectiveSFusion ? 'S' : getFusionOutcomeGrade(sourceGrade);
+      const resultCardId = isSelectiveSFusion ? targetCardId : getRandomCardIdByGrade(resultGrade);
       if (!resultCardId) {
         throw createHttpError(500, '합성 결과 카드를 찾지 못했습니다.');
       }
@@ -18033,6 +18119,7 @@ app.post('/api/cards/fuse', async (req, res) => {
       const response = await buildFastUserResponseWithGlobals(user, now);
       response.fusionResult = {
         sourceGrade,
+        selective: isSelectiveSFusion,
         result: {
           id: resultCardId,
           name: CARD_DATA[resultCardId].name,
@@ -19588,10 +19675,19 @@ app.post('/api/sync', async (req, res) => {
       calculateOfflineGains(user, now);
       reconcileTitles(user, now);
 
+      const hadPendingNotifications = Array.isArray(user.pendingNotifications) && user.pendingNotifications.length > 0;
       const syncResponse = await buildUserResponseWithGlobals(user, now, {
         includePendingCounts: shouldIncludePendingCounts
       });
-      await persistUserSnapshot(user, { snapshotBuilder: buildUserSyncPersistenceSnapshot });
+      const throttleKey = String(user._id);
+      const lastPersistedAt = Number(userSyncPersistThrottle.get(throttleKey) || 0);
+      const shouldPersistSync = hadPendingNotifications
+        || shouldIncludePendingCounts
+        || now.getTime() - lastPersistedAt >= SYNC_PERSIST_MIN_INTERVAL_MS;
+      if (shouldPersistSync) {
+        await persistUserSnapshot(user, { snapshotBuilder: buildUserSyncPersistenceSnapshot });
+        userSyncPersistThrottle.set(throttleKey, now.getTime());
+      }
       return syncResponse;
     });
     res.json(response);
