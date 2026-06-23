@@ -1078,6 +1078,22 @@ const ITEM_DATA = {
     desc: '사용 즉시 현재 레벨 경험치통의 5% 획득',
     hoverDesc: '사용하면 현재 레벨 기준 필요 경험치의 5%를 즉시 획득합니다.'
   },
+  card_batch_fusion_ticket: {
+    name: '카드 일괄 합성 티켓',
+    price: 0,
+    type: 'consumable',
+    shopHidden: true,
+    desc: '잠금 해제된 C~A 카드 자동 합성',
+    hoverDesc: '사용 시 잠기지 않은 +0~+4 C등급부터 A등급 카드까지 자동으로 합성하여 S등급 카드가 나올 때까지 진행합니다. +5강 카드와 잠긴 카드는 사용하지 않습니다.'
+  },
+  bacchus_oneshot_ticket: {
+    name: '박카스 100개 일괄 소진 티켓',
+    price: 0,
+    type: 'consumable',
+    shopHidden: true,
+    desc: '박카스 100개로 모험 100회 일괄 정산',
+    hoverDesc: '사용 시 보유 박카스 100개를 소모하여 행동력 100회분의 모험 보상을 한 번에 정산합니다. 선택형 모험 이벤트는 자동 정산에서 제외됩니다.'
+  },
   business_card: {
     name: '명함',
     price: 200000,
@@ -1949,6 +1965,30 @@ const SUPPORT_PACKAGE_DATA = {
     price: 10000,
     rewards: [
       { itemId: 'business_card', quantity: 170 }
+    ]
+  },
+  batch_fusion_ticket_pack: {
+    id: 'batch_fusion_ticket_pack',
+    name: '일괄 합성 패키지',
+    price: 3000,
+    rewards: [
+      { itemId: 'card_batch_fusion_ticket', quantity: 1 }
+    ]
+  },
+  bacchus_oneshot_1: {
+    id: 'bacchus_oneshot_1',
+    name: '박카스 원샷 패키지 1',
+    price: 5000,
+    rewards: [
+      { itemId: 'bacchus_oneshot_ticket', quantity: 5 }
+    ]
+  },
+  bacchus_oneshot_2: {
+    id: 'bacchus_oneshot_2',
+    name: '박카스 원샷 패키지 2',
+    price: 10000,
+    rewards: [
+      { itemId: 'bacchus_oneshot_ticket', quantity: 11 }
     ]
   },
   ultra_rich: {
@@ -5535,6 +5575,36 @@ const userSyncPersistThrottle = new Map();
 const SYNC_PERSIST_MIN_INTERVAL_MS = 15000;
 const POLL_USER_CACHE_TTL_MS = 5000;
 const pollUserSnapshotCache = new Map();
+const STATE_RESPONSE_CACHE_TTL_MS = 800;
+const raidStateResponseCache = new Map();
+const pvpStateResponseCache = new Map();
+const SYNC_USER_SELECT_FIELDS = [
+  'username', 'nickname', 'workHours', 'gameState', 'inventory',
+  'cards', 'enhancedCards', 'lockedCards', 'equipments', 'equippedEquipment',
+  'equippedCardId', 'equippedCardLevel', 'raidExtraCardSelection',
+  'pvpStats', 'infiniteOvertime', 'branchOffice', 'buffs', 'titles', 'emblems',
+  'pendingStockInvestment', 'stockPortfolio', 'stockTournament', 'shopState',
+  'dailyAugment', 'meta', 'pendingAdventure', 'pendingNotifications'
+].join(' ');
+
+function getStateResponseCache(cache, key) {
+  const nowMs = Date.now();
+  const cached = cache.get(key);
+  if (cached?.expiresAt > nowMs) return cached.value;
+  if (cached) cache.delete(key);
+  return null;
+}
+
+function setStateResponseCache(cache, key, value) {
+  const nowMs = Date.now();
+  cache.set(key, { value, expiresAt: nowMs + STATE_RESPONSE_CACHE_TTL_MS });
+  if (cache.size > 300) {
+    for (const [entryKey, entry] of cache.entries()) {
+      if (!entry?.expiresAt || entry.expiresAt <= nowMs) cache.delete(entryKey);
+    }
+  }
+}
+
 
 async function getCachedPollUserSnapshot(userId, selectFields) {
   const cacheKey = `${userId}:${selectFields}`;
@@ -6222,6 +6292,7 @@ function removeCatTunaCanFromInventory(user, amount = 1) {
 
 function bumpRaidVersion() {
   raidState.version += 1;
+  raidStateResponseCache.clear();
 }
 
 function clearActiveRaidBattle(mode = RAID_MODE_NORMAL) {
@@ -6636,6 +6707,99 @@ function getRandomCardIdByGrade(grade) {
   const pool = Object.values(CARD_DATA).filter((card) => card.grade === grade);
   if (!pool.length) return null;
   return pool[Math.floor(Math.random() * pool.length)].id;
+}
+
+function getAutoFusionMaterialEntries(user, grade) {
+  const gradeKey = String(grade || '').toUpperCase();
+  const entries = [];
+  Object.values(CARD_DATA)
+    .filter((card) => card.grade === gradeKey)
+    .sort((a, b) => a.name.localeCompare(b.name, 'ko'))
+    .forEach((card) => {
+      for (let level = 0; level <= 4; level += 1) {
+        if (isCardVariantLocked(user, card.id, level)) continue;
+        const quantity = getOwnedCardVariantQuantity(user, card.id, level);
+        for (let index = 0; index < quantity; index += 1) entries.push({ cardId: card.id, level });
+      }
+    });
+  return entries;
+}
+
+function removeCardVariantForFusion(user, material) {
+  const level = normalizeCardEnhancementLevel(material?.level || 0);
+  return level <= 0
+    ? removeCardFromCollection(user, material.cardId, 1)
+    : removeEnhancedCard(user, material.cardId, level, 1);
+}
+
+function runAutoFusionUntilS(user) {
+  const result = { fusionCount: 0, consumedCount: 0, producedCount: 0, byGrade: { C: 0, B: 0, A: 0 }, producedS: null, stoppedReason: 'NO_MATERIAL' };
+  let safety = 0;
+  while (safety < 1000) {
+    safety += 1;
+    let fusedThisLoop = false;
+    for (const grade of ['C', 'B', 'A']) {
+      let materials = getAutoFusionMaterialEntries(user, grade);
+      while (materials.length >= 5 && safety < 1000) {
+        materials.slice(0, 5).forEach((material) => removeCardVariantForFusion(user, material));
+        result.consumedCount += 5;
+        result.fusionCount += 1;
+        result.byGrade[grade] += 1;
+        const outcomeGrade = getFusionOutcomeGrade(grade);
+        const resultCardId = getRandomCardIdByGrade(outcomeGrade);
+        if (resultCardId) {
+          addCardToCollection(user, resultCardId, 1);
+          result.producedCount += 1;
+          if (outcomeGrade === 'S') {
+            result.producedS = { cardId: resultCardId, name: CARD_DATA[resultCardId]?.name || resultCardId };
+            result.stoppedReason = 'S_CREATED';
+            return result;
+          }
+        }
+        fusedThisLoop = true;
+        safety += 1;
+        materials = getAutoFusionMaterialEntries(user, grade);
+      }
+    }
+    if (!fusedThisLoop) break;
+  }
+  result.stoppedReason = safety >= 1000 ? 'SAFETY_LIMIT' : 'NO_MATERIAL';
+  return result;
+}
+
+function buildAutoFusionSummaryText(result) {
+  if (!result || result.fusionCount <= 0) return '합성 가능한 잠금 해제 카드가 부족합니다.';
+  const gradeParts = ['C', 'B', 'A'].filter((grade) => Number(result.byGrade?.[grade] || 0) > 0).map((grade) => `${grade}등급 ${result.byGrade[grade]}회`).join(', ');
+  const sText = result.producedS ? ` / S등급 <${result.producedS.name}> 획득` : ' / S등급은 나오지 않았습니다';
+  return `자동 합성 ${result.fusionCount}회(${gradeParts || '기록 없음'}) 진행${sText}.`;
+}
+
+function buildBulkAdventureSummaryText(result) {
+  if (!result) return '모험 일괄 정산 결과가 없습니다.';
+  const parts = [`모험 ${result.resolvedCount}회 정산`];
+  if (result.choiceSkippedCount > 0) parts.push(`선택형 이벤트 ${result.choiceSkippedCount}회 제외`);
+  if (result.levelUpCount > 0) parts.push(`레벨업 ${result.levelUpCount}회`);
+  if (result.sampleLogs?.length) parts.push(`주요 결과: ${result.sampleLogs.join(' / ')}`);
+  return parts.join(' / ');
+}
+
+function runBulkAdventureSettlement(user, count = 100, now = new Date()) {
+  const result = { requestedCount: count, resolvedCount: 0, choiceSkippedCount: 0, levelUpCount: 0, sampleLogs: [] };
+  for (let index = 0; index < count; index += 1) {
+    const event = rollAdventureEvent();
+    if (event.reward?.type === 'cat_choice') {
+      result.choiceSkippedCount += 1;
+      continue;
+    }
+    const beforeLevel = Number(user.gameState.level || 1);
+    const rewardText = applyAdventureReward(user, event.reward, now);
+    const afterLevel = Number(user.gameState.level || beforeLevel);
+    if (afterLevel > beforeLevel) result.levelUpCount += afterLevel - beforeLevel;
+    result.resolvedCount += 1;
+    if (result.sampleLogs.length < 5) result.sampleLogs.push(`${event.location || '모험'}: ${rewardText}`);
+  }
+  clearPendingAdventure(user);
+  return result;
 }
 
 function applySupportPackage(user, packageId) {
@@ -10085,6 +10249,13 @@ async function buildRaidStateResponse(user, now = new Date(), mode = RAID_MODE_N
 
   const normalizedMode = normalizeRaidModeForCurrentBoss(mode, now);
   const room = getRaidRoom(normalizedMode);
+  const raidCacheKey = options.poll && user?._id
+    ? ['raid', String(user._id), normalizedMode, raidState.version, room.slots.join(','), room.activeBattle?.battleId || '', room.activeBattle?.phase || '', room.activeBattle?.currentActorId || '', Number(user.gameState?.level || 1), user.meta?.lastRaidDayKey || '', user.meta?.raidEntryDayKey || '', user.meta?.raidEntryUsedCount || 0, user.meta?.raidEntryBonusCount || 0].join(':')
+    : null;
+  if (raidCacheKey) {
+    const cachedRaid = getStateResponseCache(raidStateResponseCache, raidCacheKey);
+    if (cachedRaid) return cachedRaid;
+  }
   const queuedUserIds = room.slots.filter(Boolean);
   const queuedUsers = queuedUserIds.length
     ? await User.find({ _id: { $in: queuedUserIds } }).select('nickname username gameState.level equippedCardId equippedCardLevel raidExtraCardSelection cards enhancedCards titles')
@@ -10101,7 +10272,7 @@ async function buildRaidStateResponse(user, now = new Date(), mode = RAID_MODE_N
 
   const slotIndex = findQueuedRaidSlotIndex(user._id, normalizedMode);
   const queueRemainingMs = slotIndex >= 0 ? getRaidQueueRemainingMs(user._id, normalizedMode, now) : null;
-  return {
+  const raidResponse = {
     version: raidState.version,
     mode: normalizedMode,
     modes: getRaidAvailableModes(now).map((entryMode) => buildRaidModeStatus(user, entryMode, now)),
@@ -10130,10 +10301,13 @@ async function buildRaidStateResponse(user, now = new Date(), mode = RAID_MODE_N
       [RAID_MODE_CHAOS]: buildRaidBattleSnapshot(getRaidRoom(RAID_MODE_CHAOS).activeBattle, user._id)
     }
   };
+  if (raidCacheKey) setStateResponseCache(raidStateResponseCache, raidCacheKey, raidResponse);
+  return raidResponse;
 }
 
 function bumpPvpVersion() {
   pvpState.version = (Number(pvpState.version || 0) + 1) % Number.MAX_SAFE_INTEGER;
+  pvpStateResponseCache.clear();
 }
 
 function normalizePvpMode(mode) {
@@ -10210,6 +10384,13 @@ function getAllPvpBanCards() {
         enhancementLevel: previewLevel
       };
     });
+}
+
+let allPvpBanCardsCache = null;
+
+function getAllPvpBanCardsCached() {
+  if (!allPvpBanCardsCache) allPvpBanCardsCache = getAllPvpBanCards();
+  return allPvpBanCardsCache;
 }
 
 function getOwnedPvpPickCards(user) {
@@ -13317,7 +13498,15 @@ async function buildPvpStateResponse(user, now = new Date(), requestedMode = PVP
   const userId = user?._id ? String(user._id) : null;
   const selectedMode = normalizePvpMode(requestedMode);
   const selectedModeState = getPvpModeState(selectedMode);
+  const pvpCacheKey = options.poll && userId
+    ? ['pvp', userId, selectedMode, pvpState.version, selectedModeState.queue.length, selectedModeState.match?.matchId || '', selectedModeState.match?.phase || '', selectedModeState.match?.turnUserId || '', selectedModeState.battle?.battleId || '', selectedModeState.battle?.turnUserId || '', (user.cards || []).length, (user.enhancedCards || []).length].join(':')
+    : null;
+  if (pvpCacheKey) {
+    const cachedPvp = getStateResponseCache(pvpStateResponseCache, pvpCacheKey);
+    if (cachedPvp) return cachedPvp;
+  }
   const match = selectedModeState.match;
+  const matchIsParticipant = Boolean(userId && match?.players?.some((player) => player.userId === userId));
   const matchPlayersForViewer = match ? buildPvpPlayersForViewer(match.players, match.mode, userId) : [];
   const matchPayload = match ? {
     matchId: match.matchId,
@@ -13341,8 +13530,8 @@ async function buildPvpStateResponse(user, now = new Date(), requestedMode = PVP
     canBet: Boolean(isRankedPvpMode(match.mode) && userId && !match.players.some((player) => player.userId === userId) && ['ban', 'pick'].includes(match.phase) && !(match.bets || {})[userId]),
     bannedCardIds: getPvpBannedCardIds(match),
     pickedCardIds: getPvpPickedCardIds(match),
-    allCards: getAllPvpBanCards(),
-    ownedCards: getOwnedPvpPickCards(user),
+    allCards: getAllPvpBanCardsCached(),
+    ownedCards: matchIsParticipant ? getOwnedPvpPickCards(user) : [],
     logs: match.logs.slice(-8).map((log) => anonymizePvpTextForViewer(log, match.players, match.mode, userId)),
     spectators: buildPvpSpectatorsForViewer(selectedModeState.viewers, match.players, match.mode, userId),
     isParticipant: Boolean(userId && match.players.some((player) => player.userId === userId)),
@@ -13353,7 +13542,7 @@ async function buildPvpStateResponse(user, now = new Date(), requestedMode = PVP
     buildPvpModeSummary(mode, modeState, userId, user)
   ]));
 
-  return {
+  const pvpResponse = {
     version: pvpState.version,
     mode: selectedMode,
     modeLabel: getPvpModeLabel(selectedMode),
@@ -13367,6 +13556,8 @@ async function buildPvpStateResponse(user, now = new Date(), requestedMode = PVP
     match: matchPayload,
     battle: buildPvpBattleSnapshot(selectedModeState.battle, userId)
   };
+  if (pvpCacheKey) setStateResponseCache(pvpStateResponseCache, pvpCacheKey, pvpResponse);
+  return pvpResponse;
 }
 
 async function sendPvpStateError(res, user, now, status, msg, mode = PVP_MODE_RANKED) {
@@ -17541,6 +17732,17 @@ app.post('/api/inventory/use', async (req, res) => {
         useQuantity = 1;
       }
 
+      if (itemId === 'card_batch_fusion_ticket') {
+        const hasMaterials = ['C', 'B', 'A'].some((grade) => getAutoFusionMaterialEntries(user, grade).length >= 5);
+        if (!hasMaterials) throw createHttpError(400, '자동 합성에 사용할 잠금 해제 카드가 부족합니다. +5강과 잠긴 카드는 제외됩니다.');
+        useQuantity = 1;
+      }
+
+      if (itemId === 'bacchus_oneshot_ticket') {
+        if (getInventoryQuantity(user, 'bacchus') < 100) throw createHttpError(400, '박카스 원샷 티켓을 사용하려면 박카스 100개가 필요합니다.');
+        useQuantity = 1;
+      }
+
       if (!removeItemFromInventory(user, itemId, useQuantity)) {
         throw createHttpError(400, '해당 아이템이 부족합니다.');
       }
@@ -17580,6 +17782,19 @@ app.post('/api/inventory/use', async (req, res) => {
           checkLevelUp(user);
         }
         queueNotification(user, 'item_use', `경험치 5% 포션 ${useQuantity}개를 사용해 경험치 ${totalExpGain.toLocaleString()}을 획득했습니다.`);
+      }
+
+      if (itemId === 'card_batch_fusion_ticket') {
+        const autoFusionResult = runAutoFusionUntilS(user);
+        const summaryText = buildAutoFusionSummaryText(autoFusionResult);
+        queueNotification(user, 'item_use', `카드 일괄 합성 티켓을 사용했습니다. ${summaryText}`);
+      }
+
+      if (itemId === 'bacchus_oneshot_ticket') {
+        if (!removeItemFromInventory(user, 'bacchus', 100)) throw createHttpError(400, '박카스 100개가 부족합니다.');
+        const bulkAdventureResult = runBulkAdventureSettlement(user, 100, now);
+        const summaryText = buildBulkAdventureSummaryText(bulkAdventureResult);
+        queueNotification(user, 'item_use', `박카스 원샷 티켓을 사용했습니다. 박카스 100개를 소모했습니다. ${summaryText}`);
       }
 
       if (itemId === 'excavation_repair_coupon') {
@@ -19808,7 +20023,7 @@ app.post('/api/sync', async (req, res) => {
   try {
     const shouldIncludePendingCounts = includeCounts === true;
     const response = await withUserMutationLock(userId, async () => {
-      const user = await User.findById(userId);
+      const user = await User.findById(userId).select(SYNC_USER_SELECT_FIELDS);
       if (!user) {
         throw createHttpError(404, '사용자를 찾을 수 없습니다.');
       }
@@ -19840,7 +20055,7 @@ app.post('/api/sync', async (req, res) => {
     if (err?.name === 'VersionError' || String(err?.message || '').includes('No matching document found for id')) {
       console.warn('Sync save conflict ignored:', err.message);
       try {
-        const latestUser = await User.findById(userId);
+        const latestUser = await User.findById(userId).select(SYNC_USER_SELECT_FIELDS);
         if (!latestUser) {
           return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
         }
