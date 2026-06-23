@@ -15061,6 +15061,15 @@ function buildBranchOfficePublicState(user, now = new Date(), derivedStats = nul
   };
 }
 
+function getBranchRankingLiteSummary(user) {
+  const office = user?.branchOffice || {};
+  if (!office.isFounded) return null;
+  return {
+    companyName: office.companyName,
+    companyValue: office.companyValue
+  };
+}
+
 function getBranchRankingSummary(user) {
   normalizeBranchOffice(user);
   const office = user.branchOffice;
@@ -15687,6 +15696,12 @@ function buildLightGameStateResponse(user, now = new Date()) {
     pendingAdventure: user.pendingAdventure,
     shopState: user.shopState,
     fragmentShop: buildFragmentShopState(user, now),
+    shopPrices: getShopPricesForUser(user, now),
+    skills: buildSkillDetails(user, now),
+    titles: user.titles,
+    titleDetails: buildTitleDetails(user, now),
+    emblems: user.emblems,
+    emblemDetails: buildEmblemDetails(user),
     meta: {
       loginCount: user.meta.loginCount,
       lastShoutAt: user.meta.lastShoutAt,
@@ -15940,7 +15955,7 @@ function rollAdventureEvent() {
 }
 
 async function buildAdventureChoiceResponse(user, now = new Date()) {
-  const response = await buildFastUserResponseWithGlobals(user, now);
+  const response = await buildLightUserResponseWithGlobals(user, now);
   response.adventureResult = {
     requiresChoice: true,
     title: `${user.pendingAdventure.location} / ${user.pendingAdventure.actor}`,
@@ -16053,7 +16068,7 @@ app.post('/api/daily-augment/reroll', async (req, res) => {
       user.meta.dailyAugmentOptions = options;
       user.meta.dailyAugmentRerolledSlots = [...rerolledSlots, slotIndex];
       user.gameState.lastActionTime = now;
-      return buildFastUserResponseWithGlobals(user, now);
+      return buildLightUserResponseWithGlobals(user, now);
     }, { conflictLabel: 'Daily augment reroll conflict' });
 
     res.json(response);
@@ -16093,7 +16108,7 @@ app.post('/api/daily-augment/select', async (req, res) => {
         queueNotification(user, 'daily_augment_reward', `오늘의 증강 보상으로 회의 추가 입장권 ${ticketGrant}장을 획득했습니다.`);
       }
       user.gameState.lastActionTime = now;
-      return buildFastUserResponseWithGlobals(user, now);
+      return buildLightUserResponseWithGlobals(user, now);
     }, { conflictLabel: 'Daily augment select conflict' });
 
     res.json(response);
@@ -16180,7 +16195,7 @@ app.post('/api/action/work', async (req, res) => {
       if (workDrop?.text) {
         queueNotification(user, 'work_drop', workDrop.text);
       }
-      const response = await buildFastUserResponseWithGlobals(user, now);
+      const response = await buildLightUserResponseWithGlobals(user, now);
       if (workDrop) {
         response.workDrop = workDrop;
       }
@@ -16264,7 +16279,7 @@ app.post('/api/action/news-typing', async (req, res) => {
       });
 
       const nextPrompt = await getNewsTypingPrompt(prompt.id);
-      const mutationResponse = await buildFastUserResponseWithGlobals(user, now);
+      const mutationResponse = await buildLightUserResponseWithGlobals(user, now);
       mutationResponse.newsTypingResult = {
         gainedExp,
         unitCount,
@@ -16336,7 +16351,7 @@ app.post('/api/skill/work-optimization', async (req, res) => {
         }
       }
 
-      const mutationResponse = await buildFastUserResponseWithGlobals(user, now);
+      const mutationResponse = await buildLightUserResponseWithGlobals(user, now);
       mutationResponse.skillResult = {
         name: '업무 최적화',
         deliveredCount,
@@ -16374,7 +16389,7 @@ app.post('/api/action/field-work', async (req, res) => {
       setOrRefreshBuff(user, 'field_work_buff', FIELD_WORK_DURATION_MS);
       user.gameState.lastActionTime = now;
 
-      return buildFastUserResponseWithGlobals(user, now);
+      return buildLightUserResponseWithGlobals(user, now);
     }, { conflictLabel: 'Field work action conflict' });
     res.json(response);
   } catch (err) {
@@ -16441,7 +16456,7 @@ app.post('/api/action/adventure', async (req, res) => {
       clearPendingAdventure(user);
       reconcileTitles(user, now);
 
-      const response = await buildFastUserResponseWithGlobals(user, now);
+      const response = await buildLightUserResponseWithGlobals(user, now);
       response.adventureResult = {
         requiresChoice: false,
         title: eventTitle,
@@ -16473,7 +16488,7 @@ app.post('/api/action/adventure/resolve', async (req, res) => {
 
       if (!user.pendingAdventure?.eventId) {
         clearPendingAdventure(user);
-        const response = await buildFastUserResponseWithGlobals(user, now);
+        const response = await buildLightUserResponseWithGlobals(user, now);
         response.adventureResult = {
           requiresChoice: false,
           alreadyResolved: true,
@@ -16529,7 +16544,7 @@ app.post('/api/action/adventure/resolve', async (req, res) => {
       reconcileTitles(user, now);
       reconcileEmblems(user);
 
-      const response = await buildFastUserResponseWithGlobals(user, now);
+      const response = await buildLightUserResponseWithGlobals(user, now);
       response.adventureResult = {
         requiresChoice: false,
         title: eventTitle,
@@ -16568,7 +16583,7 @@ app.post('/api/action/lupin', async (req, res) => {
       setOrRefreshBuff(user, 'lupin_exp_buff', LUPIN_EXP_DURATION_MS);
       user.gameState.lastActionTime = now;
 
-      return buildFastUserResponseWithGlobals(user, now);
+      return buildLightUserResponseWithGlobals(user, now);
     }, { conflictLabel: 'Lupin action conflict' });
     res.json(response);
   } catch (err) {
@@ -16594,7 +16609,7 @@ app.post('/api/action/nap', async (req, res) => {
       addUserStress(user, -30);
       user.gameState.lastActionTime = now;
 
-      return buildFastUserResponseWithGlobals(user, now);
+      return buildLightUserResponseWithGlobals(user, now);
     }, { conflictLabel: 'Nap action conflict' });
     res.json(response);
   } catch (err) {
@@ -16661,7 +16676,7 @@ app.post('/api/action/side-job', async (req, res) => {
       }
       ensureUserDefaults(savedUser);
 
-      const mutationResponse = await buildFastUserResponseWithGlobals(savedUser, now);
+      const mutationResponse = await buildLightUserResponseWithGlobals(savedUser, now);
       const moneyAfter = Number(savedUser.gameState.money || 0);
       const stressAfter = Number(savedUser.gameState.stress || 0);
       const staminaAfter = Number(savedUser.gameState.stamina || 0);
@@ -16747,7 +16762,7 @@ app.post('/api/company-stock-market/buy', async (req, res) => {
       user.stockPortfolio = portfolio;
       user.markModified('stockPortfolio');
       user.gameState.lastActionTime = now;
-      const userResponse = await buildFastUserResponseWithGlobals(user, now);
+      const userResponse = await buildLightUserResponseWithGlobals(user, now);
       userResponse.stockMarket = await buildCompanyStockMarketResponse(user, now);
       return userResponse;
     }, { conflictLabel: 'Company stock buy conflict' });
@@ -16799,7 +16814,7 @@ app.post('/api/company-stock-market/sell', async (req, res) => {
       user.stockPortfolio = portfolio;
       user.markModified('stockPortfolio');
       user.gameState.lastActionTime = now;
-      const userResponse = await buildFastUserResponseWithGlobals(user, now);
+      const userResponse = await buildLightUserResponseWithGlobals(user, now);
       userResponse.stockMarket = await buildCompanyStockMarketResponse(user, now);
       userResponse.stockTrade = { gross, fee, net, feeRate };
       return userResponse;
@@ -20102,7 +20117,8 @@ async function buildRankingPayload(now = new Date(), requestedMode = 'all') {
     const rankingUsers = await User.find({ nickname: { $ne: null } })
       .sort({ 'gameState.level': -1, 'gameState.exp': -1 })
       .limit(20)
-      .select('nickname username gameState.level gameState.exp titles emblems meta.lastSeenAt pvpStats branchOffice');
+      .select('nickname username gameState.level gameState.exp titles emblems meta.lastSeenAt branchOffice.isFounded branchOffice.companyName branchOffice.companyValue')
+      .lean();
 
     payload.level = rankingUsers.map((user) => ({
       nickname: user.nickname,
@@ -20113,13 +20129,14 @@ async function buildRankingPayload(now = new Date(), requestedMode = 'all') {
         exp: user.gameState.exp
       },
       isOnline: Boolean(user.meta?.lastSeenAt && now.getTime() - new Date(user.meta.lastSeenAt).getTime() <= ONLINE_THRESHOLD_MS),
-      branchOffice: getBranchRankingSummary(user)
+      branchOffice: getBranchRankingLiteSummary(user)
     }));
   }
 
   if (mode === 'all' || mode === 'pvp') {
     const pvpUsers = await User.find({ nickname: { $ne: null } })
-      .select('nickname username titles emblems meta.lastSeenAt pvpStats branchOffice');
+      .select('nickname username titles emblems meta.lastSeenAt pvpStats branchOffice.isFounded branchOffice.companyName branchOffice.companyValue')
+      .lean();
     payload.pvp = pvpUsers
       .map((user) => ({
         nickname: user.nickname,
@@ -20132,7 +20149,7 @@ async function buildRankingPayload(now = new Date(), requestedMode = 'all') {
           losses: Math.max(0, Math.floor(Number(user.pvpStats?.losses || 0)))
         },
         isOnline: Boolean(user.meta?.lastSeenAt && now.getTime() - new Date(user.meta.lastSeenAt).getTime() <= ONLINE_THRESHOLD_MS),
-        branchOffice: getBranchRankingSummary(user)
+        branchOffice: getBranchRankingLiteSummary(user)
       }))
       .sort((a, b) => {
         const aPlayed = a.pvpStats.played > 0 ? 1 : 0;
@@ -20148,7 +20165,7 @@ async function buildRankingPayload(now = new Date(), requestedMode = 'all') {
 
   if (mode === 'all' || mode === 'branch') {
     const branchUsers = await User.find({ nickname: { $ne: null }, 'branchOffice.isFounded': true })
-      .select('nickname username titles emblems meta.lastSeenAt pvpStats branchOffice');
+      .select('nickname username gameState inventory buffs titles emblems meta.lastSeenAt branchOffice');
     payload.branch = branchUsers
       .map((user) => ({
         nickname: user.nickname,
