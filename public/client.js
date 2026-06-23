@@ -316,6 +316,18 @@ let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
   {
+    id: '2026-06-23-fusion-s-target-admin-reset-mail-safety',
+    time: '2026-06-23 09:55',
+    title: '합성창 표시, S 선택 합성, 증강 초기화, 보상 우편 안정화',
+    items: [
+      '카드 합성창의 재료 표시는 카드명과 강화수치 중심으로 줄이고, 긴 스킬 설명은 숨겼습니다.',
+      'S급 카드 10장 합성은 원하는 S급 카드를 직접 고르는 버튼형 선택 UI로 바꿨고, 선택하지 않으면 합성이 진행되지 않게 했습니다.',
+      '운영자 화면에 오늘의 증강 선택 초기화 버튼을 추가했습니다. 앞으로 일반 패치만으로는 증강 선택을 강제 초기화하지 않습니다.',
+      '진행 중인 모험 선택지가 있는 상태에서 모험/결과 확인 요청이 반복되어도 서버 오류 루프가 나지 않도록 정리했습니다.',
+      '보스 클리어 보상 우편 생성을 더 엄격하게 확인해서 누락 시 다음 레이드 상태 진행에서 다시 시도하도록 보강했습니다.'
+    ]
+  },
+  {
     id: '2026-06-23-s-fusion-exp-potion-raid-ticket-augment',
     time: '2026-06-23 09:30',
     title: 'S등급 선택 합성, 경험치 포션, 회의권 증강 개선',
@@ -1751,6 +1763,7 @@ function setupEventListeners() {
   bindClick('adminGrantMoneyBtn', handleAdminGrantMoney);
   bindClick('adminSetRaidBossBtn', handleAdminSetRaidBoss);
   bindClick('adminForceTournamentResultBtn', handleAdminForceTournamentResult);
+  bindClick('adminResetDailyAugmentBtn', handleAdminResetDailyAugment);
 
   const giftType = document.getElementById('giftTypeSelect');
   if (giftType) {
@@ -4058,30 +4071,38 @@ function getFusionRequiredCount(grade = null) {
 }
 
 function getFusionProbabilityText(grade = null) {
-  if (grade === 'S') return 'S 10장 합성: 원하는 S등급 카드 1장을 선택해 획득';
-  if (grade === 'C') return 'C 5장 합성: B 30% / 랜덤 C 70%';
-  if (grade === 'B') return 'B 5장 합성: A 20% / 랜덤 B 80%';
-  if (grade === 'A') return 'A 5장 합성: S 10% / 랜덤 A 90%';
+  if (grade === 'S') return 'S급 10장 합성: 원하는 S급 카드 1장을 선택해서 획득합니다.';
+  if (grade === 'C') return 'C급 5장 합성: B 30% / 랜덤 C 70%';
+  if (grade === 'B') return 'B급 5장 합성: A 20% / 랜덤 B 80%';
+  if (grade === 'A') return 'A급 5장 합성: S 10% / 랜덤 A 90%';
   return 'C/B/A는 5장 합성, S는 10장 선택 합성입니다.';
 }
 
 function getFusionTargetOptionsHtml() {
-  const options = Object.entries(CARD_DATA)
+  const cards = Object.entries(CARD_DATA)
     .filter(([, card]) => card.grade === 'S')
-    .sort(([, a], [, b]) => String(a.name || '').localeCompare(String(b.name || ''), 'ko'))
-    .map(([cardId, card]) => {
-      const selected = selectedFusionTargetCardId === cardId ? 'selected' : '';
-      return `<option value="${escapeAttr(cardId)}" ${selected}>${escapeHtml(card.name || cardId)}</option>`;
-    })
-    .join('');
+    .sort(([, a], [, b]) => String(a.name || '').localeCompare(String(b.name || ''), 'ko'));
+  if (!cards.length) return '';
   return `
-    <label class="fusion-target-select">
-      획득할 S등급 카드
-      <select id="fusionTargetSCardSelect" onchange="selectedFusionTargetCardId = this.value">
-        ${options}
-      </select>
-    </label>
+    <div class="fusion-target-select">
+      <div class="fusion-target-title">획득할 S급 카드를 선택하세요</div>
+      <div class="fusion-target-grid">
+        ${cards.map(([cardId, card]) => {
+          const selected = selectedFusionTargetCardId === cardId ? 'selected' : '';
+          return `<button type="button" class="fusion-target-card ${selected}" onclick="selectFusionTargetCard('${escapeAttr(cardId)}')">
+            <strong>${escapeHtml(card.name || cardId)}</strong>
+            <span>S급</span>
+          </button>`;
+        }).join('')}
+      </div>
+    </div>
   `;
+}
+
+function selectFusionTargetCard(cardId) {
+  selectedFusionTargetCardId = cardId;
+  const user = getStoredUser();
+  if (user?._id) renderCardFusionModal(user);
 }
 
 function getFusionSelectionCountMap() {
@@ -4170,7 +4191,7 @@ function renderCardFusionModal(user) {
     selectedFusionTargetCardId = null;
   } else {
     const sCardIds = Object.entries(CARD_DATA).filter(([, card]) => card.grade === 'S').map(([cardId]) => cardId);
-    if (!sCardIds.includes(selectedFusionTargetCardId)) selectedFusionTargetCardId = sCardIds[0] || null;
+    if (!sCardIds.includes(selectedFusionTargetCardId)) selectedFusionTargetCardId = null;
   }
   probabilityText.innerHTML = `
     <div>${escapeHtml(getFusionProbabilityText(lockedGrade))}</div>
@@ -4207,7 +4228,7 @@ function renderCardFusionModal(user) {
             <span class="fusion-card-name">${escapeHtml(card.name)}</span>
             <span class="grade-badge" style="background:${escapeHtml(card.color || '#666666')}">${escapeHtml(card.grade)}</span>
           </div>
-          <div class="fusion-card-meta">${escapeHtml(card.skillName || '')}<br>${escapeHtml(card.skillDesc || '')}</div>
+          <div class="fusion-card-meta">강화 ${formatNumber(Number(card.enhancementLevel || 0))}강</div>
         </div>
       `
     );
@@ -4241,9 +4262,7 @@ function renderCardFusionModal(user) {
             <span class="grade-badge" style="background:${escapeHtml(card.color)}">${escapeHtml(card.grade)}</span>
           </div>
           <div class="fusion-card-meta">
-            보유 ${formatNumber(card.quantity)}장 / 등록 가능 ${formatNumber(available)}장<br>
-            ${escapeHtml(card.skillName)}<br>
-            ${escapeHtml(card.skillDesc)}
+            보유 ${formatNumber(card.quantity)}장 / 등록 가능 ${formatNumber(available)}장 / 강화 ${formatNumber(Number(card.enhancementLevel || 0))}강
           </div>
           <div class="fusion-card-actions">
             ${actionHtml}
@@ -4564,9 +4583,7 @@ async function handleCardFusionConfirm() {
     alert(`합성 리스트를 ${requiredCount}장으로 채워주세요.`);
     return;
   }
-  const targetCardId = lockedGrade === 'S'
-    ? (document.getElementById('fusionTargetSCardSelect')?.value || selectedFusionTargetCardId)
-    : null;
+  const targetCardId = lockedGrade === 'S' ? selectedFusionTargetCardId : null;
   if (lockedGrade === 'S' && !targetCardId) {
     alert('획득할 S등급 카드를 선택해주세요.');
     return;
@@ -9801,6 +9818,21 @@ async function handleAdminSetRaidBoss() {
     renderAdminRaidBossControls(data.currentRaidBossId, nextSession.raidBossOptions || []);
     setText('adminStatus', `오늘의 보스를 ${data.currentRaidBossName}(으)로 변경했습니다.`);
     alert(`오늘의 보스를 ${data.currentRaidBossName}(으)로 변경했습니다. 다음날에는 ${data.nextRaidBossName}(으)로 자동 변경됩니다.`);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleAdminResetDailyAugment() {
+  if (!confirm('모든 유저의 오늘 증강 선택 상태를 초기화할까요?')) return;
+  try {
+    const data = await postJson(
+      `${API_URL}/api/admin/daily-augment/reset`,
+      {},
+      getAdminAuthHeaders()
+    );
+    setText('adminStatus', `오늘 증강 선택을 ${Number(data.modifiedCount || 0).toLocaleString()}명에게 초기화했습니다.`);
+    alert('오늘 증강 선택 초기화가 완료되었습니다.');
   } catch (err) {
     alert(err.message);
   }

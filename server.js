@@ -631,7 +631,7 @@ const PVP_WEEKLY_REWARD_TIERS = [
   { rank: 3, bacchus: 40, businessCards: 40 }
 ];
 const PVP_WEEKLY_PARTICIPATION_REWARD = { bacchus: 20, businessCards: 20 };
-const RANKING_CACHE_TTL_MS = 30 * 1000;
+const RANKING_CACHE_TTL_MS = 60 * 1000;
 const SPECTATOR_TTL_MS = 15000;
 const PEN_SHOP_ITEM_IDS = ['pen_monami', 'pen_jetstream', 'pen_applepencil'];
 const REWARD_PEN_ITEM_IDS = ['reward_pen_monami', 'reward_pen_jetstream', 'reward_pen_applepencil'];
@@ -4389,9 +4389,6 @@ function ensureDailyAugmentState(user, now = new Date()) {
   const options = getDailyAugmentOptionsForUser(user, dayKey, tier);
   if (user.meta.dailyAugmentVersion !== DAILY_AUGMENT_VERSION) {
     user.meta.dailyAugmentVersion = DAILY_AUGMENT_VERSION;
-    user.meta.dailyAugmentOptions = [];
-    user.meta.dailyAugmentSelectedId = '';
-    user.meta.dailyAugmentRerolledSlots = [];
   }
   user.meta.dailyAugmentRerolledSlots = Array.isArray(user.meta.dailyAugmentRerolledSlots)
     ? [...new Set(user.meta.dailyAugmentRerolledSlots
@@ -5517,6 +5514,28 @@ function createHttpError(statusCode, message) {
 const userMutationLocks = new Map();
 const userSyncPersistThrottle = new Map();
 const SYNC_PERSIST_MIN_INTERVAL_MS = 15000;
+const POLL_USER_CACHE_TTL_MS = 5000;
+const pollUserSnapshotCache = new Map();
+
+async function getCachedPollUserSnapshot(userId, selectFields) {
+  const cacheKey = `${userId}:${selectFields}`;
+  const nowMs = Date.now();
+  const cached = pollUserSnapshotCache.get(cacheKey);
+  if (cached?.expiresAt > nowMs && cached.user) return cached.user;
+  const user = await User.findById(userId).select(selectFields);
+  if (user) {
+    pollUserSnapshotCache.set(cacheKey, {
+      user,
+      expiresAt: nowMs + POLL_USER_CACHE_TTL_MS
+    });
+  }
+  if (pollUserSnapshotCache.size > 500) {
+    for (const [key, entry] of pollUserSnapshotCache.entries()) {
+      if (!entry?.expiresAt || entry.expiresAt <= nowMs) pollUserSnapshotCache.delete(key);
+    }
+  }
+  return user;
+}
 
 async function withUserMutationLock(userId, operation) {
   const key = String(userId || '');
@@ -13861,7 +13880,10 @@ async function finalizeRaidBattle(activeBattle, now = new Date()) {
           battleMode,
           now
         });
-        await enqueueRaidRewardMail(user._id, mailPayload);
+        const mailDoc = await enqueueRaidRewardMail(user._id, mailPayload);
+        if (!mailDoc?._id) {
+          throw createHttpError(500, 'Raid reward mail was not persisted');
+        }
         if (mailPayload?.payload?.raidReward?.dailyOnceRewardBonusUsed) {
           await User.updateOne(
             { _id: user._id },
@@ -16276,7 +16298,9 @@ app.post('/api/action/adventure', async (req, res) => {
       cleanupExpiredBuffs(user, now);
 
       if (user.pendingAdventure?.eventId) {
-        throw createHttpError(400, '진행 중인 모험 선택지가 남아 있습니다. 먼저 결과를 선택해주세요.');
+        const pendingResponse = await buildAdventureChoiceResponse(user, now);
+        pendingResponse.adventureResult.alreadyPending = true;
+        return pendingResponse;
       }
 
       const lastAdventureAtMs = user.meta.lastAdventureAt ? new Date(user.meta.lastAdventureAt).getTime() : 0;
@@ -16835,8 +16859,10 @@ app.post('/api/interview-tournament/spectate-match', async (req, res) => {
   try {
     const now = new Date();
     await advancePvpState(now);
-    const user = await User.findById(userId)
-      .select('nickname username gameState.level cards enhancedCards equippedCardId equippedCardLevel meta.potatoRehabDamage meta.potatoRehabKillCount');
+    const user = await getCachedPollUserSnapshot(
+      userId,
+      'nickname username gameState.level cards enhancedCards equippedCardId equippedCardLevel meta.potatoRehabDamage meta.potatoRehabKillCount'
+    );
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
     ensureUserDefaults(user);
 
@@ -18085,8 +18111,9 @@ app.post('/api/cards/fuse', async (req, res) => {
           ? 'S등급 선택 합성에는 S등급 카드 10장이 필요합니다.'
           : '일반 합성에는 같은 등급 카드 5장이 필요합니다.');
       }
+      const normalizedTargetCardId = String(targetCardId || '');
       if (isSelectiveSFusion) {
-        const targetInfo = CARD_DATA[targetCardId];
+        const targetInfo = CARD_DATA[normalizedTargetCardId];
         if (!targetInfo || targetInfo.grade !== 'S') {
           throw createHttpError(400, '획득할 S등급 카드를 선택해주세요.');
         }
@@ -18108,7 +18135,7 @@ app.post('/api/cards/fuse', async (req, res) => {
       }
 
       const resultGrade = isSelectiveSFusion ? 'S' : getFusionOutcomeGrade(sourceGrade);
-      const resultCardId = isSelectiveSFusion ? targetCardId : getRandomCardIdByGrade(resultGrade);
+      const resultCardId = isSelectiveSFusion ? normalizedTargetCardId : getRandomCardIdByGrade(resultGrade);
       if (!resultCardId) {
         throw createHttpError(500, '합성 결과 카드를 찾지 못했습니다.');
       }
@@ -18314,8 +18341,10 @@ app.post('/api/raid/state', async (req, res) => {
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
-    const user = await User.findById(userId)
-      .select('nickname username gameState.level meta.lastRaidDayKey meta.raidEntryDayKey meta.raidEntryUsedCount meta.raidEntryBonusCount');
+    const user = await getCachedPollUserSnapshot(
+      userId,
+      'nickname username gameState.level meta.lastRaidDayKey meta.raidEntryDayKey meta.raidEntryUsedCount meta.raidEntryBonusCount'
+    );
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
     user.gameState = user.gameState || {};
     user.gameState.level = Number(user.gameState.level || 1);
@@ -19115,8 +19144,10 @@ app.post('/api/pvp/state', async (req, res) => {
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
-    const user = await User.findById(userId)
-      .select('nickname username gameState.level cards enhancedCards equippedCardId equippedCardLevel meta.potatoRehabDamage meta.potatoRehabKillCount');
+    const user = await getCachedPollUserSnapshot(
+      userId,
+      'nickname username gameState.level cards enhancedCards equippedCardId equippedCardLevel meta.potatoRehabDamage meta.potatoRehabKillCount'
+    );
     if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
     user.gameState = user.gameState || {};
     user.gameState.level = Number(user.gameState.level || 1);
@@ -20385,6 +20416,30 @@ app.post('/api/admin/grant-money', async (req, res) => {
   } catch (err) {
     console.error('Admin grant money error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/admin/daily-augment/reset', async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const now = new Date();
+    const result = await User.updateMany(
+      {},
+      {
+        $set: {
+          'meta.dailyAugmentVersion': DAILY_AUGMENT_VERSION,
+          'meta.dailyAugmentDayKey': getKSTDateKey(now),
+          'meta.dailyAugmentTier': getDailyAugmentTier(getKSTDateKey(now)),
+          'meta.dailyAugmentOptions': [],
+          'meta.dailyAugmentSelectedId': '',
+          'meta.dailyAugmentRerolledSlots': []
+        }
+      }
+    );
+    res.json({ ok: true, modifiedCount: result.modifiedCount || 0 });
+  } catch (err) {
+    console.error('Admin daily augment reset error:', err);
+    res.status(500).json({ msg: '증강 선택 초기화 중 서버 오류가 발생했습니다.' });
   }
 });
 
