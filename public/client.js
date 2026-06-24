@@ -67,7 +67,7 @@ const ITEM_DATA = {
   bacchus_oneshot_ticket: {
     name: '박카스 100개 일괄 소진 티켓',
     desc: '박카스 100개로 모험 100회 일괄 정산',
-    hoverDesc: '사용 시 보유 박카스 100개를 소모하여 행동력 100회분의 모험 보상을 한 번에 정산합니다. 참치캔이 있는 고양이 이벤트는 자동 급식 처리됩니다.'
+    hoverDesc: '사용 시 보유 박카스 100개를 소모하여 행동력 100회분의 모험 보상을 한 번에 정산합니다. 고양이집사 칭호 장착 중이면 같은 박카스 100개로 200회 정산합니다. 정산 중 획득한 피로감은 정산 완료 후 적용됩니다.'
   },
   chairman_mood_ticket: {
     name: '회장님의 기분 티켓',
@@ -158,6 +158,16 @@ const BUFF_DATA = {
   work_optimization_buff: {
     name: '업무 최적화',
     desc: '1시간 동안 모든 획득 경험치가 2배가 됩니다.',
+    className: 'buff-item title-buff'
+  },
+  chairman_mood_buff: {
+    name: '회장님의 기분: 격려',
+    desc: '회장님의 기분 티켓으로 받은 버프입니다. 30분 동안 모든 획득 경험치가 10% 증가합니다.',
+    className: 'buff-item title-buff'
+  },
+  chairman_mood_self_buff: {
+    name: '회장님의 기분: 주최자',
+    desc: '회장님의 기분 티켓을 사용한 본인 버프입니다. 30분 동안 모든 획득 경험치가 20% 증가합니다.',
     className: 'buff-item title-buff'
   }
 };
@@ -330,6 +340,27 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-06-24-raid-cleanse-chaos-countdown-fixes',
+    time: '2026-06-24 11:10',
+    title: '레이드 디버프 해제와 카오스 입장 보정',
+    details: [
+      '박카스 원샷 티켓의 집사 보너스 조건을 고양이집사 칭호 장착자로 한정했습니다.',
+      '라연이의 망상은 침묵 상태에서도 디버프 해제 예외 스킬로 사용할 수 있고, 레이드 디버프 필드를 전부 제거하도록 보강했습니다.',
+      '카오스 레이드 시작 시 카운트다운 취소창이 안정적으로 뜨도록 카운트다운 시작 시점과 전투 화면 전환 조건을 조정했습니다.'
+    ]
+  },
+  {
+    id: '2026-06-24-ticket-fusion-augment-fixes',
+    time: '2026-06-24 10:20',
+    title: '티켓과 증강 정산 보정',
+    details: [
+      '<퇴근 금지령> 증강 효과를 행동력 최대치 +5와 박카스 20개 지급으로 변경했습니다.',
+      '박카스 원샷 티켓은 집사 칭호/휘장 착용 시 모험 200회를 정산하고, 정산 중 얻은 피로감은 정산 완료 후 적용되도록 변경했습니다.',
+      '카드 일괄 합성 티켓이 대량 카드 보유 상태에서도 끝까지 작동하도록 내부 계산 방식을 최적화했습니다.',
+      '회장님의 기분 티켓 버프가 본인/수혜자 구분이 보이도록 표시를 정리했습니다.'
+    ]
+  },
   {
     id: '2026-06-23-light-sync-daily-augment-seed-reset',
     time: '2026-06-23 10:35',
@@ -8898,7 +8929,7 @@ async function pollRaidState() {
     updateRaidLobbyUI(latestRaidState, currentUser);
     updateRaidCountdown(latestRaidState, currentUser);
 
-    const shouldRenderBattle = ['countdown', 'ready', 'active'].includes(latestRaidState?.activeBattle?.phase)
+    const shouldRenderBattle = ['ready', 'active'].includes(latestRaidState?.activeBattle?.phase)
       && (latestRaidState.activeBattle.isParticipant || raidScreenOpen);
     if (shouldRenderBattle) {
       hideModal('raidLobbyModal');

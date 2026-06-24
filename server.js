@@ -540,8 +540,8 @@ const DAILY_AUGMENT_DATA = {
     id: 'daily_prism_no_quit_order',
     tier: 'prism',
     name: '퇴근 금지령',
-    desc: '오늘 행동력 최대치가 5 증가합니다. 대신 모든 경험치 획득량이 5% 감소합니다.',
-    effects: { maxStaminaBonus: 5, expPenaltyPercent: 5 }
+    desc: '오늘 행동력 최대치가 5 증가하고, 선택 즉시 박카스 20개를 획득합니다.',
+    effects: { maxStaminaBonus: 5, bacchusGrant: 20 }
   }
 };
 const PVP_WEEKLY_SEASON_SETTING_KEY = 'pvp_weekly_season';
@@ -1093,7 +1093,7 @@ const ITEM_DATA = {
     type: 'consumable',
     shopHidden: true,
     desc: '박카스 100개로 모험 100회 일괄 정산',
-    hoverDesc: '사용 시 보유 박카스 100개를 소모하여 행동력 100회분의 모험 보상을 한 번에 정산합니다. 선택형 모험 이벤트는 자동 정산에서 제외됩니다.'
+    hoverDesc: '사용 시 보유 박카스 100개를 소모하여 행동력 100회분의 모험 보상을 한 번에 정산합니다. 고양이집사 칭호 장착 중이면 같은 박카스 100개로 200회 정산합니다. 정산 중 획득한 피로감은 정산 완료 후 적용됩니다.'
   },
   chairman_mood_ticket: {
     name: '회장님의 기분 티켓',
@@ -1226,15 +1226,15 @@ const BUFF_DATA = {
     effects: { expBonusAdd: 1 }
   },
   chairman_mood_buff: {
-    name: '회장님의 기분',
+    name: '회장님의 기분: 격려',
     durationMs: CHAIRMAN_MOOD_DURATION_MS,
-    desc: '30분 동안 모든 획득 경험치가 10% 증가합니다.',
+    desc: '회장님의 기분 티켓으로 받은 버프입니다. 30분 동안 모든 획득 경험치가 10% 증가합니다.',
     effects: { expBonusAdd: 0.1 }
   },
   chairman_mood_self_buff: {
-    name: '회장님의 기분',
+    name: '회장님의 기분: 주최자',
     durationMs: CHAIRMAN_MOOD_DURATION_MS,
-    desc: '30분 동안 모든 획득 경험치가 20% 증가합니다.',
+    desc: '회장님의 기분 티켓을 사용한 본인 버프입니다. 30분 동안 모든 획득 경험치가 20% 증가합니다.',
     effects: { expBonusAdd: 0.2 }
   }
 };
@@ -6743,18 +6743,24 @@ function getRandomCardIdByGrade(grade) {
 
 function getAutoFusionMaterialEntries(user, grade) {
   const gradeKey = String(grade || '').toUpperCase();
+  const lockedSet = getLockedCardKeySet(user);
   const entries = [];
   Object.values(CARD_DATA)
     .filter((card) => card.grade === gradeKey)
-    .sort((a, b) => a.name.localeCompare(b.name, 'ko'))
+    .sort((a, b) => a.name.localeCompare(b.name, 'ko') || a.id.localeCompare(b.id))
     .forEach((card) => {
       for (let level = 0; level <= 4; level += 1) {
-        if (isCardVariantLocked(user, card.id, level)) continue;
+        if (lockedSet.has(getCardVariantKey(card.id, level))) continue;
         const quantity = getOwnedCardVariantQuantity(user, card.id, level);
-        for (let index = 0; index < quantity; index += 1) entries.push({ cardId: card.id, level });
+        if (quantity > 0) entries.push({ cardId: card.id, level, quantity });
       }
     });
   return entries;
+}
+
+function getAutoFusionMaterialCount(user, grade) {
+  return getAutoFusionMaterialEntries(user, grade)
+    .reduce((total, entry) => total + Math.max(0, Math.floor(Number(entry.quantity) || 0)), 0);
 }
 
 function removeCardVariantForFusion(user, material) {
@@ -6764,60 +6770,248 @@ function removeCardVariantForFusion(user, material) {
     : removeEnhancedCard(user, material.cardId, level, 1);
 }
 
+function buildAutoFusionCountState(user) {
+  const baseCounts = new Map();
+  const enhancedCounts = new Map();
+
+  (user.cards || []).forEach((entry) => {
+    if (!entry || !CARD_DATA[entry.cardId]) return;
+    const quantity = Math.max(0, Math.floor(Number(entry.quantity) || 0));
+    if (quantity > 0) baseCounts.set(entry.cardId, (baseCounts.get(entry.cardId) || 0) + quantity);
+  });
+
+  (user.enhancedCards || []).forEach((entry) => {
+    if (!entry || !CARD_DATA[entry.cardId]) return;
+    const level = normalizeCardEnhancementLevel(entry.level || 0);
+    const quantity = Math.max(0, Math.floor(Number(entry.quantity) || 0));
+    if (level > 0 && quantity > 0) {
+      const key = getCardVariantKey(entry.cardId, level);
+      enhancedCounts.set(key, (enhancedCounts.get(key) || 0) + quantity);
+    }
+  });
+
+  return { baseCounts, enhancedCounts };
+}
+
+function getAutoFusionStateQuantity(state, cardId, level = 0) {
+  const normalizedLevel = normalizeCardEnhancementLevel(level);
+  if (normalizedLevel <= 0) return Math.max(0, Math.floor(Number(state.baseCounts.get(cardId) || 0)));
+  return Math.max(0, Math.floor(Number(state.enhancedCounts.get(getCardVariantKey(cardId, normalizedLevel)) || 0)));
+}
+
+function addAutoFusionStateQuantity(state, cardId, level, amount) {
+  if (!CARD_DATA[cardId]) return;
+  const normalizedLevel = normalizeCardEnhancementLevel(level);
+  const delta = Math.floor(Number(amount) || 0);
+  if (!delta) return;
+  if (normalizedLevel <= 0) {
+    const nextQuantity = Math.max(0, (state.baseCounts.get(cardId) || 0) + delta);
+    if (nextQuantity > 0) state.baseCounts.set(cardId, nextQuantity);
+    else state.baseCounts.delete(cardId);
+    return;
+  }
+  const key = getCardVariantKey(cardId, normalizedLevel);
+  const nextQuantity = Math.max(0, (state.enhancedCounts.get(key) || 0) + delta);
+  if (nextQuantity > 0) state.enhancedCounts.set(key, nextQuantity);
+  else state.enhancedCounts.delete(key);
+}
+
+function compareAutoFusionMaterials(a, b) {
+  const cardA = CARD_DATA[a.cardId] || {};
+  const cardB = CARD_DATA[b.cardId] || {};
+  return String(cardA.name || a.cardId).localeCompare(String(cardB.name || b.cardId), 'ko')
+    || String(a.cardId).localeCompare(String(b.cardId))
+    || Number(a.level || 0) - Number(b.level || 0);
+}
+
+function buildAutoFusionPools(user, state) {
+  const lockedSet = getLockedCardKeySet(user);
+  const pools = { C: [], B: [], A: [] };
+  Object.values(CARD_DATA)
+    .filter((card) => pools[card.grade])
+    .sort((a, b) => a.name.localeCompare(b.name, 'ko') || a.id.localeCompare(b.id))
+    .forEach((card) => {
+      for (let level = 0; level <= 4; level += 1) {
+        if (lockedSet.has(getCardVariantKey(card.id, level))) continue;
+        const quantity = getAutoFusionStateQuantity(state, card.id, level);
+        if (quantity > 0) pools[card.grade].push({ cardId: card.id, level, quantity });
+      }
+    });
+  Object.values(pools).forEach((pool) => pool.sort(compareAutoFusionMaterials));
+  return { pools, lockedSet };
+}
+
+function getAutoFusionPoolTotal(pool) {
+  return pool.reduce((total, entry) => total + Math.max(0, Math.floor(Number(entry.quantity) || 0)), 0);
+}
+
+function addAutoFusionPoolMaterial(pools, lockedSet, cardId, level, quantity = 1) {
+  const card = CARD_DATA[cardId];
+  const grade = card?.grade;
+  if (!pools[grade]) return;
+  const normalizedLevel = normalizeCardEnhancementLevel(level || 0);
+  if (normalizedLevel > 4 || lockedSet.has(getCardVariantKey(cardId, normalizedLevel))) return;
+  const safeQuantity = Math.max(0, Math.floor(Number(quantity) || 0));
+  if (safeQuantity <= 0) return;
+  const existing = pools[grade].find((entry) => entry.cardId === cardId && Number(entry.level || 0) === normalizedLevel);
+  if (existing) {
+    existing.quantity += safeQuantity;
+  } else {
+    pools[grade].push({ cardId, level: normalizedLevel, quantity: safeQuantity });
+    pools[grade].sort(compareAutoFusionMaterials);
+  }
+}
+
+function consumeAutoFusionPoolMaterials(pool, state, amount = 5) {
+  let remaining = Math.max(0, Math.floor(Number(amount) || 0));
+  while (remaining > 0 && pool.length > 0) {
+    const entry = pool[0];
+    const take = Math.min(remaining, Math.max(0, Math.floor(Number(entry.quantity) || 0)));
+    if (take <= 0) {
+      pool.shift();
+      continue;
+    }
+    entry.quantity -= take;
+    addAutoFusionStateQuantity(state, entry.cardId, entry.level, -take);
+    remaining -= take;
+    if (entry.quantity <= 0) pool.shift();
+  }
+  return remaining <= 0;
+}
+
+function flushAutoFusionCountState(user, state) {
+  user.cards = Array.from(state.baseCounts.entries())
+    .map(([cardId, quantity]) => ({ cardId, quantity: Math.max(0, Math.floor(Number(quantity) || 0)) }))
+    .filter((entry) => CARD_DATA[entry.cardId] && entry.quantity > 0)
+    .sort((a, b) => (CARD_DATA[a.cardId]?.name || a.cardId).localeCompare(CARD_DATA[b.cardId]?.name || b.cardId, 'ko'));
+
+  user.enhancedCards = Array.from(state.enhancedCounts.entries())
+    .map(([key, quantity]) => {
+      const [cardId, levelText] = key.split('::');
+      return { cardId, level: normalizeCardEnhancementLevel(levelText), quantity: Math.max(0, Math.floor(Number(quantity) || 0)) };
+    })
+    .filter((entry) => CARD_DATA[entry.cardId] && entry.level > 0 && entry.quantity > 0)
+    .sort((a, b) =>
+      (CARD_DATA[a.cardId]?.name || a.cardId).localeCompare(CARD_DATA[b.cardId]?.name || b.cardId, 'ko')
+      || a.level - b.level
+    );
+
+  if (user.equippedCardId && getOwnedCardVariantQuantity(user, user.equippedCardId, user.equippedCardLevel || 0) <= 0) {
+    user.equippedCardId = null;
+    user.equippedCardLevel = 0;
+  }
+  if (
+    user.raidExtraCardSelection?.cardId
+    && getOwnedCardVariantQuantity(user, user.raidExtraCardSelection.cardId, user.raidExtraCardSelection.level || 0) <= 0
+  ) {
+    user.raidExtraCardSelection = { cardId: null, level: 0 };
+  }
+}
+
 function runAutoFusionUntilS(user) {
   const result = { fusionCount: 0, consumedCount: 0, producedCount: 0, byGrade: { C: 0, B: 0, A: 0 }, producedS: null, stoppedReason: 'NO_MATERIAL' };
-  let safety = 0;
-  while (safety < 1000) {
-    safety += 1;
+  const state = buildAutoFusionCountState(user);
+  const { pools, lockedSet } = buildAutoFusionPools(user, state);
+  const maxIterations = 200000;
+
+  for (let safety = 0; safety < maxIterations; safety += 1) {
     let fusedThisLoop = false;
     for (const grade of ['C', 'B', 'A']) {
-      let materials = getAutoFusionMaterialEntries(user, grade);
-      while (materials.length >= 5 && safety < 1000) {
-        materials.slice(0, 5).forEach((material) => removeCardVariantForFusion(user, material));
+      while (getAutoFusionPoolTotal(pools[grade]) >= 5) {
+        if (!consumeAutoFusionPoolMaterials(pools[grade], state, 5)) {
+          result.stoppedReason = 'MATERIAL_CONSUME_FAILED';
+          flushAutoFusionCountState(user, state);
+          return result;
+        }
         result.consumedCount += 5;
         result.fusionCount += 1;
         result.byGrade[grade] += 1;
+
         const outcomeGrade = getFusionOutcomeGrade(grade);
         const resultCardId = getRandomCardIdByGrade(outcomeGrade);
         if (resultCardId) {
-          addCardToCollection(user, resultCardId, 1);
+          addAutoFusionStateQuantity(state, resultCardId, 0, 1);
           result.producedCount += 1;
           if (outcomeGrade === 'S') {
             result.producedS = { cardId: resultCardId, name: CARD_DATA[resultCardId]?.name || resultCardId };
             result.stoppedReason = 'S_CREATED';
+            flushAutoFusionCountState(user, state);
             return result;
           }
+          addAutoFusionPoolMaterial(pools, lockedSet, resultCardId, 0, 1);
         }
         fusedThisLoop = true;
         safety += 1;
-        materials = getAutoFusionMaterialEntries(user, grade);
+        if (safety >= maxIterations) break;
       }
+      if (safety >= maxIterations) break;
     }
     if (!fusedThisLoop) break;
   }
-  result.stoppedReason = safety >= 1000 ? 'SAFETY_LIMIT' : 'NO_MATERIAL';
+
+  result.stoppedReason = result.fusionCount > 0 ? 'NO_MATERIAL_AFTER_FUSION' : 'NO_MATERIAL';
+  flushAutoFusionCountState(user, state);
   return result;
 }
 
 function buildAutoFusionSummaryText(result) {
   if (!result || result.fusionCount <= 0) return '합성 가능한 잠금 해제 카드가 부족합니다.';
-  const gradeParts = ['C', 'B', 'A'].filter((grade) => Number(result.byGrade?.[grade] || 0) > 0).map((grade) => `${grade}등급 ${result.byGrade[grade]}회`).join(', ');
-  const sText = result.producedS ? ` / S등급 <${result.producedS.name}> 획득` : ' / S등급은 나오지 않았습니다';
-  return `자동 합성 ${result.fusionCount}회(${gradeParts || '기록 없음'}) 진행${sText}.`;
+  const gradeParts = ['C', 'B', 'A']
+    .filter((grade) => Number(result.byGrade?.[grade] || 0) > 0)
+    .map((grade) => `${grade}등급 ${Number(result.byGrade[grade]).toLocaleString()}회`)
+    .join(', ');
+  const consumedText = result.consumedCount > 0 ? ` / 재료 ${Number(result.consumedCount).toLocaleString()}장 사용` : '';
+  const sText = result.producedS
+    ? ` / S등급 <${result.producedS.name}> 획득`
+    : ' / S등급은 나오지 않았습니다.';
+  return `자동 합성 ${Number(result.fusionCount).toLocaleString()}회(${gradeParts || '기록 없음'}) 진행${consumedText}${sText}`;
 }
 
 function buildBulkAdventureSummaryText(result) {
   if (!result) return '모험 일괄 정산 결과가 없습니다.';
-  const parts = [`모험 ${result.resolvedCount}회 정산`];
-  if (result.choiceSkippedCount > 0) parts.push(`선택형 이벤트 ${result.choiceSkippedCount}회 제외`);
-  if (result.levelUpCount > 0) parts.push(`레벨업 ${result.levelUpCount}회`);
+  const parts = [`모험 ${Number(result.resolvedCount || 0).toLocaleString()}회 정산`];
+  if (result.choiceSkippedCount > 0) parts.push(`선택형 이벤트 ${Number(result.choiceSkippedCount).toLocaleString()}회 제외`);
+  if (result.levelUpCount > 0) parts.push(`레벨업 ${Number(result.levelUpCount).toLocaleString()}회`);
+  if (result.deferredBuffs?.length) {
+    parts.push(result.deferredBuffs.map((entry) => `${entry.name} ${Number(entry.count).toLocaleString()}회는 정산 후 적용`).join(', '));
+  }
   if (result.sampleLogs?.length) parts.push(`주요 결과: ${result.sampleLogs.join(' / ')}`);
   return parts.join(' / ');
 }
 
+function hasCatButlerBulkAdventureBonus(user) {
+  return user?.titles?.equipped === 'cat_butler';
+}
+
+function applyDeferredBulkAdventureBuffs(user, deferredBuffCounts, now = new Date()) {
+  const applied = [];
+  for (const [buffId, count] of deferredBuffCounts.entries()) {
+    const safeCount = Math.max(0, Math.floor(Number(count) || 0));
+    const durationMs = BUFF_DATA[buffId]?.durationMs;
+    if (!durationMs || safeCount <= 0) continue;
+    setOrRefreshBuff(user, buffId, durationMs * safeCount, { now, stackDuration: true });
+    applied.push({ buffId, name: BUFF_DATA[buffId].name, count: safeCount });
+  }
+  return applied;
+}
+
 function runBulkAdventureSettlement(user, count = 100, now = new Date()) {
-  const result = { requestedCount: count, resolvedCount: 0, choiceSkippedCount: 0, levelUpCount: 0, sampleLogs: [] };
-  for (let index = 0; index < count; index += 1) {
+  const requestedCount = Math.max(1, Math.floor(Number(count) || 100));
+  const deferredBuffCounts = new Map();
+  const rewardOptions = {
+    deferBuffIds: new Set(['fatigue_debuff']),
+    deferredBuffCounts
+  };
+  const result = {
+    requestedCount,
+    resolvedCount: 0,
+    choiceSkippedCount: 0,
+    levelUpCount: 0,
+    deferredBuffs: [],
+    sampleLogs: []
+  };
+
+  for (let index = 0; index < requestedCount; index += 1) {
     const event = rollAdventureEvent();
     if (event.reward?.type === 'cat_choice') {
       if (getCatTunaCanQuantity(user) > 0) {
@@ -6833,12 +7027,14 @@ function runBulkAdventureSettlement(user, count = 100, now = new Date()) {
       continue;
     }
     const beforeLevel = Number(user.gameState.level || 1);
-    const rewardText = applyAdventureReward(user, event.reward, now);
+    const rewardText = applyAdventureReward(user, event.reward, now, rewardOptions);
     const afterLevel = Number(user.gameState.level || beforeLevel);
     if (afterLevel > beforeLevel) result.levelUpCount += afterLevel - beforeLevel;
     result.resolvedCount += 1;
     if (result.sampleLogs.length < 5) result.sampleLogs.push(`${event.location || '모험'}: ${rewardText}`);
   }
+
+  result.deferredBuffs = applyDeferredBulkAdventureBuffs(user, deferredBuffCounts, now);
   clearPendingAdventure(user);
   return result;
 }
@@ -8406,12 +8602,18 @@ function applyRaidPartyHeal(participants, amount, options = {}) {
 }
 
 function cleanseRaidTarget(target) {
+  if (!target) return;
   target.silenceTurns = 0;
   target.actionLockTurns = 0;
+  target.basicAttackLockTurns = 0;
   target.healShieldReductionTurns = 0;
   target.healShieldReductionMultiplier = 1;
   target.shieldBlockTurns = 0;
   target.nextHitDamageTakenMultiplier = 1;
+  target.nailBounceDelayTurns = 0;
+  target.nailBounceDamage = 0;
+  target.nailBounceRemainingBounces = 0;
+  target.nailBounceDamageStep = 0;
 }
 
 
@@ -8424,7 +8626,7 @@ function useRaidCardSkill(participant, battle) {
   const card = getParticipantCard(participant, plannedCardSlot);
   if (!card || card.passiveOnly) return null;
 
-  if (participant.silenceTurns > 0) {
+  if (participant.silenceTurns > 0 && card.effectType !== 'party_cleanse') {
     participant.silenceTurns = Math.max(0, participant.silenceTurns - 1);
     return `${participant.displayName}은(는) 침묵 상태라 스킬을 사용할 수 없습니다.`;
   }
@@ -16175,14 +16377,14 @@ function applyAutomaticCatTunaCanReward(user, now = new Date()) {
   return rewardText;
 }
 
-function applyAdventureReward(user, reward, now = new Date()) {
+function applyAdventureReward(user, reward, now = new Date(), options = {}) {
   if (!reward) {
     return '아무것도 획득하지 못했습니다.';
   }
 
   if (reward.type === 'bundle') {
     const summaries = reward.rewards
-      .map((entry) => applyAdventureReward(user, entry, now))
+      .map((entry) => applyAdventureReward(user, entry, now, options))
       .filter(Boolean);
     return summaries.length ? summaries.join(' / ') : '아무것도 획득하지 못했습니다.';
   }
@@ -16221,6 +16423,10 @@ function applyAdventureReward(user, reward, now = new Date()) {
   if (reward.type === 'buff') {
     const durationMs = BUFF_DATA[reward.buffId]?.durationMs;
     if (!durationMs) return '아무 일도 일어나지 않았습니다.';
+    if (options.deferBuffIds?.has(reward.buffId) && options.deferredBuffCounts instanceof Map) {
+      options.deferredBuffCounts.set(reward.buffId, (options.deferredBuffCounts.get(reward.buffId) || 0) + 1);
+      return `${BUFF_DATA[reward.buffId].name} 효과를 획득했습니다. 이 효과는 일괄 정산이 끝난 뒤 적용됩니다.`;
+    }
     setOrRefreshBuff(user, reward.buffId, durationMs, { now, stackDuration: true });
     return `${BUFF_DATA[reward.buffId].name} 효과를 획득했습니다.`;
   }
@@ -16250,7 +16456,7 @@ function applyAdventureReward(user, reward, now = new Date()) {
         ? `기적처럼 즉시 레벨업하여 레벨 ${user.gameState.level}이 되었습니다! 현재 경험치 ${Number(user.gameState.exp || 0).toLocaleString()}/${getRequiredExp(user.gameState.level).toLocaleString()}`
         : `기적이 스쳐 지나갔지만 레벨 ${beforeLevel}에 머물렀습니다.`;
     }
-    const fallbackText = applyAdventureReward(user, reward.fallback, now);
+    const fallbackText = applyAdventureReward(user, reward.fallback, now, options);
     return `즉시 레벨업에는 실패했습니다. 대신 ${fallbackText}`;
   }
 
@@ -16417,15 +16623,25 @@ app.post('/api/daily-augment/select', async (req, res) => {
         user.meta.dailyAugmentHourlyStaminaGrantedCount = 0;
         user.meta.dailyAugmentHourlyStaminaLastAt = now;
       }
-      const ticketGrant = Math.max(0, Math.floor(Number(selectedAugmentEffects.raidEntryTicketGrant || 0)));
+      const resolvedAugmentEffects = getResolvedDailyAugmentIds(user, now)
+        .map((resolvedAugmentId) => DAILY_AUGMENT_DATA[resolvedAugmentId]?.effects || {});
+      const sumResolvedEffect = (effectKey) => resolvedAugmentEffects
+        .reduce((total, effects) => total + Math.max(0, Number(effects[effectKey] || 0)), 0);
+
+      const ticketGrant = Math.max(0, Math.floor(sumResolvedEffect('raidEntryTicketGrant')));
       if (ticketGrant > 0) {
         addItemToInventory(user, 'raid_entry_ticket', ticketGrant, { allowDailyAugmentCopy: false, now });
         queueNotification(user, 'daily_augment_reward', `오늘의 증강 보상으로 회의 추가 입장권 ${ticketGrant}장을 획득했습니다.`);
       }
-      const chairmanMoodTicketGrant = Math.max(0, Math.floor(Number(selectedAugmentEffects.chairmanMoodTicket || 0)));
+      const chairmanMoodTicketGrant = Math.max(0, Math.floor(sumResolvedEffect('chairmanMoodTicket')));
       if (chairmanMoodTicketGrant > 0) {
         addItemToInventory(user, 'chairman_mood_ticket', chairmanMoodTicketGrant, { allowDailyAugmentCopy: false, now });
         queueNotification(user, 'daily_augment_reward', `오늘의 증강 보상으로 회장님의 기분 티켓 ${chairmanMoodTicketGrant}장을 획득했습니다.`);
+      }
+      const bacchusGrant = Math.max(0, Math.floor(sumResolvedEffect('bacchusGrant')));
+      if (bacchusGrant > 0) {
+        addItemToInventory(user, 'bacchus', bacchusGrant, { allowDailyAugmentCopy: false, now });
+        queueNotification(user, 'daily_augment_reward', `오늘의 증강 보상으로 박카스 ${bacchusGrant}개를 획득했습니다.`);
       }
       user.gameState.lastActionTime = now;
       return buildLightUserResponseWithGlobals(user, now);
@@ -17883,7 +18099,7 @@ app.post('/api/inventory/use', async (req, res) => {
       }
 
       if (itemId === 'card_batch_fusion_ticket') {
-        const hasMaterials = ['C', 'B', 'A'].some((grade) => getAutoFusionMaterialEntries(user, grade).length >= 5);
+        const hasMaterials = ['C', 'B', 'A'].some((grade) => getAutoFusionMaterialCount(user, grade) >= 5);
         if (!hasMaterials) throw createHttpError(400, '자동 합성에 사용할 잠금 해제 카드가 부족합니다. +5강과 잠긴 카드는 제외됩니다.');
         useQuantity = 1;
       }
@@ -17980,9 +18196,11 @@ app.post('/api/inventory/use', async (req, res) => {
 
       if (itemId === 'bacchus_oneshot_ticket') {
         if (!removeItemFromInventory(user, 'bacchus', 100)) throw createHttpError(400, '박카스 100개가 부족합니다.');
-        const bulkAdventureResult = runBulkAdventureSettlement(user, 100, now);
+        const bulkAdventureCount = hasCatButlerBulkAdventureBonus(user) ? 200 : 100;
+        const bulkAdventureResult = runBulkAdventureSettlement(user, bulkAdventureCount, now);
         const summaryText = buildBulkAdventureSummaryText(bulkAdventureResult);
-        queueNotification(user, 'item_use', `박카스 원샷 티켓을 사용했습니다. 박카스 100개를 소모했습니다. ${summaryText}`);
+        const butlerText = bulkAdventureCount > 100 ? ' 집사 착용 효과로 모험 200회를 정산했습니다.' : '';
+        queueNotification(user, 'item_use', `박카스 원샷 티켓을 사용했습니다. 박카스 100개를 소모했습니다.${butlerText} ${summaryText}`);
       }
 
       if (itemId === 'excavation_repair_coupon') {
@@ -19130,6 +19348,7 @@ app.post('/api/raid/start', async (req, res) => {
     }
 
     const countdownDurationMs = (RAID_COUNTDOWN_SECONDS * 1000) + RAID_COUNTDOWN_BUFFER_MS;
+    const countdownBaseTime = new Date();
 
     const currentBoss = syncQueuedRaidBoss(now, normalizedMode) || getCurrentRaidBoss(now);
     const bossMaxHp = getRaidBossMaxHpForMode(currentBoss, normalizedMode);
@@ -19155,9 +19374,9 @@ app.post('/api/raid/start', async (req, res) => {
       bossPoisonDebuffs: [],
       participants,
       phase: 'countdown',
-      countdownEndsAt: new Date(now.getTime() + countdownDurationMs),
+      countdownEndsAt: new Date(countdownBaseTime.getTime() + countdownDurationMs),
       readyEndsAt: null,
-      nextActionAt: new Date(now.getTime() + countdownDurationMs),
+      nextActionAt: new Date(countdownBaseTime.getTime() + countdownDurationMs),
       turnNumber: 1,
       turnIndex: 0,
       bossPatternIndex: 0,
