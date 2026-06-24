@@ -69,6 +69,11 @@ const ITEM_DATA = {
     desc: '박카스 100개로 모험 100회 일괄 정산',
     hoverDesc: '사용 시 보유 박카스 100개를 소모하여 행동력 100회분의 모험 보상을 한 번에 정산합니다. 참치캔이 있는 고양이 이벤트는 자동 급식 처리됩니다.'
   },
+  chairman_mood_ticket: {
+    name: '회장님의 기분 티켓',
+    desc: '온라인 유저 경험치 버프',
+    hoverDesc: '사용 시 현재 온라인인 모든 유저에게 30분간 경험치 +10%, 자신에게는 경험치 +20% 버프를 적용합니다.'
+  },
   business_card: {
     name: '명함',
     desc: '카드 뽑기에 사용하는 재화',
@@ -4064,6 +4069,9 @@ function getMaxUsableItemQuantity(user, itemId, ownedQuantity = null) {
     const remainingMs = Number(latestInfiniteOvertimeState?.cooldownRemainingMs || 0);
     const active = Boolean(latestInfiniteOvertimeState?.active || user?.infiniteOvertime?.active);
     if (active || (hasOvertimeState && remainingMs <= 0)) return 0;
+    return Math.min(1, Math.max(0, Math.floor(Number(owned || 0))));
+  }
+  if (itemId === 'chairman_mood_ticket') {
     return Math.min(1, Math.max(0, Math.floor(Number(owned || 0))));
   }
   if (itemId !== 'bacchus') {
@@ -10256,7 +10264,7 @@ function updateInventoryUI(user) {
       const shortDesc = itemInfo.desc || '';
       const qtyInputId = `use-qty-${item.itemId}`;
       const ownedQuantity = getInventoryQuantityFromUser(user, item.itemId);
-      const canUse = ['bacchus', 'hot6', 'tylenol', 'raid_entry_ticket', 'infinite_overtime_ticket', 'hagendaz', 'excavation_repair_coupon', 'exp_5_percent_potion', 'card_batch_fusion_ticket', 'bacchus_oneshot_ticket'].includes(item.itemId);
+      const canUse = ['bacchus', 'hot6', 'tylenol', 'raid_entry_ticket', 'infinite_overtime_ticket', 'hagendaz', 'excavation_repair_coupon', 'exp_5_percent_potion', 'card_batch_fusion_ticket', 'bacchus_oneshot_ticket', 'chairman_mood_ticket'].includes(item.itemId);
       const maxUseQuantity = getMaxUsableItemQuantity(user, item.itemId, ownedQuantity);
       const actionButton = canUse
         ? `<div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" max="${Math.max(1, maxUseQuantity)}" step="1" value="${getRememberedQuantityInputValue(qtyInputId, 1, Math.max(1, maxUseQuantity))}" oninput="rememberQuantityInputValue('${qtyInputId}', this.value)" ${maxUseQuantity <= 0 ? 'disabled' : ''}><button class="mini-btn" onclick="handleUseItem('${item.itemId}', '${qtyInputId}')" ${maxUseQuantity <= 0 ? 'disabled' : ''}>사용</button></div>`

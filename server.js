@@ -108,6 +108,7 @@ const FATIGUE_DURATION_MS = 4 * 60 * 60 * 1000;
 const CAT_GRATITUDE_DURATION_MS = 60 * 60 * 1000;
 const WORK_OPTIMIZATION_DURATION_MS = 60 * 60 * 1000;
 const WORK_OPTIMIZATION_COOLDOWN_MS = 7 * 60 * 60 * 1000;
+const CHAIRMAN_MOOD_DURATION_MS = 30 * 60 * 1000;
 const WORK_OPTIMIZATION_UNLOCK_LEVEL = 200;
 const SHOUT_COOLDOWN_MS = 10 * 60 * 1000;
 const SHOUT_VISIBLE_DURATION_MS = 36 * 1000;
@@ -1094,6 +1095,14 @@ const ITEM_DATA = {
     desc: '박카스 100개로 모험 100회 일괄 정산',
     hoverDesc: '사용 시 보유 박카스 100개를 소모하여 행동력 100회분의 모험 보상을 한 번에 정산합니다. 선택형 모험 이벤트는 자동 정산에서 제외됩니다.'
   },
+  chairman_mood_ticket: {
+    name: '회장님의 기분 티켓',
+    price: 0,
+    type: 'consumable',
+    shopHidden: true,
+    desc: '온라인 유저 경험치 버프',
+    hoverDesc: '사용 시 현재 온라인인 모든 유저에게 30분간 경험치 +10%, 자신에게는 경험치 +20% 버프를 적용합니다.'
+  },
   business_card: {
     name: '명함',
     price: 200000,
@@ -1215,6 +1224,18 @@ const BUFF_DATA = {
     durationMs: WORK_OPTIMIZATION_DURATION_MS,
     desc: '1시간 동안 모든 획득 경험치가 2배가 됩니다.',
     effects: { expBonusAdd: 1 }
+  },
+  chairman_mood_buff: {
+    name: '회장님의 기분',
+    durationMs: CHAIRMAN_MOOD_DURATION_MS,
+    desc: '30분 동안 모든 획득 경험치가 10% 증가합니다.',
+    effects: { expBonusAdd: 0.1 }
+  },
+  chairman_mood_self_buff: {
+    name: '회장님의 기분',
+    durationMs: CHAIRMAN_MOOD_DURATION_MS,
+    desc: '30분 동안 모든 획득 경험치가 20% 증가합니다.',
+    effects: { expBonusAdd: 0.2 }
   }
 };
 
@@ -15500,7 +15521,7 @@ function getWorkOptimizationSkillState(user, now = new Date()) {
     nextAvailableAt,
     remainingMs,
     available: unlocked && remainingMs <= 0,
-    desc: '5시간마다 한 번 사용할 수 있습니다. 현재 온라인인 모든 유저에게 1시간 동안 모든 획득 경험치 2배 버프를 부여합니다.'
+    desc: '7시간마다 한 번 사용할 수 있습니다. 현재 온라인인 모든 유저에게 1시간 동안 모든 획득 경험치 2배 버프를 부여합니다.'
   };
 }
 
@@ -15516,7 +15537,7 @@ function reconcileSkills(user) {
   if (!hasWorkOptimizationSkill(user)) return;
   if (user.meta.workOptimizationSkillNotified) return;
   user.meta.workOptimizationSkillNotified = true;
-  queueNotification(user, 'skill_unlock', '<업무 최적화> 스킬을 획득했습니다! 스킬 탭에서 5시간마다 사용할 수 있습니다.');
+  queueNotification(user, 'skill_unlock', '<업무 최적화> 스킬을 획득했습니다! 스킬 탭에서 7시간마다 사용할 수 있습니다.');
 }
 
 function settlePendingStockInvestment(user, now = new Date()) {
@@ -16400,6 +16421,11 @@ app.post('/api/daily-augment/select', async (req, res) => {
       if (ticketGrant > 0) {
         addItemToInventory(user, 'raid_entry_ticket', ticketGrant, { allowDailyAugmentCopy: false, now });
         queueNotification(user, 'daily_augment_reward', `오늘의 증강 보상으로 회의 추가 입장권 ${ticketGrant}장을 획득했습니다.`);
+      }
+      const chairmanMoodTicketGrant = Math.max(0, Math.floor(Number(selectedAugmentEffects.chairmanMoodTicket || 0)));
+      if (chairmanMoodTicketGrant > 0) {
+        addItemToInventory(user, 'chairman_mood_ticket', chairmanMoodTicketGrant, { allowDailyAugmentCopy: false, now });
+        queueNotification(user, 'daily_augment_reward', `오늘의 증강 보상으로 회장님의 기분 티켓 ${chairmanMoodTicketGrant}장을 획득했습니다.`);
       }
       user.gameState.lastActionTime = now;
       return buildLightUserResponseWithGlobals(user, now);
@@ -17867,6 +17893,10 @@ app.post('/api/inventory/use', async (req, res) => {
         useQuantity = 1;
       }
 
+      if (itemId === 'chairman_mood_ticket') {
+        useQuantity = 1;
+      }
+
       if (!removeItemFromInventory(user, itemId, useQuantity)) {
         throw createHttpError(400, '해당 아이템이 부족합니다.');
       }
@@ -17906,6 +17936,40 @@ app.post('/api/inventory/use', async (req, res) => {
           checkLevelUp(user);
         }
         queueNotification(user, 'item_use', `경험치 5% 포션 ${useQuantity}개를 사용해 경험치 ${totalExpGain.toLocaleString()}을 획득했습니다.`);
+      }
+
+      if (itemId === 'chairman_mood_ticket') {
+        if (Array.isArray(user.buffs)) {
+          user.buffs = user.buffs.filter((buff) => buff.buffId !== 'chairman_mood_buff');
+          user.markModified('buffs');
+        }
+        setOrRefreshBuff(user, 'chairman_mood_self_buff', CHAIRMAN_MOOD_DURATION_MS, { now });
+
+        const onlineSince = new Date(now.getTime() - ONLINE_THRESHOLD_MS);
+        const onlineTargets = await User.find({
+          _id: { $ne: user._id },
+          'meta.lastSeenAt': { $gte: onlineSince }
+        }).select('_id nickname username');
+
+        let deliveredCount = 1;
+        for (const target of onlineTargets) {
+          try {
+            await runUserMutationWithRetry(target._id, async (targetUser) => {
+              const targetNow = new Date();
+              cleanupExpiredBuffs(targetUser, targetNow);
+              if (!hasBuff(targetUser, 'chairman_mood_self_buff', targetNow)) {
+                setOrRefreshBuff(targetUser, 'chairman_mood_buff', CHAIRMAN_MOOD_DURATION_MS, { now: targetNow });
+                queueNotification(targetUser, 'item_buff', '회장님의 기분 티켓 효과를 받았습니다! 30분 동안 모든 획득 경험치가 10% 증가합니다.');
+              }
+              return null;
+            }, { conflictLabel: 'Chairman mood target conflict' });
+            deliveredCount += 1;
+          } catch (err) {
+            console.error('Chairman mood target skipped:', err);
+          }
+        }
+
+        queueNotification(user, 'item_use', `회장님의 기분 티켓을 사용했습니다. 현재 온라인 유저 ${deliveredCount}명에게 경험치 버프를 적용했습니다. 자신은 30분 동안 경험치 +20%가 적용됩니다.`);
       }
 
       if (itemId === 'card_batch_fusion_ticket') {
