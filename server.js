@@ -490,8 +490,8 @@ const DAILY_AUGMENT_DATA = {
     id: 'daily_prism_otherworld_transfer',
     tier: 'prism',
     name: '이세계 전근',
-    desc: '오늘 모험 결과를 최대 5회 다시 굴릴 수 있습니다.',
-    effects: { adventureRerollCharges: 5 }
+    desc: '오늘 행동력 최대치가 3 증가하고, 매 60분마다 행동력 1을 회복합니다.',
+    effects: { maxStaminaBonus: 3, hourlyStamina: 1, hourlyStaminaLimit: 24 }
   },
   daily_prism_chairman_mood: {
     id: 'daily_prism_chairman_mood',
@@ -3185,6 +3185,9 @@ const userSchema = new mongoose.Schema({
     dailyAugmentRaidFreeEntryUsedCount: { type: Number, default: 0 },
     dailyAugmentRaidRewardOnceDayKey: { type: String, default: '' },
     dailyAugmentShopDiscountDayKey: { type: String, default: '' },
+    dailyAugmentHourlyStaminaDayKey: { type: String, default: '' },
+    dailyAugmentHourlyStaminaGrantedCount: { type: Number, default: 0 },
+    dailyAugmentHourlyStaminaLastAt: { type: Date, default: null },
     lastRaidEntryConsumeType: { type: String, default: '' },
     dailyAugmentVersion: { type: String, default: '' },
     catFoodGivenCount: { type: Number, default: 0 },
@@ -4402,6 +4405,11 @@ function resetDailyAugmentUsageIfNeeded(user, now = new Date()) {
     user.meta.dailyAugmentRaidFreeEntryDayKey = dayKey;
     user.meta.dailyAugmentRaidFreeEntryUsedCount = 0;
   }
+  if (user.meta.dailyAugmentHourlyStaminaDayKey !== dayKey) {
+    user.meta.dailyAugmentHourlyStaminaDayKey = dayKey;
+    user.meta.dailyAugmentHourlyStaminaGrantedCount = 0;
+    user.meta.dailyAugmentHourlyStaminaLastAt = now;
+  }
 }
 
 function getDailyAugmentRaidRewardOnceBonusPercent(user, now = new Date()) {
@@ -4896,6 +4904,9 @@ function ensureUserDefaults(user) {
   user.meta.dailyAugmentRaidFreeEntryUsedCount = Math.max(0, Number(user.meta.dailyAugmentRaidFreeEntryUsedCount ?? 0));
   user.meta.dailyAugmentRaidRewardOnceDayKey = user.meta.dailyAugmentRaidRewardOnceDayKey || '';
   user.meta.dailyAugmentShopDiscountDayKey = user.meta.dailyAugmentShopDiscountDayKey || '';
+  user.meta.dailyAugmentHourlyStaminaDayKey = user.meta.dailyAugmentHourlyStaminaDayKey || '';
+  user.meta.dailyAugmentHourlyStaminaGrantedCount = Math.max(0, Number(user.meta.dailyAugmentHourlyStaminaGrantedCount ?? 0));
+  user.meta.dailyAugmentHourlyStaminaLastAt = user.meta.dailyAugmentHourlyStaminaLastAt || null;
   user.meta.lastRaidEntryConsumeType = user.meta.lastRaidEntryConsumeType || '';
   user.meta.dailyAugmentVersion = user.meta.dailyAugmentVersion || '';
   user.meta.catFoodGivenCount = Number(user.meta.catFoodGivenCount ?? 0);
@@ -6788,7 +6799,16 @@ function runBulkAdventureSettlement(user, count = 100, now = new Date()) {
   for (let index = 0; index < count; index += 1) {
     const event = rollAdventureEvent();
     if (event.reward?.type === 'cat_choice') {
-      result.choiceSkippedCount += 1;
+      if (getCatTunaCanQuantity(user) > 0) {
+        const beforeLevel = Number(user.gameState.level || 1);
+        const rewardText = applyAutomaticCatTunaCanReward(user, now);
+        const afterLevel = Number(user.gameState.level || beforeLevel);
+        if (afterLevel > beforeLevel) result.levelUpCount += afterLevel - beforeLevel;
+        result.resolvedCount += 1;
+        if (result.sampleLogs.length < 5) result.sampleLogs.push(`${event.location || '모험'}: ${rewardText}`);
+      } else {
+        result.choiceSkippedCount += 1;
+      }
       continue;
     }
     const beforeLevel = Number(user.gameState.level || 1);
@@ -15521,6 +15541,47 @@ function settlePendingStockInvestment(user, now = new Date()) {
   );
 }
 
+
+function applyDailyAugmentHourlyStamina(user, now = new Date(), derivedStats = null) {
+  if (!user?.meta) return;
+  const hourlyStamina = Math.max(0, Number(derivedStats?.hourlyStamina || 0));
+  const hourlyLimit = Math.max(0, Math.floor(Number(derivedStats?.hourlyStaminaLimit || 0)));
+  const dayKey = getKSTDateKey(now);
+
+  if (user.meta.dailyAugmentHourlyStaminaDayKey !== dayKey) {
+    user.meta.dailyAugmentHourlyStaminaDayKey = dayKey;
+    user.meta.dailyAugmentHourlyStaminaGrantedCount = 0;
+    user.meta.dailyAugmentHourlyStaminaLastAt = now;
+  }
+
+  if (hourlyStamina <= 0 || hourlyLimit <= 0) return;
+
+  const grantedCount = Math.max(0, Math.floor(Number(user.meta.dailyAugmentHourlyStaminaGrantedCount || 0)));
+  const remainingCount = Math.max(0, hourlyLimit - grantedCount);
+  if (remainingCount <= 0) return;
+
+  const intervalMs = 60 * 60 * 1000;
+  const lastAt = user.meta.dailyAugmentHourlyStaminaLastAt
+    ? new Date(user.meta.dailyAugmentHourlyStaminaLastAt)
+    : now;
+  if (!Number.isFinite(lastAt.getTime())) {
+    user.meta.dailyAugmentHourlyStaminaLastAt = now;
+    return;
+  }
+
+  const elapsedMs = now.getTime() - lastAt.getTime();
+  if (elapsedMs < intervalMs) return;
+
+  const tickCount = Math.min(Math.floor(elapsedMs / intervalMs), remainingCount);
+  if (tickCount <= 0) return;
+
+  const maxStamina = getEffectiveMaxStamina(user, now);
+  const currentStamina = normalizeUserStamina(user, now);
+  user.gameState.stamina = Number(Math.min(maxStamina, currentStamina + tickCount * hourlyStamina).toFixed(2));
+  user.meta.dailyAugmentHourlyStaminaGrantedCount = grantedCount + tickCount;
+  user.meta.dailyAugmentHourlyStaminaLastAt = new Date(lastAt.getTime() + tickCount * intervalMs);
+}
+
 function resetDailyStaminaIfNeeded(user, now = new Date(), effectiveMaxStamina = user.gameState.maxStamina) {
   const currentKey = getKSTDateKey(now);
   const lastResetKey = getKSTDateKey(new Date(user.gameState.lastStaminaResetTime));
@@ -15630,6 +15691,8 @@ function calculateOfflineGains(user, now = new Date()) {
     const stressRelief = (derivedStats.hourlyStressRelief / 3600) * elapsedSeconds;
     addUserStress(user, -stressRelief);
   }
+
+  applyDailyAugmentHourlyStamina(user, now, derivedStats);
 
   const rawMoneyGain =
     getSalaryPerSecond(user.gameState.level, derivedStats.moneyBonusPercent) * elapsedSeconds +
@@ -16056,6 +16119,41 @@ function grantExperience(user, baseExp, now = new Date(), options = {}) {
   };
 }
 
+function applyAutomaticCatTunaCanReward(user, now = new Date()) {
+  const hadCatButlerTitle = user.titles?.unlocked?.includes('cat_butler');
+
+  if (!(getCatTunaCanQuantity(user) > 0 && removeCatTunaCanFromInventory(user, 1))) {
+    let rewardText = '참치캔이 없어 고양이에게 아무것도 줄 수 없었습니다.';
+    if (hadCatButlerTitle) {
+      setOrRefreshBuff(user, 'cat_gratitude_buff', CAT_GRATITUDE_DURATION_MS, { now });
+      rewardText += ' 그래도 고양이는 당신을 기억하고 있어 고양이의 보은 버프를 챙겨주었습니다.';
+    }
+    return rewardText;
+  }
+
+  user.meta.catFoodGivenCount += 1;
+  let rewardText = `고양이에게 참치캔을 건넸습니다. 현재 총 ${user.meta.catFoodGivenCount}번 건네주었습니다.`;
+
+  if (user.meta.catFoodGivenCount >= 10) {
+    unlockTitle(user, 'cat_butler');
+    setOrRefreshBuff(user, 'cat_gratitude_buff', CAT_GRATITUDE_DURATION_MS, { now });
+    rewardText += ' 고양이의 보은 버프를 획득했습니다.';
+  }
+
+  if (hadCatButlerTitle || user.meta.catFoodGivenCount >= 10) {
+    setOrRefreshBuff(user, 'cat_gratitude_buff', CAT_GRATITUDE_DURATION_MS, { now });
+    addItemToInventory(user, 'bacchus', 1);
+
+    const extraItemPool = ['hot6', 'cat_tuna_can', 'reward_pen_monami'];
+    const extraItemId = extraItemPool[Math.floor(Math.random() * extraItemPool.length)];
+    addItemToInventory(user, extraItemId, 1);
+
+    rewardText += ` 고양이가 보답으로 박카스 1개와 ${ITEM_DATA[extraItemId].name} 1개를 챙겨주고 갔습니다.`;
+  }
+
+  return rewardText;
+}
+
 function applyAdventureReward(user, reward, now = new Date()) {
   if (!reward) {
     return '아무것도 획득하지 못했습니다.';
@@ -16293,6 +16391,11 @@ app.post('/api/daily-augment/select', async (req, res) => {
 
       user.meta.dailyAugmentSelectedId = augmentId;
       const selectedAugmentEffects = DAILY_AUGMENT_DATA[augmentId]?.effects || {};
+      if (Number(selectedAugmentEffects.hourlyStamina || 0) > 0 && Number(selectedAugmentEffects.hourlyStaminaLimit || 0) > 0) {
+        user.meta.dailyAugmentHourlyStaminaDayKey = getKSTDateKey(now);
+        user.meta.dailyAugmentHourlyStaminaGrantedCount = 0;
+        user.meta.dailyAugmentHourlyStaminaLastAt = now;
+      }
       const ticketGrant = Math.max(0, Math.floor(Number(selectedAugmentEffects.raidEntryTicketGrant || 0)));
       if (ticketGrant > 0) {
         addItemToInventory(user, 'raid_entry_ticket', ticketGrant, { allowDailyAugmentCopy: false, now });
@@ -16628,6 +16731,27 @@ app.post('/api/action/adventure', async (req, res) => {
       setAdventureLog(user, `${eventTitle} - ${event.message}`);
 
       if (event.reward?.type === 'cat_choice') {
+        if (getCatTunaCanQuantity(user) > 0) {
+          const rewardText = applyAutomaticCatTunaCanReward(user, now);
+          setAdventureLog(user, `${eventTitle} - ${event.message} / ${rewardText}`);
+          clearPendingAdventure(user);
+          reconcileTitles(user, now);
+          reconcileEmblems(user);
+
+          const response = await buildLightUserResponseWithGlobals(user, now);
+          response.adventureResult = {
+            requiresChoice: false,
+            autoFedCat: true,
+            title: eventTitle,
+            message: event.message,
+            rewardText,
+            staminaBefore,
+            staminaAfter,
+            staminaCost
+          };
+          return response;
+        }
+
         user.pendingAdventure = {
           eventId: event.id,
           location: event.location,

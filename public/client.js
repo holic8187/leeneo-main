@@ -59,6 +59,16 @@ const ITEM_DATA = {
     desc: '현재 레벨 경험치통의 5% 획득',
     hoverDesc: '사용 즉시 현재 레벨 기준 필요 경험치의 5%를 획득합니다.'
   },
+  card_batch_fusion_ticket: {
+    name: '카드 일괄 합성 티켓',
+    desc: '잠금 해제 C~A 카드 자동 합성',
+    hoverDesc: '사용 시 잠기지 않은 +0~+4 C등급부터 A등급 카드까지 자동으로 합성하여 S등급 카드가 나올 때까지 진행합니다. +5강 카드와 잠긴 카드는 사용하지 않습니다.'
+  },
+  bacchus_oneshot_ticket: {
+    name: '박카스 100개 일괄 소진 티켓',
+    desc: '박카스 100개로 모험 100회 일괄 정산',
+    hoverDesc: '사용 시 보유 박카스 100개를 소모하여 행동력 100회분의 모험 보상을 한 번에 정산합니다. 참치캔이 있는 고양이 이벤트는 자동 급식 처리됩니다.'
+  },
   business_card: {
     name: '명함',
     desc: '카드 뽑기에 사용하는 재화',
@@ -10246,7 +10256,7 @@ function updateInventoryUI(user) {
       const shortDesc = itemInfo.desc || '';
       const qtyInputId = `use-qty-${item.itemId}`;
       const ownedQuantity = getInventoryQuantityFromUser(user, item.itemId);
-      const canUse = ['bacchus', 'hot6', 'tylenol', 'raid_entry_ticket', 'infinite_overtime_ticket', 'hagendaz', 'excavation_repair_coupon'].includes(item.itemId);
+      const canUse = ['bacchus', 'hot6', 'tylenol', 'raid_entry_ticket', 'infinite_overtime_ticket', 'hagendaz', 'excavation_repair_coupon', 'exp_5_percent_potion', 'card_batch_fusion_ticket', 'bacchus_oneshot_ticket'].includes(item.itemId);
       const maxUseQuantity = getMaxUsableItemQuantity(user, item.itemId, ownedQuantity);
       const actionButton = canUse
         ? `<div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" max="${Math.max(1, maxUseQuantity)}" step="1" value="${getRememberedQuantityInputValue(qtyInputId, 1, Math.max(1, maxUseQuantity))}" oninput="rememberQuantityInputValue('${qtyInputId}', this.value)" ${maxUseQuantity <= 0 ? 'disabled' : ''}><button class="mini-btn" onclick="handleUseItem('${item.itemId}', '${qtyInputId}')" ${maxUseQuantity <= 0 ? 'disabled' : ''}>사용</button></div>`
