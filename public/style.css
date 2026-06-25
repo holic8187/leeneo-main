@@ -3270,6 +3270,30 @@ progress {
 
 .support-modal-panel {
   width: min(620px, calc(100vw - 40px));
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+.support-modal-panel > h3 {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 18px 20px 8px;
+}
+
+.support-modal-panel > .menu-note {
+  flex: 0 0 auto;
+  margin: 0 20px 10px;
+}
+
+.support-modal-panel .modal-buttons {
+  flex: 0 0 auto;
+  padding: 12px 20px 16px;
+  border-top: var(--excel-border);
+  background: #ffffff;
+  box-shadow: 0 -6px 14px rgba(0, 0, 0, 0.06);
 }
 
 .patch-notes-modal-panel {
@@ -3314,7 +3338,8 @@ progress {
 }
 
 .support-account {
-  margin: 8px 0 12px;
+  flex: 0 0 auto;
+  margin: 8px 20px 12px;
   padding: 14px 16px;
   border: var(--excel-border);
   background: #eef5ff;
@@ -3325,9 +3350,13 @@ progress {
 }
 
 .support-package-list {
+  flex: 1 1 auto;
+  min-height: 0;
   display: grid;
   gap: 10px;
-  margin-top: 14px;
+  margin: 0 20px;
+  padding: 0 4px 14px 0;
+  overflow-y: auto;
 }
 
 .support-package-card {
