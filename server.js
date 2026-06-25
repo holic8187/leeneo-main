@@ -3256,6 +3256,12 @@ const userSchema = new mongoose.Schema({
   }]
 });
 
+userSchema.index({ 'gameState.level': -1, 'gameState.exp': -1 });
+userSchema.index({ 'pvpStats.played': -1, 'pvpStats.rating': -1, 'pvpStats.wins': -1, 'pvpStats.losses': 1 });
+userSchema.index({ 'branchOffice.isFounded': 1, 'branchOffice.companyValue': -1 });
+userSchema.index({ 'meta.lastSeenAt': -1 });
+
+
 const User = mongoose.model('User', userSchema);
 
 const marketplaceListingSchema = new mongoose.Schema({
@@ -5604,20 +5610,20 @@ function createHttpError(statusCode, message) {
 
 const userMutationLocks = new Map();
 const userSyncPersistThrottle = new Map();
-const SYNC_PERSIST_MIN_INTERVAL_MS = 15000;
+const SYNC_PERSIST_MIN_INTERVAL_MS = 60000;
 const POLL_USER_CACHE_TTL_MS = 5000;
 const pollUserSnapshotCache = new Map();
-const STATE_RESPONSE_CACHE_TTL_MS = 800;
+const STATE_RESPONSE_CACHE_TTL_MS = 4000;
 const raidStateResponseCache = new Map();
 const pvpStateResponseCache = new Map();
-const SYNC_USER_SELECT_FIELDS = [
+const LIGHT_USER_SELECT_FIELDS = [
   'username', 'nickname', 'workHours', 'gameState', 'inventory',
-  'cards', 'enhancedCards', 'lockedCards', 'equipments', 'equippedEquipment',
-  'equippedCardId', 'equippedCardLevel', 'raidExtraCardSelection',
-  'pvpStats', 'infiniteOvertime', 'branchOffice', 'buffs', 'titles', 'emblems',
-  'pendingStockInvestment', 'stockPortfolio', 'stockTournament', 'shopState',
+  'equippedCardId', 'equippedCardLevel',
+  'pvpStats', 'branchOffice', 'buffs', 'titles', 'emblems',
+  'pendingStockInvestment', 'stockPortfolio', 'shopState',
   'dailyAugment', 'meta', 'pendingAdventure', 'pendingNotifications'
 ].join(' ');
+const SYNC_USER_SELECT_FIELDS = LIGHT_USER_SELECT_FIELDS;
 
 function getStateResponseCache(cache, key) {
   const nowMs = Date.now();
@@ -5735,15 +5741,15 @@ function buildUserSyncPersistenceSnapshot(user) {
     workHours: toPlainMongoValue(user.workHours),
     gameState: toPlainMongoValue(user.gameState),
     inventory: toPlainMongoValue(user.inventory),
+    equippedCardId: user.equippedCardId || null,
+    equippedCardLevel: normalizeCardEnhancementLevel(user.equippedCardLevel || 0),
     pvpStats: toPlainMongoValue(user.pvpStats),
-    infiniteOvertime: toPlainMongoValue(user.infiniteOvertime),
     branchOffice: toPlainMongoValue(user.branchOffice),
     buffs: toPlainMongoValue(user.buffs),
     titles: toPlainMongoValue(user.titles),
     emblems: toPlainMongoValue(user.emblems),
     pendingStockInvestment: toPlainMongoValue(user.pendingStockInvestment),
     stockPortfolio: toPlainMongoValue(user.stockPortfolio),
-    stockTournament: toPlainMongoValue(user.stockTournament),
     shopState: toPlainMongoValue(user.shopState),
     meta: toPlainMongoValue(user.meta),
     pendingAdventure: toPlainMongoValue(user.pendingAdventure),
@@ -5789,13 +5795,15 @@ async function runUserMutationWithRetry(userId, mutateUser, options = {}) {
     maxRetries = 5,
     conflictLabel = 'User mutation conflict',
     afterSave = null,
-    snapshotBuilder = buildUserPersistenceSnapshot
+    snapshotBuilder = buildUserPersistenceSnapshot,
+    selectFields = null
   } = options;
 
   let lastError = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-    const user = await User.findById(userId);
+    const query = User.findById(userId);
+    const user = selectFields ? await query.select(selectFields) : await query;
     if (!user) {
       throw createHttpError(404, '사용자를 찾을 수 없습니다.');
     }
@@ -7351,7 +7359,6 @@ async function expireAdminMails(userId = null, now = new Date()) {
 
 async function getPendingAdminMailCount(userId, now = new Date()) {
   if (!userId) return 0;
-  await expireAdminMails(userId, now);
   return AdminMail.countDocuments({
     recipientId: userId,
     status: 'pending',
@@ -7426,6 +7433,122 @@ async function claimAdminMail(userId, mailId, now = new Date()) {
     throw err;
   }
 }
+async function claimAdminMailsBatch(userId, now = new Date()) {
+  await expireAdminMails(userId, now);
+  const pendingMails = await AdminMail.find({
+    recipientId: userId,
+    status: 'pending',
+    expiresAt: { $gt: now }
+  }).sort({ createdAt: 1 });
+
+  if (!pendingMails.length) {
+    const user = await User.findById(userId);
+    if (!user) throw createHttpError(404, '사용자를 찾을 수 없습니다.');
+    ensureUserDefaults(user);
+    const response = await buildFastUserResponseWithGlobals(user, now);
+    response.mail = {
+      mails: await getPendingAdminMailList(user._id, now),
+      claimedCount: 0,
+      messages: []
+    };
+    return response;
+  }
+
+  const pendingIds = pendingMails.map((mail) => mail._id);
+  await AdminMail.updateMany(
+    {
+      _id: { $in: pendingIds },
+      recipientId: userId,
+      status: 'pending',
+      expiresAt: { $gt: now }
+    },
+    { $set: { status: 'claiming' } }
+  );
+
+  const claimableMails = await AdminMail.find({
+    _id: { $in: pendingIds },
+    recipientId: userId,
+    status: 'claiming'
+  }).sort({ createdAt: 1 });
+
+  if (!claimableMails.length) {
+    const user = await User.findById(userId);
+    if (!user) throw createHttpError(404, '사용자를 찾을 수 없습니다.');
+    ensureUserDefaults(user);
+    const response = await buildFastUserResponseWithGlobals(user, now);
+    response.mail = {
+      mails: await getPendingAdminMailList(user._id, now),
+      claimedCount: 0,
+      messages: []
+    };
+    return response;
+  }
+
+  try {
+    return await runUserMutationWithRetry(userId, (user) => {
+      const mutationNow = new Date();
+      calculateOfflineGains(user, mutationNow);
+
+      const messages = [];
+      const claimedIds = [];
+      const skippedIds = [];
+
+      for (const mail of claimableMails) {
+        try {
+          messages.push(applyAdminMailGiftToUser(user, mail));
+          claimedIds.push(mail._id);
+        } catch (err) {
+          skippedIds.push(mail._id);
+          console.error('Admin mail claim-all item skipped:', err);
+        }
+      }
+
+      reconcileTitles(user, mutationNow);
+      reconcileEmblems(user);
+      user.gameState.lastActionTime = mutationNow;
+
+      return {
+        messages,
+        claimedIds,
+        skippedIds,
+        claimedAt: mutationNow
+      };
+    }, {
+      conflictLabel: 'Admin mail claim-all conflict',
+      snapshotBuilder: buildUserActionPersistenceSnapshot,
+      afterSave: async (user, result) => {
+        if (result.claimedIds.length) {
+          await AdminMail.updateMany(
+            { _id: { $in: result.claimedIds }, status: 'claiming' },
+            { $set: { status: 'claimed', claimedAt: result.claimedAt } }
+          );
+        }
+        if (result.skippedIds.length) {
+          await AdminMail.updateMany(
+            { _id: { $in: result.skippedIds }, status: 'claiming' },
+            { $set: { status: 'pending' } }
+          );
+        }
+
+        const responseNow = new Date();
+        const response = await buildFastUserResponseWithGlobals(user, responseNow);
+        response.mail = {
+          mails: await getPendingAdminMailList(user._id, responseNow),
+          claimedCount: result.messages.length,
+          messages: result.messages
+        };
+        return response;
+      }
+    });
+  } catch (err) {
+    await AdminMail.updateMany(
+      { _id: { $in: pendingIds }, status: 'claiming' },
+      { $set: { status: 'pending' } }
+    );
+    throw err;
+  }
+}
+
 
 function getEquipmentScrollRule(itemId) {
   return EQUIPMENT_SCROLL_RULES[itemId] || null;
@@ -15522,6 +15645,31 @@ function getBranchRankingSummary(user) {
   };
 }
 
+function getBranchRankingSummaryFromLean(user) {
+  const office = user?.branchOffice || {};
+  if (!office.isFounded) return null;
+  const employees = Array.isArray(office.employees) ? office.employees : [];
+  const items = Array.isArray(office.items) ? office.items : [];
+  const itemCodex = Array.isArray(office.itemCodex) ? office.itemCodex : [];
+  const itemEffects = calculateBranchItemEffects(office);
+  const employeePower = employees.reduce((sum, employee) => sum + Number(employee.excavationPower || 0), 0);
+  const itemPower = Number((Number(itemEffects.excavationPowerBonus || 0) * employees.length).toFixed(2));
+  const cap = Number((BRANCH_OFFICE_SUCCESS_CAP + Number(itemEffects.excavationSuccessCapBonus || 0)).toFixed(2));
+  const successChance = Number(Math.min(cap, employeePower + itemPower).toFixed(2));
+  return {
+    companyName: office.companyName,
+    companyValue: Math.max(0, Math.floor(Number(office.companyValue || 0))),
+    employeeCount: employees.length,
+    maxEmployees: getBranchMaxEmployees(office),
+    storageUsed: items.length,
+    storageSlots: Math.max(BRANCH_OFFICE_BASE_STORAGE_SLOTS, Math.min(BRANCH_OFFICE_MAX_STORAGE_SLOTS, Math.floor(Number(office.storageSlots || BRANCH_OFFICE_BASE_STORAGE_SLOTS)))),
+    successChance,
+    itemCodexCount: itemCodex.length,
+    itemCodexTotal: Object.keys(BRANCH_COLLECTIBLE_ITEMS).length,
+    lastLog: String(office.lastLog || '').slice(0, 240)
+  };
+}
+
 function getActiveBuffEffects(user, now = new Date()) {
   const effects = {
     expBonusAdd: 0,
@@ -15662,9 +15810,9 @@ function getClickExp(level) {
   return Math.floor(BASE_CLICK_EXP * Math.pow(1.05, level - 1));
 }
 
-function getEffectiveMaxStamina(user, now = new Date()) {
-  const derivedStats = calculateDerivedStats(user, now);
-  return Number((user.gameState.maxStamina + derivedStats.maxStaminaBonus).toFixed(2));
+function getEffectiveMaxStamina(user, now = new Date(), derivedStats = null) {
+  const stats = derivedStats || calculateDerivedStats(user, now);
+  return Number((user.gameState.maxStamina + stats.maxStaminaBonus).toFixed(2));
 }
 
 function normalizeUserStamina(user, now = new Date()) {
@@ -15692,9 +15840,9 @@ function spendUserStamina(user, cost, now = new Date()) {
   };
 }
 
-function getAdventureStaminaCost(user, now = new Date()) {
-  const derivedStats = calculateDerivedStats(user, now);
-  const multiplier = Number(derivedStats.adventureStaminaMultiplier || 1);
+function getAdventureStaminaCost(user, now = new Date(), derivedStats = null) {
+  const stats = derivedStats || calculateDerivedStats(user, now);
+  const multiplier = Number(stats.adventureStaminaMultiplier || 1);
   return Number(Math.max(0, 1 * (Number.isFinite(multiplier) ? multiplier : 1)).toFixed(2));
 }
 
@@ -15815,7 +15963,7 @@ function resetDailyStaminaIfNeeded(user, now = new Date(), effectiveMaxStamina =
   }
 }
 
-function reconcileTitles(user, now = new Date()) {
+function reconcileTitles(user, now = new Date(), derivedStats = null) {
   if (user.meta.loginCount > 0) {
     unlockTitle(user, 'newcomer');
   }
@@ -15824,7 +15972,7 @@ function reconcileTitles(user, now = new Date()) {
     unlockTitle(user, 'cat_butler');
   }
 
-  const currentStats = calculateDerivedStats(user, now);
+  const currentStats = derivedStats || calculateDerivedStats(user, now);
   const currentSalaryPerMinute = getSalaryPerMinute(user.gameState.level, currentStats.moneyBonusPercent);
 
   if (currentStats.stressReductionPercent > 30) {
@@ -15887,15 +16035,14 @@ function calculateOfflineGains(user, now = new Date()) {
   syncDailyShopState(user, now);
   settlePendingStockInvestment(user, now);
   cleanupExpiredBuffs(user, now);
-  reconcileTitles(user, now);
+  let derivedStats = calculateDerivedStats(user, now);
+  reconcileTitles(user, now, derivedStats);
   reconcileEmblems(user);
-  resetDailyStaminaIfNeeded(user, now, getEffectiveMaxStamina(user, now));
+  resetDailyStaminaIfNeeded(user, now, getEffectiveMaxStamina(user, now, derivedStats));
 
   const lastActionTime = new Date(user.gameState.lastActionTime || now);
   let elapsedSeconds = (now.getTime() - lastActionTime.getTime()) / 1000;
   if (elapsedSeconds < 0) elapsedSeconds = 0;
-
-  const derivedStats = calculateDerivedStats(user, now);
   applyBranchOfficeDailySettlement(user, now, derivedStats);
   applyBranchOfficeHighIncomeTax(user, now, derivedStats);
 
@@ -16071,7 +16218,7 @@ function buildGameStateResponse(user, now = new Date()) {
   }
   const derivedStats = calculateDerivedStats(user, now);
   const gameState = user.gameState.toObject ? user.gameState.toObject() : { ...user.gameState };
-  gameState.maxStamina = getEffectiveMaxStamina(user, now);
+  gameState.maxStamina = getEffectiveMaxStamina(user, now, derivedStats);
   gameState.stamina = Math.min(gameState.stamina, gameState.maxStamina);
   gameState.nextLevelExp = getRequiredExp(gameState.level);
   gameState.passiveDailyExp = Number(getPassiveDailyExp(gameState.level).toFixed(2));
@@ -16142,7 +16289,7 @@ function buildLightGameStateResponse(user, now = new Date()) {
   }
   const derivedStats = calculateDerivedStats(user, now);
   const gameState = user.gameState.toObject ? user.gameState.toObject() : { ...user.gameState };
-  gameState.maxStamina = getEffectiveMaxStamina(user, now);
+  gameState.maxStamina = getEffectiveMaxStamina(user, now, derivedStats);
   gameState.stamina = Math.min(gameState.stamina, gameState.maxStamina);
   gameState.nextLevelExp = getRequiredExp(gameState.level);
   gameState.passiveDailyExp = Number(getPassiveDailyExp(gameState.level).toFixed(2));
@@ -16194,6 +16341,74 @@ function buildLightGameStateResponse(user, now = new Date()) {
     },
     itemStats: buildDerivedItemStatsResponse(derivedStats)
   };
+}
+
+function buildRealtimeGameStatePatch(user, now = new Date()) {
+  const derivedStats = calculateDerivedStats(user, now);
+  const gameState = user.gameState.toObject ? user.gameState.toObject() : { ...user.gameState };
+  gameState.maxStamina = getEffectiveMaxStamina(user, now, derivedStats);
+  gameState.stamina = Math.min(gameState.stamina, gameState.maxStamina);
+  gameState.nextLevelExp = getRequiredExp(gameState.level);
+  gameState.passiveDailyExp = Number(getPassiveDailyExp(gameState.level).toFixed(2));
+  gameState.salaryPerMinute = Number(getSalaryPerMinute(gameState.level, derivedStats.moneyBonusPercent).toFixed(2));
+  gameState.clickExp = getClickExp(gameState.level);
+
+  return {
+    _id: user._id,
+    username: user.username,
+    nickname: user.nickname,
+    displayName: buildDisplayName(user),
+    workHours: user.workHours,
+    gameState,
+    inventory: user.inventory,
+    buffs: user.buffs,
+    titles: user.titles,
+    titleDetails: buildTitleDetails(user, now),
+    emblems: user.emblems,
+    dailyAugment: buildDailyAugmentState(user, now),
+    pendingAdventure: user.pendingAdventure,
+    shopState: user.shopState,
+    pvpStats: {
+      rating: Math.round(Number(user.pvpStats?.rating ?? PVP_RATING_BASE)),
+      played: Math.max(0, Math.floor(Number(user.pvpStats?.played || 0))),
+      wins: Math.max(0, Math.floor(Number(user.pvpStats?.wins || 0))),
+      losses: Math.max(0, Math.floor(Number(user.pvpStats?.losses || 0)))
+    },
+    meta: {
+      loginCount: user.meta.loginCount,
+      lastShoutAt: user.meta.lastShoutAt,
+      lastRaidDayKey: user.meta.lastRaidDayKey,
+      raidEntryDayKey: user.meta.raidEntryDayKey,
+      raidEntryUsedCount: user.meta.raidEntryUsedCount,
+      raidEntryBonusCount: user.meta.raidEntryBonusCount,
+      catFoodGivenCount: user.meta.catFoodGivenCount,
+      lastTitleChangeDayKey: user.meta.lastTitleChangeDayKey,
+      lastWorkOptimizationAt: user.meta.lastWorkOptimizationAt,
+      workOptimizationSkillNotified: user.meta.workOptimizationSkillNotified,
+      lastAdventureLog: user.meta.lastAdventureLog
+    },
+    itemStats: buildDerivedItemStatsResponse(derivedStats),
+    skills: buildSkillDetails(user, now)
+  };
+}
+
+function buildRealtimeUserResponse(user, now = new Date()) {
+  return {
+    userPatch: buildRealtimeGameStatePatch(user, now),
+    notifications: consumeNotifications(user)
+  };
+}
+
+async function buildRealtimeUserResponseWithGlobals(user, now = new Date(), options = {}) {
+  const response = buildRealtimeUserResponse(user, now);
+  response.global = getGlobalState(now);
+
+  if (options.includePendingCounts !== false) {
+    response.marketplaceSoldPendingCount = await getMarketplaceSoldPendingCount(user._id);
+    response.adminMailPendingCount = await getPendingAdminMailCount(user._id, now);
+  }
+
+  return response;
 }
 
 function buildLightUserResponse(user, now = new Date()) {
@@ -16471,7 +16686,7 @@ function rollAdventureEvent() {
 }
 
 async function buildAdventureChoiceResponse(user, now = new Date()) {
-  const response = await buildLightUserResponseWithGlobals(user, now);
+  const response = await buildRealtimeUserResponseWithGlobals(user, now, { includePendingCounts: false });
   response.adventureResult = {
     requiresChoice: true,
     title: `${user.pendingAdventure.location} / ${user.pendingAdventure.actor}`,
@@ -16584,8 +16799,8 @@ app.post('/api/daily-augment/reroll', async (req, res) => {
       user.meta.dailyAugmentOptions = options;
       user.meta.dailyAugmentRerolledSlots = [...rerolledSlots, slotIndex];
       user.gameState.lastActionTime = now;
-      return buildLightUserResponseWithGlobals(user, now);
-    }, { conflictLabel: 'Daily augment reroll conflict' });
+      return buildRealtimeUserResponseWithGlobals(user, now, { includePendingCounts: false });
+    }, { conflictLabel: 'Daily augment reroll conflict', snapshotBuilder: buildUserSyncPersistenceSnapshot, selectFields: LIGHT_USER_SELECT_FIELDS });
 
     res.json(response);
   } catch (err) {
@@ -16644,8 +16859,8 @@ app.post('/api/daily-augment/select', async (req, res) => {
         queueNotification(user, 'daily_augment_reward', `오늘의 증강 보상으로 박카스 ${bacchusGrant}개를 획득했습니다.`);
       }
       user.gameState.lastActionTime = now;
-      return buildLightUserResponseWithGlobals(user, now);
-    }, { conflictLabel: 'Daily augment select conflict' });
+      return buildRealtimeUserResponseWithGlobals(user, now, { includePendingCounts: false });
+    }, { conflictLabel: 'Daily augment select conflict', snapshotBuilder: buildUserSyncPersistenceSnapshot, selectFields: LIGHT_USER_SELECT_FIELDS });
 
     res.json(response);
   } catch (err) {
@@ -16731,7 +16946,7 @@ app.post('/api/action/work', async (req, res) => {
       if (workDrop?.text) {
         queueNotification(user, 'work_drop', workDrop.text);
       }
-      const response = await buildLightUserResponseWithGlobals(user, now);
+      const response = await buildRealtimeUserResponseWithGlobals(user, now, { includePendingCounts: false });
       if (workDrop) {
         response.workDrop = workDrop;
       }
@@ -16740,7 +16955,7 @@ app.post('/api/action/work', async (req, res) => {
         warning: antiCheat.warning
       };
       return response;
-    }, { conflictLabel: 'Work action conflict', snapshotBuilder: buildUserActionPersistenceSnapshot });
+    }, { conflictLabel: 'Work action conflict', snapshotBuilder: buildUserSyncPersistenceSnapshot, selectFields: LIGHT_USER_SELECT_FIELDS });
 
     res.json(response);
   } catch (err) {
@@ -16815,7 +17030,7 @@ app.post('/api/action/news-typing', async (req, res) => {
       });
 
       const nextPrompt = await getNewsTypingPrompt(prompt.id);
-      const mutationResponse = await buildLightUserResponseWithGlobals(user, now);
+      const mutationResponse = await buildRealtimeUserResponseWithGlobals(user, now, { includePendingCounts: false });
       mutationResponse.newsTypingResult = {
         gainedExp,
         unitCount,
@@ -16828,7 +17043,7 @@ app.post('/api/action/news-typing', async (req, res) => {
         }
       };
       return mutationResponse;
-    }, { conflictLabel: 'News typing action conflict' });
+    }, { conflictLabel: 'News typing action conflict', snapshotBuilder: buildUserSyncPersistenceSnapshot, selectFields: LIGHT_USER_SELECT_FIELDS });
 
     markNewsTypingSubmissionSettled(submissionKey);
     res.json(response);
@@ -17024,7 +17239,7 @@ app.post('/api/action/adventure', async (req, res) => {
         staminaCost
       };
       return response;
-    }, { conflictLabel: 'Adventure action conflict', snapshotBuilder: buildUserActionPersistenceSnapshot });
+    }, { conflictLabel: 'Adventure action conflict', snapshotBuilder: buildUserSyncPersistenceSnapshot, selectFields: LIGHT_USER_SELECT_FIELDS });
 
     res.json(response);
   } catch (err) {
@@ -17109,7 +17324,7 @@ app.post('/api/action/adventure/resolve', async (req, res) => {
         rewardText
       };
       return response;
-    }, { conflictLabel: 'Adventure resolve conflict', snapshotBuilder: buildUserActionPersistenceSnapshot });
+    }, { conflictLabel: 'Adventure resolve conflict', snapshotBuilder: buildUserSyncPersistenceSnapshot, selectFields: LIGHT_USER_SELECT_FIELDS });
 
     res.json(response);
   } catch (err) {
@@ -17823,77 +18038,81 @@ app.post('/api/shop/buy', async (req, res) => {
   }
 
   try {
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      const now = new Date();
+      calculateOfflineGains(user, now);
+      ensureUserDefaults(user);
+      syncDailyShopState(user, now);
 
-    const now = new Date();
-    calculateOfflineGains(user, now);
-    ensureUserDefaults(user);
-    syncDailyShopState(user, now);
+      const remainingDailyPurchases = getRemainingDailyShopPurchases(user, itemId);
+      if (Number.isFinite(remainingDailyPurchases) && buyQuantity > remainingDailyPurchases) {
+        if (itemId === 'business_card') {
+          throw createHttpError(400, '명함은 하루에 최대 5개까지만 구매할 수 있습니다.');
+        }
+        if (itemId === 'bacchus') {
+          throw createHttpError(400, '박카스는 하루에 최대 20개까지만 구매할 수 있습니다.');
+        }
+        if (itemId === 'hot6') {
+          throw createHttpError(400, '핫식스는 하루에 최대 5개까지만 구매할 수 있습니다.');
+        }
+      }
 
-    const remainingDailyPurchases = getRemainingDailyShopPurchases(user, itemId);
-    if (Number.isFinite(remainingDailyPurchases) && buyQuantity > remainingDailyPurchases) {
+      if (itemId === 'coffee_mix') {
+        const derivedStats = calculateDerivedStats(user, now);
+        if (Number(derivedStats.stressReductionPercent || 0) >= 100) {
+          throw createHttpError(400, '스트레스 감소율이 이미 100%에 도달하여 더 이상 맥심 커피믹스를 구매할 수 없습니다.');
+        }
+      }
+
+      const shopDiscountPercent = getDailyAugmentShopDiscountPercent(user, now);
+      const totalPrice = getTotalBuyPrice(user, itemId, buyQuantity, now);
+
+      if (user.gameState.money < totalPrice) {
+        throw createHttpError(400, '잔고가 부족합니다.');
+      }
+
+      user.gameState.money -= totalPrice;
+      addItemToInventory(user, itemId, buyQuantity, { allowDailyAugmentCopy: false, now });
+      if (shopDiscountPercent > 0) {
+        markDailyAugmentShopDiscountUsed(user, now);
+      }
       if (itemId === 'business_card') {
-        return res.status(400).json({ msg: '명함은 하루에 최대 5개까지만 구매할 수 있습니다.' });
+        user.shopState.dailyBusinessCardPurchases += buyQuantity;
+      } else if (itemId === 'bacchus') {
+        user.shopState.dailyBacchusPurchases += buyQuantity;
+      } else if (itemId === 'hot6') {
+        user.shopState.dailyHot6Purchases += buyQuantity;
       }
-      if (itemId === 'bacchus') {
-        return res.status(400).json({ msg: '박카스는 하루에 최대 20개까지만 구매할 수 있습니다.' });
-      }
-      if (itemId === 'hot6') {
-        return res.status(400).json({ msg: '핫식스는 하루에 최대 5개까지만 구매할 수 있습니다.' });
-      }
-    }
+      recordShopSpend(user, totalPrice, now);
 
-    if (itemId === 'coffee_mix') {
       const derivedStats = calculateDerivedStats(user, now);
-      if (Number(derivedStats.stressReductionPercent || 0) >= 100) {
-        return res.status(400).json({ msg: '스트레스 감소율이 이미 100%에 도달해 더 이상 맥심 커피믹스를 구매할 수 없습니다.' });
+      if (derivedStats.shopStressRelief > 0) {
+        addUserStress(user, -derivedStats.shopStressRelief);
       }
-    }
 
-    const shopDiscountPercent = getDailyAugmentShopDiscountPercent(user, now);
-    const totalPrice = getTotalBuyPrice(user, itemId, buyQuantity, now);
+      reconcileTitles(user, now, derivedStats);
+      reconcileEmblems(user);
+      user.gameState.lastActionTime = now;
 
-    if (user.gameState.money < totalPrice) {
-      return res.status(400).json({ msg: '잔고가 부족합니다.' });
-    }
+      const purchaseResponse = await buildRealtimeUserResponseWithGlobals(user, now, { includePendingCounts: false });
+      purchaseResponse.shopPurchase = {
+        itemId,
+        itemName: itemInfo.name,
+        quantity: buyQuantity,
+        totalPrice,
+        ownedQuantity: getInventoryQuantity(user, itemId)
+      };
+      return purchaseResponse;
+    }, {
+      conflictLabel: 'Shop buy conflict',
+      snapshotBuilder: buildUserSyncPersistenceSnapshot,
+      selectFields: LIGHT_USER_SELECT_FIELDS
+    });
 
-    user.gameState.money -= totalPrice;
-    addItemToInventory(user, itemId, buyQuantity, { allowDailyAugmentCopy: false, now });
-    if (shopDiscountPercent > 0) {
-      markDailyAugmentShopDiscountUsed(user, now);
-    }
-    if (itemId === 'business_card') {
-      user.shopState.dailyBusinessCardPurchases += buyQuantity;
-    } else if (itemId === 'bacchus') {
-      user.shopState.dailyBacchusPurchases += buyQuantity;
-    } else if (itemId === 'hot6') {
-      user.shopState.dailyHot6Purchases += buyQuantity;
-    }
-    recordShopSpend(user, totalPrice, now);
-
-    const derivedStats = calculateDerivedStats(user, now);
-    if (derivedStats.shopStressRelief > 0) {
-      addUserStress(user, -derivedStats.shopStressRelief);
-    }
-
-    reconcileTitles(user, now);
-    reconcileEmblems(user);
-    user.gameState.lastActionTime = now;
-
-    const response = await buildFastUserResponseWithGlobals(user, now);
-    response.shopPurchase = {
-      itemId,
-      itemName: itemInfo.name,
-      quantity: buyQuantity,
-      totalPrice,
-      ownedQuantity: getInventoryQuantity(user, itemId)
-    };
-    await persistUserSnapshot(user);
     res.json(response);
   } catch (err) {
     console.error('Shop buy error:', err);
-    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
   }
 });
 
@@ -20440,7 +20659,7 @@ app.post('/api/sync', async (req, res) => {
       reconcileTitles(user, now);
 
       const hadPendingNotifications = Array.isArray(user.pendingNotifications) && user.pendingNotifications.length > 0;
-      const syncResponse = await buildLightUserResponseWithGlobals(user, now, {
+      const syncResponse = await buildRealtimeUserResponseWithGlobals(user, now, {
         includePendingCounts: shouldIncludePendingCounts
       });
       const throttleKey = String(user._id);
@@ -20469,7 +20688,7 @@ app.post('/api/sync', async (req, res) => {
         ensureUserDefaults(latestUser);
         const now = new Date();
         const recoveryResponse = {
-          userPatch: buildLightGameStateResponse(latestUser, now),
+          userPatch: buildRealtimeGameStatePatch(latestUser, now),
           notifications: Array.isArray(latestUser.pendingNotifications) ? [...latestUser.pendingNotifications] : [],
           global: getGlobalState(now)
         };
@@ -20756,49 +20975,54 @@ async function buildRankingPayload(now = new Date(), requestedMode = 'all') {
   }
 
   if (mode === 'all' || mode === 'pvp') {
-    const pvpUsers = await User.find({ nickname: { $ne: null } })
-      .select('nickname username titles emblems meta.lastSeenAt pvpStats branchOffice.isFounded branchOffice.companyName branchOffice.companyValue')
+    const pvpSelect = 'nickname username titles emblems meta.lastSeenAt pvpStats branchOffice.isFounded branchOffice.companyName branchOffice.companyValue';
+    const playedUsers = await User.find({ nickname: { $ne: null }, 'pvpStats.played': { $gt: 0 } })
+      .sort({ 'pvpStats.rating': -1, 'pvpStats.wins': -1, 'pvpStats.losses': 1, nickname: 1, username: 1 })
+      .limit(20)
+      .select(pvpSelect)
       .lean();
-    payload.pvp = pvpUsers
-      .map((user) => ({
-        nickname: user.nickname,
-        displayName: buildDisplayName(user),
-        equippedEmblem: getEquippedEmblemDetail(user),
-        pvpStats: {
-          rating: Math.round(Number(user.pvpStats?.rating ?? PVP_RATING_BASE)),
-          played: Math.max(0, Math.floor(Number(user.pvpStats?.played || 0))),
-          wins: Math.max(0, Math.floor(Number(user.pvpStats?.wins || 0))),
-          losses: Math.max(0, Math.floor(Number(user.pvpStats?.losses || 0)))
-        },
-        isOnline: Boolean(user.meta?.lastSeenAt && now.getTime() - new Date(user.meta.lastSeenAt).getTime() <= ONLINE_THRESHOLD_MS),
-        branchOffice: getBranchRankingLiteSummary(user)
-      }))
-      .sort((a, b) => {
-        const aPlayed = a.pvpStats.played > 0 ? 1 : 0;
-        const bPlayed = b.pvpStats.played > 0 ? 1 : 0;
-        return bPlayed - aPlayed
-          || b.pvpStats.rating - a.pvpStats.rating
-          || b.pvpStats.wins - a.pvpStats.wins
-          || a.pvpStats.losses - b.pvpStats.losses
-          || String(a.nickname || '').localeCompare(String(b.nickname || ''));
-      })
-      .slice(0, 20);
+    const fillerUsers = playedUsers.length >= 20
+      ? []
+      : await User.find({
+          nickname: { $ne: null },
+          $or: [
+            { 'pvpStats.played': { $exists: false } },
+            { 'pvpStats.played': { $lte: 0 } }
+          ]
+        })
+          .sort({ nickname: 1, username: 1 })
+          .limit(20 - playedUsers.length)
+          .select(pvpSelect)
+          .lean();
+    const pvpUsers = [...playedUsers, ...fillerUsers];
+    payload.pvp = pvpUsers.map((user) => ({
+      nickname: user.nickname,
+      displayName: buildDisplayName(user),
+      equippedEmblem: getEquippedEmblemDetail(user),
+      pvpStats: {
+        rating: Math.round(Number(user.pvpStats?.rating ?? PVP_RATING_BASE)),
+        played: Math.max(0, Math.floor(Number(user.pvpStats?.played || 0))),
+        wins: Math.max(0, Math.floor(Number(user.pvpStats?.wins || 0))),
+        losses: Math.max(0, Math.floor(Number(user.pvpStats?.losses || 0)))
+      },
+      isOnline: Boolean(user.meta?.lastSeenAt && now.getTime() - new Date(user.meta.lastSeenAt).getTime() <= ONLINE_THRESHOLD_MS),
+      branchOffice: getBranchRankingLiteSummary(user)
+    }));
   }
 
   if (mode === 'all' || mode === 'branch') {
     const branchUsers = await User.find({ nickname: { $ne: null }, 'branchOffice.isFounded': true })
-      .select('nickname username gameState inventory buffs titles emblems meta.lastSeenAt branchOffice');
-    payload.branch = branchUsers
-      .map((user) => ({
-        nickname: user.nickname,
-        displayName: buildDisplayName(user),
-        equippedEmblem: getEquippedEmblemDetail(user),
-        branchOffice: getBranchRankingSummary(user),
-        isOnline: Boolean(user.meta?.lastSeenAt && now.getTime() - new Date(user.meta.lastSeenAt).getTime() <= ONLINE_THRESHOLD_MS)
-      }))
-      .sort((a, b) => Number(b.branchOffice?.companyValue || 0) - Number(a.branchOffice?.companyValue || 0)
-        || String(a.nickname || '').localeCompare(String(b.nickname || '')))
-      .slice(0, 20);
+      .sort({ 'branchOffice.companyValue': -1, nickname: 1, username: 1 })
+      .limit(20)
+      .select('nickname username titles emblems meta.lastSeenAt branchOffice.isFounded branchOffice.companyName branchOffice.companyValue branchOffice.employees branchOffice.items branchOffice.storageSlots branchOffice.itemCodex branchOffice.lastLog')
+      .lean();
+    payload.branch = branchUsers.map((user) => ({
+      nickname: user.nickname,
+      displayName: buildDisplayName(user),
+      equippedEmblem: getEquippedEmblemDetail(user),
+      branchOffice: getBranchRankingSummaryFromLean(user),
+      isOnline: Boolean(user.meta?.lastSeenAt && now.getTime() - new Date(user.meta.lastSeenAt).getTime() <= ONLINE_THRESHOLD_MS)
+    }));
   }
 
   return payload;
@@ -20812,7 +21036,7 @@ async function getRankingPayloadCached(now = new Date(), requestedMode = 'all') 
     return cached.payload;
   }
   if (cached?.promise) {
-    return cached.promise;
+    return cached.payload || cached.promise;
   }
   const promise = buildRankingPayload(now, mode)
     .then((payload) => {
@@ -20838,7 +21062,7 @@ async function getRankingPayloadCached(now = new Date(), requestedMode = 'all') 
     expiresAt: cached?.expiresAt || 0,
     promise
   });
-  return promise;
+  return cached?.payload || promise;
 }
 
 app.get('/api/ranking', async (req, res) => {
@@ -20900,37 +21124,11 @@ app.post('/api/mail/claim-all', async (req, res) => {
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
-    const now = new Date();
-    await expireAdminMails(userId, now);
-    const mails = await AdminMail.find({
-      recipientId: userId,
-      status: 'pending',
-      expiresAt: { $gt: now }
-    }).sort({ createdAt: 1 }).select('_id');
-
-    const messages = [];
-    for (const mail of mails) {
-      try {
-        messages.push(await claimAdminMail(userId, mail._id, new Date()));
-      } catch (err) {
-        console.error('Admin mail claim-all item skipped:', err);
-      }
-    }
-
-    const responseNow = new Date();
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
-    ensureUserDefaults(user);
-    const response = await buildUserResponseWithGlobals(user, responseNow);
-    response.mail = {
-      mails: await getPendingAdminMailList(user._id, responseNow),
-      claimedCount: messages.length,
-      messages
-    };
+    const response = await claimAdminMailsBatch(userId, new Date());
     res.json(response);
   } catch (err) {
     console.error('Admin mail claim all error:', err);
-    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+    res.status(err.statusCode || 500).json({ msg: err.statusCode ? err.message : '서버 오류가 발생했습니다.' });
   }
 });
 
