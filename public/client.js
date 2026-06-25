@@ -2769,10 +2769,29 @@ function updateShoutBanner(globalState = latestGlobalState) {
   lastRenderedShoutKey = shoutKey;
 }
 
+function hasActiveDailyAugment(user, augmentId) {
+  const dailyAugment = user?.dailyAugment || {};
+  const candidates = [];
+  if (dailyAugment.selected) candidates.push(dailyAugment.selected);
+  if (Array.isArray(dailyAugment.active)) candidates.push(...dailyAugment.active);
+  if (Array.isArray(dailyAugment.granted)) candidates.push(...dailyAugment.granted);
+  return candidates.some((augment) => {
+    if (!augment) return false;
+    if (typeof augment === 'string') return augment === augmentId;
+    return augment.id === augmentId;
+  });
+}
+
 function updateShoutStatus(user) {
   const statusEl = document.getElementById('shoutStatus');
   const shoutBtn = document.getElementById('shoutBtn');
   if (!statusEl || !shoutBtn) return;
+
+  if (hasActiveDailyAugment(user, 'daily_silver_company_dj')) {
+    statusEl.textContent = '사내방송 DJ 증강 효과로 오늘은 외치기 쿨타임이 없습니다.';
+    shoutBtn.disabled = false;
+    return;
+  }
 
   const lastShoutAt = user?.meta?.lastShoutAt ? new Date(user.meta.lastShoutAt) : null;
   const remainMs = lastShoutAt

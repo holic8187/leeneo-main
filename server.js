@@ -20723,12 +20723,15 @@ app.post('/api/action/shout', async (req, res) => {
     const now = new Date();
     calculateOfflineGains(user, now);
 
-    if (user.meta.lastShoutAt && now.getTime() - new Date(user.meta.lastShoutAt).getTime() < SHOUT_COOLDOWN_MS) {
+    const dailyAugmentStats = getDailyAugmentEffectTotals(user, now);
+    const hasShoutNoCooldown = Number(dailyAugmentStats.shoutNoCooldown || 0) > 0;
+    if (!hasShoutNoCooldown && user.meta.lastShoutAt && now.getTime() - new Date(user.meta.lastShoutAt).getTime() < SHOUT_COOLDOWN_MS) {
       return res.status(400).json({ msg: '외치기는 10분마다 한 번만 사용할 수 있습니다.' });
     }
 
-    user.meta.lastShoutAt = now;
+    if (!hasShoutNoCooldown) user.meta.lastShoutAt = now;
     pushShoutMessage(shoutMessage, now);
+
 
     const response = await buildUserResponseWithGlobals(user, now);
     await persistUserSnapshot(user);
