@@ -5620,7 +5620,8 @@ const pvpStateResponseCache = new Map();
 const syncResponseCache = new Map();
 const LIGHT_USER_SELECT_FIELDS = [
   'username', 'nickname', 'workHours', 'gameState', 'inventory',
-  'equippedCardId', 'equippedCardLevel',
+  'cards', 'enhancedCards', 'lockedCards',
+  'equippedCardId', 'equippedCardLevel', 'raidExtraCardSelection',
   'pvpStats', 'branchOffice', 'buffs', 'titles', 'emblems',
   'pendingStockInvestment', 'stockPortfolio', 'shopState',
   'dailyAugment', 'meta', 'pendingAdventure', 'pendingNotifications'
@@ -6144,7 +6145,11 @@ function removeCardFromCollection(user, cardId, amount = 1) {
     user.cards = user.cards.filter((card) => card.cardId !== cardId);
   }
 
-  if (user.equippedCardId === cardId && getCardQuantity(user, cardId) <= 0) {
+  if (
+    user.equippedCardId === cardId
+    && normalizeCardEnhancementLevel(user.equippedCardLevel || 0) === 0
+    && getCardQuantity(user, cardId) <= 0
+  ) {
     user.equippedCardId = null;
     user.equippedCardLevel = 0;
   }
@@ -19223,7 +19228,7 @@ app.post('/api/cards/toggle-lock', async (req, res) => {
     res.json(response);
   } catch (err) {
     console.error('Card lock error:', err);
-    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '?쒕쾭 ?ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.' });
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
   }
 });
 
@@ -19307,58 +19312,69 @@ app.post('/api/cards/equip', async (req, res) => {
 
   try {
     const response = await runUserMutationWithRetry(userId, async (user) => {
-      ensureUserDefaults(user);
       const now = new Date();
       calculateOfflineGains(user, now);
+      ensureUserDefaults(user);
 
       const targetLevel = normalizeCardEnhancementLevel(enhancementLevel || 0);
-    if (cardId && getOwnedCardVariantQuantity(user, cardId, targetLevel) <= 0) {
-      throw createHttpError(400, '보유하지 않은 카드입니다.');
+      if (cardId && getOwnedCardVariantQuantity(user, cardId, targetLevel) <= 0) {
+        throw createHttpError(400, '보유하지 않은 카드입니다.');
       }
 
       for (const mode of RAID_MODE_LIST) {
-      const queuedSlotIndex = findQueuedRaidSlotIndex(user._id, mode);
-      if (queuedSlotIndex >= 0 && cardId) {
+        const queuedSlotIndex = findQueuedRaidSlotIndex(user._id, mode);
+        if (queuedSlotIndex < 0 || !cardId) continue;
+
         const otherQueuedUserIds = getRaidRoom(mode).slots
           .filter(Boolean)
           .filter((slotUserId) => String(slotUserId) !== String(user._id));
-        if (otherQueuedUserIds.length) {
-          const queuedUsers = await User.find({ _id: { $in: otherQueuedUserIds } })
-            .select('nickname username equippedCardId equippedCardLevel raidExtraCardSelection cards enhancedCards');
-          const duplicateCardUser = queuedUsers.find((queuedUser) => {
-            ensureUserDefaults(queuedUser);
-            return buildRaidCardEntriesForUser(queuedUser, mode)
-              .some((entry) => entry.cardId === cardId);
-          });
-          if (duplicateCardUser) {
-            throw createHttpError(400, '같은 카드를 든 참가자가 이미 대기 중이라 교체할 수 없습니다.');
-            }
-          }
+        if (!otherQueuedUserIds.length) continue;
+
+        const queuedUsers = await User.find({ _id: { $in: otherQueuedUserIds } })
+          .select('nickname username equippedCardId equippedCardLevel raidExtraCardSelection cards enhancedCards');
+        const duplicateCardUser = queuedUsers.find((queuedUser) => {
+          ensureUserDefaults(queuedUser);
+          return buildRaidCardEntriesForUser(queuedUser, mode)
+            .some((entry) => entry.cardId === cardId);
+        });
+        if (duplicateCardUser) {
+          throw createHttpError(400, '같은 카드를 든 참가자가 이미 대기 중이라 교체할 수 없습니다.');
         }
       }
 
-      if (user.equippedCardId === cardId && Number(user.equippedCardLevel || 0) === targetLevel) {
-      user.equippedCardId = null;
-      user.equippedCardLevel = 0;
-    } else {
-      user.equippedCardId = cardId || null;
-      user.equippedCardLevel = cardId ? targetLevel : 0;
-    }
-    if (
-      user.raidExtraCardSelection?.cardId
-      && user.raidExtraCardSelection.cardId === user.equippedCardId
-      && Number(user.raidExtraCardSelection.level || 0) === Number(user.equippedCardLevel || 0)
-    ) {
-      user.raidExtraCardSelection = { cardId: null, level: 0 };
-    }
+      const isSameCardVariant = user.equippedCardId === cardId
+        && Number(user.equippedCardLevel || 0) === targetLevel;
+      if (isSameCardVariant) {
+        user.equippedCardId = null;
+        user.equippedCardLevel = 0;
+      } else {
+        user.equippedCardId = cardId || null;
+        user.equippedCardLevel = cardId ? targetLevel : 0;
+      }
+
+      if (
+        user.raidExtraCardSelection?.cardId
+        && user.raidExtraCardSelection.cardId === user.equippedCardId
+        && Number(user.raidExtraCardSelection.level || 0) === Number(user.equippedCardLevel || 0)
+      ) {
+        user.raidExtraCardSelection = { cardId: null, level: 0 };
+      }
+
       user.gameState.lastActionTime = now;
-      return buildRealtimeUserResponseWithGlobals(user, now, {
-        includePendingCounts: false,
-        includeCardState: true
-      });
+      return {
+        userPatch: {
+          ...buildRealtimeGameStatePatch(user, now),
+          cards: user.cards,
+          enhancedCards: user.enhancedCards,
+          lockedCards: user.lockedCards,
+          cardDetails: buildCardDetails(user),
+          cardVariantDetails: buildCardVariantDetails(user)
+        },
+        notifications: consumeNotifications(user)
+      };
     }, {
       conflictLabel: 'Card equip conflict',
-      selectFields: LIGHT_USER_SELECT_FIELDS + ' cards enhancedCards lockedCards raidExtraCardSelection',
+      selectFields: LIGHT_USER_SELECT_FIELDS,
       snapshotBuilder: buildUserSyncPersistenceSnapshot
     });
     res.json(response);

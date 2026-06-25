@@ -7537,9 +7537,20 @@ function renderBranchOfficeModal(user = getStoredUser()) {
   const artifactEffectListHtml = renderBranchArtifactEffectList(branch.itemEffects || {});
   const postPreview = Number(branch.dailySalaryBase || 0);
   const pendingExcavation = branch.pendingExcavation || null;
-  const pendingRemainingMs = Number(pendingExcavation?.remainingMs || 0);
-  const pendingComplete = Boolean(pendingExcavation?.isComplete);
-  const pendingProgress = Math.max(0, Math.min(100, Number(pendingExcavation?.progressPercent || 0)));
+  const pendingStartedAtMs = pendingExcavation?.startedAt ? new Date(pendingExcavation.startedAt).getTime() : NaN;
+  const pendingCompletesAtMs = pendingExcavation?.completesAt ? new Date(pendingExcavation.completesAt).getTime() : NaN;
+  const pendingRemainingMs = pendingExcavation
+    ? (Number.isFinite(pendingCompletesAtMs)
+      ? Math.max(0, pendingCompletesAtMs - Date.now())
+      : Math.max(0, Number(pendingExcavation?.remainingMs || 0)))
+    : 0;
+  const pendingTotalMs = Number.isFinite(pendingStartedAtMs) && Number.isFinite(pendingCompletesAtMs) && pendingCompletesAtMs > pendingStartedAtMs
+    ? Math.max(1, pendingCompletesAtMs - pendingStartedAtMs)
+    : Math.max(1, Number(branch.excavationDurationMs || 0));
+  const pendingComplete = Boolean(pendingExcavation && (pendingExcavation.isComplete || pendingRemainingMs <= 0));
+  const pendingProgress = pendingExcavation
+    ? Math.max(0, Math.min(100, ((pendingTotalMs - pendingRemainingMs) / pendingTotalMs) * 100))
+    : 0;
   const brokenRemainingMs = Number(branch.excavationBrokenRemainingMs || 0);
   const branchMachineBroken = brokenRemainingMs > 0;
   const autoExcavationEnabled = Boolean(branch.autoExcavationEnabled);
@@ -7665,8 +7676,10 @@ async function runBranchAction(endpoint, body = {}) {
 
 function maybeResolveCompletedBranchAutoExcavation(branch = {}) {
   const pending = branch.pendingExcavation || null;
-  if (!branch.autoExcavationEnabled || !pending?.isComplete || Number(branch.excavationBrokenRemainingMs || 0) > 0) {
-    if (!pending || !pending.isComplete) branchAutoResolveKey = '';
+  const completesAtMs = pending?.completesAt ? new Date(pending.completesAt).getTime() : NaN;
+  const locallyComplete = Boolean(pending && (pending.isComplete || (Number.isFinite(completesAtMs) && completesAtMs <= Date.now())));
+  if (!branch.autoExcavationEnabled || !locallyComplete || Number(branch.excavationBrokenRemainingMs || 0) > 0) {
+    if (!pending || !locallyComplete) branchAutoResolveKey = '';
     return;
   }
   const key = String(pending.completesAt || pending.startedAt || 'complete');
@@ -9544,6 +9557,11 @@ function startPeriodicUpdates() {
     if (user) {
       updateBuffUI(user);
       updateShoutStatus(user);
+
+      const branchOfficeModal = document.getElementById('branchOfficeModal');
+      if (branchOfficeModal && !branchOfficeModal.classList.contains('hidden') && !isBranchOfficeTextEntryActive()) {
+        renderBranchOfficeModal(user);
+      }
     }
   }, 1000);
 
