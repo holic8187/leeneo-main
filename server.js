@@ -5614,8 +5614,10 @@ const SYNC_PERSIST_MIN_INTERVAL_MS = 60000;
 const POLL_USER_CACHE_TTL_MS = 5000;
 const pollUserSnapshotCache = new Map();
 const STATE_RESPONSE_CACHE_TTL_MS = 4000;
+const SYNC_RESPONSE_CACHE_TTL_MS = 5000;
 const raidStateResponseCache = new Map();
 const pvpStateResponseCache = new Map();
+const syncResponseCache = new Map();
 const LIGHT_USER_SELECT_FIELDS = [
   'username', 'nickname', 'workHours', 'gameState', 'inventory',
   'equippedCardId', 'equippedCardLevel',
@@ -5641,6 +5643,35 @@ function setStateResponseCache(cache, key, value) {
       if (!entry?.expiresAt || entry.expiresAt <= nowMs) cache.delete(entryKey);
     }
   }
+}
+
+function getSyncResponseCache(userId) {
+  const key = String(userId || '');
+  if (!key) return null;
+  const nowMs = Date.now();
+  const cached = syncResponseCache.get(key);
+  if (cached?.expiresAt > nowMs) return cached.value;
+  if (cached) syncResponseCache.delete(key);
+  return null;
+}
+
+function setSyncResponseCache(userId, value) {
+  const key = String(userId || '');
+  if (!key || !value) return;
+  const notifications = Array.isArray(value.notifications) ? value.notifications : [];
+  if (notifications.length > 0) return;
+  const nowMs = Date.now();
+  syncResponseCache.set(key, { value, expiresAt: nowMs + SYNC_RESPONSE_CACHE_TTL_MS });
+  if (syncResponseCache.size > 500) {
+    for (const [entryKey, entry] of syncResponseCache.entries()) {
+      if (!entry?.expiresAt || entry.expiresAt <= nowMs) syncResponseCache.delete(entryKey);
+    }
+  }
+}
+
+function clearSyncResponseCacheForUser(userId) {
+  const key = String(userId || '');
+  if (key) syncResponseCache.delete(key);
 }
 
 
@@ -5743,6 +5774,7 @@ function buildUserSyncPersistenceSnapshot(user) {
     inventory: toPlainMongoValue(user.inventory),
     equippedCardId: user.equippedCardId || null,
     equippedCardLevel: normalizeCardEnhancementLevel(user.equippedCardLevel || 0),
+    raidExtraCardSelection: toPlainMongoValue(user.raidExtraCardSelection),
     pvpStats: toPlainMongoValue(user.pvpStats),
     branchOffice: toPlainMongoValue(user.branchOffice),
     buffs: toPlainMongoValue(user.buffs),
@@ -5813,6 +5845,7 @@ async function runUserMutationWithRetry(userId, mutateUser, options = {}) {
 
     try {
       await persistUserSnapshot(user, { snapshotBuilder });
+      clearSyncResponseCacheForUser(userId);
       if (typeof afterSave === 'function') {
         return await afterSave(user, result, attempt);
       }
@@ -5870,8 +5903,14 @@ function getEnhancedCardEntry(user, cardId, level) {
   return (user.enhancedCards || []).find((card) => card.cardId === cardId && Number(card.level) === normalizedLevel);
 }
 
+function getInventoryQuantityFromItems(inventory = [], itemId) {
+  return (Array.isArray(inventory) ? inventory : [])
+    .filter((item) => item?.itemId === itemId)
+    .reduce((total, item) => total + Math.max(0, Math.floor(Number(item.quantity) || 0)), 0);
+}
+
 function getInventoryQuantity(user, itemId) {
-  return getInventoryItems(user, itemId).reduce((total, item) => total + Math.max(0, Number(item.quantity) || 0), 0);
+  return getInventoryQuantityFromItems(user?.inventory || [], itemId);
 }
 
 function getCardQuantity(user, cardId) {
@@ -5884,7 +5923,9 @@ function getEnhancedCardQuantity(user, cardId, level) {
 
 function getOwnedCardVariantQuantity(user, cardId, level = 0) {
   const normalizedLevel = normalizeCardEnhancementLevel(level);
-  return normalizedLevel <= 0 ? getCardQuantity(user, cardId) : getEnhancedCardQuantity(user, cardId, normalizedLevel);
+  return normalizedLevel <= 0
+    ? getCardQuantity(user, cardId) + getEnhancedCardQuantity(user, cardId, 0)
+    : getEnhancedCardQuantity(user, cardId, normalizedLevel);
 }
 
 function getCardVariantKey(cardId, level = 0) {
@@ -16304,6 +16345,9 @@ function buildLightGameStateResponse(user, now = new Date()) {
     workHours: user.workHours,
     gameState,
     inventory: user.inventory,
+    equippedCardId: user.equippedCardId || null,
+    equippedCardLevel: normalizeCardEnhancementLevel(user.equippedCardLevel || 0),
+    raidExtraCardSelection: user.raidExtraCardSelection,
     buffs: user.buffs,
     pvpStats: {
       rating: Math.round(Number(user.pvpStats?.rating ?? PVP_RATING_BASE)),
@@ -16361,6 +16405,9 @@ function buildRealtimeGameStatePatch(user, now = new Date()) {
     workHours: user.workHours,
     gameState,
     inventory: user.inventory,
+    equippedCardId: user.equippedCardId || null,
+    equippedCardLevel: normalizeCardEnhancementLevel(user.equippedCardLevel || 0),
+    raidExtraCardSelection: user.raidExtraCardSelection,
     buffs: user.buffs,
     titles: user.titles,
     titleDetails: buildTitleDetails(user, now),
@@ -16402,6 +16449,17 @@ function buildRealtimeUserResponse(user, now = new Date()) {
 async function buildRealtimeUserResponseWithGlobals(user, now = new Date(), options = {}) {
   const response = buildRealtimeUserResponse(user, now);
   response.global = getGlobalState(now);
+
+  if (options.includeCardState === true) {
+    response.userPatch = {
+      ...response.userPatch,
+      cards: user.cards,
+      enhancedCards: user.enhancedCards,
+      lockedCards: user.lockedCards,
+      cardDetails: buildCardDetails(user),
+      cardVariantDetails: buildCardVariantDetails(user)
+    };
+  }
 
   if (options.includePendingCounts !== false) {
     response.marketplaceSoldPendingCount = await getMarketplaceSoldPendingCount(user._id);
@@ -18276,6 +18334,23 @@ app.post('/api/inventory/use', async (req, res) => {
   }
 
   try {
+    const quickInventoryUser = await User.findById(userId).select('inventory branchOffice').lean();
+    if (!quickInventoryUser) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    if (getInventoryQuantityFromItems(quickInventoryUser.inventory, itemId) <= 0) {
+      return res.status(400).json({ msg: '해당 아이템이 부족합니다.' });
+    }
+    if (itemId === 'bacchus_oneshot_ticket' && getInventoryQuantityFromItems(quickInventoryUser.inventory, 'bacchus') < 100) {
+      return res.status(400).json({ msg: '박카스 원샷 티켓을 사용하려면 박카스 100개가 필요합니다.' });
+    }
+    if (itemId === 'excavation_repair_coupon') {
+      const brokenUntil = quickInventoryUser.branchOffice?.excavationBrokenUntil
+        ? new Date(quickInventoryUser.branchOffice.excavationBrokenUntil)
+        : null;
+      if (!quickInventoryUser.branchOffice?.isFounded || !brokenUntil || !Number.isFinite(brokenUntil.getTime()) || brokenUntil <= new Date()) {
+        return res.status(400).json({ msg: '현재 수리할 발굴 기계 고장이 없습니다.' });
+      }
+    }
+
     const response = await runUserMutationWithRetry(userId, async (user) => {
       const now = new Date();
       calculateOfflineGains(user, now);
@@ -19231,19 +19306,17 @@ app.post('/api/cards/equip', async (req, res) => {
   if (!userId) return res.status(400).json({ msg: '사용자 ID가 필요합니다.' });
 
   try {
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ msg: '사용자를 찾을 수 없습니다.' });
+    const response = await runUserMutationWithRetry(userId, async (user) => {
+      ensureUserDefaults(user);
+      const now = new Date();
+      calculateOfflineGains(user, now);
 
-    ensureUserDefaults(user);
-    const now = new Date();
-    calculateOfflineGains(user, now);
-
-    const targetLevel = normalizeCardEnhancementLevel(enhancementLevel || 0);
+      const targetLevel = normalizeCardEnhancementLevel(enhancementLevel || 0);
     if (cardId && getOwnedCardVariantQuantity(user, cardId, targetLevel) <= 0) {
-      return res.status(400).json({ msg: '보유하지 않은 카드입니다.' });
-    }
+      throw createHttpError(400, '보유하지 않은 카드입니다.');
+      }
 
-    for (const mode of RAID_MODE_LIST) {
+      for (const mode of RAID_MODE_LIST) {
       const queuedSlotIndex = findQueuedRaidSlotIndex(user._id, mode);
       if (queuedSlotIndex >= 0 && cardId) {
         const otherQueuedUserIds = getRaidRoom(mode).slots
@@ -19258,13 +19331,13 @@ app.post('/api/cards/equip', async (req, res) => {
               .some((entry) => entry.cardId === cardId);
           });
           if (duplicateCardUser) {
-            return res.status(400).json({ msg: '같은 카드를 든 참가자가 이미 대기 중이라 교체할 수 없습니다.' });
+            throw createHttpError(400, '같은 카드를 든 참가자가 이미 대기 중이라 교체할 수 없습니다.');
+            }
           }
         }
       }
-    }
 
-    if (user.equippedCardId === cardId && Number(user.equippedCardLevel || 0) === targetLevel) {
+      if (user.equippedCardId === cardId && Number(user.equippedCardLevel || 0) === targetLevel) {
       user.equippedCardId = null;
       user.equippedCardLevel = 0;
     } else {
@@ -19278,12 +19351,20 @@ app.post('/api/cards/equip', async (req, res) => {
     ) {
       user.raidExtraCardSelection = { cardId: null, level: 0 };
     }
-    const response = await buildUserResponseWithGlobals(user, now);
-    await persistUserSnapshot(user);
+      user.gameState.lastActionTime = now;
+      return buildRealtimeUserResponseWithGlobals(user, now, {
+        includePendingCounts: false,
+        includeCardState: true
+      });
+    }, {
+      conflictLabel: 'Card equip conflict',
+      selectFields: LIGHT_USER_SELECT_FIELDS + ' cards enhancedCards lockedCards raidExtraCardSelection',
+      snapshotBuilder: buildUserSyncPersistenceSnapshot
+    });
     res.json(response);
   } catch (err) {
     console.error('Card equip error:', err);
-    res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
+    res.status(err?.statusCode || 500).json({ msg: err?.statusCode ? err.message : '서버 오류가 발생했습니다.' });
   }
 });
 
@@ -20648,6 +20729,9 @@ app.post('/api/sync', async (req, res) => {
 
   try {
     const shouldIncludePendingCounts = includeCounts === true;
+    const cachedSyncResponse = shouldIncludePendingCounts ? null : getSyncResponseCache(userId);
+    if (cachedSyncResponse) return res.json(cachedSyncResponse);
+
     const response = await withUserMutationLock(userId, async () => {
       const user = await User.findById(userId).select(SYNC_USER_SELECT_FIELDS);
       if (!user) {
@@ -20657,6 +20741,9 @@ app.post('/api/sync', async (req, res) => {
       const now = new Date();
       calculateOfflineGains(user, now);
       reconcileTitles(user, now);
+      const autoExcavationMessages = user.branchOffice?.autoExcavationEnabled
+        ? processBranchAutoExcavation(user, now, { maxSteps: 2 })
+        : [];
 
       const hadPendingNotifications = Array.isArray(user.pendingNotifications) && user.pendingNotifications.length > 0;
       const syncResponse = await buildRealtimeUserResponseWithGlobals(user, now, {
@@ -20664,7 +20751,8 @@ app.post('/api/sync', async (req, res) => {
       });
       const throttleKey = String(user._id);
       const lastPersistedAt = Number(userSyncPersistThrottle.get(throttleKey) || 0);
-      const shouldPersistSync = hadPendingNotifications
+      const shouldPersistSync = autoExcavationMessages.length > 0
+        || hadPendingNotifications
         || shouldIncludePendingCounts
         || now.getTime() - lastPersistedAt >= SYNC_PERSIST_MIN_INTERVAL_MS;
       if (shouldPersistSync) {
@@ -20673,6 +20761,7 @@ app.post('/api/sync', async (req, res) => {
       }
       return syncResponse;
     });
+    if (!shouldIncludePendingCounts) setSyncResponseCache(userId, response);
     res.json(response);
   } catch (err) {
     if (err?.statusCode) {

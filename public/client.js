@@ -240,6 +240,7 @@ let branchContractPercentDraft = '1';
 let branchEmployeeSortMode = { key: "grade", direction: "desc" };
 let branchAutoResolveInFlight = false;
 let branchAutoResolveKey = '';
+let branchAutoResolveRetryAt = 0;
 let shopModalMode = 'fragment';
 let syncInterval;
 let animationInterval;
@@ -247,6 +248,8 @@ let raidPollInterval;
 let pvpPollInterval;
 let rankingRequestInFlight = false;
 let syncRequestInFlight = false;
+let suppressSyncUntil = 0;
+const pendingInventoryUseKeys = new Set();
 let raidPollRequestInFlight = false;
 let pvpPollRequestInFlight = false;
 let lastSyncPendingCountAt = 0;
@@ -1882,10 +1885,16 @@ function endUserMutation() {
   userMutationInFlightCount = Math.max(0, userMutationInFlightCount - 1);
 }
 
+function suppressSyncForRecentMutation(ms = 5000) {
+  suppressSyncUntil = Math.max(suppressSyncUntil, Date.now() + ms);
+}
+
 async function runWithUserMutation(task) {
   beginUserMutation();
   try {
-    return await task();
+    const result = await task();
+    suppressSyncForRecentMutation();
+    return result;
   } finally {
     endUserMutation();
   }
@@ -4725,6 +4734,9 @@ async function handleUseItem(itemId, inputId) {
     return;
   }
   const quantity = Math.min(requestedQuantity, maxUsableQuantity);
+  const useKey = String(itemId);
+  if (pendingInventoryUseKeys.has(useKey)) return;
+  pendingInventoryUseKeys.add(useKey);
 
   try {
     const data = await runWithUserMutation(() => postJson(`${API_URL}/api/inventory/use`, {
@@ -4735,6 +4747,8 @@ async function handleUseItem(itemId, inputId) {
     updateLocalUserState(data);
   } catch (err) {
     alert(err.message);
+  } finally {
+    pendingInventoryUseKeys.delete(useKey);
   }
 }
 
@@ -7656,8 +7670,11 @@ function maybeResolveCompletedBranchAutoExcavation(branch = {}) {
     return;
   }
   const key = String(pending.completesAt || pending.startedAt || 'complete');
-  if (branchAutoResolveInFlight || branchAutoResolveKey === key) return;
+  const nowMs = Date.now();
+  if (branchAutoResolveInFlight) return;
+  if (branchAutoResolveKey === key && nowMs < branchAutoResolveRetryAt) return;
   branchAutoResolveKey = key;
+  branchAutoResolveRetryAt = nowMs + 5000;
   window.setTimeout(() => resolveCompletedBranchAutoExcavation(key), 250);
 }
 
@@ -7668,6 +7685,7 @@ async function resolveCompletedBranchAutoExcavation(resolveKey) {
     branchAutoResolveInFlight = true;
     const data = await runWithUserMutation(() => postJson(`${API_URL}/api/branch-office/excavate`, { userId: user._id }));
     updateLocalUserState(data, { force: true });
+    branchAutoResolveRetryAt = 0;
     renderBranchOfficeModal(getStoredUser());
   } catch (err) {
     console.warn('Branch auto excavation resolve failed:', err);
@@ -9428,10 +9446,11 @@ async function syncUserState() {
   if (!user?._id) return;
   if (userMutationInFlightCount > 0) return;
   if (syncRequestInFlight) return;
+  const includeCounts = Date.now() - lastSyncPendingCountAt >= 60000;
+  if (!includeCounts && Date.now() < suppressSyncUntil) return;
 
   try {
     syncRequestInFlight = true;
-    const includeCounts = Date.now() - lastSyncPendingCountAt >= 60000;
     const data = await postJson(`${API_URL}/api/sync`, { userId: user._id, includeCounts });
     if (includeCounts) lastSyncPendingCountAt = Date.now();
     updateLocalUserState(data, { force: false });
