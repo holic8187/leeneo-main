@@ -44,6 +44,7 @@
             <option value="package">패키지</option>
             <option value="title">칭호</option>
             <option value="fragment">장비 파편</option>
+            <option value="message">메시지</option>
           </select>
 
           <label for="giftIdSelect">선물 항목</label>
@@ -51,6 +52,13 @@
 
           <label for="giftQuantity">수량</label>
           <input type="number" id="giftQuantity" min="1" step="1" value="1">
+
+          <div id="adminMessageGiftFields" class="hidden">
+            <label for="adminMessageTitle">우편 제목</label>
+            <input type="text" id="adminMessageTitle" maxlength="80" placeholder="운영자 메시지">
+            <label for="adminMessageBody">메시지 내용</label>
+            <textarea id="adminMessageBody" rows="4" maxlength="1000" placeholder="우편함에 표시할 메시지를 입력하세요."></textarea>
+          </div>
 
           <button id="adminGiftBtn" class="menu-action-btn">선물 발송</button>
           <p id="adminStatus" class="menu-note">운영자 선물 대상을 불러오는 중입니다.</p>

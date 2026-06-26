@@ -78,9 +78,16 @@ button {
 .login-panel input,
 .stock-controls input,
 .admin-card input,
-.admin-card select {
+.admin-card select,
+.admin-card textarea {
   padding: 8px 10px;
   border: var(--excel-border);
+}
+
+.admin-card textarea {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
 }
 
 .login-panel button,

@@ -5233,7 +5233,9 @@ function renderMailboxModal() {
     ? `수령 가능한 우편 ${mails.length}건`
     : '수령 가능한 우편이 없습니다.';
 
-  listEl.innerHTML = mails.map((mail) => `
+  listEl.innerHTML = mails.map((mail) => {
+    const claimLabel = mail.giftType === 'message' ? '확인' : '수령';
+    return `
     <div class="mailbox-item">
       <div>
         <strong>${escapeHtml(mail.title || '운영자 우편')}</strong>
@@ -5241,9 +5243,10 @@ function renderMailboxModal() {
         <span class="menu-note">도착: ${escapeHtml(formatMarketDate(mail.createdAt))}</span>
         <span class="menu-note">${escapeHtml(formatMailRemaining(mail.remainingSeconds))}</span>
       </div>
-      <button class="mini-btn" onclick="handleMailboxClaim('${escapeAttr(mail.id)}')">수령</button>
+      <button class="mini-btn" onclick="handleMailboxClaim('${escapeAttr(mail.id)}')">${escapeHtml(claimLabel)}</button>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 async function handleMailboxClaim(mailId) {
@@ -9723,9 +9726,22 @@ function renderAdminGiftOptions() {
   const giftType = document.getElementById('giftTypeSelect');
   const giftSelect = document.getElementById('giftIdSelect');
   const quantityInput = document.getElementById('giftQuantity');
+  const messageFields = document.getElementById('adminMessageGiftFields');
   if (!session?.giftCatalog || !giftType || !giftSelect || !quantityInput) return;
 
   const selectedType = giftType.value;
+  if (selectedType === 'message') {
+    giftSelect.innerHTML = '<option value="message">메시지 우편</option>';
+    giftSelect.disabled = true;
+    quantityInput.disabled = true;
+    quantityInput.value = '1';
+    if (messageFields) messageFields.classList.remove('hidden');
+    return;
+  }
+
+  giftSelect.disabled = false;
+  if (messageFields) messageFields.classList.add('hidden');
+
   const entries = selectedType === 'buff'
     ? session.giftCatalog.buffs
     : selectedType === 'package'
@@ -9835,29 +9851,41 @@ async function handleAdminGift() {
   const giftType = document.getElementById('giftTypeSelect').value;
   const giftId = document.getElementById('giftIdSelect').value;
   const quantity = Math.max(1, Math.floor(Number(document.getElementById('giftQuantity').value) || 1));
+  const targetMode = targetValue === 'ALL_USERS' ? 'all' : 'single';
+  const payload = {
+    targetMode,
+    targetUserId: targetMode === 'single' ? targetValue : null,
+    giftType,
+    giftId,
+    quantity
+  };
 
-  if (!giftId) {
+  if (giftType === 'message') {
+    const messageTitle = String(document.getElementById('adminMessageTitle')?.value || '').trim() || '운영자 메시지';
+    const messageBody = String(document.getElementById('adminMessageBody')?.value || '').trim();
+    if (!messageBody) {
+      alert('메시지 내용을 입력해주세요.');
+      return;
+    }
+    payload.giftId = 'message';
+    payload.quantity = 1;
+    payload.messageTitle = messageTitle;
+    payload.messageBody = messageBody;
+  } else if (!giftId) {
     alert('선물할 항목을 선택해주세요.');
     return;
   }
 
-  const targetMode = targetValue === 'ALL_USERS' ? 'all' : 'single';
-
   try {
     const data = await postJson(
       `${API_URL}/api/admin/gift`,
-      {
-        targetMode,
-        targetUserId: targetMode === 'single' ? targetValue : null,
-        giftType,
-        giftId,
-        quantity
-      },
+      payload,
       getAdminAuthHeaders()
     );
 
-    setText('adminStatus', `선물을 ${data.deliveredCount}명에게 발송했습니다.`);
-    alert(`운영자 선물이 ${data.deliveredCount}명에게 발송되었습니다.`);
+    const sentLabel = giftType === 'message' ? '메시지' : '선물';
+    setText('adminStatus', `${sentLabel}을(를) ${data.deliveredCount}명에게 발송했습니다.`);
+    alert(`운영자 ${sentLabel}을(를) ${data.deliveredCount}명에게 발송했습니다.`);
   } catch (err) {
     alert(err.message);
   }

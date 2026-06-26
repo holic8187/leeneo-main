@@ -3315,7 +3315,7 @@ const GameSetting = mongoose.model('GameSetting', gameSettingSchema);
 
 const adminMailSchema = new mongoose.Schema({
   recipientId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  giftType: { type: String, enum: ['item', 'buff', 'package', 'title', 'fragment', 'raidReward'], required: true },
+  giftType: { type: String, enum: ['item', 'buff', 'package', 'title', 'fragment', 'raidReward', 'message'], required: true },
   giftId: { type: String, required: true },
   quantity: { type: Number, default: 1 },
   title: { type: String, required: true },
@@ -7151,9 +7151,24 @@ function applySupportPackage(user, packageId) {
 const ADMIN_MAIL_EXPIRY_MS = 24 * 60 * 60 * 1000;
 const RAID_REWARD_MAIL_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 
-function createAdminMailGiftPayload(giftType, giftId, quantity = 1, now = new Date()) {
+function createAdminMailGiftPayload(giftType, giftId, quantity = 1, now = new Date(), options = {}) {
   const giftQuantity = Math.max(1, Math.floor(Number(quantity) || 1));
   const expiresAt = new Date(now.getTime() + ADMIN_MAIL_EXPIRY_MS);
+
+  if (giftType === 'message') {
+    const messageTitle = String(options.messageTitle || '운영자 메시지').trim().slice(0, 80) || '운영자 메시지';
+    const messageBody = String(options.messageBody || '').replace(/\r\n/g, '\n').trim().slice(0, 1000);
+    if (!messageBody) throw createHttpError(400, '메시지 내용을 입력해주세요.');
+    return {
+      giftType,
+      giftId: giftId || `message:${now.getTime()}`,
+      quantity: 1,
+      title: messageTitle,
+      description: messageBody,
+      payload: { messageBody },
+      expiresAt
+    };
+  }
 
   if (giftType === 'item' || giftType === 'fragment') {
     const actualGiftItemId = getRewardVariantItemId(giftId);
@@ -7409,6 +7424,10 @@ function applyAdminMailGiftToUser(user, mail) {
 
   if (mail.giftType === 'raidReward') {
     return applyRaidRewardMailToUser(user, mail);
+  }
+
+  if (mail.giftType === 'message') {
+    return `${mail.title || '운영자 메시지'}을(를) 확인했습니다.`;
   }
 
   if (mail.giftType === 'item' || mail.giftType === 'fragment') {
@@ -21335,14 +21354,14 @@ app.get('/api/admin/users', async (req, res) => {
 app.post('/api/admin/gift', async (req, res) => {
   if (!requireAdmin(req, res)) return;
 
-  const { targetMode, targetUserId, giftType, giftId, quantity } = req.body;
+  const { targetMode, targetUserId, giftType, giftId, quantity, messageTitle, messageBody } = req.body;
   const giftQuantity = Math.max(1, Math.floor(Number(quantity) || 1));
 
   if (!['all', 'single'].includes(targetMode)) {
     return res.status(400).json({ msg: '대상 지정 방식이 올바르지 않습니다.' });
   }
 
-  if (!['item', 'buff', 'package', 'title', 'fragment'].includes(giftType)) {
+  if (!['item', 'buff', 'package', 'title', 'fragment', 'message'].includes(giftType)) {
     return res.status(400).json({ msg: '선물 종류가 올바르지 않습니다.' });
   }
 
@@ -21376,7 +21395,7 @@ app.post('/api/admin/gift', async (req, res) => {
     }
 
     const now = new Date();
-    const mailPayload = createAdminMailGiftPayload(giftType, giftId, giftQuantity, now);
+    const mailPayload = createAdminMailGiftPayload(giftType, giftId, giftQuantity, now, { messageTitle, messageBody });
     const mailDocs = users.map((user) => ({
       recipientId: user._id,
       ...mailPayload
