@@ -74,6 +74,12 @@ const ITEM_DATA = {
     desc: '온라인 유저 경험치 버프',
     hoverDesc: '사용 시 현재 온라인인 모든 유저에게 30분간 경험치 +10%, 자신에게는 경험치 +20% 버프를 적용합니다.'
   },
+  shout_free_ticket: {
+    name: '외치기 자유이용권',
+    desc: '혹시 정지를 당하셨나요? 걱정마세요. 그런 당신을 위해 준비했습니다.',
+    hoverDesc: '사용 시 당일 24시까지 외치기 쿨타임 없이 무제한으로 사용할 수 있습니다.',
+    shopHidden: true
+  },
   business_card: {
     name: '명함',
     desc: '카드 뽑기에 사용하는 재화',
@@ -2782,6 +2788,11 @@ function hasActiveDailyAugment(user, augmentId) {
   });
 }
 
+function hasActiveShoutFreeTicket(user) {
+  const until = user?.meta?.shoutNoCooldownUntil ? new Date(user.meta.shoutNoCooldownUntil) : null;
+  return Boolean(until && Number.isFinite(until.getTime()) && until.getTime() > Date.now());
+}
+
 function updateShoutStatus(user) {
   const statusEl = document.getElementById('shoutStatus');
   const shoutBtn = document.getElementById('shoutBtn');
@@ -2789,6 +2800,12 @@ function updateShoutStatus(user) {
 
   if (hasActiveDailyAugment(user, 'daily_silver_company_dj')) {
     statusEl.textContent = '사내방송 DJ 증강 효과로 오늘은 외치기 쿨타임이 없습니다.';
+    shoutBtn.disabled = false;
+    return;
+  }
+
+  if (hasActiveShoutFreeTicket(user)) {
+    statusEl.textContent = '외치기 자유이용권 효과로 오늘 24시까지 외치기 쿨타임이 없습니다.';
     shoutBtn.disabled = false;
     return;
   }
@@ -7577,7 +7594,7 @@ function renderBranchOfficeModal(user = getStoredUser()) {
   const excavationButtonText = pendingExcavation
     ? (pendingComplete ? (autoPendingResolution ? '자동 정산 중' : '발굴 결과 확인') : `발굴 진행 중 (${formatDurationMs(pendingRemainingMs)} 남음)`)
     : '발굴 시작';
-  const excavationButtonDisabled = (pendingExcavation && !pendingComplete) || branchMachineBroken || autoPendingResolution ? 'disabled' : '';
+  const excavationButtonDisabled = (pendingExcavation && !pendingComplete) || branchMachineBroken ? 'disabled' : '';
   const excavationStatus = branchMachineBroken
     ? `발굴 기계 수리 중입니다. 남은 시간: ${formatDurationMs(brokenRemainingMs)}`
     : (pendingExcavation
@@ -7706,7 +7723,7 @@ function maybeResolveCompletedBranchAutoExcavation(branch = {}) {
   if (branchAutoResolveInFlight) return;
   if (branchAutoResolveKey === key && nowMs < branchAutoResolveRetryAt) return;
   branchAutoResolveKey = key;
-  branchAutoResolveRetryAt = nowMs + 5000;
+  branchAutoResolveRetryAt = nowMs + 1500;
   window.setTimeout(() => resolveCompletedBranchAutoExcavation(key), 250);
 }
 
@@ -10351,7 +10368,7 @@ function updateInventoryUI(user) {
       const shortDesc = itemInfo.desc || '';
       const qtyInputId = `use-qty-${item.itemId}`;
       const ownedQuantity = getInventoryQuantityFromUser(user, item.itemId);
-      const canUse = ['bacchus', 'hot6', 'tylenol', 'raid_entry_ticket', 'infinite_overtime_ticket', 'hagendaz', 'excavation_repair_coupon', 'exp_5_percent_potion', 'card_batch_fusion_ticket', 'bacchus_oneshot_ticket', 'chairman_mood_ticket'].includes(item.itemId);
+      const canUse = ['bacchus', 'hot6', 'tylenol', 'raid_entry_ticket', 'infinite_overtime_ticket', 'hagendaz', 'excavation_repair_coupon', 'exp_5_percent_potion', 'card_batch_fusion_ticket', 'bacchus_oneshot_ticket', 'chairman_mood_ticket', 'shout_free_ticket'].includes(item.itemId);
       const maxUseQuantity = getMaxUsableItemQuantity(user, item.itemId, ownedQuantity);
       const actionButton = canUse
         ? `<div class="qty-action-wrap"><input id="${qtyInputId}" class="qty-input" type="number" min="1" max="${Math.max(1, maxUseQuantity)}" step="1" value="${getRememberedQuantityInputValue(qtyInputId, 1, Math.max(1, maxUseQuantity))}" oninput="rememberQuantityInputValue('${qtyInputId}', this.value)" ${maxUseQuantity <= 0 ? 'disabled' : ''}><button class="mini-btn" onclick="handleUseItem('${item.itemId}', '${qtyInputId}')" ${maxUseQuantity <= 0 ? 'disabled' : ''}>사용</button></div>`

@@ -1103,6 +1103,14 @@ const ITEM_DATA = {
     desc: '온라인 유저 경험치 버프',
     hoverDesc: '사용 시 현재 온라인인 모든 유저에게 30분간 경험치 +10%, 자신에게는 경험치 +20% 버프를 적용합니다.'
   },
+  shout_free_ticket: {
+    name: '외치기 자유이용권',
+    price: 0,
+    type: 'consumable',
+    shopHidden: true,
+    desc: '혹시 정지를 당하셨나요? 걱정마세요. 그런 당신을 위해 준비했습니다.',
+    hoverDesc: '사용 시 당일 24시까지 외치기 쿨타임 없이 무제한으로 사용할 수 있습니다.'
+  },
   business_card: {
     name: '명함',
     price: 200000,
@@ -3198,6 +3206,7 @@ const userSchema = new mongoose.Schema({
     lastLoginAt: { type: Date, default: null },
     lastSeenAt: { type: Date, default: null },
     lastShoutAt: { type: Date, default: null },
+    shoutNoCooldownUntil: { type: Date, default: null },
     lastRaidDayKey: { type: String, default: null },
     raidEntryDayKey: { type: String, default: null },
     raidEntryUsedCount: { type: Number, default: 0 },
@@ -4425,6 +4434,33 @@ function getDailyAugmentEffectTotals(user, now = new Date()) {
   return totals;
 }
 
+function getKSTNextMidnight(now = new Date()) {
+  const kstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  return new Date(Date.UTC(
+    kstNow.getUTCFullYear(),
+    kstNow.getUTCMonth(),
+    kstNow.getUTCDate() + 1,
+    -9,
+    0,
+    0,
+    0
+  ));
+}
+
+function hasShoutNoCooldownTicket(user, now = new Date()) {
+  if (!user?.meta) return false;
+  const until = user.meta.shoutNoCooldownUntil ? new Date(user.meta.shoutNoCooldownUntil) : null;
+  if (!until || !Number.isFinite(until.getTime())) {
+    user.meta.shoutNoCooldownUntil = null;
+    return false;
+  }
+  if (until.getTime() <= now.getTime()) {
+    user.meta.shoutNoCooldownUntil = null;
+    return false;
+  }
+  return true;
+}
+
 function resetDailyAugmentUsageIfNeeded(user, now = new Date()) {
   if (!user?.meta) return;
   const dayKey = getKSTDateKey(now);
@@ -4876,6 +4912,7 @@ function ensureUserDefaults(user) {
       lastLoginAt: null,
       lastSeenAt: null,
       lastShoutAt: null,
+      shoutNoCooldownUntil: null,
       lastRaidDayKey: null,
       raidEntryDayKey: null,
       raidEntryUsedCount: 0,
@@ -4923,6 +4960,7 @@ function ensureUserDefaults(user) {
   user.meta.lastLoginAt = user.meta.lastLoginAt || null;
   user.meta.lastSeenAt = user.meta.lastSeenAt || null;
   user.meta.lastShoutAt = user.meta.lastShoutAt || null;
+  user.meta.shoutNoCooldownUntil = user.meta.shoutNoCooldownUntil || null;
   user.meta.lastRaidDayKey = user.meta.lastRaidDayKey || null;
   user.meta.raidEntryDayKey = user.meta.raidEntryDayKey || null;
   user.meta.raidEntryUsedCount = Number(user.meta.raidEntryUsedCount ?? 0);
@@ -15395,10 +15433,10 @@ function processBranchAutoExcavation(user, now = new Date(), options = {}) {
     const pending = getBranchPendingExcavation(user);
     if (pending) {
       if (pending.completesAt.getTime() > now.getTime()) break;
-      const completed = completeBranchExcavation(user, pending.completesAt, { auto: true, force: true });
+      const completed = completeBranchExcavation(user, now, { auto: true, force: true });
       if (completed.message) messages.push(completed.message);
       if (!office.autoExcavationEnabled) break;
-      const next = startBranchExcavation(user, pending.completesAt, { auto: true });
+      const next = startBranchExcavation(user, now, { auto: true });
       if (next.message) messages.push(next.message);
       if (!next.started || new Date(next.completesAt).getTime() > now.getTime()) break;
       continue;
@@ -18397,6 +18435,12 @@ app.post('/api/inventory/use', async (req, res) => {
         useQuantity = 1;
       }
 
+      if (itemId === 'shout_free_ticket') {
+        const expiresAt = getKSTNextMidnight(now);
+        user.meta.shoutNoCooldownUntil = expiresAt;
+        queueNotification(user, 'item_use', '외치기 자유이용권을 사용했습니다. 오늘 24시까지 외치기 쿨타임 없이 무제한으로 사용할 수 있습니다.');
+      }
+
       if (itemId === 'card_batch_fusion_ticket') {
         const hasMaterials = ['C', 'B', 'A'].some((grade) => getAutoFusionMaterialCount(user, grade) >= 5);
         if (!hasMaterials) throw createHttpError(400, '자동 합성에 사용할 잠금 해제 카드가 부족합니다. +5강과 잠긴 카드는 제외됩니다.');
@@ -18409,6 +18453,13 @@ app.post('/api/inventory/use', async (req, res) => {
       }
 
       if (itemId === 'chairman_mood_ticket') {
+        useQuantity = 1;
+      }
+
+      if (itemId === 'shout_free_ticket') {
+        if (hasShoutNoCooldownTicket(user, now)) {
+          throw createHttpError(400, '이미 오늘 24시까지 외치기 자유이용권 효과가 적용 중입니다.');
+        }
         useQuantity = 1;
       }
 
@@ -20724,7 +20775,7 @@ app.post('/api/action/shout', async (req, res) => {
     calculateOfflineGains(user, now);
 
     const dailyAugmentStats = getDailyAugmentEffectTotals(user, now);
-    const hasShoutNoCooldown = Number(dailyAugmentStats.shoutNoCooldown || 0) > 0;
+    const hasShoutNoCooldown = Number(dailyAugmentStats.shoutNoCooldown || 0) > 0 || hasShoutNoCooldownTicket(user, now);
     if (!hasShoutNoCooldown && user.meta.lastShoutAt && now.getTime() - new Date(user.meta.lastShoutAt).getTime() < SHOUT_COOLDOWN_MS) {
       return res.status(400).json({ msg: '외치기는 10분마다 한 번만 사용할 수 있습니다.' });
     }
