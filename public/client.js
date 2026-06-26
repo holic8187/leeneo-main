@@ -1748,6 +1748,7 @@ function setupEventListeners() {
   setupNewsTypingInput();
   bindClick('adventureBtn', handleAdventureClick);
   bindClick('shoutBtn', handleShoutClick);
+  setupShoutInput();
   bindClick('lupinBtn', handleLupinClick);
   bindClick('napBtn', handleNapClick);
   bindClick('fieldWorkBtn', handleFieldWorkClick);
@@ -3473,6 +3474,19 @@ async function handleAdventureClick() {
       updateSpecialActionButtons(latestUser);
     }
   }
+}
+
+function setupShoutInput() {
+  const input = document.getElementById('shoutInput');
+  if (!input || input.dataset.enterSubmitBound === 'true') return;
+  input.dataset.enterSubmitBound = 'true';
+  input.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' || event.shiftKey || event.isComposing || event.keyCode === 229) return;
+    event.preventDefault();
+    const btn = document.getElementById('shoutBtn');
+    if (btn?.disabled) return;
+    void handleShoutClick();
+  });
 }
 
 async function handleShoutClick() {
