@@ -175,7 +175,13 @@ const BUFF_DATA = {
     name: '회장님의 기분: 주최자',
     desc: '회장님의 기분 티켓을 사용한 본인 버프입니다. 30분 동안 모든 획득 경험치가 20% 증가합니다.',
     className: 'buff-item title-buff'
+  }  ,
+  shout_free_ticket_buff: {
+    name: '외치기 자유이용권',
+    desc: '오늘 24시까지 외치기 쿨타임 없이 무제한으로 사용할 수 있습니다.',
+    className: 'buff-item title-buff'
   }
+
 };
 
 ITEM_DATA.pen_applepencil = {
@@ -2789,6 +2795,9 @@ function hasActiveDailyAugment(user, augmentId) {
 }
 
 function hasActiveShoutFreeTicket(user) {
+  const hasBuffEffect = Array.isArray(user?.buffs)
+    && user.buffs.some((buff) => buff?.buffId === 'shout_free_ticket_buff' && new Date(buff.expiresAt).getTime() > Date.now());
+  if (hasBuffEffect) return true;
   const until = user?.meta?.shoutNoCooldownUntil ? new Date(user.meta.shoutNoCooldownUntil) : null;
   return Boolean(until && Number.isFinite(until.getTime()) && until.getTime() > Date.now());
 }

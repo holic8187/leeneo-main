@@ -1244,7 +1244,14 @@ const BUFF_DATA = {
     durationMs: CHAIRMAN_MOOD_DURATION_MS,
     desc: '회장님의 기분 티켓을 사용한 본인 버프입니다. 30분 동안 모든 획득 경험치가 20% 증가합니다.',
     effects: { expBonusAdd: 0.2 }
+  }  ,
+  shout_free_ticket_buff: {
+    name: '외치기 자유이용권',
+    durationMs: 0,
+    desc: '오늘 24시까지 외치기 쿨타임 없이 무제한으로 사용할 수 있습니다.',
+    effects: {}
   }
+
 };
 
 const TITLE_DATA = {
@@ -4449,6 +4456,7 @@ function getKSTNextMidnight(now = new Date()) {
 
 function hasShoutNoCooldownTicket(user, now = new Date()) {
   if (!user?.meta) return false;
+  if (hasBuff(user, 'shout_free_ticket_buff', now)) return true;
   const until = user.meta.shoutNoCooldownUntil ? new Date(user.meta.shoutNoCooldownUntil) : null;
   if (!until || !Number.isFinite(until.getTime())) {
     user.meta.shoutNoCooldownUntil = null;
@@ -18435,12 +18443,6 @@ app.post('/api/inventory/use', async (req, res) => {
         useQuantity = 1;
       }
 
-      if (itemId === 'shout_free_ticket') {
-        const expiresAt = getKSTNextMidnight(now);
-        user.meta.shoutNoCooldownUntil = expiresAt;
-        queueNotification(user, 'item_use', '외치기 자유이용권을 사용했습니다. 오늘 24시까지 외치기 쿨타임 없이 무제한으로 사용할 수 있습니다.');
-      }
-
       if (itemId === 'card_batch_fusion_ticket') {
         const hasMaterials = ['C', 'B', 'A'].some((grade) => getAutoFusionMaterialCount(user, grade) >= 5);
         if (!hasMaterials) throw createHttpError(400, '자동 합성에 사용할 잠금 해제 카드가 부족합니다. +5강과 잠긴 카드는 제외됩니다.');
@@ -18502,6 +18504,14 @@ app.post('/api/inventory/use', async (req, res) => {
           checkLevelUp(user);
         }
         queueNotification(user, 'item_use', `경험치 5% 포션 ${useQuantity}개를 사용해 경험치 ${totalExpGain.toLocaleString()}을 획득했습니다.`);
+      }
+
+      if (itemId === 'shout_free_ticket') {
+        const expiresAt = getKSTNextMidnight(now);
+        const durationMs = Math.max(1000, expiresAt.getTime() - now.getTime());
+        user.meta.shoutNoCooldownUntil = expiresAt;
+        setOrRefreshBuff(user, 'shout_free_ticket_buff', durationMs, { now });
+        queueNotification(user, 'item_use', '외치기 자유이용권을 사용했습니다. 오늘 24시까지 외치기 쿨타임 없이 무제한으로 사용할 수 있습니다.');
       }
 
       if (itemId === 'chairman_mood_ticket') {
