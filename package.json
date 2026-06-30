@@ -1,10 +1,12 @@
 {
-  "name": "working-ineo-server",
+  "name": "working-hoi-server",
   "version": "1.0.0",
   "description": "",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "start:v2-test": "node scripts/v2-test-server.js",
+    "test:v2": "node --test test/v2/progression.test.js test/v2/migration-foundation.test.js"
   },
   "keywords": [],
   "author": "",

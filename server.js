@@ -11,6 +11,8 @@ const app = express();
 
 const MONGO_URI = process.env.MONGO_URI;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
+const APP_MODE = String(process.env.APP_MODE || 'v1').trim().toLowerCase() === 'v2' ? 'v2' : 'v1';
+const IS_V2_MODE = APP_MODE === 'v2';
 
 const ADMIN_USERNAME = 'dinguree';
 const ADMIN_PASSWORD = 'dinguree';
@@ -2989,6 +2991,20 @@ if (!process.env.JWT_SECRET) {
 app.use(express.json());
 app.use(cors());
 app.use((req, res, next) => {
+  if (
+    IS_V2_MODE
+    && req.path.startsWith('/api/')
+    && req.path !== '/api/health'
+    && !req.path.startsWith('/api/v2/')
+  ) {
+    return res.status(410).json({
+      msg: '호이상사 V1 서비스가 종료되었습니다. V2에서 다시 이용해주세요.',
+      code: 'V1_SERVICE_CLOSED'
+    });
+  }
+  return next();
+});
+app.use((req, res, next) => {
   if (!req.path.startsWith('/api/')) return next();
   const startedAt = Date.now();
   res.on('finish', () => {
@@ -2999,19 +3015,34 @@ app.use((req, res, next) => {
   });
   return next();
 });
-app.use(express.static(path.join(__dirname, 'public')));
-
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  if (IS_V2_MODE) return res.redirect(302, '/v2/');
+  return res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+app.get('/index.html', (req, res, next) => {
+  if (IS_V2_MODE) return res.redirect(302, '/v2/');
+  return next();
+});
+
+app.get('/v2', (req, res) => res.redirect(302, '/v2/'));
+app.get('/v2/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'v2', 'index.html'));
+});
+
+app.use(express.static(path.join(__dirname, 'public'), { index: false }));
+
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, message: 'server is running' });
+  res.json({ ok: true, message: 'server is running', appMode: APP_MODE });
 });
 
 mongoose.connect(MONGO_URI)
   .then(() => {
-    console.log('MongoDB connected');
+    console.log(`MongoDB connected (APP_MODE=${APP_MODE})`);
+    if (IS_V2_MODE) {
+      console.log('V2 cutover mode enabled: V1 APIs and V1 weekly jobs are disabled.');
+      return;
+    }
     processWeeklyPvpSeasonIfNeeded(new Date(), { force: true }).catch((err) => {
       console.error('Initial weekly PVP season check error:', err);
     });
@@ -7945,7 +7976,7 @@ async function refreshNewsTypingPrompts() {
     try {
       const response = await fetchWithTimeout(url, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 IneoOfficeTypingGame/1.0',
+          'User-Agent': 'Mozilla/5.0 HoiOfficeGame/2.0',
           Accept: 'application/rss+xml, application/xml, text/xml, */*'
         }
       });
@@ -21635,6 +21666,19 @@ app.post('/api/admin/set-raid-boss', async (req, res) => {
     console.error('Admin set raid boss error:', err);
     res.status(500).json({ msg: '서버 오류가 발생했습니다.' });
   }
+});
+
+const { registerV2Routes } = require('./src/v2/registerV2Routes');
+
+registerV2Routes({
+  app,
+  User,
+  bcrypt,
+  jwt,
+  jwtSecret: JWT_SECRET,
+  adminUsername: ADMIN_USERNAME,
+  adminPassword: ADMIN_PASSWORD,
+  requireAdmin
 });
 
 const PORT = process.env.PORT || 5000;
