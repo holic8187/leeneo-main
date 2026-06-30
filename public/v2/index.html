@@ -3,93 +3,163 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>호이상사 V2 전환 준비실</title>
-  <link rel="stylesheet" href="/v2/styles.css?v=1">
+  <title>호이상사 V2</title>
+  <link rel="stylesheet" href="/v2/styles.css?v=3">
 </head>
 <body>
-  <div class="blueprint-grid"></div>
+  <div class="blueprint-grid" aria-hidden="true"></div>
+
   <header class="topbar">
-    <div>
-      <p class="eyebrow">HOI COMPANY / REBUILD PROJECT</p>
-      <h1>V2 전환 준비실</h1>
+    <div class="brand-lockup">
+      <p class="eyebrow">HOI COMPANY / OPERATIONS LEDGER</p>
+      <h1>호이상사 V2</h1>
     </div>
-    <a class="ghost-button" href="/">V1 돌아가기</a>
+    <button id="logoutButton" class="ghost-button hidden" type="button">퇴근하기</button>
   </header>
 
   <main>
     <section id="loginPanel" class="panel login-panel">
       <div>
         <p class="section-number">00</p>
-        <h2>기존 사원 계정 확인</h2>
-        <p>V1 원본은 그대로 둔 채 V2 이관 결과만 미리 확인합니다.</p>
+        <h2>사원 계정 확인</h2>
+        <p>기존 사번과 비밀번호로 V2 사내망에 접속합니다.</p>
       </div>
       <form id="loginForm">
         <label>사번(ID)<input id="username" autocomplete="username" required></label>
         <label>비밀번호<input id="password" type="password" autocomplete="current-password" required></label>
-        <button type="submit">V2 준비실 입장</button>
+        <button type="submit">V2 사무실 입장</button>
       </form>
       <p id="loginStatus" class="status"></p>
     </section>
 
     <section id="workspace" class="hidden">
-      <div class="hero">
-        <div>
-          <p class="eyebrow">MIGRATION FOUNDATION / PHASE 1</p>
-          <h2><span id="displayName">사원</span>님의 새 인사기록</h2>
-          <p>돈과 주식은 V2에서 초기화됩니다. 카드·장비·회사 데이터는 변환 전 원본으로 안전하게 보관됩니다.</p>
-        </div>
-        <div class="seal">V2<br>PRE-ALPHA</div>
-      </div>
-
-      <div id="userWorkspace">
-        <section class="metric-grid">
-          <article class="metric"><span>기존 레벨</span><strong id="sourceLevel">-</strong></article>
-          <article class="metric accent"><span>V2 예정 레벨</span><strong id="mappedLevel">-</strong></article>
-          <article class="metric"><span>미사용 스탯</span><strong id="statPoints">-</strong></article>
-          <article class="metric"><span>다음 레벨 경험치</span><strong id="nextExp">-</strong></article>
+      <div id="userWorkspace" class="hidden">
+        <section class="office-heading">
+          <div>
+            <p class="eyebrow">FLOOR 01 / MAIN OFFICE</p>
+            <h2><span id="displayName">사원</span>님의 업무 구역</h2>
+            <p>오늘도 살아남아 퇴근하십시오. 모든 기록은 사내 장부에 자동 반영됩니다.</p>
+          </div>
+          <div class="live-stamp"><span>ONLINE</span><strong>V2</strong></div>
         </section>
 
-        <section class="panel migration-panel">
+        <section class="command-grid">
+          <article class="panel map-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="section-number">MAP 01</p>
+                <h3>호이상사 본관</h3>
+              </div>
+              <span class="map-mode">SAFE FLOOR</span>
+            </div>
+
+            <div class="ascii-stage" aria-label="호이상사 본관 ASCII 지도, 캐릭터는 중앙 로비에 있습니다.">
+              <div class="map-scan" aria-hidden="true"></div>
+              <pre class="ascii-layout" aria-hidden="true">┌─ HOI OFFICE / FLOOR 01 ───────────┐
+│ [STOCK]──[LOBBY]──[BOSS]         │
+│    │        │        │            │
+│ [SHOP]──────┼──────[HQ]           │
+│             │                     │
+│ [COMPANY]───┴────[EXIT]           │
+└───────────────────────────────────┘</pre>
+              <div class="ascii-player" aria-hidden="true">
+                <pre>  0
+ /|\
+ / \</pre>
+                <span>YOU</span>
+              </div>
+            </div>
+
+            <div class="location-line">
+              <span class="signal-dot"></span>
+              <strong>중앙 로비</strong>
+              <span>전투 준비 전 안전 구역</span>
+            </div>
+          </article>
+
+          <aside class="panel employee-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="section-number">STATUS</p>
+                <h3>사원 현황</h3>
+              </div>
+              <span id="departmentBadge" class="department-badge">부서 미정</span>
+            </div>
+
+            <div class="level-card">
+              <span>LEVEL</span>
+              <strong id="characterLevel">-</strong>
+              <small>MAX 200</small>
+            </div>
+
+            <div class="resource-list">
+              <div class="resource-row">
+                <div><span>체력</span><strong id="hpText">준비 중</strong></div>
+                <div class="bar"><i id="hpBar" class="hp"></i></div>
+              </div>
+              <div class="resource-row">
+                <div><span>정신력</span><strong id="mpText">준비 중</strong></div>
+                <div class="bar"><i id="mpBar" class="mp"></i></div>
+              </div>
+              <div class="resource-row">
+                <div><span>행동력</span><strong id="apText">-</strong></div>
+                <div class="bar"><i id="apBar" class="ap"></i></div>
+              </div>
+            </div>
+
+            <dl class="employee-facts">
+              <div><dt>미사용 스탯</dt><dd id="unspentStats">-</dd></div>
+              <div><dt>전직 단계</dt><dd id="advancementTier">0차</dd></div>
+              <div><dt>이관 상태</dt><dd id="migrationStatus">확인 중</dd></div>
+            </dl>
+          </aside>
+        </section>
+
+        <nav class="action-desk" aria-label="주요 기능">
+          <button class="desk-action" data-feature="stats" type="button"><b>01</b><span>스탯<small>STATUS</small></span></button>
+          <button class="desk-action" data-feature="inventory" type="button"><b>02</b><span>인벤토리<small>INVENTORY</small></span></button>
+          <button class="desk-action" data-feature="skills" type="button"><b>03</b><span>스킬<small>SKILLS</small></span></button>
+          <button class="desk-action" data-feature="shop" type="button"><b>04</b><span>상점<small>SUPPLY</small></span></button>
+          <button class="desk-action" data-feature="cash" type="button"><b>05</b><span>캐쉬상점<small>CASH SHOP</small></span></button>
+          <button class="desk-action" data-feature="company" type="button"><b>06</b><span>회사 운영<small>COMPANY</small></span></button>
+          <button class="desk-action danger" data-feature="boss" type="button"><b>07</b><span>보스<small>RAID</small></span></button>
+          <button class="desk-action" data-feature="stock" type="button"><b>08</b><span>주식<small>MARKET</small></span></button>
+        </nav>
+
+        <section class="migration-strip">
           <div>
-            <p class="section-number">01</p>
-            <h3>원본 데이터 보존</h3>
-            <p>비밀번호를 제외한 현재 게임 데이터를 별도 불변 스냅샷에 저장합니다.</p>
+            <span class="signal-dot"></span>
+            <strong id="migrationStateLabel">자동 이관 확인 중</strong>
           </div>
-          <div id="legacyCounts" class="legacy-list"></div>
-          <button id="prepareButton">V2 데이터 준비</button>
-          <p id="prepareStatus" class="status"></p>
+          <p id="prepareStatus">누락된 원본 데이터는 로그인 시 자동으로 준비됩니다.</p>
         </section>
       </div>
 
       <section id="adminWorkspace" class="panel hidden">
         <p class="section-number">ADMIN</p>
-        <h3>전체 유저 이관 스냅샷</h3>
-        <p>한 번에 최대 50명씩 처리하며, 기존 유저 문서는 수정하지 않습니다.</p>
+        <h3>전체 유저 이관 현황</h3>
+        <p>자동 이관이 누락 계정을 계속 보완합니다. 필요하면 아래 버튼으로 즉시 재검사할 수 있습니다.</p>
         <div id="adminSummary" class="legacy-list"></div>
-        <button id="snapshotAllButton">전체 스냅샷 순차 생성</button>
+        <button id="snapshotAllButton" type="button">전체 계정 지금 재검사</button>
         <p id="adminStatus" class="status"></p>
-      </section>
-
-      <section class="phase-columns">
-        <article>
-          <p class="section-number">KEEP</p>
-          <h3>유지</h3>
-          <ul id="retainedFeatures"></ul>
-        </article>
-        <article>
-          <p class="section-number">REMOVE</p>
-          <h3>V2에서 제외</h3>
-          <ul id="removedFeatures"></ul>
-        </article>
-        <article>
-          <p class="section-number">BUILD</p>
-          <h3>새로 구축</h3>
-          <ul id="plannedFeatures"></ul>
-        </article>
       </section>
     </section>
   </main>
 
-  <script src="/v2/app.js?v=1"></script>
+  <div id="featureModal" class="site-modal hidden" role="dialog" aria-modal="true" aria-labelledby="featureTitle">
+    <div class="modal-scrim" data-close-modal></div>
+    <section class="modal-sheet">
+      <header>
+        <div>
+          <p id="featureCode" class="section-number">MENU</p>
+          <h2 id="featureTitle">기능</h2>
+        </div>
+        <button class="modal-close" data-close-modal type="button" aria-label="닫기">×</button>
+      </header>
+      <div id="featureBody" class="feature-body"></div>
+    </section>
+  </div>
+
+  <script src="/v2/app.js?v=3"></script>
 </body>
 </html>

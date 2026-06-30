@@ -3040,6 +3040,18 @@ mongoose.connect(MONGO_URI)
     console.log(`MongoDB connected (APP_MODE=${APP_MODE})`);
     if (IS_V2_MODE) {
       console.log('V2 cutover mode enabled: V1 APIs and V1 weekly jobs are disabled.');
+      setImmediate(() => {
+        const { runAutomaticV2Migration } = require('./src/v2/services/automaticMigrationService');
+        runAutomaticV2Migration({ User, batchSize: 50, concurrency: 5 })
+          .then((summary) => {
+            console.log(
+              `V2 automatic migration complete: scanned=${summary.scanned}, migrated=${summary.migrated}, `
+              + `alreadyPrepared=${summary.alreadyPrepared}, failed=${summary.failed}`
+            );
+            if (summary.errors.length) console.error('V2 automatic migration failures:', summary.errors);
+          })
+          .catch((err) => console.error('V2 automatic migration error:', err));
+      });
       return;
     }
     processWeeklyPvpSeasonIfNeeded(new Date(), { force: true }).catch((err) => {

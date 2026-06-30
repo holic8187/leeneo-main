@@ -9,6 +9,7 @@ const {
   buildMigrationPreview
 } = require('../../src/v2/services/migrationService');
 const { registerV2Routes } = require('../../src/v2/registerV2Routes');
+const { getIncompleteMigrationIds } = require('../../src/v2/services/automaticMigrationService');
 
 function createLegacyUser(overrides = {}) {
   return {
@@ -93,4 +94,15 @@ test('V2 router exposes only the migration foundation endpoints in phase one', (
     'GET /api/v2/admin/migration-summary',
     'POST /api/v2/admin/snapshot-batch'
   ]);
+});
+
+
+test('automatic migration only selects users with incomplete V2 records', () => {
+  const incomplete = getIncompleteMigrationIds(
+    ['user-a', 'user-b', 'user-c'],
+    ['user-a', 'user-b'],
+    ['user-a', 'user-c'],
+    ['user-a', 'user-b', 'user-c']
+  );
+  assert.deepEqual(incomplete, ['user-b', 'user-c']);
 });

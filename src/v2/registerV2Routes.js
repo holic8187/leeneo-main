@@ -110,13 +110,22 @@ function registerV2Routes({
         if (!(await bcrypt.compare(password, v2Account.passwordHash))) {
           return res.status(400).json({ msg: '아이디 또는 비밀번호가 올바르지 않습니다.' });
         }
+        let character = await V2Character.findOne({ userId: v2Account.sourceUserId });
+        if (!character) {
+          const sourceUser = await User.findById(v2Account.sourceUserId);
+          if (!sourceUser) {
+            return res.status(404).json({ msg: '이관할 원본 유저 정보를 찾을 수 없습니다.' });
+          }
+          const migration = await ensureV2MigrationForUser(sourceUser);
+          character = migration.character;
+        }
         const token = jwt.sign({ id: v2Account.sourceUserId, v2: true }, jwtSecret, { expiresIn: '1d' });
-        const character = await V2Character.findOne({ userId: v2Account.sourceUserId }).lean();
         return res.json({
           token,
           isAdmin: false,
           displayName: v2Account.nickname || v2Account.username,
-          migrationPrepared: Boolean(character)
+          migrationPrepared: Boolean(character),
+          migrationAutomatic: true
         });
       }
 
@@ -125,13 +134,14 @@ function registerV2Routes({
         return res.status(400).json({ msg: '아이디 또는 비밀번호가 올바르지 않습니다.' });
       }
 
+      const migration = await ensureV2MigrationForUser(user);
       const token = jwt.sign({ id: user._id, v2: true }, jwtSecret, { expiresIn: '1d' });
-      const character = await V2Character.findOne({ userId: user._id }).lean();
       return res.json({
         token,
         isAdmin: false,
         displayName: user.nickname || user.username,
-        migrationPrepared: Boolean(character)
+        migrationPrepared: Boolean(migration.character),
+        migrationAutomatic: true
       });
     } catch (err) {
       console.error('V2 login error:', err);
