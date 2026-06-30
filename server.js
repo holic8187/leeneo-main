@@ -3025,8 +3025,7 @@ app.get('/index.html', (req, res, next) => {
   return next();
 });
 
-app.get('/v2', (req, res) => res.redirect(302, '/v2/'));
-app.get('/v2/', (req, res) => {
+app.get(['/v2', '/v2/'], (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'v2', 'index.html'));
 });
 
