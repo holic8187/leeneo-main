@@ -29,7 +29,8 @@ async function findIncompleteUsers(users) {
     }).select('sourceUserId').lean(),
     V2Character.find({
       userId: { $in: userIds },
-      'migration.migrationVersion': MIGRATION_VERSION
+      'migration.migrationVersion': MIGRATION_VERSION,
+      'progression.skillPointGrantVersion': 1
     }).select('userId').lean()
   ]);
   const incompleteIds = new Set(getIncompleteMigrationIds(

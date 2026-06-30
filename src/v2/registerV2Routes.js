@@ -9,6 +9,7 @@ const {
   MIGRATION_VERSION,
   buildMigrationPreview,
   ensureV2MigrationForUser,
+  ensureV2SkillPointGrant,
   buildCharacterResponse
 } = require('./services/migrationService');
 
@@ -118,6 +119,8 @@ function registerV2Routes({
           }
           const migration = await ensureV2MigrationForUser(sourceUser);
           character = migration.character;
+        } else {
+          await ensureV2SkillPointGrant(character);
         }
         const token = jwt.sign({ id: v2Account.sourceUserId, v2: true }, jwtSecret, { expiresIn: '1d' });
         return res.json({

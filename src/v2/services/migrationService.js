@@ -4,7 +4,8 @@ const crypto = require('crypto');
 const LegacyUserSnapshot = require('../models/LegacyUserSnapshot');
 const V2Account = require('../models/V2Account');
 const V2Character = require('../models/V2Character');
-const { mapLegacyLevelToV2, getStatPointsForLevel } = require('../progression/levelMigration');
+const { mapLegacyLevelToV2, getStatPointsForLevel, getSkillPointsForLevel } = require('../progression/levelMigration');
+const { getAvailableAdvancementQuest } = require('../jobs/advancementRules');
 const { getRequiredExpV2 } = require('../constants/experienceTable');
 
 const MIGRATION_VERSION = 1;
@@ -96,6 +97,7 @@ function buildMigrationPreview(user) {
     mappedLevel,
     expToNextLevel: getRequiredExpV2(mappedLevel),
     statPoints: getStatPointsForLevel(mappedLevel),
+    skillPoints: getSkillPointsForLevel(mappedLevel, 0),
     reset: {
       moneyBefore: Math.max(0, Number(plain.gameState?.money) || 0),
       moneyAfter: 0,
@@ -155,7 +157,10 @@ async function ensureV2MigrationForUser(user) {
         progression: {
           level: preview.mappedLevel,
           exp: 0,
-          unspentStatPoints: preview.statPoints
+          unspentStatPoints: preview.statPoints,
+          unspentSkillPoints: preview.skillPoints,
+          totalSkillPointsEarned: preview.skillPoints,
+          skillPointGrantVersion: 1
         },
         stats: {
           grit: 0,
@@ -201,7 +206,21 @@ async function ensureV2MigrationForUser(user) {
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
 
+  await ensureV2SkillPointGrant(character);
   return { snapshot, character, preview };
+}
+
+async function ensureV2SkillPointGrant(character) {
+  if (!character || Number(character.progression?.skillPointGrantVersion) >= 1) return character;
+  const expected = getSkillPointsForLevel(
+    character.progression?.level,
+    character.job?.advancementTier
+  );
+  character.progression.unspentSkillPoints = expected;
+  character.progression.totalSkillPointsEarned = expected;
+  character.progression.skillPointGrantVersion = 1;
+  await character.save();
+  return character;
 }
 
 function buildCharacterResponse(character) {
@@ -219,6 +238,7 @@ function buildCharacterResponse(character) {
     resources: plain.resources,
     actionPoints: plain.actionPoints,
     economy: plain.economy,
+    advancementQuest: getAvailableAdvancementQuest(plain),
     migration: plain.migration,
     createdAt: plain.createdAt,
     updatedAt: plain.updatedAt
@@ -232,5 +252,6 @@ module.exports = {
   buildV2AccountSeed,
   buildMigrationPreview,
   ensureV2MigrationForUser,
+  ensureV2SkillPointGrant,
   buildCharacterResponse
 };

@@ -65,6 +65,7 @@ function renderGame(data) {
     ? '부서 미정'
     : job.departmentId;
   $('unspentStats').textContent = `${formatNumber(progression.unspentStatPoints)} P`;
+  $('unspentSkills').textContent = `${formatNumber(progression.unspentSkillPoints)} SP`;
   $('advancementTier').textContent = `${formatNumber(job.advancementTier)}차`;
   $('migrationStatus').textContent = migration.status === 'prepared' ? '준비 완료' : (migration.status || '확인 중');
 
@@ -77,6 +78,13 @@ function renderGame(data) {
   $('prepareStatus').textContent = prepared
     ? `원본 스냅샷 연결 완료 · 변환 상태 ${migration.status || 'prepared'}`
     : '서버가 누락된 이관 데이터를 자동으로 준비하고 있습니다.';
+
+  const quest = character.advancementQuest;
+  $('questButton').classList.toggle('hidden', !quest);
+  if (quest) {
+    $('questButtonTitle').textContent = `${quest.targetTier}차 전직 가능`;
+    $('questButtonMeta').textContent = `Lv.${quest.requiredLevel} · ${quest.nextJobName}`;
+  }
 }
 
 async function loadMeta() {
@@ -165,8 +173,30 @@ const featureMeta = {
   cash: { code: '05 / CASH SHOP', title: '캐쉬상점' },
   company: { code: '06 / COMPANY', title: '회사 운영' },
   boss: { code: '07 / RAID', title: '보스' },
-  stock: { code: '08 / MARKET', title: '주식' }
+  stock: { code: '08 / MARKET', title: '주식' },
+  quest: { code: 'QUEST / HR', title: '전직 퀘스트' }
 };
+
+function questBody() {
+  const quest = state.character?.advancementQuest;
+  if (!quest) {
+    return '<div class="empty-ledger"><b>현재 진행 가능한 전직이 없습니다.</b><p>다음 전직 레벨에 도달하면 화면 옆에 퀘스트가 다시 나타납니다.</p></div>';
+  }
+  const departmentNames = ['인사팀', '회계팀', '경영지원팀', '영업직', '마케팅', '개발직', '현장직', '시설관리팀', '품질관리', '연구직'];
+  const departmentGuide = quest.departmentSelectionRequired
+    ? `<div class="department-options">${departmentNames.map((name) => `<span>${name}</span>`).join('')}</div>`
+    : `<p class="quest-department">${escapeHtml(quest.departmentName)} · 다음 직급 <b>${escapeHtml(quest.nextJobName)}</b></p>`;
+  return `
+    <div class="quest-sheet">
+      <div class="quest-rank"><span>TARGET</span><strong>${quest.targetTier}차 전직</strong><small>요구 레벨 ${quest.requiredLevel}</small></div>
+      <div>
+        <h3>인사 발령 심사</h3>
+        <p>전직 퀘스트를 완료하면 새로운 직급과 스킬 포인트 1을 획득합니다.</p>
+        ${departmentGuide}
+        <p class="notice-line">전직 퀘스트의 실제 수행 조건과 완료 버튼은 다음 작업에서 연결됩니다.</p>
+      </div>
+    </div>`;
+}
 
 function statBody() {
   const character = state.character || {};
@@ -174,7 +204,10 @@ function statBody() {
   const progression = character.progression || {};
   return `
     <div class="stat-sheet">
-      <div class="stat-total"><span>사용 가능한 스탯 포인트</span><strong>${formatNumber(progression.unspentStatPoints)} P</strong></div>
+      <div class="point-summary">
+        <div class="stat-total"><span>사용 가능한 스탯 포인트</span><strong>${formatNumber(progression.unspentStatPoints)} P</strong></div>
+        <div class="skill-total"><span>사용 가능한 스킬 포인트</span><strong>${formatNumber(progression.unspentSkillPoints)} SP</strong></div>
+      </div>
       <div class="stat-grid">
         <article><span>맷집 / STR</span><strong>${formatNumber(stats.grit)}</strong><small>물리 계열 주스탯 후보</small></article>
         <article><span>처리속도 / DEX</span><strong>${formatNumber(stats.processingSpeed)}</strong><small>명중·회피 및 원거리 계열</small></article>
@@ -187,6 +220,7 @@ function statBody() {
 
 function featureBody(feature) {
   if (feature === 'stats') return statBody();
+  if (feature === 'quest') return questBody();
   if (feature === 'inventory') {
     return `<div class="empty-ledger"><b>보존된 원본 재화</b><p>일반 카드 ${formatNumber(state.preview?.preserved.cardCount)}장 · 강화 카드 ${formatNumber(state.preview?.preserved.enhancedCardCount)}장 · 기존 장비 ${formatNumber(state.preview?.preserved.equipmentCount)}개</p><span>V2 장비와 아이템 변환 규칙 확정 후 이곳에 인벤토리가 열립니다.</span></div>`;
   }
@@ -227,6 +261,7 @@ function logout() {
 $('loginForm').addEventListener('submit', login);
 $('snapshotAllButton').addEventListener('click', snapshotAllUsers);
 $('logoutButton').addEventListener('click', logout);
+$('questButton').addEventListener('click', () => openFeature('quest'));
 document.querySelectorAll('.desk-action').forEach((button) => {
   button.addEventListener('click', () => openFeature(button.dataset.feature));
 });

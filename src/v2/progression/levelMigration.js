@@ -1,6 +1,7 @@
 'use strict';
 
 const { MAX_LEVEL } = require('../constants/experienceTable');
+const { getAdvancementBonusSkillPoints } = require('../jobs/advancementRules');
 
 const LEGACY_CURVE = Object.freeze({
   preserveUntil: 30,
@@ -45,8 +46,14 @@ function getStatPointsForLevel(level) {
   return (safeLevel - 1) * 5;
 }
 
+function getSkillPointsForLevel(level, advancementTier = 0) {
+  const safeLevel = Math.max(1, Math.min(MAX_LEVEL, Math.floor(Number(level) || 1)));
+  return (safeLevel - 1) * 3 + getAdvancementBonusSkillPoints(advancementTier);
+}
+
 module.exports = {
   LEGACY_CURVE,
   mapLegacyLevelToV2,
-  getStatPointsForLevel
+  getStatPointsForLevel,
+  getSkillPointsForLevel
 };

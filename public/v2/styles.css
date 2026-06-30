@@ -324,6 +324,35 @@ form button { color: #fff; border-color: var(--green); background: var(--green);
 .legacy-list span { padding: 9px 11px; background: #e9ede6; font-size: 13px; }
 #adminWorkspace { padding: 32px; }
 
+.quest-callout {
+  position: fixed;
+  z-index: 12;
+  top: 165px;
+  right: max(16px, calc((100vw - 1280px) / 2));
+  width: 150px;
+  min-height: 96px;
+  padding: 14px;
+  display: grid;
+  gap: 5px;
+  text-align: left;
+  color: #fff;
+  border: 1px solid #7d301f;
+  background: var(--orange);
+  box-shadow: 7px 7px 0 rgba(82, 31, 20, .2);
+  animation: quest-pulse 2.4s ease-in-out infinite;
+}
+.quest-callout span { font: 800 9px ui-monospace, monospace; letter-spacing: .15em; opacity: .75; }
+.quest-callout strong { font-size: 17px; }
+.quest-callout small { color: rgba(255,255,255,.78); }
+.quest-sheet { display: grid; grid-template-columns: 170px 1fr; gap: 24px; }
+.quest-rank { padding: 20px; display: grid; align-content: center; gap: 8px; color: #fff; background: var(--orange); }
+.quest-rank span { font: 800 10px ui-monospace, monospace; letter-spacing: .16em; }
+.quest-rank strong { font-size: 25px; }
+.quest-rank small { color: rgba(255,255,255,.75); }
+.department-options { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; }
+.department-options span { padding: 8px 10px; border: 1px solid var(--line-soft); background: #eef1eb; font-size: 12px; }
+.quest-department { padding: 12px; color: var(--ink); background: #eef1eb; }
+
 .site-modal { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 18px; }
 .modal-scrim { position: absolute; inset: 0; background: rgba(7, 18, 14, .62); backdrop-filter: blur(6px); }
 .modal-sheet {
@@ -350,6 +379,17 @@ form button { color: #fff; border-color: var(--green); background: var(--green);
 .modal-sheet h2 { margin: 0; font-size: 30px; }
 .modal-close { width: 44px; min-width: 44px; padding: 0; font-size: 27px; background: transparent; }
 .feature-body { padding: 24px; }
+.point-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.skill-total {
+  padding: 16px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--ink);
+  border: 1px solid var(--gold);
+  background: #f5edcb;
+}
+.skill-total strong { font-size: 25px; }
 .stat-total {
   padding: 16px 18px;
   display: flex;
@@ -385,6 +425,10 @@ form button { color: #fff; border-color: var(--green); background: var(--green);
 @keyframes map-scan {
   from { transform: translateY(-100%); }
   to { transform: translateY(520%); }
+}
+@keyframes quest-pulse {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); box-shadow: 7px 11px 0 rgba(82, 31, 20, .14); }
 }
 @keyframes modal-enter {
   from { opacity: 0; transform: translateY(14px) scale(.985); }
@@ -426,7 +470,8 @@ form button { color: #fff; border-color: var(--green); background: var(--green);
   .migration-strip { align-items: flex-start; flex-direction: column; gap: 6px; }
   .desk-action { min-height: 72px; grid-template-columns: 35px 1fr; }
   .desk-action span { padding: 14px 9px; font-size: 14px; }
-  .stat-grid { grid-template-columns: 1fr; }
+  .stat-grid, .point-summary, .quest-sheet { grid-template-columns: 1fr; }
+  .quest-callout { top: auto; right: 12px; bottom: 12px; width: 142px; min-height: 82px; }
   .legacy-list { grid-template-columns: 1fr; }
 }
 

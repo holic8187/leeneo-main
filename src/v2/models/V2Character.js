@@ -9,7 +9,10 @@ const v2CharacterSchema = new mongoose.Schema({
   progression: {
     level: { type: Number, default: 1, min: 1, max: 200 },
     exp: { type: Number, default: 0 },
-    unspentStatPoints: { type: Number, default: 0 }
+    unspentStatPoints: { type: Number, default: 0 },
+    unspentSkillPoints: { type: Number, default: 0 },
+    totalSkillPointsEarned: { type: Number, default: 0 },
+    skillPointGrantVersion: { type: Number, default: 0 }
   },
   stats: {
     grit: { type: Number, default: 0 },
