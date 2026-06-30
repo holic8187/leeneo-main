@@ -18817,11 +18817,15 @@ app.get('/api/marketplace', async (req, res) => {
 app.post('/api/marketplace/list', async (req, res) => {
   const { userId, itemType, itemId, price, quantity } = req.body;
   const listingPrice = Math.max(1, Math.floor(Number(price) || 0));
-  const listingQuantity = Math.max(1, Math.floor(Number(quantity) || 1));
+  const requestedQuantity = Number(quantity);
 
   if (!userId || !['equipment', 'scroll', 'item'].includes(itemType) || !itemId) {
     return res.status(400).json({ msg: '등록할 물품 정보가 부족합니다.' });
   }
+  if (!Number.isInteger(requestedQuantity) || requestedQuantity < 1) {
+    return res.status(400).json({ msg: '등록 수량은 1개 이상의 정수여야 합니다.' });
+  }
+  const listingQuantity = itemType === 'equipment' ? 1 : requestedQuantity;
   if (listingPrice <= 0) {
     return res.status(400).json({ msg: '판매 가격은 1원 이상이어야 합니다.' });
   }

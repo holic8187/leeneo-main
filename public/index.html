@@ -745,7 +745,7 @@
       <div id="marketplaceRegisterSortControls" class="market-toolbar"></div>
       <div id="marketplaceRegisterSelection" class="modal-note">등록할 물품을 선택하세요.</div>
       <div class="stock-controls marketplace-register-controls">
-        <input type="number" id="marketplaceRegisterQuantity" min="1" step="1" value="1" placeholder="수량">
+        <input type="number" id="marketplaceRegisterQuantity" min="1" step="1" value="1" placeholder="수량" oninput="handleMarketplaceRegisterQuantityInput(this.value)">
         <input type="number" id="marketplaceRegisterPrice" min="1" step="1" placeholder="판매 가격">
         <button id="marketplaceRegisterBtn" class="menu-action-btn">등록</button>
       </div>

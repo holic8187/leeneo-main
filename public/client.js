@@ -323,7 +323,7 @@ let equipmentDismantleSortMode = 'acquired';
 let cardGradeFilter = 'all';
 let cardSortMode = 'grade';
 let marketplaceState = { itemType: 'scroll', view: 'active', sort: 'time_desc', data: { active: [], mine: [] } };
-let marketplaceRegisterState = { itemType: 'scroll', selected: null, sort: 'acquired' };
+let marketplaceRegisterState = { itemType: 'scroll', selected: null, sort: 'acquired', registerQuantity: 1 };
 let companyStockMarketState = { stocks: [], holdings: [], sellFeeRate: 0.03, totalMarketValue: 0, rumors: {} };
 let stockTournamentState = { stocks: [], holdings: [], leaderboard: [], advancedInfos: [], phase: 'before', isRegistered: false, canTrade: false, cash: 0, totalAssets: 0, returnPct: 0, advancedInfoRemaining: 0 };
 let interviewTournamentState = { phase: 'registering', isRegistered: false, canRegister: false, participantCount: 0, matches: [] };
@@ -355,6 +355,15 @@ const BGM_TRACKS = {
 let currentBgmMode = 'normal';
 const PATCH_NOTES_STORAGE_KEY = 'ineoLastSeenPatchNoteId';
 const PATCH_NOTES = [
+  {
+    id: '2026-06-30-marketplace-register-quantity-fix',
+    time: '2026-06-30 15:00',
+    title: '번개장터 등록 수량 분리',
+    details: [
+      '거래소 물품 등록 시 보유 수량과 실제 등록 수량을 분리해 표시하고, 입력한 수량만 등록되도록 수정했습니다.',
+      '등록창이 갱신되어도 입력 수량이 재고 전체 수량으로 바뀌지 않으며, 서버에서도 등록 수량을 다시 검증합니다.'
+    ]
+  },
   {
     id: '2026-06-24-raid-cleanse-chaos-countdown-fixes',
     time: '2026-06-24 11:10',
@@ -8072,7 +8081,7 @@ function closeMarketplaceModal() {
 }
 
 function openMarketplaceRegisterModal() {
-  marketplaceRegisterState = { itemType: marketplaceState.itemType || 'scroll', selected: null, sort: 'acquired' };
+  marketplaceRegisterState = { itemType: marketplaceState.itemType || 'scroll', selected: null, sort: 'acquired', registerQuantity: 1 };
   renderMarketplaceRegisterModal();
   showModal('marketplaceRegisterModal');
 }
@@ -8229,12 +8238,20 @@ function renderMarketplaceRegisterModal() {
 
   const selected = marketplaceRegisterState.selected;
   selectionEl.textContent = selected
-    ? `선택됨: ${selected.name}${selected.quantity > 1 ? ` x${formatNumber(selected.quantity)}` : ''}`
+    ? selected.itemType === 'equipment'
+      ? `선택됨: ${selected.name}`
+      : `선택됨: ${selected.name} / 등록 ${formatNumber(marketplaceRegisterState.registerQuantity || 1)}개 (보유 ${formatNumber(selected.availableQuantity || 0)}개)`
     : '등록할 물품을 선택하세요.';
   quantityInput.disabled = marketplaceRegisterState.itemType === 'equipment';
   if (marketplaceRegisterState.itemType === 'equipment') {
     quantityInput.max = '1';
     quantityInput.value = '1';
+  } else {
+    const availableQuantity = Math.max(1, Number(selected?.availableQuantity || 1));
+    const registerQuantity = Math.max(1, Math.min(availableQuantity, Number(marketplaceRegisterState.registerQuantity || 1)));
+    marketplaceRegisterState.registerQuantity = registerQuantity;
+    quantityInput.max = String(availableQuantity);
+    quantityInput.value = String(registerQuantity);
   }
   if (sortControlsEl) {
     sortControlsEl.innerHTML = marketplaceRegisterState.itemType === 'item'
@@ -8305,7 +8322,7 @@ function handleMarketplaceRegisterTypeChange(itemType) {
   const nextSort = itemType === 'item' && ['enhance_desc', 'enhance_asc'].includes(marketplaceRegisterState.sort)
     ? 'acquired'
     : marketplaceRegisterState.sort || 'acquired';
-  marketplaceRegisterState = { itemType, selected: null, sort: nextSort };
+  marketplaceRegisterState = { itemType, selected: null, sort: nextSort, registerQuantity: 1 };
   const quantityInput = document.getElementById('marketplaceRegisterQuantity');
   if (quantityInput) quantityInput.value = '1';
   renderMarketplaceRegisterModal();
@@ -8316,6 +8333,20 @@ function handleMarketplaceRegisterSortChange(sort) {
   renderMarketplaceRegisterModal();
 }
 
+function handleMarketplaceRegisterQuantityInput(rawValue) {
+  const selected = marketplaceRegisterState.selected;
+  if (!selected || selected.itemType === 'equipment') return;
+  const availableQuantity = Math.max(1, Number(selected.availableQuantity || 1));
+  marketplaceRegisterState.registerQuantity = Math.max(
+    1,
+    Math.min(availableQuantity, Math.floor(Number(rawValue) || 1))
+  );
+  const selectionEl = document.getElementById('marketplaceRegisterSelection');
+  if (selectionEl) {
+    selectionEl.textContent = `선택됨: ${selected.name} / 등록 ${formatNumber(marketplaceRegisterState.registerQuantity)}개 (보유 ${formatNumber(availableQuantity)}개)`;
+  }
+}
+
 function handleMarketplaceRegisterSelect(itemType, itemId) {
   const user = getStoredUser();
   if (itemType === 'equipment') {
@@ -8324,8 +8355,9 @@ function handleMarketplaceRegisterSelect(itemType, itemId) {
       itemType,
       itemId,
       name: equipment.name,
-      quantity: 1
+      availableQuantity: 1
     } : null;
+    marketplaceRegisterState.registerQuantity = 1;
   } else {
     const itemInfo = ITEM_DATA[itemId] || {};
     const quantity = getInventoryQuantityFromUser(user, itemId);
@@ -8333,8 +8365,9 @@ function handleMarketplaceRegisterSelect(itemType, itemId) {
       itemType,
       itemId,
       name: itemInfo.name || itemId,
-      quantity
+      availableQuantity: quantity
     } : null;
+    marketplaceRegisterState.registerQuantity = 1;
     const quantityInput = document.getElementById('marketplaceRegisterQuantity');
     if (quantityInput) {
       quantityInput.max = String(quantity);
@@ -8350,7 +8383,14 @@ async function handleMarketplaceRegisterConfirm() {
   if (!user?._id || !selected) return alert('등록할 물품을 선택해주세요.');
   const quantity = selected.itemType === 'equipment'
     ? 1
-    : Math.max(1, Math.min(selected.quantity, Math.floor(Number(document.getElementById('marketplaceRegisterQuantity')?.value) || 1)));
+    : Math.max(
+      1,
+      Math.min(
+        selected.availableQuantity,
+        Math.floor(Number(document.getElementById('marketplaceRegisterQuantity')?.value) || marketplaceRegisterState.registerQuantity || 1)
+      )
+    );
+  marketplaceRegisterState.registerQuantity = quantity;
   const rawPrice = Number(document.getElementById('marketplaceRegisterPrice')?.value);
   if (!Number.isFinite(rawPrice) || rawPrice < 1) return alert('판매 가격을 입력해주세요.');
   const price = Math.floor(rawPrice);
@@ -8366,6 +8406,7 @@ async function handleMarketplaceRegisterConfirm() {
     updateLocalUserState(data, { force: true });
     marketplaceState.data = data.marketplace || marketplaceState.data;
     marketplaceRegisterState.selected = null;
+    marketplaceRegisterState.registerQuantity = 1;
     renderMarketplaceRegisterModal();
     renderMarketplace();
     alert(data.marketplaceResult?.message || '물품을 등록했습니다.');
