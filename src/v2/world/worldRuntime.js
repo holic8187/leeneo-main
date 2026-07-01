@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const { getWorldMap } = require('./mapDefinitions');
+const { calculateIncomingPhysicalDamage } = require('../combat/incomingDamage');
 
 const PLAYER_TIMEOUT_MS = 12_000;
 const CONTACT_COOLDOWN_MS = 1_200;
@@ -206,15 +207,31 @@ function applyContactDamage(runtime, now) {
       && Math.abs(monster.x - player.x) <= 3.2
     ));
     if (!collider) continue;
-    player.currentHp = Math.max(0, player.currentHp - collider.contactDamage);
+    const damageCalculation = calculateIncomingPhysicalDamage({
+      monsterAttack: collider.contactDamage,
+      monsterLevel: collider.level,
+      playerLevel: player.combatProfile.playerLevel,
+      playerStats: player.combatProfile.playerStats,
+      physicalDefense: player.combatProfile.physicalDefense,
+      archetype: player.combatProfile.archetype
+    });
+    const damage = damageCalculation.damage;
+    player.currentHp = Math.max(0, player.currentHp - damage);
     player.lastContactAt = now;
     player.invulnerableUntil = now + CONTACT_INVULNERABILITY_MS;
     const knockbackDirection = player.facingLeft ? 1 : -1;
     player.x = clamp(player.x + knockbackDirection * 3.2, 0, 94);
     damagedPlayers.push({
       userId: player.userId,
-      damage: collider.contactDamage,
+      damage,
       monsterId: collider.id,
+      damageCalculation: {
+        type: 'physical-contact',
+        rolledAttack: damageCalculation.rolledAttack,
+        physicalDefense: damageCalculation.physicalDefense,
+        standardPdd: damageCalculation.standardPdd,
+        defenseFactor: damageCalculation.defenseFactor
+      },
       currentHp: player.currentHp,
       maxHp: player.maxHp,
       x: player.x,
@@ -248,6 +265,11 @@ function updatePresence({
   facingLeft,
   currentHp,
   maxHp,
+  playerLevel,
+  playerStats,
+  physicalDefense,
+  magicDefense,
+  archetype,
   now = Date.now()
 }) {
   cleanupInactiveMaps(now);
@@ -275,6 +297,25 @@ function updatePresence({
     maxHp: Math.max(1, Number(previous?.maxHp ?? maxHp) || 120),
     lastContactAt: previous?.lastContactAt || 0,
     invulnerableUntil: previous?.invulnerableUntil || 0,
+    combatProfile: {
+      playerLevel: Math.max(
+        1,
+        Math.floor(Number(playerLevel ?? previous?.combatProfile?.playerLevel) || 1)
+      ),
+      playerStats: {
+        ...(previous?.combatProfile?.playerStats || {}),
+        ...(playerStats || {})
+      },
+      physicalDefense: Math.max(
+        0,
+        Number(physicalDefense ?? previous?.combatProfile?.physicalDefense) || 0
+      ),
+      magicDefense: Math.max(
+        0,
+        Number(magicDefense ?? previous?.combatProfile?.magicDefense) || 0
+      ),
+      archetype: String(archetype || previous?.combatProfile?.archetype || 'beginner')
+    },
     lastSeenAt: now
   });
   const contactEvents = tickRuntime(runtime, now);

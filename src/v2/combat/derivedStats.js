@@ -82,11 +82,15 @@ function buildDerivedStats({ progression = {}, stats = {}, job = {}, loadout = {
     stats,
     bonusEvasion: sumLoadoutStat(loadout, 'evasion')
   });
+  const physicalDefense = roundStat(sumLoadoutStat(loadout, 'defense', 'physicalDefense'));
+  const magicDefense = roundStat(sumLoadoutStat(loadout, 'magicDefense'));
 
   return {
     attackMinimum: roundStat(attackRange.minimum),
     attackMaximum: roundStat(attackRange.maximum),
-    defense: roundStat(sumLoadoutStat(loadout, 'defense', 'physicalDefense')),
+    defense: physicalDefense,
+    physicalDefense,
+    magicDefense,
     magic: roundStat(sumLoadoutStat(loadout, 'magic', 'magicAttack')),
     accuracy: roundStat(accuracy),
     evasion: roundStat(evasion),

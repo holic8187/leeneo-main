@@ -174,6 +174,8 @@ function registerV2Routes({
     const profile = {
       loadedAt: Date.now(),
       displayName: response.displayName,
+      progression: response.progression,
+      stats: response.stats,
       resources: response.resources,
       derivedStats: response.derivedStats,
       job: response.job,
@@ -583,7 +585,12 @@ function registerV2Routes({
         motion: req.body?.motion,
         facingLeft: req.body?.facingLeft,
         currentHp: profile.resources.currentHp,
-        maxHp: profile.resources.maxHp
+        maxHp: profile.resources.maxHp,
+        playerLevel: profile.progression?.level,
+        playerStats: profile.stats,
+        physicalDefense: profile.derivedStats.physicalDefense ?? profile.derivedStats.defense,
+        magicDefense: profile.derivedStats.magicDefense,
+        archetype: DEPARTMENTS[profile.job?.departmentId]?.archetype || 'beginner'
       });
       if (state.contactEvents.length) {
         await Promise.all(state.contactEvents.map((event) => (

@@ -169,6 +169,8 @@ test('contact damage knocks the player backward and grants 1.5 seconds of invuln
     now: 1_100
   });
   assert.equal(firstHit.contactEvents.length, 1);
+  assert.equal(firstHit.contactEvents[0].damageCalculation.type, 'physical-contact');
+  assert.ok(firstHit.contactEvents[0].damageCalculation.standardPdd > 0);
   assert.ok(firstHit.contactEvents[0].x < firstMonster.x);
   assert.equal(firstHit.contactEvents[0].invulnerableUntil, 2_600);
 

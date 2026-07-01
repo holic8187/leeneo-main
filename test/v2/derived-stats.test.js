@@ -16,13 +16,22 @@ test('derived stats use equipped weapon, loadout totals, and base movement speed
         stats: { attack: 25 }
       },
       helmet: { stats: { defense: 12, accuracy: 3 } },
-      shoes: { stats: { defense: 8, evasion: 4, movementSpeed: 5 } }
+      shoes: {
+        stats: {
+          defense: 8,
+          magicDefense: 6,
+          evasion: 4,
+          movementSpeed: 5
+        }
+      }
     }
   });
 
   assert.equal(result.attackMaximum, 49.75);
   assert.equal(result.attackMinimum, 24.88);
   assert.equal(result.defense, 20);
+  assert.equal(result.physicalDefense, 20);
+  assert.equal(result.magicDefense, 6);
   assert.equal(result.accuracy, 18.5);
   assert.equal(result.evasion, 11.25);
   assert.equal(result.movementSpeed, 105);
