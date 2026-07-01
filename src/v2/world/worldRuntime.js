@@ -11,6 +11,8 @@ const MONSTER_SPAWN_INTERVAL_MS = 8_000;
 const MONSTER_MAX_PER_MAP = 16;
 const MONSTER_SPAWN_PER_WAVE = 4;
 const ASSUMED_STAGE_WIDTH_PX = 760;
+const PLAYER_VISUAL_WIDTH_PX = 19;
+const MONSTER_VISUAL_WIDTH_PX = 36;
 
 const TEST_MONSTER_NAMES = Object.freeze([
   '도망친 결재도장',
@@ -201,11 +203,16 @@ function applyContactDamage(runtime, now) {
     if (player.currentHp <= 0) continue;
     if (now < player.invulnerableUntil) continue;
     if (player.lastContactAt && now - player.lastContactAt < CONTACT_COOLDOWN_MS) continue;
-    const collider = runtime.monsters.find((monster) => (
-      monster.hp > 0
-      && monster.floor === player.floor
-      && Math.abs(monster.x - player.x) <= 3.2
-    ));
+    const playerWidthPercent = PLAYER_VISUAL_WIDTH_PX / ASSUMED_STAGE_WIDTH_PX * 100;
+    const monsterHalfWidthPercent = MONSTER_VISUAL_WIDTH_PX / 2 / ASSUMED_STAGE_WIDTH_PX * 100;
+    const playerLeft = player.x;
+    const playerRight = player.x + playerWidthPercent;
+    const collider = runtime.monsters.find((monster) => {
+      if (monster.hp <= 0 || monster.floor !== player.floor) return false;
+      const monsterLeft = monster.x - monsterHalfWidthPercent;
+      const monsterRight = monster.x + monsterHalfWidthPercent;
+      return playerRight >= monsterLeft && playerLeft <= monsterRight;
+    });
     if (!collider) continue;
     const damageCalculation = calculateIncomingPhysicalDamage({
       monsterAttack: collider.contactDamage,

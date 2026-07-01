@@ -37,10 +37,10 @@ const v2CharacterSchema = new mongoose.Schema({
     skillPointGrantVersion: { type: Number, default: 0 }
   },
   stats: {
-    grit: { type: Number, default: 0 },
-    processingSpeed: { type: Number, default: 0 },
-    workKnowledge: { type: Number, default: 0 },
-    awareness: { type: Number, default: 0 }
+    grit: { type: Number, default: 4, min: 4 },
+    processingSpeed: { type: Number, default: 4, min: 4 },
+    workKnowledge: { type: Number, default: 4, min: 4 },
+    awareness: { type: Number, default: 4, min: 4 }
   },
   job: {
     departmentId: { type: String, default: 'unassigned' },
@@ -73,10 +73,12 @@ const v2CharacterSchema = new mongoose.Schema({
   },
   mailbox: { type: [mailboxEntrySchema], default: [] },
   resources: {
-    currentHp: { type: Number, default: 120 },
-    maxHp: { type: Number, default: 120 },
-    currentMp: { type: Number, default: 80 },
-    maxMp: { type: Number, default: 80 }
+    currentHp: { type: Number, default: 50 },
+    maxHp: { type: Number, default: 50 },
+    currentMp: { type: Number, default: 5 },
+    maxMp: { type: Number, default: 5 },
+    growthVersion: { type: Number, default: 0 },
+    provisional: { type: Boolean, default: false }
   },
   actionPoints: {
     current: { type: Number, default: 10 },

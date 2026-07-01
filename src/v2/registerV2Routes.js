@@ -11,7 +11,10 @@ const {
   getWorldMap,
   findNearestSafeMap
 } = require('./world/mapDefinitions');
-const { DEPARTMENTS } = require('./jobs/advancementRules');
+const {
+  DEPARTMENTS,
+  applyAdvancement
+} = require('./jobs/advancementRules');
 const {
   updatePresence,
   attackMonster,
@@ -24,8 +27,14 @@ const {
   buildMigrationPreview,
   ensureV2MigrationForUser,
   ensureV2SkillPointGrant,
+  ensureV2CharacterFoundation,
   buildCharacterResponse
 } = require('./services/migrationService');
+const {
+  calculateReferenceResources,
+  applyReferenceResources,
+  applyLevelGrowth
+} = require('./progression/resourceGrowth');
 const { getItemDefinition, listAdminGrantItems } = require('./items/itemCatalog');
 const {
   assignPotionQuickSlot,
@@ -112,6 +121,7 @@ function grantV2Experience(character, amount) {
   if (!character) return { gained: 0, levels: 0 };
   const gained = Math.max(0, Math.floor(Number(amount) || 0));
   let levels = 0;
+  const previousLevel = Math.max(1, Number(character.progression?.level) || 1);
   character.progression.exp = Math.max(0, Number(character.progression.exp) || 0) + gained;
   while (character.progression.level < MAX_LEVEL) {
     const required = getRequiredExpV2(character.progression.level);
@@ -124,6 +134,15 @@ function grantV2Experience(character, amount) {
     levels += 1;
   }
   if (character.progression.level >= MAX_LEVEL) character.progression.exp = 0;
+  if (levels > 0) {
+    const department = DEPARTMENTS[character.job?.departmentId];
+    applyLevelGrowth(character, {
+      previousLevel,
+      archetype: department?.archetype || 'beginner',
+      departmentId: character.job?.departmentId,
+      advancementTier: character.job?.advancementTier
+    });
+  }
   return { gained, levels };
 }
 
@@ -215,6 +234,14 @@ function registerV2Routes({
       retainedFeatures: V2_RETAINED_FEATURES,
       removedFeatures: V2_REMOVED_FEATURES,
       plannedFeatures: V2_PLANNED_FEATURES,
+      departments: Object.entries(DEPARTMENTS).map(([id, department]) => ({
+        id,
+        name: department.name,
+        jobs: department.jobs,
+        primaryStat: department.primaryStat,
+        secondaryStat: department.secondaryStat,
+        archetype: department.archetype
+      })),
       v1Unaffected: true
     });
   });
@@ -314,6 +341,7 @@ function registerV2Routes({
           character = migration.character;
         } else {
           await ensureV2SkillPointGrant(character);
+          await ensureV2CharacterFoundation(character);
         }
         const token = jwt.sign({ id: v2Account.sourceUserId, v2: true }, jwtSecret, { expiresIn: '1d' });
         return res.json({
@@ -352,6 +380,7 @@ function registerV2Routes({
       const user = await User.findById(auth.id).select('-password');
       if (!user) return res.status(404).json({ msg: '유저 정보를 찾을 수 없습니다.' });
       const character = await V2Character.findOne({ userId: user._id });
+      await ensureV2CharacterFoundation(character);
       return res.json({
         displayName: user.nickname || user.username,
         preview: buildMigrationPreview(user),
@@ -398,10 +427,75 @@ function registerV2Routes({
     if (!auth) return;
     try {
       const character = await V2Character.findOne({ userId: auth.id });
+      await ensureV2CharacterFoundation(character);
       return res.json({ character: buildCharacterResponse(character) });
     } catch (err) {
       console.error('V2 character load error:', err);
       return res.status(500).json({ msg: 'V2 캐릭터를 불러오지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/stats/allocate', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const character = await withCharacterMutation(auth.id, async () => {
+        const current = await V2Character.findOne({ userId: auth.id });
+        if (!current) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        await ensureV2CharacterFoundation(current);
+        const allocations = req.body?.allocations || {};
+        const allowedStats = ['grit', 'processingSpeed', 'workKnowledge', 'awareness'];
+        const normalized = Object.fromEntries(allowedStats.map((stat) => [
+          stat,
+          Math.max(0, Math.floor(Number(allocations[stat]) || 0))
+        ]));
+        const total = Object.values(normalized).reduce((sum, value) => sum + value, 0);
+        if (total <= 0) throw new Error('투자할 스탯 포인트를 입력해주세요.');
+        if (total > Number(current.progression?.unspentStatPoints || 0)) {
+          throw new Error('사용 가능한 스탯 포인트가 부족합니다.');
+        }
+        for (const [stat, value] of Object.entries(normalized)) {
+          current.stats[stat] = Number(current.stats?.[stat] || 4) + value;
+        }
+        current.progression.unspentStatPoints -= total;
+        await current.save();
+        worldProfileCache.delete(String(auth.id));
+        return current;
+      });
+      return res.json({ success: true, character: buildCharacterResponse(character) });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '스탯을 투자하지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/advancement', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const result = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        await ensureV2CharacterFoundation(character);
+        const advancement = applyAdvancement(character, req.body?.departmentId);
+        const department = DEPARTMENTS[advancement.departmentId];
+        const reference = calculateReferenceResources({
+          level: character.progression?.level,
+          departmentId: advancement.departmentId,
+          advancementTier: advancement.advancementTier,
+          archetype: department.archetype
+        });
+        applyReferenceResources(character, reference, { fullyRestore: true });
+        await character.save();
+        worldProfileCache.delete(String(auth.id));
+        updatePlayerResources(auth.id, character.resources);
+        return {
+          advancement,
+          character: buildCharacterResponse(character)
+        };
+      });
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '전직을 완료하지 못했습니다.' });
     }
   });
 
@@ -696,9 +790,7 @@ function registerV2Routes({
       const result = await withCharacterMutation(auth.id, async () => {
         const character = await V2Character.findOne({ userId: auth.id });
         if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
-        if (Number(character.resources?.currentHp) > 0) {
-          throw new Error('현재 사망 상태가 아닙니다.');
-        }
+        const wasDead = Number(character.resources?.currentHp) <= 0;
         const safeMap = findNearestSafeMap(character.worldState?.mapId);
         if (!safeMap) throw new Error('부활할 안전지대를 찾을 수 없습니다.');
         const storedMaxHp = Math.max(0, Number(character.resources?.maxHp) || 0);
@@ -709,7 +801,9 @@ function registerV2Routes({
         character.resources.currentMp = storedMaxMp
           ? Math.min(character.resources.maxMp, storedCurrentMp)
           : character.resources.maxMp;
-        character.resources.currentHp = 1;
+        character.resources.currentHp = wasDead
+          ? 1
+          : Math.max(1, Math.min(character.resources.maxHp, Number(character.resources.currentHp) || 1));
         character.worldState = { mapId: safeMap.id, x: 8, floor: 0 };
         await character.save();
         worldProfileCache.delete(String(auth.id));
@@ -717,6 +811,7 @@ function registerV2Routes({
         leaveWorld(String(auth.id));
         return {
           map: safeMap,
+          wasDead,
           character: buildCharacterResponse(character)
         };
       });

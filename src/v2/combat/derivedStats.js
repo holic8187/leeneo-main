@@ -3,10 +3,12 @@
 const { DEPARTMENTS } = require('../jobs/advancementRules');
 const {
   WEAPON_CONSTANTS,
+  PHYSICAL_ARCHETYPES,
   calculatePhysicalAttackRange,
   calculateAccuracy,
   calculateEvasion
 } = require('./combatFormulas');
+const { getStandardPdd } = require('./incomingDamage');
 const { DEFAULT_WEAPON_RANGES } = require('./weaponMotion');
 
 const LOADOUT_SLOT_KEYS = Object.freeze([
@@ -55,14 +57,14 @@ function roundStat(value) {
 
 function buildDerivedStats({ progression = {}, stats = {}, job = {}, loadout = {} } = {}) {
   const department = DEPARTMENTS[job.departmentId];
-  const archetype = department?.archetype || 'warrior';
+  const archetype = department?.archetype || 'beginner';
   const weapon = loadout.weapon || null;
   const weaponType = weapon?.weaponType || null;
   const totalAttack = sumLoadoutStat(loadout, 'attack', 'weaponAttack');
   const mastery = getItemStat(weapon, 'mastery');
   let attackRange = { minimum: 0, maximum: 0 };
 
-  if (weaponType && WEAPON_CONSTANTS[weaponType] && archetype !== 'mage') {
+  if (weaponType && WEAPON_CONSTANTS[weaponType] && PHYSICAL_ARCHETYPES[archetype]) {
     attackRange = calculatePhysicalAttackRange({
       archetype,
       weaponType,
@@ -84,6 +86,11 @@ function buildDerivedStats({ progression = {}, stats = {}, job = {}, loadout = {
   });
   const physicalDefense = roundStat(sumLoadoutStat(loadout, 'defense', 'physicalDefense'));
   const magicDefense = roundStat(sumLoadoutStat(loadout, 'magicDefense'));
+  const level = Math.max(1, Math.floor(finite(progression.level) || 1));
+  const magic = roundStat(
+    finite(stats.workKnowledge ?? stats.intelligence)
+    + sumLoadoutStat(loadout, 'magic', 'magicAttack')
+  );
 
   return {
     attackMinimum: roundStat(attackRange.minimum),
@@ -91,14 +98,16 @@ function buildDerivedStats({ progression = {}, stats = {}, job = {}, loadout = {
     defense: physicalDefense,
     physicalDefense,
     magicDefense,
-    magic: roundStat(sumLoadoutStat(loadout, 'magic', 'magicAttack')),
+    standardPhysicalDefense: roundStat(getStandardPdd(archetype, level)),
+    magic,
     accuracy: roundStat(accuracy),
     evasion: roundStat(evasion),
     movementSpeed: roundStat(100 + sumLoadoutStat(loadout, 'movementSpeed')),
     attackRange: Math.max(0, finite(DEFAULT_WEAPON_RANGES[weaponType]
       || (job.departmentId === 'unassigned' ? 22 : 55))),
     weaponType,
-    level: Math.max(1, Math.floor(finite(progression.level) || 1)),
+    level,
+    archetype,
     provisionalRange: true
   };
 }

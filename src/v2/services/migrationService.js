@@ -5,16 +5,27 @@ const LegacyUserSnapshot = require('../models/LegacyUserSnapshot');
 const V2Account = require('../models/V2Account');
 const V2Character = require('../models/V2Character');
 const { mapLegacyLevelToV2, getStatPointsForLevel, getSkillPointsForLevel } = require('../progression/levelMigration');
-const { getAvailableAdvancementQuest } = require('../jobs/advancementRules');
+const {
+  DEPARTMENTS,
+  getAvailableAdvancementQuest,
+  getSkillAccessProfile,
+  getJobName
+} = require('../jobs/advancementRules');
 const { resolveCombatMotion } = require('../combat/weaponMotion');
 const { buildDerivedStats } = require('../combat/derivedStats');
 const { getRequiredExpV2 } = require('../constants/experienceTable');
+const {
+  BASE_STATS,
+  RESOURCE_GROWTH_VERSION,
+  calculateReferenceResources,
+  applyReferenceResources
+} = require('../progression/resourceGrowth');
 const { buildInventoryView, getPendingMail } = require('./inventoryService');
 
 const MIGRATION_VERSION = 1;
 const TEMPORARY_RESOURCE_DEFAULTS = Object.freeze({
-  maxHp: 120,
-  maxMp: 80
+  maxHp: 50,
+  maxMp: 5
 });
 const EQUIPMENT_SLOT_KEYS = Object.freeze([
   'weapon',
@@ -165,6 +176,12 @@ async function ensureV2MigrationForUser(user) {
 
   const sourceActionPoints = Math.max(0, Number(user.gameState?.stamina) || 0);
   const sourceMaxActionPoints = Math.max(1, Number(user.gameState?.maxStamina) || 10);
+  const initialResources = calculateReferenceResources({
+    level: preview.mappedLevel,
+    departmentId: 'unassigned',
+    advancementTier: 0,
+    archetype: 'beginner'
+  });
   const character = await V2Character.findOneAndUpdate(
     { userId: user._id },
     {
@@ -181,10 +198,7 @@ async function ensureV2MigrationForUser(user) {
           skillPointGrantVersion: 1
         },
         stats: {
-          grit: 0,
-          processingSpeed: 0,
-          workKnowledge: 0,
-          awareness: 0
+          ...BASE_STATS
         },
         job: {
           departmentId: 'unassigned',
@@ -203,10 +217,12 @@ async function ensureV2MigrationForUser(user) {
         },
         mailbox: [],
         resources: {
-          currentHp: TEMPORARY_RESOURCE_DEFAULTS.maxHp,
-          maxHp: TEMPORARY_RESOURCE_DEFAULTS.maxHp,
-          currentMp: TEMPORARY_RESOURCE_DEFAULTS.maxMp,
-          maxMp: TEMPORARY_RESOURCE_DEFAULTS.maxMp
+          currentHp: initialResources.maxHp,
+          maxHp: initialResources.maxHp,
+          currentMp: initialResources.maxMp,
+          maxMp: initialResources.maxMp,
+          growthVersion: RESOURCE_GROWTH_VERSION,
+          provisional: initialResources.provisional
         },
         actionPoints: {
           current: Math.min(sourceActionPoints, sourceMaxActionPoints),
@@ -242,6 +258,7 @@ async function ensureV2MigrationForUser(user) {
   );
 
   await ensureV2SkillPointGrant(character);
+  await ensureV2CharacterFoundation(character);
   return { snapshot, character, preview };
 }
 
@@ -255,6 +272,31 @@ async function ensureV2SkillPointGrant(character) {
   character.progression.totalSkillPointsEarned = expected;
   character.progression.skillPointGrantVersion = 1;
   await character.save();
+  return character;
+}
+
+async function ensureV2CharacterFoundation(character) {
+  if (!character) return character;
+  let changed = false;
+  for (const [stat, baseline] of Object.entries(BASE_STATS)) {
+    if (Number(character.stats?.[stat]) >= baseline) continue;
+    character.stats[stat] = baseline;
+    changed = true;
+  }
+
+  if (Number(character.resources?.growthVersion) < RESOURCE_GROWTH_VERSION) {
+    const department = DEPARTMENTS[character.job?.departmentId];
+    const reference = calculateReferenceResources({
+      level: character.progression?.level,
+      departmentId: character.job?.departmentId,
+      advancementTier: character.job?.advancementTier,
+      archetype: department?.archetype || 'beginner'
+    });
+    applyReferenceResources(character, reference);
+    changed = true;
+  }
+
+  if (changed) await character.save();
   return character;
 }
 
@@ -272,7 +314,8 @@ function buildResourceResponse(resources = {}) {
       ? Math.max(0, Math.min(maxMp, Number(resources.currentMp) || 0))
       : maxMp,
     maxMp,
-    provisional: !storedMaxHp || !storedMaxMp
+    growthVersion: Math.max(0, Number(resources.growthVersion) || 0),
+    provisional: Boolean(resources.provisional || !storedMaxHp || !storedMaxMp)
   };
 }
 
@@ -288,6 +331,12 @@ function buildCharacterResponse(character) {
     weaponType: equipmentLoadout.weapon?.weaponType || plain.loadout?.weaponType,
     departmentId: plain.job?.departmentId
   });
+  const normalizedStats = Object.fromEntries(
+    Object.entries(BASE_STATS).map(([key, baseline]) => [
+      key,
+      Math.max(baseline, Number(plain.stats?.[key]) || 0)
+    ])
+  );
   return {
     id: String(plain._id),
     displayName: plain.displayName,
@@ -295,8 +344,12 @@ function buildCharacterResponse(character) {
       ...plain.progression,
       expToNextLevel: getRequiredExpV2(plain.progression?.level)
     },
-    stats: plain.stats,
-    job: plain.job,
+    stats: normalizedStats,
+    job: {
+      ...plain.job,
+      departmentName: DEPARTMENTS[plain.job?.departmentId]?.name || '미전직',
+      jobName: getJobName(plain.job?.departmentId, plain.job?.advancementTier)
+    },
     resources: buildResourceResponse(plain.resources),
     inventory: buildInventoryView(plain),
     pendingMailCount: getPendingMail(plain).length,
@@ -311,11 +364,12 @@ function buildCharacterResponse(character) {
     combatPresentation,
     derivedStats: buildDerivedStats({
       progression: plain.progression,
-      stats: plain.stats,
+      stats: normalizedStats,
       job: plain.job,
       loadout: equipmentLoadout
     }),
     advancementQuest: getAvailableAdvancementQuest(plain),
+    skillAccess: getSkillAccessProfile(plain),
     migration: plain.migration,
     createdAt: plain.createdAt,
     updatedAt: plain.updatedAt
@@ -330,6 +384,7 @@ module.exports = {
   buildMigrationPreview,
   ensureV2MigrationForUser,
   ensureV2SkillPointGrant,
+  ensureV2CharacterFoundation,
   buildResourceResponse,
   buildEquipmentLoadout,
   buildCharacterResponse

@@ -83,11 +83,18 @@ test('V2 character response supplies provisional resources, EXP target, and empt
     migration: { status: 'prepared' }
   });
   assert.deepEqual(response.resources, {
-    currentHp: 120,
-    maxHp: 120,
-    currentMp: 80,
-    maxMp: 80,
+    currentHp: 50,
+    maxHp: 50,
+    currentMp: 5,
+    maxMp: 5,
+    growthVersion: 0,
     provisional: true
+  });
+  assert.deepEqual(response.stats, {
+    grit: 4,
+    processingSpeed: 4,
+    workKnowledge: 4,
+    awareness: 4
   });
   assert.equal(response.progression.expToNextLevel, 709716);
   assert.deepEqual(response.inventory.items, []);
@@ -145,6 +152,8 @@ test('V2 router exposes only the migration foundation endpoints in phase one', (
     'POST /api/v2/migration/prepare',
     'GET /api/v2/world/maps',
     'GET /api/v2/me',
+    'POST /api/v2/stats/allocate',
+    'POST /api/v2/advancement',
     'GET /api/v2/inventory',
     'POST /api/v2/inventory/quick-slot',
     'POST /api/v2/inventory/use-potion',

@@ -8,7 +8,9 @@ const {
   getAdvancementBonusSkillPoints,
   getJobName,
   getNextAdvancementRequirement,
-  getAvailableAdvancementQuest
+  getAvailableAdvancementQuest,
+  getSkillAccessProfile,
+  applyAdvancement
 } = require('../../src/v2/jobs/advancementRules');
 const { getSkillPointsForLevel } = require('../../src/v2/progression/levelMigration');
 
@@ -52,4 +54,21 @@ test('advancement quest appears only after the required level', () => {
 test('completed fourth advancement has no next requirement', () => {
   assert.equal(getNextAdvancementRequirement({ level: 200, advancementTier: 4 }), null);
   assert.equal(getJobName('accounting', 4), '재무총괄');
+});
+
+test('advancement selects a department once and grants one skill point', () => {
+  const character = {
+    progression: {
+      level: 130,
+      unspentSkillPoints: 387,
+      totalSkillPointsEarned: 387
+    },
+    job: { departmentId: 'unassigned', advancementTier: 0 }
+  };
+  const result = applyAdvancement(character, 'quality');
+  assert.equal(result.jobName, '품질검사원');
+  assert.equal(character.job.departmentId, 'quality');
+  assert.equal(character.job.advancementTier, 1);
+  assert.equal(character.progression.unspentSkillPoints, 388);
+  assert.equal(getSkillAccessProfile(character).unlockedTier, 1);
 });

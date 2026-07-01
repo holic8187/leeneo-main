@@ -13,7 +13,8 @@ const {
   calculateHitChance,
   calculateMissChance,
   calculatePhysicalDamageAfterDefense,
-  calculateMagicDamageAfterDefense
+  calculateMagicDamageAfterDefense,
+  calculateIncomingPhysicalEvadeChance
 } = require('../../src/v2/combat/combatFormulas');
 
 test('weapon constants preserve the V2 design values', () => {
@@ -22,6 +23,24 @@ test('weapon constants preserve the V2 design values', () => {
   assert.equal(WEAPON_CONSTANTS.spear, 5);
   assert.equal(WEAPON_CONSTANTS.bow, 3.4);
   assert.equal(WEAPON_CONSTANTS.knuckle, 4.8);
+});
+
+test('incoming physical evasion uses the requested class-specific caps', () => {
+  assert.equal(calculateIncomingPhysicalEvadeChance({
+    evasion: 450,
+    monsterAccuracy: 100,
+    archetype: 'thief'
+  }), 0.95);
+  assert.equal(calculateIncomingPhysicalEvadeChance({
+    evasion: 450,
+    monsterAccuracy: 100,
+    archetype: 'warrior'
+  }), 0.8);
+  assert.equal(calculateIncomingPhysicalEvadeChance({
+    evasion: 0,
+    monsterAccuracy: 100,
+    archetype: 'warrior'
+  }), 0.02);
 });
 
 test('physical attack range uses weapon constant and mastery', () => {

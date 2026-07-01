@@ -364,7 +364,24 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .quest-rank strong { font-size: 25px; }
 .quest-rank small { color: rgba(255,255,255,.75); }
 .department-options { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; }
-.department-options span { padding: 8px 10px; border: 1px solid var(--line-soft); background: #eef1eb; font-size: 12px; }
+.department-options button {
+  padding: 10px 12px;
+  display: grid;
+  gap: 4px;
+  color: var(--ink);
+  text-align: left;
+  border: 1px solid var(--line-soft);
+  background: #eef1eb;
+}
+.department-options button small { color: var(--muted); font-size: 10px; }
+.department-options button.is-selected {
+  color: #fff;
+  border-color: var(--green);
+  background: var(--green);
+  box-shadow: inset 0 0 0 2px rgba(255,255,255,.18);
+}
+.department-options button.is-selected small { color: rgba(255,255,255,.78); }
+.advancement-submit { margin-top: 14px; color: #fff; background: var(--orange); }
 .quest-department { padding: 12px; color: var(--ink); background: #eef1eb; }
 
 .site-modal { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 18px; }
@@ -430,7 +447,41 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .stat-total strong { font-size: 25px; }
 .stat-overview { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(220px, .65fr); gap: 16px; }
 .stat-grid { margin-top: 12px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-.stat-grid article { padding: 16px; border: 1px solid var(--line-soft); background: #f0f2ec; }
+.stat-grid article {
+  position: relative;
+  padding: 16px 54px 16px 16px;
+  border: 1px solid var(--line-soft);
+  background: #f0f2ec;
+}
+.stat-grid article > button {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  color: #fff;
+  border-color: var(--green);
+  background: var(--green);
+  transform: translateY(-50%);
+}
+.skill-access-sheet {
+  min-height: 260px;
+  padding: 34px;
+  display: grid;
+  align-content: center;
+  gap: 10px;
+  color: #eaf5ef;
+  border: 1px solid #436659;
+  background:
+    linear-gradient(120deg, rgba(34, 109, 82, .38), transparent 52%),
+    #15211c;
+}
+.skill-access-sheet > span { color: #77d8ae; font: 800 10px ui-monospace, monospace; letter-spacing: .14em; }
+.skill-access-sheet h3, .skill-access-sheet p { margin: 0; }
+.skill-access-sheet h3 { font-size: 28px; }
+.skill-access-sheet strong { color: #ffd88a; }
+.skill-access-sheet small { max-width: 560px; color: #9eb4aa; line-height: 1.7; }
 .stat-grid span, .stat-grid small { display: block; color: var(--muted); }
 .stat-grid strong { display: block; margin: 12px 0; font-size: 31px; }
 .ability-panel { border: 1px solid #7a9bb0; background: #edf4f6; }
@@ -698,6 +749,7 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   transition-property: left, bottom;
   transition-duration: 0ms;
   transition-timing-function: linear;
+  scale: .5;
   filter: drop-shadow(0 4px 2px rgba(0,0,0,.35));
 }
 .character-tag {
@@ -782,6 +834,8 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   color: #f5b7a7;
   text-align: center;
   translate: -50% 0;
+  scale: .5;
+  transform-origin: 50% 100%;
   transition: left 1s linear, bottom .55s ease-in;
   filter: drop-shadow(0 3px 2px rgba(0,0,0,.5));
 }
@@ -806,6 +860,8 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   height: 61px;
   color: #83d8ef;
   translate: -50% 0;
+  scale: .5;
+  transform-origin: 50% 100%;
   transition: left 1s linear, bottom .55s linear;
   filter: drop-shadow(0 3px 2px rgba(0,0,0,.35));
 }
@@ -881,6 +937,43 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   box-shadow: 0 0 18px #6bb8ff;
   animation: projectile-shot .7s ease-in;
 }
+.floating-damage {
+  position: absolute;
+  z-index: 11;
+  min-width: 34px;
+  pointer-events: none;
+  color: #ff9a3d;
+  font: 1000 18px/1 ui-monospace, "Cascadia Mono", monospace;
+  text-align: center;
+  white-space: nowrap;
+  text-shadow:
+    -1px -1px 0 #4a1d00,
+    1px -1px 0 #4a1d00,
+    -1px 1px 0 #4a1d00,
+    1px 1px 0 #4a1d00,
+    0 0 8px rgba(255, 154, 61, .72);
+  translate: -50% -100%;
+  animation: floating-damage .5s ease-out forwards;
+}
+.floating-damage.is-critical {
+  color: #ff62ae;
+  font-size: 21px;
+  text-shadow:
+    -1px -1px 0 #55102f,
+    1px -1px 0 #55102f,
+    -1px 1px 0 #55102f,
+    1px 1px 0 #55102f,
+    0 0 10px rgba(255, 98, 174, .8);
+}
+.floating-damage.is-incoming {
+  color: #b97aff;
+  text-shadow:
+    -1px -1px 0 #281044,
+    1px -1px 0 #281044,
+    -1px 1px 0 #281044,
+    1px 1px 0 #281044,
+    0 0 9px rgba(185, 122, 255, .78);
+}
 .world-vignette { position: absolute; inset: 0; z-index: 9; pointer-events: none; box-shadow: inset 0 0 55px rgba(0,0,0,.52); }
 .map-curtain {
   position: absolute;
@@ -914,10 +1007,16 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 @keyframes projectile-shot { 0% { opacity: 1; transform: translateX(0); } 90% { opacity: 1; } 100% { opacity: 0; transform: translateX(260px); } }
 @keyframes ghost-float-own { from { translate: 0 -2px; } to { translate: 0 -17px; } }
 @keyframes ghost-float-remote { from { translate: -50% -2px; } to { translate: -50% -17px; } }
+@keyframes floating-damage {
+  0% { opacity: 0; translate: -50% -65%; scale: .78; }
+  14% { opacity: 1; }
+  70% { opacity: .82; }
+  100% { opacity: 0; translate: -50% -175%; scale: 1.06; }
+}
 
 @media (max-width: 820px) {
   .world-stage { min-height: 300px; }
-  .field-monster { scale: .92; }
+  .field-monster, .remote-player, .field-character { scale: .5; }
 }
 @media (max-width: 520px) {
   .world-stage { min-height: 255px; }
@@ -926,8 +1025,7 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   .world-rope { height: 101px; }
   .world-portal { width: 54px; height: 76px; }
   .world-portal small { display: none; }
-  .field-monster { scale: .78; transform-origin: 50% 100%; }
-  .remote-player { scale: .84; transform-origin: 50% 100%; }
+  .field-monster, .remote-player, .field-character { scale: .5; transform-origin: 50% 100%; }
 }
 
 

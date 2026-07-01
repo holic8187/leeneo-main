@@ -31,7 +31,9 @@ const WEAPON_LABELS = Object.freeze({
   claw: '아대',
   dagger: '단검',
   knuckle: '너클',
-  gun: '건'
+  gun: '건',
+  wand: '완드',
+  staff: '스태프'
 });
 
 const PHYSICAL_ARCHETYPES = Object.freeze({
@@ -194,6 +196,21 @@ function calculateMissChance(options) {
   return 1 - calculateHitChance(options);
 }
 
+function calculateIncomingPhysicalEvadeChance({
+  evasion,
+  monsterAccuracy,
+  archetype = 'beginner'
+}) {
+  const accuracy = nonNegative(monsterAccuracy);
+  const lowerBound = archetype === 'thief' ? 0.05 : 0.02;
+  const upperBound = archetype === 'thief' ? 0.95 : 0.8;
+  if (accuracy <= 0) return upperBound;
+  return Math.max(
+    lowerBound,
+    Math.min(upperBound, nonNegative(evasion) / (4.5 * accuracy))
+  );
+}
+
 function normalizeRange(range = {}) {
   const minimum = nonNegative(range.minimum);
   const maximum = nonNegative(range.maximum);
@@ -256,6 +273,7 @@ module.exports = {
   calculateRequiredAccuracy,
   calculateHitChance,
   calculateMissChance,
+  calculateIncomingPhysicalEvadeChance,
   calculatePhysicalDamageAfterDefense,
   calculateMagicDamageAfterDefense
 };

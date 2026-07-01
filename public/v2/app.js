@@ -16,18 +16,22 @@ const state = {
   combatRunId: 0,
   combatAttackCount: 0,
   equipmentTab: 'weapon',
+  selectedDepartmentId: '',
   signupCodeConfigured: false,
   signupCodeValid: false,
   signupValidationRequest: 0,
   signupCodeTimer: null,
   worldPresenceRunId: 0,
   worldHeartbeatBusy: false,
+  worldStateEpoch: 0,
+  reviving: false,
   selfUserId: '',
   worldMonsters: [],
   combatTargetId: '',
   worldServerTime: 0,
   invulnerableUntil: 0,
   invulnerabilityTimer: null,
+  lastContactDamageKey: '',
   dead: false,
   deathExpLost: 0,
   inventory: {
@@ -112,9 +116,9 @@ function renderGame(data) {
 
   $('displayName').textContent = state.displayName || '사원';
   $('characterLevel').textContent = formatNumber(progression.level || state.preview?.mappedLevel);
-  $('departmentBadge').textContent = job.departmentId === 'unassigned'
-    ? '부서 미정'
-    : job.departmentId;
+  $('departmentBadge').textContent = job.jobName || (
+    job.departmentId === 'unassigned' ? '부서 미정' : job.departmentName
+  );
   $('unspentStats').textContent = `${formatNumber(progression.unspentStatPoints)} P`;
   $('unspentSkills').textContent = `${formatNumber(progression.unspentSkillPoints)} SP`;
   $('advancementTier').textContent = `${formatNumber(job.advancementTier)}차`;
@@ -431,6 +435,8 @@ async function snapshotAllUsers() {
 }
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+const CHARACTER_MOVEMENT_TIME_SCALE = 3;
+const CHARACTER_BASE_MOVEMENT_PX_PER_SECOND = 115 / CHARACTER_MOVEMENT_TIME_SCALE;
 const CHARACTER_MOTION_CLASSES = [
   'is-walking',
   'is-jump',
@@ -493,6 +499,35 @@ function setCharacterMotion(motion) {
   const character = $('fieldCharacter');
   CHARACTER_MOTION_CLASSES.forEach((className) => character.classList.remove(className));
   if (motion) character.classList.add(`is-${motion}`);
+}
+
+function getMovementSpeedPercent() {
+  return Math.max(10, Number(state.character?.derivedStats?.movementSpeed) || 100);
+}
+
+function getScaledMovementDuration(baseDuration) {
+  return Math.max(
+    1,
+    Math.round(Number(baseDuration || 0) * CHARACTER_MOVEMENT_TIME_SCALE * 100 / getMovementSpeedPercent())
+  );
+}
+
+function showFloatingDamage(targetElement, amount, kind = 'outgoing') {
+  const stage = $('worldStage');
+  if (!stage || !targetElement || !targetElement.isConnected) return;
+  const value = Math.max(0, Math.floor(Number(amount) || 0));
+  if (!value) return;
+
+  const stageRect = stage.getBoundingClientRect();
+  const targetRect = targetElement.getBoundingClientRect();
+  const element = document.createElement('span');
+  element.className = `floating-damage is-${kind}`;
+  element.textContent = formatNumber(value);
+  element.style.left = `${targetRect.left - stageRect.left + targetRect.width / 2}px`;
+  element.style.top = `${Math.max(18, targetRect.top - stageRect.top + 4)}px`;
+  stage.appendChild(element);
+  element.addEventListener('animationend', () => element.remove(), { once: true });
+  setTimeout(() => element.remove(), 650);
 }
 
 function updateFieldControls() {
@@ -566,11 +601,12 @@ function isRunActive(kind, runId) {
 async function moveCharacter(left, duration, runId) {
   if (!isRunActive('move', runId)) return false;
   const character = $('fieldCharacter');
+  const resolvedDuration = getScaledMovementDuration(duration);
   setWorldActivity('목적지로 걷는 중');
   setCharacterMotion('walking');
-  character.style.transitionDuration = `${duration}ms`;
+  character.style.transitionDuration = `${resolvedDuration}ms`;
   character.style.left = `${left}%`;
-  await sleep(duration);
+  await sleep(resolvedDuration);
   setCharacterMotion(null);
   return isRunActive('move', runId);
 }
@@ -593,12 +629,13 @@ function getUpperPlatformBottom() {
 async function climbToUpperPlatform(runId) {
   if (!isRunActive('move', runId)) return false;
   const character = $('fieldCharacter');
+  const duration = getScaledMovementDuration(1100);
   character.classList.remove('facing-left');
   setWorldActivity('사다리를 타고 위층으로 이동 중');
   setCharacterMotion('climb');
-  character.style.transitionDuration = '1100ms';
+  character.style.transitionDuration = `${duration}ms`;
   character.style.bottom = `${getUpperPlatformBottom()}px`;
-  await sleep(1120);
+  await sleep(duration + 20);
   setCharacterMotion(null);
   return isRunActive('move', runId);
 }
@@ -753,18 +790,20 @@ async function approachMonsterForCombat(runId) {
   if ((Number.parseFloat(character.style.bottom) || 42) > 60) {
     const ladderX = getLadderCharacterX();
     const currentX = Number.parseFloat(character.style.left) || ladderX;
+    const approachDuration = getScaledMovementDuration(650);
+    const climbDuration = getScaledMovementDuration(1050);
     character.classList.toggle('facing-left', ladderX < currentX);
     setWorldActivity('전투 위치로 이동 · 사다리 내려가는 중');
     setCharacterMotion('walking');
-    character.style.transitionDuration = '650ms';
+    character.style.transitionDuration = `${approachDuration}ms`;
     character.style.left = `${ladderX}%`;
-    await sleep(670);
+    await sleep(approachDuration + 20);
     if (!isRunActive('combat', runId)) return false;
     character.classList.remove('facing-left');
     setCharacterMotion('climb');
-    character.style.transitionDuration = '1050ms';
+    character.style.transitionDuration = `${climbDuration}ms`;
     character.style.bottom = '42px';
-    await sleep(1070);
+    await sleep(climbDuration + 20);
     setCharacterMotion(null);
   }
 
@@ -789,8 +828,14 @@ async function approachMonsterForCombat(runId) {
   const clampedLeftPx = Math.max(0, Math.min(stageRect.width - characterRect.width, desiredLeftPx));
   const targetPercent = clampedLeftPx / stageRect.width * 100;
   const travelDistance = Math.abs(clampedLeftPx - (characterRect.left - stageRect.left));
-  const movementSpeed = Math.max(10, Number(state.character?.derivedStats?.movementSpeed) || 100);
-  const duration = Math.max(280, Math.min(2400, travelDistance / (115 * movementSpeed / 100) * 1000));
+  const movementSpeed = getMovementSpeedPercent();
+  const duration = Math.max(
+    840,
+    Math.min(
+      7200,
+      travelDistance / (CHARACTER_BASE_MOVEMENT_PX_PER_SECOND * movementSpeed / 100) * 1000
+    )
+  );
   setWorldActivity(`몬스터에게 접근 중 · 사거리 ${Math.round(rangePx)}`);
   setCharacterMotion('walking');
   character.style.transitionDuration = `${duration}ms`;
@@ -823,7 +868,12 @@ async function runAutoCombat(runId) {
           monsterId: state.combatTargetId
         })
       });
-      renderWorldEntities(result);
+      showFloatingDamage(
+        getCombatTargetElement(),
+        result.damage,
+        result.critical ? 'critical' : 'outgoing'
+      );
+      applyAttackResult(result);
       if (result.character) {
         renderGame({
           preview: state.preview,
@@ -950,6 +1000,36 @@ function renderMonsters(monsters = []) {
   });
 }
 
+function applyAttackResult(result = {}) {
+  const targetId = String(state.combatTargetId || '');
+  if (!targetId) return;
+  const targetElement = Array.from($('monsterLayer').children).find(
+    (element) => element.dataset.monsterId === targetId
+  );
+
+  if (result.defeated || !result.monster) {
+    state.worldMonsters = state.worldMonsters.filter((monster) => monster.id !== targetId);
+    targetElement?.remove();
+    return;
+  }
+
+  // Heartbeats own movement coordinates. A delayed attack response may update
+  // HP, but it must never rewind a newer x/floor snapshot.
+  state.worldMonsters = state.worldMonsters.map((monster) => (
+    monster.id === targetId
+      ? {
+        ...monster,
+        hp: result.monster.hp,
+        maxHp: result.monster.maxHp,
+        state: result.monster.state
+      }
+      : monster
+  ));
+  const hpBar = targetElement?.querySelector('.monster-hp i');
+  if (hpBar) hpBar.style.width = `${ratio(result.monster.hp, result.monster.maxHp)}%`;
+  targetElement?.classList.toggle('is-chasing', result.monster.state === 'chase');
+}
+
 function syncInvulnerabilityVisual(invulnerableUntil, serverTime) {
   const character = $('fieldCharacter');
   const until = Math.max(0, Number(invulnerableUntil) || 0);
@@ -976,6 +1056,7 @@ function syncInvulnerabilityVisual(invulnerableUntil, serverTime) {
 function showDeathState(expLost = 0) {
   if (!state.dead) {
     state.dead = true;
+    state.worldStateEpoch += 1;
     state.deathExpLost = Math.max(0, Number(expLost) || 0);
     state.autoCombat = false;
     localStorage.setItem('v2AutoCombat', 'false');
@@ -999,6 +1080,8 @@ function showDeathState(expLost = 0) {
 async function revivePlayer() {
   const button = $('reviveButton');
   button.disabled = true;
+  state.reviving = true;
+  state.worldStateEpoch += 1;
   try {
     const data = await request('/api/v2/world/revive', {
       method: 'POST',
@@ -1021,6 +1104,7 @@ async function revivePlayer() {
   } catch (err) {
     $('deathExpLoss').textContent = err.message;
   } finally {
+    state.reviving = false;
     button.disabled = false;
   }
 }
@@ -1049,6 +1133,11 @@ function renderWorldEntities(data = {}) {
     character.style.left = `${ownContact.x}%`;
     character.classList.add('damage-flash');
     setTimeout(() => character.classList.remove('damage-flash'), 260);
+    const damageKey = `${ownContact.monsterId}:${ownContact.invulnerableUntil}:${ownContact.damage}`;
+    if (state.lastContactDamageKey !== damageKey) {
+      state.lastContactDamageKey = damageKey;
+      showFloatingDamage(character, ownContact.damage, 'incoming');
+    }
     syncInvulnerabilityVisual(ownContact.invulnerableUntil, state.worldServerTime);
     if (Number(ownContact.currentHp) > 0) {
       setWorldActivity(`몸박 피해 -${formatNumber(ownContact.damage)} · 1.5초 무적`);
@@ -1057,7 +1146,15 @@ function renderWorldEntities(data = {}) {
 }
 
 async function sendWorldHeartbeat() {
-  if (state.worldHeartbeatBusy || !state.token || state.isAdmin || !state.currentMapId) return;
+  if (
+    state.worldHeartbeatBusy
+    || state.dead
+    || state.reviving
+    || !state.token
+    || state.isAdmin
+    || !state.currentMapId
+  ) return;
+  const requestEpoch = state.worldStateEpoch;
   state.worldHeartbeatBusy = true;
   try {
     const character = $('fieldCharacter');
@@ -1072,7 +1169,9 @@ async function sendWorldHeartbeat() {
         facingLeft: character.classList.contains('facing-left')
       })
     });
-    renderWorldEntities(data);
+    if (requestEpoch === state.worldStateEpoch && !state.dead && !state.reviving) {
+      renderWorldEntities(data);
+    }
   } catch (err) {
     console.error('V2 world heartbeat error:', err);
   } finally {
@@ -1544,9 +1643,14 @@ function questBody() {
   if (!quest) {
     return '<div class="empty-ledger"><b>현재 진행 가능한 전직이 없습니다.</b><p>다음 전직 레벨에 도달하면 화면 옆에 퀘스트가 다시 나타납니다.</p></div>';
   }
-  const departmentNames = ['인사팀', '회계팀', '경영지원팀', '영업직', '마케팅', '개발직', '현장직', '시설관리팀', '품질관리', '연구직'];
+  const departments = state.meta?.departments || [];
   const departmentGuide = quest.departmentSelectionRequired
-    ? `<div class="department-options">${departmentNames.map((name) => `<span>${name}</span>`).join('')}</div>`
+    ? `<div class="department-options">${departments.map((department) => (
+      `<button class="${state.selectedDepartmentId === department.id ? 'is-selected' : ''}" type="button" data-department-id="${escapeHtml(department.id)}">
+        <strong>${escapeHtml(department.name)}</strong>
+        <small>${escapeHtml(department.jobs?.[0] || '1차 전직')} · ${escapeHtml(department.archetype)}</small>
+      </button>`
+    )).join('')}</div>`
     : `<p class="quest-department">${escapeHtml(quest.departmentName)} · 다음 직급 <b>${escapeHtml(quest.nextJobName)}</b></p>`;
   return `
     <div class="quest-sheet">
@@ -1555,9 +1659,45 @@ function questBody() {
         <h3>인사 발령 심사</h3>
         <p>전직 퀘스트를 완료하면 새로운 직급과 스킬 포인트 1을 획득합니다.</p>
         ${departmentGuide}
-        <p class="notice-line">전직 퀘스트의 실제 수행 조건과 완료 버튼은 다음 작업에서 연결됩니다.</p>
+        <button class="advancement-submit" type="button" data-complete-advancement
+          ${quest.departmentSelectionRequired && !state.selectedDepartmentId ? 'disabled' : ''}>
+          ${quest.targetTier}차 전직 완료
+        </button>
+        <p class="notice-line">전직 즉시 스킬 포인트 1을 받고, 현재 레벨·보직 기준 평균 HP/MP가 적용됩니다.</p>
       </div>
     </div>`;
+}
+
+async function completeAdvancement() {
+  try {
+    const data = await request('/api/v2/advancement', {
+      method: 'POST',
+      body: JSON.stringify({ departmentId: state.selectedDepartmentId })
+    });
+    state.character = data.character;
+    state.selectedDepartmentId = '';
+    renderGame({
+      preview: state.preview,
+      character: data.character,
+      displayName: state.displayName
+    });
+    $('featureBody').innerHTML = questBody();
+    bindQuestControls();
+    setWorldActivity(`${data.advancement.jobName} 전직 완료 · 스킬 포인트 +1`);
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+function bindQuestControls() {
+  document.querySelectorAll('[data-department-id]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.selectedDepartmentId = button.dataset.departmentId;
+      $('featureBody').innerHTML = questBody();
+      bindQuestControls();
+    });
+  });
+  document.querySelector('[data-complete-advancement]')?.addEventListener('click', completeAdvancement);
 }
 
 function statBody() {
@@ -1581,10 +1721,10 @@ function statBody() {
           <div class="skill-total"><span>사용 가능한 스킬 포인트</span><strong>${formatNumber(progression.unspentSkillPoints)} SP</strong></div>
         </div>
         <div class="stat-grid">
-          <article><span>맷집 / STR</span><strong>${formatNumber(stats.grit)}</strong><small>물리 계열 주스탯 후보</small></article>
-          <article><span>처리속도 / DEX</span><strong>${formatNumber(stats.processingSpeed)}</strong><small>명중·회피 및 원거리 계열</small></article>
-          <article><span>업무지식 / INT</span><strong>${formatNumber(stats.workKnowledge)}</strong><small>마법 피해와 정신력 계열</small></article>
-          <article><span>눈치 / LUK</span><strong>${formatNumber(stats.awareness)}</strong><small>도적 계열 및 회피 보조</small></article>
+          <article><span>맷집 / STR</span><strong>${formatNumber(stats.grit)}</strong><small>물리 계열 주스탯 후보</small><button type="button" data-allocate-stat="grit" ${progression.unspentStatPoints > 0 ? '' : 'disabled'}>+1</button></article>
+          <article><span>처리속도 / DEX</span><strong>${formatNumber(stats.processingSpeed)}</strong><small>명중·회피 및 원거리 계열</small><button type="button" data-allocate-stat="processingSpeed" ${progression.unspentStatPoints > 0 ? '' : 'disabled'}>+1</button></article>
+          <article><span>업무지식 / INT</span><strong>${formatNumber(stats.workKnowledge)}</strong><small>마법 피해와 정신력 계열</small><button type="button" data-allocate-stat="workKnowledge" ${progression.unspentStatPoints > 0 ? '' : 'disabled'}>+1</button></article>
+          <article><span>눈치 / LUK</span><strong>${formatNumber(stats.awareness)}</strong><small>도적 계열 및 회피 보조</small><button type="button" data-allocate-stat="awareness" ${progression.unspentStatPoints > 0 ? '' : 'disabled'}>+1</button></article>
         </div>
       </section>
       <aside class="ability-panel">
@@ -1597,16 +1737,52 @@ function statBody() {
     <p class="notice-line">공격력·명중률·회피율은 현재 스탯과 장비를 기준으로 계산됩니다. 이동속도 기본값은 100%입니다.</p>`;
 }
 
+async function allocateStat(stat) {
+  try {
+    const data = await request('/api/v2/stats/allocate', {
+      method: 'POST',
+      body: JSON.stringify({ allocations: { [stat]: 1 } })
+    });
+    state.character = data.character;
+    renderGame({
+      preview: state.preview,
+      character: data.character,
+      displayName: state.displayName
+    });
+    $('featureBody').innerHTML = statBody();
+    bindStatControls();
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+function bindStatControls() {
+  document.querySelectorAll('[data-allocate-stat]').forEach((button) => {
+    button.addEventListener('click', () => allocateStat(button.dataset.allocateStat));
+  });
+}
+
+function skillBody() {
+  const access = state.character?.skillAccess || {};
+  return `<div class="skill-access-sheet">
+    <span>UNLOCKED TIER ${formatNumber(access.unlockedTier)}</span>
+    <h3>${escapeHtml(access.name || '신입사원 공용 스킬')}</h3>
+    <p>${escapeHtml(access.jobName || '미전직')} · 적용 레벨 Lv.${formatNumber(access.minLevel || 1)}~${formatNumber(access.maxLevel || 9)}</p>
+    <strong>보유 스킬 포인트 ${formatNumber(state.character?.progression?.unspentSkillPoints)} SP</strong>
+    <small>직업별 실제 스킬 목록과 투자 기능은 스킬 데이터가 확정되는 순서대로 이 화면에 연결됩니다.</small>
+  </div>`;
+}
+
 function featureBody(feature) {
   if (feature === 'stats') return statBody();
   if (feature === 'quest') return questBody();
   if (feature === 'move') return movementSelectionBody();
   if (feature === 'equipment') return equipmentBody();
   if (feature === 'inventory') return inventoryBody();
+  if (feature === 'skills') return skillBody();
   if (feature === 'potion-config') return potionConfigurationBody();
   if (feature === 'mail') return mailBody();
   const messages = {
-    skills: '부서와 전직별 스킬 트리가 이곳에 배치됩니다.',
     shop: '물약, 탄환, 장비 보급품을 구매하는 사내 보급소입니다.',
     cash: 'V2 전용 상품 구성 후 개장합니다.',
     company: state.preview?.preserved.companyData
@@ -1634,6 +1810,8 @@ function openFeature(feature) {
     });
   }
   if (feature === 'equipment') bindEquipmentTabs();
+  if (feature === 'quest') bindQuestControls();
+  if (feature === 'stats') bindStatControls();
   if (feature === 'inventory') bindInventoryControls();
   if (feature === 'potion-config') bindPotionControls();
   if (feature === 'mail') bindMailControls();

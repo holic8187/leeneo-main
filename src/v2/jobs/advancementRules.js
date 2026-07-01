@@ -1,6 +1,13 @@
 'use strict';
 
 const ADVANCEMENT_LEVELS = Object.freeze([10, 30, 70, 120]);
+const SKILL_TIER_LEVEL_RANGES = Object.freeze([
+  Object.freeze({ tier: 0, name: '신입사원 공용 스킬', minLevel: 1, maxLevel: 9 }),
+  Object.freeze({ tier: 1, name: '1차 보직 스킬', minLevel: 10, maxLevel: 29 }),
+  Object.freeze({ tier: 2, name: '2차 보직 스킬', minLevel: 30, maxLevel: 69 }),
+  Object.freeze({ tier: 3, name: '3차 보직 스킬', minLevel: 70, maxLevel: 119 }),
+  Object.freeze({ tier: 4, name: '4차 보직 스킬', minLevel: 120, maxLevel: 200 })
+]);
 
 const DEPARTMENTS = Object.freeze({
   hr: {
@@ -125,12 +132,70 @@ function getAvailableAdvancementQuest(character = {}) {
   };
 }
 
+function getSkillAccessProfile(character = {}) {
+  const advancementTier = normalizeAdvancementTier(character.job?.advancementTier);
+  const level = Math.max(1, Math.min(200, Math.floor(Number(character.progression?.level) || 1)));
+  const tierDefinition = SKILL_TIER_LEVEL_RANGES[advancementTier];
+  return {
+    unlockedTier: advancementTier,
+    name: tierDefinition.name,
+    level,
+    minLevel: tierDefinition.minLevel,
+    maxLevel: tierDefinition.maxLevel,
+    jobName: getJobName(character.job?.departmentId, advancementTier),
+    advancementRequired: Boolean(
+      getNextAdvancementRequirement({ level, advancementTier })?.eligible
+    )
+  };
+}
+
+function applyAdvancement(character, requestedDepartmentId) {
+  const requirement = getNextAdvancementRequirement({
+    level: character.progression?.level,
+    advancementTier: character.job?.advancementTier
+  });
+  if (!requirement?.eligible) {
+    throw new Error('현재 완료할 수 있는 전직이 없습니다.');
+  }
+
+  const departmentId = requirement.departmentSelectionRequired
+    ? String(requestedDepartmentId || '')
+    : String(character.job?.departmentId || '');
+  if (!DEPARTMENTS[departmentId]) {
+    throw new Error('전직할 부서를 선택해주세요.');
+  }
+  if (!requirement.departmentSelectionRequired && departmentId !== character.job?.departmentId) {
+    throw new Error('1차 전직 이후에는 기존 부서의 승진 경로를 따라야 합니다.');
+  }
+
+  character.job.departmentId = departmentId;
+  character.job.advancementTier = requirement.targetTier;
+  character.progression.unspentSkillPoints = Math.max(
+    0,
+    Number(character.progression?.unspentSkillPoints) || 0
+  ) + 1;
+  character.progression.totalSkillPointsEarned = Math.max(
+    0,
+    Number(character.progression?.totalSkillPointsEarned) || 0
+  ) + 1;
+  return {
+    departmentId,
+    departmentName: DEPARTMENTS[departmentId].name,
+    advancementTier: requirement.targetTier,
+    jobName: getJobName(departmentId, requirement.targetTier),
+    bonusSkillPoints: 1
+  };
+}
+
 module.exports = {
   ADVANCEMENT_LEVELS,
+  SKILL_TIER_LEVEL_RANGES,
   DEPARTMENTS,
   normalizeAdvancementTier,
   getAdvancementBonusSkillPoints,
   getJobName,
   getNextAdvancementRequirement,
-  getAvailableAdvancementQuest
+  getAvailableAdvancementQuest,
+  getSkillAccessProfile,
+  applyAdvancement
 };
