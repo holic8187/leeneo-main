@@ -694,6 +694,14 @@ function registerV2Routes({
         }
         const safeMap = findNearestSafeMap(character.worldState?.mapId);
         if (!safeMap) throw new Error('부활할 안전지대를 찾을 수 없습니다.');
+        const storedMaxHp = Math.max(0, Number(character.resources?.maxHp) || 0);
+        const storedMaxMp = Math.max(0, Number(character.resources?.maxMp) || 0);
+        const storedCurrentMp = Math.max(0, Number(character.resources?.currentMp) || 0);
+        character.resources.maxHp = storedMaxHp || 120;
+        character.resources.maxMp = storedMaxMp || 80;
+        character.resources.currentMp = storedMaxMp
+          ? Math.min(character.resources.maxMp, storedCurrentMp)
+          : character.resources.maxMp;
         character.resources.currentHp = 1;
         character.worldState = { mapId: safeMap.id, x: 8, floor: 0 };
         await character.save();
