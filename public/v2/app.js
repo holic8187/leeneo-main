@@ -15,7 +15,33 @@ const state = {
   moveRunId: 0,
   combatRunId: 0,
   combatAttackCount: 0,
-  equipmentTab: 'weapon'
+  equipmentTab: 'weapon',
+  signupCodeConfigured: false,
+  signupCodeValid: false,
+  signupValidationRequest: 0,
+  signupCodeTimer: null,
+  worldPresenceRunId: 0,
+  worldHeartbeatBusy: false,
+  selfUserId: '',
+  worldMonsters: [],
+  combatTargetId: '',
+  worldServerTime: 0,
+  invulnerableUntil: 0,
+  invulnerabilityTimer: null,
+  inventory: {
+    items: [],
+    categories: {},
+    potions: [],
+    quickSlots: { hp: null, mp: null },
+    limits: { defaultCapacity: 20, maximumCapacity: 64, expansionSize: 4 }
+  },
+  inventoryTab: 'consumable',
+  inventoryPage: 0,
+  inventoryExpansionPrompt: false,
+  mailbox: [],
+  pendingMailCount: 0,
+  mailPollTimer: null,
+  adminGrantItems: []
 };
 
 const $ = (id) => document.getElementById(id);
@@ -104,8 +130,14 @@ function renderGame(data) {
     ? `원본 스냅샷 연결 완료 · 변환 상태 ${migration.status || 'prepared'}`
     : '서버가 누락된 이관 데이터를 자동으로 준비하고 있습니다.';
 
+  if (character.inventory) setInventoryData(character.inventory);
+  if (Number.isFinite(Number(character.pendingMailCount))) {
+    updateMailButton(Number(character.pendingMailCount));
+  }
+
   const quest = character.advancementQuest;
   $('questButton').classList.toggle('hidden', !quest);
+  $('mailButton').classList.toggle('quest-visible', Boolean(quest));
   if (quest) {
     $('questButtonTitle').textContent = `${quest.targetTier}차 전직 가능`;
     $('questButtonMeta').textContent = `Lv.${quest.requiredLevel} · ${quest.nextJobName}`;
@@ -117,14 +149,76 @@ async function loadMeta() {
 }
 
 async function loadUserWorkspace() {
-  const [data, world] = await Promise.all([
+  const [data, world, inventoryData, mailData] = await Promise.all([
     request('/api/v2/migration/preview'),
-    request('/api/v2/world/maps')
+    request('/api/v2/world/maps'),
+    request('/api/v2/inventory'),
+    request('/api/v2/mail')
   ]);
   state.maps = world.maps || [];
   state.startMapId = world.startMapId || 'main_lobby';
+  setInventoryData(inventoryData.inventory);
+  setMailboxData(mailData);
   renderGame(data);
   startWorldSimulation();
+  startMailPolling();
+}
+
+async function loadAdminSignupCode() {
+  const data = await request('/api/v2/admin/signup-code');
+  $('signupCodeStatus').textContent = data.configured
+    ? `가입 코드 설정됨 · 마지막 변경 ${data.updatedAt ? new Date(data.updatedAt).toLocaleString('ko-KR') : '-'}`
+    : '아직 가입 코드가 설정되지 않았습니다.';
+}
+
+async function saveAdminSignupCode(event) {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector('button[type="submit"]');
+  button.disabled = true;
+  try {
+    const data = await request('/api/v2/admin/signup-code', {
+      method: 'POST',
+      body: JSON.stringify({ signupCode: $('adminSignupCode').value })
+    });
+    $('adminSignupCode').value = '';
+    $('signupCodeStatus').textContent = `가입 코드를 변경했습니다 · ${new Date(data.updatedAt).toLocaleString('ko-KR')}`;
+  } catch (err) {
+    $('signupCodeStatus').textContent = err.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function loadAdminGrantItems() {
+  const data = await request('/api/v2/admin/grant-items');
+  state.adminGrantItems = data.items || [];
+  $('adminGiftItem').innerHTML = state.adminGrantItems.map((item) => (
+    `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)} · ${escapeHtml(item.description)}</option>`
+  )).join('');
+}
+
+async function sendAdminGift(event) {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector('button[type="submit"]');
+  button.disabled = true;
+  $('adminGiftStatus').textContent = '선물을 우편함으로 보내는 중입니다.';
+  try {
+    const data = await request('/api/v2/admin/mail/send', {
+      method: 'POST',
+      body: JSON.stringify({
+        target: $('adminGiftTarget').value.trim(),
+        itemId: $('adminGiftItem').value,
+        quantity: Number($('adminGiftQuantity').value),
+        message: $('adminGiftMessage').value.trim()
+      })
+    });
+    $('adminGiftStatus').textContent = `${data.recipient}님에게 ${data.mail.attachments[0].name} ${formatNumber(data.mail.attachments[0].quantity)}개를 보냈습니다.`;
+    $('adminGiftMessage').value = '';
+  } catch (err) {
+    $('adminGiftStatus').textContent = err.message;
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function loadAdminSummary() {
@@ -163,10 +257,107 @@ async function enterWorkspace() {
 
   if (state.isAdmin) {
     $('adminWorkspace').classList.remove('hidden');
-    await loadAdminSummary();
+    await Promise.all([loadAdminSummary(), loadAdminSignupCode(), loadAdminGrantItems()]);
   } else {
     $('userWorkspace').classList.remove('hidden');
     await loadUserWorkspace();
+  }
+}
+
+function updateSignupButtonState() {
+  const password = $('signupPassword').value;
+  const confirmation = $('signupPasswordConfirm').value;
+  const passwordsMatch = password.length >= 6 && password === confirmation;
+  $('passwordMatchState').textContent = passwordsMatch
+    ? '비밀번호가 일치합니다.'
+    : (confirmation ? '비밀번호가 일치하지 않습니다.' : '비밀번호 확인을 입력해주세요.');
+  $('passwordMatchState').classList.toggle('is-valid', passwordsMatch);
+  $('signupCodeState').classList.toggle('is-valid', state.signupCodeValid);
+
+  const fieldsValid = /^[A-Za-z0-9_]{3,24}$/.test($('signupUsername').value.trim())
+    && $('signupNickname').value.trim().length >= 2
+    && $('signupNickname').value.trim().length <= 12;
+  $('signupSubmitButton').disabled = !(fieldsValid && passwordsMatch && state.signupCodeValid);
+}
+
+async function validateSignupCode() {
+  const code = $('signupCode').value.trim();
+  const requestId = ++state.signupValidationRequest;
+  state.signupCodeValid = false;
+  updateSignupButtonState();
+  if (!code || !state.signupCodeConfigured) return;
+  $('signupCodeState').textContent = '가입 코드를 확인하는 중입니다.';
+  try {
+    const data = await request('/api/v2/signup/validate-code', {
+      method: 'POST',
+      body: JSON.stringify({ signupCode: code })
+    });
+    if (requestId !== state.signupValidationRequest || code !== $('signupCode').value.trim()) return;
+    state.signupCodeValid = Boolean(data.valid);
+    $('signupCodeState').textContent = data.valid
+      ? '사용 가능한 가입 코드입니다.'
+      : '가입 코드가 올바르지 않습니다.';
+  } catch (err) {
+    if (requestId !== state.signupValidationRequest) return;
+    $('signupCodeState').textContent = err.message;
+  }
+  updateSignupButtonState();
+}
+
+async function openSignup() {
+  $('signupForm').reset();
+  state.signupCodeValid = false;
+  state.signupValidationRequest += 1;
+  $('signupStatus').textContent = '';
+  $('passwordMatchState').textContent = '비밀번호를 입력해주세요.';
+  $('signupCodeState').textContent = '가입 코드를 확인해야 합니다.';
+  $('signupModal').classList.remove('hidden');
+  document.body.classList.add('modal-open');
+  updateSignupButtonState();
+  try {
+    const config = await request('/api/v2/signup/config');
+    state.signupCodeConfigured = Boolean(config.codeConfigured);
+    if (!state.signupCodeConfigured) {
+      $('signupCodeState').textContent = '운영자가 아직 가입 코드를 설정하지 않았습니다.';
+    }
+  } catch (err) {
+    $('signupCodeState').textContent = err.message;
+  }
+  $('signupUsername').focus();
+}
+
+function closeSignup() {
+  $('signupModal').classList.add('hidden');
+  document.body.classList.remove('modal-open');
+  if (state.signupCodeTimer) clearTimeout(state.signupCodeTimer);
+}
+
+async function signup(event) {
+  event.preventDefault();
+  if ($('signupSubmitButton').disabled) return;
+  const button = $('signupSubmitButton');
+  button.disabled = true;
+  $('signupStatus').textContent = '신규 사원 정보를 등록하는 중입니다.';
+  try {
+    const data = await request('/api/v2/signup', {
+      method: 'POST',
+      body: JSON.stringify({
+        username: $('signupUsername').value.trim(),
+        nickname: $('signupNickname').value.trim(),
+        password: $('signupPassword').value,
+        passwordConfirm: $('signupPasswordConfirm').value,
+        signupCode: $('signupCode').value.trim()
+      })
+    });
+    const username = $('signupUsername').value.trim();
+    closeSignup();
+    $('username').value = username;
+    $('password').value = '';
+    $('loginStatus').textContent = data.message;
+    $('password').focus();
+  } catch (err) {
+    $('signupStatus').textContent = err.message;
+    updateSignupButtonState();
   }
 }
 
@@ -272,6 +463,25 @@ function setWorldActivity(message) {
   $('worldActivity').textContent = message;
 }
 
+function getCharacterFloor() {
+  return (Number.parseFloat($('fieldCharacter').style.bottom) || 42) > 60 ? 1 : 0;
+}
+
+function getCharacterX() {
+  return Math.max(0, Math.min(94, Number.parseFloat($('fieldCharacter').style.left) || 0));
+}
+
+function getCurrentCharacterMotion() {
+  const character = $('fieldCharacter');
+  return CHARACTER_MOTION_CLASSES.find((name) => character.classList.contains(name)) || '';
+}
+
+function getWorldActivityType() {
+  if (state.moving) return 'moving';
+  if (state.autoCombat) return 'combat';
+  return 'idle';
+}
+
 function setCharacterMotion(motion) {
   const character = $('fieldCharacter');
   CHARACTER_MOTION_CLASSES.forEach((className) => character.classList.remove(className));
@@ -297,7 +507,7 @@ function renderPortals(map) {
   }).join('');
 }
 
-function renderWorldMap(mapId) {
+function renderWorldMap(mapId, arrivalPortalIndex = 0) {
   const map = getMap(mapId) || getMap(state.startMapId) || state.maps[0];
   if (!map) return;
   state.currentMapId = map.id;
@@ -308,7 +518,6 @@ function renderWorldMap(mapId) {
   $('mapLevelRange').textContent = `Lv.${map.minLevel}~${map.maxLevel}`;
   $('currentLocation').textContent = map.name;
   $('worldStage').dataset.theme = map.theme;
-  $('fieldMonster').querySelector('.monster-level').textContent = `Lv.${map.minLevel}`;
   const needsUpperRoute = map.connections.length > 2;
   $('worldRope').classList.toggle('is-ladder', map.features.includes('ladder') || needsUpperRoute);
   $('worldRope').classList.toggle(
@@ -318,10 +527,11 @@ function renderWorldMap(mapId) {
   renderPortals(map);
 
   const character = $('fieldCharacter');
+  const arrival = PORTAL_POSITIONS[arrivalPortalIndex] || PORTAL_POSITIONS[0];
   character.style.transitionDuration = '0ms';
-  character.style.left = '38%';
-  character.style.bottom = '42px';
-  character.classList.remove('facing-left');
+  character.style.left = `${arrival.characterX}%`;
+  character.style.bottom = arrival.side === 'upper' ? `${getUpperPlatformBottom()}px` : '42px';
+  character.classList.toggle('facing-left', arrival.characterX > 50);
   setCharacterMotion(null);
   void character.offsetWidth;
   character.style.transitionDuration = '';
@@ -375,10 +585,27 @@ async function climbToUpperPlatform(runId) {
   return isRunActive('move', runId);
 }
 
+function getCombatTarget() {
+  const characterX = getCharacterX();
+  const floor = getCharacterFloor();
+  const candidates = state.worldMonsters.filter((monster) => monster.floor === floor && monster.hp > 0);
+  if (!candidates.length) return null;
+  const selected = candidates.find((monster) => monster.id === state.combatTargetId)
+    || candidates.sort((a, b) => Math.abs(a.x - characterX) - Math.abs(b.x - characterX))[0];
+  state.combatTargetId = selected.id;
+  return selected;
+}
+
+function getCombatTargetElement() {
+  return Array.from($('monsterLayer').children).find(
+    (element) => element.dataset.monsterId === state.combatTargetId
+  ) || null;
+}
+
 async function playWorldMotion(motion, kind, runId) {
   if (!isRunActive(kind, runId)) return;
   const character = $('fieldCharacter');
-  const monster = $('fieldMonster');
+  const monster = getCombatTargetElement();
   const projectile = $('attackProjectile');
   setCharacterMotion(motion);
 
@@ -393,16 +620,18 @@ async function playWorldMotion(motion, kind, runId) {
   };
   setWorldActivity(labels[motion] || '행동 중');
 
-  if (['slash', 'shoot', 'throw', 'staff-swing'].includes(motion)) {
+  if (monster && ['slash', 'shoot', 'throw', 'staff-swing'].includes(motion)) {
     monster.classList.add('is-hit');
   }
   if (motion === 'shoot' || motion === 'throw') {
+    projectile.style.left = character.style.left;
+    projectile.style.bottom = `${(Number.parseFloat(character.style.bottom) || 42) + 40}px`;
     projectile.className = `attack-projectile is-${motion}`;
   }
   if (motion === 'hit') character.classList.add('damage-flash');
 
   await sleep(720);
-  monster.classList.remove('is-hit');
+  monster?.classList.remove('is-hit');
   projectile.className = 'attack-projectile';
   character.classList.remove('damage-flash');
   setCharacterMotion(null);
@@ -432,12 +661,16 @@ function movementSelectionBody() {
 
 async function enterWorldPortal(connection, runId) {
   if (!connection || !isRunActive('move', runId)) return false;
+  const sourceMapId = state.currentMapId;
   const target = getMap(connection.targetId);
+  const arrivalPortalIndex = Math.max(0, target?.connections.slice(0, 4).findIndex(
+    (entry) => entry.targetId === sourceMapId
+  ) ?? 0);
   setWorldActivity(`${connection.portalName} 진입 · ${target?.name || connection.targetId} 이동 중`);
   $('worldStage').classList.add('changing-map');
   await sleep(520);
   if (!isRunActive('move', runId)) return false;
-  renderWorldMap(connection.targetId);
+  renderWorldMap(connection.targetId, arrivalPortalIndex);
   $('worldStage').classList.remove('changing-map');
   await sleep(500);
   return true;
@@ -491,16 +724,103 @@ async function commandMove(targetMapId) {
   }
 }
 
+async function approachMonsterForCombat(runId) {
+  if (!isRunActive('combat', runId)) return false;
+  const target = getCombatTarget();
+  const monster = getCombatTargetElement();
+  if (!target || !monster) return false;
+  const character = $('fieldCharacter');
+  const stage = $('worldStage');
+
+  if ((Number.parseFloat(character.style.bottom) || 42) > 60) {
+    const ladderX = getLadderCharacterX();
+    const currentX = Number.parseFloat(character.style.left) || ladderX;
+    character.classList.toggle('facing-left', ladderX < currentX);
+    setWorldActivity('전투 위치로 이동 · 사다리 내려가는 중');
+    setCharacterMotion('walking');
+    character.style.transitionDuration = '650ms';
+    character.style.left = `${ladderX}%`;
+    await sleep(670);
+    if (!isRunActive('combat', runId)) return false;
+    character.classList.remove('facing-left');
+    setCharacterMotion('climb');
+    character.style.transitionDuration = '1050ms';
+    character.style.bottom = '42px';
+    await sleep(1070);
+    setCharacterMotion(null);
+  }
+
+  if (!isRunActive('combat', runId)) return false;
+  const stageRect = stage.getBoundingClientRect();
+  const characterRect = character.getBoundingClientRect();
+  const monsterRect = monster.getBoundingClientRect();
+  const rangePx = Math.max(30, Number(getCombatPresentation().rangePx
+    || state.character?.derivedStats?.attackRange) || 55);
+  const characterCenter = characterRect.left + characterRect.width / 2;
+  const monsterCenter = monsterRect.left + monsterRect.width / 2;
+  const characterIsLeft = characterCenter <= monsterCenter;
+  const gap = characterIsLeft
+    ? monsterRect.left - characterRect.right
+    : characterRect.left - monsterRect.right;
+  character.classList.toggle('facing-left', !characterIsLeft);
+  if (gap <= rangePx) return true;
+
+  const desiredLeftPx = characterIsLeft
+    ? monsterRect.left - stageRect.left - rangePx - characterRect.width
+    : monsterRect.right - stageRect.left + rangePx;
+  const clampedLeftPx = Math.max(0, Math.min(stageRect.width - characterRect.width, desiredLeftPx));
+  const targetPercent = clampedLeftPx / stageRect.width * 100;
+  const travelDistance = Math.abs(clampedLeftPx - (characterRect.left - stageRect.left));
+  const movementSpeed = Math.max(10, Number(state.character?.derivedStats?.movementSpeed) || 100);
+  const duration = Math.max(280, Math.min(2400, travelDistance / (115 * movementSpeed / 100) * 1000));
+  setWorldActivity(`몬스터에게 접근 중 · 사거리 ${Math.round(rangePx)}`);
+  setCharacterMotion('walking');
+  character.style.transitionDuration = `${duration}ms`;
+  character.style.left = `${targetPercent}%`;
+  await sleep(duration);
+  setCharacterMotion(null);
+  return isRunActive('combat', runId);
+}
+
 async function runAutoCombat(runId) {
   while (isRunActive('combat', runId) && state.token && !state.isAdmin) {
+    const target = getCombatTarget();
+    if (!target) {
+      setWorldActivity('몬스터 출현 대기 중');
+      await sleep(650);
+      continue;
+    }
+    if (!await approachMonsterForCombat(runId)) {
+      await sleep(350);
+      continue;
+    }
     const motion = getCombatPresentation().motion;
     await playWorldMotion(motion, 'combat', runId);
     if (!isRunActive('combat', runId)) return;
-    state.combatAttackCount += 1;
-    if (state.combatAttackCount % 3 === 0) {
-      await sleep(450);
-      await playWorldMotion('hit', 'combat', runId);
+    try {
+      const result = await request('/api/v2/world/attack', {
+        method: 'POST',
+        body: JSON.stringify({
+          mapId: state.currentMapId,
+          monsterId: state.combatTargetId
+        })
+      });
+      renderWorldEntities(result);
+      if (result.character) {
+        renderGame({
+          preview: state.preview,
+          character: result.character,
+          displayName: state.displayName
+        });
+      }
+      if (result.defeated) {
+        state.combatTargetId = '';
+        setWorldActivity(`몬스터 처치 · 경험치 +${formatNumber(result.expReward)}`);
+      }
+    } catch (err) {
+      if (!String(err.message).includes('사거리')) console.error('V2 field attack error:', err);
     }
+    state.combatAttackCount += 1;
     await sleep(900);
   }
 }
@@ -528,6 +848,169 @@ function toggleAutoCombat() {
   }
 }
 
+function activityLabel(activity) {
+  return activity === 'moving' ? '이동 중' : (activity === 'combat' ? '전투 중' : '대기 중');
+}
+
+function ensureRemotePlayerElement(player) {
+  let element = Array.from($('remotePlayerLayer').children).find(
+    (entry) => entry.dataset.userId === player.userId
+  );
+  if (element) return element;
+  element = document.createElement('div');
+  element.className = 'remote-player';
+  element.dataset.userId = player.userId;
+  element.innerHTML = `
+    <span class="remote-player-tag"><b></b><small></small></span>
+    <i class="remote-head"></i><i class="remote-body"></i>
+    <i class="remote-arm remote-arm-left"></i><i class="remote-arm remote-arm-right"></i>
+    <i class="remote-leg remote-leg-left"></i><i class="remote-leg remote-leg-right"></i>`;
+  $('remotePlayerLayer').appendChild(element);
+  return element;
+}
+
+function renderRemotePlayers(players = []) {
+  const visibleIds = new Set();
+  players.filter((player) => player.userId !== state.selfUserId).forEach((player) => {
+    visibleIds.add(player.userId);
+    const element = ensureRemotePlayerElement(player);
+    element.querySelector('b').textContent = player.nickname;
+    element.querySelector('small').textContent = activityLabel(player.activity);
+    element.style.left = `${player.x}%`;
+    element.style.bottom = player.floor === 1 ? `${getUpperPlatformBottom()}px` : '42px';
+    element.classList.toggle('facing-left', Boolean(player.facingLeft));
+    element.classList.toggle('is-walking', player.activity === 'moving');
+    element.classList.toggle('is-combat', player.activity === 'combat');
+    element.classList.toggle(
+      'is-invulnerable',
+      Number(player.invulnerableUntil) > state.worldServerTime
+    );
+  });
+  Array.from($('remotePlayerLayer').children).forEach((element) => {
+    if (!visibleIds.has(element.dataset.userId)) element.remove();
+  });
+}
+
+function ensureMonsterElement(monster) {
+  let element = Array.from($('monsterLayer').children).find(
+    (entry) => entry.dataset.monsterId === monster.id
+  );
+  if (element) return element;
+  element = document.createElement('div');
+  element.className = 'field-monster';
+  element.dataset.monsterId = monster.id;
+  element.innerHTML = `
+    <span class="monster-name"></span><span class="monster-level"></span>
+    <pre>(╬ಠ益ಠ)</pre>
+    <div class="monster-hp"><i></i></div>`;
+  $('monsterLayer').appendChild(element);
+  return element;
+}
+
+function renderMonsters(monsters = []) {
+  state.worldMonsters = monsters;
+  const visibleIds = new Set();
+  monsters.forEach((monster) => {
+    visibleIds.add(monster.id);
+    const element = ensureMonsterElement(monster);
+    element.dataset.floor = String(monster.floor);
+    element.querySelector('.monster-name').textContent = monster.name;
+    element.querySelector('.monster-level').textContent = `Lv.${monster.level}`;
+    element.querySelector('.monster-hp i').style.width = `${ratio(monster.hp, monster.maxHp)}%`;
+    element.style.left = `${monster.x}%`;
+    element.style.bottom = monster.floor === 1 ? `${getUpperPlatformBottom() + 1}px` : '43px';
+    element.classList.toggle('facing-left', monster.direction < 0);
+    element.classList.toggle('is-moving', ['walk-left', 'walk-right', 'chase'].includes(monster.state));
+    element.classList.toggle('is-chasing', monster.state === 'chase');
+    element.classList.toggle('is-falling', monster.state === 'fall');
+  });
+  Array.from($('monsterLayer').children).forEach((element) => {
+    if (!visibleIds.has(element.dataset.monsterId)) element.remove();
+  });
+}
+
+function syncInvulnerabilityVisual(invulnerableUntil, serverTime) {
+  const character = $('fieldCharacter');
+  const until = Math.max(0, Number(invulnerableUntil) || 0);
+  const remaining = until - serverTime;
+  if (remaining <= 0) {
+    character.classList.remove('is-invulnerable');
+    state.invulnerableUntil = 0;
+    if (state.invulnerabilityTimer) clearTimeout(state.invulnerabilityTimer);
+    state.invulnerabilityTimer = null;
+    return;
+  }
+  if (state.invulnerableUntil === until && character.classList.contains('is-invulnerable')) return;
+  state.invulnerableUntil = until;
+  if (state.invulnerabilityTimer) clearTimeout(state.invulnerabilityTimer);
+  character.classList.add('is-invulnerable');
+  state.invulnerabilityTimer = setTimeout(() => {
+    if (state.invulnerableUntil !== until) return;
+    character.classList.remove('is-invulnerable');
+    state.invulnerableUntil = 0;
+    state.invulnerabilityTimer = null;
+  }, remaining);
+}
+
+function renderWorldEntities(data = {}) {
+  state.worldServerTime = Number(data.serverTime) || Date.now();
+  if (data.self?.userId) state.selfUserId = data.self.userId;
+  renderRemotePlayers(data.players || []);
+  renderMonsters(data.monsters || []);
+  if (data.self && state.character?.resources) {
+    state.character.resources.currentHp = data.self.currentHp;
+    state.character.resources.maxHp = data.self.maxHp;
+    setResource('hp', data.self.currentHp, data.self.maxHp);
+    syncInvulnerabilityVisual(data.self.invulnerableUntil, state.worldServerTime);
+  }
+  const ownContact = (data.contactEvents || []).find((event) => event.userId === state.selfUserId);
+  if (ownContact) {
+    const character = $('fieldCharacter');
+    character.style.transitionDuration = '180ms';
+    character.style.left = `${ownContact.x}%`;
+    character.classList.add('damage-flash');
+    setTimeout(() => character.classList.remove('damage-flash'), 260);
+    syncInvulnerabilityVisual(ownContact.invulnerableUntil, state.worldServerTime);
+    setWorldActivity(`몸박 피해 -${formatNumber(ownContact.damage)} · 1.5초 무적`);
+  }
+}
+
+async function sendWorldHeartbeat() {
+  if (state.worldHeartbeatBusy || !state.token || state.isAdmin || !state.currentMapId) return;
+  state.worldHeartbeatBusy = true;
+  try {
+    const character = $('fieldCharacter');
+    const data = await request('/api/v2/world/heartbeat', {
+      method: 'POST',
+      body: JSON.stringify({
+        mapId: state.currentMapId,
+        x: getCharacterX(),
+        floor: getCharacterFloor(),
+        activity: getWorldActivityType(),
+        motion: getCurrentCharacterMotion(),
+        facingLeft: character.classList.contains('facing-left')
+      })
+    });
+    renderWorldEntities(data);
+  } catch (err) {
+    console.error('V2 world heartbeat error:', err);
+  } finally {
+    state.worldHeartbeatBusy = false;
+  }
+}
+
+async function runWorldPresence(runId) {
+  while (runId === state.worldPresenceRunId && state.token && !state.isAdmin) {
+    await sendWorldHeartbeat();
+    await sleep(1000);
+  }
+}
+
+function startWorldPresence() {
+  const runId = ++state.worldPresenceRunId;
+  runWorldPresence(runId).catch((err) => console.error('V2 world presence error:', err));
+}
+
 function startWorldSimulation() {
   if (!state.maps.length) return;
   const savedMap = getMap(state.currentMapId);
@@ -538,8 +1021,345 @@ function startWorldSimulation() {
   state.moveRunId += 1;
   state.combatRunId += 1;
   state.moving = false;
-  renderWorldMap(startMap.id);
+  renderWorldMap(startMap.id, 0);
+  startWorldPresence();
   if (state.autoCombat) startAutoCombat();
+}
+
+function setInventoryData(inventory = {}) {
+  state.inventory = {
+    items: Array.isArray(inventory.items) ? inventory.items : [],
+    categories: inventory.categories && typeof inventory.categories === 'object'
+      ? inventory.categories
+      : {},
+    potions: Array.isArray(inventory.potions) ? inventory.potions : [],
+    quickSlots: {
+      hp: inventory.quickSlots?.hp || null,
+      mp: inventory.quickSlots?.mp || null
+    },
+    limits: {
+      defaultCapacity: Number(inventory.limits?.defaultCapacity) || 20,
+      maximumCapacity: Number(inventory.limits?.maximumCapacity) || 64,
+      expansionSize: Number(inventory.limits?.expansionSize) || 4
+    }
+  };
+  renderPotionQuickbar();
+}
+
+function setMailboxData(data = {}) {
+  state.mailbox = Array.isArray(data.mails) ? data.mails : [];
+  updateMailButton(Number(data.pendingCount) || 0);
+}
+
+function updateMailButton(pendingCount) {
+  state.pendingMailCount = Math.max(0, Number(pendingCount) || 0);
+  $('mailPendingCount').textContent = formatNumber(state.pendingMailCount);
+  $('mailButton').classList.toggle('hidden', state.pendingMailCount <= 0);
+}
+
+function renderPotionQuickbar() {
+  if (!$('hpPotionButton') || !$('mpPotionButton')) return;
+  for (const slot of ['hp', 'mp']) {
+    const button = $(slot === 'hp' ? 'hpPotionButton' : 'mpPotionButton');
+    const potion = state.inventory.quickSlots[slot];
+    button.querySelector('strong').textContent = potion?.name || '미설정';
+    button.querySelector('small').textContent = potion
+      ? `${formatNumber(potion.quantity)}개 · +${formatNumber(potion.restoreAmount)}`
+      : (slot === 'hp' ? '체력 포션' : '정신력 포션');
+    button.disabled = !potion || potion.quantity <= 0;
+  }
+}
+
+function animateResourceRestore(resource) {
+  const track = $(resource === 'hp' ? 'hpBar' : 'mpBar')?.parentElement;
+  if (!track) return;
+  track.classList.remove('is-restored');
+  void track.offsetWidth;
+  track.classList.add('is-restored');
+  setTimeout(() => track.classList.remove('is-restored'), 520);
+}
+
+async function useQuickPotion(slot) {
+  try {
+    const data = await request('/api/v2/inventory/use-potion', {
+      method: 'POST',
+      body: JSON.stringify({ slot })
+    });
+    state.character = data.character;
+    setInventoryData(data.inventory);
+    renderGame({
+      preview: state.preview,
+      character: data.character,
+      displayName: state.displayName
+    });
+    animateResourceRestore(slot);
+    setWorldActivity(`${data.used.item.name} 사용 · ${slot === 'hp' ? '체력' : '정신력'} +${formatNumber(data.used.restored)}`);
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+const INVENTORY_TAB_ORDER = Object.freeze(['equipment', 'consumable', 'misc', 'cash']);
+const INVENTORY_PAGE_SIZE = 16;
+
+function inventorySlotBody(item, slotNumber, locked = false) {
+  if (locked) {
+    return `<div class="inventory-slot is-locked"><span>${slotNumber}</span><b>🔒</b></div>`;
+  }
+  if (!item) {
+    return `<div class="inventory-slot is-empty"><span>${slotNumber}</span></div>`;
+  }
+  const usable = item.itemType === 'inventory-expansion'
+    ? '<button class="inventory-item-use" type="button" data-use-expansion-ticket>사용</button>'
+    : '';
+  return `<article class="inventory-slot has-item" tabindex="0">
+    <span class="inventory-slot-number">${slotNumber}</span>
+    <div class="inventory-item-icon" aria-hidden="true">${escapeHtml(item.icon || '📦')}</div>
+    <b class="inventory-item-quantity">${formatNumber(item.quantity)}</b>
+    ${usable}
+    <div class="inventory-item-tooltip" role="tooltip">
+      <strong>${escapeHtml(item.name)}</strong>
+      <span>${escapeHtml(item.description)}</span>
+      <small>${formatNumber(item.quantity)}개 보유</small>
+    </div>
+  </article>`;
+}
+
+function inventoryExpansionPanel() {
+  if (!state.inventoryExpansionPrompt) return '';
+  const ticket = state.inventory.items.find((item) => item.id === 'inventory_expansion_ticket');
+  return `<section class="inventory-expansion-panel">
+    <div><strong>확장할 인벤토리 선택</strong><small>확장권 ${formatNumber(ticket?.quantity || 0)}개 · 탭당 최대 64칸</small></div>
+    <div>
+      ${INVENTORY_TAB_ORDER.map((key) => {
+        const category = state.inventory.categories[key];
+        const full = Number(category?.capacity) >= state.inventory.limits.maximumCapacity;
+        return `<button type="button" data-expand-inventory="${key}" ${full ? 'disabled' : ''}>
+          ${escapeHtml(category?.icon || '📦')} ${escapeHtml(category?.label || key)}
+          <small>${formatNumber(category?.capacity || 20)} → ${formatNumber(Math.min(64, Number(category?.capacity || 20) + 4))}칸</small>
+        </button>`;
+      }).join('')}
+      <button class="secondary-action" type="button" data-cancel-expansion>취소</button>
+    </div>
+  </section>`;
+}
+
+function inventoryBody() {
+  const fallback = {
+    key: state.inventoryTab,
+    label: state.inventoryTab,
+    icon: '📦',
+    capacity: 20,
+    usedSlots: 0,
+    items: []
+  };
+  const category = state.inventory.categories[state.inventoryTab] || fallback;
+  const capacity = Math.max(20, Number(category.capacity) || 20);
+  const pageCount = Math.max(1, Math.ceil(capacity / INVENTORY_PAGE_SIZE));
+  state.inventoryPage = Math.max(0, Math.min(pageCount - 1, state.inventoryPage));
+  const pageStart = state.inventoryPage * INVENTORY_PAGE_SIZE;
+  const slots = Array.from({ length: INVENTORY_PAGE_SIZE }, (_, index) => {
+    const absoluteIndex = pageStart + index;
+    return inventorySlotBody(
+      category.items?.[absoluteIndex] || null,
+      absoluteIndex + 1,
+      absoluteIndex >= capacity
+    );
+  }).join('');
+
+  return `<div class="inventory-window">
+    <div class="inventory-tabs" role="tablist">
+      ${INVENTORY_TAB_ORDER.map((key) => {
+        const tab = state.inventory.categories[key] || { label: key, icon: '📦', capacity: 20, usedSlots: 0 };
+        return `<button class="${key === state.inventoryTab ? 'is-active' : ''}" type="button" data-inventory-tab="${key}">
+          <span>${escapeHtml(tab.icon)}</span><strong>${escapeHtml(tab.label)}</strong><small>${formatNumber(tab.usedSlots)}/${formatNumber(tab.capacity)}</small>
+        </button>`;
+      }).join('')}
+    </div>
+    ${inventoryExpansionPanel()}
+    <div class="inventory-page-heading">
+      <div><span>${escapeHtml(category.icon)}</span><strong>${escapeHtml(category.label)} 인벤토리</strong></div>
+      <small>${formatNumber(category.usedSlots)}칸 사용 / ${formatNumber(capacity)}칸</small>
+    </div>
+    <div class="inventory-grid">${slots}</div>
+    <div class="inventory-pagination">
+      <button type="button" data-inventory-page="-1" ${state.inventoryPage <= 0 ? 'disabled' : ''}>이전</button>
+      <span>${state.inventoryPage + 1} / ${pageCount}</span>
+      <button type="button" data-inventory-page="1" ${state.inventoryPage >= pageCount - 1 ? 'disabled' : ''}>다음</button>
+    </div>
+    <p class="notice-line">아이템에 마우스를 올리거나 선택하면 상세 정보를 확인할 수 있습니다. 같은 아이템은 한 칸에 수량으로 쌓입니다.</p>
+  </div>`;
+}
+
+function rerenderInventory() {
+  $('featureBody').innerHTML = inventoryBody();
+  bindInventoryControls();
+}
+
+function openInventoryExpansionChoice() {
+  state.inventoryExpansionPrompt = true;
+  rerenderInventory();
+}
+
+async function expandInventory(category) {
+  try {
+    const data = await request('/api/v2/inventory/expand', {
+      method: 'POST',
+      body: JSON.stringify({ category })
+    });
+    setInventoryData(data.inventory);
+    state.inventoryTab = category;
+    state.inventoryExpansionPrompt = false;
+    state.inventoryPage = Math.max(0, Math.ceil(data.expansion.previousCapacity / INVENTORY_PAGE_SIZE) - 1);
+    rerenderInventory();
+    setWorldActivity(`${data.expansion.category.label} 인벤토리가 ${formatNumber(data.expansion.capacity)}칸으로 확장되었습니다.`);
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+function bindInventoryControls() {
+  document.querySelectorAll('[data-inventory-tab]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.inventoryTab = button.dataset.inventoryTab;
+      state.inventoryPage = 0;
+      state.inventoryExpansionPrompt = false;
+      rerenderInventory();
+    });
+  });
+  document.querySelectorAll('[data-inventory-page]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.inventoryPage += Number(button.dataset.inventoryPage) || 0;
+      rerenderInventory();
+    });
+  });
+  document.querySelector('[data-use-expansion-ticket]')?.addEventListener('click', openInventoryExpansionChoice);
+  document.querySelectorAll('[data-expand-inventory]').forEach((button) => {
+    button.addEventListener('click', () => expandInventory(button.dataset.expandInventory));
+  });
+  document.querySelector('[data-cancel-expansion]')?.addEventListener('click', () => {
+    state.inventoryExpansionPrompt = false;
+    rerenderInventory();
+  });
+}
+
+function potionConfigurationBody() {
+  const potions = state.inventory.potions;
+  return `<div class="potion-config-sheet">
+    <p class="notice-line">왼쪽에는 체력 포션, 오른쪽에는 정신력 포션만 설정할 수 있습니다.</p>
+    <div class="potion-config-list">
+      ${potions.length ? potions.map((item) => `<article>
+        <div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.description)} · ${formatNumber(item.quantity)}개 보유</small></div>
+        <button type="button" data-assign-potion="${escapeHtml(item.id)}" data-potion-slot="${item.resource}">${item.resource === 'hp' ? 'HP' : 'MP'} 슬롯 설정</button>
+      </article>`).join('') : '<div class="empty-ledger"><b>설정할 포션이 없습니다.</b></div>'}
+    </div>
+  </div>`;
+}
+
+async function assignQuickPotion(slot, itemId) {
+  try {
+    const data = await request('/api/v2/inventory/quick-slot', {
+      method: 'POST',
+      body: JSON.stringify({ slot, itemId })
+    });
+    setInventoryData(data.inventory);
+    $('featureBody').innerHTML = potionConfigurationBody();
+    bindPotionControls();
+    setWorldActivity('포션 퀵슬롯을 변경했습니다.');
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+function mailBody() {
+  if (!state.mailbox.length) {
+    return '<div class="empty-ledger"><b>새 우편이 없습니다.</b><p>모든 선물을 수령했습니다.</p></div>';
+  }
+  return `<div class="mail-sheet">
+    <div class="mail-toolbar"><span>미수령 ${formatNumber(state.mailbox.length)}건</span><button type="button" data-claim-all-mail>모두 수령</button></div>
+    <div class="mail-list">
+      ${state.mailbox.map((mail) => `<article class="mail-entry">
+        <div class="mail-stamp">ADMIN<br>GIFT</div>
+        <div>
+          <span>${escapeHtml(mail.sender)} · ${mail.createdAt ? new Date(mail.createdAt).toLocaleString('ko-KR') : ''}</span>
+          <strong>${escapeHtml(mail.title)}</strong>
+          ${mail.message ? `<p>${escapeHtml(mail.message)}</p>` : ''}
+          <div class="mail-attachments">${mail.attachments.map((item) => `<b>${escapeHtml(item.name)} × ${formatNumber(item.quantity)}</b>`).join('')}</div>
+        </div>
+        <button type="button" data-claim-mail="${escapeHtml(mail.id)}">수령</button>
+      </article>`).join('')}
+    </div>
+  </div>`;
+}
+
+async function refreshMailbox(openAfter = false) {
+  try {
+    const data = await request('/api/v2/mail');
+    setMailboxData(data);
+    if (openAfter) openFeature('mail');
+  } catch (err) {
+    if (openAfter) setWorldActivity(err.message);
+  }
+}
+
+async function refreshMailStatus() {
+  try {
+    const data = await request('/api/v2/mail/status');
+    updateMailButton(data.pendingCount);
+  } catch (_) {}
+}
+
+function startMailPolling() {
+  if (state.mailPollTimer) clearInterval(state.mailPollTimer);
+  state.mailPollTimer = setInterval(refreshMailStatus, 10_000);
+}
+
+async function claimMailItem(mailId) {
+  try {
+    const data = await request('/api/v2/mail/claim', {
+      method: 'POST',
+      body: JSON.stringify({ mailId })
+    });
+    setInventoryData(data.inventory);
+    setMailboxData(data);
+    $('featureBody').innerHTML = mailBody();
+    bindMailControls();
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+async function claimAllMailItems() {
+  try {
+    const data = await request('/api/v2/mail/claim-all', {
+      method: 'POST',
+      body: '{}'
+    });
+    setInventoryData(data.inventory);
+    setMailboxData(data);
+    $('featureBody').innerHTML = mailBody();
+    bindMailControls();
+    setWorldActivity(`우편 ${formatNumber(data.claimedCount)}건을 모두 수령했습니다.`);
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+function bindPotionControls() {
+  document.querySelectorAll('[data-assign-potion]').forEach((button) => {
+    button.addEventListener('click', () => assignQuickPotion(
+      button.dataset.potionSlot,
+      button.dataset.assignPotion
+    ));
+  });
+  document.querySelector('[data-open-potion-config]')?.addEventListener('click', () => openFeature('potion-config'));
+}
+
+function bindMailControls() {
+  document.querySelectorAll('[data-claim-mail]').forEach((button) => {
+    button.addEventListener('click', () => claimMailItem(button.dataset.claimMail));
+  });
+  document.querySelector('[data-claim-all-mail]')?.addEventListener('click', claimAllMailItems);
 }
 
 const featureMeta = {
@@ -553,7 +1373,9 @@ const featureMeta = {
   boss: { code: '08 / RAID', title: '보스' },
   stock: { code: '09 / MARKET', title: '주식' },
   quest: { code: 'QUEST / HR', title: '전직 퀘스트' },
-  move: { code: 'MAP / MOVE', title: '이동 목적지' }
+  move: { code: 'MAP / MOVE', title: '이동 목적지' },
+  mail: { code: 'ADMIN / MAIL', title: '우편함' },
+  'potion-config': { code: 'QUICK / POTION', title: '포션 설정' }
 };
 
 const EQUIPMENT_TABS = Object.freeze({
@@ -649,20 +1471,37 @@ function statBody() {
   const character = state.character || {};
   const stats = character.stats || {};
   const progression = character.progression || {};
+  const derived = character.derivedStats || {};
+  const abilities = [
+    ['공격력', `${formatNumber(derived.attackMinimum)} ~ ${formatNumber(derived.attackMaximum)}`],
+    ['방어력', formatNumber(derived.defense)],
+    ['마력', formatNumber(derived.magic)],
+    ['명중률', formatNumber(derived.accuracy)],
+    ['회피율', formatNumber(derived.evasion)],
+    ['이동속도', `${formatNumber(derived.movementSpeed || 100)}%`]
+  ];
   return `
-    <div class="stat-sheet">
-      <div class="point-summary">
-        <div class="stat-total"><span>사용 가능한 스탯 포인트</span><strong>${formatNumber(progression.unspentStatPoints)} P</strong></div>
-        <div class="skill-total"><span>사용 가능한 스킬 포인트</span><strong>${formatNumber(progression.unspentSkillPoints)} SP</strong></div>
-      </div>
-      <div class="stat-grid">
-        <article><span>맷집 / STR</span><strong>${formatNumber(stats.grit)}</strong><small>물리 계열 주스탯 후보</small></article>
-        <article><span>처리속도 / DEX</span><strong>${formatNumber(stats.processingSpeed)}</strong><small>명중·회피 및 원거리 계열</small></article>
-        <article><span>업무지식 / INT</span><strong>${formatNumber(stats.workKnowledge)}</strong><small>마법 피해와 정신력 계열</small></article>
-        <article><span>눈치 / LUK</span><strong>${formatNumber(stats.awareness)}</strong><small>도적 계열 및 회피 보조</small></article>
-      </div>
-      <p class="notice-line">스탯 투자와 초기화 규칙은 부서 및 전직 시스템 확정 후 활성화됩니다.</p>
-    </div>`;
+    <div class="stat-overview">
+      <section class="stat-primary">
+        <div class="point-summary">
+          <div class="stat-total"><span>사용 가능한 스탯 포인트</span><strong>${formatNumber(progression.unspentStatPoints)} P</strong></div>
+          <div class="skill-total"><span>사용 가능한 스킬 포인트</span><strong>${formatNumber(progression.unspentSkillPoints)} SP</strong></div>
+        </div>
+        <div class="stat-grid">
+          <article><span>맷집 / STR</span><strong>${formatNumber(stats.grit)}</strong><small>물리 계열 주스탯 후보</small></article>
+          <article><span>처리속도 / DEX</span><strong>${formatNumber(stats.processingSpeed)}</strong><small>명중·회피 및 원거리 계열</small></article>
+          <article><span>업무지식 / INT</span><strong>${formatNumber(stats.workKnowledge)}</strong><small>마법 피해와 정신력 계열</small></article>
+          <article><span>눈치 / LUK</span><strong>${formatNumber(stats.awareness)}</strong><small>도적 계열 및 회피 보조</small></article>
+        </div>
+      </section>
+      <aside class="ability-panel">
+        <div class="ability-heading"><span>COMBAT ABILITY</span><strong>능력치</strong></div>
+        <div class="ability-list">
+          ${abilities.map(([label, value]) => `<div><span>${label}</span><strong>${value}</strong></div>`).join('')}
+        </div>
+      </aside>
+    </div>
+    <p class="notice-line">공격력·명중률·회피율은 현재 스탯과 장비를 기준으로 계산됩니다. 이동속도 기본값은 100%입니다.</p>`;
 }
 
 function featureBody(feature) {
@@ -670,9 +1509,9 @@ function featureBody(feature) {
   if (feature === 'quest') return questBody();
   if (feature === 'move') return movementSelectionBody();
   if (feature === 'equipment') return equipmentBody();
-  if (feature === 'inventory') {
-    return `<div class="empty-ledger"><b>보존된 원본 재화</b><p>일반 카드 ${formatNumber(state.preview?.preserved.cardCount)}장 · 강화 카드 ${formatNumber(state.preview?.preserved.enhancedCardCount)}장 · 기존 장비 ${formatNumber(state.preview?.preserved.equipmentCount)}개</p><span>V2 장비와 아이템 변환 규칙 확정 후 이곳에 인벤토리가 열립니다.</span></div>`;
-  }
+  if (feature === 'inventory') return inventoryBody();
+  if (feature === 'potion-config') return potionConfigurationBody();
+  if (feature === 'mail') return mailBody();
   const messages = {
     skills: '부서와 전직별 스킬 트리가 이곳에 배치됩니다.',
     shop: '물약, 탄환, 장비 보급품을 구매하는 사내 보급소입니다.',
@@ -698,6 +1537,9 @@ function openFeature(feature) {
     });
   }
   if (feature === 'equipment') bindEquipmentTabs();
+  if (feature === 'inventory') bindInventoryControls();
+  if (feature === 'potion-config') bindPotionControls();
+  if (feature === 'mail') bindMailControls();
   $('featureModal').classList.remove('hidden');
   document.body.classList.add('modal-open');
   document.querySelector('.modal-close')?.focus();
@@ -711,16 +1553,51 @@ function closeFeature() {
 function logout() {
   state.moveRunId += 1;
   state.combatRunId += 1;
+  state.worldPresenceRunId += 1;
+  if (state.mailPollTimer) clearInterval(state.mailPollTimer);
+  if (state.token && !state.isAdmin) {
+    fetch('/api/v2/world/leave', {
+      method: 'POST',
+      keepalive: true,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${state.token}`
+      },
+      body: '{}'
+    }).catch(() => {});
+  }
   clearLoginState();
   window.location.reload();
 }
 
 $('loginForm').addEventListener('submit', login);
+$('openSignupButton').addEventListener('click', openSignup);
+$('signupForm').addEventListener('submit', signup);
+$('signupCodeForm').addEventListener('submit', saveAdminSignupCode);
+$('adminGiftForm').addEventListener('submit', sendAdminGift);
+['signupUsername', 'signupNickname', 'signupPassword', 'signupPasswordConfirm'].forEach((id) => {
+  $(id).addEventListener('input', updateSignupButtonState);
+});
+$('signupCode').addEventListener('input', () => {
+  state.signupCodeValid = false;
+  state.signupValidationRequest += 1;
+  $('signupCodeState').textContent = '가입 코드를 확인해야 합니다.';
+  updateSignupButtonState();
+  if (state.signupCodeTimer) clearTimeout(state.signupCodeTimer);
+  state.signupCodeTimer = setTimeout(validateSignupCode, 350);
+});
+document.querySelectorAll('[data-close-signup]').forEach((button) => {
+  button.addEventListener('click', closeSignup);
+});
 $('snapshotAllButton').addEventListener('click', snapshotAllUsers);
 $('logoutButton').addEventListener('click', logout);
 $('questButton').addEventListener('click', () => openFeature('quest'));
 $('moveMapButton').addEventListener('click', () => openFeature('move'));
 $('autoCombatButton').addEventListener('click', toggleAutoCombat);
+$('hpPotionButton').addEventListener('click', () => useQuickPotion('hp'));
+$('mpPotionButton').addEventListener('click', () => useQuickPotion('mp'));
+$('potionConfigButton').addEventListener('click', () => openFeature('potion-config'));
+$('mailButton').addEventListener('click', () => refreshMailbox(true));
 document.querySelectorAll('.desk-action').forEach((button) => {
   button.addEventListener('click', () => openFeature(button.dataset.feature));
 });

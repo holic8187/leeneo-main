@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>호이상사 V2</title>
-  <link rel="stylesheet" href="/v2/styles.css?v=7">
+  <link rel="stylesheet" href="/v2/styles.css?v=12">
 </head>
 <body>
   <div class="blueprint-grid" aria-hidden="true"></div>
@@ -27,7 +27,10 @@
       <form id="loginForm">
         <label>사번(ID)<input id="username" autocomplete="username" required></label>
         <label>비밀번호<input id="password" type="password" autocomplete="current-password" required></label>
-        <button type="submit">V2 사무실 입장</button>
+        <div class="login-actions">
+          <button type="submit">V2 사무실 입장</button>
+          <button id="openSignupButton" class="secondary-action" type="button">신규 사원 등록</button>
+        </div>
       </form>
       <p id="loginStatus" class="status"></p>
     </section>
@@ -63,11 +66,8 @@
               <div class="world-platform platform-upper" aria-hidden="true"></div>
               <div id="worldRope" class="world-rope" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
 
-              <div id="fieldMonster" class="field-monster" aria-hidden="true">
-                <span class="monster-level">Lv.?</span>
-                <pre>(╬ಠ益ಠ)</pre>
-                <div class="monster-hp"><i></i></div>
-              </div>
+              <div id="monsterLayer" class="monster-layer" aria-hidden="true"></div>
+              <div id="remotePlayerLayer" class="remote-player-layer" aria-hidden="true"></div>
 
               <div id="fieldCharacter" class="field-character is-walking" aria-hidden="true">
                 <span class="character-tag">YOU</span>
@@ -93,6 +93,17 @@
               <button id="moveMapButton" class="field-control" type="button">이동</button>
               <button id="autoCombatButton" class="field-control combat-toggle" type="button" aria-pressed="false">자동 전투 OFF</button>
               <span id="combatMotionLabel" class="combat-motion-label">전투 모션 확인 중</span>
+            </div>
+            <div class="potion-quickbar" aria-label="포션 퀵슬롯">
+              <button id="hpPotionButton" class="potion-quick hp-potion" type="button">
+                <span>HP</span><strong>미설정</strong><small>체력 포션</small>
+              </button>
+              <button id="mpPotionButton" class="potion-quick mp-potion" type="button">
+                <span>MP</span><strong>미설정</strong><small>정신력 포션</small>
+              </button>
+              <button id="potionConfigButton" class="potion-config-button" type="button">
+                <span>QUICK SLOT</span><strong>포션 설정</strong>
+              </button>
             </div>
           </article>
 
@@ -157,6 +168,12 @@
           <small id="questButtonMeta">인사 발령 확인</small>
         </button>
 
+        <button id="mailButton" class="mail-callout hidden" type="button">
+          <span>ADMIN MAIL</span>
+          <strong>우편함</strong>
+          <small><b id="mailPendingCount">0</b>개의 선물 도착</small>
+        </button>
+
         <section class="migration-strip">
           <div>
             <span class="signal-dot"></span>
@@ -173,9 +190,64 @@
         <div id="adminSummary" class="legacy-list"></div>
         <button id="snapshotAllButton" type="button">전체 계정 지금 재검사</button>
         <p id="adminStatus" class="status"></p>
+        <section class="admin-setting-card">
+          <div>
+            <p class="section-number">SIGNUP CODE</p>
+            <h3>신규 사원 가입 코드</h3>
+            <p>코드는 해시로 저장되며 현재 원문은 다시 표시되지 않습니다.</p>
+          </div>
+          <form id="signupCodeForm">
+            <label>새 가입 코드<input id="adminSignupCode" type="password" minlength="4" maxlength="64" autocomplete="new-password" required></label>
+            <button type="submit">가입 코드 설정</button>
+          </form>
+          <p id="signupCodeStatus" class="status"></p>
+        </section>
+        <section class="admin-setting-card">
+          <div>
+            <p class="section-number">ADMIN GIFT</p>
+            <h3>V2 운영자 선물 발송</h3>
+            <p>아이디 또는 닉네임으로 대상을 찾아 우편함에 아이템을 보냅니다.</p>
+          </div>
+          <form id="adminGiftForm" class="admin-gift-form">
+            <label>대상<input id="adminGiftTarget" maxlength="24" placeholder="아이디 또는 닉네임" required></label>
+            <label>품목<select id="adminGiftItem" required></select></label>
+            <label>수량<input id="adminGiftQuantity" type="number" min="1" max="999999" value="1" required></label>
+            <label class="admin-gift-message">메시지<input id="adminGiftMessage" maxlength="500" placeholder="선택 입력"></label>
+            <button type="submit">우편으로 보내기</button>
+          </form>
+          <p id="adminGiftStatus" class="status"></p>
+        </section>
       </section>
     </section>
   </main>
+
+  <div id="signupModal" class="site-modal hidden" role="dialog" aria-modal="true" aria-labelledby="signupTitle">
+    <div class="modal-scrim" data-close-signup></div>
+    <section class="modal-sheet signup-sheet">
+      <header>
+        <div>
+          <p class="section-number">NEW EMPLOYEE</p>
+          <h2 id="signupTitle">신규 사원 등록</h2>
+        </div>
+        <button class="modal-close" data-close-signup type="button" aria-label="닫기">×</button>
+      </header>
+      <form id="signupForm" class="signup-form">
+        <div class="signup-form-grid">
+          <label>아이디<input id="signupUsername" minlength="3" maxlength="24" autocomplete="username" required></label>
+          <label>닉네임<input id="signupNickname" minlength="2" maxlength="12" autocomplete="nickname" required></label>
+          <label>비밀번호<input id="signupPassword" type="password" minlength="6" maxlength="72" autocomplete="new-password" required></label>
+          <label>비밀번호 확인<input id="signupPasswordConfirm" type="password" minlength="6" maxlength="72" autocomplete="new-password" required></label>
+          <label class="signup-code-field">가입 코드<input id="signupCode" type="password" maxlength="64" autocomplete="off" required></label>
+        </div>
+        <div class="signup-validation">
+          <span id="passwordMatchState">비밀번호를 입력해주세요.</span>
+          <span id="signupCodeState">가입 코드를 확인해야 합니다.</span>
+        </div>
+        <button id="signupSubmitButton" type="submit" disabled>가입하기</button>
+        <p id="signupStatus" class="status"></p>
+      </form>
+    </section>
+  </div>
 
   <div id="featureModal" class="site-modal hidden" role="dialog" aria-modal="true" aria-labelledby="featureTitle">
     <div class="modal-scrim" data-close-modal></div>
@@ -191,6 +263,6 @@
     </section>
   </div>
 
-  <script src="/v2/app.js?v=7"></script>
+  <script src="/v2/app.js?v=12"></script>
 </body>
 </html>

@@ -21,6 +21,26 @@ const WEAPON_COMBAT_MOTIONS = Object.freeze({
   staff: 'staff-swing'
 });
 
+// Temporary pixel ranges. Balance values can be replaced without changing combat movement.
+const DEFAULT_WEAPON_RANGES = Object.freeze({
+  oneHandedSword: 60,
+  twoHandedSword: 68,
+  oneHandedAxe: 58,
+  oneHandedBlunt: 58,
+  twoHandedAxe: 70,
+  twoHandedBlunt: 70,
+  spear: 96,
+  polearm: 104,
+  bow: 240,
+  crossbow: 260,
+  claw: 200,
+  dagger: 46,
+  knuckle: 52,
+  gun: 230,
+  wand: 210,
+  staff: 225
+});
+
 const ARCHETYPE_COMBAT_MOTIONS = Object.freeze({
   warrior: 'slash',
   archer: 'shoot',
@@ -42,7 +62,8 @@ function resolveCombatMotion({ weaponType, departmentId } = {}) {
       motion: weaponMotion,
       label: COMBAT_MOTION_LABELS[weaponMotion],
       source: 'weapon',
-      weaponType
+      weaponType,
+      rangePx: DEFAULT_WEAPON_RANGES[weaponType] || 55
     };
   }
 
@@ -53,7 +74,8 @@ function resolveCombatMotion({ weaponType, departmentId } = {}) {
       motion: jobMotion,
       label: COMBAT_MOTION_LABELS[jobMotion],
       source: 'department-preview',
-      weaponType: null
+      weaponType: null,
+      rangePx: jobMotion === 'slash' ? 55 : (jobMotion === 'throw' ? 200 : 225)
     };
   }
 
@@ -61,12 +83,14 @@ function resolveCombatMotion({ weaponType, departmentId } = {}) {
     motion: 'slash',
     label: '연습용 베기',
     source: 'trainee-preview',
-    weaponType: null
+    weaponType: null,
+    rangePx: 22
   };
 }
 
 module.exports = {
   WEAPON_COMBAT_MOTIONS,
+  DEFAULT_WEAPON_RANGES,
   ARCHETYPE_COMBAT_MOTIONS,
   COMBAT_MOTION_LABELS,
   resolveCombatMotion

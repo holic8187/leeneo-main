@@ -7,7 +7,9 @@ const V2Character = require('../models/V2Character');
 const { mapLegacyLevelToV2, getStatPointsForLevel, getSkillPointsForLevel } = require('../progression/levelMigration');
 const { getAvailableAdvancementQuest } = require('../jobs/advancementRules');
 const { resolveCombatMotion } = require('../combat/weaponMotion');
+const { buildDerivedStats } = require('../combat/derivedStats');
 const { getRequiredExpV2 } = require('../constants/experienceTable');
+const { buildInventoryView, getPendingMail } = require('./inventoryService');
 
 const MIGRATION_VERSION = 1;
 const TEMPORARY_RESOURCE_DEFAULTS = Object.freeze({
@@ -188,6 +190,18 @@ async function ensureV2MigrationForUser(user) {
           departmentId: 'unassigned',
           advancementTier: 0
         },
+        inventory: {
+          items: [],
+          potions: [],
+          slotCapacities: {
+            equipment: 20,
+            consumable: 20,
+            misc: 20,
+            cash: 20
+          },
+          quickSlots: { hp: '', mp: '' }
+        },
+        mailbox: [],
         resources: {
           currentHp: TEMPORARY_RESOURCE_DEFAULTS.maxHp,
           maxHp: TEMPORARY_RESOURCE_DEFAULTS.maxHp,
@@ -265,6 +279,10 @@ function buildCharacterResponse(character) {
   if (!character) return null;
   const plain = toPlainObject(character);
   const equipmentLoadout = buildEquipmentLoadout(plain.loadout);
+  const combatPresentation = resolveCombatMotion({
+    weaponType: equipmentLoadout.weapon?.weaponType || plain.loadout?.weaponType,
+    departmentId: plain.job?.departmentId
+  });
   return {
     id: String(plain._id),
     displayName: plain.displayName,
@@ -275,12 +293,17 @@ function buildCharacterResponse(character) {
     stats: plain.stats,
     job: plain.job,
     resources: buildResourceResponse(plain.resources),
+    inventory: buildInventoryView(plain),
+    pendingMailCount: getPendingMail(plain).length,
     equipmentLoadout,
     actionPoints: plain.actionPoints,
     economy: plain.economy,
-    combatPresentation: resolveCombatMotion({
-      weaponType: equipmentLoadout.weapon?.weaponType || plain.loadout?.weaponType,
-      departmentId: plain.job?.departmentId
+    combatPresentation,
+    derivedStats: buildDerivedStats({
+      progression: plain.progression,
+      stats: plain.stats,
+      job: plain.job,
+      loadout: equipmentLoadout
     }),
     advancementQuest: getAvailableAdvancementQuest(plain),
     migration: plain.migration,

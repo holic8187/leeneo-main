@@ -2,6 +2,26 @@
 
 const mongoose = require('mongoose');
 
+const inventoryStackSchema = new mongoose.Schema({
+  itemId: { type: String, required: true },
+  quantity: { type: Number, default: 0, min: 0 }
+}, { _id: false });
+
+const mailAttachmentSchema = new mongoose.Schema({
+  itemId: { type: String, required: true },
+  quantity: { type: Number, default: 1, min: 1 }
+}, { _id: false });
+
+const mailboxEntrySchema = new mongoose.Schema({
+  id: { type: String, required: true },
+  sender: { type: String, default: '운영자' },
+  title: { type: String, default: '운영자 선물' },
+  message: { type: String, default: '' },
+  attachments: { type: [mailAttachmentSchema], default: [] },
+  createdAt: { type: Date, default: Date.now },
+  claimedAt: { type: Date, default: null }
+}, { _id: false });
+
 const v2CharacterSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
   schemaVersion: { type: Number, default: 1 },
@@ -35,6 +55,21 @@ const v2CharacterSchema = new mongoose.Schema({
     necklace: { type: mongoose.Schema.Types.Mixed, default: null },
     earrings: { type: mongoose.Schema.Types.Mixed, default: null }
   },
+  inventory: {
+    items: { type: [inventoryStackSchema], default: [] },
+    potions: { type: [inventoryStackSchema], default: [] },
+    slotCapacities: {
+      equipment: { type: Number, default: 20, min: 20, max: 64 },
+      consumable: { type: Number, default: 20, min: 20, max: 64 },
+      misc: { type: Number, default: 20, min: 20, max: 64 },
+      cash: { type: Number, default: 20, min: 20, max: 64 }
+    },
+    quickSlots: {
+      hp: { type: String, default: '' },
+      mp: { type: String, default: '' }
+    }
+  },
+  mailbox: { type: [mailboxEntrySchema], default: [] },
   resources: {
     currentHp: { type: Number, default: 120 },
     maxHp: { type: Number, default: 120 },

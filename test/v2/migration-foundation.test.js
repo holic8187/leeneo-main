@@ -9,7 +9,7 @@ const {
   buildMigrationPreview,
   buildCharacterResponse
 } = require('../../src/v2/services/migrationService');
-const { registerV2Routes } = require('../../src/v2/registerV2Routes');
+const { registerV2Routes, validateSignupPayload } = require('../../src/v2/registerV2Routes');
 const { getIncompleteMigrationIds } = require('../../src/v2/services/automaticMigrationService');
 
 function createLegacyUser(overrides = {}) {
@@ -90,8 +90,32 @@ test('V2 character response supplies provisional resources, EXP target, and empt
     provisional: true
   });
   assert.equal(response.progression.expToNextLevel, 709716);
+  assert.deepEqual(response.inventory.items, []);
+  assert.equal(response.inventory.categories.equipment.capacity, 20);
+  assert.equal(response.inventory.categories.consumable.capacity, 20);
+  assert.equal(response.inventory.categories.misc.capacity, 20);
+  assert.equal(response.inventory.categories.cash.capacity, 20);
+  assert.deepEqual(response.inventory.quickSlots, { hp: null, mp: null });
+  assert.equal(response.pendingMailCount, 0);
   assert.equal(response.equipmentLoadout.weapon, null);
   assert.equal(response.equipmentLoadout.earrings, null);
+});
+
+test('V2 signup fields require matching passwords and a signup code', () => {
+  assert.equal(validateSignupPayload({
+    username: 'employee_01',
+    password: 'secret12',
+    passwordConfirm: 'secret12',
+    signupCode: 'HOI2026',
+    nickname: '신입사원'
+  }).valid, true);
+  assert.equal(validateSignupPayload({
+    username: 'employee_01',
+    password: 'secret12',
+    passwordConfirm: 'different',
+    signupCode: 'HOI2026',
+    nickname: '신입사원'
+  }).valid, false);
 });
 
 test('V2 router exposes only the migration foundation endpoints in phase one', () => {
@@ -112,11 +136,29 @@ test('V2 router exposes only the migration foundation endpoints in phase one', (
   });
   assert.deepEqual(registered, [
     'GET /api/v2/meta',
+    'GET /api/v2/signup/config',
+    'POST /api/v2/signup/validate-code',
+    'POST /api/v2/signup',
     'POST /api/v2/login',
     'GET /api/v2/migration/preview',
     'POST /api/v2/migration/prepare',
     'GET /api/v2/world/maps',
     'GET /api/v2/me',
+    'GET /api/v2/inventory',
+    'POST /api/v2/inventory/quick-slot',
+    'POST /api/v2/inventory/use-potion',
+    'POST /api/v2/inventory/expand',
+    'GET /api/v2/mail',
+    'GET /api/v2/mail/status',
+    'POST /api/v2/mail/claim',
+    'POST /api/v2/mail/claim-all',
+    'POST /api/v2/world/heartbeat',
+    'POST /api/v2/world/attack',
+    'POST /api/v2/world/leave',
+    'GET /api/v2/admin/grant-items',
+    'POST /api/v2/admin/mail/send',
+    'GET /api/v2/admin/signup-code',
+    'POST /api/v2/admin/signup-code',
     'GET /api/v2/admin/migration-summary',
     'POST /api/v2/admin/snapshot-batch'
   ]);
