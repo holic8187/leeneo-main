@@ -653,10 +653,15 @@ form button { color: #fff; border-color: var(--green); background: var(--green);
 .leg-right { left: 20px; transform: rotate(-28deg); }
 .field-character.facing-left { transform: scaleX(-1); }
 .field-character.facing-left .character-tag { transform: translateX(-50%) scaleX(-1); }
-.field-character.is-walking .leg-left { animation: leg-left .42s ease-in-out infinite alternate; }
-.field-character.is-walking .leg-right { animation: leg-right .42s ease-in-out infinite alternate; }
-.field-character.is-walking .arm-left { animation: arm-left .42s ease-in-out infinite alternate; }
-.field-character.is-walking .arm-right { animation: arm-right .42s ease-in-out infinite alternate; }
+.field-character.is-walking .character-tag,
+.field-character.is-walking .character-head,
+.field-character.is-walking .character-body {
+  animation: walking-bob .21s ease-in-out infinite alternate;
+}
+.field-character.is-walking .leg-left { animation: leg-left .42s ease-in-out infinite alternate, walking-bob .21s ease-in-out infinite alternate; }
+.field-character.is-walking .leg-right { animation: leg-right .42s ease-in-out infinite alternate, walking-bob .21s ease-in-out infinite alternate; }
+.field-character.is-walking .arm-left { animation: arm-left .42s ease-in-out infinite alternate, walking-bob .21s ease-in-out infinite alternate; }
+.field-character.is-walking .arm-right { animation: arm-right .42s ease-in-out infinite alternate, walking-bob .21s ease-in-out infinite alternate; }
 .field-character.is-jump { animation: character-jump .72s ease-in-out; }
 .field-character.is-slash .arm-right { animation: sword-swing .55s ease-out; }
 .field-character.is-slash::after {
@@ -724,6 +729,7 @@ form button { color: #fff; border-color: var(--green); background: var(--green);
 .world-stage.changing-map .map-curtain { opacity: 1; }
 
 @keyframes portal-glow { 50% { box-shadow: inset 0 0 28px rgba(79,210,154,.35), 0 0 24px rgba(79,210,154,.42); } }
+@keyframes walking-bob { from { translate: 0 0; } to { translate: 0 -2px; } }
 @keyframes leg-left { from { transform: rotate(28deg); } to { transform: rotate(-30deg); } }
 @keyframes leg-right { from { transform: rotate(-28deg); } to { transform: rotate(30deg); } }
 @keyframes arm-left { from { transform: rotate(42deg); } to { transform: rotate(-38deg); } }

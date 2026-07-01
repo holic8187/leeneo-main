@@ -233,7 +233,7 @@ const PORTAL_POSITIONS = [
   { left: '4%', side: 'left', characterX: 8 },
   { left: '82%', side: 'right', characterX: 78 },
   { left: '61%', side: 'upper', characterX: 61 },
-  { left: '22%', side: 'upper', characterX: 25 }
+  { left: '32%', side: 'left', characterX: 34 }
 ];
 
 function getMap(mapId) {
@@ -322,10 +322,39 @@ function isRunActive(kind, runId) {
 async function moveCharacter(left, duration, runId) {
   if (!isRunActive('move', runId)) return false;
   const character = $('fieldCharacter');
+  setWorldActivity('목적지로 걷는 중');
   setCharacterMotion('walking');
   character.style.transitionDuration = `${duration}ms`;
   character.style.left = `${left}%`;
   await sleep(duration);
+  setCharacterMotion(null);
+  return isRunActive('move', runId);
+}
+
+function getLadderCharacterX() {
+  const stage = $('worldStage');
+  const ladder = $('worldRope');
+  const character = $('fieldCharacter');
+  if (!stage.clientWidth) return 55;
+  return ((ladder.offsetLeft + (ladder.offsetWidth / 2) - (character.offsetWidth / 2)) / stage.clientWidth) * 100;
+}
+
+function getUpperPlatformBottom() {
+  const stage = $('worldStage');
+  const platform = stage.querySelector('.platform-upper');
+  if (!platform) return 176;
+  return Math.max(42, stage.clientHeight - platform.offsetTop);
+}
+
+async function climbToUpperPlatform(runId) {
+  if (!isRunActive('move', runId)) return false;
+  const character = $('fieldCharacter');
+  character.classList.remove('facing-left');
+  setWorldActivity('사다리를 타고 위층으로 이동 중');
+  setCharacterMotion('climb');
+  character.style.transitionDuration = '1100ms';
+  character.style.bottom = `${getUpperPlatformBottom()}px`;
+  await sleep(1120);
   setCharacterMotion(null);
   return isRunActive('move', runId);
 }
@@ -355,20 +384,11 @@ async function playWorldMotion(motion, kind, runId) {
     projectile.className = `attack-projectile is-${motion}`;
   }
   if (motion === 'hit') character.classList.add('damage-flash');
-  if (motion === 'climb') {
-    character.style.transitionDuration = '850ms';
-    character.style.bottom = '145px';
-  }
 
-  await sleep(motion === 'climb' ? 1050 : 720);
+  await sleep(720);
   monster.classList.remove('is-hit');
   projectile.className = 'attack-projectile';
   character.classList.remove('damage-flash');
-  if (motion === 'climb') {
-    character.style.transitionDuration = '500ms';
-    character.style.bottom = '42px';
-    await sleep(520);
-  }
   setCharacterMotion(null);
 }
 
@@ -425,16 +445,22 @@ async function commandMove(targetMapId) {
   ));
   const portal = PORTAL_POSITIONS[portalIndex] || PORTAL_POSITIONS[1];
   const character = $('fieldCharacter');
-  character.classList.toggle('facing-left', portal.characterX < 38);
 
   if (map.features.includes('hazard')) {
     await playWorldMotion('jump', 'move', runId);
   }
   if (portal.side === 'upper') {
-    character.style.left = `${portal.characterX}%`;
-    await playWorldMotion('climb', 'move', runId);
+    const ladderX = getLadderCharacterX();
+    const currentX = Number.parseFloat(character.style.left) || 38;
+    character.classList.toggle('facing-left', ladderX < currentX);
+    if (!await moveCharacter(ladderX, 1050, runId)) return;
+    if (!await climbToUpperPlatform(runId)) return;
+    character.classList.toggle('facing-left', portal.characterX < ladderX);
+    if (!await moveCharacter(portal.characterX, 650, runId)) return;
   } else {
-    await moveCharacter(portal.characterX, 1700, runId);
+    const currentX = Number.parseFloat(character.style.left) || 38;
+    character.classList.toggle('facing-left', portal.characterX < currentX);
+    if (!await moveCharacter(portal.characterX, 1700, runId)) return;
   }
   await enterWorldPortal(connection, runId);
 
