@@ -6,6 +6,7 @@ const V2Account = require('../models/V2Account');
 const V2Character = require('../models/V2Character');
 const { mapLegacyLevelToV2, getStatPointsForLevel, getSkillPointsForLevel } = require('../progression/levelMigration');
 const { getAvailableAdvancementQuest } = require('../jobs/advancementRules');
+const { resolveCombatMotion } = require('../combat/weaponMotion');
 const { getRequiredExpV2 } = require('../constants/experienceTable');
 
 const MIGRATION_VERSION = 1;
@@ -238,6 +239,10 @@ function buildCharacterResponse(character) {
     resources: plain.resources,
     actionPoints: plain.actionPoints,
     economy: plain.economy,
+    combatPresentation: resolveCombatMotion({
+      weaponType: plain.loadout?.weaponType,
+      departmentId: plain.job?.departmentId
+    }),
     advancementQuest: getAvailableAdvancementQuest(plain),
     migration: plain.migration,
     createdAt: plain.createdAt,

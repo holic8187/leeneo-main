@@ -90,6 +90,7 @@ test('V2 router exposes only the migration foundation endpoints in phase one', (
     'POST /api/v2/login',
     'GET /api/v2/migration/preview',
     'POST /api/v2/migration/prepare',
+    'GET /api/v2/world/maps',
     'GET /api/v2/me',
     'GET /api/v2/admin/migration-summary',
     'POST /api/v2/admin/snapshot-batch'

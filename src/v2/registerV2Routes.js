@@ -4,6 +4,7 @@ const V2Account = require('./models/V2Account');
 const V2Character = require('./models/V2Character');
 const LegacyUserSnapshot = require('./models/LegacyUserSnapshot');
 const { MAX_LEVEL } = require('./constants/experienceTable');
+const { START_MAP_ID, WORLD_MAPS } = require('./world/mapDefinitions');
 const { LEGACY_CURVE, mapLegacyLevelToV2 } = require('./progression/levelMigration');
 const {
   MIGRATION_VERSION,
@@ -189,6 +190,15 @@ function registerV2Routes({
       console.error('V2 migration prepare error:', err);
       return res.status(500).json({ msg: 'V2 이관 데이터를 준비하지 못했습니다.' });
     }
+  });
+
+  app.get('/api/v2/world/maps', (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    return res.json({
+      startMapId: START_MAP_ID,
+      maps: WORLD_MAPS
+    });
   });
 
   app.get('/api/v2/me', async (req, res) => {

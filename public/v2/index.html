@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>호이상사 V2</title>
-  <link rel="stylesheet" href="/v2/styles.css?v=3">
+  <link rel="stylesheet" href="/v2/styles.css?v=5">
 </head>
 <body>
   <div class="blueprint-grid" aria-hidden="true"></div>
@@ -47,33 +47,52 @@
           <article class="panel map-panel">
             <div class="panel-heading">
               <div>
-                <p class="section-number">MAP 01</p>
-                <h3>호이상사 본관</h3>
+                <p id="mapRegion" class="section-number">MAP 01 / 본관 초입</p>
+                <h3 id="mapName">호이상사 중앙로비</h3>
               </div>
-              <span class="map-mode">SAFE FLOOR</span>
+              <span id="mapLevelRange" class="map-mode">Lv.1~8</span>
             </div>
 
-            <div class="ascii-stage" aria-label="호이상사 본관 ASCII 지도, 캐릭터는 중앙 로비에 있습니다.">
-              <div class="map-scan" aria-hidden="true"></div>
-              <pre class="ascii-layout" aria-hidden="true">┌─ HOI OFFICE / FLOOR 01 ───────────┐
-│ [STOCK]──[LOBBY]──[BOSS]         │
-│    │        │        │            │
-│ [SHOP]──────┼──────[HQ]           │
-│             │                     │
-│ [COMPANY]───┴────[EXIT]           │
-└───────────────────────────────────┘</pre>
-              <div class="ascii-player" aria-hidden="true">
-                <pre>  0
- /|\
- / \</pre>
-                <span>YOU</span>
+            <div id="worldStage" class="world-stage" data-theme="lobby" aria-label="캐릭터 자동 이동 및 전투 화면">
+              <div class="office-skyline" aria-hidden="true"></div>
+              <div class="world-grid" aria-hidden="true"></div>
+              <div class="hanging-light light-a" aria-hidden="true"></div>
+              <div class="hanging-light light-b" aria-hidden="true"></div>
+              <div id="portalLayer" class="portal-layer" aria-hidden="true"></div>
+              <div class="world-platform platform-main" aria-hidden="true"></div>
+              <div class="world-platform platform-upper" aria-hidden="true"></div>
+              <div id="worldRope" class="world-rope" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+
+              <div id="fieldMonster" class="field-monster" aria-hidden="true">
+                <span class="monster-level">Lv.?</span>
+                <pre>(╬ಠ益ಠ)</pre>
+                <div class="monster-hp"><i></i></div>
               </div>
+
+              <div id="fieldCharacter" class="field-character is-walking" aria-hidden="true">
+                <span class="character-tag">YOU</span>
+                <i class="character-head"></i>
+                <i class="character-body"></i>
+                <i class="character-arm arm-left"></i>
+                <i class="character-arm arm-right"></i>
+                <i class="character-leg leg-left"></i>
+                <i class="character-leg leg-right"></i>
+              </div>
+
+              <div id="attackProjectile" class="attack-projectile" aria-hidden="true"></div>
+              <div class="world-vignette" aria-hidden="true"></div>
+              <div id="mapCurtain" class="map-curtain" aria-hidden="true"></div>
             </div>
 
             <div class="location-line">
               <span class="signal-dot"></span>
-              <strong>중앙 로비</strong>
-              <span>전투 준비 전 안전 구역</span>
+              <strong id="currentLocation">호이상사 중앙로비</strong>
+              <span id="worldActivity">명령 대기 중</span>
+            </div>
+            <div class="field-command-bar">
+              <button id="moveMapButton" class="field-control" type="button">이동</button>
+              <button id="autoCombatButton" class="field-control combat-toggle" type="button" aria-pressed="false">자동 전투 OFF</button>
+              <span id="combatMotionLabel" class="combat-motion-label">전투 모션 확인 중</span>
             </div>
           </article>
 
@@ -167,6 +186,6 @@
     </section>
   </div>
 
-  <script src="/v2/app.js?v=3"></script>
+  <script src="/v2/app.js?v=5"></script>
 </body>
 </html>

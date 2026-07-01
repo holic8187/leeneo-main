@@ -1,0 +1,52 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const {
+  START_MAP_ID,
+  WORLD_MAPS,
+  getWorldMap
+} = require('../../src/v2/world/mapDefinitions');
+
+test('world contains thirty uniquely named company maps', () => {
+  assert.equal(WORLD_MAPS.length, 30);
+  assert.equal(new Set(WORLD_MAPS.map((map) => map.id)).size, 30);
+  assert.equal(new Set(WORLD_MAPS.map((map) => map.name)).size, 30);
+  assert.equal(getWorldMap(START_MAP_ID).name, '호이상사 중앙로비');
+});
+
+test('all map connections are valid and bidirectional', () => {
+  const byId = new Map(WORLD_MAPS.map((map) => [map.id, map]));
+  for (const map of WORLD_MAPS) {
+    assert.ok(map.connections.length >= 1, `${map.id} has no portal`);
+    for (const connection of map.connections) {
+      const target = byId.get(connection.targetId);
+      assert.ok(target, `${connection.targetId} does not exist`);
+      assert.ok(
+        target.connections.some((reverse) => reverse.targetId === map.id),
+        `${map.id} -> ${target.id} is not bidirectional`
+      );
+    }
+  }
+});
+
+test('every map is reachable from the main lobby', () => {
+  const visited = new Set([START_MAP_ID]);
+  const queue = [START_MAP_ID];
+  while (queue.length) {
+    const current = getWorldMap(queue.shift());
+    for (const connection of current.connections) {
+      if (visited.has(connection.targetId)) continue;
+      visited.add(connection.targetId);
+      queue.push(connection.targetId);
+    }
+  }
+  assert.equal(visited.size, WORLD_MAPS.length);
+});
+
+test('department-themed regions are represented in the world', () => {
+  const names = WORLD_MAPS.map((map) => map.name).join(' ');
+  for (const keyword of ['인사팀', '회계', '영업', '브랜드', '개발', '연구소', '현장직', '시설관리', '품질']) {
+    assert.match(names, new RegExp(keyword));
+  }
+});

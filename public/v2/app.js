@@ -1,12 +1,20 @@
 'use strict';
 
 const state = {
-  token: sessionStorage.getItem('v2Token') || '',
+  token: localStorage.getItem('v2Token') || '',
   meta: null,
-  isAdmin: false,
-  displayName: '',
+  isAdmin: localStorage.getItem('v2IsAdmin') === 'true',
+  displayName: localStorage.getItem('v2DisplayName') || '',
   preview: null,
-  character: null
+  character: null,
+  maps: [],
+  startMapId: 'main_lobby',
+  currentMapId: localStorage.getItem('v2CurrentMapId') || '',
+  autoCombat: localStorage.getItem('v2AutoCombat') === 'true',
+  moving: false,
+  moveRunId: 0,
+  combatRunId: 0,
+  combatAttackCount: 0
 };
 
 const $ = (id) => document.getElementById(id);
@@ -68,6 +76,7 @@ function renderGame(data) {
   $('unspentSkills').textContent = `${formatNumber(progression.unspentSkillPoints)} SP`;
   $('advancementTier').textContent = `${formatNumber(job.advancementTier)}차`;
   $('migrationStatus').textContent = migration.status === 'prepared' ? '준비 완료' : (migration.status || '확인 중');
+  $('combatMotionLabel').textContent = `전투 모션 · ${character.combatPresentation?.label || '연습용 베기'}`;
 
   setResource('hp', resources.currentHp, resources.maxHp);
   setResource('mp', resources.currentMp, resources.maxMp);
@@ -92,8 +101,14 @@ async function loadMeta() {
 }
 
 async function loadUserWorkspace() {
-  const data = await request('/api/v2/migration/preview');
+  const [data, world] = await Promise.all([
+    request('/api/v2/migration/preview'),
+    request('/api/v2/world/maps')
+  ]);
+  state.maps = world.maps || [];
+  state.startMapId = world.startMapId || 'main_lobby';
   renderGame(data);
+  startWorldSimulation();
 }
 
 async function loadAdminSummary() {
@@ -106,6 +121,37 @@ async function loadAdminSummary() {
     `기존 레벨 ${formatNumber(data.sourceLevelStats.min)}~${formatNumber(data.sourceLevelStats.max)}`,
     `중앙 레벨 ${formatNumber(data.sourceLevelStats.median)}`
   ].map((text) => `<span>${text}</span>`).join('');
+}
+
+function storeLoginState() {
+  localStorage.setItem('v2Token', state.token);
+  localStorage.setItem('v2IsAdmin', String(state.isAdmin));
+  localStorage.setItem('v2DisplayName', state.displayName);
+}
+
+function clearLoginState() {
+  state.token = '';
+  state.isAdmin = false;
+  state.displayName = '';
+  localStorage.removeItem('v2Token');
+  localStorage.removeItem('v2IsAdmin');
+  localStorage.removeItem('v2DisplayName');
+}
+
+async function enterWorkspace() {
+  $('loginPanel').classList.add('hidden');
+  $('workspace').classList.remove('hidden');
+  $('logoutButton').classList.remove('hidden');
+  $('adminWorkspace').classList.add('hidden');
+  $('userWorkspace').classList.add('hidden');
+
+  if (state.isAdmin) {
+    $('adminWorkspace').classList.remove('hidden');
+    await loadAdminSummary();
+  } else {
+    $('userWorkspace').classList.remove('hidden');
+    await loadUserWorkspace();
+  }
 }
 
 async function login(event) {
@@ -122,21 +168,28 @@ async function login(event) {
     state.token = data.token;
     state.isAdmin = Boolean(data.isAdmin);
     state.displayName = data.displayName || '';
-    sessionStorage.setItem('v2Token', state.token);
-
-    $('loginPanel').classList.add('hidden');
-    $('workspace').classList.remove('hidden');
-    $('logoutButton').classList.remove('hidden');
-
-    if (state.isAdmin) {
-      $('adminWorkspace').classList.remove('hidden');
-      await loadAdminSummary();
-    } else {
-      $('userWorkspace').classList.remove('hidden');
-      await loadUserWorkspace();
-    }
+    storeLoginState();
+    await enterWorkspace();
   } catch (err) {
     $('loginStatus').textContent = err.message;
+  }
+}
+
+async function restoreLogin() {
+  if (!state.token) return;
+  $('loginStatus').textContent = '저장된 사원증으로 접속하는 중입니다.';
+  try {
+    await enterWorkspace();
+  } catch (err) {
+    clearLoginState();
+    state.moveRunId += 1;
+    state.combatRunId += 1;
+    $('workspace').classList.add('hidden');
+    $('userWorkspace').classList.add('hidden');
+    $('adminWorkspace').classList.add('hidden');
+    $('logoutButton').classList.add('hidden');
+    $('loginPanel').classList.remove('hidden');
+    $('loginStatus').textContent = '로그인 유효기간이 끝났습니다. 다시 로그인해주세요.';
   }
 }
 
@@ -165,6 +218,288 @@ async function snapshotAllUsers() {
   }
 }
 
+const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+const CHARACTER_MOTION_CLASSES = [
+  'is-walking',
+  'is-jump',
+  'is-climb',
+  'is-hit',
+  'is-slash',
+  'is-shoot',
+  'is-throw',
+  'is-staff-swing'
+];
+const PORTAL_POSITIONS = [
+  { left: '4%', side: 'left', characterX: 8 },
+  { left: '82%', side: 'right', characterX: 78 },
+  { left: '61%', side: 'upper', characterX: 61 },
+  { left: '22%', side: 'upper', characterX: 25 }
+];
+
+function getMap(mapId) {
+  return state.maps.find((map) => map.id === mapId) || null;
+}
+
+function getCharacterLevel() {
+  return Math.max(1, Number(state.character?.progression?.level) || 1);
+}
+
+function getCombatPresentation() {
+  return state.character?.combatPresentation || {
+    motion: 'slash',
+    label: '연습용 베기',
+    source: 'trainee-preview'
+  };
+}
+
+function setWorldActivity(message) {
+  $('worldActivity').textContent = message;
+}
+
+function setCharacterMotion(motion) {
+  const character = $('fieldCharacter');
+  CHARACTER_MOTION_CLASSES.forEach((className) => character.classList.remove(className));
+  if (motion) character.classList.add(`is-${motion}`);
+}
+
+function updateFieldControls() {
+  const button = $('autoCombatButton');
+  button.textContent = state.autoCombat ? '자동 전투 ON' : '자동 전투 OFF';
+  button.setAttribute('aria-pressed', String(state.autoCombat));
+  button.classList.toggle('is-on', state.autoCombat);
+  $('moveMapButton').disabled = state.moving;
+  $('combatMotionLabel').textContent = `전투 모션 · ${getCombatPresentation().label}`;
+}
+
+function renderPortals(map) {
+  $('portalLayer').innerHTML = map.connections.slice(0, 4).map((connection, index) => {
+    const target = getMap(connection.targetId);
+    const position = PORTAL_POSITIONS[index] || PORTAL_POSITIONS[1];
+    return `<div class="world-portal portal-${position.side}" style="left:${position.left}">
+      <i></i><span>PORTAL</span><small>${escapeHtml(target?.name || connection.targetId)}</small>
+    </div>`;
+  }).join('');
+}
+
+function renderWorldMap(mapId) {
+  const map = getMap(mapId) || getMap(state.startMapId) || state.maps[0];
+  if (!map) return;
+  state.currentMapId = map.id;
+  localStorage.setItem('v2CurrentMapId', map.id);
+
+  $('mapRegion').textContent = `MAP / ${map.region}`;
+  $('mapName').textContent = map.name;
+  $('mapLevelRange').textContent = `Lv.${map.minLevel}~${map.maxLevel}`;
+  $('currentLocation').textContent = map.name;
+  $('worldStage').dataset.theme = map.theme;
+  $('fieldMonster').querySelector('.monster-level').textContent = `Lv.${map.minLevel}`;
+  const needsUpperRoute = map.connections.length > 2;
+  $('worldRope').classList.toggle('is-ladder', map.features.includes('ladder') || needsUpperRoute);
+  $('worldRope').classList.toggle(
+    'hidden',
+    !needsUpperRoute && !map.features.some((feature) => feature === 'rope' || feature === 'ladder')
+  );
+  renderPortals(map);
+
+  const character = $('fieldCharacter');
+  character.style.transitionDuration = '0ms';
+  character.style.left = '38%';
+  character.style.bottom = '42px';
+  character.classList.remove('facing-left');
+  setCharacterMotion(null);
+  void character.offsetWidth;
+  character.style.transitionDuration = '';
+  setWorldActivity(state.autoCombat ? '자동 전투 준비 중' : '명령 대기 중');
+  updateFieldControls();
+}
+
+function isRunActive(kind, runId) {
+  return kind === 'move'
+    ? runId === state.moveRunId
+    : runId === state.combatRunId && state.autoCombat && !state.moving;
+}
+
+async function moveCharacter(left, duration, runId) {
+  if (!isRunActive('move', runId)) return false;
+  const character = $('fieldCharacter');
+  setCharacterMotion('walking');
+  character.style.transitionDuration = `${duration}ms`;
+  character.style.left = `${left}%`;
+  await sleep(duration);
+  setCharacterMotion(null);
+  return isRunActive('move', runId);
+}
+
+async function playWorldMotion(motion, kind, runId) {
+  if (!isRunActive(kind, runId)) return;
+  const character = $('fieldCharacter');
+  const monster = $('fieldMonster');
+  const projectile = $('attackProjectile');
+  setCharacterMotion(motion);
+
+  const labels = {
+    slash: '근접 공격 · 베기',
+    shoot: '원거리 공격 · 쏘기',
+    throw: '원거리 공격 · 날리기',
+    'staff-swing': '마법 공격 · 완드/스태프 휘두르기',
+    hit: '몬스터의 공격에 피격',
+    jump: '장애물 점프',
+    climb: '밧줄·사다리 이동'
+  };
+  setWorldActivity(labels[motion] || '행동 중');
+
+  if (['slash', 'shoot', 'throw', 'staff-swing'].includes(motion)) {
+    monster.classList.add('is-hit');
+  }
+  if (motion === 'shoot' || motion === 'throw') {
+    projectile.className = `attack-projectile is-${motion}`;
+  }
+  if (motion === 'hit') character.classList.add('damage-flash');
+  if (motion === 'climb') {
+    character.style.transitionDuration = '850ms';
+    character.style.bottom = '145px';
+  }
+
+  await sleep(motion === 'climb' ? 1050 : 720);
+  monster.classList.remove('is-hit');
+  projectile.className = 'attack-projectile';
+  character.classList.remove('damage-flash');
+  if (motion === 'climb') {
+    character.style.transitionDuration = '500ms';
+    character.style.bottom = '42px';
+    await sleep(520);
+  }
+  setCharacterMotion(null);
+}
+
+function canEnterMap(target) {
+  return target && target.minLevel <= getCharacterLevel() + 5;
+}
+
+function movementSelectionBody() {
+  const map = getMap(state.currentMapId);
+  if (!map) return '<div class="empty-ledger"><b>현재 맵 정보를 찾을 수 없습니다.</b></div>';
+  const destinations = map.connections.map((connection, index) => {
+    const target = getMap(connection.targetId);
+    const accessible = canEnterMap(target);
+    return `<button class="move-destination" type="button" data-target-map="${escapeHtml(connection.targetId)}" ${accessible ? '' : 'disabled'}>
+      <b>${String(index + 1).padStart(2, '0')}</b>
+      <span><strong>${escapeHtml(target?.name || connection.targetId)}</strong><small>${escapeHtml(connection.portalName)} · Lv.${target?.minLevel || '?'}~${target?.maxLevel || '?'}</small></span>
+      <i>${accessible ? '이동' : '레벨 부족'}</i>
+    </button>`;
+  }).join('');
+  return `<div class="movement-sheet">
+    <p>현재 위치 <b>${escapeHtml(map.name)}</b>에서 연결된 포탈입니다. 목적지를 선택하면 캐릭터가 직접 포탈까지 이동합니다.</p>
+    <div class="movement-list">${destinations}</div>
+  </div>`;
+}
+
+async function enterWorldPortal(connection, runId) {
+  if (!connection || !isRunActive('move', runId)) return false;
+  const target = getMap(connection.targetId);
+  setWorldActivity(`${connection.portalName} 진입 · ${target?.name || connection.targetId} 이동 중`);
+  $('worldStage').classList.add('changing-map');
+  await sleep(520);
+  if (!isRunActive('move', runId)) return false;
+  renderWorldMap(connection.targetId);
+  $('worldStage').classList.remove('changing-map');
+  await sleep(500);
+  return true;
+}
+
+async function commandMove(targetMapId) {
+  if (state.moving) return;
+  const map = getMap(state.currentMapId);
+  const connection = map?.connections.find((entry) => entry.targetId === targetMapId);
+  const target = getMap(targetMapId);
+  if (!connection || !canEnterMap(target)) return;
+
+  closeFeature();
+  state.moving = true;
+  state.combatRunId += 1;
+  const runId = ++state.moveRunId;
+  updateFieldControls();
+
+  const portalIndex = Math.max(0, map.connections.slice(0, 4).findIndex(
+    (entry) => entry.targetId === targetMapId
+  ));
+  const portal = PORTAL_POSITIONS[portalIndex] || PORTAL_POSITIONS[1];
+  const character = $('fieldCharacter');
+  character.classList.toggle('facing-left', portal.characterX < 38);
+
+  if (map.features.includes('hazard')) {
+    await playWorldMotion('jump', 'move', runId);
+  }
+  if (portal.side === 'upper') {
+    character.style.left = `${portal.characterX}%`;
+    await playWorldMotion('climb', 'move', runId);
+  } else {
+    await moveCharacter(portal.characterX, 1700, runId);
+  }
+  await enterWorldPortal(connection, runId);
+
+  if (runId !== state.moveRunId) return;
+  state.moving = false;
+  setCharacterMotion(null);
+  updateFieldControls();
+  if (state.autoCombat) {
+    startAutoCombat();
+  } else {
+    setWorldActivity('명령 대기 중');
+  }
+}
+
+async function runAutoCombat(runId) {
+  while (isRunActive('combat', runId) && state.token && !state.isAdmin) {
+    const motion = getCombatPresentation().motion;
+    await playWorldMotion(motion, 'combat', runId);
+    if (!isRunActive('combat', runId)) return;
+    state.combatAttackCount += 1;
+    if (state.combatAttackCount % 3 === 0) {
+      await sleep(450);
+      await playWorldMotion('hit', 'combat', runId);
+    }
+    await sleep(900);
+  }
+}
+
+function startAutoCombat() {
+  if (!state.autoCombat || state.moving) return;
+  const runId = ++state.combatRunId;
+  runAutoCombat(runId).catch((err) => {
+    console.error('V2 auto combat error:', err);
+    setWorldActivity('자동 전투를 다시 준비하고 있습니다.');
+  });
+}
+
+function toggleAutoCombat() {
+  state.autoCombat = !state.autoCombat;
+  localStorage.setItem('v2AutoCombat', String(state.autoCombat));
+  state.combatRunId += 1;
+  setCharacterMotion(null);
+  updateFieldControls();
+  if (state.autoCombat && !state.moving) {
+    setWorldActivity('자동 전투 시작');
+    startAutoCombat();
+  } else if (!state.moving) {
+    setWorldActivity('명령 대기 중');
+  }
+}
+
+function startWorldSimulation() {
+  if (!state.maps.length) return;
+  const savedMap = getMap(state.currentMapId);
+  const accessibleSavedMap = savedMap && savedMap.minLevel <= getCharacterLevel() + 5
+    ? savedMap
+    : null;
+  const startMap = accessibleSavedMap || getMap(state.startMapId) || state.maps[0];
+  state.moveRunId += 1;
+  state.combatRunId += 1;
+  state.moving = false;
+  renderWorldMap(startMap.id);
+  if (state.autoCombat) startAutoCombat();
+}
+
 const featureMeta = {
   stats: { code: '01 / STATUS', title: '스탯' },
   inventory: { code: '02 / INVENTORY', title: '인벤토리' },
@@ -174,7 +509,8 @@ const featureMeta = {
   company: { code: '06 / COMPANY', title: '회사 운영' },
   boss: { code: '07 / RAID', title: '보스' },
   stock: { code: '08 / MARKET', title: '주식' },
-  quest: { code: 'QUEST / HR', title: '전직 퀘스트' }
+  quest: { code: 'QUEST / HR', title: '전직 퀘스트' },
+  move: { code: 'MAP / MOVE', title: '이동 목적지' }
 };
 
 function questBody() {
@@ -221,6 +557,7 @@ function statBody() {
 function featureBody(feature) {
   if (feature === 'stats') return statBody();
   if (feature === 'quest') return questBody();
+  if (feature === 'move') return movementSelectionBody();
   if (feature === 'inventory') {
     return `<div class="empty-ledger"><b>보존된 원본 재화</b><p>일반 카드 ${formatNumber(state.preview?.preserved.cardCount)}장 · 강화 카드 ${formatNumber(state.preview?.preserved.enhancedCardCount)}장 · 기존 장비 ${formatNumber(state.preview?.preserved.equipmentCount)}개</p><span>V2 장비와 아이템 변환 규칙 확정 후 이곳에 인벤토리가 열립니다.</span></div>`;
   }
@@ -243,6 +580,11 @@ function openFeature(feature) {
   $('featureCode').textContent = meta.code;
   $('featureTitle').textContent = meta.title;
   $('featureBody').innerHTML = featureBody(feature);
+  if (feature === 'move') {
+    document.querySelectorAll('.move-destination').forEach((button) => {
+      button.addEventListener('click', () => commandMove(button.dataset.targetMap));
+    });
+  }
   $('featureModal').classList.remove('hidden');
   document.body.classList.add('modal-open');
   document.querySelector('.modal-close')?.focus();
@@ -254,7 +596,9 @@ function closeFeature() {
 }
 
 function logout() {
-  sessionStorage.removeItem('v2Token');
+  state.moveRunId += 1;
+  state.combatRunId += 1;
+  clearLoginState();
   window.location.reload();
 }
 
@@ -262,6 +606,8 @@ $('loginForm').addEventListener('submit', login);
 $('snapshotAllButton').addEventListener('click', snapshotAllUsers);
 $('logoutButton').addEventListener('click', logout);
 $('questButton').addEventListener('click', () => openFeature('quest'));
+$('moveMapButton').addEventListener('click', () => openFeature('move'));
+$('autoCombatButton').addEventListener('click', toggleAutoCombat);
 document.querySelectorAll('.desk-action').forEach((button) => {
   button.addEventListener('click', () => openFeature(button.dataset.feature));
 });
@@ -272,6 +618,13 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') closeFeature();
 });
 
-loadMeta().catch((err) => {
-  $('loginStatus').textContent = `V2 메타데이터 로드 실패: ${err.message}`;
-});
+async function boot() {
+  try {
+    await loadMeta();
+    await restoreLogin();
+  } catch (err) {
+    $('loginStatus').textContent = `V2 초기화 실패: ${err.message}`;
+  }
+}
+
+boot();
