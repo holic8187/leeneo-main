@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>호이상사 V2</title>
-  <link rel="stylesheet" href="/v2/styles.css?v=6">
+  <link rel="stylesheet" href="/v2/styles.css?v=7">
 </head>
 <body>
   <div class="blueprint-grid" aria-hidden="true"></div>
@@ -120,6 +120,10 @@
                 <div><span>정신력</span><strong id="mpText">준비 중</strong></div>
                 <div class="bar"><i id="mpBar" class="mp"></i></div>
               </div>
+              <div class="resource-row experience-row">
+                <div><span>경험치</span><strong id="expText">-</strong></div>
+                <div class="bar exp-track"><i id="expBar" class="exp"></i></div>
+              </div>
               <div class="resource-row">
                 <div><span>행동력</span><strong id="apText">-</strong></div>
                 <div class="bar"><i id="apBar" class="ap"></i></div>
@@ -138,12 +142,13 @@
         <nav class="action-desk" aria-label="주요 기능">
           <button class="desk-action" data-feature="stats" type="button"><b>01</b><span>스탯<small>STATUS</small></span></button>
           <button class="desk-action" data-feature="inventory" type="button"><b>02</b><span>인벤토리<small>INVENTORY</small></span></button>
-          <button class="desk-action" data-feature="skills" type="button"><b>03</b><span>스킬<small>SKILLS</small></span></button>
-          <button class="desk-action" data-feature="shop" type="button"><b>04</b><span>상점<small>SUPPLY</small></span></button>
-          <button class="desk-action" data-feature="cash" type="button"><b>05</b><span>캐쉬상점<small>CASH SHOP</small></span></button>
-          <button class="desk-action" data-feature="company" type="button"><b>06</b><span>회사 운영<small>COMPANY</small></span></button>
-          <button class="desk-action danger" data-feature="boss" type="button"><b>07</b><span>보스<small>RAID</small></span></button>
-          <button class="desk-action" data-feature="stock" type="button"><b>08</b><span>주식<small>MARKET</small></span></button>
+          <button class="desk-action equipment-action" data-feature="equipment" type="button"><b>03</b><span>장비<small>EQUIPMENT</small></span></button>
+          <button class="desk-action" data-feature="skills" type="button"><b>04</b><span>스킬<small>SKILLS</small></span></button>
+          <button class="desk-action" data-feature="shop" type="button"><b>05</b><span>상점<small>SUPPLY</small></span></button>
+          <button class="desk-action" data-feature="cash" type="button"><b>06</b><span>캐쉬상점<small>CASH SHOP</small></span></button>
+          <button class="desk-action" data-feature="company" type="button"><b>07</b><span>회사 운영<small>COMPANY</small></span></button>
+          <button class="desk-action danger" data-feature="boss" type="button"><b>08</b><span>보스<small>RAID</small></span></button>
+          <button class="desk-action" data-feature="stock" type="button"><b>09</b><span>주식<small>MARKET</small></span></button>
         </nav>
 
         <button id="questButton" class="quest-callout hidden" type="button">
@@ -186,6 +191,6 @@
     </section>
   </div>
 
-  <script src="/v2/app.js?v=6"></script>
+  <script src="/v2/app.js?v=7"></script>
 </body>
 </html>

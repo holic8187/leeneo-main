@@ -14,7 +14,8 @@ const state = {
   moving: false,
   moveRunId: 0,
   combatRunId: 0,
-  combatAttackCount: 0
+  combatAttackCount: 0,
+  equipmentTab: 'weapon'
 };
 
 const $ = (id) => document.getElementById(id);
@@ -55,6 +56,20 @@ function setResource(prefix, current, maximum, pendingLabel = '준비 중') {
   $(`${prefix}Bar`).style.width = `${ratio(currentValue, maximumValue)}%`;
 }
 
+function setExperience(progression = {}) {
+  const level = Math.max(1, Number(progression.level) || 1);
+  const current = Math.max(0, Number(progression.exp) || 0);
+  const required = Math.max(0, Number(progression.expToNextLevel) || 0);
+  if (level >= 200 || !required) {
+    $('expText').textContent = 'MAX';
+    $('expBar').style.width = '100%';
+    return;
+  }
+  const percentage = ratio(current, required);
+  $('expText').textContent = `${formatNumber(current)} / ${formatNumber(required)} · ${percentage.toFixed(2)}%`;
+  $('expBar').style.width = `${percentage}%`;
+}
+
 function renderGame(data) {
   state.preview = data.preview;
   state.character = data.character;
@@ -80,6 +95,7 @@ function renderGame(data) {
 
   setResource('hp', resources.currentHp, resources.maxHp);
   setResource('mp', resources.currentMp, resources.maxMp);
+  setExperience(progression);
   setResource('ap', actionPoints.current, actionPoints.max, '-');
 
   const prepared = Boolean(state.character);
@@ -529,15 +545,84 @@ function startWorldSimulation() {
 const featureMeta = {
   stats: { code: '01 / STATUS', title: '스탯' },
   inventory: { code: '02 / INVENTORY', title: '인벤토리' },
-  skills: { code: '03 / SKILLS', title: '스킬' },
-  shop: { code: '04 / SUPPLY', title: '상점' },
-  cash: { code: '05 / CASH SHOP', title: '캐쉬상점' },
-  company: { code: '06 / COMPANY', title: '회사 운영' },
-  boss: { code: '07 / RAID', title: '보스' },
-  stock: { code: '08 / MARKET', title: '주식' },
+  equipment: { code: '03 / EQUIPMENT', title: '장비' },
+  skills: { code: '04 / SKILLS', title: '스킬' },
+  shop: { code: '05 / SUPPLY', title: '상점' },
+  cash: { code: '06 / CASH SHOP', title: '캐쉬상점' },
+  company: { code: '07 / COMPANY', title: '회사 운영' },
+  boss: { code: '08 / RAID', title: '보스' },
+  stock: { code: '09 / MARKET', title: '주식' },
   quest: { code: 'QUEST / HR', title: '전직 퀘스트' },
   move: { code: 'MAP / MOVE', title: '이동 목적지' }
 };
+
+const EQUIPMENT_TABS = Object.freeze({
+  weapon: {
+    label: '무기',
+    slots: [{ key: 'weapon', label: '무기', code: 'WEAPON' }]
+  },
+  armor: {
+    label: '방어구',
+    slots: [
+      { key: 'helmet', label: '투구', code: 'HELMET' },
+      { key: 'gloves', label: '장갑', code: 'GLOVES' },
+      { key: 'shoes', label: '신발', code: 'SHOES' },
+      { key: 'cape', label: '망토', code: 'CAPE' },
+      { key: 'top', label: '상의', code: 'TOP' },
+      { key: 'bottom', label: '하의', code: 'BOTTOM' }
+    ]
+  },
+  accessory: {
+    label: '장신구',
+    slots: [
+      { key: 'necklace', label: '목걸이', code: 'NECKLACE' },
+      { key: 'earrings', label: '귀걸이', code: 'EARRINGS' }
+    ]
+  }
+});
+
+function equipmentStatText(item) {
+  const stats = item?.stats && typeof item.stats === 'object'
+    ? Object.entries(item.stats).filter(([, value]) => Number(value))
+    : [];
+  return stats.length
+    ? stats.map(([key, value]) => `${escapeHtml(key)} +${formatNumber(value)}`).join(' · ')
+    : '장비 능력치 정보 없음';
+}
+
+function equipmentBody() {
+  const activeTab = EQUIPMENT_TABS[state.equipmentTab] || EQUIPMENT_TABS.weapon;
+  const loadout = state.character?.equipmentLoadout || {};
+  const tabs = Object.entries(EQUIPMENT_TABS).map(([key, tab]) => (
+    `<button class="equipment-tab ${key === state.equipmentTab ? 'is-active' : ''}" type="button" data-equipment-tab="${key}">${tab.label}</button>`
+  )).join('');
+  const slots = activeTab.slots.map((slot) => {
+    const item = loadout[slot.key];
+    return `<article class="equipment-slot ${item ? 'is-equipped' : 'is-empty'}">
+      <div class="equipment-slot-code"><span>${slot.code}</span><b>${slot.label}</b></div>
+      <div class="equipment-slot-item">
+        <strong>${escapeHtml(item?.name || '미장착')}</strong>
+        <small>${item ? equipmentStatText(item) : '현재 장착한 장비가 없습니다.'}</small>
+      </div>
+      <i>${item ? 'EQUIPPED' : 'EMPTY'}</i>
+    </article>`;
+  }).join('');
+  return `<div class="equipment-sheet">
+    <div class="equipment-tabs" role="tablist">${tabs}</div>
+    <div class="equipment-slots">${slots}</div>
+    <p class="notice-line">현재 장착 상태를 확인하는 화면입니다. 장비 장착과 해제는 인벤토리 구현 단계에서 연결됩니다.</p>
+  </div>`;
+}
+
+function bindEquipmentTabs() {
+  document.querySelectorAll('[data-equipment-tab]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.equipmentTab = button.dataset.equipmentTab;
+      $('featureBody').innerHTML = equipmentBody();
+      bindEquipmentTabs();
+    });
+  });
+}
 
 function questBody() {
   const quest = state.character?.advancementQuest;
@@ -584,6 +669,7 @@ function featureBody(feature) {
   if (feature === 'stats') return statBody();
   if (feature === 'quest') return questBody();
   if (feature === 'move') return movementSelectionBody();
+  if (feature === 'equipment') return equipmentBody();
   if (feature === 'inventory') {
     return `<div class="empty-ledger"><b>보존된 원본 재화</b><p>일반 카드 ${formatNumber(state.preview?.preserved.cardCount)}장 · 강화 카드 ${formatNumber(state.preview?.preserved.enhancedCardCount)}장 · 기존 장비 ${formatNumber(state.preview?.preserved.equipmentCount)}개</p><span>V2 장비와 아이템 변환 규칙 확정 후 이곳에 인벤토리가 열립니다.</span></div>`;
   }
@@ -611,6 +697,7 @@ function openFeature(feature) {
       button.addEventListener('click', () => commandMove(button.dataset.targetMap));
     });
   }
+  if (feature === 'equipment') bindEquipmentTabs();
   $('featureModal').classList.remove('hidden');
   document.body.classList.add('modal-open');
   document.querySelector('.modal-close')?.focus();

@@ -10,6 +10,21 @@ const { resolveCombatMotion } = require('../combat/weaponMotion');
 const { getRequiredExpV2 } = require('../constants/experienceTable');
 
 const MIGRATION_VERSION = 1;
+const TEMPORARY_RESOURCE_DEFAULTS = Object.freeze({
+  maxHp: 120,
+  maxMp: 80
+});
+const EQUIPMENT_SLOT_KEYS = Object.freeze([
+  'weapon',
+  'helmet',
+  'gloves',
+  'shoes',
+  'cape',
+  'top',
+  'bottom',
+  'necklace',
+  'earrings'
+]);
 
 const SNAPSHOT_FIELDS = Object.freeze([
   'username',
@@ -174,10 +189,10 @@ async function ensureV2MigrationForUser(user) {
           advancementTier: 0
         },
         resources: {
-          currentHp: 0,
-          maxHp: 0,
-          currentMp: 0,
-          maxMp: 0
+          currentHp: TEMPORARY_RESOURCE_DEFAULTS.maxHp,
+          maxHp: TEMPORARY_RESOURCE_DEFAULTS.maxHp,
+          currentMp: TEMPORARY_RESOURCE_DEFAULTS.maxMp,
+          maxMp: TEMPORARY_RESOURCE_DEFAULTS.maxMp
         },
         actionPoints: {
           current: Math.min(sourceActionPoints, sourceMaxActionPoints),
@@ -224,9 +239,32 @@ async function ensureV2SkillPointGrant(character) {
   return character;
 }
 
+function buildResourceResponse(resources = {}) {
+  const storedMaxHp = Math.max(0, Number(resources.maxHp) || 0);
+  const storedMaxMp = Math.max(0, Number(resources.maxMp) || 0);
+  const maxHp = storedMaxHp || TEMPORARY_RESOURCE_DEFAULTS.maxHp;
+  const maxMp = storedMaxMp || TEMPORARY_RESOURCE_DEFAULTS.maxMp;
+  return {
+    currentHp: storedMaxHp
+      ? Math.max(0, Math.min(maxHp, Number(resources.currentHp) || 0))
+      : maxHp,
+    maxHp,
+    currentMp: storedMaxMp
+      ? Math.max(0, Math.min(maxMp, Number(resources.currentMp) || 0))
+      : maxMp,
+    maxMp,
+    provisional: !storedMaxHp || !storedMaxMp
+  };
+}
+
+function buildEquipmentLoadout(loadout = {}) {
+  return Object.fromEntries(EQUIPMENT_SLOT_KEYS.map((slot) => [slot, loadout[slot] || null]));
+}
+
 function buildCharacterResponse(character) {
   if (!character) return null;
   const plain = toPlainObject(character);
+  const equipmentLoadout = buildEquipmentLoadout(plain.loadout);
   return {
     id: String(plain._id),
     displayName: plain.displayName,
@@ -236,11 +274,12 @@ function buildCharacterResponse(character) {
     },
     stats: plain.stats,
     job: plain.job,
-    resources: plain.resources,
+    resources: buildResourceResponse(plain.resources),
+    equipmentLoadout,
     actionPoints: plain.actionPoints,
     economy: plain.economy,
     combatPresentation: resolveCombatMotion({
-      weaponType: plain.loadout?.weaponType,
+      weaponType: equipmentLoadout.weapon?.weaponType || plain.loadout?.weaponType,
       departmentId: plain.job?.departmentId
     }),
     advancementQuest: getAvailableAdvancementQuest(plain),
@@ -258,5 +297,7 @@ module.exports = {
   buildMigrationPreview,
   ensureV2MigrationForUser,
   ensureV2SkillPointGrant,
+  buildResourceResponse,
+  buildEquipmentLoadout,
   buildCharacterResponse
 };

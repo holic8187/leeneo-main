@@ -6,7 +6,8 @@ const {
   SNAPSHOT_FIELDS,
   buildLegacyPayload,
   buildV2AccountSeed,
-  buildMigrationPreview
+  buildMigrationPreview,
+  buildCharacterResponse
 } = require('../../src/v2/services/migrationService');
 const { registerV2Routes } = require('../../src/v2/registerV2Routes');
 const { getIncompleteMigrationIds } = require('../../src/v2/services/automaticMigrationService');
@@ -67,6 +68,30 @@ test('migration preview resets V2 money and stocks while preserving source count
   assert.equal(preview.preserved.enhancedCardCount, 2);
   assert.equal(preview.preserved.equipmentCount, 1);
   assert.equal(preview.preserved.companyData, true);
+});
+
+test('V2 character response supplies provisional resources, EXP target, and empty equipment slots', () => {
+  const response = buildCharacterResponse({
+    _id: 'character-id',
+    displayName: '테스트사원',
+    progression: { level: 50, exp: 1234 },
+    stats: {},
+    job: { departmentId: 'unassigned', advancementTier: 0 },
+    resources: { currentHp: 0, maxHp: 0, currentMp: 0, maxMp: 0 },
+    actionPoints: { current: 10, max: 10 },
+    economy: { money: 0, stockPortfolio: [] },
+    migration: { status: 'prepared' }
+  });
+  assert.deepEqual(response.resources, {
+    currentHp: 120,
+    maxHp: 120,
+    currentMp: 80,
+    maxMp: 80,
+    provisional: true
+  });
+  assert.equal(response.progression.expToNextLevel, 709716);
+  assert.equal(response.equipmentLoadout.weapon, null);
+  assert.equal(response.equipmentLoadout.earrings, null);
 });
 
 test('V2 router exposes only the migration foundation endpoints in phase one', () => {

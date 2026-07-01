@@ -24,11 +24,22 @@ const v2CharacterSchema = new mongoose.Schema({
     departmentId: { type: String, default: 'unassigned' },
     advancementTier: { type: Number, default: 0 }
   },
+  loadout: {
+    weapon: { type: mongoose.Schema.Types.Mixed, default: null },
+    helmet: { type: mongoose.Schema.Types.Mixed, default: null },
+    gloves: { type: mongoose.Schema.Types.Mixed, default: null },
+    shoes: { type: mongoose.Schema.Types.Mixed, default: null },
+    cape: { type: mongoose.Schema.Types.Mixed, default: null },
+    top: { type: mongoose.Schema.Types.Mixed, default: null },
+    bottom: { type: mongoose.Schema.Types.Mixed, default: null },
+    necklace: { type: mongoose.Schema.Types.Mixed, default: null },
+    earrings: { type: mongoose.Schema.Types.Mixed, default: null }
+  },
   resources: {
-    currentHp: { type: Number, default: 0 },
-    maxHp: { type: Number, default: 0 },
-    currentMp: { type: Number, default: 0 },
-    maxMp: { type: Number, default: 0 }
+    currentHp: { type: Number, default: 120 },
+    maxHp: { type: Number, default: 120 },
+    currentMp: { type: Number, default: 80 },
+    maxMp: { type: Number, default: 80 }
   },
   actionPoints: {
     current: { type: Number, default: 10 },
