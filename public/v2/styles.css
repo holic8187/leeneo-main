@@ -449,21 +449,45 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .stat-grid { margin-top: 12px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
 .stat-grid article {
   position: relative;
-  padding: 16px 54px 16px 16px;
+  padding: 16px;
   border: 1px solid var(--line-soft);
   background: #f0f2ec;
 }
-.stat-grid article > button {
-  position: absolute;
-  top: 50%;
-  right: 12px;
-  width: 34px;
+.stat-investment-control {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 52px;
+  gap: 7px;
+}
+.stat-investment-control label {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+.stat-investment-control label span {
+  padding: 0 8px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.stat-investment-control input {
+  min-width: 0;
   height: 34px;
-  padding: 0;
+  padding: 5px 7px;
+  border: 0;
+  border-left: 1px solid var(--line-soft);
+  background: transparent;
+  font: 800 13px ui-monospace, monospace;
+}
+.stat-investment-control button {
+  min-height: 36px;
+  padding: 0 7px;
   color: #fff;
   border-color: var(--green);
   background: var(--green);
-  transform: translateY(-50%);
+  font-size: 11px;
 }
 .skill-access-sheet {
   min-height: 260px;

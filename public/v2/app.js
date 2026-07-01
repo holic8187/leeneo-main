@@ -1700,6 +1700,19 @@ function bindQuestControls() {
   document.querySelector('[data-complete-advancement]')?.addEventListener('click', completeAdvancement);
 }
 
+function statInvestmentControl(stat, availablePoints) {
+  const disabled = Number(availablePoints) > 0 ? '' : 'disabled';
+  const maximum = Math.max(1, Math.floor(Number(availablePoints) || 0));
+  return `<div class="stat-investment-control">
+    <label>
+      <span>투자량</span>
+      <input type="number" min="1" max="${maximum}" value="1" inputmode="numeric"
+        data-stat-amount="${stat}" ${disabled}>
+    </label>
+    <button type="button" data-allocate-stat="${stat}" ${disabled}>투자</button>
+  </div>`;
+}
+
 function statBody() {
   const character = state.character || {};
   const stats = character.stats || {};
@@ -1721,10 +1734,10 @@ function statBody() {
           <div class="skill-total"><span>사용 가능한 스킬 포인트</span><strong>${formatNumber(progression.unspentSkillPoints)} SP</strong></div>
         </div>
         <div class="stat-grid">
-          <article><span>맷집 / STR</span><strong>${formatNumber(stats.grit)}</strong><small>물리 계열 주스탯 후보</small><button type="button" data-allocate-stat="grit" ${progression.unspentStatPoints > 0 ? '' : 'disabled'}>+1</button></article>
-          <article><span>처리속도 / DEX</span><strong>${formatNumber(stats.processingSpeed)}</strong><small>명중·회피 및 원거리 계열</small><button type="button" data-allocate-stat="processingSpeed" ${progression.unspentStatPoints > 0 ? '' : 'disabled'}>+1</button></article>
-          <article><span>업무지식 / INT</span><strong>${formatNumber(stats.workKnowledge)}</strong><small>마법 피해와 정신력 계열</small><button type="button" data-allocate-stat="workKnowledge" ${progression.unspentStatPoints > 0 ? '' : 'disabled'}>+1</button></article>
-          <article><span>눈치 / LUK</span><strong>${formatNumber(stats.awareness)}</strong><small>도적 계열 및 회피 보조</small><button type="button" data-allocate-stat="awareness" ${progression.unspentStatPoints > 0 ? '' : 'disabled'}>+1</button></article>
+          <article><span>맷집 / STR</span><strong>${formatNumber(stats.grit)}</strong><small>물리 계열 주스탯 후보</small>${statInvestmentControl('grit', progression.unspentStatPoints)}</article>
+          <article><span>처리속도 / DEX</span><strong>${formatNumber(stats.processingSpeed)}</strong><small>명중·회피 및 원거리 계열</small>${statInvestmentControl('processingSpeed', progression.unspentStatPoints)}</article>
+          <article><span>업무지식 / INT</span><strong>${formatNumber(stats.workKnowledge)}</strong><small>마법 피해와 정신력 계열</small>${statInvestmentControl('workKnowledge', progression.unspentStatPoints)}</article>
+          <article><span>눈치 / LUK</span><strong>${formatNumber(stats.awareness)}</strong><small>도적 계열 및 회피 보조</small>${statInvestmentControl('awareness', progression.unspentStatPoints)}</article>
         </div>
       </section>
       <aside class="ability-panel">
@@ -1737,11 +1750,12 @@ function statBody() {
     <p class="notice-line">공격력·명중률·회피율은 현재 스탯과 장비를 기준으로 계산됩니다. 이동속도 기본값은 100%입니다.</p>`;
 }
 
-async function allocateStat(stat) {
+async function allocateStat(stat, amount = 1) {
+  const investment = Math.max(1, Math.floor(Number(amount) || 1));
   try {
     const data = await request('/api/v2/stats/allocate', {
       method: 'POST',
-      body: JSON.stringify({ allocations: { [stat]: 1 } })
+      body: JSON.stringify({ allocations: { [stat]: investment } })
     });
     state.character = data.character;
     renderGame({
@@ -1758,7 +1772,19 @@ async function allocateStat(stat) {
 
 function bindStatControls() {
   document.querySelectorAll('[data-allocate-stat]').forEach((button) => {
-    button.addEventListener('click', () => allocateStat(button.dataset.allocateStat));
+    button.addEventListener('click', () => {
+      const stat = button.dataset.allocateStat;
+      const input = document.querySelector(`[data-stat-amount="${stat}"]`);
+      allocateStat(stat, input?.value);
+    });
+  });
+  document.querySelectorAll('[data-stat-amount]').forEach((input) => {
+    input.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      const stat = input.dataset.statAmount;
+      allocateStat(stat, input.value);
+    });
   });
 }
 
