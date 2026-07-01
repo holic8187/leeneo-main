@@ -11,6 +11,8 @@ const DEFAULT_INVENTORY_CAPACITY = 20;
 const MAX_INVENTORY_CAPACITY = 64;
 const INVENTORY_EXPANSION_SIZE = 4;
 const INVENTORY_EXPANSION_TICKET_ID = 'inventory_expansion_ticket';
+const DEFAULT_STACK_SIZE = 100;
+const MAIL_TTL_MS = 24 * 60 * 60 * 1000;
 
 const QUICK_SLOT_RESOURCES = Object.freeze({
   hp: 'hp',
@@ -24,14 +26,55 @@ function markInventoryModified(character) {
   character.markModified('resources');
 }
 
-function mergeStack(entries, itemId, quantity) {
-  const safeQuantity = Math.max(0, Math.floor(Number(quantity) || 0));
-  if (!safeQuantity) return;
-  const stack = entries.find((entry) => String(entry.itemId) === String(itemId));
-  if (stack) {
-    stack.quantity = Math.max(0, Math.floor(Number(stack.quantity) || 0)) + safeQuantity;
-  } else {
-    entries.push({ itemId: String(itemId), quantity: safeQuantity });
+function markMailboxModified(character) {
+  if (typeof character?.markModified === 'function') character.markModified('mailbox');
+}
+
+function createStack(itemId, quantity) {
+  return {
+    stackId: crypto.randomUUID(),
+    itemId: String(itemId),
+    quantity: Math.max(0, Math.floor(Number(quantity) || 0))
+  };
+}
+
+function getMaxStackSize(item) {
+  if (!item) return DEFAULT_STACK_SIZE;
+  if (item.category === 'equipment') return 1;
+  return Math.max(1, Math.floor(Number(item.maxStack) || DEFAULT_STACK_SIZE));
+}
+
+function normalizeInventoryStacks(character) {
+  const inventory = character.inventory;
+  const normalized = [];
+  let changed = false;
+
+  for (const entry of inventory.items) {
+    const itemId = String(entry?.itemId || '');
+    const quantity = Math.max(0, Math.floor(Number(entry?.quantity) || 0));
+    if (!itemId || !quantity) {
+      changed = true;
+      continue;
+    }
+    const maxStack = getMaxStackSize(getItemDefinition(itemId));
+    let remaining = quantity;
+    let first = true;
+    while (remaining > 0) {
+      const stackQuantity = Math.min(maxStack, remaining);
+      normalized.push({
+        stackId: first && entry.stackId ? String(entry.stackId) : crypto.randomUUID(),
+        itemId,
+        quantity: stackQuantity
+      });
+      if (!entry.stackId || quantity > maxStack || !first) changed = true;
+      first = false;
+      remaining -= stackQuantity;
+    }
+  }
+
+  if (changed) {
+    inventory.items = normalized;
+    markInventoryModified(character);
   }
 }
 
@@ -45,7 +88,13 @@ function ensureInventory(character) {
   // Automatically absorb the potion-only prototype inventory into generic stacks.
   if (Array.isArray(inventory.potions) && inventory.potions.length) {
     for (const potion of inventory.potions) {
-      mergeStack(inventory.items, potion.itemId, potion.quantity);
+      let remaining = Math.max(0, Math.floor(Number(potion.quantity) || 0));
+      const maxStack = getMaxStackSize(getItemDefinition(potion.itemId));
+      while (remaining > 0) {
+        const stackQuantity = Math.min(maxStack, remaining);
+        inventory.items.push(createStack(potion.itemId, stackQuantity));
+        remaining -= stackQuantity;
+      }
     }
     inventory.potions = [];
     markInventoryModified(character);
@@ -70,13 +119,26 @@ function ensureInventory(character) {
   if (typeof inventory.quickSlots.hp !== 'string') inventory.quickSlots.hp = '';
   if (typeof inventory.quickSlots.mp !== 'string') inventory.quickSlots.mp = '';
   if (!Array.isArray(character.mailbox)) character.mailbox = [];
+  normalizeInventoryStacks(character);
   return inventory;
 }
 
-function getItemStack(character, itemId) {
-  return ensureInventory(character).items.find(
+function getItemStacks(character, itemId) {
+  return ensureInventory(character).items.filter(
     (entry) => String(entry.itemId) === String(itemId)
-  ) || null;
+      && Number(entry.quantity) > 0
+  );
+}
+
+function getItemStack(character, itemId) {
+  return getItemStacks(character, itemId)[0] || null;
+}
+
+function getItemQuantity(character, itemId) {
+  return getItemStacks(character, itemId).reduce(
+    (total, entry) => total + Math.max(0, Math.floor(Number(entry.quantity) || 0)),
+    0
+  );
 }
 
 function getUsedSlots(character, category) {
@@ -86,11 +148,21 @@ function getUsedSlots(character, category) {
   }).length;
 }
 
-function assertInventorySpace(character, item) {
-  if (getItemStack(character, item.id)) return;
+function getAdditionalSlotCount(character, item, quantity) {
+  let remaining = Math.max(0, Math.floor(Number(quantity) || 0));
+  const maxStack = getMaxStackSize(item);
+  for (const stack of getItemStacks(character, item.id)) {
+    remaining -= Math.max(0, maxStack - Math.floor(Number(stack.quantity) || 0));
+    if (remaining <= 0) return 0;
+  }
+  return Math.ceil(remaining / maxStack);
+}
+
+function assertInventorySpace(character, item, quantity) {
   const inventory = ensureInventory(character);
   const capacity = inventory.slotCapacities[item.category];
-  if (getUsedSlots(character, item.category) >= capacity) {
+  const additionalSlots = getAdditionalSlotCount(character, item, quantity);
+  if (getUsedSlots(character, item.category) + additionalSlots > capacity) {
     const category = getInventoryCategory(item.category);
     throw new Error(`${category?.label || item.category} 인벤토리가 가득 찼습니다.`);
   }
@@ -102,10 +174,45 @@ function addInventoryItem(character, itemId, quantity) {
   if (!item) throw new Error('존재하지 않는 아이템입니다.');
   if (!getInventoryCategory(item.category)) throw new Error('올바르지 않은 아이템 분류입니다.');
   if (!safeQuantity) return 0;
-  assertInventorySpace(character, item);
-  mergeStack(ensureInventory(character).items, item.id, safeQuantity);
+  assertInventorySpace(character, item, safeQuantity);
+  const inventory = ensureInventory(character);
+  const maxStack = getMaxStackSize(item);
+  let remaining = safeQuantity;
+  for (const stack of getItemStacks(character, item.id)) {
+    const available = Math.max(0, maxStack - Math.floor(Number(stack.quantity) || 0));
+    const added = Math.min(available, remaining);
+    stack.quantity += added;
+    remaining -= added;
+    if (remaining <= 0) break;
+  }
+  while (remaining > 0) {
+    const stackQuantity = Math.min(maxStack, remaining);
+    inventory.items.push(createStack(item.id, stackQuantity));
+    remaining -= stackQuantity;
+  }
   markInventoryModified(character);
   return safeQuantity;
+}
+
+function consumeInventoryItem(character, itemId, quantity = 1) {
+  const inventory = ensureInventory(character);
+  let remaining = Math.max(0, Math.floor(Number(quantity) || 0));
+  if (getItemQuantity(character, itemId) < remaining) return false;
+
+  for (let index = 0; index < inventory.items.length && remaining > 0;) {
+    const stack = inventory.items[index];
+    if (String(stack.itemId) !== String(itemId) || Number(stack.quantity) <= 0) {
+      index += 1;
+      continue;
+    }
+    const consumed = Math.min(Math.floor(Number(stack.quantity) || 0), remaining);
+    stack.quantity -= consumed;
+    remaining -= consumed;
+    if (stack.quantity <= 0) inventory.items.splice(index, 1);
+    else index += 1;
+  }
+  markInventoryModified(character);
+  return true;
 }
 
 function assignPotionQuickSlot(character, slot, itemId) {
@@ -145,7 +252,7 @@ function useQuickSlotPotion(character, slot) {
     throw new Error(resource === 'hp' ? '체력이 이미 가득 찼습니다.' : '정신력이 이미 가득 찼습니다.');
   }
 
-  stack.quantity = Math.max(0, Math.floor(Number(stack.quantity) || 0) - 1);
+  consumeInventoryItem(character, item.id, 1);
   const nextValue = Math.min(maximum, current + item.restoreAmount);
   character.resources[currentKey] = nextValue;
   markInventoryModified(character);
@@ -155,7 +262,7 @@ function useQuickSlotPotion(character, slot) {
     restored: nextValue - current,
     current: nextValue,
     maximum,
-    remaining: stack.quantity
+    remaining: getItemQuantity(character, item.id)
   };
 }
 
@@ -167,11 +274,10 @@ function useInventoryExpansionTicket(character, categoryKey) {
   if (currentCapacity >= MAX_INVENTORY_CAPACITY) {
     throw new Error(`${category.label} 인벤토리는 이미 최대 64칸입니다.`);
   }
-  const ticketStack = getItemStack(character, INVENTORY_EXPANSION_TICKET_ID);
-  if (!ticketStack || Number(ticketStack.quantity) <= 0) {
+  if (getItemQuantity(character, INVENTORY_EXPANSION_TICKET_ID) <= 0) {
     throw new Error('인벤토리 확장권이 부족합니다.');
   }
-  ticketStack.quantity = Math.max(0, Math.floor(Number(ticketStack.quantity) || 0) - 1);
+  consumeInventoryItem(character, INVENTORY_EXPANSION_TICKET_ID, 1);
   inventory.slotCapacities[category.key] = Math.min(
     MAX_INVENTORY_CAPACITY,
     currentCapacity + INVENTORY_EXPANSION_SIZE
@@ -181,7 +287,7 @@ function useInventoryExpansionTicket(character, categoryKey) {
     category: { ...category },
     previousCapacity: currentCapacity,
     capacity: inventory.slotCapacities[category.key],
-    remaining: ticketStack.quantity
+    remaining: getItemQuantity(character, INVENTORY_EXPANSION_TICKET_ID)
   };
 }
 
@@ -191,7 +297,9 @@ function buildInventoryView(character) {
     .map((entry) => {
       const item = getItemDefinition(entry.itemId);
       const quantity = Math.max(0, Math.floor(Number(entry.quantity) || 0));
-      return item && quantity > 0 ? { ...item, quantity } : null;
+      return item && quantity > 0
+        ? { ...item, stackId: String(entry.stackId || ''), quantity, maxStack: getMaxStackSize(item) }
+        : null;
     })
     .filter(Boolean);
 
@@ -206,8 +314,14 @@ function buildInventoryView(character) {
     };
   }
 
-  const potions = items.filter((item) => item.itemType === 'potion');
-  const quantities = new Map(items.map((item) => [item.id, item.quantity]));
+  const quantities = new Map();
+  for (const item of items) quantities.set(item.id, (quantities.get(item.id) || 0) + item.quantity);
+  const potions = [...quantities.entries()]
+    .map(([itemId, quantity]) => {
+      const item = getItemDefinition(itemId);
+      return item?.itemType === 'potion' ? { ...item, quantity } : null;
+    })
+    .filter(Boolean);
   const quickSlots = {};
   for (const slot of Object.keys(QUICK_SLOT_RESOURCES)) {
     const item = getItemDefinition(inventory.quickSlots[slot]);
@@ -223,7 +337,8 @@ function buildInventoryView(character) {
     limits: {
       defaultCapacity: DEFAULT_INVENTORY_CAPACITY,
       maximumCapacity: MAX_INVENTORY_CAPACITY,
-      expansionSize: INVENTORY_EXPANSION_SIZE
+      expansionSize: INVENTORY_EXPANSION_SIZE,
+      defaultStackSize: DEFAULT_STACK_SIZE
     }
   };
 }
@@ -232,13 +347,15 @@ function createAdminMail({ message = '', itemId, quantity }) {
   const item = getItemDefinition(itemId);
   if (!item) throw new Error('지급할 아이템을 찾을 수 없습니다.');
   const safeQuantity = Math.max(1, Math.floor(Number(quantity) || 1));
+  const createdAt = new Date();
   return {
     id: crypto.randomUUID(),
     sender: '운영자',
     title: '운영자 선물',
     message: String(message || '').trim().slice(0, 500),
     attachments: [{ itemId: item.id, quantity: safeQuantity }],
-    createdAt: new Date(),
+    createdAt,
+    expiresAt: new Date(createdAt.getTime() + MAIL_TTL_MS),
     claimedAt: null
   };
 }
@@ -250,6 +367,7 @@ function serializeMail(mail) {
     title: String(mail.title || '운영자 선물'),
     message: String(mail.message || ''),
     createdAt: mail.createdAt || null,
+    expiresAt: getMailExpiry(mail),
     attachments: (Array.isArray(mail.attachments) ? mail.attachments : []).map((attachment) => {
       const item = getItemDefinition(attachment.itemId);
       return {
@@ -262,26 +380,44 @@ function serializeMail(mail) {
   };
 }
 
-function getPendingMail(character) {
-  ensureInventory(character);
-  return character.mailbox.filter((mail) => !mail.claimedAt);
+function getMailExpiry(mail) {
+  const explicit = new Date(mail?.expiresAt || 0).getTime();
+  if (Number.isFinite(explicit) && explicit > 0) return new Date(explicit);
+  const created = new Date(mail?.createdAt || 0).getTime();
+  return new Date((Number.isFinite(created) && created > 0 ? created : Date.now()) + MAIL_TTL_MS);
+}
+
+function purgeExpiredMail(character, now = Date.now()) {
+  if (!Array.isArray(character.mailbox)) character.mailbox = [];
+  const before = character.mailbox.length;
+  character.mailbox = character.mailbox.filter((mail) => (
+    mail.claimedAt || getMailExpiry(mail).getTime() > now
+  ));
+  const removed = before - character.mailbox.length;
+  if (removed > 0) markMailboxModified(character);
+  return removed;
+}
+
+function getPendingMail(character, now = Date.now()) {
+  const mailbox = Array.isArray(character?.mailbox) ? character.mailbox : [];
+  return mailbox.filter((mail) => (
+    !mail.claimedAt && getMailExpiry(mail).getTime() > now
+  ));
 }
 
 function assertAttachmentsFit(character, attachments) {
-  const newStacksByCategory = {};
-  const seenIds = new Set();
-  for (const attachment of attachments || []) {
-    const item = getItemDefinition(attachment.itemId);
-    if (!item || getItemStack(character, item.id) || seenIds.has(item.id)) continue;
-    seenIds.add(item.id);
-    newStacksByCategory[item.category] = (newStacksByCategory[item.category] || 0) + 1;
-  }
   const inventory = ensureInventory(character);
-  for (const [categoryKey, additionalSlots] of Object.entries(newStacksByCategory)) {
-    if (getUsedSlots(character, categoryKey) + additionalSlots > inventory.slotCapacities[categoryKey]) {
-      const category = getInventoryCategory(categoryKey);
-      throw new Error(`${category?.label || categoryKey} 인벤토리 공간이 부족합니다.`);
-    }
+  const simulated = {
+    inventory: {
+      items: inventory.items.map((entry) => ({ ...entry })),
+      potions: [],
+      slotCapacities: { ...inventory.slotCapacities },
+      quickSlots: { ...inventory.quickSlots }
+    },
+    mailbox: []
+  };
+  for (const attachment of attachments || []) {
+    addInventoryItem(simulated, attachment.itemId, attachment.quantity);
   }
 }
 
@@ -310,16 +446,22 @@ module.exports = {
   MAX_INVENTORY_CAPACITY,
   INVENTORY_EXPANSION_SIZE,
   INVENTORY_EXPANSION_TICKET_ID,
+  DEFAULT_STACK_SIZE,
+  MAIL_TTL_MS,
   QUICK_SLOT_RESOURCES,
   ensureInventory,
   getUsedSlots,
+  getMaxStackSize,
+  getItemQuantity,
   addInventoryItem,
+  consumeInventoryItem,
   assignPotionQuickSlot,
   useQuickSlotPotion,
   useInventoryExpansionTicket,
   buildInventoryView,
   createAdminMail,
   serializeMail,
+  purgeExpiredMail,
   getPendingMail,
   claimMail,
   claimAllMail

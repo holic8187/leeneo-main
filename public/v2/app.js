@@ -28,6 +28,8 @@ const state = {
   worldServerTime: 0,
   invulnerableUntil: 0,
   invulnerabilityTimer: null,
+  dead: false,
+  deathExpLost: 0,
   inventory: {
     items: [],
     categories: {},
@@ -207,12 +209,15 @@ async function sendAdminGift(event) {
       method: 'POST',
       body: JSON.stringify({
         target: $('adminGiftTarget').value.trim(),
+        allRecipients: $('adminGiftAll').checked,
         itemId: $('adminGiftItem').value,
         quantity: Number($('adminGiftQuantity').value),
         message: $('adminGiftMessage').value.trim()
       })
     });
-    $('adminGiftStatus').textContent = `${data.recipient}님에게 ${data.mail.attachments[0].name} ${formatNumber(data.mail.attachments[0].quantity)}개를 보냈습니다.`;
+    $('adminGiftStatus').textContent = data.allRecipients
+      ? `전체 V2 유저 ${formatNumber(data.recipientCount)}명에게 ${data.mail.attachments[0].name} ${formatNumber(data.mail.attachments[0].quantity)}개를 보냈습니다.`
+      : `${data.recipient}님에게 ${data.mail.attachments[0].name} ${formatNumber(data.mail.attachments[0].quantity)}개를 보냈습니다.`;
     $('adminGiftMessage').value = '';
   } catch (err) {
     $('adminGiftStatus').textContent = err.message;
@@ -434,7 +439,8 @@ const CHARACTER_MOTION_CLASSES = [
   'is-slash',
   'is-shoot',
   'is-throw',
-  'is-staff-swing'
+  'is-staff-swing',
+  'is-dead'
 ];
 const PORTAL_POSITIONS = [
   { left: '4%', side: 'left', characterX: 8 },
@@ -477,6 +483,7 @@ function getCurrentCharacterMotion() {
 }
 
 function getWorldActivityType() {
+  if (state.dead) return 'dead';
   if (state.moving) return 'moving';
   if (state.autoCombat) return 'combat';
   return 'idle';
@@ -493,7 +500,14 @@ function updateFieldControls() {
   button.textContent = state.autoCombat ? '자동 전투 ON' : '자동 전투 OFF';
   button.setAttribute('aria-pressed', String(state.autoCombat));
   button.classList.toggle('is-on', state.autoCombat);
-  $('moveMapButton').disabled = state.moving;
+  $('moveMapButton').disabled = state.moving || state.dead;
+  button.disabled = state.dead;
+  $('hpPotionButton').disabled = state.dead;
+  $('mpPotionButton').disabled = state.dead;
+  $('potionConfigButton').disabled = state.dead;
+  document.querySelectorAll('.desk-action, #questButton, #mailButton').forEach((control) => {
+    control.disabled = state.dead;
+  });
   $('combatMotionLabel').textContent = `전투 모션 · ${getCombatPresentation().label}`;
 }
 
@@ -515,7 +529,9 @@ function renderWorldMap(mapId, arrivalPortalIndex = 0) {
 
   $('mapRegion').textContent = `MAP / ${map.region}`;
   $('mapName').textContent = map.name;
-  $('mapLevelRange').textContent = `Lv.${map.minLevel}~${map.maxLevel}`;
+  $('mapLevelRange').textContent = map.safeZone
+    ? 'SAFE ZONE'
+    : `Lv.${map.minLevel}~${map.maxLevel}`;
   $('currentLocation').textContent = map.name;
   $('worldStage').dataset.theme = map.theme;
   const needsUpperRoute = map.connections.length > 2;
@@ -533,6 +549,7 @@ function renderWorldMap(mapId, arrivalPortalIndex = 0) {
   character.style.bottom = arrival.side === 'upper' ? `${getUpperPlatformBottom()}px` : '42px';
   character.classList.toggle('facing-left', arrival.characterX > 50);
   setCharacterMotion(null);
+  character.classList.toggle('is-dead', state.dead);
   void character.offsetWidth;
   character.style.transitionDuration = '';
   setWorldActivity(state.autoCombat ? '자동 전투 준비 중' : '명령 대기 중');
@@ -540,6 +557,7 @@ function renderWorldMap(mapId, arrivalPortalIndex = 0) {
 }
 
 function isRunActive(kind, runId) {
+  if (state.dead) return false;
   return kind === 'move'
     ? runId === state.moveRunId
     : runId === state.combatRunId && state.autoCombat && !state.moving;
@@ -677,7 +695,7 @@ async function enterWorldPortal(connection, runId) {
 }
 
 async function commandMove(targetMapId) {
-  if (state.moving) return;
+  if (state.moving || state.dead) return;
   const map = getMap(state.currentMapId);
   const connection = map?.connections.find((entry) => entry.targetId === targetMapId);
   const target = getMap(targetMapId);
@@ -783,7 +801,7 @@ async function approachMonsterForCombat(runId) {
 }
 
 async function runAutoCombat(runId) {
-  while (isRunActive('combat', runId) && state.token && !state.isAdmin) {
+  while (isRunActive('combat', runId) && state.token && !state.isAdmin && !state.dead) {
     const target = getCombatTarget();
     if (!target) {
       setWorldActivity('몬스터 출현 대기 중');
@@ -826,7 +844,7 @@ async function runAutoCombat(runId) {
 }
 
 function startAutoCombat() {
-  if (!state.autoCombat || state.moving) return;
+  if (!state.autoCombat || state.moving || state.dead) return;
   const runId = ++state.combatRunId;
   runAutoCombat(runId).catch((err) => {
     console.error('V2 auto combat error:', err);
@@ -835,6 +853,7 @@ function startAutoCombat() {
 }
 
 function toggleAutoCombat() {
+  if (state.dead) return;
   state.autoCombat = !state.autoCombat;
   localStorage.setItem('v2AutoCombat', String(state.autoCombat));
   state.combatRunId += 1;
@@ -849,6 +868,7 @@ function toggleAutoCombat() {
 }
 
 function activityLabel(activity) {
+  if (activity === 'dead') return '사망';
   return activity === 'moving' ? '이동 중' : (activity === 'combat' ? '전투 중' : '대기 중');
 }
 
@@ -881,6 +901,7 @@ function renderRemotePlayers(players = []) {
     element.classList.toggle('facing-left', Boolean(player.facingLeft));
     element.classList.toggle('is-walking', player.activity === 'moving');
     element.classList.toggle('is-combat', player.activity === 'combat');
+    element.classList.toggle('is-dead', Boolean(player.isDead));
     element.classList.toggle(
       'is-invulnerable',
       Number(player.invulnerableUntil) > state.worldServerTime
@@ -952,6 +973,58 @@ function syncInvulnerabilityVisual(invulnerableUntil, serverTime) {
   }, remaining);
 }
 
+function showDeathState(expLost = 0) {
+  if (!state.dead) {
+    state.dead = true;
+    state.deathExpLost = Math.max(0, Number(expLost) || 0);
+    state.autoCombat = false;
+    localStorage.setItem('v2AutoCombat', 'false');
+    state.moving = false;
+    state.moveRunId += 1;
+    state.combatRunId += 1;
+    setCharacterMotion('dead');
+    closeFeature();
+    setWorldActivity('행동 불능 · 안전지대 부활 대기');
+    updateFieldControls();
+  } else {
+    state.deathExpLost = Math.max(state.deathExpLost, Number(expLost) || 0);
+  }
+  $('deathExpLoss').textContent = state.deathExpLost > 0
+    ? `사망 페널티로 경험치 ${formatNumber(state.deathExpLost)}을 잃었습니다.`
+    : '현재 경험치가 부족하여 차감된 경험치는 없습니다.';
+  $('deathModal').classList.remove('hidden');
+  document.body.classList.add('modal-open');
+}
+
+async function revivePlayer() {
+  const button = $('reviveButton');
+  button.disabled = true;
+  try {
+    const data = await request('/api/v2/world/revive', {
+      method: 'POST',
+      body: '{}'
+    });
+    state.dead = false;
+    state.deathExpLost = 0;
+    $('deathModal').classList.add('hidden');
+    document.body.classList.remove('modal-open');
+    state.character = data.character;
+    renderGame({
+      preview: state.preview,
+      character: data.character,
+      displayName: state.displayName
+    });
+    renderWorldMap(data.map.id, 0);
+    setWorldActivity(`${data.map.name}에서 HP 1로 부활했습니다.`);
+    updateFieldControls();
+    await sendWorldHeartbeat();
+  } catch (err) {
+    $('deathExpLoss').textContent = err.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function renderWorldEntities(data = {}) {
   state.worldServerTime = Number(data.serverTime) || Date.now();
   if (data.self?.userId) state.selfUserId = data.self.userId;
@@ -962,6 +1035,12 @@ function renderWorldEntities(data = {}) {
     state.character.resources.maxHp = data.self.maxHp;
     setResource('hp', data.self.currentHp, data.self.maxHp);
     syncInvulnerabilityVisual(data.self.invulnerableUntil, state.worldServerTime);
+    if (data.self.isDead || Number(data.self.currentHp) <= 0) {
+      const ownDeath = (data.contactEvents || []).find(
+        (event) => event.userId === state.selfUserId && Number(event.currentHp) <= 0
+      );
+      showDeathState(ownDeath?.expLost || 0);
+    }
   }
   const ownContact = (data.contactEvents || []).find((event) => event.userId === state.selfUserId);
   if (ownContact) {
@@ -971,7 +1050,9 @@ function renderWorldEntities(data = {}) {
     character.classList.add('damage-flash');
     setTimeout(() => character.classList.remove('damage-flash'), 260);
     syncInvulnerabilityVisual(ownContact.invulnerableUntil, state.worldServerTime);
-    setWorldActivity(`몸박 피해 -${formatNumber(ownContact.damage)} · 1.5초 무적`);
+    if (Number(ownContact.currentHp) > 0) {
+      setWorldActivity(`몸박 피해 -${formatNumber(ownContact.damage)} · 1.5초 무적`);
+    }
   }
 }
 
@@ -1013,7 +1094,8 @@ function startWorldPresence() {
 
 function startWorldSimulation() {
   if (!state.maps.length) return;
-  const savedMap = getMap(state.currentMapId);
+  const persistedWorld = state.character?.worldState || {};
+  const savedMap = getMap(persistedWorld.mapId || state.currentMapId);
   const accessibleSavedMap = savedMap && savedMap.minLevel <= getCharacterLevel() + 5
     ? savedMap
     : null;
@@ -1022,8 +1104,16 @@ function startWorldSimulation() {
   state.combatRunId += 1;
   state.moving = false;
   renderWorldMap(startMap.id, 0);
+  if (startMap.id === persistedWorld.mapId) {
+    const character = $('fieldCharacter');
+    character.style.left = `${Math.max(0, Math.min(94, Number(persistedWorld.x) || 8))}%`;
+    character.style.bottom = Number(persistedWorld.floor) === 1
+      ? `${getUpperPlatformBottom()}px`
+      : '42px';
+  }
+  if (Number(state.character?.resources?.currentHp) <= 0) showDeathState(0);
   startWorldPresence();
-  if (state.autoCombat) startAutoCombat();
+  if (state.autoCombat && !state.dead) startAutoCombat();
 }
 
 function setInventoryData(inventory = {}) {
@@ -1080,6 +1170,7 @@ function animateResourceRestore(resource) {
 }
 
 async function useQuickPotion(slot) {
+  if (state.dead) return;
   try {
     const data = await request('/api/v2/inventory/use-potion', {
       method: 'POST',
@@ -1127,9 +1218,11 @@ function inventorySlotBody(item, slotNumber, locked = false) {
 
 function inventoryExpansionPanel() {
   if (!state.inventoryExpansionPrompt) return '';
-  const ticket = state.inventory.items.find((item) => item.id === 'inventory_expansion_ticket');
+  const ticketQuantity = state.inventory.items
+    .filter((item) => item.id === 'inventory_expansion_ticket')
+    .reduce((total, item) => total + Number(item.quantity || 0), 0);
   return `<section class="inventory-expansion-panel">
-    <div><strong>확장할 인벤토리 선택</strong><small>확장권 ${formatNumber(ticket?.quantity || 0)}개 · 탭당 최대 64칸</small></div>
+    <div><strong>확장할 인벤토리 선택</strong><small>확장권 ${formatNumber(ticketQuantity)}개 · 탭당 최대 64칸</small></div>
     <div>
       ${INVENTORY_TAB_ORDER.map((key) => {
         const category = state.inventory.categories[key];
@@ -1187,7 +1280,7 @@ function inventoryBody() {
       <span>${state.inventoryPage + 1} / ${pageCount}</span>
       <button type="button" data-inventory-page="1" ${state.inventoryPage >= pageCount - 1 ? 'disabled' : ''}>다음</button>
     </div>
-    <p class="notice-line">아이템에 마우스를 올리거나 선택하면 상세 정보를 확인할 수 있습니다. 같은 아이템은 한 칸에 수량으로 쌓입니다.</p>
+    <p class="notice-line">아이템은 위쪽 슬롯부터 사용됩니다. 물약과 캐쉬 사용 아이템은 한 칸에 최대 100개, 장비는 한 칸에 1개가 보관됩니다.</p>
   </div>`;
 }
 
@@ -1281,7 +1374,7 @@ function mailBody() {
       ${state.mailbox.map((mail) => `<article class="mail-entry">
         <div class="mail-stamp">ADMIN<br>GIFT</div>
         <div>
-          <span>${escapeHtml(mail.sender)} · ${mail.createdAt ? new Date(mail.createdAt).toLocaleString('ko-KR') : ''}</span>
+          <span>${escapeHtml(mail.sender)} · ${mail.createdAt ? new Date(mail.createdAt).toLocaleString('ko-KR') : ''} · ${mail.expiresAt ? `${new Date(mail.expiresAt).toLocaleString('ko-KR')} 만료` : '24시간 내 수령'}</span>
           <strong>${escapeHtml(mail.title)}</strong>
           ${mail.message ? `<p>${escapeHtml(mail.message)}</p>` : ''}
           <div class="mail-attachments">${mail.attachments.map((item) => `<b>${escapeHtml(item.name)} × ${formatNumber(item.quantity)}</b>`).join('')}</div>
@@ -1526,6 +1619,10 @@ function featureBody(feature) {
 }
 
 function openFeature(feature) {
+  if (state.dead) {
+    setWorldActivity('사망 상태에서는 다른 행동을 할 수 없습니다.');
+    return;
+  }
   const meta = featureMeta[feature];
   if (!meta) return;
   $('featureCode').textContent = meta.code;
@@ -1563,7 +1660,11 @@ function logout() {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${state.token}`
       },
-      body: '{}'
+      body: JSON.stringify({
+        mapId: state.currentMapId,
+        x: getCharacterX(),
+        floor: getCharacterFloor()
+      })
     }).catch(() => {});
   }
   clearLoginState();
@@ -1575,6 +1676,11 @@ $('openSignupButton').addEventListener('click', openSignup);
 $('signupForm').addEventListener('submit', signup);
 $('signupCodeForm').addEventListener('submit', saveAdminSignupCode);
 $('adminGiftForm').addEventListener('submit', sendAdminGift);
+$('adminGiftAll').addEventListener('change', () => {
+  const sendAll = $('adminGiftAll').checked;
+  $('adminGiftTarget').disabled = sendAll;
+  $('adminGiftTarget').placeholder = sendAll ? '전체 발송 선택됨' : '아이디 또는 닉네임';
+});
 ['signupUsername', 'signupNickname', 'signupPassword', 'signupPasswordConfirm'].forEach((id) => {
   $(id).addEventListener('input', updateSignupButtonState);
 });
@@ -1598,6 +1704,7 @@ $('hpPotionButton').addEventListener('click', () => useQuickPotion('hp'));
 $('mpPotionButton').addEventListener('click', () => useQuickPotion('mp'));
 $('potionConfigButton').addEventListener('click', () => openFeature('potion-config'));
 $('mailButton').addEventListener('click', () => refreshMailbox(true));
+$('reviveButton').addEventListener('click', revivePlayer);
 document.querySelectorAll('.desk-action').forEach((button) => {
   button.addEventListener('click', () => openFeature(button.dataset.feature));
 });
@@ -1605,7 +1712,7 @@ document.querySelectorAll('[data-close-modal]').forEach((button) => {
   button.addEventListener('click', closeFeature);
 });
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape') closeFeature();
+  if (event.key === 'Escape' && !state.dead) closeFeature();
 });
 
 async function boot() {

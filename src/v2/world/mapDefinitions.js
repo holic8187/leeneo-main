@@ -3,7 +3,7 @@
 const START_MAP_ID = 'main_lobby';
 
 const MAP_DEFINITIONS = [
-  { id: 'main_lobby', name: '호이상사 중앙로비', region: '본관 초입', minLevel: 1, maxLevel: 8, theme: 'lobby', features: ['elevator'] },
+  { id: 'main_lobby', name: '호이상사 중앙로비', region: '본관 초입', minLevel: 1, maxLevel: 8, theme: 'lobby', features: ['elevator'], safeZone: true },
   { id: 'newcomer_training', name: '신입사원 연수실', region: '본관 초입', minLevel: 1, maxLevel: 10, theme: 'training', features: ['ladder'] },
   { id: 'document_corridor', name: '결재서류 복도', region: '본관 초입', minLevel: 5, maxLevel: 15, theme: 'office', features: ['rope'] },
   { id: 'pantry_alley', name: '탕비실 뒷골목', region: '본관 초입', minLevel: 8, maxLevel: 18, theme: 'pantry', features: ['boxes'] },
@@ -110,10 +110,30 @@ function getWorldMap(mapId) {
   return WORLD_MAPS.find((map) => map.id === mapId) || null;
 }
 
+function findNearestSafeMap(mapId) {
+  const start = getWorldMap(mapId) || getWorldMap(START_MAP_ID);
+  if (!start) return null;
+  const queue = [start];
+  const visited = new Set([start.id]);
+  while (queue.length) {
+    const current = queue.shift();
+    if (current.safeZone) return current;
+    for (const connection of current.connections) {
+      if (visited.has(connection.targetId)) continue;
+      const next = getWorldMap(connection.targetId);
+      if (!next) continue;
+      visited.add(next.id);
+      queue.push(next);
+    }
+  }
+  return getWorldMap(START_MAP_ID);
+}
+
 module.exports = {
   START_MAP_ID,
   MAP_DEFINITIONS,
   MAP_EDGES,
   WORLD_MAPS,
-  getWorldMap
+  getWorldMap,
+  findNearestSafeMap
 };

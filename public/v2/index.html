@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>호이상사 V2</title>
-  <link rel="stylesheet" href="/v2/styles.css?v=12">
+  <link rel="stylesheet" href="/v2/styles.css?v=14">
 </head>
 <body>
   <div class="blueprint-grid" aria-hidden="true"></div>
@@ -206,10 +206,11 @@
           <div>
             <p class="section-number">ADMIN GIFT</p>
             <h3>V2 운영자 선물 발송</h3>
-            <p>아이디 또는 닉네임으로 대상을 찾아 우편함에 아이템을 보냅니다.</p>
+            <p>개별 유저 또는 현재 생성된 모든 V2 캐릭터의 우편함에 아이템을 보냅니다. 미수령 우편은 24시간 뒤 사라집니다.</p>
           </div>
           <form id="adminGiftForm" class="admin-gift-form">
-            <label>대상<input id="adminGiftTarget" maxlength="24" placeholder="아이디 또는 닉네임" required></label>
+            <label>대상<input id="adminGiftTarget" maxlength="24" placeholder="아이디 또는 닉네임"></label>
+            <label class="admin-gift-all"><input id="adminGiftAll" type="checkbox"> 전체 유저에게 발송</label>
             <label>품목<select id="adminGiftItem" required></select></label>
             <label>수량<input id="adminGiftQuantity" type="number" min="1" max="999999" value="1" required></label>
             <label class="admin-gift-message">메시지<input id="adminGiftMessage" maxlength="500" placeholder="선택 입력"></label>
@@ -263,6 +264,18 @@
     </section>
   </div>
 
-  <script src="/v2/app.js?v=12"></script>
+  <div id="deathModal" class="site-modal death-modal hidden" role="dialog" aria-modal="true" aria-labelledby="deathTitle">
+    <div class="modal-scrim"></div>
+    <section class="death-sheet">
+      <div class="death-ghost" aria-hidden="true"><i></i><i></i><b>〰</b></div>
+      <p class="section-number">EMPLOYEE DOWN</p>
+      <h2 id="deathTitle">캐릭터가 사망했습니다</h2>
+      <p>모든 행동이 중단되었습니다. 확인하면 현재 위치에서 가장 가까운 안전지대로 이동해 HP 1로 부활합니다.</p>
+      <strong id="deathExpLoss">사망 페널티를 계산하고 있습니다.</strong>
+      <button id="reviveButton" type="button">안전지대에서 부활</button>
+    </section>
+  </div>
+
+  <script src="/v2/app.js?v=14"></script>
 </body>
 </html>

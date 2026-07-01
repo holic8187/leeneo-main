@@ -212,6 +212,11 @@ async function ensureV2MigrationForUser(user) {
           current: Math.min(sourceActionPoints, sourceMaxActionPoints),
           max: sourceMaxActionPoints
         },
+        worldState: {
+          mapId: 'main_lobby',
+          x: 8,
+          floor: 0
+        },
         economy: {
           money: 0,
           stockPortfolio: []
@@ -296,6 +301,11 @@ function buildCharacterResponse(character) {
     inventory: buildInventoryView(plain),
     pendingMailCount: getPendingMail(plain).length,
     equipmentLoadout,
+    worldState: {
+      mapId: String(plain.worldState?.mapId || 'main_lobby'),
+      x: Math.max(0, Math.min(94, Number(plain.worldState?.x) || 8)),
+      floor: Number(plain.worldState?.floor) === 1 ? 1 : 0
+    },
     actionPoints: plain.actionPoints,
     economy: plain.economy,
     combatPresentation,

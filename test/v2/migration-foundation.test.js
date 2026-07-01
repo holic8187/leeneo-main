@@ -97,6 +97,7 @@ test('V2 character response supplies provisional resources, EXP target, and empt
   assert.equal(response.inventory.categories.cash.capacity, 20);
   assert.deepEqual(response.inventory.quickSlots, { hp: null, mp: null });
   assert.equal(response.pendingMailCount, 0);
+  assert.deepEqual(response.worldState, { mapId: 'main_lobby', x: 8, floor: 0 });
   assert.equal(response.equipmentLoadout.weapon, null);
   assert.equal(response.equipmentLoadout.earrings, null);
 });
@@ -154,6 +155,7 @@ test('V2 router exposes only the migration foundation endpoints in phase one', (
     'POST /api/v2/mail/claim-all',
     'POST /api/v2/world/heartbeat',
     'POST /api/v2/world/attack',
+    'POST /api/v2/world/revive',
     'POST /api/v2/world/leave',
     'GET /api/v2/admin/grant-items',
     'POST /api/v2/admin/mail/send',

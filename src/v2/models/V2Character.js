@@ -3,6 +3,7 @@
 const mongoose = require('mongoose');
 
 const inventoryStackSchema = new mongoose.Schema({
+  stackId: { type: String, default: '' },
   itemId: { type: String, required: true },
   quantity: { type: Number, default: 0, min: 0 }
 }, { _id: false });
@@ -19,6 +20,7 @@ const mailboxEntrySchema = new mongoose.Schema({
   message: { type: String, default: '' },
   attachments: { type: [mailAttachmentSchema], default: [] },
   createdAt: { type: Date, default: Date.now },
+  expiresAt: { type: Date, default: () => new Date(Date.now() + 24 * 60 * 60 * 1000) },
   claimedAt: { type: Date, default: null }
 }, { _id: false });
 
@@ -79,6 +81,11 @@ const v2CharacterSchema = new mongoose.Schema({
   actionPoints: {
     current: { type: Number, default: 10 },
     max: { type: Number, default: 10 }
+  },
+  worldState: {
+    mapId: { type: String, default: 'main_lobby' },
+    x: { type: Number, default: 8, min: 0, max: 94 },
+    floor: { type: Number, default: 0, min: 0, max: 1 }
   },
   economy: {
     money: { type: Number, default: 0 },

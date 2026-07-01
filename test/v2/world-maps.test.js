@@ -5,7 +5,8 @@ const assert = require('node:assert/strict');
 const {
   START_MAP_ID,
   WORLD_MAPS,
-  getWorldMap
+  getWorldMap,
+  findNearestSafeMap
 } = require('../../src/v2/world/mapDefinitions');
 
 test('world contains thirty uniquely named company maps', () => {
@@ -13,6 +14,13 @@ test('world contains thirty uniquely named company maps', () => {
   assert.equal(new Set(WORLD_MAPS.map((map) => map.id)).size, 30);
   assert.equal(new Set(WORLD_MAPS.map((map) => map.name)).size, 30);
   assert.equal(getWorldMap(START_MAP_ID).name, '호이상사 중앙로비');
+  assert.equal(getWorldMap(START_MAP_ID).safeZone, true);
+});
+
+test('the nearest safe zone can be found through the map graph', () => {
+  assert.equal(findNearestSafeMap('main_lobby').id, 'main_lobby');
+  assert.equal(findNearestSafeMap('newcomer_training').id, 'main_lobby');
+  assert.equal(findNearestSafeMap('data_center').id, 'main_lobby');
 });
 
 test('all map connections are valid and bidirectional', () => {

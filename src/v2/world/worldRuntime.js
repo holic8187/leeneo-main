@@ -29,14 +29,13 @@ function randomBetween(minimum, maximum) {
 }
 
 function buildMonsterStats(level) {
-  const safeLevel = Math.max(1, Math.floor(Number(level) || 1));
   return {
-    maxHp: 45 + safeLevel * 14,
-    contactDamage: 5 + Math.floor(safeLevel / 12) * 2,
-    physicalDefense: 2 + Math.floor(safeLevel * 1.15),
-    magicDefense: 1 + Math.floor(safeLevel * 0.9),
-    movementSpeed: 34 + Math.min(36, safeLevel * 0.22),
-    expReward: 15 + safeLevel * 9
+    maxHp: 30,
+    contactDamage: 10,
+    physicalDefense: 1,
+    magicDefense: 1,
+    movementSpeed: 35,
+    expReward: 1
   };
 }
 
@@ -49,7 +48,7 @@ function mapHasUpperFloor(map) {
 }
 
 function createMonster(map, index, now) {
-  const level = Math.max(1, map.minLevel + (index % Math.max(1, map.maxLevel - map.minLevel + 1)));
+  const level = 3;
   const stats = buildMonsterStats(level);
   const upper = mapHasUpperFloor(map) && Math.random() < 0.3;
   return {
@@ -108,7 +107,8 @@ function serializePlayer(player) {
     facingLeft: player.facingLeft,
     currentHp: player.currentHp,
     maxHp: player.maxHp,
-    invulnerableUntil: player.invulnerableUntil
+    invulnerableUntil: player.invulnerableUntil,
+    isDead: player.currentHp <= 0
   };
 }
 
@@ -131,6 +131,11 @@ function cleanupInactiveMaps(now) {
 }
 
 function spawnMonstersIfNeeded(runtime, map, now) {
+  if (map.safeZone) {
+    runtime.monsters = [];
+    runtime.nextSpawnAt = now + MONSTER_SPAWN_INTERVAL_MS;
+    return;
+  }
   if (!runtime.players.size || now < runtime.nextSpawnAt) return;
   const availableSlots = Math.max(0, MONSTER_MAX_PER_MAP - runtime.monsters.length);
   const spawnCount = Math.min(MONSTER_SPAWN_PER_WAVE, availableSlots);
@@ -224,7 +229,9 @@ function tickRuntime(runtime, now) {
   if (!map) return [];
   const deltaSeconds = Math.max(0, Math.min(2, (now - runtime.lastTickAt) / 1000));
   runtime.lastTickAt = now;
-  runtime.monsters = runtime.monsters.filter((monster) => monster.hp > 0);
+  runtime.monsters = map.safeZone
+    ? []
+    : runtime.monsters.filter((monster) => monster.hp > 0);
   spawnMonstersIfNeeded(runtime, map, now);
   runtime.monsters.forEach((monster) => advanceMonster(monster, runtime, map, deltaSeconds, now));
   return applyContactDamage(runtime, now);
@@ -253,15 +260,18 @@ function updatePresence({
     activeMaps.set(mapId, runtime);
   }
   const previous = runtime.players.get(userId);
+  const resolvedHp = Math.max(0, Number(previous?.currentHp ?? currentHp) || 0);
   runtime.players.set(userId, {
     userId,
     nickname: String(nickname || '사원').slice(0, 16),
     x: clamp(x, 0, 94),
     floor: Number(floor) === 1 ? 1 : 0,
-    activity: ['idle', 'moving', 'combat'].includes(activity) ? activity : 'idle',
-    motion: String(motion || ''),
+    activity: resolvedHp <= 0
+      ? 'dead'
+      : (['idle', 'moving', 'combat'].includes(activity) ? activity : 'idle'),
+    motion: resolvedHp <= 0 ? 'dead' : String(motion || ''),
     facingLeft: Boolean(facingLeft),
-    currentHp: Math.max(0, Number(previous?.currentHp ?? currentHp) || 0),
+    currentHp: resolvedHp,
     maxHp: Math.max(1, Number(previous?.maxHp ?? maxHp) || 120),
     lastContactAt: previous?.lastContactAt || 0,
     invulnerableUntil: previous?.invulnerableUntil || 0,
@@ -292,6 +302,7 @@ function attackMonster({
   const player = runtime.players.get(userId);
   const monster = runtime.monsters.find((entry) => entry.id === monsterId && entry.hp > 0);
   if (!player || !monster) return { success: false, reason: 'missing-target' };
+  if (player.currentHp <= 0) return { success: false, reason: 'dead' };
   if (player.floor !== monster.floor) return { success: false, reason: 'different-floor' };
   const rangePercent = Math.max(1, Number(rangePx) || 22) / ASSUMED_STAGE_WIDTH_PX * 100;
   if (Math.abs(player.x - monster.x) > rangePercent + 4.5) {
@@ -325,6 +336,10 @@ function updatePlayerResources(userId, resources = {}) {
     if (!player) continue;
     if (Number.isFinite(Number(resources.currentHp))) {
       player.currentHp = Math.max(0, Number(resources.currentHp));
+      if (player.currentHp <= 0) {
+        player.activity = 'dead';
+        player.motion = 'dead';
+      }
     }
     if (Number.isFinite(Number(resources.maxHp))) {
       player.maxHp = Math.max(1, Number(resources.maxHp));

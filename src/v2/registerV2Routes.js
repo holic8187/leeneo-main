@@ -5,7 +5,12 @@ const V2Character = require('./models/V2Character');
 const LegacyUserSnapshot = require('./models/LegacyUserSnapshot');
 const V2Setting = require('./models/V2Setting');
 const { MAX_LEVEL, getRequiredExpV2 } = require('./constants/experienceTable');
-const { START_MAP_ID, WORLD_MAPS } = require('./world/mapDefinitions');
+const {
+  START_MAP_ID,
+  WORLD_MAPS,
+  getWorldMap,
+  findNearestSafeMap
+} = require('./world/mapDefinitions');
 const { DEPARTMENTS } = require('./jobs/advancementRules');
 const {
   updatePresence,
@@ -29,6 +34,7 @@ const {
   buildInventoryView,
   createAdminMail,
   serializeMail,
+  purgeExpiredMail,
   getPendingMail,
   claimMail,
   claimAllMail
@@ -171,7 +177,8 @@ function registerV2Routes({
       resources: response.resources,
       derivedStats: response.derivedStats,
       job: response.job,
-      combatPresentation: response.combatPresentation
+      combatPresentation: response.combatPresentation,
+      worldState: response.worldState
     };
     worldProfileCache.set(key, profile);
     return profile;
@@ -433,6 +440,9 @@ function registerV2Routes({
       const result = await withCharacterMutation(auth.id, async () => {
         const character = await V2Character.findOne({ userId: auth.id });
         if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        if (Number(character.resources?.currentHp) <= 0) {
+          throw new Error('사망 상태에서는 포션을 사용할 수 없습니다. 먼저 안전지대에서 부활해주세요.');
+        }
         const used = useQuickSlotPotion(character, req.body?.slot);
         await character.save();
         worldProfileCache.delete(String(auth.id));
@@ -475,6 +485,7 @@ function registerV2Routes({
     try {
       const character = await V2Character.findOne({ userId: auth.id });
       if (!character) return res.status(404).json({ msg: 'V2 캐릭터를 찾을 수 없습니다.' });
+      if (purgeExpiredMail(character) > 0) await character.save();
       return res.json(buildMailResponse(character));
     } catch (err) {
       console.error('V2 mail load error:', err);
@@ -486,8 +497,10 @@ function registerV2Routes({
     const auth = requireV2User(req, res);
     if (!auth) return;
     try {
-      const character = await V2Character.findOne({ userId: auth.id }).select('mailbox').lean();
-      const pendingCount = getPendingMail(character || {}).length;
+      const character = await V2Character.findOne({ userId: auth.id }).select('mailbox');
+      if (!character) return res.status(404).json({ msg: 'V2 캐릭터를 찾을 수 없습니다.' });
+      if (purgeExpiredMail(character) > 0) await character.save();
+      const pendingCount = getPendingMail(character).length;
       return res.json({ pendingCount });
     } catch (err) {
       return res.status(500).json({ msg: '우편 상태를 확인하지 못했습니다.' });
@@ -501,6 +514,7 @@ function registerV2Routes({
       const result = await withCharacterMutation(auth.id, async () => {
         const character = await V2Character.findOne({ userId: auth.id });
         if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        purgeExpiredMail(character);
         const claimed = claimMail(character, req.body?.mailId);
         await character.save();
         return {
@@ -522,6 +536,7 @@ function registerV2Routes({
       const result = await withCharacterMutation(auth.id, async () => {
         const character = await V2Character.findOne({ userId: auth.id });
         if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        purgeExpiredMail(character);
         const claimedCount = claimAllMail(character);
         await character.save();
         return {
@@ -542,10 +557,26 @@ function registerV2Routes({
     try {
       const profile = await getWorldProfile(auth.id);
       if (!profile) return res.status(404).json({ msg: 'V2 캐릭터를 찾을 수 없습니다.' });
+      const requestedMapId = String(req.body?.mapId || '');
+      const requestedMap = getWorldMap(requestedMapId);
+      if (!requestedMap) return res.status(400).json({ msg: '존재하지 않는 맵입니다.' });
+      const isDead = Number(profile.resources.currentHp) <= 0;
+      const mapId = isDead
+        ? String(profile.worldState?.mapId || START_MAP_ID)
+        : requestedMapId;
+      if (!isDead && mapId !== profile.worldState?.mapId) {
+        const x = Math.max(0, Math.min(94, Number(req.body?.x) || 8));
+        const floor = Number(req.body?.floor) === 1 ? 1 : 0;
+        await V2Character.updateOne(
+          { userId: auth.id },
+          { $set: { worldState: { mapId, x, floor } } }
+        );
+        profile.worldState = { mapId, x, floor };
+      }
       const state = updatePresence({
         userId: String(auth.id),
         nickname: profile.displayName,
-        mapId: String(req.body?.mapId || ''),
+        mapId,
         x: req.body?.x,
         floor: req.body?.floor,
         activity: req.body?.activity,
@@ -562,6 +593,18 @@ function registerV2Routes({
             const currentHp = Math.max(0, Number(character.resources.currentHp) || 0);
             character.resources.currentHp = Math.max(0, currentHp - event.damage);
             event.currentHp = character.resources.currentHp;
+            event.expLost = 0;
+            if (currentHp > 0 && character.resources.currentHp <= 0) {
+              const requiredExp = getRequiredExpV2(character.progression?.level);
+              const currentExp = Math.max(0, Number(character.progression?.exp) || 0);
+              event.expLost = Math.min(currentExp, Math.floor(requiredExp * 0.1));
+              character.progression.exp = currentExp - event.expLost;
+              character.worldState = {
+                mapId: state.mapId,
+                x: Math.max(0, Math.min(94, Number(event.x) || 8)),
+                floor: Number(req.body?.floor) === 1 ? 1 : 0
+              };
+            }
             await character.save();
             updatePlayerResources(event.userId, character.resources);
             worldProfileCache.delete(String(event.userId));
@@ -612,8 +655,10 @@ function registerV2Routes({
         damageType: archetype === 'mage' ? 'magic' : 'physical'
       });
       if (!result.success) {
-        return res.status(result.reason === 'out-of-range' ? 409 : 404).json({
-          msg: result.reason === 'out-of-range' ? '몬스터가 공격 사거리 밖에 있습니다.' : '공격 대상을 찾을 수 없습니다.',
+        return res.status(['out-of-range', 'dead'].includes(result.reason) ? 409 : 404).json({
+          msg: result.reason === 'dead'
+            ? '사망 상태에서는 공격할 수 없습니다.'
+            : (result.reason === 'out-of-range' ? '몬스터가 공격 사거리 밖에 있습니다.' : '공격 대상을 찾을 수 없습니다.'),
           reason: result.reason
         });
       }
@@ -637,11 +682,60 @@ function registerV2Routes({
     }
   });
 
-  app.post('/api/v2/world/leave', (req, res) => {
+  app.post('/api/v2/world/revive', async (req, res) => {
     const auth = requireV2User(req, res);
     if (!auth) return;
-    leaveWorld(String(auth.id));
-    return res.json({ success: true });
+    try {
+      const result = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        if (Number(character.resources?.currentHp) > 0) {
+          throw new Error('현재 사망 상태가 아닙니다.');
+        }
+        const safeMap = findNearestSafeMap(character.worldState?.mapId);
+        if (!safeMap) throw new Error('부활할 안전지대를 찾을 수 없습니다.');
+        character.resources.currentHp = 1;
+        character.worldState = { mapId: safeMap.id, x: 8, floor: 0 };
+        await character.save();
+        worldProfileCache.delete(String(auth.id));
+        updatePlayerResources(auth.id, character.resources);
+        leaveWorld(String(auth.id));
+        return {
+          map: safeMap,
+          character: buildCharacterResponse(character)
+        };
+      });
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '캐릭터를 부활시키지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/world/leave', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const mapId = String(req.body?.mapId || '');
+      if (getWorldMap(mapId)) {
+        await V2Character.updateOne(
+          { userId: auth.id },
+          {
+            $set: {
+              worldState: {
+                mapId,
+                x: Math.max(0, Math.min(94, Number(req.body?.x) || 8)),
+                floor: Number(req.body?.floor) === 1 ? 1 : 0
+              }
+            }
+          }
+        );
+      }
+      leaveWorld(String(auth.id));
+      worldProfileCache.delete(String(auth.id));
+      return res.json({ success: true });
+    } catch (err) {
+      return res.status(500).json({ msg: '마지막 위치를 저장하지 못했습니다.' });
+    }
   });
 
   app.get('/api/v2/admin/grant-items', (req, res) => {
@@ -653,11 +747,26 @@ function registerV2Routes({
     if (!requireAdmin(req, res)) return;
     try {
       const target = String(req.body?.target || '').trim();
+      const allRecipients = req.body?.allRecipients === true;
       const itemId = String(req.body?.itemId || '');
       const quantity = Math.max(1, Math.min(999999, Math.floor(Number(req.body?.quantity) || 1)));
       const item = getItemDefinition(itemId);
-      if (!target) return res.status(400).json({ msg: '대상 아이디 또는 닉네임을 입력해주세요.' });
       if (!item?.adminGrantOnly) return res.status(400).json({ msg: '운영자 지급 품목이 아닙니다.' });
+      if (allRecipients) {
+        const entry = createAdminMail({
+          itemId,
+          quantity,
+          message: req.body?.message
+        });
+        const result = await V2Character.updateMany({}, { $push: { mailbox: entry } });
+        return res.json({
+          success: true,
+          allRecipients: true,
+          recipientCount: result.modifiedCount,
+          mail: serializeMail(entry)
+        });
+      }
+      if (!target) return res.status(400).json({ msg: '대상 아이디 또는 닉네임을 입력해주세요.' });
       const user = await User.findOne({
         $or: [{ username: target }, { nickname: target }]
       });

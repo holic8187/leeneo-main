@@ -16,6 +16,7 @@ const ITEM_CATALOG = Object.freeze({
     icon: '🍬',
     resource: 'hp',
     restoreAmount: 50,
+    maxStack: 100,
     description: '사용 즉시 체력을 50 회복합니다.',
     adminGrantOnly: true
   }),
@@ -27,6 +28,7 @@ const ITEM_CATALOG = Object.freeze({
     icon: '🧃',
     resource: 'mp',
     restoreAmount: 80,
+    maxStack: 100,
     description: '사용 즉시 정신력을 80 회복합니다.',
     adminGrantOnly: true
   }),
@@ -36,6 +38,7 @@ const ITEM_CATALOG = Object.freeze({
     category: 'cash',
     itemType: 'inventory-expansion',
     icon: '🎟️',
+    maxStack: 100,
     description: '원하는 인벤토리 탭의 슬롯을 4칸 확장합니다. 탭별 최대 64칸까지 확장할 수 있습니다.',
     adminGrantOnly: true
   })
