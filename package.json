@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "start:v2-test": "node scripts/v2-test-server.js",
-    "test:v2": "node --test test/v2/progression.test.js test/v2/migration-foundation.test.js test/v2/combat-formulas.test.js test/v2/incoming-damage.test.js test/v2/advancement-rules.test.js test/v2/resource-growth.test.js test/v2/weapon-requirements.test.js test/v2/world-maps.test.js test/v2/weapon-motion.test.js test/v2/derived-stats.test.js test/v2/world-runtime.test.js test/v2/inventory-service.test.js"
+    "test:v2": "node --test test/v2/progression.test.js test/v2/migration-foundation.test.js test/v2/combat-formulas.test.js test/v2/incoming-damage.test.js test/v2/advancement-rules.test.js test/v2/resource-growth.test.js test/v2/weapon-requirements.test.js test/v2/world-maps.test.js test/v2/weapon-motion.test.js test/v2/derived-stats.test.js test/v2/world-runtime.test.js test/v2/inventory-service.test.js test/v2/monster-catalog.test.js test/v2/skill-service.test.js"
   },
   "keywords": [],
   "author": "",

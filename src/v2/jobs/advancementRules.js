@@ -13,72 +13,52 @@ const DEPARTMENTS = Object.freeze({
   hr: {
     name: '인사팀',
     jobs: ['인사담당자', '인재매니저', '조직관리자', '최고인사책임자'],
-    primaryStat: 'grit',
-    secondaryStat: 'processingSpeed',
-    archetype: 'warrior'
+    primaryStat: 'grit', secondaryStat: 'processingSpeed', archetype: 'warrior'
   },
   accounting: {
     name: '회계팀',
     jobs: ['회계사원', '재무분석가', '회계감사관', '재무총괄'],
-    primaryStat: 'processingSpeed',
-    secondaryStat: 'grit',
-    archetype: 'archer'
+    primaryStat: 'processingSpeed', secondaryStat: 'grit', archetype: 'archer'
   },
   management_support: {
     name: '경영지원팀',
     jobs: ['지원담당자', '운영기획자', '경영전략가', '전략총괄'],
-    primaryStat: 'workKnowledge',
-    secondaryStat: 'awareness',
-    archetype: 'mage'
+    primaryStat: 'workKnowledge', secondaryStat: 'awareness', archetype: 'mage'
   },
   sales: {
-    name: '영업직',
-    jobs: ['영업사원', '영업매니저', '사업개발자(BD)', '영업본부장'],
-    primaryStat: 'awareness',
-    secondaryStat: 'processingSpeed',
-    archetype: 'thief'
+    name: '영업팀',
+    jobs: ['영업사원', '영업매니저', '사업개발자', '영업본부장'],
+    primaryStat: 'awareness', secondaryStat: 'processingSpeed', archetype: 'thief'
   },
   marketing: {
-    name: '마케팅',
-    jobs: ['마케터', '브랜드매니저', '마케팅전략가', '최고마케팅책임자'],
-    primaryStat: 'processingSpeed',
-    secondaryStat: 'grit',
-    archetype: 'archer'
+    name: '마케팅팀',
+    jobs: ['마케터', '브랜드매니저', '마케팅전문가', '최고마케팅책임자'],
+    primaryStat: 'processingSpeed', secondaryStat: 'grit', archetype: 'archer'
   },
   development: {
-    name: '개발직',
+    name: '개발팀',
     jobs: ['주니어개발자', '개발자', '시니어개발자', '최고기술책임자'],
-    primaryStat: 'workKnowledge',
-    secondaryStat: 'awareness',
-    archetype: 'mage'
+    primaryStat: 'workKnowledge', secondaryStat: 'awareness', archetype: 'mage'
   },
   field_operations: {
     name: '현장직',
     jobs: ['현장사원', '작업반장', '현장소장', '생산본부장'],
-    primaryStat: 'grit',
-    secondaryStat: 'processingSpeed',
-    archetype: 'warrior'
+    primaryStat: 'grit', secondaryStat: 'processingSpeed', archetype: 'warrior'
   },
   facilities: {
     name: '시설관리팀',
     jobs: ['시설관리원', '설비기사', '유지보수전문가', '시설관리책임자'],
-    primaryStat: 'awareness',
-    secondaryStat: 'processingSpeed',
-    archetype: 'thief'
+    primaryStat: 'awareness', secondaryStat: 'processingSpeed', archetype: 'thief'
   },
   quality: {
-    name: '품질관리',
+    name: '품질관리팀',
     jobs: ['품질검사원', '품질엔지니어', '품질관리자', 'QA매니저'],
-    primaryStat: 'grit',
-    secondaryStat: 'processingSpeed',
-    archetype: 'warrior'
+    primaryStat: 'grit', secondaryStat: 'processingSpeed', archetype: 'warrior'
   },
   research: {
-    name: '연구직',
+    name: '연구팀',
     jobs: ['주임연구원', '선임연구원', '책임연구원', '연구소장'],
-    primaryStat: 'workKnowledge',
-    secondaryStat: 'awareness',
-    archetype: 'mage'
+    primaryStat: 'workKnowledge', secondaryStat: 'awareness', archetype: 'mage'
   }
 });
 
@@ -118,7 +98,6 @@ function getAvailableAdvancementQuest(character = {}) {
     advancementTier: job.advancementTier
   });
   if (!requirement?.eligible) return null;
-
   const department = DEPARTMENTS[job.departmentId];
   return {
     id: `advancement-tier-${requirement.targetTier}`,
@@ -154,20 +133,14 @@ function applyAdvancement(character, requestedDepartmentId) {
     level: character.progression?.level,
     advancementTier: character.job?.advancementTier
   });
-  if (!requirement?.eligible) {
-    throw new Error('현재 완료할 수 있는 전직이 없습니다.');
-  }
-
+  if (!requirement?.eligible) throw new Error('현재 완료할 수 있는 전직이 없습니다.');
   const departmentId = requirement.departmentSelectionRequired
     ? String(requestedDepartmentId || '')
     : String(character.job?.departmentId || '');
-  if (!DEPARTMENTS[departmentId]) {
-    throw new Error('전직할 부서를 선택해주세요.');
-  }
+  if (!DEPARTMENTS[departmentId]) throw new Error('전직할 부서를 선택해주세요.');
   if (!requirement.departmentSelectionRequired && departmentId !== character.job?.departmentId) {
     throw new Error('1차 전직 이후에는 기존 부서의 승진 경로를 따라야 합니다.');
   }
-
   character.job.departmentId = departmentId;
   character.job.advancementTier = requirement.targetTier;
   character.progression.unspentSkillPoints = Math.max(

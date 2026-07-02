@@ -9,6 +9,7 @@ const {
   releaseWorldControl,
   updatePresence,
   attackMonster,
+  useSkillOnMonsters,
   updatePlayerResources,
   leaveWorld,
   resetWorldRuntime
@@ -35,7 +36,7 @@ test('an occupied map lazily spawns test monsters with configured combat stats',
   assert.equal(state.monsters[0].contactDamage, 10);
   assert.equal(state.monsters[0].physicalDefense, 1);
   assert.equal(state.monsters[0].magicDefense, 1);
-  assert.equal(state.monsters[0].expReward, 1);
+  assert.equal(state.monsters[0].expReward, 5);
 });
 
 test('players in the same map see one another and an empty map is discarded', () => {
@@ -158,16 +159,15 @@ test('defeated monster drops are collected on the next eight-second spawn tick',
 });
 
 test('monster stats keep the level three baseline and scale for higher levels', () => {
-  const low = buildMonsterStats(1);
+  const low = buildMonsterStats(3);
   const high = buildMonsterStats(100);
-  assert.deepEqual(low, {
-    maxHp: 30,
-    contactDamage: 10,
-    physicalDefense: 1,
-    magicDefense: 1,
-    movementSpeed: 35,
-    expReward: 1
-  });
+  assert.equal(low.maxHp, 30);
+  assert.equal(low.contactDamage, 10);
+  assert.equal(low.physicalDefense, 1);
+  assert.equal(low.magicDefense, 1);
+  assert.equal(low.expReward, 5);
+  assert.ok(low.monsterAccuracy > 0);
+  assert.ok(low.monsterEvasion > 0);
   assert.ok(high.maxHp > low.maxHp);
   assert.ok(high.contactDamage > low.contactDamage);
   assert.ok(high.physicalDefense > low.physicalDefense);
@@ -181,7 +181,7 @@ test('an occupied map replenishes four monsters every eight seconds up to ten', 
     mapId: 'newcomer_training',
     x: 0,
     floor: 0,
-    activity: 'idle',
+    activity: 'moving',
     facingLeft: false,
     currentHp: 120,
     maxHp: 120,
@@ -227,7 +227,7 @@ test('contact damage knocks the player backward and grants 1.5 seconds of invuln
     mapId: 'newcomer_training',
     x: 0,
     floor: 0,
-    activity: 'idle',
+    activity: 'moving',
     facingLeft: false,
     currentHp: 120,
     maxHp: 120,
@@ -282,6 +282,62 @@ test('contact damage knocks the player backward and grants 1.5 seconds of invuln
     now: 2_601
   });
   assert.equal(afterInvulnerability.contactEvents.length, 1);
+});
+
+test('a single hit dealing at least forty percent of max HP knocks a monster back', () => {
+  const state = updatePresence({
+    userId: 'heavy-user',
+    nickname: 'heavy-user',
+    mapId: 'newcomer_training',
+    x: 20,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_000
+  });
+  const monster = state.monsters.find((entry) => entry.floor === 0);
+  updatePresence({
+    userId: 'heavy-user',
+    nickname: 'heavy-user',
+    mapId: 'newcomer_training',
+    x: monster.x - 2,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_050
+  });
+  const result = attackMonster({
+    userId: 'heavy-user',
+    mapId: 'newcomer_training',
+    monsterId: monster.id,
+    damage: Math.ceil(monster.maxHp * 0.4) + monster.physicalDefense,
+    rangePx: 1_000,
+    now: 1_100
+  });
+  assert.equal(result.success, true);
+  assert.equal(result.knockedBack, true);
+  assert.equal(result.defeated, false);
+});
+
+test('multi-target skills use the same forty-percent knockback threshold', () => {
+  const state = updatePresence({
+    userId: 'skill-user',
+    nickname: 'skill-user',
+    mapId: 'newcomer_training',
+    x: 50,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_000
+  });
+  const result = useSkillOnMonsters({
+    userId: 'skill-user',
+    mapId: 'newcomer_training',
+    baseDamage: 20,
+    skillPercent: 100,
+    rangePx: 1_000,
+    maxTargets: 4,
+    now: 1_100
+  });
+  assert.equal(result.success, true);
+  assert.ok(result.outcomes.some((outcome) => outcome.knockedBack));
 });
 
 

@@ -13,6 +13,11 @@ const {
 } = require('../jobs/advancementRules');
 const { resolveCombatMotion } = require('../combat/weaponMotion');
 const { buildDerivedStats } = require('../combat/derivedStats');
+const {
+  ensureSkillState,
+  getActiveSkillEffects,
+  buildSkillTree
+} = require('../skills/skillService');
 const { getRequiredExpV2 } = require('../constants/experienceTable');
 const {
   BASE_STATS,
@@ -204,6 +209,14 @@ async function ensureV2MigrationForUser(user) {
           departmentId: 'unassigned',
           advancementTier: 0
         },
+        skills: {
+          levels: {},
+          activePreset: [],
+          unlockedQuestSkills: [],
+          activeBuffs: [],
+          summon: null,
+          comboCount: 0
+        },
         inventory: {
           items: [],
           potions: [],
@@ -278,6 +291,10 @@ async function ensureV2SkillPointGrant(character) {
 async function ensureV2CharacterFoundation(character) {
   if (!character) return character;
   let changed = false;
+  if (!character.skills || typeof character.skills !== 'object') {
+    ensureSkillState(character);
+    changed = true;
+  }
   for (const [stat, baseline] of Object.entries(BASE_STATS)) {
     if (Number(character.stats?.[stat]) >= baseline) continue;
     character.stats[stat] = baseline;
@@ -337,6 +354,14 @@ function buildCharacterResponse(character) {
       Math.max(baseline, Number(plain.stats?.[key]) || 0)
     ])
   );
+  const skillEffects = getActiveSkillEffects(plain);
+  const derivedStats = buildDerivedStats({
+    progression: plain.progression,
+    stats: normalizedStats,
+    job: plain.job,
+    loadout: equipmentLoadout,
+    skillEffects
+  });
   return {
     id: String(plain._id),
     displayName: plain.displayName,
@@ -362,14 +387,11 @@ function buildCharacterResponse(character) {
     actionPoints: plain.actionPoints,
     economy: plain.economy,
     combatPresentation,
-    derivedStats: buildDerivedStats({
-      progression: plain.progression,
-      stats: normalizedStats,
-      job: plain.job,
-      loadout: equipmentLoadout
-    }),
+    derivedStats,
     advancementQuest: getAvailableAdvancementQuest(plain),
     skillAccess: getSkillAccessProfile(plain),
+    skillTree: buildSkillTree(plain),
+    skillEffects,
     migration: plain.migration,
     createdAt: plain.createdAt,
     updatedAt: plain.updatedAt

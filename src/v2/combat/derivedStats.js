@@ -6,21 +6,15 @@ const {
   PHYSICAL_ARCHETYPES,
   calculatePhysicalAttackRange,
   calculateAccuracy,
-  calculateEvasion
+  calculateEvasion,
+  normalizeStats
 } = require('./combatFormulas');
 const { getStandardPdd } = require('./incomingDamage');
 const { DEFAULT_WEAPON_RANGES } = require('./weaponMotion');
 
 const LOADOUT_SLOT_KEYS = Object.freeze([
-  'weapon',
-  'helmet',
-  'gloves',
-  'shoes',
-  'cape',
-  'top',
-  'bottom',
-  'necklace',
-  'earrings'
+  'weapon', 'helmet', 'gloves', 'shoes', 'cape',
+  'top', 'bottom', 'necklace', 'earrings'
 ]);
 
 function finite(value) {
@@ -55,14 +49,41 @@ function roundStat(value) {
   return Math.round(Math.max(0, finite(value)) * 100) / 100;
 }
 
-function buildDerivedStats({ progression = {}, stats = {}, job = {}, loadout = {} } = {}) {
+function calculateBasePhysicalDefense(archetype, stats = {}) {
+  const normalized = normalizeStats(stats);
+  if (archetype === 'warrior') {
+    return Math.max(4, Math.floor(
+      (normalized.luck + normalized.dexterity) / 4
+      + normalized.intelligence / 9
+      + normalized.strength * 2 / 7
+    ));
+  }
+  return Math.max(4, Math.floor(
+    normalized.intelligence / 9
+    + normalized.dexterity * 2 / 7
+    + normalized.strength * 0.4
+    + normalized.luck / 4
+  ));
+}
+
+function buildDerivedStats({
+  progression = {},
+  stats = {},
+  job = {},
+  loadout = {},
+  skillEffects = {}
+} = {}) {
   const department = DEPARTMENTS[job.departmentId];
   const archetype = department?.archetype || 'beginner';
   const weapon = loadout.weapon || null;
   const weaponType = weapon?.weaponType || null;
-  const totalAttack = sumLoadoutStat(loadout, 'attack', 'weaponAttack');
-  const mastery = getItemStat(weapon, 'mastery');
-  let attackRange = { minimum: 0, maximum: 0 };
+  const totalAttack = sumLoadoutStat(loadout, 'attack', 'weaponAttack')
+    + finite(skillEffects.attackIncrease);
+  const mastery = Math.max(
+    getItemStat(weapon, 'mastery'),
+    finite(skillEffects.weaponMastery)
+  );
+  let attackRange;
 
   if (weaponType && WEAPON_CONSTANTS[weaponType] && PHYSICAL_ARCHETYPES[archetype]) {
     attackRange = calculatePhysicalAttackRange({
@@ -72,23 +93,38 @@ function buildDerivedStats({ progression = {}, stats = {}, job = {}, loadout = {
       totalAttack,
       mastery
     });
+  } else {
+    const baseAttack = Math.max(4, finite(stats.grit ?? stats.strength));
+    attackRange = { minimum: baseAttack, maximum: baseAttack };
   }
 
   const accuracy = calculateAccuracy({
     group: getAccuracyGroup(archetype),
     stats,
-    bonusAccuracy: sumLoadoutStat(loadout, 'accuracy')
+    bonusAccuracy: sumLoadoutStat(loadout, 'accuracy') + finite(skillEffects.accuracyIncrease)
   });
-  const evasion = calculateEvasion({
+  const evasion = 1 + calculateEvasion({
     group: getEvasionGroup(archetype),
     stats,
-    bonusEvasion: sumLoadoutStat(loadout, 'evasion')
+    bonusEvasion: sumLoadoutStat(loadout, 'evasion') + finite(skillEffects.evasionIncrease)
   });
-  const physicalDefense = roundStat(sumLoadoutStat(loadout, 'defense', 'physicalDefense'));
-  const magicDefense = roundStat(sumLoadoutStat(loadout, 'magicDefense'));
+  const basePhysicalDefense = calculateBasePhysicalDefense(archetype, stats);
+  const equipmentDefense = sumLoadoutStat(loadout, 'defense', 'physicalDefense');
+  const shieldMultiplier = 1 + finite(skillEffects.shieldDefensePercent) / 100;
+  const shieldDefense = getItemStat(loadout?.shield, 'defense', 'physicalDefense') * shieldMultiplier;
+  const physicalDefense = roundStat(
+    basePhysicalDefense
+    + equipmentDefense
+    + shieldDefense
+    + finite(skillEffects.defenseIncrease)
+  );
+  const magicDefense = roundStat(
+    Math.max(4, finite(stats.workKnowledge ?? stats.intelligence))
+    + sumLoadoutStat(loadout, 'magicDefense')
+  );
   const level = Math.max(1, Math.floor(finite(progression.level) || 1));
   const magic = roundStat(
-    finite(stats.workKnowledge ?? stats.intelligence)
+    Math.max(4, finite(stats.workKnowledge ?? stats.intelligence))
     + sumLoadoutStat(loadout, 'magic', 'magicAttack')
   );
 
@@ -96,6 +132,7 @@ function buildDerivedStats({ progression = {}, stats = {}, job = {}, loadout = {
     attackMinimum: roundStat(attackRange.minimum),
     attackMaximum: roundStat(attackRange.maximum),
     defense: physicalDefense,
+    basePhysicalDefense,
     physicalDefense,
     magicDefense,
     standardPhysicalDefense: roundStat(getStandardPdd(archetype, level)),
@@ -103,8 +140,8 @@ function buildDerivedStats({ progression = {}, stats = {}, job = {}, loadout = {
     accuracy: roundStat(accuracy),
     evasion: roundStat(evasion),
     movementSpeed: roundStat(100 + sumLoadoutStat(loadout, 'movementSpeed')),
-    attackRange: Math.max(0, finite(DEFAULT_WEAPON_RANGES[weaponType]
-      || (job.departmentId === 'unassigned' ? 22 : 55))),
+    attackRange: Math.max(0, finite(DEFAULT_WEAPON_RANGES[weaponType] || 100)),
+    attackSpeedStage: Math.max(1, Math.floor(1 + finite(skillEffects.attackSpeedStage))),
     weaponType,
     level,
     archetype,
@@ -117,5 +154,6 @@ module.exports = {
   buildDerivedStats,
   sumLoadoutStat,
   getAccuracyGroup,
-  getEvasionGroup
+  getEvasionGroup,
+  calculateBasePhysicalDefense
 };

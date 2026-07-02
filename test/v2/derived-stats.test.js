@@ -29,24 +29,28 @@ test('derived stats use equipped weapon, loadout totals, and base movement speed
 
   assert.equal(result.attackMaximum, 49.75);
   assert.equal(result.attackMinimum, 24.88);
-  assert.equal(result.defense, 20);
-  assert.equal(result.physicalDefense, 20);
-  assert.equal(result.magicDefense, 6);
+  assert.equal(result.defense, 37);
+  assert.equal(result.physicalDefense, 37);
+  assert.equal(result.magicDefense, 10);
   assert.equal(result.accuracy, 18.5);
-  assert.equal(result.evasion, 11.25);
+  assert.equal(result.evasion, 12.25);
   assert.equal(result.movementSpeed, 105);
   assert.equal(result.weaponType, 'twoHandedSword');
 });
 
-test('unarmed characters keep zero attack and a 100 percent movement baseline', () => {
+test('level one base stats produce four attack, magic, defense, and evasion', () => {
   const result = buildDerivedStats({
-    stats: {},
+    stats: { grit: 4, processingSpeed: 4, workKnowledge: 4, awareness: 4 },
     job: { departmentId: 'unassigned' },
     loadout: {}
   });
 
-  assert.equal(result.attackMinimum, 0);
-  assert.equal(result.attackMaximum, 0);
+  assert.equal(result.attackMinimum, 4);
+  assert.equal(result.attackMaximum, 4);
+  assert.equal(result.magic, 4);
+  assert.equal(result.defense, 4);
+  assert.equal(result.evasion, 4);
   assert.equal(result.movementSpeed, 100);
-  assert.equal(result.attackRange, 22);
+  assert.equal(result.attackRange, 100);
+  assert.equal(result.attackSpeedStage, 1);
 });

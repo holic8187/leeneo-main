@@ -46,6 +46,14 @@ const v2CharacterSchema = new mongoose.Schema({
     departmentId: { type: String, default: 'unassigned' },
     advancementTier: { type: Number, default: 0 }
   },
+  skills: {
+    levels: { type: mongoose.Schema.Types.Mixed, default: {} },
+    activePreset: { type: [String], default: [] },
+    unlockedQuestSkills: { type: [String], default: [] },
+    activeBuffs: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    summon: { type: mongoose.Schema.Types.Mixed, default: null },
+    comboCount: { type: Number, default: 0, min: 0, max: 10 }
+  },
   loadout: {
     weapon: { type: mongoose.Schema.Types.Mixed, default: null },
     helmet: { type: mongoose.Schema.Types.Mixed, default: null },

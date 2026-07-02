@@ -21,6 +21,7 @@ const {
   releaseWorldControl,
   updatePresence,
   attackMonster,
+  useSkillOnMonsters,
   updatePlayerResources,
   leaveWorld
 } = require('./world/worldRuntime');
@@ -58,6 +59,14 @@ const {
   sellInventoryStack,
   buildShopView
 } = require('./services/shopService');
+const { SKILL_DEFINITIONS } = require('./skills/skillDefinitions');
+const {
+  ensureSkillState,
+  getSkillLevel,
+  resolveSkillValues,
+  investSkill,
+  setActivePreset
+} = require('./skills/skillService');
 
 const V2_RETAINED_FEATURES = Object.freeze([
   '계정 및 닉네임',
@@ -152,6 +161,19 @@ function grantV2Experience(character, amount) {
       departmentId: character.job?.departmentId,
       advancementTier: character.job?.advancementTier
     });
+    const hpGrowthLevel = getSkillLevel(character, 'hp_growth_improvement');
+    if (hpGrowthLevel > 0) {
+      const hpGrowth = resolveSkillValues(
+        SKILL_DEFINITIONS.hp_growth_improvement,
+        hpGrowthLevel
+      );
+      const bonus = Math.max(0, Number(hpGrowth.levelUpHp) || 0) * levels;
+      character.resources.maxHp += bonus;
+      character.resources.currentHp = Math.min(
+        character.resources.maxHp,
+        Number(character.resources.currentHp) + bonus
+      );
+    }
   }
   return { gained, levels };
 }
@@ -191,6 +213,23 @@ function registerV2Routes({
       .map(serializeMail)
       .sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt));
     return { mails, pendingCount: mails.length };
+  }
+
+  function applyCombatDrops(character, drops = []) {
+    if (!character.economy || typeof character.economy !== 'object') character.economy = {};
+    return drops.map((drop) => {
+      if (drop.kind === 'money') {
+        character.economy.money = Math.max(0, Number(character.economy.money) || 0)
+          + Math.max(0, Math.floor(Number(drop.amount) || 0));
+        return { ...drop, stored: true };
+      }
+      try {
+        addInventoryItem(character, drop.itemId, drop.quantity);
+        return { ...drop, stored: true };
+      } catch (_) {
+        return { ...drop, stored: false };
+      }
+    });
   }
 
   async function getWorldProfile(userId, force = false) {
@@ -521,6 +560,196 @@ function registerV2Routes({
     }
   });
 
+  app.post('/api/v2/skills/invest', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const character = await withCharacterMutation(auth.id, async () => {
+        const current = await V2Character.findOne({ userId: auth.id });
+        if (!current) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        investSkill(current, req.body?.skillId, req.body?.amount);
+        await current.save();
+        worldProfileCache.delete(String(auth.id));
+        return current;
+      });
+      return res.json({ success: true, character: buildCharacterResponse(character) });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '스킬 포인트를 투자하지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/skills/preset', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const character = await withCharacterMutation(auth.id, async () => {
+        const current = await V2Character.findOne({ userId: auth.id });
+        if (!current) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        setActivePreset(current, req.body?.skillIds);
+        await current.save();
+        return current;
+      });
+      return res.json({ success: true, character: buildCharacterResponse(character) });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '스킬 프리셋을 저장하지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/skills/use', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    if (!requireWorldControl(req, res, auth)) return;
+    try {
+      const result = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        const skillId = String(req.body?.skillId || '');
+        const definition = SKILL_DEFINITIONS[skillId];
+        const level = getSkillLevel(character, skillId);
+        const skillState = ensureSkillState(character);
+        if (!definition || definition.passive || level <= 0) {
+          throw new Error('사용할 수 없는 스킬입니다.');
+        }
+        if (!skillState.activePreset.includes(skillId)) {
+          throw new Error('전투 프리셋에 등록된 스킬만 사용할 수 있습니다.');
+        }
+        const values = resolveSkillValues(definition, level);
+        const currentHp = Math.max(0, Number(character.resources?.currentHp) || 0);
+        const currentMp = Math.max(0, Number(character.resources?.currentMp) || 0);
+        const maxHp = Math.max(1, Number(character.resources?.maxHp) || 1);
+        if (values.minimumHpPercent && currentHp / maxHp * 100 < values.minimumHpPercent) {
+          throw new Error(`체력이 ${values.minimumHpPercent}% 이상일 때만 사용할 수 있습니다.`);
+        }
+        const hpCost = Math.max(
+          0,
+          Math.floor(Number(values.hpCost) || maxHp * Number(values.maxHpCostPercent || 0) / 100)
+        );
+        const mpCost = Math.max(0, Math.floor(Number(values.mpCost) || 0));
+        if (currentHp <= hpCost) throw new Error('체력이 부족합니다.');
+        if (currentMp < mpCost) throw new Error('정신력이 부족합니다.');
+        character.resources.currentHp = currentHp - hpCost;
+        character.resources.currentMp = currentMp - mpCost;
+
+        let combat = null;
+        const damageEffects = new Set([
+          'damage', 'multi-damage', 'ignore-defense-damage', 'damage-stun',
+          'damage-lock', 'charge', 'consume-combo-damage', 'pull'
+        ]);
+        if (damageEffects.has(definition.effect)) {
+          if (definition.effect === 'consume-combo-damage' && skillState.comboCount <= 0) {
+            throw new Error('콤보 카운터가 필요합니다.');
+          }
+          const response = buildCharacterResponse(character);
+          const activeEffects = response.skillEffects || {};
+          let baseDamage = Math.max(1, Number(response.derivedStats.attackMaximum) || 4);
+          if (activeEffects.comboEnabled) {
+            baseDamage *= 1
+              + Number(skillState.comboCount || 0)
+                * Number(activeEffects.comboDamagePerCount || 0) / 100;
+          }
+          const resourcePercent = currentHp / maxHp * 100;
+          if (
+            activeEffects.lowHpThresholdPercent
+            && resourcePercent <= Number(activeEffects.lowHpThresholdPercent)
+          ) {
+            baseDamage *= 1 + Number(activeEffects.lowHpDamageIncreasePercent || 0) / 100;
+          }
+          const doubleStrike = Math.random() * 100
+            < Number(activeEffects.doubleStrikeChance || 0);
+          combat = useSkillOnMonsters({
+            userId: String(auth.id),
+            mapId: String(req.body?.mapId || ''),
+            targetId: String(req.body?.targetId || ''),
+            baseDamage,
+            skillPercent: Number(values.damagePercent) || 100,
+            rangePx: Number(values.range ?? definition.range) || 100,
+            maxTargets: Number(values.targetCount ?? definition.maxTargets) || 1,
+            hits: Number(values.hits) || 1,
+            bonusAttackPercent: doubleStrike
+              ? Number(activeEffects.doubleStrikeDamagePercent || 0)
+              : 0,
+            element: definition.element,
+            ignoreDefense: definition.effect === 'ignore-defense-damage',
+            accuracy: response.derivedStats.accuracy,
+            playerLevel: response.progression?.level,
+            stunChance: Number(values.stunChance) || 0,
+            stunSeconds: Number(values.stunSeconds) || 0,
+            pull: ['charge', 'pull'].includes(definition.effect),
+            dealDamage: definition.effect !== 'pull'
+          });
+          if (!combat.success) throw new Error('사거리 안에 공격할 대상이 없습니다.');
+          if (definition.effect === 'consume-combo-damage') skillState.comboCount = 0;
+          if (definition.effect === 'damage-stun' && Number(values.consumeCombo)) {
+            skillState.comboCount = Math.max(0, skillState.comboCount - Number(values.consumeCombo));
+          }
+          if (
+            activeEffects.comboEnabled
+            && !['consume-combo-damage', 'damage-stun'].includes(definition.effect)
+            && combat.outcomes.some((outcome) => !outcome.missed && outcome.damage > 0)
+          ) {
+            const charge = Math.random() * 100
+              < Number(activeEffects.comboDoubleChargeChance || 0) ? 2 : 1;
+            skillState.comboCount = Math.min(
+              Number(activeEffects.comboMaximum) || 5,
+              Number(skillState.comboCount || 0) + charge
+            );
+          }
+          grantV2Experience(character, combat.expReward);
+          combat.drops = applyCombatDrops(character, combat.drops);
+        } else if (definition.effect === 'summon') {
+          skillState.summon = {
+            skillId,
+            name: definition.name,
+            masteryIncrease: Number(values.masteryIncrease) || 0,
+            createdAt: new Date(),
+            expiresAt: new Date(Date.now() + Number(values.durationSeconds || 0) * 1000)
+          };
+        } else {
+          if (definition.effect === 'combo-buff') skillState.comboCount = 0;
+          const effects = {};
+          for (const key of [
+            'attackIncrease', 'defenseIncrease', 'accuracyIncrease', 'evasionIncrease',
+            'attackSpeedStage', 'shieldDefensePercent', 'stanceChance',
+            'reflectPercent', 'targetMaxHpCapPercent', 'maxResourcePercent',
+            'maxCombo', 'damagePerComboPercent'
+          ]) {
+            if (Number.isFinite(Number(values[key]))) effects[key] = Number(values[key]);
+          }
+          if (effects.reflectPercent) effects.contactReflectPercent = effects.reflectPercent;
+          if (effects.targetMaxHpCapPercent) {
+            effects.contactReflectCapPercent = effects.targetMaxHpCapPercent;
+          }
+          if (definition.effect === 'combo-buff') {
+            effects.comboEnabled = 1;
+            effects.comboMaximum = Number(values.maxCombo) || 5;
+            effects.comboDamagePerCount = Number(values.damagePerComboPercent) || 0;
+          }
+          skillState.activeBuffs = skillState.activeBuffs.filter((buff) => buff.skillId !== skillId);
+          skillState.activeBuffs.push({
+            skillId,
+            name: definition.name,
+            effects,
+            createdAt: new Date(),
+            expiresAt: new Date(Date.now() + Number(values.durationSeconds || 1) * 1000)
+          });
+        }
+        character.markModified('skills');
+        await character.save();
+        worldProfileCache.delete(String(auth.id));
+        updatePlayerResources(auth.id, character.resources);
+        return {
+          skill: { id: definition.id, name: definition.name, values },
+          combat,
+          character: buildCharacterResponse(character),
+          inventory: buildInventoryView(character)
+        };
+      });
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '스킬을 사용하지 못했습니다.' });
+    }
+  });
+
   app.get('/api/v2/inventory', async (req, res) => {
     const auth = requireV2User(req, res);
     if (!auth) return;
@@ -809,7 +1038,12 @@ function registerV2Routes({
         playerStats: profile.stats,
         physicalDefense: profile.derivedStats.physicalDefense ?? profile.derivedStats.defense,
         magicDefense: profile.derivedStats.magicDefense,
-        archetype: DEPARTMENTS[profile.job?.departmentId]?.archetype || 'beginner'
+        archetype: DEPARTMENTS[profile.job?.departmentId]?.archetype || 'beginner',
+        damageReductionPercent: profile.skillEffects?.damageReductionPercent,
+        blockChance: profile.skillEffects?.blockChance,
+        stanceChance: profile.skillEffects?.stanceChance,
+        contactReflectPercent: profile.skillEffects?.contactReflectPercent,
+        contactReflectCapPercent: profile.skillEffects?.contactReflectCapPercent
       });
       if (state.contactEvents.length) {
         await Promise.all(state.contactEvents.map((event) => (
@@ -868,9 +1102,21 @@ function registerV2Routes({
       if (!profile) return res.status(404).json({ msg: 'V2 캐릭터를 찾을 수 없습니다.' });
       const minimum = Math.max(0, Number(profile.derivedStats.attackMinimum) || 0);
       const maximum = Math.max(minimum, Number(profile.derivedStats.attackMaximum) || 0);
-      const rolledDamage = maximum > 0
+      let rolledDamage = maximum > 0
         ? minimum + Math.random() * (maximum - minimum)
         : 5;
+      const skillEffects = profile.skillEffects || {};
+      const comboCount = Math.max(0, Number(profile.skillTree?.comboCount) || 0);
+      if (skillEffects.comboEnabled) {
+        rolledDamage *= 1 + comboCount * Number(skillEffects.comboDamagePerCount || 0) / 100;
+      }
+      const hpPercent = Number(profile.resources?.currentHp) / Math.max(1, Number(profile.resources?.maxHp)) * 100;
+      if (
+        skillEffects.lowHpThresholdPercent
+        && hpPercent <= Number(skillEffects.lowHpThresholdPercent)
+      ) {
+        rolledDamage *= 1 + Number(skillEffects.lowHpDamageIncreasePercent || 0) / 100;
+      }
       const archetype = DEPARTMENTS[profile.job?.departmentId]?.archetype;
       const result = attackMonster({
         userId: String(auth.id),
@@ -878,7 +1124,9 @@ function registerV2Routes({
         monsterId: String(req.body?.monsterId || ''),
         damage: rolledDamage,
         rangePx: profile.combatPresentation?.rangePx || profile.derivedStats.attackRange,
-        damageType: archetype === 'mage' ? 'magic' : 'physical'
+        damageType: archetype === 'mage' ? 'magic' : 'physical',
+        accuracy: profile.derivedStats.accuracy,
+        playerLevel: profile.progression?.level
       });
       if (!result.success) {
         return res.status(['out-of-range', 'dead'].includes(result.reason) ? 409 : 404).json({
@@ -888,30 +1136,52 @@ function registerV2Routes({
           reason: result.reason
         });
       }
+      if (
+        !result.defeated
+        && !result.missed
+        && Math.random() * 100 < Number(skillEffects.doubleStrikeChance || 0)
+      ) {
+        const second = attackMonster({
+          userId: String(auth.id),
+          mapId: String(req.body?.mapId || ''),
+          monsterId: String(req.body?.monsterId || ''),
+          damage: rolledDamage * Number(skillEffects.doubleStrikeDamagePercent || 0) / 100,
+          rangePx: profile.combatPresentation?.rangePx || profile.derivedStats.attackRange,
+          damageType: archetype === 'mage' ? 'magic' : 'physical',
+          accuracy: profile.derivedStats.accuracy,
+          playerLevel: profile.progression?.level
+        });
+        if (second.success) {
+          result.damage += Number(second.damage) || 0;
+          result.doubleStrike = true;
+          result.knockedBack = result.knockedBack || second.knockedBack;
+          result.defeated = second.defeated;
+          result.expReward += Number(second.expReward) || 0;
+          result.drops.push(...(second.drops || []));
+          result.monster = second.monster;
+          result.players = second.players;
+          result.monsters = second.monsters;
+        }
+      }
 
       let character = null;
       let experience = null;
       let inventory = null;
-      if (result.expReward > 0) {
+      if (result.expReward > 0 || skillEffects.comboEnabled) {
         character = await V2Character.findOne({ userId: auth.id });
-        experience = grantV2Experience(character, result.expReward);
-        if (!character.economy || typeof character.economy !== 'object') character.economy = {};
-        const storedDrops = [];
-        for (const drop of result.drops || []) {
-          if (drop.kind === 'money') {
-            character.economy.money = Math.max(0, Number(character.economy.money) || 0)
-              + Math.max(0, Math.floor(Number(drop.amount) || 0));
-            storedDrops.push({ ...drop, stored: true });
-            continue;
-          }
-          try {
-            addInventoryItem(character, drop.itemId, drop.quantity);
-            storedDrops.push({ ...drop, stored: true });
-          } catch (_) {
-            storedDrops.push({ ...drop, stored: false });
-          }
+        if (result.expReward > 0) {
+          experience = grantV2Experience(character, result.expReward);
+          result.drops = applyCombatDrops(character, result.drops);
         }
-        result.drops = storedDrops;
+        if (skillEffects.comboEnabled && !result.missed && result.damage > 0) {
+          const skills = ensureSkillState(character);
+          const charge = Math.random() * 100 < Number(skillEffects.comboDoubleChargeChance || 0) ? 2 : 1;
+          skills.comboCount = Math.min(
+            Number(skillEffects.comboMaximum) || 5,
+            Math.max(0, Number(skills.comboCount) || 0) + charge
+          );
+          character.markModified('skills');
+        }
         await character.save();
         worldProfileCache.delete(String(auth.id));
         inventory = buildInventoryView(character);

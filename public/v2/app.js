@@ -54,6 +54,7 @@ const state = {
   mailPollTimer: null,
   adminGrantItems: [],
   autoPotionBusy: { hp: false, mp: false },
+  skillUseBusy: false,
   shop: { money: 0, buyItems: [], tab: 'consumable' }
 };
 sessionStorage.setItem('v2WorldClientId', state.worldClientId);
@@ -151,6 +152,8 @@ function renderGame(data) {
     : '서버가 누락된 이관 데이터를 자동으로 준비하고 있습니다.';
 
   if (character.inventory) setInventoryData(character.inventory);
+  renderSkillQuickbar();
+  renderCompanion();
   if (Number.isFinite(Number(character.pendingMailCount))) {
     updateMailButton(Number(character.pendingMailCount));
   }
@@ -534,14 +537,15 @@ function getScaledMovementDuration(baseDuration) {
 function showFloatingDamage(targetElement, amount, kind = 'outgoing') {
   const stage = $('worldStage');
   if (!stage || !targetElement || !targetElement.isConnected) return;
+  const label = typeof amount === 'string' ? amount : '';
   const value = Math.max(0, Math.floor(Number(amount) || 0));
-  if (!value) return;
+  if (!value && !label) return;
 
   const stageRect = stage.getBoundingClientRect();
   const targetRect = targetElement.getBoundingClientRect();
   const element = document.createElement('span');
   element.className = `floating-damage is-${kind}`;
-  element.textContent = formatNumber(value);
+  element.textContent = label || formatNumber(value);
   element.style.left = `${targetRect.left - stageRect.left + targetRect.width / 2}px`;
   element.style.top = `${Math.max(18, targetRect.top - stageRect.top + 4)}px`;
   stage.appendChild(element);
@@ -733,6 +737,7 @@ async function playWorldMotion(motion, kind, runId) {
     shoot: '원거리 공격 · 쏘기',
     throw: '원거리 공격 · 날리기',
     'staff-swing': '마법 공격 · 완드/스태프 휘두르기',
+    buff: '버프 시전',
     hit: '몬스터의 공격에 피격',
     jump: '장애물 점프',
     climb: '밧줄·사다리 이동'
@@ -749,7 +754,7 @@ async function playWorldMotion(motion, kind, runId) {
   }
   if (motion === 'hit') character.classList.add('damage-flash');
 
-  await sleep(720);
+  await sleep(motion === 'buff' ? 300 : 720);
   monster?.classList.remove('is-hit');
   projectile.className = 'attack-projectile';
   character.classList.remove('damage-flash');
@@ -909,6 +914,13 @@ async function approachMonsterForCombat(runId) {
   return isRunActive('combat', runId);
 }
 
+function getAttackSpeedMultiplier() {
+  const stage = Math.max(1, Number(state.character?.derivedStats?.attackSpeedStage)
+    || Number(state.character?.skillEffects?.attackSpeedStage)
+    || 1);
+  return 1 + (stage - 1) * 0.2;
+}
+
 async function runAutoCombat(runId) {
   while (isRunActive('combat', runId) && state.token && !state.isAdmin && !state.dead) {
     const target = getCombatTarget();
@@ -935,7 +947,7 @@ async function runAutoCombat(runId) {
       });
       showFloatingDamage(
         getCombatTargetElement(),
-        result.damage,
+        result.missed ? 'MISS' : result.damage,
         result.critical ? 'critical' : 'outgoing'
       );
       applyAttackResult(result);
@@ -959,7 +971,7 @@ async function runAutoCombat(runId) {
       if (!String(err.message).includes('사거리')) console.error('V2 field attack error:', err);
     }
     state.combatAttackCount += 1;
-    await sleep(900);
+    await sleep(Math.max(180, Math.round(900 / getAttackSpeedMultiplier())));
   }
 }
 
@@ -1098,6 +1110,10 @@ function applyAttackResult(result = {}) {
   ));
   const hpBar = targetElement?.querySelector('.monster-hp i');
   if (hpBar) hpBar.style.width = `${ratio(result.monster.hp, result.monster.maxHp)}%`;
+  if (result.knockedBack) {
+    targetElement?.classList.add('is-knockback');
+    setTimeout(() => targetElement?.classList.remove('is-knockback'), 420);
+  }
   targetElement?.classList.toggle('is-chasing', result.monster.state === 'chase');
 }
 
@@ -2036,14 +2052,7 @@ function bindStatControls() {
 }
 
 function skillBody() {
-  const access = state.character?.skillAccess || {};
-  return `<div class="skill-access-sheet">
-    <span>UNLOCKED TIER ${formatNumber(access.unlockedTier)}</span>
-    <h3>${escapeHtml(access.name || '신입사원 공용 스킬')}</h3>
-    <p>${escapeHtml(access.jobName || '미전직')} · 적용 레벨 Lv.${formatNumber(access.minLevel || 1)}~${formatNumber(access.maxLevel || 9)}</p>
-    <strong>보유 스킬 포인트 ${formatNumber(state.character?.progression?.unspentSkillPoints)} SP</strong>
-    <small>직업별 실제 스킬 목록과 투자 기능은 스킬 데이터가 확정되는 순서대로 이 화면에 연결됩니다.</small>
-  </div>`;
+  return buildSkillBody();
 }
 
 function featureBody(feature) {
@@ -2086,6 +2095,7 @@ function openFeature(feature) {
   if (feature === 'equipment') bindEquipmentTabs();
   if (feature === 'quest') bindQuestControls();
   if (feature === 'stats') bindStatControls();
+  if (feature === 'skills') bindSkillControls();
   if (feature === 'inventory') bindInventoryControls();
   if (feature === 'potion-config') bindPotionControls();
   if (feature === 'mail') bindMailControls();
