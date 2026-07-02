@@ -134,6 +134,7 @@ test('shop purchases and sales update money and inventory atomically', () => {
 test('admin event weapons occupy one slot and can be equipped and returned', () => {
   const character = characterFixture();
   character.progression = { level: 30 };
+  character.job = { departmentId: 'hr', advancementTier: 2 };
   character.stats = { grit: 40, processingSpeed: 15, workKnowledge: 4, awareness: 4 };
   character.loadout = { weapon: null };
   addInventoryItem(character, 'event_spear', 1);

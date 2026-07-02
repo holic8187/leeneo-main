@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   buildWeaponRequirements,
+  getWeaponEquipFailureReason,
   canEquipWeapon
 } = require('../../src/v2/items/weaponRequirements');
 
@@ -21,10 +22,57 @@ test('weapon equip validation checks both level and mapped V2 stats', () => {
   const item = { weaponType: 'claw', requiredLevel: 60 };
   assert.equal(canEquipWeapon({
     progression: { level: 60 },
+    job: { departmentId: 'sales' },
     stats: { processingSpeed: 99 }
   }, item), false);
   assert.equal(canEquipWeapon({
     progression: { level: 60 },
+    job: { departmentId: 'sales' },
     stats: { processingSpeed: 100 }
   }, item), true);
+});
+
+test('weapon equip validation rejects weapons outside the character job archetype', () => {
+  const sword = { weaponType: 'oneHandedSword', requiredLevel: 1 };
+  const bow = { weaponType: 'bow', requiredLevel: 1 };
+  const warrior = {
+    progression: { level: 10 },
+    job: { departmentId: 'hr' },
+    stats: { grit: 10, processingSpeed: 10 }
+  };
+  const archer = {
+    progression: { level: 10 },
+    job: { departmentId: 'accounting' },
+    stats: { grit: 10, processingSpeed: 10 }
+  };
+  assert.equal(canEquipWeapon(warrior, sword), true);
+  assert.equal(canEquipWeapon(warrior, bow), false);
+  assert.equal(canEquipWeapon(archer, sword), false);
+  assert.match(getWeaponEquipFailureReason(archer, sword), /전사/);
+});
+
+test('future shared weapons can declare more than one allowed archetype', () => {
+  const sharedWeapon = {
+    weaponType: 'prototypeShared',
+    requirements: {
+      level: 1,
+      stats: {},
+      allowedArchetypes: ['warrior', 'thief']
+    }
+  };
+  assert.equal(canEquipWeapon({
+    progression: { level: 1 },
+    job: { departmentId: 'hr' },
+    stats: {}
+  }, sharedWeapon), true);
+  assert.equal(canEquipWeapon({
+    progression: { level: 1 },
+    job: { departmentId: 'sales' },
+    stats: {}
+  }, sharedWeapon), true);
+  assert.equal(canEquipWeapon({
+    progression: { level: 1 },
+    job: { departmentId: 'accounting' },
+    stats: {}
+  }, sharedWeapon), false);
 });

@@ -6,7 +6,7 @@ const {
   getItemDefinition,
   getInventoryCategory
 } = require('../items/itemCatalog');
-const { canEquipWeapon } = require('../items/weaponRequirements');
+const { getWeaponEquipFailureReason } = require('../items/weaponRequirements');
 
 const DEFAULT_INVENTORY_CAPACITY = 20;
 const MAX_INVENTORY_CAPACITY = 64;
@@ -251,9 +251,8 @@ function equipInventoryWeapon(character, stackId) {
   if (!item || item.category !== 'equipment' || item.itemType !== 'weapon') {
     throw new Error('장착할 무기를 찾을 수 없습니다.');
   }
-  if (!canEquipWeapon(character, item)) {
-    throw new Error('무기 장착 조건을 충족하지 못했습니다.');
-  }
+  const equipFailureReason = getWeaponEquipFailureReason(character, item);
+  if (equipFailureReason) throw new Error(equipFailureReason);
   if (!character.loadout || typeof character.loadout !== 'object') character.loadout = {};
   const previous = character.loadout.weapon;
   if (previous && !getItemDefinition(previous.itemId)) {
