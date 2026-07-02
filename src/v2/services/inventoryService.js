@@ -6,6 +6,7 @@ const {
   getItemDefinition,
   getInventoryCategory
 } = require('../items/itemCatalog');
+const { canEquipWeapon } = require('../items/weaponRequirements');
 
 const DEFAULT_INVENTORY_CAPACITY = 20;
 const MAX_INVENTORY_CAPACITY = 64;
@@ -24,6 +25,7 @@ function markInventoryModified(character) {
   character.markModified('inventory');
   character.markModified('mailbox');
   character.markModified('resources');
+  character.markModified('loadout');
 }
 
 function markMailboxModified(character) {
@@ -237,6 +239,56 @@ function consumeInventoryStack(character, stackId, quantity = 1) {
   if (stack.quantity <= 0) inventory.items.splice(index, 1);
   markInventoryModified(character);
   return { itemId: String(stack.itemId), quantity: consumed };
+}
+
+function equipInventoryWeapon(character, stackId) {
+  const inventory = ensureInventory(character);
+  const stack = inventory.items.find(
+    (entry) => String(entry.stackId) === String(stackId)
+      && Number(entry.quantity) > 0
+  );
+  const item = getItemDefinition(stack?.itemId);
+  if (!item || item.category !== 'equipment' || item.itemType !== 'weapon') {
+    throw new Error('장착할 무기를 찾을 수 없습니다.');
+  }
+  if (!canEquipWeapon(character, item)) {
+    throw new Error('무기 장착 조건을 충족하지 못했습니다.');
+  }
+  if (!character.loadout || typeof character.loadout !== 'object') character.loadout = {};
+  const previous = character.loadout.weapon;
+  if (previous && !getItemDefinition(previous.itemId)) {
+    throw new Error('현재 장착 무기를 먼저 정리해주세요.');
+  }
+
+  const consumed = consumeInventoryStack(character, stack.stackId, 1);
+  if (!consumed) throw new Error('장착할 무기를 찾을 수 없습니다.');
+  if (previous?.itemId) addInventoryItem(character, previous.itemId, 1);
+  character.loadout.weapon = {
+    ...item,
+    itemId: item.id,
+    stats: { ...(item.stats || {}) },
+    requirements: {
+      ...(item.requirements || {}),
+      stats: { ...(item.requirements?.stats || {}) }
+    }
+  };
+  markInventoryModified(character);
+  return {
+    equipped: { ...character.loadout.weapon },
+    unequipped: previous ? { ...previous } : null
+  };
+}
+
+function unequipInventoryWeapon(character) {
+  if (!character.loadout || typeof character.loadout !== 'object') character.loadout = {};
+  const current = character.loadout.weapon;
+  if (!current?.itemId) throw new Error('장착 중인 무기가 없습니다.');
+  const item = getItemDefinition(current.itemId);
+  if (!item) throw new Error('현재 무기 정보를 찾을 수 없습니다.');
+  addInventoryItem(character, item.id, 1);
+  character.loadout.weapon = null;
+  markInventoryModified(character);
+  return { unequipped: { ...current } };
 }
 
 function assignPotionQuickSlot(character, slot, itemId) {
@@ -494,6 +546,8 @@ module.exports = {
   addInventoryItem,
   consumeInventoryItem,
   consumeInventoryStack,
+  equipInventoryWeapon,
+  unequipInventoryWeapon,
   assignPotionQuickSlot,
   setPotionAutoThreshold,
   useQuickSlotPotion,

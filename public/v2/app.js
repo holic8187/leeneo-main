@@ -17,6 +17,7 @@ const state = {
   combatAttackCount: 0,
   equipmentTab: 'weapon',
   selectedDepartmentId: '',
+  selectedJobChangeDepartmentId: '',
   signupCodeConfigured: false,
   signupCodeValid: false,
   signupValidationRequest: 0,
@@ -49,6 +50,7 @@ const state = {
   inventoryTab: 'consumable',
   inventoryPage: 0,
   inventoryExpansionPrompt: false,
+  jobChangePrompt: false,
   mailbox: [],
   pendingMailCount: 0,
   mailPollTimer: null,
@@ -754,7 +756,12 @@ async function playWorldMotion(motion, kind, runId) {
   }
   if (motion === 'hit') character.classList.add('damage-flash');
 
-  await sleep(motion === 'buff' ? 300 : 720);
+  const isWeaponAttack = ['slash', 'shoot', 'throw', 'staff-swing'].includes(motion);
+  const motionDuration = motion === 'buff'
+    ? 300
+    : Math.max(180, Math.round(720 / (isWeaponAttack ? getAttackSpeedMultiplier() : 1)));
+  character.style.setProperty('--combat-motion-duration', `${motionDuration}ms`);
+  await sleep(motionDuration);
   monster?.classList.remove('is-hit');
   projectile.className = 'attack-projectile';
   character.classList.remove('damage-flash');
@@ -918,7 +925,11 @@ function getAttackSpeedMultiplier() {
   const stage = Math.max(1, Number(state.character?.derivedStats?.attackSpeedStage)
     || Number(state.character?.skillEffects?.attackSpeedStage)
     || 1);
-  return 1 + (stage - 1) * 0.2;
+  const weaponMultiplier = Math.max(
+    0.1,
+    Number(state.character?.derivedStats?.attackSpeedMultiplier) || 1
+  );
+  return (1 + (stage - 1) * 0.2) * weaponMultiplier;
 }
 
 async function runAutoCombat(runId) {
@@ -1431,9 +1442,14 @@ function inventorySlotBody(item, slotNumber, locked = false) {
   if (!item) {
     return `<div class="inventory-slot is-empty"><span>${slotNumber}</span></div>`;
   }
-  const usable = item.itemType === 'inventory-expansion'
-    ? '<button class="inventory-item-use" type="button" data-use-expansion-ticket>사용</button>'
-    : '';
+  let usable = '';
+  if (item.itemType === 'inventory-expansion') {
+    usable = '<button class="inventory-item-use" type="button" data-use-expansion-ticket>사용</button>';
+  } else if (item.itemType === 'job-change') {
+    usable = '<button class="inventory-item-use" type="button" data-use-job-change-ticket>사용</button>';
+  } else if (item.itemType === 'weapon') {
+    usable = `<button class="inventory-item-use" type="button" data-equip-inventory-weapon="${escapeHtml(item.stackId)}">장착</button>`;
+  }
   return `<article class="inventory-slot has-item" tabindex="0">
     <span class="inventory-slot-number">${slotNumber}</span>
     <div class="inventory-item-icon" aria-hidden="true">${escapeHtml(item.icon || '📦')}</div>
@@ -1464,6 +1480,33 @@ function inventoryExpansionPanel() {
         </button>`;
       }).join('')}
       <button class="secondary-action" type="button" data-cancel-expansion>취소</button>
+    </div>
+  </section>`;
+}
+
+function jobChangePanel() {
+  if (!state.jobChangePrompt) return '';
+  const currentDepartment = state.character?.job?.departmentId;
+  const departments = (state.meta?.departments || []).filter(
+    (department) => department.id !== 'unassigned'
+  );
+  return `<section class="job-change-panel">
+    <header>
+      <strong>이직할 부서 선택</strong>
+      <small>스탯과 스킬 포인트는 모두 반환되며 현재 전직 차수는 유지됩니다.</small>
+    </header>
+    <div class="job-change-options">
+      ${departments.map((department) => `<button type="button"
+        class="${state.selectedJobChangeDepartmentId === department.id ? 'is-selected' : ''}"
+        data-job-change-department="${escapeHtml(department.id)}"
+        ${department.id === currentDepartment ? 'disabled' : ''}>
+        <strong>${escapeHtml(department.name)}</strong>
+        <small>${escapeHtml(department.jobs?.[Math.max(0, Number(state.character?.job?.advancementTier || 1) - 1)] || department.archetype)}</small>
+      </button>`).join('')}
+    </div>
+    <div class="job-change-actions">
+      <button type="button" data-confirm-job-change ${state.selectedJobChangeDepartmentId ? '' : 'disabled'}>이직 확정</button>
+      <button class="secondary-action" type="button" data-cancel-job-change>취소</button>
     </div>
   </section>`;
 }
@@ -1501,6 +1544,7 @@ function inventoryBody() {
       }).join('')}
     </div>
     ${inventoryExpansionPanel()}
+    ${jobChangePanel()}
     <div class="inventory-page-heading">
       <div><span>${escapeHtml(category.icon)}</span><strong>${escapeHtml(category.label)} 인벤토리</strong></div>
       <small>${formatNumber(category.usedSlots)}칸 사용 / ${formatNumber(capacity)}칸</small>
@@ -1558,6 +1602,26 @@ function bindInventoryControls() {
     });
   });
   document.querySelector('[data-use-expansion-ticket]')?.addEventListener('click', openInventoryExpansionChoice);
+  document.querySelector('[data-use-job-change-ticket]')?.addEventListener('click', () => {
+    state.jobChangePrompt = true;
+    state.selectedJobChangeDepartmentId = '';
+    rerenderInventory();
+  });
+  document.querySelectorAll('[data-job-change-department]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.selectedJobChangeDepartmentId = button.dataset.jobChangeDepartment;
+      rerenderInventory();
+    });
+  });
+  document.querySelector('[data-confirm-job-change]')?.addEventListener('click', useJobChangeTicket);
+  document.querySelector('[data-cancel-job-change]')?.addEventListener('click', () => {
+    state.jobChangePrompt = false;
+    state.selectedJobChangeDepartmentId = '';
+    rerenderInventory();
+  });
+  document.querySelectorAll('[data-equip-inventory-weapon]').forEach((button) => {
+    button.addEventListener('click', () => equipInventoryWeapon(button.dataset.equipInventoryWeapon));
+  });
   document.querySelectorAll('[data-expand-inventory]').forEach((button) => {
     button.addEventListener('click', () => expandInventory(button.dataset.expandInventory));
   });
@@ -1565,6 +1629,58 @@ function bindInventoryControls() {
     state.inventoryExpansionPrompt = false;
     rerenderInventory();
   });
+}
+
+async function useJobChangeTicket() {
+  if (!state.selectedJobChangeDepartmentId) return;
+  try {
+    const data = await request('/api/v2/inventory/use-job-change', {
+      method: 'POST',
+      body: JSON.stringify({ departmentId: state.selectedJobChangeDepartmentId })
+    });
+    state.character = data.character;
+    setInventoryData(data.inventory);
+    state.jobChangePrompt = false;
+    state.selectedJobChangeDepartmentId = '';
+    renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
+    rerenderInventory();
+    setWorldActivity(`${data.jobChange.departmentName}으로 이직했습니다. 스탯과 스킬 포인트가 반환되었습니다.`);
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+async function equipInventoryWeapon(stackId) {
+  try {
+    const data = await request('/api/v2/equipment/equip', {
+      method: 'POST',
+      body: JSON.stringify({ stackId })
+    });
+    state.character = data.character;
+    setInventoryData(data.inventory);
+    renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
+    rerenderInventory();
+    setWorldActivity(`${data.equipment.equipped.name}을(를) 장착했습니다.`);
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+async function unequipCurrentWeapon() {
+  try {
+    const data = await request('/api/v2/equipment/unequip', {
+      method: 'POST',
+      body: JSON.stringify({})
+    });
+    state.character = data.character;
+    setInventoryData(data.inventory);
+    renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
+    $('featureBody').innerHTML = equipmentBody();
+    bindEquipmentTabs();
+    setWorldActivity(`${data.equipment.unequipped.name}을(를) 해제했습니다.`);
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
 }
 
 function potionConfigurationBody() {
@@ -1882,12 +1998,13 @@ function equipmentBody() {
         <small>${item ? equipmentStatText(item) : '현재 장착한 장비가 없습니다.'}</small>
       </div>
       <i>${item ? 'EQUIPPED' : 'EMPTY'}</i>
+      ${slot.key === 'weapon' && item ? '<button type="button" data-unequip-weapon>해제</button>' : ''}
     </article>`;
   }).join('');
   return `<div class="equipment-sheet">
     <div class="equipment-tabs" role="tablist">${tabs}</div>
     <div class="equipment-slots">${slots}</div>
-    <p class="notice-line">현재 장착 상태를 확인하는 화면입니다. 장비 장착과 해제는 인벤토리 구현 단계에서 연결됩니다.</p>
+    <p class="notice-line">무기는 인벤토리 장비 탭에서 장착합니다. 무기 종류별 무기상수와 공격속도가 능력치 및 전투에 적용됩니다.</p>
   </div>`;
 }
 
@@ -1899,6 +2016,7 @@ function bindEquipmentTabs() {
       bindEquipmentTabs();
     });
   });
+  document.querySelector('[data-unequip-weapon]')?.addEventListener('click', unequipCurrentWeapon);
 }
 
 function questBody() {

@@ -53,12 +53,88 @@ function renderSkillQuickbar() {
   const preset = tree?.activePreset || [];
   quickbar.innerHTML = Array.from({ length: 10 }, (_, index) => {
     const skill = definitions.get(preset[index]);
-    return `<button class="skill-quick ${skill ? 'has-skill' : ''}" type="button" data-use-skill="${escapeHtml(skill?.id || '')}" ${skill ? '' : 'disabled'}>
+    return `<button class="skill-quick ${skill ? 'has-skill' : ''}" type="button"
+      ${skill ? `data-use-skill="${escapeHtml(skill.id)}"` : `data-empty-skill-slot="${index}"`}>
       <b>${index + 1}</b><strong>${escapeHtml(skill?.name || '비어 있음')}</strong><small>${skill ? `Lv.${formatNumber(skill.level)}` : 'ACTIVE'}</small>
     </button>`;
-  }).join('');
+  }).join('') + '<button class="skill-preset-edit" type="button" data-open-skill-preset>스킬 등록/해제</button>';
   quickbar.querySelectorAll('[data-use-skill]').forEach((button) => {
     button.addEventListener('click', () => useActiveSkill(button.dataset.useSkill));
+  });
+  quickbar.querySelectorAll('[data-empty-skill-slot]').forEach((button) => {
+    button.addEventListener('click', () => openSkillPresetEditor(Number(button.dataset.emptySkillSlot)));
+  });
+  quickbar.querySelector('[data-open-skill-preset]')?.addEventListener('click', () => openSkillPresetEditor());
+}
+
+function buildSkillPresetEditor(preferredSlot = null) {
+  const tree = state.character?.skillTree;
+  const preset = tree?.activePreset || [];
+  const activeSkills = (tree?.skills || []).filter((skill) => !skill.passive && skill.level > 0);
+  const guide = Number.isInteger(preferredSlot)
+    ? `${preferredSlot + 1}번 빈 슬롯에 등록할 스킬을 선택하세요.`
+    : '배운 액티브 스킬을 최대 10개까지 등록하거나 해제할 수 있습니다.';
+  const cards = activeSkills.length
+    ? activeSkills.map((skill) => {
+      const presetIndex = preset.indexOf(skill.id);
+      const registered = presetIndex >= 0;
+      return `<article class="skill-preset-card ${registered ? 'is-registered' : ''}">
+        <div>
+          <span>${registered ? `${presetIndex + 1}번 슬롯` : '미등록'}</span>
+          <strong>${escapeHtml(skill.name)} <small>Lv.${formatNumber(skill.level)}</small></strong>
+          <p>${escapeHtml(skill.description || '스킬 설명이 없습니다.')}</p>
+        </div>
+        <button type="button" data-preset-choice="${escapeHtml(skill.id)}">${registered ? '해제' : '등록'}</button>
+      </article>`;
+    }).join('')
+    : '<div class="empty-ledger"><b>등록할 수 있는 액티브 스킬이 없습니다.</b><p>스킬 포인트를 투자해 액티브 스킬을 먼저 배우세요.</p></div>';
+  return `<div class="skill-preset-editor">
+    <header><strong>스킬 퀵슬롯 관리</strong><p>${guide}</p></header>
+    <div class="skill-preset-list">${cards}</div>
+  </div>`;
+}
+
+function openSkillPresetEditor(preferredSlot = null) {
+  $('featureCode').textContent = 'QUICK SLOT';
+  $('featureTitle').textContent = '스킬 등록/해제';
+  $('featureBody').innerHTML = buildSkillPresetEditor(preferredSlot);
+  $('featureModal').classList.remove('hidden');
+  document.body.classList.add('modal-open');
+  bindSkillPresetEditor(preferredSlot);
+}
+
+async function updateSkillPreset(skillId, preferredSlot = null) {
+  const current = [...(state.character?.skillTree?.activePreset || [])];
+  const existingIndex = current.indexOf(skillId);
+  let skillIds;
+  if (existingIndex >= 0) {
+    skillIds = current.filter((id) => id !== skillId);
+  } else if (current.length >= 10 && !Number.isInteger(preferredSlot)) {
+    setWorldActivity('액티브 스킬은 최대 10개까지 등록할 수 있습니다.');
+    return;
+  } else if (Number.isInteger(preferredSlot) && preferredSlot < current.length) {
+    skillIds = [...current];
+    skillIds[preferredSlot] = skillId;
+  } else {
+    skillIds = [...current, skillId];
+  }
+  try {
+    const data = await request('/api/v2/skills/preset', {
+      method: 'POST',
+      body: JSON.stringify({ skillIds })
+    });
+    state.character = data.character;
+    renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
+    $('featureBody').innerHTML = buildSkillPresetEditor(preferredSlot);
+    bindSkillPresetEditor(preferredSlot);
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+function bindSkillPresetEditor(preferredSlot = null) {
+  document.querySelectorAll('[data-preset-choice]').forEach((button) => {
+    button.addEventListener('click', () => updateSkillPreset(button.dataset.presetChoice, preferredSlot));
   });
 }
 

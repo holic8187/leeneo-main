@@ -36,6 +36,43 @@ test('derived stats use equipped weapon, loadout totals, and base movement speed
   assert.equal(result.evasion, 12.25);
   assert.equal(result.movementSpeed, 105);
   assert.equal(result.weaponType, 'twoHandedSword');
+  assert.equal(result.weaponConstant, 4.6);
+  assert.equal(result.weaponMastery, 50);
+  assert.equal(result.attackSpeedMultiplier, 1);
+});
+
+test('warrior weapon constants produce different attack ranges from identical stats and attack', () => {
+  const common = {
+    progression: { level: 30 },
+    stats: { grit: 40, processingSpeed: 15, workKnowledge: 4, awareness: 4 },
+    job: { departmentId: 'hr', advancementTier: 2 }
+  };
+  const sword = buildDerivedStats({
+    ...common,
+    loadout: {
+      weapon: {
+        weaponType: 'oneHandedSword',
+        attackSpeedMultiplier: 1.2,
+        stats: { attack: 20, mastery: 60 }
+      }
+    }
+  });
+  const spear = buildDerivedStats({
+    ...common,
+    loadout: {
+      weapon: {
+        weaponType: 'spear',
+        attackSpeedMultiplier: 0.6,
+        stats: { attack: 20, mastery: 60 }
+      }
+    }
+  });
+  assert.equal(sword.weaponConstant, 4);
+  assert.equal(spear.weaponConstant, 5);
+  assert.equal(sword.attackMaximum, 35);
+  assert.equal(spear.attackMaximum, 43);
+  assert.equal(sword.attackSpeedMultiplier, 1.2);
+  assert.equal(spear.attackSpeedMultiplier, 0.6);
 });
 
 test('level one base stats produce four attack, magic, defense, and evasion', () => {

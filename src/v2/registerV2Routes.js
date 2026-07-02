@@ -46,6 +46,8 @@ const {
   setPotionAutoThreshold,
   useQuickSlotPotion,
   useInventoryExpansionTicket,
+  equipInventoryWeapon,
+  unequipInventoryWeapon,
   buildInventoryView,
   createAdminMail,
   serializeMail,
@@ -54,6 +56,7 @@ const {
   claimMail,
   claimAllMail
 } = require('./services/inventoryService');
+const { changeDepartment } = require('./services/jobChangeService');
 const {
   buyShopItem,
   sellInventoryStack,
@@ -844,6 +847,73 @@ function registerV2Routes({
       return res.json({ success: true, ...result });
     } catch (err) {
       return res.status(400).json({ msg: err.message || '인벤토리를 확장하지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/inventory/use-job-change', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const result = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        const jobChange = changeDepartment(character, req.body?.departmentId);
+        await character.save();
+        worldProfileCache.delete(String(auth.id));
+        updatePlayerResources(auth.id, character.resources);
+        return {
+          jobChange,
+          character: buildCharacterResponse(character),
+          inventory: buildInventoryView(character)
+        };
+      });
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '보직을 변경하지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/equipment/equip', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const result = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        const equipment = equipInventoryWeapon(character, req.body?.stackId);
+        await character.save();
+        worldProfileCache.delete(String(auth.id));
+        return {
+          equipment,
+          character: buildCharacterResponse(character),
+          inventory: buildInventoryView(character)
+        };
+      });
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '무기를 장착하지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/equipment/unequip', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const result = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        const equipment = unequipInventoryWeapon(character);
+        await character.save();
+        worldProfileCache.delete(String(auth.id));
+        return {
+          equipment,
+          character: buildCharacterResponse(character),
+          inventory: buildInventoryView(character)
+        };
+      });
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '무기를 해제하지 못했습니다.' });
     }
   });
 

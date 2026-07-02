@@ -44,6 +44,57 @@ const PERCENT_KEYS = new Set([
   'damagePerComboPercent', 'doubleChargeChance', 'stanceChance'
 ]);
 
+const SKILL_ROLE_DESCRIPTIONS = Object.freeze({
+  recovery_improvement: '일정 주기마다 최대 체력의 일부를 회복하는 패시브입니다.',
+  hp_growth_improvement: '레벨업과 스탯 투자로 증가하는 최대 체력을 추가로 높이는 성장 패시브입니다.',
+  endure: '움직이거나 공격하지 않을 때 일정 주기마다 체력을 회복합니다.',
+  iron_body: '정신력을 소모해 일정 시간 자신의 방어력을 높입니다.',
+  power_strike: '전방의 단일 적에게 강한 물리 공격을 가합니다.',
+  scratch: '전방 범위 안의 여러 적을 한 번에 공격합니다.',
+  sword_mastery: '한손검과 두손검의 숙련도와 명중률을 높이는 패시브입니다.',
+  axe_mastery: '도끼와 둔기 계열 무기의 숙련도와 명중률을 높이는 패시브입니다.',
+  double_strike_hr: '공격 후 일정 확률로 추가 공격을 연속 발동하는 패시브입니다.',
+  booster_hr: '체력과 정신력을 소모해 일정 시간 무기 공격속도를 높입니다.',
+  rage: '일정 시간 파티 전원의 공격력을 높이는 대신 방어력을 낮춥니다.',
+  shoulder_charge: '몬스터와 충돌해 받은 피해의 일부를 되돌려주는 효과를 부여합니다.',
+  strong_mind: '일정 주기마다 정신력을 자동으로 회복하는 패시브입니다.',
+  shield_mastery: '장착한 방패가 제공하는 방어력을 높이는 패시브입니다.',
+  combo_attack: '공격할 때 콤보를 쌓고 콤보 수에 비례해 피해를 높이는 버프입니다.',
+  panic: '보유한 콤보를 모두 소비해 단일 적에게 강력한 공격을 가합니다.',
+  coma: '콤보 하나를 소비해 주변 적들을 공격하고 일정 확률로 기절시킵니다.',
+  smash_buff: '단일 적의 방어력 증가 효과를 일정 확률로 제거합니다.',
+  shout: '주변의 여러 적을 공격하고 일정 확률로 기절시킵니다.',
+  come_here_hr: '전방의 적들을 자신의 앞으로 끌어당깁니다.',
+  firm_will_hr: '일정 시간 피격 시 뒤로 밀려나는 현상을 확률적으로 막습니다.',
+  upgraded_combo: '최대 콤보 수를 늘리고 콤보가 두 개 쌓일 확률을 부여합니다.',
+  sturdy_body_hr: '적에게 받는 모든 피해를 상시 감소시키는 패시브입니다.',
+  blocked_it: '방패 착용 중 일정 확률로 피해를 막고 잠시 무적이 됩니다.',
+  charge_hr: '전방으로 돌진하며 경로상의 적들을 밀고 피해를 줍니다.',
+  double_attack: '전방의 적 최대 3명을 빠르게 두 번 공격합니다.',
+  true_rage: '콤보 10개를 소비해 일정 시간 자신의 공격력을 크게 높입니다.',
+  spear_mastery: '창의 숙련도와 명중률을 높이는 패시브입니다.',
+  polearm_mastery: '폴암의 숙련도와 명중률을 높이는 패시브입니다.',
+  double_strike_quality: '공격 후 일정 확률로 추가 공격을 연속 발동하는 패시브입니다.',
+  booster_quality: '체력과 정신력을 소모해 일정 시간 무기 공격속도를 높입니다.',
+  iron_wall: '일정 시간 파티 전원의 방어력을 높입니다.',
+  quality_inspection: '일정 시간 파티 전원의 최대 체력과 최대 정신력을 높입니다.',
+  pride: '적으로부터 받는 모든 피해를 상시 감소시키는 패시브입니다.',
+  quality_improvement: '전방의 여러 적을 여러 차례 공격하며 레벨에 따라 대상과 타격 수가 늘어납니다.',
+  reprimand: '체력과 정신력을 소모해 전방 다수의 적에게 강한 일격을 가합니다.',
+  sacrifice: '자신의 체력을 일부 희생해 단일 적의 방어력을 무시하는 공격을 가합니다.',
+  presentation: '넓은 범위의 다수 적을 공격한 뒤 잠시 행동할 수 없게 되는 광역기입니다.',
+  criticism: '단일 적의 공격력 증가 효과를 일정 확률로 제거합니다.',
+  bleeding_endurance: '일정 시간 공격력이 상승하지만 주기적으로 자신의 체력을 소모합니다.',
+  come_here_quality: '전방의 적들을 자신의 앞으로 끌어당깁니다.',
+  firm_will_quality: '일정 시간 피격 시 뒤로 밀려나는 현상을 확률적으로 막습니다.',
+  charge_quality: '전방으로 돌진하며 경로상의 적들을 밀고 피해를 줍니다.',
+  sturdy_body_quality: '적에게 받는 모든 피해를 상시 감소시키는 패시브입니다.',
+  firmness: '체력이 일정 비율 이하일 때 자신이 입히는 피해가 증가하는 패시브입니다.',
+  small_companion: '작은 동반자를 소환해 유지되는 동안 무기 숙련도를 높입니다.',
+  companion_heal: '동반자가 소환된 동안 일정 주기마다 체력을 회복시키는 패시브입니다.',
+  companion_buff: '동반자가 주기적으로 방어력, 명중률, 회피율 버프를 부여합니다.'
+});
+
 function ensureSkillState(character) {
   if (!character.skills || typeof character.skills !== 'object') character.skills = {};
   const skills = character.skills;
@@ -173,10 +224,15 @@ function formatValue(key, value) {
 }
 
 function describeSkill(definition, values) {
-  return Object.entries(values)
+  const coefficients = Object.entries(values)
     .filter(([key]) => VALUE_LABELS[key])
     .map(([key, value]) => `${VALUE_LABELS[key]} ${formatValue(key, value)}`)
     .join(' · ');
+  const role = SKILL_ROLE_DESCRIPTIONS[definition.id]
+    || (definition.passive
+      ? '조건을 만족하면 자동으로 적용되는 패시브 스킬입니다.'
+      : '직접 사용해 효과를 발동하는 액티브 스킬입니다.');
+  return coefficients ? `${role} 현재 효과: ${coefficients}` : role;
 }
 
 function pruneExpiredSkillState(character, now = Date.now()) {

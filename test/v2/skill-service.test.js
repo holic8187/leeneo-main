@@ -36,6 +36,14 @@ test('quoted skill values interpolate from level one through master level', () =
   assert.ok(resolveSkillValues(definition, 10).damagePercent > 114);
 });
 
+test('skill tree descriptions explain the role before listing current coefficients', () => {
+  const character = makeCharacter();
+  character.skills.levels.power_strike = 1;
+  const skill = buildSkillTree(character).skills.find((entry) => entry.id === 'power_strike');
+  assert.match(skill.description, /단일 적/);
+  assert.match(skill.description, /현재 효과/);
+});
+
 test('prerequisites and previous-tier SP gates are enforced', () => {
   const character = makeCharacter();
   ensureSkillState(character);

@@ -13,7 +13,9 @@ const {
   purgeExpiredMail,
   getPendingMail,
   claimMail,
-  getMaxStackSize
+  getMaxStackSize,
+  equipInventoryWeapon,
+  unequipInventoryWeapon
 } = require('../../src/v2/services/inventoryService');
 const {
   buyShopItem,
@@ -127,4 +129,21 @@ test('shop purchases and sales update money and inventory atomically', () => {
   assert.equal(sale.totalPrice, 25);
   assert.equal(sale.money, 925);
   assert.equal(sale.inventory.categories.consumable.items[0].quantity, 1);
+});
+
+test('admin event weapons occupy one slot and can be equipped and returned', () => {
+  const character = characterFixture();
+  character.progression = { level: 30 };
+  character.stats = { grit: 40, processingSpeed: 15, workKnowledge: 4, awareness: 4 };
+  character.loadout = { weapon: null };
+  addInventoryItem(character, 'event_spear', 1);
+  const stack = buildInventoryView(character).categories.equipment.items[0];
+  const equipped = equipInventoryWeapon(character, stack.stackId);
+  assert.equal(equipped.equipped.weaponType, 'spear');
+  assert.equal(equipped.equipped.stats.attack, 20);
+  assert.equal(equipped.equipped.attackSpeedMultiplier, 0.6);
+  assert.equal(buildInventoryView(character).categories.equipment.items.length, 0);
+  unequipInventoryWeapon(character);
+  assert.equal(character.loadout.weapon, null);
+  assert.equal(buildInventoryView(character).categories.equipment.items[0].id, 'event_spear');
 });
