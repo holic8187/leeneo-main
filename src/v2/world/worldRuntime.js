@@ -353,6 +353,51 @@ function releaseWorldControl(userId, clientId) {
   return true;
 }
 
+function buildPassiveRecoverySchedule({
+  previous,
+  activity,
+  currentHp,
+  maxHp,
+  periodicHealPercent,
+  periodicHealIntervalMs,
+  idleHealAmount,
+  idleHealIntervalMs,
+  now
+}) {
+  const schedule = {
+    periodicAt: Number(previous?.passiveRecoverySchedule?.periodicAt) || now,
+    idleAt: Number(previous?.passiveRecoverySchedule?.idleAt) || now
+  };
+  let healAmount = 0;
+  const periodicInterval = Math.max(0, Number(periodicHealIntervalMs) || 0);
+  if (Number(periodicHealPercent) > 0 && periodicInterval > 0) {
+    const ticks = Math.floor((now - schedule.periodicAt) / periodicInterval);
+    if (ticks > 0) {
+      schedule.periodicAt += ticks * periodicInterval;
+      healAmount += ticks * Math.max(1, Math.floor(maxHp * Number(periodicHealPercent) / 100));
+    }
+  } else {
+    schedule.periodicAt = now;
+  }
+
+  const idleInterval = Math.max(0, Number(idleHealIntervalMs) || 0);
+  if (activity !== 'idle') {
+    schedule.idleAt = now;
+  } else if (previous?.activity !== 'idle') {
+    schedule.idleAt = now;
+  } else if (Number(idleHealAmount) > 0 && idleInterval > 0) {
+    const ticks = Math.floor((now - schedule.idleAt) / idleInterval);
+    if (ticks > 0) {
+      schedule.idleAt += ticks * idleInterval;
+      healAmount += ticks * Math.max(0, Math.floor(Number(idleHealAmount) || 0));
+    }
+  }
+  return {
+    schedule,
+    healAmount: currentHp > 0 && currentHp < maxHp ? healAmount : 0
+  };
+}
+
 function updatePresence({
   userId,
   nickname,
@@ -374,6 +419,10 @@ function updatePresence({
   stanceChance,
   contactReflectPercent,
   contactReflectCapPercent,
+  periodicHealPercent,
+  periodicHealIntervalMs,
+  idleHealAmount,
+  idleHealIntervalMs,
   now = Date.now()
 }) {
   cleanupInactiveMaps(now);
@@ -387,18 +436,32 @@ function updatePresence({
   }
   const previous = runtime.players.get(userId);
   const resolvedHp = Math.max(0, Number(previous?.currentHp ?? currentHp) || 0);
+  const resolvedMaxHp = Math.max(1, Number(previous?.maxHp ?? maxHp) || 120);
+  const resolvedActivity = resolvedHp <= 0
+    ? 'dead'
+    : (['idle', 'moving', 'combat'].includes(activity) ? activity : 'idle');
+  const recovery = buildPassiveRecoverySchedule({
+    previous,
+    activity: resolvedActivity,
+    currentHp: resolvedHp,
+    maxHp: resolvedMaxHp,
+    periodicHealPercent,
+    periodicHealIntervalMs,
+    idleHealAmount,
+    idleHealIntervalMs,
+    now
+  });
   runtime.players.set(userId, {
     userId,
     nickname: String(nickname || '사원').slice(0, 16),
     x: clamp(x, 0, 94),
     floor: Number(floor) === 1 ? 1 : 0,
-    activity: resolvedHp <= 0
-      ? 'dead'
-      : (['idle', 'moving', 'combat'].includes(activity) ? activity : 'idle'),
+    activity: resolvedActivity,
     motion: resolvedHp <= 0 ? 'dead' : String(motion || ''),
     facingLeft: Boolean(facingLeft),
     currentHp: resolvedHp,
-    maxHp: Math.max(1, Number(previous?.maxHp ?? maxHp) || 120),
+    maxHp: resolvedMaxHp,
+    passiveRecoverySchedule: recovery.schedule,
     lastContactAt: previous?.lastContactAt || 0,
     invulnerableUntil: previous?.invulnerableUntil || 0,
     combatProfile: {
@@ -437,11 +500,15 @@ function updatePresence({
     lastSeenAt: now
   });
   const contactEvents = tickRuntime(runtime, now);
+  const recoveryEvents = recovery.healAmount > 0
+    ? [{ userId: String(userId), amount: recovery.healAmount }]
+    : [];
   return {
     mapId,
     players: Array.from(runtime.players.values()).map(serializePlayer),
     monsters: runtime.monsters.filter((monster) => monster.hp > 0).map(serializeMonster),
     contactEvents,
+    recoveryEvents,
     lootCollections: collectDueLoot(runtime, userId, now)
   };
 }

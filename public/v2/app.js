@@ -155,6 +155,7 @@ function renderGame(data) {
 
   if (character.inventory) setInventoryData(character.inventory);
   renderSkillQuickbar();
+  renderCombatBuffTray();
   renderCompanion();
   if (Number.isFinite(Number(character.pendingMailCount))) {
     updateMailButton(Number(character.pendingMailCount));
@@ -1240,6 +1241,12 @@ function renderWorldEntities(data = {}) {
     if (Number(ownContact.currentHp) > 0) {
       setWorldActivity(`몸박 피해 -${formatNumber(ownContact.damage)} · 1.5초 무적`);
     }
+  }
+  const ownRecovery = (data.recoveryEvents || []).find(
+    (event) => event.userId === state.selfUserId && Number(event.healed) > 0
+  );
+  if (ownRecovery && !ownContact) {
+    setWorldActivity(`패시브 체력 회복 +${formatNumber(ownRecovery.healed)}`);
   }
   collectGroundLoot(data.lootCollections || []);
   maybeUseAutoPotions();

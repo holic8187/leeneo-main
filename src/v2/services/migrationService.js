@@ -26,6 +26,7 @@ const {
   applyReferenceResources
 } = require('../progression/resourceGrowth');
 const { buildInventoryView, getPendingMail } = require('./inventoryService');
+const { reconcileHpGrowthSkillBonus } = require('./hpGrowthBonusService');
 
 const MIGRATION_VERSION = 1;
 const TEMPORARY_RESOURCE_DEFAULTS = Object.freeze({
@@ -309,9 +310,12 @@ async function ensureV2CharacterFoundation(character) {
       advancementTier: character.job?.advancementTier,
       archetype: department?.archetype || 'beginner'
     });
+    character.resources.hpGrowthSkillBonus = 0;
     applyReferenceResources(character, reference);
     changed = true;
   }
+  const hpGrowth = reconcileHpGrowthSkillBonus(character);
+  if (hpGrowth.delta !== 0) changed = true;
 
   if (changed) await character.save();
   return character;

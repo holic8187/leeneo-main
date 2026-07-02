@@ -1,6 +1,6 @@
 'use strict';
 
-const RESOURCE_GROWTH_VERSION = 1;
+const RESOURCE_GROWTH_VERSION = 2;
 const BASE_STATS = Object.freeze({
   grit: 4,
   processingSpeed: 4,
@@ -8,14 +8,7 @@ const BASE_STATS = Object.freeze({
   awareness: 4
 });
 
-const WARRIOR_LEVEL_ANCHORS = Object.freeze({
-  10: Object.freeze({ maxHp: 400, maxMp: 104 }),
-  11: Object.freeze({ maxHp: 426, maxMp: 109 }),
-  12: Object.freeze({ maxHp: 452, maxMp: 114 }),
-  13: Object.freeze({ maxHp: 486, maxMp: 119 }),
-  14: Object.freeze({ maxHp: 530, maxMp: 124 }),
-  15: Object.freeze({ maxHp: 588, maxMp: 129 })
-});
+const WARRIOR_FIRST_ADVANCEMENT_RESOURCES = Object.freeze({ maxHp: 400, maxMp: 104 });
 
 const SECOND_ADVANCEMENT_BONUSES = Object.freeze({
   hr: Object.freeze({ maxHp: 330, maxMp: 0 }),
@@ -48,12 +41,11 @@ function getBeginnerResources(level) {
 function getWarriorResources(level) {
   const safeLevel = normalizeLevel(level);
   if (safeLevel < 10) return getBeginnerResources(safeLevel);
-  if (WARRIOR_LEVEL_ANCHORS[safeLevel]) {
-    return { ...WARRIOR_LEVEL_ANCHORS[safeLevel], provisional: false };
-  }
   return {
-    maxHp: WARRIOR_LEVEL_ANCHORS[15].maxHp + (safeLevel - 15) * 66,
-    maxMp: WARRIOR_LEVEL_ANCHORS[15].maxMp + (safeLevel - 15) * 5,
+    // HP growth improvement is reconciled separately so late learners receive
+    // the same retroactive benefit without embedding the passive twice.
+    maxHp: WARRIOR_FIRST_ADVANCEMENT_RESOURCES.maxHp + (safeLevel - 10) * 26,
+    maxMp: WARRIOR_FIRST_ADVANCEMENT_RESOURCES.maxMp + (safeLevel - 10) * 5,
     provisional: false
   };
 }
@@ -166,6 +158,7 @@ function applyLevelGrowth(character, {
 module.exports = {
   RESOURCE_GROWTH_VERSION,
   BASE_STATS,
+  WARRIOR_FIRST_ADVANCEMENT_RESOURCES,
   SECOND_ADVANCEMENT_BONUSES,
   calculateReferenceResources,
   applyReferenceResources,

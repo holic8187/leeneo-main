@@ -109,3 +109,20 @@ test('combat passives and active combo buffs are exposed to the field runtime', 
   assert.equal(effects.comboEnabled, 1);
   assert.equal(effects.comboDamagePerCount, 20);
 });
+
+test('active buffs expose duration and tooltip data for the combat buff tray', () => {
+  const character = makeCharacter();
+  character.skills.levels.iron_body = 1;
+  character.skills.activeBuffs = [{
+    skillId: 'iron_body',
+    name: '강철몸',
+    effects: { defenseIncrease: 3 },
+    createdAt: new Date(Date.now() - 1_000),
+    expiresAt: new Date(Date.now() + 10_000)
+  }];
+  const tree = buildSkillTree(character);
+  assert.equal(tree.activeBuffs.length, 1);
+  assert.equal(tree.activeBuffs[0].name, '강철몸');
+  assert.match(tree.activeBuffs[0].description, /방어력/);
+  assert.ok(tree.activeBuffs[0].durationMs >= 10_000);
+});

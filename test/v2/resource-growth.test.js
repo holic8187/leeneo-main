@@ -9,20 +9,20 @@ const {
 test('beginner resource averages match the supplied level 1 through 10 table', () => {
   assert.deepEqual(
     calculateReferenceResources({ level: 1 }),
-    { maxHp: 50, maxMp: 5, provisional: false, growthVersion: 1 }
+    { maxHp: 50, maxMp: 5, provisional: false, growthVersion: 2 }
   );
   assert.equal(calculateReferenceResources({ level: 10 }).maxHp, 176);
   assert.equal(calculateReferenceResources({ level: 10 }).maxMp, 104);
 });
 
-test('warrior reference follows HP growth mastery anchors and second advancement bonuses', () => {
+test('warrior reference excludes the separately reconciled HP growth passive', () => {
   const firstJob = calculateReferenceResources({
     level: 30,
     departmentId: 'hr',
     advancementTier: 1,
     archetype: 'warrior'
   });
-  assert.equal(firstJob.maxHp, 1578);
+  assert.equal(firstJob.maxHp, 920);
   assert.equal(firstJob.maxMp, 204);
 
   const talentManager = calculateReferenceResources({
@@ -31,7 +31,7 @@ test('warrior reference follows HP growth mastery anchors and second advancement
     advancementTier: 2,
     archetype: 'warrior'
   });
-  assert.equal(talentManager.maxHp, 1908);
+  assert.equal(talentManager.maxHp, 1250);
   assert.equal(talentManager.maxMp, 204);
 
   const fieldWorker = calculateReferenceResources({
@@ -40,7 +40,7 @@ test('warrior reference follows HP growth mastery anchors and second advancement
     advancementTier: 2,
     archetype: 'warrior'
   });
-  assert.equal(fieldWorker.maxHp, 3688);
+  assert.equal(fieldWorker.maxHp, 1830);
   assert.equal(fieldWorker.maxMp, 474);
 });
 

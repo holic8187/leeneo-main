@@ -57,6 +57,7 @@ const {
   claimAllMail
 } = require('./services/inventoryService');
 const { changeDepartment } = require('./services/jobChangeService');
+const { reconcileHpGrowthSkillBonus } = require('./services/hpGrowthBonusService');
 const {
   buyShopItem,
   sellInventoryStack,
@@ -164,19 +165,7 @@ function grantV2Experience(character, amount) {
       departmentId: character.job?.departmentId,
       advancementTier: character.job?.advancementTier
     });
-    const hpGrowthLevel = getSkillLevel(character, 'hp_growth_improvement');
-    if (hpGrowthLevel > 0) {
-      const hpGrowth = resolveSkillValues(
-        SKILL_DEFINITIONS.hp_growth_improvement,
-        hpGrowthLevel
-      );
-      const bonus = Math.max(0, Number(hpGrowth.levelUpHp) || 0) * levels;
-      character.resources.maxHp += bonus;
-      character.resources.currentHp = Math.min(
-        character.resources.maxHp,
-        Number(character.resources.currentHp) + bonus
-      );
-    }
+    reconcileHpGrowthSkillBonus(character);
   }
   return { gained, levels };
 }
@@ -238,17 +227,30 @@ function registerV2Routes({
   async function getWorldProfile(userId, force = false) {
     const key = String(userId);
     const cached = worldProfileCache.get(key);
-    if (!force && cached && Date.now() - cached.loadedAt < 30_000) return cached;
+    const now = Date.now();
+    if (
+      !force
+      && cached
+      && now - cached.loadedAt < 30_000
+      && (!cached.nextSkillExpiryAt || now < cached.nextSkillExpiryAt)
+    ) return cached;
     const character = await V2Character.findOne({ userId }).lean();
     if (!character) return null;
     const response = buildCharacterResponse(character);
+    const skillExpirations = [
+      ...(response.skillTree?.activeBuffs || []).map((buff) => Number(buff.expiresAt) || 0),
+      Number(response.skillTree?.summon?.expiresAt) || 0
+    ].filter((expiresAt) => expiresAt > now);
     const profile = {
-      loadedAt: Date.now(),
+      loadedAt: now,
+      nextSkillExpiryAt: skillExpirations.length ? Math.min(...skillExpirations) : 0,
       displayName: response.displayName,
       progression: response.progression,
       stats: response.stats,
       resources: response.resources,
       derivedStats: response.derivedStats,
+      skillTree: response.skillTree,
+      skillEffects: response.skillEffects,
       job: response.job,
       combatPresentation: response.combatPresentation,
       worldState: response.worldState
@@ -522,6 +524,7 @@ function registerV2Routes({
           current.stats[stat] = Number(current.stats?.[stat] || 4) + value;
         }
         current.progression.unspentStatPoints -= total;
+        reconcileHpGrowthSkillBonus(current);
         await current.save();
         worldProfileCache.delete(String(auth.id));
         return current;
@@ -548,7 +551,9 @@ function registerV2Routes({
           advancementTier: advancement.advancementTier,
           archetype: department.archetype
         });
+        character.resources.hpGrowthSkillBonus = 0;
         applyReferenceResources(character, reference, { fullyRestore: true });
+        reconcileHpGrowthSkillBonus(character, { resetAppliedBonus: true });
         await character.save();
         worldProfileCache.delete(String(auth.id));
         updatePlayerResources(auth.id, character.resources);
@@ -570,7 +575,9 @@ function registerV2Routes({
       const character = await withCharacterMutation(auth.id, async () => {
         const current = await V2Character.findOne({ userId: auth.id });
         if (!current) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        await ensureV2CharacterFoundation(current);
         investSkill(current, req.body?.skillId, req.body?.amount);
+        reconcileHpGrowthSkillBonus(current);
         await current.save();
         worldProfileCache.delete(String(auth.id));
         return current;
@@ -1075,6 +1082,12 @@ function registerV2Routes({
       const requestedMap = getWorldMap(requestedMapId);
       if (!requestedMap) return res.status(400).json({ msg: '존재하지 않는 맵입니다.' });
       const isDead = Number(profile.resources.currentHp) <= 0;
+      const recoverySkill = profile.skillTree?.skills?.find(
+        (skill) => skill.id === 'recovery_improvement' && skill.level > 0
+      );
+      const endureSkill = profile.skillTree?.skills?.find(
+        (skill) => skill.id === 'endure' && skill.level > 0
+      );
       const mapId = isDead
         ? String(profile.worldState?.mapId || START_MAP_ID)
         : requestedMapId;
@@ -1113,7 +1126,11 @@ function registerV2Routes({
         blockChance: profile.skillEffects?.blockChance,
         stanceChance: profile.skillEffects?.stanceChance,
         contactReflectPercent: profile.skillEffects?.contactReflectPercent,
-        contactReflectCapPercent: profile.skillEffects?.contactReflectCapPercent
+        contactReflectCapPercent: profile.skillEffects?.contactReflectCapPercent,
+        periodicHealPercent: recoverySkill?.values?.healPercent,
+        periodicHealIntervalMs: Number(recoverySkill?.values?.intervalSeconds || 0) * 1000,
+        idleHealAmount: endureSkill?.values?.heal,
+        idleHealIntervalMs: Number(endureSkill?.values?.intervalSeconds || 0) * 1000
       });
       if (state.contactEvents.length) {
         await Promise.all(state.contactEvents.map((event) => (
@@ -1143,6 +1160,27 @@ function registerV2Routes({
           if (player) player.currentHp = event.currentHp;
         }
       }
+      if (state.recoveryEvents.length) {
+        for (const event of state.recoveryEvents) {
+          await withCharacterMutation(event.userId, async () => {
+            const character = await V2Character.findOne({ userId: event.userId });
+            if (!character) return;
+            const currentHp = Math.max(0, Number(character.resources?.currentHp) || 0);
+            const maxHp = Math.max(1, Number(character.resources?.maxHp) || 1);
+            const healed = currentHp > 0
+              ? Math.max(0, Math.min(maxHp - currentHp, Math.floor(Number(event.amount) || 0)))
+              : 0;
+            character.resources.currentHp = currentHp + healed;
+            event.healed = healed;
+            event.currentHp = character.resources.currentHp;
+            if (healed > 0) await character.save();
+            updatePlayerResources(event.userId, character.resources);
+            worldProfileCache.delete(String(event.userId));
+          });
+          const player = state.players.find((entry) => entry.userId === event.userId);
+          if (player) player.currentHp = event.currentHp;
+        }
+      }
       const self = state.players.find((player) => player.userId === String(auth.id));
       if (self) {
         profile.resources.currentHp = self.currentHp;
@@ -1154,6 +1192,7 @@ function registerV2Routes({
         monsters: state.monsters,
         self,
         contactEvents: state.contactEvents,
+        recoveryEvents: state.recoveryEvents,
         lootCollections: state.lootCollections,
         serverTime: Date.now()
       });

@@ -330,14 +330,48 @@ function getActiveSkillEffects(character, now = Date.now()) {
 }
 
 function buildSkillTree(character) {
-  const skills = ensureSkillState(character);
+  const skills = pruneExpiredSkillState(character);
   const definitions = getDepartmentSkillDefinitions(character.job?.departmentId)
     .sort((left, right) => left.tier - right.tier || left.name.localeCompare(right.name, 'ko'));
+  const activeBuffs = skills.activeBuffs.map((buff) => {
+    const definition = SKILL_DEFINITIONS[buff.skillId];
+    const level = definition ? Math.max(1, getSkillLevel(character, definition.id)) : 1;
+    const values = definition ? resolveSkillValues(definition, level) : {};
+    const createdAt = new Date(buff.createdAt || Date.now()).getTime();
+    const expiresAt = buff.expiresAt ? new Date(buff.expiresAt).getTime() : 0;
+    return {
+      skillId: String(buff.skillId || ''),
+      name: String(buff.name || definition?.name || '버프'),
+      description: definition
+        ? describeSkill(definition, values)
+        : '현재 캐릭터에게 적용 중인 버프입니다.',
+      effects: { ...(buff.effects || {}) },
+      createdAt,
+      expiresAt,
+      durationMs: expiresAt > createdAt ? expiresAt - createdAt : 0
+    };
+  });
+  const summonCreatedAt = skills.summon
+    ? new Date(skills.summon.createdAt || Date.now()).getTime()
+    : 0;
+  const summonExpiresAt = skills.summon?.expiresAt
+    ? new Date(skills.summon.expiresAt).getTime()
+    : 0;
+  const summon = skills.summon
+    ? {
+      ...skills.summon,
+      description: '작은 동반자가 소환되어 무기 숙련도를 높이고 관련 패시브를 발동합니다.',
+      createdAt: summonCreatedAt,
+      expiresAt: summonExpiresAt,
+      durationMs: summonExpiresAt > summonCreatedAt ? summonExpiresAt - summonCreatedAt : 0
+    }
+    : null;
   return {
     tierSpent: Object.fromEntries([1, 2, 3, 4].map((tier) => [tier, getTierSpent(character, tier)])),
     tierRequirements: TIER_SP_REQUIREMENTS,
     activePreset: [...skills.activePreset],
-    summon: skills.summon ? { ...skills.summon } : null,
+    summon,
+    activeBuffs,
     comboCount: skills.comboCount,
     skills: definitions.map((definition) => {
       const level = getSkillLevel(character, definition.id);

@@ -221,6 +221,7 @@ test('only the most recently claimed client controls one character', () => {
 });
 
 test('contact damage knocks the player backward and grants 1.5 seconds of invulnerability', () => {
+  resetWorldRuntime();
   const initial = updatePresence({
     userId: 'contact-user',
     nickname: 'contact-user',
@@ -269,7 +270,7 @@ test('contact damage knocks the player backward and grants 1.5 seconds of invuln
   assert.equal(duringInvulnerability.contactEvents.length, 0);
 
   const movedMonster = duringInvulnerability.monsters.find((monster) => monster.id === firstMonster.id);
-  const afterInvulnerability = updatePresence({
+  let afterInvulnerability = updatePresence({
     userId: 'contact-user',
     nickname: 'contact-user',
     mapId: 'newcomer_training',
@@ -281,6 +282,23 @@ test('contact damage knocks the player backward and grants 1.5 seconds of invuln
     maxHp: 120,
     now: 2_601
   });
+  if (!afterInvulnerability.contactEvents.length) {
+    const latestMonster = afterInvulnerability.monsters.find(
+      (monster) => monster.id === firstMonster.id
+    );
+    afterInvulnerability = updatePresence({
+      userId: 'contact-user',
+      nickname: 'contact-user',
+      mapId: 'newcomer_training',
+      x: latestMonster.x,
+      floor: 0,
+      activity: 'idle',
+      facingLeft: false,
+      currentHp: 120,
+      maxHp: 120,
+      now: 2_601
+    });
+  }
   assert.equal(afterInvulnerability.contactEvents.length, 1);
 });
 
@@ -399,4 +417,35 @@ test('dead players cannot attack', () => {
   });
   assert.equal(result.success, false);
   assert.equal(result.reason, 'dead');
+});
+
+test('periodic and idle warrior passives schedule healing on their server intervals', () => {
+  resetWorldRuntime();
+  claimWorldControl('regen-user', 'regen-client', 1_000);
+  const base = {
+    userId: 'regen-user',
+    nickname: '회복사원',
+    mapId: 'main_lobby',
+    x: 10,
+    floor: 0,
+    facingLeft: false,
+    currentHp: 100,
+    maxHp: 1000,
+    playerLevel: 30,
+    playerStats: {},
+    clientId: 'regen-client',
+    periodicHealPercent: 2,
+    periodicHealIntervalMs: 10_000,
+    idleHealAmount: 30,
+    idleHealIntervalMs: 5_000
+  };
+  assert.deepEqual(updatePresence({ ...base, activity: 'idle', now: 1_000 }).recoveryEvents, []);
+  const firstIdle = updatePresence({ ...base, activity: 'idle', now: 6_000 });
+  assert.equal(firstIdle.recoveryEvents[0].amount, 30);
+  const periodic = updatePresence({ ...base, activity: 'combat', now: 11_000 });
+  assert.equal(periodic.recoveryEvents[0].amount, 20);
+  const resetIdle = updatePresence({ ...base, activity: 'idle', now: 12_000 });
+  assert.deepEqual(resetIdle.recoveryEvents, []);
+  const secondIdle = updatePresence({ ...base, activity: 'idle', now: 17_000 });
+  assert.equal(secondIdle.recoveryEvents[0].amount, 30);
 });

@@ -1620,6 +1620,116 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .skill-quick b { position: absolute; top: 5px; left: 6px; color: var(--gold); font: 800 9px ui-monospace, monospace; }
 .skill-quick strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .skill-quick small { font-size: 8px; opacity: .7; }
+.combat-buff-tray {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 45;
+  max-width: 52%;
+  display: flex;
+  flex-wrap: wrap-reverse;
+  justify-content: flex-end;
+  gap: 6px;
+  pointer-events: auto;
+}
+.combat-buff-tray.is-empty { display: none; }
+.combat-buff-icon {
+  position: relative;
+  width: 44px;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  color: #edf8ef;
+  outline: none;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+.combat-buff-face {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  border: 1px solid #d8c472;
+  border-radius: 7px;
+  background: linear-gradient(145deg, #1b4c3c, #0d2820);
+  box-shadow: 0 2px 8px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.12);
+}
+.combat-buff-face > span {
+  position: relative;
+  z-index: 2;
+  font-size: 22px;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,.7));
+}
+.combat-buff-face > b {
+  position: absolute;
+  right: 3px;
+  bottom: 1px;
+  z-index: 4;
+  min-width: 14px;
+  color: #fff;
+  font: 900 11px ui-monospace, monospace;
+  text-align: center;
+  text-shadow: 0 1px 2px #000, 0 0 3px #000;
+}
+.combat-buff-mask {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 3;
+  height: calc(var(--buff-expired-progress, 0) * 1%);
+  background: rgba(104, 108, 107, .7);
+  border-top: 1px solid rgba(235, 239, 237, .45);
+  pointer-events: none;
+}
+.combat-buff-time {
+  min-width: 40px;
+  padding: 1px 3px;
+  color: #f3f3ee;
+  border-radius: 2px;
+  background: rgba(11, 18, 15, .78);
+  font: 800 8px ui-monospace, monospace;
+  text-align: center;
+  white-space: nowrap;
+}
+.combat-buff-tooltip {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 60;
+  width: min(230px, 62vw);
+  padding: 10px;
+  display: grid;
+  gap: 5px;
+  color: #17231e;
+  border: 1px solid #b9a653;
+  background: rgba(255, 253, 239, .98);
+  box-shadow: 0 7px 22px rgba(0,0,0,.35);
+  opacity: 0;
+  visibility: hidden;
+  translate: 0 5px;
+  transition: opacity .14s ease, translate .14s ease, visibility .14s;
+  pointer-events: none;
+}
+.combat-buff-tooltip strong { color: var(--green); font-size: 11px; }
+.combat-buff-tooltip p { margin: 0; font-size: 9px; line-height: 1.55; }
+.combat-buff-tooltip small { color: var(--muted); font-size: 8px; }
+.combat-buff-icon:hover .combat-buff-tooltip,
+.combat-buff-icon:focus-visible .combat-buff-tooltip,
+.combat-buff-icon.is-inspecting .combat-buff-tooltip {
+  opacity: 1;
+  visibility: visible;
+  translate: 0 0;
+}
+.combat-buff-icon:hover .combat-buff-face,
+.combat-buff-icon:focus-visible .combat-buff-face,
+.combat-buff-icon.is-inspecting .combat-buff-face {
+  border-color: #fff0a0;
+  box-shadow: 0 0 0 2px rgba(255,232,119,.25), 0 2px 9px rgba(0,0,0,.55);
+}
 .skill-preset-edit {
   grid-column: 1 / -1;
   min-height: 34px;
@@ -1694,6 +1804,11 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   100% { translate: 0 0; }
 }
 @media (max-width: 620px) {
+  .combat-buff-tray { right: 6px; bottom: 6px; max-width: 68%; gap: 4px; }
+  .combat-buff-icon { width: 38px; }
+  .combat-buff-face { width: 35px; height: 35px; }
+  .combat-buff-face > span { font-size: 19px; }
+  .combat-buff-time { min-width: 35px; font-size: 7px; }
   .skill-quickbar { grid-template-columns: repeat(5, minmax(0, 1fr)); }
   .skill-quick { padding-left: 18px; }
   .skill-card-list, .skill-summary { grid-template-columns: 1fr; }

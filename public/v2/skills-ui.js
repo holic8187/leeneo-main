@@ -67,6 +67,143 @@ function renderSkillQuickbar() {
   quickbar.querySelector('[data-open-skill-preset]')?.addEventListener('click', () => openSkillPresetEditor());
 }
 
+const COMBAT_BUFF_ICONS = Object.freeze({
+  iron_body: '🛡️',
+  booster_hr: '⏩',
+  booster_quality: '⏩',
+  rage: '🔥',
+  combo_attack: '⚔️',
+  firm_will_hr: '🧱',
+  firm_will_quality: '🧱',
+  true_rage: '💢',
+  iron_wall: '🏰',
+  quality_inspection: '❤️',
+  bleeding_endurance: '🩸',
+  small_companion: '🐾'
+});
+
+let combatBuffTrayTimerId = 0;
+const combatBuffHoldTimers = new WeakMap();
+
+function getCombatBuffIcon(skillId) {
+  return COMBAT_BUFF_ICONS[skillId] || '✦';
+}
+
+function formatBuffRemaining(milliseconds) {
+  const seconds = Math.max(0, Math.ceil(milliseconds / 1000));
+  if (seconds >= 3600) return `${Math.floor(seconds / 3600)}시간 ${Math.ceil(seconds % 3600 / 60)}분`;
+  if (seconds >= 60) return `${Math.floor(seconds / 60)}분 ${seconds % 60}초`;
+  return `${seconds}초`;
+}
+
+function combatBuffIconBody(buff) {
+  const timed = Number(buff.expiresAt) > 0;
+  const stack = Number(buff.stack ?? buff.count);
+  return `<article class="combat-buff-icon" tabindex="0"
+    data-buff-created-at="${Number(buff.createdAt) || 0}"
+    data-buff-expires-at="${Number(buff.expiresAt) || 0}"
+    data-buff-duration="${Number(buff.durationMs) || 0}"
+    style="--buff-expired-progress:0">
+    <div class="combat-buff-face">
+      <span aria-hidden="true">${escapeHtml(buff.icon || getCombatBuffIcon(buff.skillId))}</span>
+      ${Number.isFinite(stack) ? `<b>${formatNumber(stack)}</b>` : ''}
+      ${timed ? '<i class="combat-buff-mask"></i>' : ''}
+    </div>
+    <small class="combat-buff-time">${timed ? '계산 중' : '유지 중'}</small>
+    <div class="combat-buff-tooltip" role="tooltip">
+      <strong>${escapeHtml(buff.name || '버프')}</strong>
+      <p>${escapeHtml(buff.description || '현재 적용 중인 효과입니다.')}</p>
+      <small data-buff-tooltip-time>${timed ? '남은 시간 계산 중' : '지속형 효과'}</small>
+    </div>
+  </article>`;
+}
+
+function updateCombatBuffTimers() {
+  const tray = $('combatBuffTray');
+  if (!tray) return;
+  const now = Date.now();
+  tray.querySelectorAll('.combat-buff-icon[data-buff-expires-at]').forEach((icon) => {
+    const expiresAt = Number(icon.dataset.buffExpiresAt) || 0;
+    if (!expiresAt) return;
+    const createdAt = Number(icon.dataset.buffCreatedAt) || now;
+    const duration = Math.max(1, Number(icon.dataset.buffDuration) || expiresAt - createdAt);
+    const remaining = Math.max(0, expiresAt - now);
+    const expiredProgress = Math.max(0, Math.min(100, (1 - remaining / duration) * 100));
+    icon.style.setProperty('--buff-expired-progress', expiredProgress.toFixed(2));
+    const label = formatBuffRemaining(remaining);
+    const time = icon.querySelector('.combat-buff-time');
+    const tooltipTime = icon.querySelector('[data-buff-tooltip-time]');
+    if (time) time.textContent = label;
+    if (tooltipTime) tooltipTime.textContent = `남은 시간 ${label}`;
+    if (remaining <= 0) icon.remove();
+  });
+}
+
+function bindCombatBuffInspection() {
+  document.querySelectorAll('.combat-buff-icon').forEach((icon) => {
+    const reveal = () => {
+      icon.classList.add('is-inspecting');
+      combatBuffHoldTimers.delete(icon);
+    };
+    const cancel = (keepVisible = false) => {
+      const timer = combatBuffHoldTimers.get(icon);
+      if (timer) clearTimeout(timer);
+      combatBuffHoldTimers.delete(icon);
+      if (keepVisible && icon.classList.contains('is-inspecting')) {
+        setTimeout(() => icon.classList.remove('is-inspecting'), 1800);
+      } else {
+        icon.classList.remove('is-inspecting');
+      }
+    };
+    icon.addEventListener('pointerdown', () => {
+      cancel();
+      combatBuffHoldTimers.set(icon, setTimeout(reveal, 450));
+    });
+    icon.addEventListener('pointerup', () => cancel(true));
+    icon.addEventListener('pointercancel', () => cancel());
+    icon.addEventListener('pointerleave', () => cancel(true));
+    icon.addEventListener('contextmenu', (event) => event.preventDefault());
+  });
+}
+
+function renderCombatBuffTray() {
+  const tray = $('combatBuffTray');
+  if (!tray) return;
+  const tree = state.character?.skillTree || {};
+  const buffs = [...(tree.activeBuffs || [])].map((buff) => ({
+    ...buff,
+    icon: getCombatBuffIcon(buff.skillId)
+  }));
+  if (tree.summon) {
+    buffs.push({
+      ...tree.summon,
+      skillId: tree.summon.skillId || 'small_companion',
+      name: tree.summon.name || '작은 동반자',
+      icon: '🐾'
+    });
+  }
+  const comboBuffActive = buffs.some((buff) => buff.skillId === 'combo_attack');
+  if (comboBuffActive || Number(tree.comboCount) > 0) {
+    buffs.push({
+      skillId: 'combo_counter',
+      name: '콤보 카운트',
+      description: '공격으로 쌓은 콤보입니다. 콤보 스킬의 피해량과 소비 조건에 사용됩니다.',
+      icon: '⚔️',
+      count: Number(tree.comboCount) || 0,
+      createdAt: 0,
+      expiresAt: 0,
+      durationMs: 0
+    });
+  }
+  tray.innerHTML = buffs.map(combatBuffIconBody).join('');
+  tray.classList.toggle('is-empty', buffs.length === 0);
+  bindCombatBuffInspection();
+  updateCombatBuffTimers();
+  if (!combatBuffTrayTimerId) {
+    combatBuffTrayTimerId = setInterval(updateCombatBuffTimers, 250);
+  }
+}
+
 function buildSkillPresetEditor(preferredSlot = null) {
   const tree = state.character?.skillTree;
   const preset = tree?.activePreset || [];
