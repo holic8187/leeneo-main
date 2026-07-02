@@ -16,6 +16,9 @@ const {
   applyAdvancement
 } = require('./jobs/advancementRules');
 const {
+  claimWorldControl,
+  hasWorldControl,
+  releaseWorldControl,
   updatePresence,
   attackMonster,
   updatePlayerResources,
@@ -37,7 +40,9 @@ const {
 } = require('./progression/resourceGrowth');
 const { getItemDefinition, listAdminGrantItems } = require('./items/itemCatalog');
 const {
+  addInventoryItem,
   assignPotionQuickSlot,
+  setPotionAutoThreshold,
   useQuickSlotPotion,
   useInventoryExpansionTicket,
   buildInventoryView,
@@ -48,6 +53,11 @@ const {
   claimMail,
   claimAllMail
 } = require('./services/inventoryService');
+const {
+  buyShopItem,
+  sellInventoryStack,
+  buildShopView
+} = require('./services/shopService');
 
 const V2_RETAINED_FEATURES = Object.freeze([
   '계정 및 닉네임',
@@ -222,6 +232,18 @@ function registerV2Routes({
       res.status(401).json({ msg: '로그인이 만료되었습니다.' });
       return null;
     }
+  }
+
+  function requireWorldControl(req, res, auth) {
+    const clientId = String(req.body?.clientId || '').trim();
+    if (!clientId || !hasWorldControl(auth.id, clientId)) {
+      res.status(409).json({
+        code: 'WORLD_CONTROL_LOST',
+        msg: '다른 기기에서 같은 계정으로 접속하여 현재 기기의 월드 연결이 종료되었습니다.'
+      });
+      return null;
+    }
+    return clientId;
   }
 
   app.get('/api/v2/meta', (req, res) => {
@@ -529,6 +551,27 @@ function registerV2Routes({
     }
   });
 
+  app.post('/api/v2/inventory/auto-potion', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const result = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        const percent = setPotionAutoThreshold(
+          character,
+          req.body?.slot,
+          req.body?.percent
+        );
+        await character.save();
+        return { percent, inventory: buildInventoryView(character) };
+      });
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '자동 포션 기준을 저장하지 못했습니다.' });
+    }
+  });
+
   app.post('/api/v2/inventory/use-potion', async (req, res) => {
     const auth = requireV2User(req, res);
     if (!auth) return;
@@ -572,6 +615,64 @@ function registerV2Routes({
       return res.json({ success: true, ...result });
     } catch (err) {
       return res.status(400).json({ msg: err.message || '인벤토리를 확장하지 못했습니다.' });
+    }
+  });
+
+  app.get('/api/v2/shop', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const character = await V2Character.findOne({ userId: auth.id });
+      if (!character) return res.status(404).json({ msg: 'V2 캐릭터를 찾을 수 없습니다.' });
+      const map = getWorldMap(character.worldState?.mapId);
+      if (!map?.safeZone) {
+        return res.status(403).json({ msg: '상점은 안전지대에서만 이용할 수 있습니다.' });
+      }
+      return res.json({ shop: buildShopView(character) });
+    } catch (err) {
+      return res.status(500).json({ msg: '상점 정보를 불러오지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/shop/buy', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const result = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        if (!getWorldMap(character.worldState?.mapId)?.safeZone) {
+          throw new Error('상점은 안전지대에서만 이용할 수 있습니다.');
+        }
+        const purchase = buyShopItem(character, req.body?.itemId, req.body?.quantity);
+        await character.save();
+        worldProfileCache.delete(String(auth.id));
+        return purchase;
+      });
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '아이템을 구매하지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/shop/sell', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const result = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        if (!getWorldMap(character.worldState?.mapId)?.safeZone) {
+          throw new Error('상점은 안전지대에서만 이용할 수 있습니다.');
+        }
+        const sale = sellInventoryStack(character, req.body?.stackId, req.body?.quantity);
+        await character.save();
+        worldProfileCache.delete(String(auth.id));
+        return sale;
+      });
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '아이템을 판매하지 못했습니다.' });
     }
   });
 
@@ -647,9 +748,27 @@ function registerV2Routes({
     }
   });
 
+  app.post('/api/v2/world/claim-control', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const clientId = String(req.body?.clientId || '').trim();
+      const control = claimWorldControl(auth.id, clientId);
+      await V2Character.updateOne(
+        { userId: auth.id },
+        { $set: { 'worldState.controlSessionId': clientId } }
+      );
+      worldProfileCache.delete(String(auth.id));
+      return res.json({ success: true, control });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '월드 조작권을 연결하지 못했습니다.' });
+    }
+  });
+
   app.post('/api/v2/world/heartbeat', async (req, res) => {
     const auth = requireV2User(req, res);
     if (!auth) return;
+    if (!requireWorldControl(req, res, auth)) return;
     try {
       const profile = await getWorldProfile(auth.id);
       if (!profile) return res.status(404).json({ msg: 'V2 캐릭터를 찾을 수 없습니다.' });
@@ -665,9 +784,15 @@ function registerV2Routes({
         const floor = Number(req.body?.floor) === 1 ? 1 : 0;
         await V2Character.updateOne(
           { userId: auth.id },
-          { $set: { worldState: { mapId, x, floor } } }
+          {
+            $set: {
+              'worldState.mapId': mapId,
+              'worldState.x': x,
+              'worldState.floor': floor
+            }
+          }
         );
-        profile.worldState = { mapId, x, floor };
+        profile.worldState = { ...profile.worldState, mapId, x, floor };
       }
       const state = updatePresence({
         userId: String(auth.id),
@@ -700,11 +825,9 @@ function registerV2Routes({
               const currentExp = Math.max(0, Number(character.progression?.exp) || 0);
               event.expLost = Math.min(currentExp, Math.floor(requiredExp * 0.1));
               character.progression.exp = currentExp - event.expLost;
-              character.worldState = {
-                mapId: state.mapId,
-                x: Math.max(0, Math.min(94, Number(event.x) || 8)),
-                floor: Number(req.body?.floor) === 1 ? 1 : 0
-              };
+              character.worldState.mapId = state.mapId;
+              character.worldState.x = Math.max(0, Math.min(94, Number(event.x) || 8));
+              character.worldState.floor = Number(req.body?.floor) === 1 ? 1 : 0;
             }
             await character.save();
             updatePlayerResources(event.userId, character.resources);
@@ -727,6 +850,7 @@ function registerV2Routes({
         monsters: state.monsters,
         self,
         contactEvents: state.contactEvents,
+        lootCollections: state.lootCollections,
         serverTime: Date.now()
       });
     } catch (err) {
@@ -738,6 +862,7 @@ function registerV2Routes({
   app.post('/api/v2/world/attack', async (req, res) => {
     const auth = requireV2User(req, res);
     if (!auth) return;
+    if (!requireWorldControl(req, res, auth)) return;
     try {
       const profile = await getWorldProfile(auth.id);
       if (!profile) return res.status(404).json({ msg: 'V2 캐릭터를 찾을 수 없습니다.' });
@@ -766,16 +891,37 @@ function registerV2Routes({
 
       let character = null;
       let experience = null;
+      let inventory = null;
       if (result.expReward > 0) {
         character = await V2Character.findOne({ userId: auth.id });
         experience = grantV2Experience(character, result.expReward);
+        if (!character.economy || typeof character.economy !== 'object') character.economy = {};
+        const storedDrops = [];
+        for (const drop of result.drops || []) {
+          if (drop.kind === 'money') {
+            character.economy.money = Math.max(0, Number(character.economy.money) || 0)
+              + Math.max(0, Math.floor(Number(drop.amount) || 0));
+            storedDrops.push({ ...drop, stored: true });
+            continue;
+          }
+          try {
+            addInventoryItem(character, drop.itemId, drop.quantity);
+            storedDrops.push({ ...drop, stored: true });
+          } catch (_) {
+            storedDrops.push({ ...drop, stored: false });
+          }
+        }
+        result.drops = storedDrops;
         await character.save();
         worldProfileCache.delete(String(auth.id));
+        inventory = buildInventoryView(character);
       }
       return res.json({
         ...result,
         experience,
-        character: character ? buildCharacterResponse(character) : null
+        character: character ? buildCharacterResponse(character) : null,
+        inventory,
+        money: character ? Math.max(0, Number(character.economy?.money) || 0) : null
       });
     } catch (err) {
       console.error('V2 world attack error:', err);
@@ -786,6 +932,7 @@ function registerV2Routes({
   app.post('/api/v2/world/revive', async (req, res) => {
     const auth = requireV2User(req, res);
     if (!auth) return;
+    if (!requireWorldControl(req, res, auth)) return;
     try {
       const result = await withCharacterMutation(auth.id, async () => {
         const character = await V2Character.findOne({ userId: auth.id });
@@ -804,7 +951,9 @@ function registerV2Routes({
         character.resources.currentHp = wasDead
           ? 1
           : Math.max(1, Math.min(character.resources.maxHp, Number(character.resources.currentHp) || 1));
-        character.worldState = { mapId: safeMap.id, x: 8, floor: 0 };
+        character.worldState.mapId = safeMap.id;
+        character.worldState.x = 8;
+        character.worldState.floor = 0;
         await character.save();
         worldProfileCache.delete(String(auth.id));
         updatePlayerResources(auth.id, character.resources);
@@ -825,22 +974,22 @@ function registerV2Routes({
     const auth = requireV2User(req, res);
     if (!auth) return;
     try {
+      const clientId = String(req.body?.clientId || '').trim();
+      if (!hasWorldControl(auth.id, clientId)) return res.json({ success: true, ignored: true });
       const mapId = String(req.body?.mapId || '');
       if (getWorldMap(mapId)) {
         await V2Character.updateOne(
           { userId: auth.id },
           {
             $set: {
-              worldState: {
-                mapId,
-                x: Math.max(0, Math.min(94, Number(req.body?.x) || 8)),
-                floor: Number(req.body?.floor) === 1 ? 1 : 0
-              }
+              'worldState.mapId': mapId,
+              'worldState.x': Math.max(0, Math.min(94, Number(req.body?.x) || 8)),
+              'worldState.floor': Number(req.body?.floor) === 1 ? 1 : 0
             }
           }
         );
       }
-      leaveWorld(String(auth.id));
+      releaseWorldControl(auth.id, clientId);
       worldProfileCache.delete(String(auth.id));
       return res.json({ success: true });
     } catch (err) {

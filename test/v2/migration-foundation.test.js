@@ -126,7 +126,7 @@ test('V2 signup fields require matching passwords and a signup code', () => {
   }).valid, false);
 });
 
-test('V2 router exposes only the migration foundation endpoints in phase one', () => {
+test('V2 router exposes the current migration, world, inventory, and shop endpoints', () => {
   const registered = [];
   const app = {
     get(path) { registered.push(`GET ${path}`); },
@@ -156,12 +156,17 @@ test('V2 router exposes only the migration foundation endpoints in phase one', (
     'POST /api/v2/advancement',
     'GET /api/v2/inventory',
     'POST /api/v2/inventory/quick-slot',
+    'POST /api/v2/inventory/auto-potion',
     'POST /api/v2/inventory/use-potion',
     'POST /api/v2/inventory/expand',
+    'GET /api/v2/shop',
+    'POST /api/v2/shop/buy',
+    'POST /api/v2/shop/sell',
     'GET /api/v2/mail',
     'GET /api/v2/mail/status',
     'POST /api/v2/mail/claim',
     'POST /api/v2/mail/claim-all',
+    'POST /api/v2/world/claim-control',
     'POST /api/v2/world/heartbeat',
     'POST /api/v2/world/attack',
     'POST /api/v2/world/revive',

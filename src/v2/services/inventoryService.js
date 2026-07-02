@@ -118,6 +118,14 @@ function ensureInventory(character) {
   }
   if (typeof inventory.quickSlots.hp !== 'string') inventory.quickSlots.hp = '';
   if (typeof inventory.quickSlots.mp !== 'string') inventory.quickSlots.mp = '';
+  inventory.quickSlots.autoHpPercent = Math.max(
+    0,
+    Math.min(100, Number(inventory.quickSlots.autoHpPercent) || 0)
+  );
+  inventory.quickSlots.autoMpPercent = Math.max(
+    0,
+    Math.min(100, Number(inventory.quickSlots.autoMpPercent) || 0)
+  );
   if (!Array.isArray(character.mailbox)) character.mailbox = [];
   normalizeInventoryStacks(character);
   return inventory;
@@ -215,6 +223,22 @@ function consumeInventoryItem(character, itemId, quantity = 1) {
   return true;
 }
 
+function consumeInventoryStack(character, stackId, quantity = 1) {
+  const inventory = ensureInventory(character);
+  const index = inventory.items.findIndex(
+    (entry) => String(entry.stackId) === String(stackId)
+      && Number(entry.quantity) > 0
+  );
+  if (index < 0) return null;
+  const stack = inventory.items[index];
+  const requested = Math.max(1, Math.floor(Number(quantity) || 1));
+  const consumed = Math.min(requested, Math.floor(Number(stack.quantity) || 0));
+  stack.quantity -= consumed;
+  if (stack.quantity <= 0) inventory.items.splice(index, 1);
+  markInventoryModified(character);
+  return { itemId: String(stack.itemId), quantity: consumed };
+}
+
 function assignPotionQuickSlot(character, slot, itemId) {
   const expectedResource = QUICK_SLOT_RESOURCES[String(slot || '')];
   if (!expectedResource) throw new Error('올바르지 않은 포션 슬롯입니다.');
@@ -230,6 +254,16 @@ function assignPotionQuickSlot(character, slot, itemId) {
   ensureInventory(character).quickSlots[slot] = item.id;
   markInventoryModified(character);
   return item;
+}
+
+function setPotionAutoThreshold(character, slot, percent) {
+  const resource = QUICK_SLOT_RESOURCES[String(slot || '')];
+  if (!resource) throw new Error('올바르지 않은 포션 슬롯입니다.');
+  const value = Math.max(0, Math.min(100, Math.floor(Number(percent) || 0)));
+  const inventory = ensureInventory(character);
+  inventory.quickSlots[resource === 'hp' ? 'autoHpPercent' : 'autoMpPercent'] = value;
+  markInventoryModified(character);
+  return value;
 }
 
 function useQuickSlotPotion(character, slot) {
@@ -334,6 +368,10 @@ function buildInventoryView(character) {
     categories,
     potions,
     quickSlots,
+    autoUsePercent: {
+      hp: inventory.quickSlots.autoHpPercent,
+      mp: inventory.quickSlots.autoMpPercent
+    },
     limits: {
       defaultCapacity: DEFAULT_INVENTORY_CAPACITY,
       maximumCapacity: MAX_INVENTORY_CAPACITY,
@@ -455,7 +493,9 @@ module.exports = {
   getItemQuantity,
   addInventoryItem,
   consumeInventoryItem,
+  consumeInventoryStack,
   assignPotionQuickSlot,
+  setPotionAutoThreshold,
   useQuickSlotPotion,
   useInventoryExpansionTicket,
   buildInventoryView,

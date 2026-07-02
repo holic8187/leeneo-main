@@ -54,7 +54,7 @@ test('every map is reachable from the main lobby', () => {
 
 test('department-themed regions are represented in the world', () => {
   const names = WORLD_MAPS.map((map) => map.name).join(' ');
-  for (const keyword of ['인사팀', '회계', '영업', '브랜드', '개발', '연구소', '현장직', '시설관리', '품질']) {
+  for (const keyword of ['인사', '회계', '영업', '브랜드', '개발', '연구', '현장직', '시설관리', '품질검사']) {
     assert.match(names, new RegExp(keyword));
   }
 });

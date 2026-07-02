@@ -2,26 +2,26 @@
 
 const crypto = require('crypto');
 const { getWorldMap } = require('./mapDefinitions');
+const {
+  MONSTER_CATALOG,
+  buildMonsterStats,
+  getMonsterSpeciesForMap,
+  rollMonsterDrops
+} = require('./monsterCatalog');
 const { calculateIncomingPhysicalDamage } = require('../combat/incomingDamage');
 
 const PLAYER_TIMEOUT_MS = 12_000;
 const CONTACT_COOLDOWN_MS = 1_200;
 const CONTACT_INVULNERABILITY_MS = 1_500;
 const MONSTER_SPAWN_INTERVAL_MS = 8_000;
-const MONSTER_MAX_PER_MAP = 16;
+const MONSTER_MAX_PER_MAP = 10;
 const MONSTER_SPAWN_PER_WAVE = 4;
 const ASSUMED_STAGE_WIDTH_PX = 760;
 const PLAYER_VISUAL_WIDTH_PX = 19;
 const MONSTER_VISUAL_WIDTH_PX = 36;
 
-const TEST_MONSTER_NAMES = Object.freeze([
-  '도망친 결재도장',
-  '불량 복합기',
-  '야근 서류뭉치',
-  '폭주한 계산기'
-]);
-
 const activeMaps = new Map();
+const worldControllers = new Map();
 
 function clamp(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, Number(value) || 0));
@@ -29,17 +29,6 @@ function clamp(value, minimum, maximum) {
 
 function randomBetween(minimum, maximum) {
   return minimum + Math.random() * (maximum - minimum);
-}
-
-function buildMonsterStats(level) {
-  return {
-    maxHp: 30,
-    contactDamage: 10,
-    physicalDefense: 1,
-    magicDefense: 1,
-    movementSpeed: 35,
-    expReward: 1
-  };
 }
 
 function mapHasUpperFloor(map) {
@@ -51,13 +40,20 @@ function mapHasUpperFloor(map) {
 }
 
 function createMonster(map, index, now) {
-  const level = 3;
-  const stats = buildMonsterStats(level);
+  const speciesPool = getMonsterSpeciesForMap(map);
+  const species = speciesPool[index % speciesPool.length] || MONSTER_CATALOG[0];
+  const stats = buildMonsterStats(species.level);
   const upper = mapHasUpperFloor(map) && Math.random() < 0.3;
   return {
     id: crypto.randomUUID(),
-    name: TEST_MONSTER_NAMES[index % TEST_MONSTER_NAMES.length],
-    level,
+    speciesId: species.id,
+    name: species.name,
+    icon: species.icon,
+    lootItemId: species.lootItemId,
+    lootName: species.lootName,
+    lootIcon: species.lootIcon,
+    dropTable: species.dropTable,
+    level: species.level,
     hp: stats.maxHp,
     ...stats,
     x: upper ? randomBetween(49, 70) : randomBetween(18, 82),
@@ -74,6 +70,7 @@ function createMapRuntime(mapId, now) {
     mapId,
     players: new Map(),
     monsters: [],
+    groundLoot: [],
     lastTickAt: now,
     nextSpawnAt: now,
     spawnSequence: 0
@@ -83,7 +80,9 @@ function createMapRuntime(mapId, now) {
 function serializeMonster(monster) {
   return {
     id: monster.id,
+    speciesId: monster.speciesId,
     name: monster.name,
+    icon: monster.icon,
     level: monster.level,
     hp: monster.hp,
     maxHp: monster.maxHp,
@@ -115,6 +114,21 @@ function serializePlayer(player) {
   };
 }
 
+function serializeLoot(loot) {
+  return {
+    id: loot.id,
+    kind: loot.kind,
+    itemId: loot.itemId || '',
+    quantity: loot.quantity || 0,
+    amount: loot.amount || 0,
+    icon: loot.icon,
+    name: loot.name,
+    x: loot.x,
+    floor: loot.floor,
+    collectAt: loot.collectAt
+  };
+}
+
 function removePlayerFromOtherMaps(userId, exceptMapId) {
   for (const [mapId, runtime] of activeMaps) {
     if (mapId !== exceptMapId) runtime.players.delete(userId);
@@ -128,6 +142,7 @@ function cleanupInactiveMaps(now) {
     }
     if (!runtime.players.size) {
       runtime.monsters = [];
+      runtime.groundLoot = [];
       activeMaps.delete(mapId);
     }
   }
@@ -151,12 +166,6 @@ function spawnMonstersIfNeeded(runtime, map, now) {
 
 function chooseWanderAction(monster, map, now) {
   const roll = Math.random();
-  if (monster.floor === 1 && roll < 0.13) {
-    monster.floor = 0;
-    monster.state = 'fall';
-    monster.decisionAt = now + 650;
-    return;
-  }
   if (roll < 0.4) {
     monster.state = 'idle';
   } else {
@@ -178,6 +187,14 @@ function advanceMonster(monster, runtime, map, deltaSeconds, now) {
       monster.state = 'chase';
       const step = monster.movementSpeed / ASSUMED_STAGE_WIDTH_PX * 100 * deltaSeconds;
       monster.x += Math.sign(difference) * Math.min(Math.abs(difference), step);
+      if (monster.floor === 1 && (monster.x <= 48 || monster.x >= 71)) {
+        monster.x = clamp(monster.x, 48, 71);
+        monster.floor = 0;
+        monster.state = 'fall';
+        monster.decisionAt = now + 650;
+      } else if (monster.floor === 0) {
+        monster.x = clamp(monster.x, 7, 88);
+      }
     } else {
       monster.state = 'idle';
     }
@@ -185,23 +202,31 @@ function advanceMonster(monster, runtime, map, deltaSeconds, now) {
   }
 
   if (now >= monster.decisionAt) chooseWanderAction(monster, map, now);
-  if (monster.state === 'walk-left' || monster.state === 'walk-right') {
-    const minimum = monster.floor === 1 ? 48 : 7;
-    const maximum = monster.floor === 1 ? 71 : 88;
-    const step = monster.movementSpeed / ASSUMED_STAGE_WIDTH_PX * 100 * deltaSeconds;
-    monster.x = clamp(monster.x + monster.direction * step, minimum, maximum);
-    if (monster.x <= minimum || monster.x >= maximum) {
-      monster.direction *= -1;
-      monster.state = monster.direction < 0 ? 'walk-left' : 'walk-right';
-    }
+  if (monster.state !== 'walk-left' && monster.state !== 'walk-right') return;
+
+  const minimum = monster.floor === 1 ? 48 : 7;
+  const maximum = monster.floor === 1 ? 71 : 88;
+  const step = monster.movementSpeed / ASSUMED_STAGE_WIDTH_PX * 100 * deltaSeconds;
+  monster.x += monster.direction * step;
+
+  if (monster.floor === 1 && (monster.x <= minimum || monster.x >= maximum)) {
+    monster.x = clamp(monster.x, minimum, maximum);
+    monster.floor = 0;
+    monster.state = 'fall';
+    monster.decisionAt = now + 650;
+    return;
+  }
+  monster.x = clamp(monster.x, minimum, maximum);
+  if (monster.x <= minimum || monster.x >= maximum) {
+    monster.direction *= -1;
+    monster.state = monster.direction < 0 ? 'walk-left' : 'walk-right';
   }
 }
 
 function applyContactDamage(runtime, now) {
   const damagedPlayers = [];
   for (const player of runtime.players.values()) {
-    if (player.currentHp <= 0) continue;
-    if (now < player.invulnerableUntil) continue;
+    if (player.currentHp <= 0 || now < player.invulnerableUntil) continue;
     if (player.lastContactAt && now - player.lastContactAt < CONTACT_COOLDOWN_MS) continue;
     const playerWidthPercent = PLAYER_VISUAL_WIDTH_PX / ASSUMED_STAGE_WIDTH_PX * 100;
     const monsterHalfWidthPercent = MONSTER_VISUAL_WIDTH_PX / 2 / ASSUMED_STAGE_WIDTH_PX * 100;
@@ -214,7 +239,7 @@ function applyContactDamage(runtime, now) {
       return playerRight >= monsterLeft && playerLeft <= monsterRight;
     });
     if (!collider) continue;
-    const damageCalculation = calculateIncomingPhysicalDamage({
+    const calculation = calculateIncomingPhysicalDamage({
       monsterAttack: collider.contactDamage,
       monsterLevel: collider.level,
       playerLevel: player.combatProfile.playerLevel,
@@ -222,22 +247,20 @@ function applyContactDamage(runtime, now) {
       physicalDefense: player.combatProfile.physicalDefense,
       archetype: player.combatProfile.archetype
     });
-    const damage = damageCalculation.damage;
-    player.currentHp = Math.max(0, player.currentHp - damage);
+    player.currentHp = Math.max(0, player.currentHp - calculation.damage);
     player.lastContactAt = now;
     player.invulnerableUntil = now + CONTACT_INVULNERABILITY_MS;
-    const knockbackDirection = player.facingLeft ? 1 : -1;
-    player.x = clamp(player.x + knockbackDirection * 3.2, 0, 94);
+    player.x = clamp(player.x + (player.facingLeft ? 1 : -1) * 3.2, 0, 94);
     damagedPlayers.push({
       userId: player.userId,
-      damage,
+      damage: calculation.damage,
       monsterId: collider.id,
       damageCalculation: {
         type: 'physical-contact',
-        rolledAttack: damageCalculation.rolledAttack,
-        physicalDefense: damageCalculation.physicalDefense,
-        standardPdd: damageCalculation.standardPdd,
-        defenseFactor: damageCalculation.defenseFactor
+        rolledAttack: calculation.rolledAttack,
+        physicalDefense: calculation.physicalDefense,
+        standardPdd: calculation.standardPdd,
+        defenseFactor: calculation.defenseFactor
       },
       currentHp: player.currentHp,
       maxHp: player.maxHp,
@@ -259,6 +282,39 @@ function tickRuntime(runtime, now) {
   spawnMonstersIfNeeded(runtime, map, now);
   runtime.monsters.forEach((monster) => advanceMonster(monster, runtime, map, deltaSeconds, now));
   return applyContactDamage(runtime, now);
+}
+
+function collectDueLoot(runtime, userId, now) {
+  const collected = runtime.groundLoot.filter(
+    (loot) => loot.userId === userId && loot.collectAt <= now
+  );
+  if (collected.length) {
+    const ids = new Set(collected.map((loot) => loot.id));
+    runtime.groundLoot = runtime.groundLoot.filter((loot) => !ids.has(loot.id));
+  }
+  return collected.map(serializeLoot);
+}
+
+function claimWorldControl(userId, clientId, now = Date.now()) {
+  const key = String(userId);
+  const sessionId = String(clientId || '').trim();
+  if (!sessionId) throw new Error('월드 접속 식별자가 필요합니다.');
+  worldControllers.set(key, { clientId: sessionId, claimedAt: now });
+  removePlayerFromOtherMaps(key, '');
+  return { clientId: sessionId, claimedAt: now };
+}
+
+function hasWorldControl(userId, clientId) {
+  const owner = worldControllers.get(String(userId));
+  return Boolean(owner && owner.clientId === String(clientId || ''));
+}
+
+function releaseWorldControl(userId, clientId) {
+  const key = String(userId);
+  if (!hasWorldControl(key, clientId)) return false;
+  worldControllers.delete(key);
+  removePlayerFromOtherMaps(key, '');
+  return true;
 }
 
 function updatePresence({
@@ -330,7 +386,8 @@ function updatePresence({
     mapId,
     players: Array.from(runtime.players.values()).map(serializePlayer),
     monsters: runtime.monsters.filter((monster) => monster.hp > 0).map(serializeMonster),
-    contactEvents
+    contactEvents,
+    lootCollections: collectDueLoot(runtime, userId, now)
   };
 }
 
@@ -363,15 +420,29 @@ function attackMonster({
   monster.aggroTargetId = userId;
   monster.state = 'chase';
   const defeated = monster.hp <= 0;
+  let drops = [];
   if (defeated) {
     monster.state = 'defeated';
     monster.aggroTargetId = '';
+    const collectAt = runtime.nextSpawnAt > now
+      ? runtime.nextSpawnAt
+      : now + MONSTER_SPAWN_INTERVAL_MS;
+    drops = rollMonsterDrops(monster).map((drop, index) => ({
+      ...drop,
+      id: crypto.randomUUID(),
+      userId,
+      x: clamp(monster.x + (index - 0.5) * 1.8, 2, 92),
+      floor: monster.floor,
+      collectAt
+    }));
+    runtime.groundLoot.push(...drops);
   }
   return {
     success: true,
     damage: finalDamage,
     defeated,
     expReward: defeated ? monster.expReward : 0,
+    drops: drops.map(serializeLoot),
     monster: defeated ? null : serializeMonster(monster),
     players: Array.from(runtime.players.values()).map(serializePlayer),
     monsters: runtime.monsters.filter((entry) => entry.hp > 0).map(serializeMonster)
@@ -396,12 +467,13 @@ function updatePlayerResources(userId, resources = {}) {
 }
 
 function leaveWorld(userId) {
-  removePlayerFromOtherMaps(userId, '');
+  removePlayerFromOtherMaps(String(userId), '');
   cleanupInactiveMaps(Date.now());
 }
 
 function resetWorldRuntime() {
   activeMaps.clear();
+  worldControllers.clear();
 }
 
 module.exports = {
@@ -411,8 +483,11 @@ module.exports = {
   MONSTER_SPAWN_INTERVAL_MS,
   MONSTER_MAX_PER_MAP,
   MONSTER_SPAWN_PER_WAVE,
-  TEST_MONSTER_NAMES,
+  MONSTER_CATALOG,
   buildMonsterStats,
+  claimWorldControl,
+  hasWorldControl,
+  releaseWorldControl,
   updatePresence,
   attackMonster,
   updatePlayerResources,

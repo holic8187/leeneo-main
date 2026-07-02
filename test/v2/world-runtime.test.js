@@ -4,6 +4,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   buildMonsterStats,
+  claimWorldControl,
+  hasWorldControl,
+  releaseWorldControl,
   updatePresence,
   attackMonster,
   updatePlayerResources,
@@ -101,12 +104,62 @@ test('a hit gives the monster aggro and applies defense before defeat reward', (
   assert.equal(result.success, true);
   assert.equal(result.defeated, true);
   assert.ok(result.expReward > 0);
+  assert.ok(result.drops.some((drop) => drop.kind === 'money'));
+  assert.ok(result.drops.every((drop) => drop.collectAt === 9_000));
 });
 
-test('all test monsters use the fixed level three balance values', () => {
+test('defeated monster drops are collected on the next eight-second spawn tick', () => {
+  const state = updatePresence({
+    userId: 'loot-user',
+    nickname: 'loot-user',
+    mapId: 'newcomer_training',
+    x: 30,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_000
+  });
+  const monster = state.monsters.find((entry) => entry.floor === 0);
+  updatePresence({
+    userId: 'loot-user',
+    nickname: 'loot-user',
+    mapId: 'newcomer_training',
+    x: monster.x,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_100
+  });
+  attackMonster({
+    userId: 'loot-user',
+    mapId: 'newcomer_training',
+    monsterId: monster.id,
+    damage: 999,
+    rangePx: 1_000,
+    now: 1_200
+  });
+  assert.equal(updatePresence({
+    userId: 'loot-user',
+    nickname: 'loot-user',
+    mapId: 'newcomer_training',
+    x: 0,
+    currentHp: 120,
+    maxHp: 120,
+    now: 8_999
+  }).lootCollections.length, 0);
+  const collected = updatePresence({
+    userId: 'loot-user',
+    nickname: 'loot-user',
+    mapId: 'newcomer_training',
+    x: 0,
+    currentHp: 120,
+    maxHp: 120,
+    now: 9_000
+  }).lootCollections;
+  assert.ok(collected.some((drop) => drop.kind === 'money'));
+});
+
+test('monster stats keep the level three baseline and scale for higher levels', () => {
   const low = buildMonsterStats(1);
   const high = buildMonsterStats(100);
-  assert.deepEqual(low, high);
   assert.deepEqual(low, {
     maxHp: 30,
     contactDamage: 10,
@@ -115,10 +168,13 @@ test('all test monsters use the fixed level three balance values', () => {
     movementSpeed: 35,
     expReward: 1
   });
+  assert.ok(high.maxHp > low.maxHp);
+  assert.ok(high.contactDamage > low.contactDamage);
+  assert.ok(high.physicalDefense > low.physicalDefense);
 });
 
 
-test('an occupied map replenishes four monsters every eight seconds up to sixteen', () => {
+test('an occupied map replenishes four monsters every eight seconds up to ten', () => {
   const heartbeat = (now) => updatePresence({
     userId: 'spawn-user',
     nickname: 'spawn-user',
@@ -135,9 +191,33 @@ test('an occupied map replenishes four monsters every eight seconds up to sixtee
   assert.equal(heartbeat(1_000).monsters.length, 4);
   assert.equal(heartbeat(8_999).monsters.length, 4);
   assert.equal(heartbeat(9_000).monsters.length, 8);
-  assert.equal(heartbeat(17_000).monsters.length, 12);
-  assert.equal(heartbeat(25_000).monsters.length, 16);
-  assert.equal(heartbeat(33_000).monsters.length, 16);
+  assert.equal(heartbeat(17_000).monsters.length, 10);
+  assert.equal(heartbeat(25_000).monsters.length, 10);
+  assert.equal(heartbeat(33_000).monsters.length, 10);
+});
+
+test('a map contains at most two level-appropriate monster species', () => {
+  const state = updatePresence({
+    userId: 'species-user',
+    nickname: 'species-user',
+    mapId: 'data_center',
+    x: 10,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_000
+  });
+  assert.ok(new Set(state.monsters.map((monster) => monster.speciesId)).size <= 2);
+  assert.ok(state.monsters.every((monster) => monster.level >= 73 && monster.level <= 115));
+});
+
+test('only the most recently claimed client controls one character', () => {
+  claimWorldControl('user-a', 'pc', 1_000);
+  assert.equal(hasWorldControl('user-a', 'pc'), true);
+  claimWorldControl('user-a', 'mobile', 1_100);
+  assert.equal(hasWorldControl('user-a', 'pc'), false);
+  assert.equal(hasWorldControl('user-a', 'mobile'), true);
+  assert.equal(releaseWorldControl('user-a', 'pc'), false);
+  assert.equal(releaseWorldControl('user-a', 'mobile'), true);
 });
 
 test('contact damage knocks the player backward and grants 1.5 seconds of invulnerability', () => {

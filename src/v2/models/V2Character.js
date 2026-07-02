@@ -68,7 +68,9 @@ const v2CharacterSchema = new mongoose.Schema({
     },
     quickSlots: {
       hp: { type: String, default: '' },
-      mp: { type: String, default: '' }
+      mp: { type: String, default: '' },
+      autoHpPercent: { type: Number, default: 0, min: 0, max: 100 },
+      autoMpPercent: { type: Number, default: 0, min: 0, max: 100 }
     }
   },
   mailbox: { type: [mailboxEntrySchema], default: [] },
@@ -87,7 +89,8 @@ const v2CharacterSchema = new mongoose.Schema({
   worldState: {
     mapId: { type: String, default: 'main_lobby' },
     x: { type: Number, default: 8, min: 0, max: 94 },
-    floor: { type: Number, default: 0, min: 0, max: 1 }
+    floor: { type: Number, default: 0, min: 0, max: 1 },
+    controlSessionId: { type: String, default: '' }
   },
   economy: {
     money: { type: Number, default: 0 },
@@ -96,7 +99,11 @@ const v2CharacterSchema = new mongoose.Schema({
   migration: {
     status: { type: String, enum: ['prepared', 'converted', 'failed'], default: 'prepared' },
     migrationVersion: { type: Number, default: 1 },
-    sourceSnapshotId: { type: mongoose.Schema.Types.ObjectId, ref: 'LegacyUserSnapshot', required: true },
+    sourceSnapshotId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'LegacyUserSnapshot',
+      required: true
+    },
     sourceLevel: { type: Number, required: true },
     legacyCardCount: { type: Number, default: 0 },
     legacyEnhancedCardCount: { type: Number, default: 0 },

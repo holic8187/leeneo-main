@@ -23,6 +23,10 @@ const state = {
   signupCodeTimer: null,
   worldPresenceRunId: 0,
   worldHeartbeatBusy: false,
+  worldClientId: sessionStorage.getItem('v2WorldClientId')
+    || globalThis.crypto?.randomUUID?.()
+    || `world-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  worldControlActive: false,
   worldStateEpoch: 0,
   reviving: false,
   selfUserId: '',
@@ -39,6 +43,7 @@ const state = {
     categories: {},
     potions: [],
     quickSlots: { hp: null, mp: null },
+    autoUsePercent: { hp: 0, mp: 0 },
     limits: { defaultCapacity: 20, maximumCapacity: 64, expansionSize: 4 }
   },
   inventoryTab: 'consumable',
@@ -47,8 +52,11 @@ const state = {
   mailbox: [],
   pendingMailCount: 0,
   mailPollTimer: null,
-  adminGrantItems: []
+  adminGrantItems: [],
+  autoPotionBusy: { hp: false, mp: false },
+  shop: { money: 0, buyItems: [], tab: 'consumable' }
 };
+sessionStorage.setItem('v2WorldClientId', state.worldClientId);
 
 const $ = (id) => document.getElementById(id);
 const formatNumber = (value) => Number(value || 0).toLocaleString('ko-KR');
@@ -69,6 +77,12 @@ async function request(url, options = {}) {
     }
   });
   const data = await response.json();
+  if (!response.ok) {
+    const error = new Error(data.msg || '요청 처리에 실패했습니다.');
+    error.status = response.status;
+    error.code = data.code || '';
+    throw error;
+  }
   if (!response.ok) throw new Error(data.msg || '요청 처리에 실패했습니다.');
   return data;
 }
@@ -166,6 +180,11 @@ async function loadUserWorkspace() {
   setInventoryData(inventoryData.inventory);
   setMailboxData(mailData);
   renderGame(data);
+  await request('/api/v2/world/claim-control', {
+    method: 'POST',
+    body: JSON.stringify({ clientId: state.worldClientId })
+  });
+  state.worldControlActive = true;
   startWorldSimulation();
   startMailPolling();
 }
@@ -530,6 +549,52 @@ function showFloatingDamage(targetElement, amount, kind = 'outgoing') {
   setTimeout(() => element.remove(), 650);
 }
 
+function getLootBottom(floor) {
+  return Number(floor) === 1 ? `${getUpperPlatformBottom() + 3}px` : '44px';
+}
+
+function showGroundLoot(drops = []) {
+  const layer = $('lootLayer');
+  if (!layer) return;
+  drops.filter((drop) => drop.stored !== false).forEach((drop) => {
+    if (layer.querySelector(`[data-loot-id="${CSS.escape(String(drop.id))}"]`)) return;
+    const element = document.createElement('div');
+    element.className = `field-loot is-${drop.kind}`;
+    element.dataset.lootId = String(drop.id);
+    element.style.left = `${drop.x}%`;
+    element.style.bottom = getLootBottom(drop.floor);
+    element.innerHTML = `<span>${escapeHtml(drop.icon || '📦')}</span><small>${escapeHtml(drop.name || '')}</small>`;
+    layer.appendChild(element);
+  });
+}
+
+function collectGroundLoot(collections = []) {
+  const layer = $('lootLayer');
+  const character = $('fieldCharacter');
+  if (!layer || !character) return;
+  const stageRect = $('worldStage').getBoundingClientRect();
+  const characterRect = character.getBoundingClientRect();
+  const destinationX = characterRect.left - stageRect.left + characterRect.width / 2;
+  const destinationY = stageRect.bottom - characterRect.top;
+  collections.forEach((loot) => {
+    const element = layer.querySelector(`[data-loot-id="${CSS.escape(String(loot.id))}"]`);
+    if (!element) return;
+    element.style.setProperty('--loot-target-x', `${destinationX - element.offsetLeft}px`);
+    element.style.setProperty('--loot-target-y', `${-(destinationY - element.offsetHeight)}px`);
+    element.classList.add('is-collecting');
+    setTimeout(() => element.remove(), 520);
+  });
+  if (collections.length) {
+    const money = collections
+      .filter((loot) => loot.kind === 'money')
+      .reduce((sum, loot) => sum + Number(loot.amount || 0), 0);
+    const itemCount = collections
+      .filter((loot) => loot.kind === 'item')
+      .reduce((sum, loot) => sum + Number(loot.quantity || 0), 0);
+    setWorldActivity(`자동 수거 · ${money ? `${formatNumber(money)}원` : ''}${money && itemCount ? ' · ' : ''}${itemCount ? `잡템 ${formatNumber(itemCount)}개` : ''}`);
+  }
+}
+
 function updateFieldControls() {
   const button = $('autoCombatButton');
   button.textContent = state.autoCombat ? '자동 전투 ON' : '자동 전투 OFF';
@@ -564,11 +629,10 @@ function renderWorldMap(mapId, arrivalPortalIndex = 0) {
 
   $('mapRegion').textContent = `MAP / ${map.region}`;
   $('mapName').textContent = map.name;
-  $('mapLevelRange').textContent = map.safeZone
-    ? 'SAFE ZONE'
-    : `Lv.${map.minLevel}~${map.maxLevel}`;
+  $('mapLevelRange').textContent = map.safeZone ? 'SAFE ZONE' : 'FIELD';
   $('currentLocation').textContent = map.name;
   $('worldStage').dataset.theme = map.theme;
+  $('shopNpc')?.classList.toggle('hidden', !map.safeZone);
   const needsUpperRoute = map.connections.length > 2;
   $('worldRope').classList.toggle('is-ladder', map.features.includes('ladder') || needsUpperRoute);
   $('worldRope').classList.toggle(
@@ -704,7 +768,7 @@ function movementSelectionBody() {
     const accessible = canEnterMap(target);
     return `<button class="move-destination" type="button" data-target-map="${escapeHtml(connection.targetId)}" ${accessible ? '' : 'disabled'}>
       <b>${String(index + 1).padStart(2, '0')}</b>
-      <span><strong>${escapeHtml(target?.name || connection.targetId)}</strong><small>${escapeHtml(connection.portalName)} · Lv.${target?.minLevel || '?'}~${target?.maxLevel || '?'}</small></span>
+      <span><strong>${escapeHtml(target?.name || connection.targetId)}</strong><small>${escapeHtml(connection.portalName)}</small></span>
       <i>${accessible ? '이동' : '레벨 부족'}</i>
     </button>`;
   }).join('');
@@ -864,6 +928,7 @@ async function runAutoCombat(runId) {
       const result = await request('/api/v2/world/attack', {
         method: 'POST',
         body: JSON.stringify({
+          clientId: state.worldClientId,
           mapId: state.currentMapId,
           monsterId: state.combatTargetId
         })
@@ -874,6 +939,11 @@ async function runAutoCombat(runId) {
         result.critical ? 'critical' : 'outgoing'
       );
       applyAttackResult(result);
+      showGroundLoot(result.drops || []);
+      if (result.inventory) setInventoryData(result.inventory);
+      if (state.character?.economy && Number.isFinite(Number(result.money))) {
+        state.character.economy.money = Number(result.money);
+      }
       if (result.character) {
         renderGame({
           preview: state.preview,
@@ -987,6 +1057,7 @@ function renderMonsters(monsters = []) {
     element.dataset.floor = String(monster.floor);
     element.querySelector('.monster-name').textContent = monster.name;
     element.querySelector('.monster-level').textContent = `Lv.${monster.level}`;
+    element.querySelector('pre').textContent = monster.icon || '(•̀ᴗ•́)';
     element.querySelector('.monster-hp i').style.width = `${ratio(monster.hp, monster.maxHp)}%`;
     element.style.left = `${monster.x}%`;
     element.style.bottom = monster.floor === 1 ? `${getUpperPlatformBottom() + 1}px` : '43px';
@@ -1085,7 +1156,7 @@ async function revivePlayer() {
   try {
     const data = await request('/api/v2/world/revive', {
       method: 'POST',
-      body: '{}'
+      body: JSON.stringify({ clientId: state.worldClientId })
     });
     state.dead = false;
     state.deathExpLost = 0;
@@ -1143,6 +1214,24 @@ function renderWorldEntities(data = {}) {
       setWorldActivity(`몸박 피해 -${formatNumber(ownContact.damage)} · 1.5초 무적`);
     }
   }
+  collectGroundLoot(data.lootCollections || []);
+  maybeUseAutoPotions();
+}
+
+function disconnectSupersededWorld() {
+  state.worldControlActive = false;
+  state.autoCombat = false;
+  state.moving = false;
+  state.moveRunId += 1;
+  state.combatRunId += 1;
+  state.worldPresenceRunId += 1;
+  localStorage.setItem('v2AutoCombat', 'false');
+  clearLoginState();
+  $('workspace').classList.add('hidden');
+  $('userWorkspace').classList.add('hidden');
+  $('logoutButton').classList.add('hidden');
+  $('loginPanel').classList.remove('hidden');
+  $('loginStatus').textContent = '다른 기기에서 같은 계정으로 접속해 이 기기의 연결이 종료되었습니다.';
 }
 
 async function sendWorldHeartbeat() {
@@ -1150,6 +1239,7 @@ async function sendWorldHeartbeat() {
     state.worldHeartbeatBusy
     || state.dead
     || state.reviving
+    || !state.worldControlActive
     || !state.token
     || state.isAdmin
     || !state.currentMapId
@@ -1161,6 +1251,7 @@ async function sendWorldHeartbeat() {
     const data = await request('/api/v2/world/heartbeat', {
       method: 'POST',
       body: JSON.stringify({
+        clientId: state.worldClientId,
         mapId: state.currentMapId,
         x: getCharacterX(),
         floor: getCharacterFloor(),
@@ -1173,6 +1264,10 @@ async function sendWorldHeartbeat() {
       renderWorldEntities(data);
     }
   } catch (err) {
+    if (err.code === 'WORLD_CONTROL_LOST') {
+      disconnectSupersededWorld();
+      return;
+    }
     console.error('V2 world heartbeat error:', err);
   } finally {
     state.worldHeartbeatBusy = false;
@@ -1226,6 +1321,10 @@ function setInventoryData(inventory = {}) {
       hp: inventory.quickSlots?.hp || null,
       mp: inventory.quickSlots?.mp || null
     },
+    autoUsePercent: {
+      hp: Math.max(0, Math.min(100, Number(inventory.autoUsePercent?.hp) || 0)),
+      mp: Math.max(0, Math.min(100, Number(inventory.autoUsePercent?.mp) || 0))
+    },
     limits: {
       defaultCapacity: Number(inventory.limits?.defaultCapacity) || 20,
       maximumCapacity: Number(inventory.limits?.maximumCapacity) || 64,
@@ -1268,8 +1367,9 @@ function animateResourceRestore(resource) {
   setTimeout(() => track.classList.remove('is-restored'), 520);
 }
 
-async function useQuickPotion(slot) {
-  if (state.dead) return;
+async function useQuickPotion(slot, automatic = false) {
+  if (state.dead || state.autoPotionBusy[slot]) return;
+  state.autoPotionBusy[slot] = true;
   try {
     const data = await request('/api/v2/inventory/use-potion', {
       method: 'POST',
@@ -1285,7 +1385,23 @@ async function useQuickPotion(slot) {
     animateResourceRestore(slot);
     setWorldActivity(`${data.used.item.name} 사용 · ${slot === 'hp' ? '체력' : '정신력'} +${formatNumber(data.used.restored)}`);
   } catch (err) {
-    setWorldActivity(err.message);
+    if (!automatic) setWorldActivity(err.message);
+  } finally {
+    state.autoPotionBusy[slot] = false;
+  }
+}
+
+function maybeUseAutoPotions() {
+  if (state.dead || !state.character?.resources) return;
+  for (const slot of ['hp', 'mp']) {
+    const threshold = Number(state.inventory.autoUsePercent?.[slot]) || 0;
+    const potion = state.inventory.quickSlots?.[slot];
+    if (!threshold || !potion || potion.quantity <= 0 || state.autoPotionBusy[slot]) continue;
+    const current = Number(state.character.resources[slot === 'hp' ? 'currentHp' : 'currentMp']) || 0;
+    const maximum = Math.max(1, Number(state.character.resources[slot === 'hp' ? 'maxHp' : 'maxMp']) || 1);
+    if (current > 0 && current / maximum * 100 <= threshold && current < maximum) {
+      useQuickPotion(slot, true);
+    }
   }
 }
 
@@ -1437,7 +1553,19 @@ function bindInventoryControls() {
 
 function potionConfigurationBody() {
   const potions = state.inventory.potions;
+  const autoControls = ['hp', 'mp'].map((slot) => {
+    const value = Number(state.inventory.autoUsePercent?.[slot]) || 0;
+    return `<label class="auto-potion-control">
+      <span><b>${slot.toUpperCase()} 자동 사용</b><small>${value > 0 ? `${value}% 이하` : '사용 안 함'}</small></span>
+      <input type="range" min="0" max="100" step="5" value="${value}" data-auto-potion="${slot}">
+    </label>`;
+  }).join('');
   return `<div class="potion-config-sheet">
+    <section class="auto-potion-settings">
+      <strong>자동 포션 기준</strong>
+      <p>0%는 자동 사용 안 함입니다. 설정값 이하가 되면 지정한 포션을 1개 사용합니다.</p>
+      ${autoControls}
+    </section>
     <p class="notice-line">왼쪽에는 체력 포션, 오른쪽에는 정신력 포션만 설정할 수 있습니다.</p>
     <div class="potion-config-list">
       ${potions.length ? potions.map((item) => `<article>
@@ -1446,6 +1574,20 @@ function potionConfigurationBody() {
       </article>`).join('') : '<div class="empty-ledger"><b>설정할 포션이 없습니다.</b></div>'}
     </div>
   </div>`;
+}
+
+async function saveAutoPotionThreshold(slot, percent) {
+  try {
+    const data = await request('/api/v2/inventory/auto-potion', {
+      method: 'POST',
+      body: JSON.stringify({ slot, percent })
+    });
+    setInventoryData(data.inventory);
+    $('featureBody').innerHTML = potionConfigurationBody();
+    bindPotionControls();
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
 }
 
 async function assignQuickPotion(slot, itemId) {
@@ -1544,6 +1686,16 @@ function bindPotionControls() {
       button.dataset.assignPotion
     ));
   });
+  document.querySelectorAll('[data-auto-potion]').forEach((input) => {
+    input.addEventListener('input', () => {
+      const label = input.closest('label')?.querySelector('small');
+      if (label) label.textContent = Number(input.value) > 0 ? `${input.value}% 이하` : '사용 안 함';
+    });
+    input.addEventListener('change', () => saveAutoPotionThreshold(
+      input.dataset.autoPotion,
+      input.value
+    ));
+  });
   document.querySelector('[data-open-potion-config]')?.addEventListener('click', () => openFeature('potion-config'));
 }
 
@@ -1552,6 +1704,101 @@ function bindMailControls() {
     button.addEventListener('click', () => claimMailItem(button.dataset.claimMail));
   });
   document.querySelector('[data-claim-all-mail]')?.addEventListener('click', claimAllMailItems);
+}
+
+function shopBody() {
+  const category = state.inventory.categories[state.shop.tab] || { items: [] };
+  const sellable = (category.items || []).filter((item) => Number(item.sellPrice) > 0);
+  return `<div class="field-shop">
+    <header><div><span>HOI SUPPLY</span><strong>사내 보급 상점</strong></div><b>보유 ${formatNumber(state.shop.money)}원</b></header>
+    <div class="field-shop-columns">
+      <section>
+        <h3>구매</h3>
+        <div class="shop-item-list">
+          ${(state.shop.buyItems || []).map((item) => `<article>
+            <span>${escapeHtml(item.icon)}</span>
+            <div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.description)}</small><b>${formatNumber(item.buyPrice)}원</b></div>
+            <input type="number" min="1" max="10000" value="1" inputmode="numeric" data-shop-buy-quantity="${escapeHtml(item.id)}">
+            <button type="button" data-shop-buy="${escapeHtml(item.id)}">구매</button>
+          </article>`).join('')}
+        </div>
+      </section>
+      <section>
+        <h3>판매</h3>
+        <div class="shop-inventory-tabs">
+          ${INVENTORY_TAB_ORDER.map((key) => `<button type="button" data-shop-tab="${key}" class="${key === state.shop.tab ? 'is-active' : ''}">${escapeHtml(state.inventory.categories[key]?.label || key)}</button>`).join('')}
+        </div>
+        <div class="shop-item-list">
+          ${sellable.length ? sellable.map((item) => `<article>
+            <span>${escapeHtml(item.icon)}</span>
+            <div><strong>${escapeHtml(item.name)}</strong><small>${formatNumber(item.quantity)}개 보유</small><b>개당 ${formatNumber(item.sellPrice)}원</b></div>
+            <input type="number" min="1" max="${Number(item.quantity) || 1}" value="1" inputmode="numeric" data-shop-sell-quantity="${escapeHtml(item.stackId)}">
+            <button type="button" data-shop-sell="${escapeHtml(item.stackId)}">판매</button>
+          </article>`).join('') : '<div class="empty-ledger"><b>판매할 수 있는 아이템이 없습니다.</b></div>'}
+        </div>
+      </section>
+    </div>
+  </div>`;
+}
+
+async function openFieldShop() {
+  try {
+    const data = await request('/api/v2/shop');
+    state.shop.money = Number(data.shop?.money) || 0;
+    state.shop.buyItems = data.shop?.buyItems || [];
+    setInventoryData(data.shop?.inventory);
+    openFeature('shop');
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+async function buyFieldShopItem(itemId) {
+  const input = document.querySelector(`[data-shop-buy-quantity="${CSS.escape(itemId)}"]`);
+  try {
+    const data = await request('/api/v2/shop/buy', {
+      method: 'POST',
+      body: JSON.stringify({ itemId, quantity: input?.value })
+    });
+    state.shop.money = Number(data.money) || 0;
+    setInventoryData(data.inventory);
+    $('featureBody').innerHTML = shopBody();
+    bindShopControls();
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+async function sellFieldShopItem(stackId) {
+  const input = document.querySelector(`[data-shop-sell-quantity="${CSS.escape(stackId)}"]`);
+  try {
+    const data = await request('/api/v2/shop/sell', {
+      method: 'POST',
+      body: JSON.stringify({ stackId, quantity: input?.value })
+    });
+    state.shop.money = Number(data.money) || 0;
+    setInventoryData(data.inventory);
+    $('featureBody').innerHTML = shopBody();
+    bindShopControls();
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+function bindShopControls() {
+  document.querySelectorAll('[data-shop-tab]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.shop.tab = button.dataset.shopTab;
+      $('featureBody').innerHTML = shopBody();
+      bindShopControls();
+    });
+  });
+  document.querySelectorAll('[data-shop-buy]').forEach((button) => {
+    button.addEventListener('click', () => buyFieldShopItem(button.dataset.shopBuy));
+  });
+  document.querySelectorAll('[data-shop-sell]').forEach((button) => {
+    button.addEventListener('click', () => sellFieldShopItem(button.dataset.shopSell));
+  });
 }
 
 const featureMeta = {
@@ -1808,6 +2055,7 @@ function featureBody(feature) {
   if (feature === 'skills') return skillBody();
   if (feature === 'potion-config') return potionConfigurationBody();
   if (feature === 'mail') return mailBody();
+  if (feature === 'shop') return shopBody();
   const messages = {
     shop: '물약, 탄환, 장비 보급품을 구매하는 사내 보급소입니다.',
     cash: 'V2 전용 상품 구성 후 개장합니다.',
@@ -1841,6 +2089,7 @@ function openFeature(feature) {
   if (feature === 'inventory') bindInventoryControls();
   if (feature === 'potion-config') bindPotionControls();
   if (feature === 'mail') bindMailControls();
+  if (feature === 'shop') bindShopControls();
   $('featureModal').classList.remove('hidden');
   document.body.classList.add('modal-open');
   document.querySelector('.modal-close')?.focus();
@@ -1865,6 +2114,7 @@ function logout() {
         Authorization: `Bearer ${state.token}`
       },
       body: JSON.stringify({
+        clientId: state.worldClientId,
         mapId: state.currentMapId,
         x: getCharacterX(),
         floor: getCharacterFloor()
@@ -1907,10 +2157,15 @@ $('autoCombatButton').addEventListener('click', toggleAutoCombat);
 $('hpPotionButton').addEventListener('click', () => useQuickPotion('hp'));
 $('mpPotionButton').addEventListener('click', () => useQuickPotion('mp'));
 $('potionConfigButton').addEventListener('click', () => openFeature('potion-config'));
+$('shopNpc')?.addEventListener('click', openFieldShop);
 $('mailButton').addEventListener('click', () => refreshMailbox(true));
 $('reviveButton').addEventListener('click', revivePlayer);
 document.querySelectorAll('.desk-action').forEach((button) => {
-  button.addEventListener('click', () => openFeature(button.dataset.feature));
+  button.addEventListener('click', () => (
+    button.dataset.feature === 'shop'
+      ? openFieldShop()
+      : openFeature(button.dataset.feature)
+  ));
 });
 document.querySelectorAll('[data-close-modal]').forEach((button) => {
   button.addEventListener('click', closeFeature);

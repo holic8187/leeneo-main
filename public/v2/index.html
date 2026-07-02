@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>호이상사 V2</title>
-  <link rel="stylesheet" href="/v2/styles.css?v=18">
+  <link rel="stylesheet" href="/v2/styles.css?v=19">
 </head>
 <body>
   <div class="blueprint-grid" aria-hidden="true"></div>
@@ -53,7 +53,7 @@
                 <p id="mapRegion" class="section-number">MAP 01 / 본관 초입</p>
                 <h3 id="mapName">호이상사 중앙로비</h3>
               </div>
-              <span id="mapLevelRange" class="map-mode">Lv.1~8</span>
+              <span id="mapLevelRange" class="map-mode">SAFE ZONE</span>
             </div>
 
             <div id="worldStage" class="world-stage" data-theme="lobby" aria-label="캐릭터 이동 및 자동 전투 화면">
@@ -67,7 +67,11 @@
               <div id="worldRope" class="world-rope" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
 
               <div id="monsterLayer" class="monster-layer" aria-hidden="true"></div>
+              <div id="lootLayer" class="loot-layer" aria-hidden="true"></div>
               <div id="remotePlayerLayer" class="remote-player-layer" aria-hidden="true"></div>
+              <button id="shopNpc" class="field-shop-npc hidden" type="button" aria-label="사내 보급 상점 열기">
+                <span>🧑‍💼</span><strong>보급 담당자</strong><small>상점</small>
+              </button>
 
               <div id="fieldCharacter" class="field-character is-walking" aria-hidden="true">
                 <span class="character-tag">YOU</span>
@@ -276,6 +280,6 @@
     </section>
   </div>
 
-  <script src="/v2/app.js?v=18"></script>
+  <script src="/v2/app.js?v=19"></script>
 </body>
 </html>

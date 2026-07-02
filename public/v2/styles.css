@@ -848,8 +848,9 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .field-character.is-climb .leg-right { animation: climb-a .32s linear infinite alternate; }
 .field-character.is-climb .arm-right,
 .field-character.is-climb .leg-left { animation: climb-b .32s linear infinite alternate; }
-.monster-layer, .remote-player-layer { position: absolute; inset: 0; pointer-events: none; }
+.monster-layer, .loot-layer, .remote-player-layer { position: absolute; inset: 0; pointer-events: none; }
 .monster-layer { z-index: 6; }
+.loot-layer { z-index: 7; }
 .remote-player-layer { z-index: 5; }
 .field-monster {
   position: absolute;
@@ -876,6 +877,52 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .field-monster.is-chasing { filter: drop-shadow(0 0 8px rgba(255, 82, 54, .75)); }
 .field-monster.is-falling { animation: monster-fall .55s ease-in; }
 .field-monster.is-hit { animation: monster-hit .45s linear; }
+
+.field-loot {
+  position: absolute;
+  display: grid;
+  justify-items: center;
+  width: 54px;
+  margin-left: -27px;
+  color: #fff4b7;
+  text-align: center;
+  filter: drop-shadow(0 3px 3px rgba(0,0,0,.65));
+  animation: loot-drop .42s cubic-bezier(.2,.85,.35,1.2);
+  transition: transform .48s cubic-bezier(.3,.9,.4,1), opacity .48s ease;
+}
+.field-loot span { font-size: 23px; }
+.field-loot small {
+  max-width: 84px;
+  padding: 1px 4px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: rgba(0,0,0,.56);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.field-loot.is-collecting {
+  opacity: 0;
+  transform: translate(var(--loot-target-x), var(--loot-target-y)) scale(.35);
+}
+
+.field-shop-npc {
+  position: absolute;
+  right: 4%;
+  bottom: 43px;
+  z-index: 8;
+  display: grid;
+  justify-items: center;
+  padding: 4px 7px;
+  border: 1px solid #d5c986;
+  color: #ffeeb0;
+  background: rgba(22, 42, 29, .88);
+  box-shadow: 0 0 14px rgba(255, 224, 115, .24);
+}
+.field-shop-npc span { font-size: 24px; }
+.field-shop-npc strong { font-size: 9px; }
+.field-shop-npc small { font-size: 8px; opacity: .75; }
+.field-shop-npc:hover { transform: translateY(-2px); }
 
 .remote-player {
   position: absolute;
@@ -1026,6 +1073,11 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 @keyframes monster-hit { 0%,100% { transform: translateX(0); } 25% { transform: translateX(8px); color: #fff; } 50% { transform: translateX(-6px); } }
 @keyframes monster-walk { from { translate: 0 0; } to { translate: 0 -3px; } }
 @keyframes monster-fall { from { opacity: .75; translate: -50% -20px; } to { opacity: 1; translate: -50% 0; } }
+@keyframes loot-drop {
+  0% { opacity: 0; transform: translateY(-24px) scale(.5); }
+  70% { opacity: 1; transform: translateY(3px) scale(1.06); }
+  100% { transform: translateY(0) scale(1); }
+}
 @keyframes remote-step-a { from { transform: rotate(38deg); } to { transform: rotate(-32deg); } }
 @keyframes remote-step-b { from { transform: rotate(-38deg); } to { transform: rotate(32deg); } }
 @keyframes projectile-shot { 0% { opacity: 1; transform: translateX(0); } 90% { opacity: 1; } 100% { opacity: 0; transform: translateX(260px); } }
@@ -1230,6 +1282,54 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .potion-item div, .potion-config-list article div { min-width: 0; display: grid; gap: 4px; }
 .potion-item small, .potion-config-list small { color: var(--muted); }
 .potion-config-list article { grid-template-columns: minmax(0, 1fr) auto; }
+
+.auto-potion-settings {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 13px;
+  border: 1px solid #aab9ac;
+  background: #f3f7f1;
+}
+.auto-potion-settings > p { margin: 0; color: var(--muted); font-size: 11px; }
+.auto-potion-control { display: grid; gap: 5px; }
+.auto-potion-control > span { display: flex; justify-content: space-between; gap: 12px; }
+.auto-potion-control small { color: var(--green); font-weight: 800; }
+.auto-potion-control input { width: 100%; accent-color: var(--green); }
+
+.field-shop { display: grid; gap: 14px; }
+.field-shop > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  color: #f3f0d7;
+  background: #19372c;
+}
+.field-shop > header div { display: grid; gap: 3px; }
+.field-shop > header span { font: 800 9px ui-monospace, monospace; letter-spacing: .16em; opacity: .72; }
+.field-shop-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.field-shop-columns > section { min-width: 0; padding: 12px; border: 1px solid #bcc6ba; background: #f6f7f2; }
+.field-shop-columns h3 { margin: 0 0 10px; }
+.shop-item-list { display: grid; gap: 7px; max-height: 440px; overflow: auto; }
+.shop-item-list article {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 64px auto;
+  align-items: center;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid #d1d7cf;
+  background: #fff;
+}
+.shop-item-list article > span { font-size: 25px; text-align: center; }
+.shop-item-list article > div { min-width: 0; display: grid; gap: 2px; }
+.shop-item-list article small { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.shop-item-list article input { min-width: 0; padding: 7px 4px; }
+.shop-inventory-tabs { display: grid; grid-template-columns: repeat(4, 1fr); margin-bottom: 9px; }
+.shop-inventory-tabs button { padding: 8px 3px; border-right: 0; }
+.shop-inventory-tabs button:last-child { border-right: 1px solid; }
+.shop-inventory-tabs button.is-active { color: #fff; background: var(--green); }
 
 .mail-entry {
   padding: 13px;
@@ -1469,4 +1569,10 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   font-size: 18px;
   filter: grayscale(1);
   opacity: .42;
+}
+
+@media (max-width: 720px) {
+  .field-shop-columns { grid-template-columns: 1fr; }
+  .shop-item-list article { grid-template-columns: 34px minmax(0, 1fr) 58px auto; }
+  .field-shop-npc { right: 2%; }
 }
