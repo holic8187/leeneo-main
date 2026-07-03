@@ -57,6 +57,9 @@ const state = {
   adminGrantItems: [],
   autoPotionBusy: { hp: false, mp: false },
   skillUseBusy: false,
+  autoSkillOwnerKey: '',
+  autoSkillIds: new Set(),
+  autoSkillRotationIndex: 0,
   shop: { money: 0, buyItems: [], tab: 'consumable' }
 };
 sessionStorage.setItem('v2WorldClientId', state.worldClientId);
@@ -944,6 +947,15 @@ async function runAutoCombat(runId) {
     if (!await approachMonsterForCombat(runId)) {
       await sleep(350);
       continue;
+    }
+    const autoSkill = getNextAutoSkillForCombat();
+    if (autoSkill) {
+      const used = await useActiveSkill(autoSkill.id, { automatic: true });
+      if (used) {
+        state.combatAttackCount += 1;
+        await sleep(300);
+        continue;
+      }
     }
     const motion = getCombatPresentation().motion;
     await playWorldMotion(motion, 'combat', runId);

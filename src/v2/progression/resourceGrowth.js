@@ -107,15 +107,24 @@ function applyReferenceResources(character, reference, { fullyRestore = false } 
   const currentMp = Math.max(0, Number(character.resources?.currentMp) || 0);
   const hpRatio = currentHp / previousMaxHp;
   const mpRatio = previousMaxMp > 0 ? currentMp / previousMaxMp : 1;
+  const resourceBuffPercent = Math.max(
+    0,
+    Number(character.resources?.maxResourceBuffPercentApplied) || 0
+  );
+  const resourceMultiplier = 1 + resourceBuffPercent / 100;
+  const effectiveMaxHp = Math.max(1, Math.round(reference.maxHp * resourceMultiplier));
+  const effectiveMaxMp = Math.max(0, Math.round(reference.maxMp * resourceMultiplier));
 
-  character.resources.maxHp = reference.maxHp;
-  character.resources.maxMp = reference.maxMp;
+  character.resources.maxHp = effectiveMaxHp;
+  character.resources.maxMp = effectiveMaxMp;
   character.resources.currentHp = fullyRestore
-    ? reference.maxHp
-    : Math.max(0, Math.min(reference.maxHp, Math.round(reference.maxHp * hpRatio)));
+    ? effectiveMaxHp
+    : Math.max(0, Math.min(effectiveMaxHp, Math.round(effectiveMaxHp * hpRatio)));
   character.resources.currentMp = fullyRestore
-    ? reference.maxMp
-    : Math.max(0, Math.min(reference.maxMp, Math.round(reference.maxMp * mpRatio)));
+    ? effectiveMaxMp
+    : Math.max(0, Math.min(effectiveMaxMp, Math.round(effectiveMaxMp * mpRatio)));
+  character.resources.maxResourceBuffBaseHp = resourceBuffPercent ? reference.maxHp : 0;
+  character.resources.maxResourceBuffBaseMp = resourceBuffPercent ? reference.maxMp : 0;
   character.resources.growthVersion = RESOURCE_GROWTH_VERSION;
   character.resources.provisional = Boolean(reference.provisional);
   return reference;
@@ -141,15 +150,43 @@ function applyLevelGrowth(character, {
   });
   const hpGain = Math.max(0, after.maxHp - before.maxHp);
   const mpGain = Math.max(0, after.maxMp - before.maxMp);
-  character.resources.maxHp = Math.max(1, Number(character.resources?.maxHp) || before.maxHp) + hpGain;
-  character.resources.maxMp = Math.max(0, Number(character.resources?.maxMp) || before.maxMp) + mpGain;
+  const previousMaxHp = Math.max(1, Number(character.resources?.maxHp) || before.maxHp);
+  const previousMaxMp = Math.max(0, Number(character.resources?.maxMp) || before.maxMp);
+  const resourceBuffPercent = Math.max(
+    0,
+    Number(character.resources?.maxResourceBuffPercentApplied) || 0
+  );
+  if (resourceBuffPercent > 0) {
+    const multiplier = 1 + resourceBuffPercent / 100;
+    character.resources.maxResourceBuffBaseHp = Math.max(
+      1,
+      Number(character.resources?.maxResourceBuffBaseHp) || Math.round(previousMaxHp / multiplier)
+    ) + hpGain;
+    character.resources.maxResourceBuffBaseMp = Math.max(
+      0,
+      Number(character.resources?.maxResourceBuffBaseMp) || Math.round(previousMaxMp / multiplier)
+    ) + mpGain;
+    character.resources.maxHp = Math.max(
+      1,
+      Math.round(character.resources.maxResourceBuffBaseHp * multiplier)
+    );
+    character.resources.maxMp = Math.max(
+      0,
+      Math.round(character.resources.maxResourceBuffBaseMp * multiplier)
+    );
+  } else {
+    character.resources.maxHp = previousMaxHp + hpGain;
+    character.resources.maxMp = previousMaxMp + mpGain;
+  }
+  const effectiveHpGain = character.resources.maxHp - previousMaxHp;
+  const effectiveMpGain = character.resources.maxMp - previousMaxMp;
   character.resources.currentHp = Math.min(
     character.resources.maxHp,
-    Math.max(0, Number(character.resources?.currentHp) || 0) + hpGain
+    Math.max(0, Number(character.resources?.currentHp) || 0) + effectiveHpGain
   );
   character.resources.currentMp = Math.min(
     character.resources.maxMp,
-    Math.max(0, Number(character.resources?.currentMp) || 0) + mpGain
+    Math.max(0, Number(character.resources?.currentMp) || 0) + effectiveMpGain
   );
   character.resources.growthVersion = RESOURCE_GROWTH_VERSION;
   return { hpGain, mpGain };

@@ -39,10 +39,29 @@ function reconcileHpGrowthSkillBonus(character = {}, { resetAppliedBonus = false
   const delta = desired - previous;
   const previousMaxHp = Math.max(1, Number(character.resources.maxHp) || 1);
   const previousCurrentHp = Math.max(0, Number(character.resources.currentHp) || 0);
-  character.resources.maxHp = Math.max(1, previousMaxHp + delta);
+  const resourceBuffPercent = Math.max(
+    0,
+    Number(character.resources.maxResourceBuffPercentApplied) || 0
+  );
+  if (resourceBuffPercent > 0 && Number(character.resources.maxResourceBuffBaseHp) > 0) {
+    character.resources.maxResourceBuffBaseHp = Math.max(
+      1,
+      Number(character.resources.maxResourceBuffBaseHp) + delta
+    );
+    character.resources.maxHp = Math.max(
+      1,
+      Math.round(
+        Number(character.resources.maxResourceBuffBaseHp)
+          * (1 + resourceBuffPercent / 100)
+      )
+    );
+  } else {
+    character.resources.maxHp = Math.max(1, previousMaxHp + delta);
+  }
+  const effectiveDelta = character.resources.maxHp - previousMaxHp;
   character.resources.currentHp = Math.max(
     0,
-    Math.min(character.resources.maxHp, previousCurrentHp + delta)
+    Math.min(character.resources.maxHp, previousCurrentHp + effectiveDelta)
   );
   character.resources.hpGrowthSkillBonus = desired;
   if (typeof character.markModified === 'function') character.markModified('resources');
@@ -50,6 +69,7 @@ function reconcileHpGrowthSkillBonus(character = {}, { resetAppliedBonus = false
     previous,
     desired,
     delta,
+    effectiveDelta,
     eligibleLevelUps: Math.max(
       0,
       Math.floor(Number(character.progression?.level) || 1) - FIRST_WARRIOR_ADVANCEMENT_LEVEL

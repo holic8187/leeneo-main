@@ -33,7 +33,8 @@ const VALUE_LABELS = Object.freeze({
   hits: '타격 횟수',
   targetCount: '대상 수',
   range: '사거리',
-  distance: '이동 거리'
+  distance: '이동 거리',
+  maxResourcePercent: '최대 체력·정신력'
 });
 
 const PERCENT_KEYS = new Set([

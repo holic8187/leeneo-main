@@ -12,6 +12,9 @@ const {
   getActiveSkillEffects,
   buildSkillTree
 } = require('../../src/v2/skills/skillService');
+const {
+  reconcileMaxResourceBuff
+} = require('../../src/v2/services/maxResourceBuffService');
 
 function makeCharacter(overrides = {}) {
   return {
@@ -28,6 +31,38 @@ function makeCharacter(overrides = {}) {
     ...overrides
   };
 }
+
+test('quality inspection raises max HP and MP once and restores them after expiry', () => {
+  const character = makeCharacter({
+    resources: {
+      currentHp: 700,
+      maxHp: 1000,
+      currentMp: 300,
+      maxMp: 500
+    }
+  });
+  character.skills.levels.quality_inspection = 30;
+  character.skills.activeBuffs.push({
+    skillId: 'quality_inspection',
+    effects: { maxResourcePercent: 60 },
+    expiresAt: new Date(Date.now() + 155_000)
+  });
+
+  const applied = reconcileMaxResourceBuff(character);
+  assert.equal(applied.percent, 60);
+  assert.equal(character.resources.maxHp, 1600);
+  assert.equal(character.resources.maxMp, 800);
+
+  reconcileMaxResourceBuff(character);
+  assert.equal(character.resources.maxHp, 1600);
+  assert.equal(character.resources.maxMp, 800);
+
+  character.skills.activeBuffs[0].expiresAt = new Date(Date.now() - 1);
+  const restored = reconcileMaxResourceBuff(character);
+  assert.equal(restored.percent, 0);
+  assert.equal(character.resources.maxHp, 1000);
+  assert.equal(character.resources.maxMp, 500);
+});
 
 test('quoted skill values interpolate from level one through master level', () => {
   const definition = SKILL_DEFINITIONS.power_strike;

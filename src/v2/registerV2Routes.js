@@ -58,6 +58,7 @@ const {
 } = require('./services/inventoryService');
 const { changeDepartment } = require('./services/jobChangeService');
 const { reconcileHpGrowthSkillBonus } = require('./services/hpGrowthBonusService');
+const { reconcileMaxResourceBuff } = require('./services/maxResourceBuffService');
 const {
   buyShopItem,
   sellInventoryStack,
@@ -236,6 +237,14 @@ function registerV2Routes({
     ) return cached;
     const character = await V2Character.findOne({ userId }).lean();
     if (!character) return null;
+    const resourceBuff = reconcileMaxResourceBuff(character, now);
+    if (resourceBuff.changed) {
+      await V2Character.updateOne(
+        { _id: character._id },
+        { $set: { resources: character.resources, skills: character.skills } }
+      );
+      updatePlayerResources(userId, character.resources);
+    }
     const response = buildCharacterResponse(character);
     const skillExpirations = [
       ...(response.skillTree?.activeBuffs || []).map((buff) => Number(buff.expiresAt) || 0),
@@ -743,6 +752,7 @@ function registerV2Routes({
             expiresAt: new Date(Date.now() + Number(values.durationSeconds || 1) * 1000)
           });
         }
+        reconcileMaxResourceBuff(character);
         character.markModified('skills');
         await character.save();
         worldProfileCache.delete(String(auth.id));

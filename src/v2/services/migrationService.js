@@ -27,6 +27,7 @@ const {
 } = require('../progression/resourceGrowth');
 const { buildInventoryView, getPendingMail } = require('./inventoryService');
 const { reconcileHpGrowthSkillBonus } = require('./hpGrowthBonusService');
+const { reconcileMaxResourceBuff } = require('./maxResourceBuffService');
 
 const MIGRATION_VERSION = 1;
 const TEMPORARY_RESOURCE_DEFAULTS = Object.freeze({
@@ -316,6 +317,8 @@ async function ensureV2CharacterFoundation(character) {
   }
   const hpGrowth = reconcileHpGrowthSkillBonus(character);
   if (hpGrowth.delta !== 0) changed = true;
+  const resourceBuff = reconcileMaxResourceBuff(character);
+  if (resourceBuff.changed) changed = true;
 
   if (changed) await character.save();
   return character;

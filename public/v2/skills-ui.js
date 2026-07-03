@@ -48,15 +48,28 @@ function buildSkillBody() {
 function renderSkillQuickbar() {
   const quickbar = $('skillQuickbar');
   if (!quickbar) return;
+  ensureAutoSkillPreferences();
   const tree = state.character?.skillTree;
   const definitions = new Map((tree?.skills || []).map((skill) => [skill.id, skill]));
   const preset = tree?.activePreset || [];
+  const validIds = new Set(preset);
+  const removedIds = [...state.autoSkillIds].filter((skillId) => !validIds.has(skillId));
+  removedIds.forEach((skillId) => state.autoSkillIds.delete(skillId));
+  if (removedIds.length) saveAutoSkillPreferences();
   quickbar.innerHTML = Array.from({ length: 10 }, (_, index) => {
     const skill = definitions.get(preset[index]);
-    return `<button class="skill-quick ${skill ? 'has-skill' : ''}" type="button"
-      ${skill ? `data-use-skill="${escapeHtml(skill.id)}"` : `data-empty-skill-slot="${index}"`}>
-      <b>${index + 1}</b><strong>${escapeHtml(skill?.name || '비어 있음')}</strong><small>${skill ? `Lv.${formatNumber(skill.level)}` : 'ACTIVE'}</small>
-    </button>`;
+    const autoEnabled = Boolean(skill && state.autoSkillIds.has(skill.id));
+    return `<div class="skill-quick-slot ${autoEnabled ? 'is-auto' : ''}">
+      <button class="skill-quick ${skill ? 'has-skill' : ''}" type="button"
+        ${skill ? `data-use-skill="${escapeHtml(skill.id)}"` : `data-empty-skill-slot="${index}"`}>
+        <b>${index + 1}</b><strong>${escapeHtml(skill?.name || '비어 있음')}</strong><small>${skill ? `Lv.${formatNumber(skill.level)}` : 'ACTIVE'}</small>
+      </button>
+      <button class="skill-auto-toggle" type="button"
+        ${skill ? `data-auto-skill="${escapeHtml(skill.id)}"` : 'disabled'}
+        aria-pressed="${autoEnabled}">
+        <span>AUTO</span><strong>${autoEnabled ? 'ON' : 'OFF'}</strong>
+      </button>
+    </div>`;
   }).join('') + '<button class="skill-preset-edit" type="button" data-open-skill-preset>스킬 등록/해제</button>';
   quickbar.querySelectorAll('[data-use-skill]').forEach((button) => {
     button.addEventListener('click', () => useActiveSkill(button.dataset.useSkill));
@@ -64,7 +77,73 @@ function renderSkillQuickbar() {
   quickbar.querySelectorAll('[data-empty-skill-slot]').forEach((button) => {
     button.addEventListener('click', () => openSkillPresetEditor(Number(button.dataset.emptySkillSlot)));
   });
+  quickbar.querySelectorAll('[data-auto-skill]').forEach((button) => {
+    button.addEventListener('click', () => toggleAutoSkill(button.dataset.autoSkill));
+  });
   quickbar.querySelector('[data-open-skill-preset]')?.addEventListener('click', () => openSkillPresetEditor());
+}
+
+function getAutoSkillStorageKey() {
+  const owner = String(state.character?.id || state.displayName || 'default');
+  return `v2AutoSkillIds:${owner}`;
+}
+
+function ensureAutoSkillPreferences() {
+  const storageKey = getAutoSkillStorageKey();
+  if (state.autoSkillOwnerKey === storageKey) return;
+  state.autoSkillOwnerKey = storageKey;
+  try {
+    const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
+    state.autoSkillIds = new Set(Array.isArray(stored) ? stored.map(String) : []);
+  } catch (_) {
+    state.autoSkillIds = new Set();
+  }
+  state.autoSkillRotationIndex = 0;
+}
+
+function saveAutoSkillPreferences() {
+  if (!state.autoSkillOwnerKey) ensureAutoSkillPreferences();
+  localStorage.setItem(state.autoSkillOwnerKey, JSON.stringify([...state.autoSkillIds]));
+}
+
+function toggleAutoSkill(skillId) {
+  ensureAutoSkillPreferences();
+  if (state.autoSkillIds.has(skillId)) state.autoSkillIds.delete(skillId);
+  else state.autoSkillIds.add(skillId);
+  saveAutoSkillPreferences();
+  renderSkillQuickbar();
+}
+
+function hasActiveAutoSkillEffect(skill) {
+  const tree = state.character?.skillTree || {};
+  const now = Date.now();
+  if (
+    skill.effect === 'summon'
+    && tree.summon?.skillId === skill.id
+    && Number(tree.summon.expiresAt) > now
+  ) return true;
+  return (tree.activeBuffs || []).some(
+    (buff) => buff.skillId === skill.id
+      && (!buff.expiresAt || Number(buff.expiresAt) > now)
+  );
+}
+
+function getNextAutoSkillForCombat() {
+  ensureAutoSkillPreferences();
+  const tree = state.character?.skillTree;
+  const preset = tree?.activePreset || [];
+  if (!preset.length || !state.autoSkillIds.size) return null;
+  const definitions = new Map((tree.skills || []).map((skill) => [skill.id, skill]));
+  for (let checked = 0; checked < preset.length; checked += 1) {
+    const index = state.autoSkillRotationIndex % preset.length;
+    state.autoSkillRotationIndex = (index + 1) % preset.length;
+    const skill = definitions.get(preset[index]);
+    if (!skill || skill.passive || skill.level <= 0 || !state.autoSkillIds.has(skill.id)) continue;
+    if (Number(skill.cooldownRemainingMs || skill.cooldownRemaining || 0) > 0) continue;
+    if (hasActiveAutoSkillEffect(skill)) continue;
+    return skill;
+  }
+  return null;
 }
 
 const COMBAT_BUFF_ICONS = Object.freeze({
@@ -359,10 +438,10 @@ function applySkillCombat(combat = {}) {
   }
 }
 
-async function useActiveSkill(skillId) {
-  if (!skillId || state.skillUseBusy || state.dead || state.moving) return;
+async function useActiveSkill(skillId, options = {}) {
+  if (!skillId || state.skillUseBusy || state.dead || state.moving) return false;
   const skill = state.character?.skillTree?.skills?.find((entry) => entry.id === skillId);
-  if (!skill) return;
+  if (!skill) return false;
   state.skillUseBusy = true;
   try {
     const offensive = ['enemy', 'enemies'].includes(skill.target);
@@ -388,9 +467,11 @@ async function useActiveSkill(skillId) {
     state.character = data.character;
     renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
     setWorldActivity(`${data.skill.name} 사용`);
-    await sleep(300);
+    if (!options.automatic) await sleep(300);
+    return true;
   } catch (err) {
     setWorldActivity(err.message);
+    return false;
   } finally {
     state.skillUseBusy = false;
   }
