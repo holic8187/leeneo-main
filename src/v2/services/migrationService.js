@@ -27,6 +27,7 @@ const {
 } = require('../progression/resourceGrowth');
 const { buildInventoryView, getPendingMail } = require('./inventoryService');
 const { reconcileHpGrowthSkillBonus } = require('./hpGrowthBonusService');
+const { reconcileMpGrowthSkillBonus } = require('./mpGrowthBonusService');
 const { reconcileMaxResourceBuff } = require('./maxResourceBuffService');
 
 const MIGRATION_VERSION = 1;
@@ -320,11 +321,14 @@ async function ensureV2CharacterFoundation(character) {
       archetype: department?.archetype || 'beginner'
     });
     character.resources.hpGrowthSkillBonus = 0;
+    character.resources.mpGrowthSkillBonus = 0;
     applyReferenceResources(character, reference);
     changed = true;
   }
   const hpGrowth = reconcileHpGrowthSkillBonus(character);
   if (hpGrowth.delta !== 0) changed = true;
+  const mpGrowth = reconcileMpGrowthSkillBonus(character);
+  if (mpGrowth.delta !== 0) changed = true;
   const resourceBuff = reconcileMaxResourceBuff(character);
   if (resourceBuff.changed) changed = true;
 

@@ -91,3 +91,15 @@ test('level one base stats produce four attack, magic, defense, and evasion', ()
   assert.equal(result.attackRange, 100);
   assert.equal(result.attackSpeedStage, 1);
 });
+
+test('passive weapon range is added to the equipped weapon base range', () => {
+  const result = buildDerivedStats({
+    stats: { grit: 4, processingSpeed: 30, workKnowledge: 4, awareness: 4 },
+    job: { departmentId: 'accounting', advancementTier: 1 },
+    loadout: {
+      weapon: { weaponType: 'crossbow', stats: { attack: 10 } }
+    },
+    skillEffects: { attackRangeIncrease: 120 }
+  });
+  assert.equal(result.attackRange, 380);
+});

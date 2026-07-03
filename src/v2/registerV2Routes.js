@@ -76,6 +76,7 @@ const {
   removeMember
 } = require('./services/partyService');
 const { reconcileHpGrowthSkillBonus } = require('./services/hpGrowthBonusService');
+const { reconcileMpGrowthSkillBonus } = require('./services/mpGrowthBonusService');
 const { reconcileMaxResourceBuff } = require('./services/maxResourceBuffService');
 const {
   buyShopItem,
@@ -206,6 +207,7 @@ function grantV2Experience(character, amount) {
       advancementTier: character.job?.advancementTier
     });
     reconcileHpGrowthSkillBonus(character);
+    reconcileMpGrowthSkillBonus(character);
   }
   return { gained, levels };
 }
@@ -666,6 +668,7 @@ function registerV2Routes({
         }
         current.progression.unspentStatPoints -= total;
         reconcileHpGrowthSkillBonus(current);
+        reconcileMpGrowthSkillBonus(current);
         await current.save();
         worldProfileCache.delete(String(auth.id));
         return current;
@@ -693,8 +696,10 @@ function registerV2Routes({
           archetype: department.archetype
         });
         character.resources.hpGrowthSkillBonus = 0;
+        character.resources.mpGrowthSkillBonus = 0;
         applyReferenceResources(character, reference, { fullyRestore: true });
         reconcileHpGrowthSkillBonus(character, { resetAppliedBonus: true });
+        reconcileMpGrowthSkillBonus(character, { resetAppliedBonus: true });
         await character.save();
         worldProfileCache.delete(String(auth.id));
         updatePlayerResources(auth.id, character.resources);
@@ -719,6 +724,7 @@ function registerV2Routes({
         await ensureV2CharacterFoundation(current);
         investSkill(current, req.body?.skillId, req.body?.amount);
         reconcileHpGrowthSkillBonus(current);
+        reconcileMpGrowthSkillBonus(current);
         await current.save();
         worldProfileCache.delete(String(auth.id));
         return current;
@@ -773,6 +779,8 @@ function registerV2Routes({
         const currentHp = Math.max(0, Number(character.resources?.currentHp) || 0);
         const currentMp = Math.max(0, Number(character.resources?.currentMp) || 0);
         const maxHp = Math.max(1, Number(character.resources?.maxHp) || 1);
+        const preUseEffects = getActiveSkillEffects(character);
+        const preUseArchetype = DEPARTMENTS[character.job?.departmentId]?.archetype || 'beginner';
         if (values.minimumHpPercent && currentHp / maxHp * 100 < values.minimumHpPercent) {
           throw new Error(`체력이 ${values.minimumHpPercent}% 이상일 때만 사용할 수 있습니다.`);
         }
@@ -780,7 +788,18 @@ function registerV2Routes({
           0,
           Math.floor(Number(values.hpCost) || maxHp * Number(values.maxHpCostPercent || 0) / 100)
         );
-        const mpCost = Math.max(0, Math.floor(Number(values.mpCost) || 0));
+        const baseMpCost = Math.max(0, Number(values.mpCost) || 0);
+        const magicAttackAmplified = preUseArchetype === 'mage'
+          && ['enemy', 'enemies'].includes(definition.target);
+        const mpCost = Math.max(0, Math.floor(
+          baseMpCost * (
+            1 + (
+              magicAttackAmplified
+                ? Number(preUseEffects.magicMpCostIncreasePercent) || 0
+                : 0
+            ) / 100
+          )
+        ));
         if (currentHp <= hpCost) throw new Error('체력이 부족합니다.');
         if (currentMp < mpCost) throw new Error('정신력이 부족합니다.');
         character.resources.currentHp = currentHp - hpCost;
@@ -800,10 +819,17 @@ function registerV2Routes({
           const response = buildCharacterResponse(character);
           const activeEffects = response.skillEffects || {};
           const archetype = DEPARTMENTS[character.job?.departmentId]?.archetype || 'beginner';
+          const upgradedAudit = definition.name === '4중 검산'
+            && Number(activeEffects.upgradedAuditHits) > 0;
           const ammunition = definition.effect === 'fixed-damage'
             ? null
             : getCombatAmmunition(response);
-          const ammunitionCount = Math.max(1, Number(values.hits) || 1);
+          const ammunitionCount = Math.max(
+            1,
+            upgradedAudit
+              ? Number(activeEffects.upgradedAuditHits)
+              : Number(values.hits) || 1
+          );
           if (
             ammunition
             && !activeEffects.noAmmoConsumption
@@ -849,12 +875,16 @@ function registerV2Routes({
             mapId: String(req.body?.mapId || ''),
             targetId: String(req.body?.targetId || ''),
             baseDamage,
-            skillPercent: definition.effect === 'element-explosion'
+            skillPercent: upgradedAudit
+              ? Number(activeEffects.upgradedAuditDamagePercent)
+              : (definition.effect === 'element-explosion'
               ? Number(activeEffects.elementExplosionDamagePercent || values.damagePercent || 250)
-              : Number(values.damagePercent) || 100,
+              : Number(values.damagePercent) || 100),
             rangePx: Number(values.range ?? definition.range) || 100,
             maxTargets: Number(values.targetCount ?? definition.maxTargets) || 1,
-            hits: Number(values.hits) || 1,
+            hits: upgradedAudit
+              ? Number(activeEffects.upgradedAuditHits)
+              : Number(values.hits) || 1,
             bonusAttackPercent: doubleStrike
               ? Number(activeEffects.doubleStrikeDamagePercent || 0)
               : 0,
@@ -866,6 +896,10 @@ function registerV2Routes({
             playerLevel: response.progression?.level,
             mpAbsorbChance: Number(activeEffects.mpAbsorbChance) || 0,
             mpAbsorbPercent: Number(activeEffects.mpAbsorbPercent) || 0,
+            poisonChance: Number(activeEffects.poisonChance) || 0,
+            poisonAttack: Number(activeEffects.poisonAttack) || 0,
+            poisonDurationSeconds: Number(activeEffects.poisonDurationSeconds) || 0,
+            poisonMaxStacks: Number(activeEffects.poisonMaxStacks) || 0,
             stunChance: Number(values.stunChance) || 0,
             stunSeconds: Number(values.stunSeconds) || 0,
             pull: ['charge', 'pull'].includes(definition.effect),
@@ -968,6 +1002,24 @@ function registerV2Routes({
             createdAt: new Date(),
             expiresAt: new Date(Date.now() + Number(values.durationSeconds || 0) * 1000)
           };
+        } else if (definition.effect === 'toggle-amplifier') {
+          const activeIndex = skillState.activeBuffs.findIndex((buff) => buff.skillId === skillId);
+          if (activeIndex >= 0) {
+            skillState.activeBuffs.splice(activeIndex, 1);
+            combat = { success: true, toggled: false };
+          } else {
+            skillState.activeBuffs.push({
+              skillId,
+              name: definition.name,
+              effects: {
+                magicMpCostIncreasePercent: Number(values.magicMpCostIncreasePercent) || 0,
+                damageIncreasePercent: Number(values.damageIncreasePercent) || 0
+              },
+              createdAt: new Date(now),
+              expiresAt: null
+            });
+            combat = { success: true, toggled: true };
+          }
         } else {
           if (definition.effect === 'combo-buff') skillState.comboCount = 0;
           const effects = {};
@@ -1104,7 +1156,12 @@ function registerV2Routes({
         if (Number(character.resources?.currentHp) <= 0) {
           throw new Error('사망 상태에서는 포션을 사용할 수 없습니다. 먼저 안전지대에서 부활해주세요.');
         }
-        const used = useQuickSlotPotion(character, req.body?.slot);
+        const skillEffects = getActiveSkillEffects(character);
+        const used = useQuickSlotPotion(
+          character,
+          req.body?.slot,
+          skillEffects.consumableEffectPercent
+        );
         await character.save();
         worldProfileCache.delete(String(auth.id));
         updatePlayerResources(auth.id, character.resources);
@@ -1599,6 +1656,7 @@ function registerV2Routes({
         magicDefense: profile.derivedStats.magicDefense,
         archetype: DEPARTMENTS[profile.job?.departmentId]?.archetype || 'beginner',
         damageReductionPercent: profile.skillEffects?.damageReductionPercent,
+        dodgeChance: profile.skillEffects?.dodgeChance,
         blockChance: profile.skillEffects?.blockChance,
         stanceChance: profile.skillEffects?.stanceChance,
         contactReflectPercent: profile.skillEffects?.contactReflectPercent,
@@ -1766,7 +1824,15 @@ function registerV2Routes({
         accuracy: profile.derivedStats.accuracy,
         playerLevel: profile.progression?.level,
         mpAbsorbChance: archetype === 'mage' ? Number(skillEffects.mpAbsorbChance) || 0 : 0,
-        mpAbsorbPercent: archetype === 'mage' ? Number(skillEffects.mpAbsorbPercent) || 0 : 0
+        mpAbsorbPercent: archetype === 'mage' ? Number(skillEffects.mpAbsorbPercent) || 0 : 0,
+        poisonChance: Number(skillEffects.poisonChance) || 0,
+        poisonAttack: Number(skillEffects.poisonAttack) || 0,
+        poisonDurationSeconds: Number(skillEffects.poisonDurationSeconds) || 0,
+        poisonMaxStacks: Number(skillEffects.poisonMaxStacks) || 0,
+        closeRangeChance: Number(skillEffects.closeRangeChance) || 0,
+        closeRangeDamagePercent: Number(skillEffects.closeRangeDamagePercent) || 0,
+        executeThresholdPercent: Number(skillEffects.executeThresholdPercent) || 0,
+        executeChance: Number(skillEffects.executeChance) || 0
       });
       if (!result.success) {
         return res.status(['out-of-range', 'dead'].includes(result.reason) ? 409 : 404).json({
@@ -1804,7 +1870,15 @@ function registerV2Routes({
           elements: activeElements,
           freezeSeconds: activeElements.includes('ice') ? 4 : 0,
           accuracy: profile.derivedStats.accuracy,
-          playerLevel: profile.progression?.level
+          playerLevel: profile.progression?.level,
+          poisonChance: Number(skillEffects.poisonChance) || 0,
+          poisonAttack: Number(skillEffects.poisonAttack) || 0,
+          poisonDurationSeconds: Number(skillEffects.poisonDurationSeconds) || 0,
+          poisonMaxStacks: Number(skillEffects.poisonMaxStacks) || 0,
+          closeRangeChance: Number(skillEffects.closeRangeChance) || 0,
+          closeRangeDamagePercent: Number(skillEffects.closeRangeDamagePercent) || 0,
+          executeThresholdPercent: Number(skillEffects.executeThresholdPercent) || 0,
+          executeChance: Number(skillEffects.executeChance) || 0
         });
         if (second.success) {
           result.damage += Number(second.damage) || 0;

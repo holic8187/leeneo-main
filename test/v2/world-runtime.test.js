@@ -515,6 +515,42 @@ test('contact damage knocks the player backward and grants 1.5 seconds of invuln
   assert.equal(afterInvulnerability.contactEvents.length, 1);
 });
 
+test('passive dodge prevents contact damage and knockback', () => {
+  resetWorldRuntime();
+  const initial = updatePresence({
+    userId: 'dodge-user',
+    nickname: '회피사원',
+    mapId: 'newcomer_training',
+    x: 0,
+    floor: 0,
+    activity: 'idle',
+    facingLeft: false,
+    currentHp: 120,
+    maxHp: 120,
+    dodgeChance: 100,
+    now: 1_000
+  });
+  const monster = initial.monsters.find((entry) => entry.floor === 0);
+  const state = updatePresence({
+    userId: 'dodge-user',
+    nickname: '회피사원',
+    mapId: 'newcomer_training',
+    x: monster.x,
+    floor: 0,
+    activity: 'idle',
+    facingLeft: false,
+    currentHp: 120,
+    maxHp: 120,
+    dodgeChance: 100,
+    now: 1_100
+  });
+  assert.equal(state.contactEvents.length, 1);
+  assert.equal(state.contactEvents[0].dodged, true);
+  assert.equal(state.contactEvents[0].damage, 0);
+  assert.equal(state.contactEvents[0].currentHp, 120);
+  assert.equal(state.contactEvents[0].x, monster.x);
+});
+
 test('moving across a monster applies swept contact damage instead of tunneling through it', () => {
   const initial = updatePresence({
     userId: 'moving-contact-user',

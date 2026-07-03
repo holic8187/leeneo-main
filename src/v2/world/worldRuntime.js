@@ -285,20 +285,22 @@ function applyContactDamage(runtime, now) {
       physicalDefense: player.combatProfile.physicalDefense,
       archetype: player.combatProfile.archetype
     });
-    const blocked = Math.random() * 100 < Number(player.combatProfile.blockChance || 0);
+    const dodged = Math.random() * 100 < Number(player.combatProfile.dodgeChance || 0);
+    const blocked = !dodged
+      && Math.random() * 100 < Number(player.combatProfile.blockChance || 0);
     const reduction = Math.max(0, Math.min(95, Number(player.combatProfile.damageReductionPercent) || 0));
-    const damage = blocked
+    const damage = blocked || dodged
       ? 0
       : Math.max(1, Math.floor(calculation.damage * (1 - reduction / 100)));
     player.currentHp = Math.max(0, player.currentHp - damage);
     player.lastContactAt = now;
-    player.invulnerableUntil = now + (blocked ? 1_000 : CONTACT_INVULNERABILITY_MS);
+    player.invulnerableUntil = now + (blocked || dodged ? 1_000 : CONTACT_INVULNERABILITY_MS);
     const resistedKnockback = Math.random() * 100 < Number(player.combatProfile.stanceChance || 0);
-    if (!blocked && !resistedKnockback) {
+    if (!blocked && !dodged && !resistedKnockback) {
       player.x = clamp(player.x + (player.facingLeft ? 1 : -1) * 3.2, 0, 94);
     }
     const reflectCap = collider.maxHp * Number(player.combatProfile.contactReflectCapPercent || 10) / 100;
-    const reflectedDamage = blocked
+    const reflectedDamage = blocked || dodged
       ? 0
       : Math.max(0, Math.floor(Math.min(
         damage * Number(player.combatProfile.contactReflectPercent || 0) / 100,
@@ -315,6 +317,7 @@ function applyContactDamage(runtime, now) {
       userId: player.userId,
       damage,
       blocked,
+      dodged,
       resistedKnockback,
       reflectedDamage,
       monsterId: collider.id,
@@ -343,6 +346,16 @@ function tickRuntime(runtime, now) {
     ? []
     : runtime.monsters.filter((monster) => monster.hp > 0);
   spawnMonstersIfNeeded(runtime, map, now);
+  runtime.monsters.forEach((monster) => {
+    if (!Array.isArray(monster.poisonStacks)) monster.poisonStacks = [];
+    monster.poisonStacks = monster.poisonStacks.filter((stack) => stack.expiresAt > now);
+    for (const stack of monster.poisonStacks) {
+      while (stack.nextTickAt <= now && stack.nextTickAt <= stack.expiresAt) {
+        monster.hp = Math.max(1, monster.hp - Math.max(1, Number(stack.attack) || 1));
+        stack.nextTickAt += 1_000;
+      }
+    }
+  });
   runtime.monsters.forEach((monster) => advanceMonster(monster, runtime, map, deltaSeconds, now));
   return applyContactDamage(runtime, now);
 }
@@ -472,6 +485,7 @@ function updatePresence({
   magicDefense,
   archetype,
   damageReductionPercent,
+  dodgeChance,
   blockChance,
   stanceChance,
   contactReflectPercent,
@@ -557,6 +571,10 @@ function updatePresence({
         0,
         Number(damageReductionPercent ?? previous?.combatProfile?.damageReductionPercent) || 0
       ),
+      dodgeChance: Math.max(
+        0,
+        Math.min(100, Number(dodgeChance ?? previous?.combatProfile?.dodgeChance) || 0)
+      ),
       blockChance: Math.max(0, Number(blockChance ?? previous?.combatProfile?.blockChance) || 0),
       stanceChance: Math.max(0, Number(stanceChance ?? previous?.combatProfile?.stanceChance) || 0),
       contactReflectPercent: Math.max(
@@ -635,6 +653,35 @@ function absorbMonsterMp(monster, chance, percent) {
   return amount;
 }
 
+function applyPoisonPassive(monster, {
+  userId,
+  chance = 0,
+  attack = 0,
+  durationSeconds = 0,
+  maxStacks = 0,
+  now = Date.now()
+} = {}) {
+  if (
+    !monster
+    || Number(chance) <= 0
+    || Number(attack) <= 0
+    || Number(durationSeconds) <= 0
+    || Number(maxStacks) <= 0
+    || Math.random() * 100 >= Number(chance)
+  ) return false;
+  if (!Array.isArray(monster.poisonStacks)) monster.poisonStacks = [];
+  monster.poisonStacks = monster.poisonStacks
+    .filter((stack) => stack.expiresAt > now)
+    .slice(-(Math.max(1, Math.floor(Number(maxStacks))) - 1));
+  monster.poisonStacks.push({
+    userId: String(userId || ''),
+    attack: Math.max(1, Math.floor(Number(attack) || 1)),
+    nextTickAt: now + 1_000,
+    expiresAt: now + Math.max(1, Number(durationSeconds)) * 1_000
+  });
+  return true;
+}
+
 function attackMonster({
   userId,
   mapId,
@@ -649,6 +696,14 @@ function attackMonster({
   playerLevel = 1,
   mpAbsorbChance = 0,
   mpAbsorbPercent = 0,
+  poisonChance = 0,
+  poisonAttack = 0,
+  poisonDurationSeconds = 0,
+  poisonMaxStacks = 0,
+  closeRangeChance = 0,
+  closeRangeDamagePercent = 0,
+  executeThresholdPercent = 0,
+  executeChance = 0,
   piercing = false,
   now = Date.now()
 }) {
@@ -700,14 +755,36 @@ function attackMonster({
   const elementMultiplier = Math.max(
     ...activeElements.map((activeElement) => getElementMultiplier(monster, activeElement))
   );
+  const distancePx = Math.abs(player.x - monster.x) / 100 * ASSUMED_STAGE_WIDTH_PX;
+  const closeRangeTriggered = distancePx <= 100
+    && Number(closeRangeChance) > 0
+    && Math.random() * 100 < Number(closeRangeChance);
+  const adjustedDamage = closeRangeTriggered
+    ? Number(damage) * Math.max(0, Number(closeRangeDamagePercent) || 100) / 100
+    : Number(damage);
   const finalDamage = Math.max(
     1,
-    Math.floor((Math.max(1, Number(damage) || 1) - defense * 0.5) * elementMultiplier)
+    Math.floor((Math.max(1, adjustedDamage || 1) - defense * 0.5) * elementMultiplier)
   );
   const mpAbsorbed = damageType === 'magic'
     ? absorbMonsterMp(monster, mpAbsorbChance, mpAbsorbPercent)
     : 0;
+  const wasBelowExecuteThreshold = monster.hp / Math.max(1, monster.maxHp) * 100
+    <= Number(executeThresholdPercent || 0);
   monster.hp = Math.max(0, monster.hp - finalDamage);
+  const executed = closeRangeTriggered
+    && wasBelowExecuteThreshold
+    && Number(executeChance) > 0
+    && Math.random() * 100 < Number(executeChance);
+  if (executed) monster.hp = 0;
+  const poisoned = monster.hp > 0 && applyPoisonPassive(monster, {
+    userId,
+    chance: poisonChance,
+    attack: poisonAttack,
+    durationSeconds: poisonDurationSeconds,
+    maxStacks: poisonMaxStacks,
+    now
+  });
   monster.aggroTargetId = userId;
   if (
     activeElements.includes('ice')
@@ -742,6 +819,9 @@ function attackMonster({
     success: true,
     targetId: monster.id,
     damage: finalDamage,
+    closeRangeTriggered,
+    executed,
+    poisoned,
     element: activeElements.join('+') || 'neutral',
     elementMultiplier,
     hitChance,
@@ -799,6 +879,10 @@ function useSkillOnMonsters({
   piercing = false,
   mpAbsorbChance = 0,
   mpAbsorbPercent = 0,
+  poisonChance = 0,
+  poisonAttack = 0,
+  poisonDurationSeconds = 0,
+  poisonMaxStacks = 0,
   now = Date.now()
 }) {
   cleanupInactiveMaps(now);
@@ -875,6 +959,14 @@ function useSkillOnMonsters({
     const mpAbsorbed = damageType === 'magic' && totalDamage > 0
       ? absorbMonsterMp(monster, mpAbsorbChance, mpAbsorbPercent)
       : 0;
+    const poisoned = totalDamage > 0 && monster.hp > 0 && applyPoisonPassive(monster, {
+      userId,
+      chance: poisonChance,
+      attack: poisonAttack,
+      durationSeconds: poisonDurationSeconds,
+      maxStacks: poisonMaxStacks,
+      now
+    });
     for (let hit = 0; dealDamage && hit < hitCount && monster.hp > 0 && bonusAttackPercent > 0; hit += 1) {
       const defense = damageType === 'magic' ? monster.magicDefense : monster.physicalDefense;
       const beforeElement = Math.max(
@@ -929,6 +1021,7 @@ function useSkillOnMonsters({
       defeated,
       expReward: defeated ? monster.expReward : 0,
       mpAbsorbed,
+      poisoned,
       monster: defeated ? null : serializeMonster(monster)
     });
   }

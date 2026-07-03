@@ -90,6 +90,7 @@ const v2CharacterSchema = new mongoose.Schema({
     currentMp: { type: Number, default: 5 },
     maxMp: { type: Number, default: 5 },
     hpGrowthSkillBonus: { type: Number, default: 0, min: 0 },
+    mpGrowthSkillBonus: { type: Number, default: 0, min: 0 },
     maxResourceBuffPercentApplied: { type: Number, default: 0, min: 0 },
     maxResourceBuffBaseHp: { type: Number, default: 0, min: 0 },
     maxResourceBuffBaseMp: { type: Number, default: 0, min: 0 },

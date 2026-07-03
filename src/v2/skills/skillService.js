@@ -347,6 +347,20 @@ function getActiveSkillEffects(character, now = Date.now()) {
     movementSpeedIncrease: 0,
     criticalChance: 0,
     criticalDamagePercent: 200,
+    attackRangeIncrease: 0,
+    dodgeChance: 0,
+    consumableEffectPercent: 100,
+    upgradedAuditHits: 0,
+    upgradedAuditDamagePercent: 0,
+    poisonChance: 0,
+    poisonAttack: 0,
+    poisonDurationSeconds: 0,
+    poisonMaxStacks: 0,
+    closeRangeChance: 0,
+    closeRangeDamagePercent: 0,
+    executeThresholdPercent: 0,
+    executeChance: 0,
+    magicMpCostIncreasePercent: 0,
     periodicHpRestore: 0,
     periodicMpRestore: 0,
     periodicRestoreIntervalSeconds: 10,
@@ -382,6 +396,64 @@ function getActiveSkillEffects(character, now = Date.now()) {
         Number(values.criticalDamagePercent) || 200
       );
     }
+    if (
+      definition.effect === 'range-passive'
+      && (!definition.weaponTypes?.length || definition.weaponTypes.includes(weaponType))
+    ) {
+      effects.attackRangeIncrease += Number(values.attackRangeIncrease) || 0;
+    }
+    if (definition.effect === 'dodge-passive') {
+      effects.dodgeChance += Number(values.dodgeChance) || 0;
+    }
+    if (definition.effect === 'consumable-boost') {
+      effects.consumableEffectPercent = Math.max(
+        effects.consumableEffectPercent,
+        Number(values.consumableEffectPercent) || 100
+      );
+    }
+    if (definition.effect === 'skill-upgrade' && values.upgradedSkillName === '4중 검산') {
+      effects.upgradedAuditHits = Math.max(
+        effects.upgradedAuditHits,
+        Number(values.upgradedHits) || 0
+      );
+      effects.upgradedAuditDamagePercent = Math.max(
+        effects.upgradedAuditDamagePercent,
+        Number(values.upgradedDamagePercent) || 0
+      );
+    }
+    if (definition.effect === 'poison-passive') {
+      effects.poisonChance = Math.max(effects.poisonChance, Number(values.poisonChance) || 0);
+      effects.poisonAttack = Math.max(effects.poisonAttack, Number(values.poisonAttack) || 0);
+      effects.poisonDurationSeconds = Math.max(
+        effects.poisonDurationSeconds,
+        Number(values.poisonDurationSeconds) || 0
+      );
+      effects.poisonMaxStacks = Math.max(
+        effects.poisonMaxStacks,
+        Number(values.poisonMaxStacks) || 0
+      );
+    }
+    if (
+      definition.effect === 'close-range-passive'
+      && (!definition.weaponTypes?.length || definition.weaponTypes.includes(weaponType))
+    ) {
+      effects.closeRangeChance = Math.max(
+        effects.closeRangeChance,
+        Number(values.closeRangeChance) || 0
+      );
+      effects.closeRangeDamagePercent = Math.max(
+        effects.closeRangeDamagePercent,
+        Number(values.closeRangeDamagePercent) || 0
+      );
+      effects.executeThresholdPercent = Math.max(
+        effects.executeThresholdPercent,
+        Number(values.executeThresholdPercent) || 0
+      );
+      effects.executeChance = Math.max(
+        effects.executeChance,
+        Number(values.executeChance) || 0
+      );
+    }
     if (definition.effect === 'stat-passive') {
       effects.accuracyIncrease += Number(values.accuracyIncrease) || 0;
       effects.evasionIncrease += Number(values.evasionIncrease) || 0;
@@ -396,6 +468,13 @@ function getActiveSkillEffects(character, now = Date.now()) {
           * Math.max(0, Number(values.periodicMpLevelSkillFactor) || 0)
           + Math.max(0, Number(values.periodicMpFlat) || 0)
       );
+      effects.periodicRestoreIntervalSeconds = Math.min(
+        effects.periodicRestoreIntervalSeconds,
+        Number(values.intervalSeconds) || 10
+      );
+    }
+    if (definition.effect === 'periodic-mp') {
+      effects.periodicMpRestore += Number(values.mpRestore) || 0;
       effects.periodicRestoreIntervalSeconds = Math.min(
         effects.periodicRestoreIntervalSeconds,
         Number(values.intervalSeconds) || 10
@@ -452,6 +531,32 @@ function getActiveSkillEffects(character, now = Date.now()) {
   }
   if (skills.summon) {
     effects.weaponMastery += Number(skills.summon.masteryIncrease) || 0;
+    const summonCreatedAt = new Date(skills.summon.createdAt || Date.now()).getTime();
+    const summonAgeSeconds = Math.max(0, (Date.now() - summonCreatedAt) / 1000);
+    for (const definition of getDepartmentSkillDefinitions(character.job?.departmentId)) {
+      const level = getSkillLevel(character, definition.id);
+      if (!level || !definition.passive) continue;
+      const values = resolveSkillValues(definition, level);
+      if (definition.effect === 'summon-heal') {
+        effects.periodicHpRestore += Number(values.heal) || 0;
+        effects.periodicRestoreIntervalSeconds = Math.min(
+          effects.periodicRestoreIntervalSeconds,
+          Number(values.intervalSeconds) || 10
+        );
+      }
+      if (definition.effect === 'summon-buff') {
+        const interval = Math.max(1, Number(values.intervalSeconds) || 60);
+        const duration = Math.max(0, Number(values.durationSeconds) || 0);
+        const buffStarted = summonAgeSeconds >= interval;
+        const activeInCycle = duration >= interval
+          || summonAgeSeconds % interval <= duration;
+        if (buffStarted && activeInCycle) {
+          effects.defenseIncrease += Number(values.defenseIncrease) || 0;
+          effects.accuracyIncrease += Number(values.accuracyIncrease) || 0;
+          effects.evasionIncrease += Number(values.evasionIncrease) || 0;
+        }
+      }
+    }
   }
   return effects;
 }

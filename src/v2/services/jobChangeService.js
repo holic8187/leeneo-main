@@ -54,6 +54,7 @@ function changeDepartment(character, departmentId) {
     archetype: target.archetype
   });
   character.resources.hpGrowthSkillBonus = 0;
+  character.resources.mpGrowthSkillBonus = 0;
   applyReferenceResources(character, reference, { fullyRestore: true });
   consumeInventoryItem(character, JOB_CHANGE_TICKET_ID, 1);
   if (typeof character.markModified === 'function') {

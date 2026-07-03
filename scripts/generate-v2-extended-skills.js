@@ -22,6 +22,96 @@ const ARCHETYPE_SHARED = {
   '마법 계열 공통 1차': ['development', 'research', 'management_support']
 };
 const ALL_DEPARTMENTS = Object.values(DEPARTMENT_IDS);
+const PASSIVE_OVERRIDES = Object.freeze({
+  '멀리 보는 안목': {
+    effect: 'range-passive',
+    values: { attackRangeIncrease: [15, 120] },
+    weaponTypes: ['bow', 'crossbow']
+  },
+  '멀리 보는 눈': {
+    effect: 'range-passive',
+    values: { attackRangeIncrease: [25, 200] },
+    weaponTypes: ['claw']
+  },
+  '정신력 증가량 향상': {
+    effect: 'mp-growth',
+    values: { levelUpMp: [2, 20], statPointMp: [1, 10] }
+  },
+  '접대 노하우': {
+    effect: 'consumable-boost',
+    values: { consumableEffectPercent: [102, 150] }
+  },
+  '가짜 일정': {
+    effect: 'dodge-passive',
+    values: { dodgeChance: [1, 30] }
+  },
+  '안전 대피': {
+    effect: 'dodge-passive',
+    values: { dodgeChance: [1, 40] }
+  },
+  '안전장비 숙련': {
+    effect: 'shield-mastery',
+    values: { shieldDefensePercent: [5, 100] }
+  },
+  '6중 검산': {
+    effect: 'skill-upgrade',
+    values: { upgradedSkillName: '4중 검산', upgradedHits: 6, upgradedDamagePercent: [80, 120] }
+  },
+  '독한 영업': {
+    effect: 'poison-passive',
+    values: {
+      poisonChance: [12, 30],
+      poisonAttack: [31, 60],
+      poisonDurationSeconds: [2, 4],
+      poisonMaxStacks: 3
+    }
+  },
+  '부식성 도포': {
+    effect: 'poison-passive',
+    values: {
+      poisonChance: [12, 30],
+      poisonAttack: [31, 60],
+      poisonDurationSeconds: [2, 4],
+      poisonMaxStacks: 3
+    }
+  },
+  '오류 말소': {
+    effect: 'close-range-passive',
+    values: {
+      closeRangeChance: [30, 90],
+      closeRangeDamagePercent: [110, 250],
+      executeThresholdPercent: 50,
+      executeChance: [1, 10]
+    },
+    weaponTypes: ['crossbow']
+  },
+  '시장 퇴출': {
+    effect: 'close-range-passive',
+    values: {
+      closeRangeChance: [30, 90],
+      closeRangeDamagePercent: [110, 250],
+      executeThresholdPercent: 50,
+      executeChance: [1, 10]
+    },
+    weaponTypes: ['bow']
+  },
+  '오버클럭': {
+    passive: false,
+    effect: 'toggle-amplifier',
+    values: {
+      magicMpCostIncreasePercent: [3, 100],
+      damageIncreasePercent: [1, 35]
+    }
+  },
+  '출력 증폭': {
+    passive: false,
+    effect: 'toggle-amplifier',
+    values: {
+      magicMpCostIncreasePercent: [3, 100],
+      damageIncreasePercent: [1, 35]
+    }
+  }
+});
 
 function clean(value) {
   return String(value || '')
@@ -218,6 +308,7 @@ function inferDefinition({ marker, name, tier, maxLevel, effectText, rangeText, 
       : /아대 숙련도/.test(description) ? ['claw']
         : /단검 숙련도/.test(description) ? ['dagger']
           : undefined;
+  const passiveOverride = PASSIVE_OVERRIDES[name] || null;
   return {
     id: makeId(name, departments, tier),
     name,
@@ -225,16 +316,18 @@ function inferDefinition({ marker, name, tier, maxLevel, effectText, rangeText, 
     tier,
     maxLevel,
     departments,
-    passive,
+    passive: passiveOverride?.passive ?? passive,
     quest,
     prerequisites: [],
     element,
     target: passive ? 'self' : (isParty ? 'party' : (isArea ? 'enemies' : (isDamage ? 'enemy' : 'self'))),
     maxTargets,
     range,
-    effect,
-    values,
-    ...(weaponTypes ? { weaponTypes } : {})
+    effect: passiveOverride?.effect || effect,
+    values: passiveOverride ? { ...values, ...passiveOverride.values } : values,
+    ...((passiveOverride?.weaponTypes || weaponTypes)
+      ? { weaponTypes: passiveOverride?.weaponTypes || weaponTypes }
+      : {})
   };
 }
 

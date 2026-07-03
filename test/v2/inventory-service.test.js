@@ -65,6 +65,14 @@ test('hard candy restores 50 HP and bacchus restores 80 MP without exceeding max
   assert.equal(character.resources.currentMp, 80);
 });
 
+test('consumable boost passives increase fixed potion restoration', () => {
+  const character = characterFixture();
+  addInventoryItem(character, 'hard_candy', 1);
+  assignPotionQuickSlot(character, 'hp', 'hard_candy');
+  assert.equal(useQuickSlotPotion(character, 'hp', 150).restored, 75);
+  assert.equal(character.resources.currentHp, 95);
+});
+
 test('automatic potion thresholds are stored by resource slot', () => {
   const character = characterFixture();
   setPotionAutoThreshold(character, 'hp', 35);

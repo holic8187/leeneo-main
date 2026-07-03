@@ -1531,11 +1531,19 @@ function renderWorldEntities(data = {}) {
     const damageKey = `${ownContact.monsterId}:${ownContact.invulnerableUntil}:${ownContact.damage}`;
     if (state.lastContactDamageKey !== damageKey) {
       state.lastContactDamageKey = damageKey;
-      showFloatingDamage(character, ownContact.damage, 'incoming');
+      showFloatingDamage(
+        character,
+        ownContact.dodged ? 'MISS' : (ownContact.blocked ? 'BLOCK' : ownContact.damage),
+        'incoming'
+      );
     }
     syncInvulnerabilityVisual(ownContact.invulnerableUntil, state.worldServerTime);
     if (Number(ownContact.currentHp) > 0) {
-      setWorldActivity(`몸박 피해 -${formatNumber(ownContact.damage)} · 1.5초 무적`);
+      setWorldActivity(
+        ownContact.dodged
+          ? '패시브 회피 성공 · 1초 무적'
+          : `몸박 피해 -${formatNumber(ownContact.damage)} · 1.5초 무적`
+      );
     }
   }
   const ownRecovery = (data.recoveryEvents || []).find(

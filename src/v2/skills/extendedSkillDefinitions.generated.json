@@ -78,9 +78,15 @@
     "target": "self",
     "maxTargets": 1,
     "range": 100,
-    "effect": "utility-passive",
-    "values": {},
+    "effect": "range-passive",
+    "values": {
+      "attackRangeIncrease": [
+        15,
+        120
+      ]
+    },
     "weaponTypes": [
+      "bow",
       "crossbow"
     ]
   },
@@ -238,8 +244,16 @@
     "target": "self",
     "maxTargets": 1,
     "range": 100,
-    "effect": "utility-passive",
-    "values": {}
+    "effect": "range-passive",
+    "values": {
+      "attackRangeIncrease": [
+        25,
+        200
+      ]
+    },
+    "weaponTypes": [
+      "claw"
+    ]
   },
   "extended_27600a42fe": {
     "id": "extended_27600a42fe",
@@ -435,11 +449,19 @@
     "target": "self",
     "maxTargets": 1,
     "range": 100,
-    "effect": "utility-passive",
+    "effect": "mp-growth",
     "values": {
       "mpCost": [
         2,
         20
+      ],
+      "levelUpMp": [
+        2,
+        20
+      ],
+      "statPointMp": [
+        1,
+        10
       ]
     }
   },
@@ -954,12 +976,25 @@
     "target": "self",
     "maxTargets": 1,
     "range": 90,
-    "effect": "damage",
+    "effect": "close-range-passive",
     "values": {
       "hpCost": 50,
       "damagePercent": [
         30,
         90
+      ],
+      "closeRangeChance": [
+        30,
+        90
+      ],
+      "closeRangeDamagePercent": [
+        110,
+        250
+      ],
+      "executeThresholdPercent": 50,
+      "executeChance": [
+        1,
+        10
       ]
     },
     "weaponTypes": [
@@ -1244,13 +1279,19 @@
     "target": "self",
     "maxTargets": 1,
     "range": 500,
-    "effect": "damage",
+    "effect": "skill-upgrade",
     "values": {
       "damagePercent": [
         80,
         120
       ],
-      "hits": 6
+      "hits": 6,
+      "upgradedSkillName": "4중 검산",
+      "upgradedHits": 6,
+      "upgradedDamagePercent": [
+        80,
+        120
+      ]
     }
   },
   "extended_b4d0d6df62": {
@@ -1637,14 +1678,30 @@
     "target": "self",
     "maxTargets": 1,
     "range": 90,
-    "effect": "damage",
+    "effect": "close-range-passive",
     "values": {
       "hpCost": 50,
       "damagePercent": [
         30,
         90
+      ],
+      "closeRangeChance": [
+        30,
+        90
+      ],
+      "closeRangeDamagePercent": [
+        110,
+        250
+      ],
+      "executeThresholdPercent": 50,
+      "executeChance": [
+        1,
+        10
       ]
-    }
+    },
+    "weaponTypes": [
+      "bow"
+    ]
   },
   "extended_41300a062e": {
     "id": "extended_41300a062e",
@@ -2289,9 +2346,13 @@
     "target": "self",
     "maxTargets": 1,
     "range": 100,
-    "effect": "utility-passive",
+    "effect": "consumable-boost",
     "values": {
       "primaryPercent": [
+        102,
+        150
+      ],
+      "consumableEffectPercent": [
         102,
         150
       ]
@@ -2514,9 +2575,13 @@
     "target": "self",
     "maxTargets": 1,
     "range": 100,
-    "effect": "utility-passive",
+    "effect": "dodge-passive",
     "values": {
       "primaryPercent": [
+        1,
+        30
+      ],
+      "dodgeChance": [
         1,
         30
       ]
@@ -2612,7 +2677,7 @@
     "target": "self",
     "maxTargets": 1,
     "range": 100,
-    "effect": "damage",
+    "effect": "poison-passive",
     "values": {
       "durationSeconds": [
         2,
@@ -2621,7 +2686,20 @@
       "damagePercent": [
         12,
         30
-      ]
+      ],
+      "poisonChance": [
+        12,
+        30
+      ],
+      "poisonAttack": [
+        31,
+        60
+      ],
+      "poisonDurationSeconds": [
+        2,
+        4
+      ],
+      "poisonMaxStacks": 3
     }
   },
   "extended_15ddd9bb60": {
@@ -2945,9 +3023,13 @@
     "target": "self",
     "maxTargets": 1,
     "range": 100,
-    "effect": "utility-passive",
+    "effect": "shield-mastery",
     "values": {
       "primaryPercent": [
+        5,
+        100
+      ],
+      "shieldDefensePercent": [
         5,
         100
       ]
@@ -3200,9 +3282,13 @@
     "target": "self",
     "maxTargets": 1,
     "range": 100,
-    "effect": "utility-passive",
+    "effect": "dodge-passive",
     "values": {
       "primaryPercent": [
+        1,
+        40
+      ],
+      "dodgeChance": [
         1,
         40
       ]
@@ -3298,7 +3384,7 @@
     "target": "self",
     "maxTargets": 1,
     "range": 100,
-    "effect": "damage",
+    "effect": "poison-passive",
     "values": {
       "durationSeconds": [
         2,
@@ -3307,7 +3393,20 @@
       "damagePercent": [
         12,
         30
-      ]
+      ],
+      "poisonChance": [
+        12,
+        30
+      ],
+      "poisonAttack": [
+        31,
+        60
+      ],
+      "poisonDurationSeconds": [
+        2,
+        4
+      ],
+      "poisonMaxStacks": 3
     }
   },
   "extended_d1fad80ea9": {
@@ -3604,18 +3703,26 @@
     "departments": [
       "development"
     ],
-    "passive": true,
+    "passive": false,
     "quest": false,
     "prerequisites": [],
     "element": "neutral",
     "target": "self",
     "maxTargets": 1,
     "range": 100,
-    "effect": "damage",
+    "effect": "toggle-amplifier",
     "values": {
       "damagePercent": [
         103,
         200
+      ],
+      "magicMpCostIncreasePercent": [
+        3,
+        100
+      ],
+      "damageIncreasePercent": [
+        1,
+        35
       ]
     }
   },
@@ -4243,18 +4350,26 @@
     "departments": [
       "research"
     ],
-    "passive": true,
+    "passive": false,
     "quest": false,
     "prerequisites": [],
     "element": "neutral",
     "target": "self",
     "maxTargets": 1,
     "range": 100,
-    "effect": "damage",
+    "effect": "toggle-amplifier",
     "values": {
       "damagePercent": [
         103,
         200
+      ],
+      "magicMpCostIncreasePercent": [
+        3,
+        100
+      ],
+      "damageIncreasePercent": [
+        1,
+        35
       ]
     }
   },

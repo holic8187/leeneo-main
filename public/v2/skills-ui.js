@@ -425,7 +425,11 @@ function applySkillCombat(combat = {}) {
     const element = Array.from($('monsterLayer').children).find(
       (node) => node.dataset.monsterId === outcome.monsterId
     );
-    showFloatingDamage(element, outcome.missed ? 'MISS' : outcome.damage, 'outgoing');
+    showFloatingDamage(
+      element,
+      outcome.missed ? 'MISS' : outcome.damage,
+      !outcome.missed && combat.critical ? 'critical' : 'outgoing'
+    );
     if (outcome.knockedBack) {
       element?.classList.add('is-knockback');
       setTimeout(() => element?.classList.remove('is-knockback'), 420);

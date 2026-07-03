@@ -336,7 +336,7 @@ function setPotionAutoThreshold(character, slot, percent) {
   return value;
 }
 
-function useQuickSlotPotion(character, slot) {
+function useQuickSlotPotion(character, slot, effectPercent = 100) {
   const resource = QUICK_SLOT_RESOURCES[String(slot || '')];
   if (!resource) throw new Error('올바르지 않은 포션 슬롯입니다.');
   const inventory = ensureInventory(character);
@@ -357,7 +357,11 @@ function useQuickSlotPotion(character, slot) {
   }
 
   consumeInventoryItem(character, item.id, 1);
-  const nextValue = Math.min(maximum, current + item.restoreAmount);
+  const boostedRestoreAmount = Math.max(
+    0,
+    Math.floor(Number(item.restoreAmount || 0) * Math.max(0, Number(effectPercent) || 100) / 100)
+  );
+  const nextValue = Math.min(maximum, current + boostedRestoreAmount);
   character.resources[currentKey] = nextValue;
   markInventoryModified(character);
   return {

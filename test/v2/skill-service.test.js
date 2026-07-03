@@ -65,6 +65,121 @@ test('marketing mascot summon uses MP only and treats the stated HP as summon HP
   assert.equal(values.summonHp, 6000);
 });
 
+test('archer core passive exposes its full critical chance and weapon range bonus', () => {
+  const critical = findSkillByName('핵심 포착');
+  const range = findSkillByName('멀리 보는 안목');
+  const character = makeCharacter({
+    job: { departmentId: 'accounting', advancementTier: 1 },
+    loadout: { weapon: { weaponType: 'crossbow' } }
+  });
+  character.skills.levels = {
+    [critical.id]: 20,
+    [range.id]: 8
+  };
+  const effects = getActiveSkillEffects(character);
+  assert.equal(effects.criticalChance, 40);
+  assert.equal(effects.criticalDamagePercent, 200);
+  assert.equal(effects.attackRangeIncrease, 120);
+});
+
+test('generated utility passives expose dodge, shield, and consumable effects', () => {
+  const fakeSchedule = findSkillByName('가짜 일정');
+  const hospitality = findSkillByName('접대 노하우');
+  const sales = makeCharacter({
+    job: { departmentId: 'sales', advancementTier: 4 }
+  });
+  sales.skills.levels = {
+    [fakeSchedule.id]: 30,
+    [hospitality.id]: 20
+  };
+  const salesEffects = getActiveSkillEffects(sales);
+  assert.equal(salesEffects.dodgeChance, 30);
+  assert.equal(salesEffects.consumableEffectPercent, 150);
+
+  const shieldMastery = findSkillByName('안전장비 숙련');
+  const facilities = makeCharacter({
+    job: { departmentId: 'facilities', advancementTier: 3 },
+    loadout: { shield: { stats: { defense: 20 } } }
+  });
+  facilities.skills.levels = { [shieldMastery.id]: 20 };
+  assert.equal(getActiveSkillEffects(facilities).shieldDefensePercent, 100);
+});
+
+test('advanced combat passives expose audit, poison, and close-range coefficients', () => {
+  const audit = findSkillByName('6중 검산');
+  const accounting = makeCharacter({
+    job: { departmentId: 'accounting', advancementTier: 4 },
+    loadout: { weapon: { weaponType: 'crossbow' } }
+  });
+  accounting.skills.levels = { [audit.id]: 30 };
+  const auditEffects = getActiveSkillEffects(accounting);
+  assert.equal(auditEffects.upgradedAuditHits, 6);
+  assert.equal(auditEffects.upgradedAuditDamagePercent, 120);
+
+  const poison = findSkillByName('독한 영업');
+  const closeRange = findSkillByName('시장 퇴출');
+  const sales = makeCharacter({
+    job: { departmentId: 'sales', advancementTier: 4 },
+    loadout: { weapon: { weaponType: 'claw' } }
+  });
+  sales.skills.levels = { [poison.id]: 30 };
+  const poisonEffects = getActiveSkillEffects(sales);
+  assert.equal(poisonEffects.poisonChance, 30);
+  assert.equal(poisonEffects.poisonAttack, 60);
+  assert.equal(poisonEffects.poisonDurationSeconds, 4);
+  assert.equal(poisonEffects.poisonMaxStacks, 3);
+
+  const marketing = makeCharacter({
+    job: { departmentId: 'marketing', advancementTier: 3 },
+    loadout: { weapon: { weaponType: 'bow' } }
+  });
+  marketing.skills.levels = { [closeRange.id]: 20 };
+  const closeEffects = getActiveSkillEffects(marketing);
+  assert.equal(closeEffects.closeRangeChance, 90);
+  assert.equal(closeEffects.closeRangeDamagePercent, 250);
+  assert.equal(closeEffects.executeChance, 10);
+});
+
+test('magic amplification skills are active toggles instead of always-on passives', () => {
+  for (const name of ['오버클럭', '출력 증폭']) {
+    const definition = findSkillByName(name);
+    assert.equal(definition.passive, false);
+    assert.equal(definition.effect, 'toggle-amplifier');
+    const values = resolveSkillValues(definition, definition.maxLevel);
+    assert.equal(values.magicMpCostIncreasePercent, 100);
+    assert.equal(values.damageIncreasePercent, 35);
+  }
+});
+
+test('strong mind and companion passives become active runtime recovery effects', () => {
+  const warrior = makeCharacter({
+    job: { departmentId: 'hr', advancementTier: 3 }
+  });
+  warrior.skills.levels.strong_mind = 20;
+  assert.equal(getActiveSkillEffects(warrior).periodicMpRestore, 30);
+
+  const companion = makeCharacter({
+    job: { departmentId: 'quality', advancementTier: 4 }
+  });
+  companion.skills.levels = {
+    small_companion: 10,
+    companion_heal: 25,
+    companion_buff: 25
+  };
+  companion.skills.summon = {
+    skillId: 'small_companion',
+    masteryIncrease: 20,
+    createdAt: new Date(Date.now() - 120_000),
+    expiresAt: new Date(Date.now() + 120_000)
+  };
+  const effects = getActiveSkillEffects(companion);
+  assert.equal(effects.periodicHpRestore, 500);
+  assert.equal(effects.periodicRestoreIntervalSeconds, 4);
+  assert.equal(effects.defenseIncrease, 30);
+  assert.equal(effects.accuracyIncrease, 30);
+  assert.equal(effects.evasionIncrease, 30);
+});
+
 test('management support passives calculate periodic MP recovery and MP absorption', () => {
   const periodic = findSkillByName('정신력 회복 향상');
   const absorption = findSkillByName('업무 동력 회수');
