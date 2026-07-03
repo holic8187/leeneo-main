@@ -48,7 +48,11 @@ function getStatPointsForLevel(level) {
 
 function getSkillPointsForLevel(level, advancementTier = 0) {
   const safeLevel = Math.max(1, Math.min(MAX_LEVEL, Math.floor(Number(level) || 1)));
-  return (safeLevel - 1) * 3 + getAdvancementBonusSkillPoints(advancementTier);
+  const beginnerLevelUps = Math.min(9, safeLevel - 1);
+  const advancedLevelUps = Math.max(0, safeLevel - 10);
+  return beginnerLevelUps
+    + advancedLevelUps * 3
+    + getAdvancementBonusSkillPoints(advancementTier);
 }
 
 module.exports = {

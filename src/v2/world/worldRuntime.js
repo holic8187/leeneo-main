@@ -65,6 +65,8 @@ function createMonster(map, index, now) {
     state: 'idle',
     decisionAt: now + randomBetween(800, 2_600),
     stunnedUntil: 0,
+    outgoingDamageReductionPercent: 0,
+    outgoingDamageDebuffUntil: 0,
     aggroTargetId: ''
   };
 }
@@ -116,6 +118,8 @@ function serializePlayer(player) {
     facingLeft: player.facingLeft,
     currentHp: player.currentHp,
     maxHp: player.maxHp,
+    currentMp: player.currentMp,
+    maxMp: player.maxMp,
     invulnerableUntil: player.invulnerableUntil,
     isDead: player.currentHp <= 0
   };
@@ -250,8 +254,11 @@ function applyContactDamage(runtime, now) {
       return playerRight >= monsterLeft && playerLeft <= monsterRight;
     });
     if (!collider) continue;
+    const outgoingReduction = now < Number(collider.outgoingDamageDebuffUntil || 0)
+      ? Math.max(0, Math.min(95, Number(collider.outgoingDamageReductionPercent) || 0))
+      : 0;
     const calculation = calculateIncomingPhysicalDamage({
-      monsterAttack: collider.contactDamage,
+      monsterAttack: Number(collider.contactDamage) * (1 - outgoingReduction / 100),
       monsterLevel: collider.level,
       playerLevel: player.combatProfile.playerLevel,
       playerStats: player.combatProfile.playerStats,
@@ -358,14 +365,19 @@ function buildPassiveRecoverySchedule({
   activity,
   currentHp,
   maxHp,
+  currentMp,
+  maxMp,
   periodicHealPercent,
   periodicHealIntervalMs,
+  periodicMpAmount,
+  periodicMpIntervalMs,
   idleHealAmount,
   idleHealIntervalMs,
   now
 }) {
   const schedule = {
     periodicAt: Number(previous?.passiveRecoverySchedule?.periodicAt) || now,
+    periodicMpAt: Number(previous?.passiveRecoverySchedule?.periodicMpAt) || now,
     idleAt: Number(previous?.passiveRecoverySchedule?.idleAt) || now
   };
   let healAmount = 0;
@@ -378,6 +390,18 @@ function buildPassiveRecoverySchedule({
     }
   } else {
     schedule.periodicAt = now;
+  }
+
+  let mpAmount = 0;
+  const periodicMpInterval = Math.max(0, Number(periodicMpIntervalMs) || 0);
+  if (Number(periodicMpAmount) > 0 && periodicMpInterval > 0) {
+    const ticks = Math.floor((now - schedule.periodicMpAt) / periodicMpInterval);
+    if (ticks > 0) {
+      schedule.periodicMpAt += ticks * periodicMpInterval;
+      mpAmount += ticks * Math.max(1, Math.floor(Number(periodicMpAmount) || 0));
+    }
+  } else {
+    schedule.periodicMpAt = now;
   }
 
   const idleInterval = Math.max(0, Number(idleHealIntervalMs) || 0);
@@ -394,7 +418,8 @@ function buildPassiveRecoverySchedule({
   }
   return {
     schedule,
-    healAmount: currentHp > 0 && currentHp < maxHp ? healAmount : 0
+    healAmount: currentHp > 0 && currentHp < maxHp ? healAmount : 0,
+    mpAmount: currentHp > 0 && currentMp < maxMp ? mpAmount : 0
   };
 }
 
@@ -409,6 +434,8 @@ function updatePresence({
   facingLeft,
   currentHp,
   maxHp,
+  currentMp,
+  maxMp,
   playerLevel,
   playerStats,
   physicalDefense,
@@ -421,6 +448,8 @@ function updatePresence({
   contactReflectCapPercent,
   periodicHealPercent,
   periodicHealIntervalMs,
+  periodicMpAmount,
+  periodicMpIntervalMs,
   idleHealAmount,
   idleHealIntervalMs,
   now = Date.now()
@@ -437,6 +466,8 @@ function updatePresence({
   const previous = runtime.players.get(userId);
   const resolvedHp = Math.max(0, Number(previous?.currentHp ?? currentHp) || 0);
   const resolvedMaxHp = Math.max(1, Number(previous?.maxHp ?? maxHp) || 120);
+  const resolvedMp = Math.max(0, Number(previous?.currentMp ?? currentMp) || 0);
+  const resolvedMaxMp = Math.max(0, Number(previous?.maxMp ?? maxMp) || 0);
   const resolvedActivity = resolvedHp <= 0
     ? 'dead'
     : (['idle', 'moving', 'combat'].includes(activity) ? activity : 'idle');
@@ -445,8 +476,12 @@ function updatePresence({
     activity: resolvedActivity,
     currentHp: resolvedHp,
     maxHp: resolvedMaxHp,
+    currentMp: resolvedMp,
+    maxMp: resolvedMaxMp,
     periodicHealPercent,
     periodicHealIntervalMs,
+    periodicMpAmount,
+    periodicMpIntervalMs,
     idleHealAmount,
     idleHealIntervalMs,
     now
@@ -461,6 +496,8 @@ function updatePresence({
     facingLeft: Boolean(facingLeft),
     currentHp: resolvedHp,
     maxHp: resolvedMaxHp,
+    currentMp: resolvedMp,
+    maxMp: resolvedMaxMp,
     passiveRecoverySchedule: recovery.schedule,
     lastContactAt: previous?.lastContactAt || 0,
     invulnerableUntil: previous?.invulnerableUntil || 0,
@@ -500,8 +537,13 @@ function updatePresence({
     lastSeenAt: now
   });
   const contactEvents = tickRuntime(runtime, now);
-  const recoveryEvents = recovery.healAmount > 0
-    ? [{ userId: String(userId), amount: recovery.healAmount }]
+  const recoveryEvents = recovery.healAmount > 0 || recovery.mpAmount > 0
+    ? [{
+      userId: String(userId),
+      amount: recovery.healAmount,
+      hpAmount: recovery.healAmount,
+      mpAmount: recovery.mpAmount
+    }]
     : [];
   return {
     mapId,
@@ -531,6 +573,8 @@ function attackMonster({
   rangePx,
   damageType = 'physical',
   element = 'neutral',
+  elements = [],
+  freezeSeconds = 0,
   accuracy = null,
   playerLevel = 1,
   now = Date.now()
@@ -572,14 +616,28 @@ function attackMonster({
   }
 
   const defense = damageType === 'magic' ? monster.magicDefense : monster.physicalDefense;
-  const elementMultiplier = getElementMultiplier(monster, element);
+  const activeElements = [...new Set(
+    (Array.isArray(elements) && elements.length ? elements : [element]).filter(Boolean)
+  )];
+  const elementMultiplier = Math.max(
+    ...activeElements.map((activeElement) => getElementMultiplier(monster, activeElement))
+  );
   const finalDamage = Math.max(
     1,
     Math.floor((Math.max(1, Number(damage) || 1) - defense * 0.5) * elementMultiplier)
   );
   monster.hp = Math.max(0, monster.hp - finalDamage);
   monster.aggroTargetId = userId;
-  monster.state = 'chase';
+  if (
+    activeElements.includes('ice')
+    && elementMultiplier >= 1
+    && Number(freezeSeconds) > 0
+  ) {
+    monster.stunnedUntil = now + Number(freezeSeconds) * 1000;
+    monster.state = 'stunned';
+  } else {
+    monster.state = 'chase';
+  }
   const knockedBack = applyHeavyHitKnockback(monster, player, finalDamage);
   const defeated = monster.hp <= 0;
   let drops = [];
@@ -602,7 +660,7 @@ function attackMonster({
   return {
     success: true,
     damage: finalDamage,
-    element,
+    element: activeElements.join('+') || 'neutral',
     elementMultiplier,
     hitChance,
     knockedBack,
@@ -643,6 +701,7 @@ function useSkillOnMonsters({
   bonusAttackPercent = 0,
   damageType = 'physical',
   element = 'neutral',
+  elements = [],
   ignoreDefense = false,
   accuracy = null,
   playerLevel = 1,
@@ -650,6 +709,10 @@ function useSkillOnMonsters({
   stunSeconds = 0,
   pull = false,
   dealDamage = true,
+  leaveAtOneHp = false,
+  outgoingDamageReductionPercent = 0,
+  debuffChance = 100,
+  debuffDurationSeconds = 0,
   now = Date.now()
 }) {
   cleanupInactiveMaps(now);
@@ -677,6 +740,9 @@ function useSkillOnMonsters({
   const outcomes = [];
   const drops = [];
   const hitCount = Math.max(1, Math.floor(Number(hits) || 1));
+  const activeElements = [...new Set(
+    (Array.isArray(elements) && elements.length ? elements : [element]).filter(Boolean)
+  )];
   for (const monster of candidates) {
     const requiredAccuracy = calculateRequiredAccuracy({
       characterLevel: playerLevel,
@@ -709,8 +775,11 @@ function useSkillOnMonsters({
         Number(baseDamage || 1) * Number(skillPercent || 100) / 100
           - (ignoreDefense ? 0 : defense * 0.5)
       );
-      const damage = Math.max(1, Math.floor(beforeElement * getElementMultiplier(monster, element)));
-      monster.hp = Math.max(0, monster.hp - damage);
+      const multiplier = Math.max(
+        ...activeElements.map((activeElement) => getElementMultiplier(monster, activeElement))
+      );
+      const damage = Math.max(1, Math.floor(beforeElement * multiplier));
+      monster.hp = Math.max(leaveAtOneHp ? 1 : 0, monster.hp - damage);
       totalDamage += damage;
     }
     for (let hit = 0; dealDamage && hit < hitCount && monster.hp > 0 && bonusAttackPercent > 0; hit += 1) {
@@ -721,11 +790,27 @@ function useSkillOnMonsters({
           * Number(bonusAttackPercent) / 100
           - (ignoreDefense ? 0 : defense * 0.5)
       );
-      const damage = Math.max(1, Math.floor(beforeElement * getElementMultiplier(monster, element)));
-      monster.hp = Math.max(0, monster.hp - damage);
+      const multiplier = Math.max(
+        ...activeElements.map((activeElement) => getElementMultiplier(monster, activeElement))
+      );
+      const damage = Math.max(1, Math.floor(beforeElement * multiplier));
+      monster.hp = Math.max(leaveAtOneHp ? 1 : 0, monster.hp - damage);
       totalDamage += damage;
     }
     monster.aggroTargetId = userId;
+    if (
+      Number(outgoingDamageReductionPercent) > 0
+      && Math.random() * 100 < Number(debuffChance || 0)
+    ) {
+      monster.outgoingDamageReductionPercent = Math.max(
+        Number(monster.outgoingDamageReductionPercent) || 0,
+        Number(outgoingDamageReductionPercent) || 0
+      );
+      monster.outgoingDamageDebuffUntil = Math.max(
+        Number(monster.outgoingDamageDebuffUntil) || 0,
+        now + Math.max(0, Number(debuffDurationSeconds) || 0) * 1000
+      );
+    }
     let knockedBack = false;
     if (Math.random() * 100 < Number(stunChance || 0)) {
       monster.stunnedUntil = now + Math.max(0, Number(stunSeconds) || 0) * 1000;
@@ -774,6 +859,12 @@ function updatePlayerResources(userId, resources = {}) {
     }
     if (Number.isFinite(Number(resources.maxHp))) {
       player.maxHp = Math.max(1, Number(resources.maxHp));
+    }
+    if (Number.isFinite(Number(resources.currentMp))) {
+      player.currentMp = Math.max(0, Number(resources.currentMp));
+    }
+    if (Number.isFinite(Number(resources.maxMp))) {
+      player.maxMp = Math.max(0, Number(resources.maxMp));
     }
   }
 }

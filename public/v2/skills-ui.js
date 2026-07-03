@@ -117,6 +117,12 @@ function toggleAutoSkill(skillId) {
 function hasActiveAutoSkillEffect(skill) {
   const tree = state.character?.skillTree || {};
   const now = Date.now();
+  if (['element_fire', 'element_ice'].includes(skill.id)) {
+    return (tree.activeBuffs || []).some(
+      (buff) => ['element_fire', 'element_ice'].includes(buff.skillId)
+        && (!buff.expiresAt || Number(buff.expiresAt) > now)
+    );
+  }
   if (
     skill.effect === 'summon'
     && tree.summon?.skillId === skill.id
@@ -139,7 +145,8 @@ function getNextAutoSkillForCombat() {
     state.autoSkillRotationIndex = (index + 1) % preset.length;
     const skill = definitions.get(preset[index]);
     if (!skill || skill.passive || skill.level <= 0 || !state.autoSkillIds.has(skill.id)) continue;
-    if (Number(skill.cooldownRemainingMs || skill.cooldownRemaining || 0) > 0) continue;
+    if (Number(skill.cooldownUntil || 0) > Date.now()) continue;
+    if (!skill.cooldownUntil && Number(skill.cooldownRemainingMs || skill.cooldownRemaining || 0) > 0) continue;
     if (hasActiveAutoSkillEffect(skill)) continue;
     return skill;
   }

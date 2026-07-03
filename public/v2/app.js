@@ -471,6 +471,12 @@ const CHARACTER_MOTION_CLASSES = [
   'is-climb',
   'is-hit',
   'is-slash',
+  'is-one-hand-swing',
+  'is-two-hand-swing',
+  'is-axe-swing',
+  'is-blunt-swing',
+  'is-spear-thrust',
+  'is-polearm-thrust',
   'is-shoot',
   'is-throw',
   'is-staff-swing',
@@ -740,6 +746,12 @@ async function playWorldMotion(motion, kind, runId) {
 
   const labels = {
     slash: '근접 공격 · 베기',
+    'one-hand-swing': '근접 공격 · 한손검 휘두르기',
+    'two-hand-swing': '근접 공격 · 두손검 휘두르기',
+    'axe-swing': '근접 공격 · 도끼 휘두르기',
+    'blunt-swing': '근접 공격 · 둔기 휘두르기',
+    'spear-thrust': '근접 공격 · 창 찌르기',
+    'polearm-thrust': '근접 공격 · 폴암 찌르기',
     shoot: '원거리 공격 · 쏘기',
     throw: '원거리 공격 · 날리기',
     'staff-swing': '마법 공격 · 완드/스태프 휘두르기',
@@ -750,7 +762,11 @@ async function playWorldMotion(motion, kind, runId) {
   };
   setWorldActivity(labels[motion] || '행동 중');
 
-  if (monster && ['slash', 'shoot', 'throw', 'staff-swing'].includes(motion)) {
+  const weaponAttackMotions = [
+    'slash', 'one-hand-swing', 'two-hand-swing', 'axe-swing', 'blunt-swing',
+    'spear-thrust', 'polearm-thrust', 'shoot', 'throw', 'staff-swing'
+  ];
+  if (monster && weaponAttackMotions.includes(motion)) {
     monster.classList.add('is-hit');
   }
   if (motion === 'shoot' || motion === 'throw') {
@@ -760,7 +776,7 @@ async function playWorldMotion(motion, kind, runId) {
   }
   if (motion === 'hit') character.classList.add('damage-flash');
 
-  const isWeaponAttack = ['slash', 'shoot', 'throw', 'staff-swing'].includes(motion);
+  const isWeaponAttack = weaponAttackMotions.includes(motion);
   const motionDuration = motion === 'buff'
     ? 300
     : Math.max(180, Math.round(720 / (isWeaponAttack ? getAttackSpeedMultiplier() : 1)));
@@ -1228,7 +1244,10 @@ function renderWorldEntities(data = {}) {
   if (data.self && state.character?.resources) {
     state.character.resources.currentHp = data.self.currentHp;
     state.character.resources.maxHp = data.self.maxHp;
+    state.character.resources.currentMp = data.self.currentMp;
+    state.character.resources.maxMp = data.self.maxMp;
     setResource('hp', data.self.currentHp, data.self.maxHp);
+    setResource('mp', data.self.currentMp, data.self.maxMp);
     syncInvulnerabilityVisual(data.self.invulnerableUntil, state.worldServerTime);
     if (data.self.isDead || Number(data.self.currentHp) <= 0) {
       const ownDeath = (data.contactEvents || []).find(
@@ -1255,10 +1274,18 @@ function renderWorldEntities(data = {}) {
     }
   }
   const ownRecovery = (data.recoveryEvents || []).find(
-    (event) => event.userId === state.selfUserId && Number(event.healed) > 0
+    (event) => event.userId === state.selfUserId
+      && (Number(event.healed) > 0 || Number(event.restoredMp) > 0)
   );
   if (ownRecovery && !ownContact) {
-    setWorldActivity(`패시브 체력 회복 +${formatNumber(ownRecovery.healed)}`);
+    const recoveryLabels = [];
+    if (Number(ownRecovery.healed) > 0) {
+      recoveryLabels.push(`체력 +${formatNumber(ownRecovery.healed)}`);
+    }
+    if (Number(ownRecovery.restoredMp) > 0) {
+      recoveryLabels.push(`정신력 +${formatNumber(ownRecovery.restoredMp)}`);
+    }
+    setWorldActivity(`패시브 회복 · ${recoveryLabels.join(' · ')}`);
   }
   collectGroundLoot(data.lootCollections || []);
   maybeUseAutoPotions();

@@ -46,7 +46,7 @@ test('job change consumes one ticket and refunds all stat and skill investment',
     awareness: 4
   });
   assert.equal(character.progression.unspentStatPoints, 345);
-  assert.equal(character.progression.unspentSkillPoints, 210);
+  assert.equal(character.progression.unspentSkillPoints, 192);
   assert.deepEqual(character.skills.levels, {});
   assert.deepEqual(character.skills.activePreset, []);
   assert.equal(getItemQuantity(character, 'job_change_ticket'), 0);

@@ -841,6 +841,48 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   border-radius: 50%;
   animation: slash-arc .55s ease-out;
 }
+.field-character.is-one-hand-swing .arm-right { animation: one-hand-swing .48s ease-out; }
+.field-character.is-two-hand-swing .arm-left,
+.field-character.is-two-hand-swing .arm-right { animation: two-hand-swing .66s cubic-bezier(.2,.75,.25,1); }
+.field-character.is-axe-swing .arm-right { animation: axe-swing .72s cubic-bezier(.18,.7,.24,1); }
+.field-character.is-blunt-swing .arm-right { animation: blunt-swing .78s cubic-bezier(.2,.65,.25,1); }
+.field-character.is-spear-thrust .arm-right { animation: spear-thrust .5s ease-in-out; }
+.field-character.is-polearm-thrust .arm-left,
+.field-character.is-polearm-thrust .arm-right { animation: polearm-thrust .68s ease-in-out; }
+.field-character.is-one-hand-swing::after,
+.field-character.is-two-hand-swing::after,
+.field-character.is-axe-swing::after,
+.field-character.is-blunt-swing::after {
+  content: "";
+  position: absolute;
+  left: 23px;
+  top: 8px;
+  width: 43px;
+  height: 50px;
+  border-right: 4px solid #ffe39a;
+  border-radius: 50%;
+  opacity: 0;
+  animation: weapon-swing-arc .7s ease-out;
+}
+.field-character.is-axe-swing::after { border-right-width: 7px; border-right-color: #f0b95e; }
+.field-character.is-blunt-swing::after { border-right-width: 9px; border-right-color: #c8d0d2; }
+.field-character.is-spear-thrust::after,
+.field-character.is-polearm-thrust::after {
+  content: "";
+  position: absolute;
+  left: 24px;
+  top: 28px;
+  width: 66px;
+  height: 3px;
+  background: linear-gradient(90deg, #a77b45, #f6e5b2 72%, #d7e5ec 73%);
+  transform-origin: 0 50%;
+  animation: weapon-thrust .58s ease-in-out;
+}
+.field-character.is-polearm-thrust::after {
+  width: 76px;
+  height: 5px;
+  background: linear-gradient(90deg, #7a5739, #d8b36f 65%, #cbd9df 66%);
+}
 .field-character.is-shoot .arm-right { animation: recoil .4s ease-out; }
 .field-character.is-cast { filter: drop-shadow(0 0 10px #77bfff); }
 .field-character.is-hit, .field-character.damage-flash { animation: character-hit .6s linear; }
@@ -1172,6 +1214,14 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   animation: thrown-projectile .68s linear;
 }
 @keyframes throw-arm { 0% { transform: rotate(-90deg); } 45% { transform: rotate(55deg); } 100% { transform: rotate(-25deg); } }
+@keyframes one-hand-swing { 0% { transform: rotate(-110deg); } 55% { transform: rotate(75deg); } 100% { transform: rotate(-30deg); } }
+@keyframes two-hand-swing { 0% { transform: rotate(-145deg) translateY(-3px); } 60% { transform: rotate(78deg) translateY(3px); } 100% { transform: rotate(-35deg); } }
+@keyframes axe-swing { 0% { transform: rotate(-155deg); } 42% { transform: rotate(-135deg); } 74% { transform: rotate(92deg); } 100% { transform: rotate(-35deg); } }
+@keyframes blunt-swing { 0% { transform: rotate(-165deg); } 48% { transform: rotate(-130deg); } 82% { transform: rotate(104deg); } 100% { transform: rotate(-35deg); } }
+@keyframes spear-thrust { 0%, 100% { transform: rotate(-78deg) translateX(0); } 48% { transform: rotate(-78deg) translateX(18px); } }
+@keyframes polearm-thrust { 0%, 100% { transform: rotate(-72deg) translateX(-2px); } 48% { transform: rotate(-72deg) translateX(22px); } }
+@keyframes weapon-swing-arc { 0% { opacity: 0; transform: rotate(-75deg) scale(.55); } 35% { opacity: 1; } 100% { opacity: 0; transform: rotate(70deg) scale(1.18); } }
+@keyframes weapon-thrust { 0%, 100% { opacity: 0; transform: translateX(-15px) scaleX(.35); } 42% { opacity: 1; transform: translateX(8px) scaleX(1); } }
 @keyframes staff-swing { 0% { transform: rotate(-135deg); } 60% { transform: rotate(80deg); } 100% { transform: rotate(-35deg); } }
 @keyframes magic-swing { from { opacity: 0; transform: rotate(-80deg) scale(.55); } 35% { opacity: 1; } to { opacity: 0; transform: rotate(70deg) scale(1.18); } }
 @keyframes thrown-projectile { 0% { opacity: 1; transform: translateX(0) rotate(0); } 90% { opacity: 1; } 100% { opacity: 0; transform: translateX(260px) rotate(720deg); } }
@@ -1557,6 +1607,12 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .job-change-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 
 .field-character.is-slash,
+.field-character.is-one-hand-swing,
+.field-character.is-two-hand-swing,
+.field-character.is-axe-swing,
+.field-character.is-blunt-swing,
+.field-character.is-spear-thrust,
+.field-character.is-polearm-thrust,
 .field-character.is-shoot,
 .field-character.is-throw,
 .field-character.is-staff-swing {

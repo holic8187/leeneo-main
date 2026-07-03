@@ -449,3 +449,23 @@ test('periodic and idle warrior passives schedule healing on their server interv
   const secondIdle = updatePresence({ ...base, activity: 'idle', now: 17_000 });
   assert.equal(secondIdle.recoveryEvents[0].amount, 30);
 });
+
+test('strong mind schedules MP recovery every ten seconds', () => {
+  const base = {
+    userId: 'mind-user',
+    nickname: '현장소장',
+    mapId: 'main_lobby',
+    x: 10,
+    floor: 0,
+    activity: 'combat',
+    currentHp: 500,
+    maxHp: 500,
+    currentMp: 20,
+    maxMp: 200,
+    periodicMpAmount: 30,
+    periodicMpIntervalMs: 10_000
+  };
+  assert.deepEqual(updatePresence({ ...base, now: 1_000 }).recoveryEvents, []);
+  const recovered = updatePresence({ ...base, now: 11_000 });
+  assert.equal(recovered.recoveryEvents[0].mpAmount, 30);
+});

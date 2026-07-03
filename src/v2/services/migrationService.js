@@ -30,6 +30,7 @@ const { reconcileHpGrowthSkillBonus } = require('./hpGrowthBonusService');
 const { reconcileMaxResourceBuff } = require('./maxResourceBuffService');
 
 const MIGRATION_VERSION = 1;
+const SKILL_POINT_GRANT_VERSION = 2;
 const TEMPORARY_RESOURCE_DEFAULTS = Object.freeze({
   maxHp: 50,
   maxMp: 5
@@ -202,7 +203,7 @@ async function ensureV2MigrationForUser(user) {
           unspentStatPoints: preview.statPoints,
           unspentSkillPoints: preview.skillPoints,
           totalSkillPointsEarned: preview.skillPoints,
-          skillPointGrantVersion: 1
+          skillPointGrantVersion: SKILL_POINT_GRANT_VERSION
         },
         stats: {
           ...BASE_STATS
@@ -278,14 +279,21 @@ async function ensureV2MigrationForUser(user) {
 }
 
 async function ensureV2SkillPointGrant(character) {
-  if (!character || Number(character.progression?.skillPointGrantVersion) >= 1) return character;
+  if (
+    !character
+    || Number(character.progression?.skillPointGrantVersion) >= SKILL_POINT_GRANT_VERSION
+  ) return character;
   const expected = getSkillPointsForLevel(
     character.progression?.level,
     character.job?.advancementTier
   );
-  character.progression.unspentSkillPoints = expected;
+  const invested = Object.values(character.skills?.levels || {}).reduce(
+    (total, level) => total + Math.max(0, Math.floor(Number(level) || 0)),
+    0
+  );
+  character.progression.unspentSkillPoints = Math.max(0, expected - invested);
   character.progression.totalSkillPointsEarned = expected;
-  character.progression.skillPointGrantVersion = 1;
+  character.progression.skillPointGrantVersion = SKILL_POINT_GRANT_VERSION;
   await character.save();
   return character;
 }

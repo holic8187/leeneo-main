@@ -3,15 +3,15 @@
 const { DEPARTMENTS } = require('../jobs/advancementRules');
 
 const WEAPON_COMBAT_MOTIONS = Object.freeze({
-  oneHandedSword: 'slash',
-  twoHandedSword: 'slash',
-  oneHandedAxe: 'slash',
-  oneHandedBlunt: 'slash',
-  twoHandedAxe: 'slash',
-  twoHandedBlunt: 'slash',
-  spear: 'slash',
-  polearm: 'slash',
-  dagger: 'slash',
+  oneHandedSword: 'one-hand-swing',
+  twoHandedSword: 'two-hand-swing',
+  oneHandedAxe: 'axe-swing',
+  oneHandedBlunt: 'blunt-swing',
+  twoHandedAxe: 'axe-swing',
+  twoHandedBlunt: 'blunt-swing',
+  spear: 'spear-thrust',
+  polearm: 'polearm-thrust',
+  dagger: 'one-hand-swing',
   knuckle: 'slash',
   bow: 'shoot',
   crossbow: 'shoot',
@@ -50,6 +50,12 @@ const ARCHETYPE_COMBAT_MOTIONS = Object.freeze({
 
 const COMBAT_MOTION_LABELS = Object.freeze({
   slash: '베기',
+  'one-hand-swing': '한손검 휘두르기',
+  'two-hand-swing': '두손검 휘두르기',
+  'axe-swing': '도끼 휘두르기',
+  'blunt-swing': '둔기 휘두르기',
+  'spear-thrust': '창 찌르기',
+  'polearm-thrust': '폴암 찌르기',
   shoot: '쏘기',
   throw: '날리기',
   'staff-swing': '완드·스태프 휘두르기'

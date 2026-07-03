@@ -21,11 +21,11 @@ test('advancement levels and ten departments match the V2 design table', () => {
   assert.equal(DEPARTMENTS.development.jobs[0], '주니어개발자');
 });
 
-test('skill points grant three per completed level and one per advancement', () => {
+test('skill points grant one before level ten, then three, plus one per advancement', () => {
   assert.equal(getSkillPointsForLevel(1, 0), 0);
-  assert.equal(getSkillPointsForLevel(10, 0), 27);
-  assert.equal(getSkillPointsForLevel(10, 1), 28);
-  assert.equal(getSkillPointsForLevel(120, 4), 361);
+  assert.equal(getSkillPointsForLevel(10, 0), 9);
+  assert.equal(getSkillPointsForLevel(10, 1), 10);
+  assert.equal(getSkillPointsForLevel(120, 4), 343);
   assert.equal(getAdvancementBonusSkillPoints(8), 4);
 });
 

@@ -34,7 +34,13 @@ const VALUE_LABELS = Object.freeze({
   targetCount: '대상 수',
   range: '사거리',
   distance: '이동 거리',
-  maxResourcePercent: '최대 체력·정신력'
+  maxResourcePercent: '최대 체력·정신력',
+  damageIncreasePercent: '최종 데미지 증가',
+  enemyDamageReductionPercent: '적 데미지 감소',
+  elementDamageIncreasePercent: '속성 추가 데미지',
+  preserveElementChance: '속성 유지 확률',
+  freezeSeconds: '빙결 시간',
+  cooldownSeconds: '재사용 대기시간'
 });
 
 const PERCENT_KEYS = new Set([
@@ -42,7 +48,9 @@ const PERCENT_KEYS = new Set([
   'successChance', 'stunChance', 'reductionPercent', 'blockChance',
   'reflectPercent', 'maxResourcePercent', 'maxHpCostPercent',
   'selfDamagePercent', 'hpThresholdPercent', 'damageIncreasePercent',
-  'damagePerComboPercent', 'doubleChargeChance', 'stanceChance'
+  'damagePerComboPercent', 'doubleChargeChance', 'stanceChance',
+  'enemyDamageReductionPercent',
+  'elementDamageIncreasePercent', 'preserveElementChance'
 ]);
 
 const SKILL_ROLE_DESCRIPTIONS = Object.freeze({
@@ -73,6 +81,19 @@ const SKILL_ROLE_DESCRIPTIONS = Object.freeze({
   charge_hr: '전방으로 돌진하며 경로상의 적들을 밀고 피해를 줍니다.',
   double_attack: '전방의 적 최대 3명을 빠르게 두 번 공격합니다.',
   true_rage: '콤보 10개를 소비해 일정 시간 자신의 공격력을 크게 높입니다.',
+  mace_mastery: '둔기 계열 무기의 숙련도와 명중률을 높이는 패시브입니다.',
+  double_strike_field: '공격 시 일정 확률로 추가 공격을 연속 발동하는 패시브입니다.',
+  booster_field: '체력과 정신력을 소비해 일정 시간 무기 공격속도를 높입니다.',
+  war_cry: '주변 적의 공격을 약화시키고 자신의 데미지를 높이는 대신 명중률이 감소합니다.',
+  element_explosion: '무기에 부여된 속성을 폭발시켜 여러 적을 공격하고 기절시킵니다.',
+  element_fire: '무기에 불 속성을 부여하고 자신의 데미지를 높입니다. 얼음 속성과는 공존할 수 없습니다.',
+  element_ice: '무기에 얼음 속성을 부여하고 비반감 적을 빙결시킵니다. 불 속성과는 공존할 수 없습니다.',
+  element_lightning: '다른 속성과 중첩 가능한 번개 속성을 무기에 부여합니다.',
+  element_enhancement: '속성 공격으로 입히는 추가 데미지를 높이는 패시브입니다.',
+  element_holy: '무기에 강력한 성 속성을 부여하는 퀘스트 스킬입니다.',
+  wall_break: '근거리의 적 하나에게 강력한 단일 공격을 가합니다.',
+  element_enhancement_2: '속성 폭발을 강화하고 폭발 후 속성을 보존할 확률을 부여합니다.',
+  gombang: '주변의 다수 적에게 치명적인 광역 피해를 주되 체력을 1 아래로 낮추지 않습니다.',
   spear_mastery: '창의 숙련도와 명중률을 높이는 패시브입니다.',
   polearm_mastery: '폴암의 숙련도와 명중률을 높이는 패시브입니다.',
   double_strike_quality: '공격 후 일정 확률로 추가 공격을 연속 발동하는 패시브입니다.',
@@ -103,6 +124,7 @@ function ensureSkillState(character) {
   if (!Array.isArray(skills.activePreset)) skills.activePreset = [];
   if (!Array.isArray(skills.unlockedQuestSkills)) skills.unlockedQuestSkills = [];
   if (!Array.isArray(skills.activeBuffs)) skills.activeBuffs = [];
+  if (!skills.cooldowns || typeof skills.cooldowns !== 'object') skills.cooldowns = {};
   if (!skills.summon || typeof skills.summon !== 'object') skills.summon = null;
   skills.comboCount = Math.max(0, Math.min(10, Math.floor(Number(skills.comboCount) || 0)));
   if (typeof character.markModified === 'function') character.markModified('skills');
@@ -245,6 +267,9 @@ function pruneExpiredSkillState(character, now = Date.now()) {
   if (skills.summon?.expiresAt && new Date(skills.summon.expiresAt).getTime() <= now) {
     skills.summon = null;
   }
+  for (const [skillId, expiresAt] of Object.entries(skills.cooldowns)) {
+    if (Number(expiresAt) <= now) delete skills.cooldowns[skillId];
+  }
   if (before !== skills.activeBuffs.length && typeof character.markModified === 'function') {
     character.markModified('skills');
   }
@@ -274,7 +299,11 @@ function getActiveSkillEffects(character, now = Date.now()) {
     comboDoubleChargeChance: 0,
     lowHpThresholdPercent: 0,
     lowHpDamageIncreasePercent: 0,
-    maxResourcePercent: 0
+    maxResourcePercent: 0,
+    damageIncreasePercent: 0,
+    elementDamageIncreasePercent: 0,
+    elementExplosionDamagePercent: 250,
+    elementPreserveChance: 0
   };
   const weaponType = character.loadout?.weapon?.weaponType;
   for (const definition of getDepartmentSkillDefinitions(character.job?.departmentId)) {
@@ -313,6 +342,19 @@ function getActiveSkillEffects(character, now = Date.now()) {
       effects.lowHpDamageIncreasePercent = Math.max(
         effects.lowHpDamageIncreasePercent,
         Number(values.damageIncreasePercent) || 0
+      );
+    }
+    if (definition.effect === 'element-enhancement') {
+      effects.elementDamageIncreasePercent += Number(values.elementDamageIncreasePercent) || 0;
+    }
+    if (definition.effect === 'element-explosion-upgrade') {
+      effects.elementExplosionDamagePercent = Math.max(
+        effects.elementExplosionDamagePercent,
+        Number(values.damagePercent) || 250
+      );
+      effects.elementPreserveChance = Math.max(
+        effects.elementPreserveChance,
+        Number(values.preserveElementChance) || 0
       );
     }
   }
@@ -389,7 +431,13 @@ function buildSkillTree(character) {
         target: definition.target,
         range: Number(values.range ?? definition.range) || 0,
         effect: definition.effect,
+        element: definition.element,
         values,
+        cooldownUntil: Number(skills.cooldowns?.[definition.id]) || 0,
+        cooldownRemainingMs: Math.max(
+          0,
+          Number(skills.cooldowns?.[definition.id]) - Date.now()
+        ),
         description: describeSkill(definition, values),
         blockReason: getInvestmentBlockReason(character, definition),
         canInvest: !getInvestmentBlockReason(character, definition)

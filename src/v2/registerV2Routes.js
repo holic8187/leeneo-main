@@ -94,6 +94,23 @@ const V2_REMOVED_FEATURES = Object.freeze([
   '기존 레이드 전투 엔진'
 ]);
 
+const ELEMENT_BUFF_SKILL_IDS = Object.freeze([
+  'element_fire',
+  'element_ice',
+  'element_lightning',
+  'element_holy'
+]);
+
+function getActiveWeaponElements(skillState, now = Date.now()) {
+  return (skillState?.activeBuffs || [])
+    .filter((buff) => (
+      ELEMENT_BUFF_SKILL_IDS.includes(buff.skillId)
+      && (!buff.expiresAt || new Date(buff.expiresAt).getTime() > now)
+    ))
+    .map((buff) => SKILL_DEFINITIONS[buff.skillId]?.element)
+    .filter(Boolean);
+}
+
 const SIGNUP_CODE_SETTING_KEY = 'signup-code';
 
 function validateSignupPayload(payload = {}) {
@@ -153,8 +170,9 @@ function grantV2Experience(character, amount) {
     character.progression.exp -= required;
     character.progression.level += 1;
     character.progression.unspentStatPoints += 5;
-    character.progression.unspentSkillPoints += 3;
-    character.progression.totalSkillPointsEarned += 3;
+    const earnedSkillPoints = character.progression.level <= 10 ? 1 : 3;
+    character.progression.unspentSkillPoints += earnedSkillPoints;
+    character.progression.totalSkillPointsEarned += earnedSkillPoints;
     levels += 1;
   }
   if (character.progression.level >= MAX_LEVEL) character.progression.exp = 0;
@@ -633,6 +651,11 @@ function registerV2Routes({
           throw new Error('전투 프리셋에 등록된 스킬만 사용할 수 있습니다.');
         }
         const values = resolveSkillValues(definition, level);
+        const now = Date.now();
+        const cooldownUntil = Number(skillState.cooldowns?.[skillId]) || 0;
+        if (cooldownUntil > now) {
+          throw new Error(`재사용 대기시간이 ${Math.ceil((cooldownUntil - now) / 1000)}초 남았습니다.`);
+        }
         const currentHp = Math.max(0, Number(character.resources?.currentHp) || 0);
         const currentMp = Math.max(0, Number(character.resources?.currentMp) || 0);
         const maxHp = Math.max(1, Number(character.resources?.maxHp) || 1);
@@ -652,7 +675,8 @@ function registerV2Routes({
         let combat = null;
         const damageEffects = new Set([
           'damage', 'multi-damage', 'ignore-defense-damage', 'damage-stun',
-          'damage-lock', 'charge', 'consume-combo-damage', 'pull'
+          'damage-lock', 'charge', 'consume-combo-damage', 'pull',
+          'element-explosion', 'nonlethal-damage'
         ]);
         if (damageEffects.has(definition.effect)) {
           if (definition.effect === 'consume-combo-damage' && skillState.comboCount <= 0) {
@@ -660,7 +684,15 @@ function registerV2Routes({
           }
           const response = buildCharacterResponse(character);
           const activeEffects = response.skillEffects || {};
+          const activeElements = getActiveWeaponElements(skillState, now);
+          if (definition.effect === 'element-explosion' && !activeElements.length) {
+            throw new Error('폭발시킬 무기 속성이 없습니다.');
+          }
           let baseDamage = Math.max(1, Number(response.derivedStats.attackMaximum) || 4);
+          baseDamage *= 1 + Number(activeEffects.damageIncreasePercent || 0) / 100;
+          if (activeElements.length) {
+            baseDamage *= 1 + Number(activeEffects.elementDamageIncreasePercent || 0) / 100;
+          }
           if (activeEffects.comboEnabled) {
             baseDamage *= 1
               + Number(skillState.comboCount || 0)
@@ -680,7 +712,9 @@ function registerV2Routes({
             mapId: String(req.body?.mapId || ''),
             targetId: String(req.body?.targetId || ''),
             baseDamage,
-            skillPercent: Number(values.damagePercent) || 100,
+            skillPercent: definition.effect === 'element-explosion'
+              ? Number(activeEffects.elementExplosionDamagePercent || values.damagePercent || 250)
+              : Number(values.damagePercent) || 100,
             rangePx: Number(values.range ?? definition.range) || 100,
             maxTargets: Number(values.targetCount ?? definition.maxTargets) || 1,
             hits: Number(values.hits) || 1,
@@ -688,13 +722,15 @@ function registerV2Routes({
               ? Number(activeEffects.doubleStrikeDamagePercent || 0)
               : 0,
             element: definition.element,
+            elements: activeElements.length ? activeElements : [definition.element],
             ignoreDefense: definition.effect === 'ignore-defense-damage',
             accuracy: response.derivedStats.accuracy,
             playerLevel: response.progression?.level,
             stunChance: Number(values.stunChance) || 0,
             stunSeconds: Number(values.stunSeconds) || 0,
             pull: ['charge', 'pull'].includes(definition.effect),
-            dealDamage: definition.effect !== 'pull'
+            dealDamage: definition.effect !== 'pull',
+            leaveAtOneHp: definition.effect === 'nonlethal-damage'
           });
           if (!combat.success) throw new Error('사거리 안에 공격할 대상이 없습니다.');
           if (definition.effect === 'consume-combo-damage') skillState.comboCount = 0;
@@ -715,6 +751,43 @@ function registerV2Routes({
           }
           grantV2Experience(character, combat.expReward);
           combat.drops = applyCombatDrops(character, combat.drops);
+          if (
+            definition.effect === 'element-explosion'
+            && Math.random() * 100 >= Number(activeEffects.elementPreserveChance || 0)
+          ) {
+            skillState.activeBuffs = skillState.activeBuffs.filter(
+              (buff) => !ELEMENT_BUFF_SKILL_IDS.includes(buff.skillId)
+            );
+          }
+        } else if (definition.effect === 'debuff-self-buff') {
+          const response = buildCharacterResponse(character);
+          combat = useSkillOnMonsters({
+            userId: String(auth.id),
+            mapId: String(req.body?.mapId || ''),
+            targetId: String(req.body?.targetId || ''),
+            baseDamage: 1,
+            skillPercent: 0,
+            rangePx: Number(values.range ?? definition.range) || 450,
+            maxTargets: Number(values.targetCount ?? definition.maxTargets) || 15,
+            accuracy: response.derivedStats.accuracy,
+            playerLevel: response.progression?.level,
+            dealDamage: false,
+            outgoingDamageReductionPercent: Number(values.enemyDamageReductionPercent) || 0,
+            debuffChance: Number(values.successChance) || 0,
+            debuffDurationSeconds: Number(values.durationSeconds) || 0
+          });
+          if (!combat.success) throw new Error('사거리 안에 약화시킬 대상이 없습니다.');
+          skillState.activeBuffs = skillState.activeBuffs.filter((buff) => buff.skillId !== skillId);
+          skillState.activeBuffs.push({
+            skillId,
+            name: definition.name,
+            effects: {
+              damageIncreasePercent: Number(values.damageIncreasePercent) || 0,
+              accuracyIncrease: Number(values.accuracyIncrease) || 0
+            },
+            createdAt: new Date(now),
+            expiresAt: new Date(now + Number(values.durationSeconds || 1) * 1000)
+          });
         } else if (definition.effect === 'summon') {
           skillState.summon = {
             skillId,
@@ -726,11 +799,21 @@ function registerV2Routes({
         } else {
           if (definition.effect === 'combo-buff') skillState.comboCount = 0;
           const effects = {};
+          if (definition.effect === 'element-buff') {
+            const conflicting = skillId === 'element_fire'
+              ? new Set(['element_fire', 'element_ice'])
+              : (skillId === 'element_ice'
+                ? new Set(['element_fire', 'element_ice'])
+                : new Set([skillId]));
+            skillState.activeBuffs = skillState.activeBuffs.filter(
+              (buff) => !conflicting.has(buff.skillId)
+            );
+          }
           for (const key of [
             'attackIncrease', 'defenseIncrease', 'accuracyIncrease', 'evasionIncrease',
             'attackSpeedStage', 'shieldDefensePercent', 'stanceChance',
             'reflectPercent', 'targetMaxHpCapPercent', 'maxResourcePercent',
-            'maxCombo', 'damagePerComboPercent'
+            'maxCombo', 'damagePerComboPercent', 'damageIncreasePercent'
           ]) {
             if (Number.isFinite(Number(values[key]))) effects[key] = Number(values[key]);
           }
@@ -751,6 +834,9 @@ function registerV2Routes({
             createdAt: new Date(),
             expiresAt: new Date(Date.now() + Number(values.durationSeconds || 1) * 1000)
           });
+        }
+        if (Number(values.cooldownSeconds) > 0) {
+          skillState.cooldowns[skillId] = now + Number(values.cooldownSeconds) * 1000;
         }
         reconcileMaxResourceBuff(character);
         character.markModified('skills');
@@ -1098,6 +1184,9 @@ function registerV2Routes({
       const endureSkill = profile.skillTree?.skills?.find(
         (skill) => skill.id === 'endure' && skill.level > 0
       );
+      const strongMindSkill = profile.skillTree?.skills?.find(
+        (skill) => skill.id === 'strong_mind' && skill.level > 0
+      );
       const mapId = isDead
         ? String(profile.worldState?.mapId || START_MAP_ID)
         : requestedMapId;
@@ -1127,6 +1216,8 @@ function registerV2Routes({
         facingLeft: req.body?.facingLeft,
         currentHp: profile.resources.currentHp,
         maxHp: profile.resources.maxHp,
+        currentMp: profile.resources.currentMp,
+        maxMp: profile.resources.maxMp,
         playerLevel: profile.progression?.level,
         playerStats: profile.stats,
         physicalDefense: profile.derivedStats.physicalDefense ?? profile.derivedStats.defense,
@@ -1139,6 +1230,8 @@ function registerV2Routes({
         contactReflectCapPercent: profile.skillEffects?.contactReflectCapPercent,
         periodicHealPercent: recoverySkill?.values?.healPercent,
         periodicHealIntervalMs: Number(recoverySkill?.values?.intervalSeconds || 0) * 1000,
+        periodicMpAmount: strongMindSkill?.values?.mpRestore,
+        periodicMpIntervalMs: Number(strongMindSkill?.values?.intervalSeconds || 0) * 1000,
         idleHealAmount: endureSkill?.values?.heal,
         idleHealIntervalMs: Number(endureSkill?.values?.intervalSeconds || 0) * 1000
       });
@@ -1178,23 +1271,36 @@ function registerV2Routes({
             const currentHp = Math.max(0, Number(character.resources?.currentHp) || 0);
             const maxHp = Math.max(1, Number(character.resources?.maxHp) || 1);
             const healed = currentHp > 0
-              ? Math.max(0, Math.min(maxHp - currentHp, Math.floor(Number(event.amount) || 0)))
+              ? Math.max(0, Math.min(maxHp - currentHp, Math.floor(Number(event.hpAmount) || 0)))
+              : 0;
+            const currentMp = Math.max(0, Number(character.resources?.currentMp) || 0);
+            const maxMp = Math.max(0, Number(character.resources?.maxMp) || 0);
+            const restoredMp = currentHp > 0
+              ? Math.max(0, Math.min(maxMp - currentMp, Math.floor(Number(event.mpAmount) || 0)))
               : 0;
             character.resources.currentHp = currentHp + healed;
+            character.resources.currentMp = currentMp + restoredMp;
             event.healed = healed;
+            event.restoredMp = restoredMp;
             event.currentHp = character.resources.currentHp;
-            if (healed > 0) await character.save();
+            event.currentMp = character.resources.currentMp;
+            if (healed > 0 || restoredMp > 0) await character.save();
             updatePlayerResources(event.userId, character.resources);
             worldProfileCache.delete(String(event.userId));
           });
           const player = state.players.find((entry) => entry.userId === event.userId);
-          if (player) player.currentHp = event.currentHp;
+          if (player) {
+            player.currentHp = event.currentHp;
+            player.currentMp = event.currentMp;
+          }
         }
       }
       const self = state.players.find((player) => player.userId === String(auth.id));
       if (self) {
         profile.resources.currentHp = self.currentHp;
         profile.resources.maxHp = self.maxHp;
+        profile.resources.currentMp = self.currentMp;
+        profile.resources.maxMp = self.maxMp;
       }
       return res.json({
         mapId: state.mapId,
@@ -1225,6 +1331,11 @@ function registerV2Routes({
         ? minimum + Math.random() * (maximum - minimum)
         : 5;
       const skillEffects = profile.skillEffects || {};
+      const activeElements = getActiveWeaponElements(profile.skillTree);
+      rolledDamage *= 1 + Number(skillEffects.damageIncreasePercent || 0) / 100;
+      if (activeElements.length) {
+        rolledDamage *= 1 + Number(skillEffects.elementDamageIncreasePercent || 0) / 100;
+      }
       const comboCount = Math.max(0, Number(profile.skillTree?.comboCount) || 0);
       if (skillEffects.comboEnabled) {
         rolledDamage *= 1 + comboCount * Number(skillEffects.comboDamagePerCount || 0) / 100;
@@ -1244,6 +1355,8 @@ function registerV2Routes({
         damage: rolledDamage,
         rangePx: profile.combatPresentation?.rangePx || profile.derivedStats.attackRange,
         damageType: archetype === 'mage' ? 'magic' : 'physical',
+        elements: activeElements,
+        freezeSeconds: activeElements.includes('ice') ? 4 : 0,
         accuracy: profile.derivedStats.accuracy,
         playerLevel: profile.progression?.level
       });
@@ -1267,6 +1380,8 @@ function registerV2Routes({
           damage: rolledDamage * Number(skillEffects.doubleStrikeDamagePercent || 0) / 100,
           rangePx: profile.combatPresentation?.rangePx || profile.derivedStats.attackRange,
           damageType: archetype === 'mage' ? 'magic' : 'physical',
+          elements: activeElements,
+          freezeSeconds: activeElements.includes('ice') ? 4 : 0,
           accuracy: profile.derivedStats.accuracy,
           playerLevel: profile.progression?.level
         });

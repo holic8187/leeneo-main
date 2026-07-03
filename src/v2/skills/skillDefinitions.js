@@ -50,7 +50,7 @@ const SKILL_DEFINITIONS = Object.freeze({
   }),
 
   sword_mastery: defineSkill('sword_mastery', {
-    name: '소드 마스터리', tier: 2, maxLevel: 20, departments: ['hr'], passive: true,
+    name: '소드 마스터리', tier: 2, maxLevel: 20, departments: ['hr', 'field_operations'], passive: true,
     effect: 'weapon-mastery', weaponTypes: ['oneHandedSword', 'twoHandedSword'],
     values: { mastery: [10, 60], accuracyIncrease: [1, 20] }
   }),
@@ -79,17 +79,17 @@ const SKILL_DEFINITIONS = Object.freeze({
     values: { mpCost: 20, durationSeconds: 160, attackIncrease: 10, defenseIncrease: -10 }
   }),
   shoulder_charge: defineSkill('shoulder_charge', {
-    name: '어깨빵', tier: 2, maxLevel: 30, departments: ['hr'],
+    name: '어깨빵', tier: 2, maxLevel: 30, departments: ['hr', 'field_operations'],
     prerequisites: [{ skillId: 'rage', level: 3 }], effect: 'contact-reflect',
     values: { mpCost: 30, reflectPercent: [2, 40], targetMaxHpCapPercent: 10 }
   }),
 
   strong_mind: defineSkill('strong_mind', {
-    name: '강한정신력', tier: 3, maxLevel: 20, departments: ['hr'], passive: true,
+    name: '강한정신력', tier: 3, maxLevel: 20, departments: ['hr', 'field_operations'], passive: true,
     effect: 'periodic-mp', values: { mpRestore: [2, 30], intervalSeconds: 10 }
   }),
   shield_mastery: defineSkill('shield_mastery', {
-    name: '방패 마스터리', tier: 3, maxLevel: 20, departments: ['hr'], passive: true,
+    name: '방패 마스터리', tier: 3, maxLevel: 20, departments: ['hr', 'field_operations'], passive: true,
     effect: 'shield-mastery', values: { shieldDefensePercent: [7.5, 150] }
   }),
   combo_attack: defineSkill('combo_attack', {
@@ -121,12 +121,12 @@ const SKILL_DEFINITIONS = Object.freeze({
   }),
 
   come_here_hr: defineSkill('come_here_hr', {
-    name: '이리와봐', tier: 4, maxLevel: 30, departments: ['hr'],
+    name: '이리와봐', tier: 4, maxLevel: 30, departments: ['hr', 'field_operations'],
     target: 'enemies', maxTargets: 6, range: 350, effect: 'pull',
     values: { mpCost: 30, successChance: [30, 100] }
   }),
   firm_will_hr: defineSkill('firm_will_hr', {
-    name: '굳건한의지', tier: 4, maxLevel: 30, departments: ['hr'], quest: true,
+    name: '굳건한의지', tier: 4, maxLevel: 30, departments: ['hr', 'field_operations'], quest: true,
     effect: 'buff', values: { mpCost: [30, 50], durationSeconds: [10, 300], stanceChance: [42, 95] }
   }),
   upgraded_combo: defineSkill('upgraded_combo', {
@@ -135,15 +135,15 @@ const SKILL_DEFINITIONS = Object.freeze({
     values: { maxCombo: [6, 10], doubleChargeChance: [2, 60] }
   }),
   sturdy_body_hr: defineSkill('sturdy_body_hr', {
-    name: '굳건한신체', tier: 4, maxLevel: 30, departments: ['hr'], passive: true,
+    name: '굳건한신체', tier: 4, maxLevel: 30, departments: ['hr', 'field_operations'], passive: true,
     effect: 'damage-reduction', values: { reductionPercent: [0.5, 15] }
   }),
   blocked_it: defineSkill('blocked_it', {
-    name: '막았죠?', tier: 4, maxLevel: 30, departments: ['hr'], passive: true, quest: true,
+    name: '막았죠?', tier: 4, maxLevel: 30, departments: ['hr', 'field_operations'], passive: true, quest: true,
     effect: 'shield-block', values: { blockChance: [0.5, 15], invincibleSeconds: 1 }
   }),
   charge_hr: defineSkill('charge_hr', {
-    name: '돌진', tier: 4, maxLevel: 30, departments: ['hr'], quest: true,
+    name: '돌진', tier: 4, maxLevel: 30, departments: ['hr', 'field_operations'], quest: true,
     target: 'enemies', maxTargets: 15, effect: 'charge',
     values: { distance: [300, 500], damagePercent: [72, 130] }
   }),
@@ -156,6 +156,91 @@ const SKILL_DEFINITIONS = Object.freeze({
     name: '찐텐분노', tier: 4, maxLevel: 30, departments: ['hr'], quest: true,
     effect: 'buff', values: {
       mpCost: [11, 40], comboCost: 10, durationSeconds: [10, 240], attackIncrease: [11, 26]
+    }
+  }),
+
+  mace_mastery: defineSkill('mace_mastery', {
+    name: '메이스 마스터리', tier: 2, maxLevel: 20, departments: ['field_operations'],
+    passive: true, effect: 'weapon-mastery',
+    weaponTypes: ['oneHandedBlunt', 'twoHandedBlunt'],
+    values: { mastery: [10, 70], accuracyIncrease: [1, 30] }
+  }),
+  double_strike_field: defineSkill('double_strike_field', {
+    name: '두번치기', tier: 2, maxLevel: 30, departments: ['field_operations'],
+    passive: true, effect: 'double-strike',
+    values: { chance: [2, 60], damagePercent: [105, 250] }
+  }),
+  booster_field: defineSkill('booster_field', {
+    name: '부스터', tier: 2, maxLevel: 20, departments: ['field_operations'],
+    prerequisiteAny: [
+      { skillId: 'sword_mastery', level: 5 },
+      { skillId: 'mace_mastery', level: 5 }
+    ],
+    effect: 'buff',
+    values: {
+      hpCost: [50, 10], mpCost: [30, 10], durationSeconds: 200, attackSpeedStage: [1, 2]
+    }
+  }),
+  war_cry: defineSkill('war_cry', {
+    name: '고함', tier: 2, maxLevel: 20, departments: ['field_operations'],
+    target: 'enemies', maxTargets: 15, range: 450, effect: 'debuff-self-buff',
+    values: {
+      mpCost: 25, successChance: 95, durationSeconds: 80,
+      enemyDamageReductionPercent: 5, damageIncreasePercent: 5, accuracyIncrease: -10
+    }
+  }),
+
+  element_explosion: defineSkill('element_explosion', {
+    name: '속성 폭발', tier: 3, maxLevel: 30, departments: ['field_operations'],
+    target: 'enemies', maxTargets: 6, range: 300, effect: 'element-explosion',
+    values: {
+      hpCost: 25, mpCost: 26, damagePercent: 250, stunChance: 90, stunSeconds: 4
+    }
+  }),
+  element_fire: defineSkill('element_fire', {
+    name: '속성 부여: 불', tier: 3, maxLevel: 30, departments: ['field_operations'],
+    effect: 'element-buff', element: 'fire',
+    values: { mpCost: 35, durationSeconds: 200, damageIncreasePercent: 20 }
+  }),
+  element_ice: defineSkill('element_ice', {
+    name: '속성 부여: 얼음', tier: 3, maxLevel: 30, departments: ['field_operations'],
+    effect: 'element-buff', element: 'ice',
+    values: {
+      mpCost: 35, durationSeconds: 200, damageIncreasePercent: 10, freezeSeconds: 4
+    }
+  }),
+  element_lightning: defineSkill('element_lightning', {
+    name: '속성 부여: 번개', tier: 3, maxLevel: 30, departments: ['field_operations'],
+    effect: 'element-buff', element: 'lightning',
+    values: { mpCost: 35, durationSeconds: 200, damageIncreasePercent: 25 }
+  }),
+  element_enhancement: defineSkill('element_enhancement', {
+    name: '속성 강화', tier: 3, maxLevel: 20, departments: ['field_operations'],
+    passive: true, effect: 'element-enhancement',
+    values: { elementDamageIncreasePercent: [0.5, 10] }
+  }),
+
+  element_holy: defineSkill('element_holy', {
+    name: '속성 부여: 성', tier: 4, maxLevel: 20, departments: ['field_operations'],
+    quest: true, effect: 'element-buff', element: 'holy',
+    values: { mpCost: 30, durationSeconds: 300, damageIncreasePercent: 50 }
+  }),
+  wall_break: defineSkill('wall_break', {
+    name: '벽부수기', tier: 4, maxLevel: 30, departments: ['field_operations'],
+    target: 'enemy', range: 130, effect: 'damage',
+    values: { mpCost: [17, 24], damagePercent: [170, 580] }
+  }),
+  element_enhancement_2: defineSkill('element_enhancement_2', {
+    name: '속성 강화2', tier: 4, maxLevel: 10, departments: ['field_operations'],
+    passive: true, prerequisites: [{ skillId: 'element_explosion', level: 30 }],
+    effect: 'element-explosion-upgrade',
+    values: { damagePercent: [260, 350], preserveElementChance: [10, 100] }
+  }),
+  gombang: defineSkill('gombang', {
+    name: '곰방', tier: 4, maxLevel: 30, departments: ['field_operations'],
+    quest: true, target: 'enemies', maxTargets: 15, range: 400, effect: 'nonlethal-damage',
+    values: {
+      mpCost: [31, 60], damagePercent: [420, 900], cooldownSeconds: [310, 15]
     }
   }),
 

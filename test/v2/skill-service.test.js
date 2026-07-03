@@ -119,6 +119,38 @@ test('HR and quality trees expose four tiers and spend real skill points', () =>
   assert.ok(tree.skills.some((skill) => skill.name === '작은 동반자'));
 });
 
+test('field operations exposes its mastery, elemental, and finishing skills', () => {
+  const character = makeCharacter({
+    job: { departmentId: 'field_operations', advancementTier: 4 }
+  });
+  const tree = buildSkillTree(character);
+  const ids = new Set(tree.skills.map((skill) => skill.id));
+  for (const skillId of [
+    'mace_mastery', 'war_cry', 'element_explosion', 'element_fire',
+    'element_ice', 'element_lightning', 'element_holy', 'wall_break',
+    'element_enhancement_2', 'gombang'
+  ]) {
+    assert.equal(ids.has(skillId), true, `${skillId} should be in field operations tree`);
+  }
+});
+
+test('field elemental passives increase elemental and explosion damage', () => {
+  const character = makeCharacter({
+    job: { departmentId: 'field_operations', advancementTier: 4 },
+    loadout: { weapon: { weaponType: 'oneHandedBlunt' } }
+  });
+  character.skills.levels = {
+    mace_mastery: 20,
+    element_enhancement: 20,
+    element_enhancement_2: 10
+  };
+  const effects = getActiveSkillEffects(character);
+  assert.equal(effects.weaponMastery, 70);
+  assert.equal(effects.elementDamageIncreasePercent, 10);
+  assert.equal(effects.elementExplosionDamagePercent, 350);
+  assert.equal(effects.elementPreserveChance, 100);
+});
+
 test('combat passives and active combo buffs are exposed to the field runtime', () => {
   const character = makeCharacter();
   character.loadout = { weapon: { weaponType: 'oneHandedSword' } };

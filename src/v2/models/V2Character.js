@@ -51,6 +51,7 @@ const v2CharacterSchema = new mongoose.Schema({
     activePreset: { type: [String], default: [] },
     unlockedQuestSkills: { type: [String], default: [] },
     activeBuffs: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    cooldowns: { type: mongoose.Schema.Types.Mixed, default: {} },
     summon: { type: mongoose.Schema.Types.Mixed, default: null },
     comboCount: { type: Number, default: 0, min: 0, max: 10 }
   },
