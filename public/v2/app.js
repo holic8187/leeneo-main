@@ -11,6 +11,8 @@ const state = {
   startMapId: 'main_lobby',
   currentMapId: localStorage.getItem('v2CurrentMapId') || '',
   autoCombat: localStorage.getItem('v2AutoCombat') === 'true',
+  huntingTime: { remainingSeconds: 0, maximumSeconds: 24000, enabled: false },
+  huntingTickCounter: 0,
   moving: false,
   moveRunId: 0,
   combatRunId: 0,
@@ -60,7 +62,9 @@ const state = {
   autoSkillOwnerKey: '',
   autoSkillIds: new Set(),
   autoSkillRotationIndex: 0,
-  shop: { money: 0, buyItems: [], tab: 'consumable' }
+  shop: { money: 0, buyItems: [], tab: 'consumable' },
+  partyState: { party: null, invitation: null, nearbyPlayers: [] },
+  lastPartyInvitationId: ''
 };
 sessionStorage.setItem('v2WorldClientId', state.worldClientId);
 
@@ -133,6 +137,14 @@ function renderGame(data) {
   const actionPoints = character.actionPoints || {};
   const job = character.job || {};
   const migration = character.migration || {};
+  state.huntingTime = {
+    remainingSeconds: Math.max(0, Number(character.huntingTime?.remainingSeconds) || 0),
+    maximumSeconds: Math.max(1, Number(character.huntingTime?.maximumSeconds) || 24000),
+    enabled: Boolean(character.huntingTime?.enabled)
+  };
+  state.autoCombat = state.huntingTime.enabled && state.huntingTime.remainingSeconds > 0;
+  localStorage.setItem('v2AutoCombat', String(state.autoCombat));
+  renderHuntingTime();
 
   $('displayName').textContent = state.displayName || '사원';
   $('characterLevel').textContent = formatNumber(progression.level || state.preview?.mappedLevel);
@@ -514,7 +526,13 @@ function getCharacterFloor() {
 }
 
 function getCharacterX() {
-  return Math.max(0, Math.min(94, Number.parseFloat($('fieldCharacter').style.left) || 0));
+  const character = $('fieldCharacter');
+  const stage = $('worldStage');
+  const renderedLeftPx = Number.parseFloat(getComputedStyle(character).left);
+  const renderedPercent = stage.clientWidth > 0 && Number.isFinite(renderedLeftPx)
+    ? renderedLeftPx / stage.clientWidth * 100
+    : Number.parseFloat(character.style.left);
+  return Math.max(0, Math.min(94, Number(renderedPercent) || 0));
 }
 
 function getCurrentCharacterMotion() {
@@ -725,8 +743,19 @@ function getCombatTarget() {
   const floor = getCharacterFloor();
   const candidates = state.worldMonsters.filter((monster) => monster.floor === floor && monster.hp > 0);
   if (!candidates.length) return null;
-  const selected = candidates.find((monster) => monster.id === state.combatTargetId)
-    || candidates.sort((a, b) => Math.abs(a.x - characterX) - Math.abs(b.x - characterX))[0];
+  const current = candidates.find((monster) => monster.id === state.combatTargetId);
+  const currentDirection = current && Math.sign(current.x - characterX);
+  const directionalCandidates = currentDirection
+    ? candidates.filter((monster) => {
+      const direction = Math.sign(monster.x - characterX);
+      return direction === 0 || direction === currentDirection;
+    })
+    : candidates;
+  const selected = directionalCandidates.sort(
+    (a, b) => Math.abs(a.x - characterX) - Math.abs(b.x - characterX)
+  )[0] || candidates.sort(
+    (a, b) => Math.abs(a.x - characterX) - Math.abs(b.x - characterX)
+  )[0];
   state.combatTargetId = selected.id;
   return selected;
 }
@@ -985,6 +1014,7 @@ async function runAutoCombat(runId) {
           monsterId: state.combatTargetId
         })
       });
+      if (result.targetId) state.combatTargetId = String(result.targetId);
       showFloatingDamage(
         getCombatTargetElement(),
         result.missed ? 'MISS' : result.damage,
@@ -1024,9 +1054,54 @@ function startAutoCombat() {
   });
 }
 
-function toggleAutoCombat() {
+function formatDuration(seconds) {
+  const safe = Math.max(0, Math.floor(Number(seconds) || 0));
+  return [Math.floor(safe / 3600), Math.floor(safe % 3600 / 60), safe % 60]
+    .map((value) => String(value).padStart(2, '0'))
+    .join(':');
+}
+
+function renderHuntingTime() {
+  $('huntingTimeLabel').textContent = `사냥시간 ${formatDuration(state.huntingTime.remainingSeconds)} / ${formatDuration(state.huntingTime.maximumSeconds)}`;
+}
+
+async function syncHuntingTime(active = state.autoCombat) {
+  try {
+    const data = await request('/api/v2/hunting-time/tick', {
+      method: 'POST',
+      body: JSON.stringify({ active })
+    });
+    state.huntingTime = data.huntingTime;
+    if (!state.huntingTime.enabled || state.huntingTime.remainingSeconds <= 0) {
+      state.autoCombat = false;
+      localStorage.setItem('v2AutoCombat', 'false');
+      state.combatRunId += 1;
+      updateFieldControls();
+    }
+    renderHuntingTime();
+  } catch (err) {
+    console.error('V2 hunting time sync error:', err);
+  }
+}
+
+async function toggleAutoCombat() {
   if (state.dead) return;
-  state.autoCombat = !state.autoCombat;
+  const requested = !state.autoCombat;
+  if (requested && state.huntingTime.remainingSeconds <= 0) {
+    setWorldActivity('남은 자동사냥 시간이 없습니다. 우편에서 사냥시간을 수령해주세요.');
+    return;
+  }
+  try {
+    const data = await request('/api/v2/hunting-time/toggle', {
+      method: 'POST',
+      body: JSON.stringify({ enabled: requested })
+    });
+    state.huntingTime = data.huntingTime;
+    state.autoCombat = state.huntingTime.enabled;
+  } catch (err) {
+    setWorldActivity(err.message);
+    return;
+  }
   localStorage.setItem('v2AutoCombat', String(state.autoCombat));
   state.combatRunId += 1;
   setCharacterMotion(null);
@@ -1037,6 +1112,7 @@ function toggleAutoCombat() {
   } else if (!state.moving) {
     setWorldActivity('명령 대기 중');
   }
+  renderHuntingTime();
 }
 
 function activityLabel(activity) {
@@ -1090,13 +1166,18 @@ function ensureMonsterElement(monster) {
   );
   if (element) return element;
   element = document.createElement('div');
-  element.className = 'field-monster';
+  const spawnAge = state.worldServerTime - Number(monster.spawnedAt);
+  const shouldAnimateSpawn = Number.isFinite(spawnAge) && spawnAge >= 0 && spawnAge <= 2_000;
+  element.className = `field-monster${shouldAnimateSpawn ? ' is-spawning' : ''}`;
   element.dataset.monsterId = monster.id;
   element.innerHTML = `
     <span class="monster-name"></span><span class="monster-level"></span>
     <pre>(╬ಠ益ಠ)</pre>
     <div class="monster-hp"><i></i></div>`;
   $('monsterLayer').appendChild(element);
+  if (shouldAnimateSpawn) {
+    setTimeout(() => element.classList.remove('is-spawning'), 850);
+  }
   return element;
 }
 
@@ -1237,6 +1318,14 @@ async function revivePlayer() {
 }
 
 function renderWorldEntities(data = {}) {
+  if (data.partyState) {
+    state.partyState = { ...state.partyState, ...data.partyState };
+    const invitation = data.partyState.invitation;
+    if (invitation?.id && invitation.id !== state.lastPartyInvitationId) {
+      state.lastPartyInvitationId = invitation.id;
+      openFeature('party-invite');
+    }
+  }
   state.worldServerTime = Number(data.serverTime) || Date.now();
   if (data.self?.userId) state.selfUserId = data.self.userId;
   renderRemotePlayers(data.players || []);
@@ -1493,10 +1582,15 @@ function inventorySlotBody(item, slotNumber, locked = false) {
     usable = '<button class="inventory-item-use" type="button" data-use-expansion-ticket>사용</button>';
   } else if (item.itemType === 'job-change') {
     usable = '<button class="inventory-item-use" type="button" data-use-job-change-ticket>사용</button>';
+  } else if (['return-scroll', 'experience-buff', 'hunting-time'].includes(item.itemType)) {
+    usable = `<button class="inventory-item-use" type="button" data-use-inventory-item="${escapeHtml(item.id)}">사용</button>`;
   } else if (item.itemType === 'weapon') {
     usable = `<button class="inventory-item-use" type="button" data-equip-inventory-weapon="${escapeHtml(item.stackId)}">장착</button>`;
   }
-  return `<article class="inventory-slot has-item" tabindex="0">
+  const directlyUsable = ['return-scroll', 'experience-buff', 'hunting-time'].includes(item.itemType)
+    ? item.id
+    : '';
+  return `<article class="inventory-slot has-item" tabindex="0" data-inventory-usable="${escapeHtml(directlyUsable)}">
     <span class="inventory-slot-number">${slotNumber}</span>
     <div class="inventory-item-icon" aria-hidden="true">${escapeHtml(item.icon || '📦')}</div>
     <b class="inventory-item-quantity">${formatNumber(item.quantity)}</b>
@@ -1504,7 +1598,7 @@ function inventorySlotBody(item, slotNumber, locked = false) {
     <div class="inventory-item-tooltip" role="tooltip">
       <strong>${escapeHtml(item.name)}</strong>
       <span>${escapeHtml(item.description)}</span>
-      <small>${formatNumber(item.quantity)}개 보유</small>
+      <small>${formatNumber(item.quantity)}개 보유${item.expiresAt ? ` · ${new Date(item.expiresAt).toLocaleString('ko-KR')} 만료` : ''}</small>
     </div>
   </article>`;
 }
@@ -1668,6 +1762,13 @@ function bindInventoryControls() {
   document.querySelectorAll('[data-equip-inventory-weapon]').forEach((button) => {
     button.addEventListener('click', () => equipInventoryWeapon(button.dataset.equipInventoryWeapon));
   });
+  document.querySelectorAll('[data-use-inventory-item]').forEach((button) => {
+    button.addEventListener('click', () => useInventoryItem(button.dataset.useInventoryItem));
+  });
+  document.querySelectorAll('[data-inventory-usable]').forEach((slot) => {
+    if (!slot.dataset.inventoryUsable) return;
+    slot.addEventListener('dblclick', () => useInventoryItem(slot.dataset.inventoryUsable));
+  });
   document.querySelectorAll('[data-expand-inventory]').forEach((button) => {
     button.addEventListener('click', () => expandInventory(button.dataset.expandInventory));
   });
@@ -1675,6 +1776,33 @@ function bindInventoryControls() {
     state.inventoryExpansionPrompt = false;
     rerenderInventory();
   });
+}
+
+async function useInventoryItem(itemId) {
+  try {
+    const data = await request('/api/v2/inventory/use-item', {
+      method: 'POST',
+      body: JSON.stringify({ itemId })
+    });
+    state.character = data.character;
+    if (data.character?.huntingTime) {
+      state.huntingTime = data.character.huntingTime;
+      renderHuntingTime();
+    }
+    setInventoryData(data.inventory);
+    if (data.map) {
+      state.worldStateEpoch += 1;
+      state.moveRunId += 1;
+      state.combatRunId += 1;
+      state.autoCombat = false;
+      localStorage.setItem('v2AutoCombat', 'false');
+      renderWorldMap(data.map.id, 0);
+    }
+    rerenderInventory();
+    setWorldActivity(data.message);
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
 }
 
 async function useJobChangeTicket() {
@@ -1979,6 +2107,83 @@ function bindShopControls() {
   });
 }
 
+function partyBody() {
+  const party = state.partyState.party;
+  if (party) {
+    return `<div class="party-sheet">
+      <header><strong>현재 파티 ${party.members.length}/6</strong><small>같은 맵의 파티원과 함께 전투할 수 있습니다.</small></header>
+      <div class="party-member-list">${party.members.map((member) => `<article>
+        <div><b>${member.isLeader ? '👑 ' : ''}${escapeHtml(member.nickname)}</b><small>${member.isSelf ? '나' : '파티원'}</small></div>
+        ${party.isLeader && !member.isSelf ? `<button type="button" data-party-kick="${escapeHtml(member.userId)}">추방</button>` : ''}
+      </article>`).join('')}</div>
+      <button class="secondary-action" type="button" data-party-leave>파티 탈퇴</button>
+    </div>`;
+  }
+  const players = state.partyState.nearbyPlayers || [];
+  return `<div class="party-sheet">
+    <header><strong>같은 맵의 사원</strong><small>상대가 수락하면 파티가 만들어집니다.</small></header>
+    <div class="party-member-list">${players.length ? players.map((player) => `<article>
+      <div><b>${escapeHtml(player.nickname)}</b><small>${escapeHtml(player.activity || '대기 중')}</small></div>
+      <button type="button" data-party-invite="${escapeHtml(player.userId)}">초대</button>
+    </article>`).join('') : '<div class="empty-ledger"><b>초대할 사원이 없습니다.</b><p>같은 맵에 있는 사원만 표시됩니다.</p></div>'}</div>
+  </div>`;
+}
+
+function partyInviteBody() {
+  const invitation = state.partyState.invitation;
+  if (!invitation) return '<div class="empty-ledger"><b>파티 초대가 만료되었습니다.</b></div>';
+  return `<div class="party-invite-card">
+    <span>PARTY INVITATION</span>
+    <strong>${escapeHtml(invitation.inviterNickname)}님의 파티 초대</strong>
+    <p>30초 안에 수락하면 함께 전투할 수 있습니다.</p>
+    <div><button type="button" data-party-accept="${escapeHtml(invitation.id)}">수락</button>
+    <button class="secondary-action" type="button" data-party-decline="${escapeHtml(invitation.id)}">거절</button></div>
+  </div>`;
+}
+
+async function refreshParty(openAfter = false) {
+  try {
+    state.partyState = await request('/api/v2/party');
+    if (openAfter) openFeature('party');
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+async function partyRequest(path, body = {}) {
+  try {
+    const data = await request(`/api/v2/party/${path}`, {
+      method: 'POST',
+      body: JSON.stringify(body)
+    });
+    state.partyState = { ...state.partyState, ...data };
+    if (!data.invitation) state.lastPartyInvitationId = '';
+    if (path === 'accept' || path === 'decline') closeFeature();
+    else {
+      $('featureBody').innerHTML = partyBody();
+      bindPartyControls();
+    }
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+function bindPartyControls() {
+  document.querySelectorAll('[data-party-invite]').forEach((button) => {
+    button.addEventListener('click', () => partyRequest('invite', { targetId: button.dataset.partyInvite }));
+  });
+  document.querySelectorAll('[data-party-kick]').forEach((button) => {
+    button.addEventListener('click', () => partyRequest('kick', { targetId: button.dataset.partyKick }));
+  });
+  document.querySelector('[data-party-leave]')?.addEventListener('click', () => partyRequest('leave'));
+  document.querySelector('[data-party-accept]')?.addEventListener('click', (event) => (
+    partyRequest('accept', { invitationId: event.currentTarget.dataset.partyAccept })
+  ));
+  document.querySelector('[data-party-decline]')?.addEventListener('click', (event) => (
+    partyRequest('decline', { invitationId: event.currentTarget.dataset.partyDecline })
+  ));
+}
+
 const featureMeta = {
   stats: { code: '01 / STATUS', title: '스탯' },
   inventory: { code: '02 / INVENTORY', title: '인벤토리' },
@@ -1989,6 +2194,8 @@ const featureMeta = {
   company: { code: '07 / COMPANY', title: '회사 운영' },
   boss: { code: '08 / RAID', title: '보스' },
   stock: { code: '09 / MARKET', title: '주식' },
+  party: { code: '10 / PARTY', title: '파티' },
+  'party-invite': { code: 'PARTY / INVITE', title: '파티 초대' },
   quest: { code: 'QUEST / HR', title: '전직 퀘스트' },
   move: { code: 'MAP / MOVE', title: '이동 목적지' },
   mail: { code: 'ADMIN / MAIL', title: '우편함' },
@@ -2229,6 +2436,8 @@ function featureBody(feature) {
   if (feature === 'potion-config') return potionConfigurationBody();
   if (feature === 'mail') return mailBody();
   if (feature === 'shop') return shopBody();
+  if (feature === 'party') return partyBody();
+  if (feature === 'party-invite') return partyInviteBody();
   const messages = {
     shop: '물약, 탄환, 장비 보급품을 구매하는 사내 보급소입니다.',
     cash: 'V2 전용 상품 구성 후 개장합니다.',
@@ -2264,6 +2473,7 @@ function openFeature(feature) {
   if (feature === 'potion-config') bindPotionControls();
   if (feature === 'mail') bindMailControls();
   if (feature === 'shop') bindShopControls();
+  if (feature === 'party' || feature === 'party-invite') bindPartyControls();
   $('featureModal').classList.remove('hidden');
   document.body.classList.add('modal-open');
   document.querySelector('.modal-close')?.focus();
@@ -2338,6 +2548,8 @@ document.querySelectorAll('.desk-action').forEach((button) => {
   button.addEventListener('click', () => (
     button.dataset.feature === 'shop'
       ? openFieldShop()
+      : button.dataset.feature === 'party'
+        ? refreshParty(true)
       : openFeature(button.dataset.feature)
   ));
 });
@@ -2358,3 +2570,14 @@ async function boot() {
 }
 
 boot();
+
+setInterval(() => {
+  if (!state.token || state.isAdmin || !state.autoCombat || state.moving) return;
+  state.huntingTime.remainingSeconds = Math.max(0, state.huntingTime.remainingSeconds - 1);
+  renderHuntingTime();
+  state.huntingTickCounter += 1;
+  if (state.huntingTickCounter >= 10 || state.huntingTime.remainingSeconds <= 0) {
+    state.huntingTickCounter = 0;
+    syncHuntingTime(!state.moving);
+  }
+}, 1000);

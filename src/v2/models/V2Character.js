@@ -5,7 +5,8 @@ const mongoose = require('mongoose');
 const inventoryStackSchema = new mongoose.Schema({
   stackId: { type: String, default: '' },
   itemId: { type: String, required: true },
-  quantity: { type: Number, default: 0, min: 0 }
+  quantity: { type: Number, default: 0, min: 0 },
+  expiresAt: { type: Date, default: null }
 }, { _id: false });
 
 const mailAttachmentSchema = new mongoose.Schema({
@@ -104,6 +105,12 @@ const v2CharacterSchema = new mongoose.Schema({
     x: { type: Number, default: 8, min: 0, max: 94 },
     floor: { type: Number, default: 0, min: 0, max: 1 },
     controlSessionId: { type: String, default: '' }
+  },
+  huntingTime: {
+    remainingSeconds: { type: Number, default: 0, min: 0, max: 24000 },
+    enabled: { type: Boolean, default: false },
+    lastTickAt: { type: Date, default: null },
+    lastDailyGrantDate: { type: String, default: '' }
   },
   economy: {
     money: { type: Number, default: 0 },

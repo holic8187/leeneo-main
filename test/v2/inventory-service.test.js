@@ -131,6 +131,35 @@ test('shop purchases and sales update money and inventory atomically', () => {
   assert.equal(sale.inventory.categories.consumable.items[0].quantity, 1);
 });
 
+test('regional shops vary prices within five percent and sell ammunition bundles', () => {
+  const personnel = characterFixture();
+  personnel.economy.money = 10_000;
+  const arrowBundle = buyShopItem(personnel, 'basic_arrow', 1, 'personnel_annex');
+  assert.equal(arrowBundle.quantity, 400);
+  assert.equal(arrowBundle.totalPrice, 2910);
+
+  const sales = characterFixture();
+  sales.economy.money = 10_000;
+  const returnScroll = buyShopItem(sales, 'safe_zone_return_scroll', 1, 'sales_outpost');
+  assert.equal(returnScroll.quantity, 1);
+  assert.equal(returnScroll.totalPrice, 832);
+});
+
+test('existing job change tickets receive a seventy-two hour expiry', () => {
+  const character = characterFixture();
+  character.inventory.items.push({
+    stackId: 'legacy-ticket',
+    itemId: 'job_change_ticket',
+    quantity: 1
+  });
+  const view = buildInventoryView(character);
+  const ticket = view.categories.cash.items[0];
+  assert.ok(ticket.expiresAt);
+  const remaining = new Date(ticket.expiresAt).getTime() - Date.now();
+  assert.ok(remaining > 71 * 60 * 60 * 1000);
+  assert.ok(remaining <= 72 * 60 * 60 * 1000);
+});
+
 test('admin event weapons occupy one slot and can be equipped and returned', () => {
   const character = characterFixture();
   character.progression = { level: 30 };

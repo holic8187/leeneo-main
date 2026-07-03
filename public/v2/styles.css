@@ -919,6 +919,7 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .field-monster.is-chasing { filter: drop-shadow(0 0 8px rgba(255, 82, 54, .75)); }
 .field-monster.is-falling { animation: monster-fall .55s ease-in; }
 .field-monster.is-hit { animation: monster-hit .45s linear; }
+.field-monster.is-spawning { animation: monster-spawn-in .8s ease-out both; }
 
 .field-loot {
   position: absolute;
@@ -1115,6 +1116,11 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 @keyframes monster-hit { 0%,100% { transform: translateX(0); } 25% { transform: translateX(8px); color: #fff; } 50% { transform: translateX(-6px); } }
 @keyframes monster-walk { from { translate: 0 0; } to { translate: 0 -3px; } }
 @keyframes monster-fall { from { opacity: .75; translate: -50% -20px; } to { opacity: 1; translate: -50% 0; } }
+@keyframes monster-spawn-in {
+  0% { opacity: 0; filter: blur(5px); scale: .82; }
+  65% { opacity: .72; filter: blur(1px); }
+  100% { opacity: 1; filter: blur(0); scale: 1; }
+}
 @keyframes loot-drop {
   0% { opacity: 0; transform: translateY(-24px) scale(.5); }
   70% { opacity: 1; transform: translateY(3px) scale(1.06); }
@@ -1898,4 +1904,65 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   .skill-card-list, .skill-summary { grid-template-columns: 1fr; }
   .skill-card-actions { grid-template-columns: 48px 1fr; }
   .skill-card-actions .secondary-action { grid-column: 1 / -1; }
+}
+.hunting-time-label {
+  padding: 8px 10px;
+  border: 1px solid rgba(29, 85, 67, .3);
+  background: rgba(248, 246, 238, .82);
+  font: 700 12px/1.2 monospace;
+  color: #1d5543;
+  white-space: nowrap;
+}
+
+.party-sheet,
+.party-invite-card {
+  display: grid;
+  gap: 16px;
+}
+
+.party-sheet header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #1d5543;
+}
+
+.party-sheet header strong,
+.party-invite-card strong {
+  font-size: 22px;
+}
+
+.party-member-list {
+  display: grid;
+  gap: 8px;
+}
+
+.party-member-list article {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #b9c4b8;
+  background: #f7f5ed;
+}
+
+.party-member-list article div {
+  display: grid;
+  gap: 3px;
+}
+
+.party-invite-card {
+  text-align: center;
+  padding: 28px;
+  border: 2px solid #1d5543;
+  background: linear-gradient(135deg, #f8f6ee, #e5eee7);
+}
+
+.party-invite-card > span {
+  color: #d45b38;
+  font: 800 12px/1 monospace;
+  letter-spacing: .16em;
 }

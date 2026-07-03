@@ -1,0 +1,5289 @@
+{
+  "extended_58401c3349": {
+    "id": "extended_58401c3349",
+    "name": "정확한 보고",
+    "description": "명중률 1 → 16 증가",
+    "tier": 1,
+    "maxLevel": 16,
+    "departments": [
+      "accounting",
+      "marketing"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "stat-passive",
+    "values": {
+      "accuracyIncrease": [
+        1,
+        16
+      ],
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0
+    }
+  },
+  "extended_a201cd39f9": {
+    "id": "extended_a201cd39f9",
+    "name": "핵심 포착",
+    "description": "크리티컬 확률 2% → 40%, 크리티컬 최종 피해 200%",
+    "tier": 1,
+    "maxLevel": 20,
+    "departments": [
+      "accounting",
+      "marketing"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "critical-passive",
+    "values": {
+      "primaryPercent": [
+        2,
+        40
+      ],
+      "criticalChance": [
+        2,
+        40
+      ],
+      "criticalDamagePercent": 200
+    }
+  },
+  "extended_63117d0f89": {
+    "id": "extended_63117d0f89",
+    "name": "멀리 보는 안목",
+    "description": "필요: 정확한 보고 3. 활·석궁 사거리 15 → 120 증가",
+    "tier": 1,
+    "maxLevel": 8,
+    "departments": [
+      "accounting",
+      "marketing"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_58401c3349",
+        "level": 3
+      }
+    ],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "utility-passive",
+    "values": {},
+    "weaponTypes": [
+      "crossbow"
+    ]
+  },
+  "extended_2d39c91d21": {
+    "id": "extended_2d39c91d21",
+    "name": "업무 집중",
+    "description": "필요: 정확한 보고 3. MP 5 → 16, 300초간 명중률·회피율 1 → 20 증가",
+    "tier": 1,
+    "maxLevel": 20,
+    "departments": [
+      "accounting",
+      "marketing"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_58401c3349",
+        "level": 3
+      }
+    ],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        5,
+        16
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": [
+        1,
+        20
+      ],
+      "evasionIncrease": [
+        1,
+        20
+      ],
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_4421a5b77c": {
+    "id": "extended_4421a5b77c",
+    "name": "강력 전달",
+    "description": "MP 5 → 14, 단일 적에게 공격력의 130% → 260%",
+    "tier": 1,
+    "maxLevel": 20,
+    "departments": [
+      "accounting",
+      "marketing"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 420,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        5,
+        14
+      ],
+      "damagePercent": [
+        130,
+        260
+      ]
+    }
+  },
+  "extended_4e373ada3e": {
+    "id": "extended_4e373ada3e",
+    "name": "이중 전달",
+    "description": "필요: 강력 전달 1. MP 8 → 16, 단일 적에게 70% → 130% 피해 2회",
+    "tier": 1,
+    "maxLevel": 20,
+    "departments": [
+      "accounting",
+      "marketing"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_4421a5b77c",
+        "level": 1
+      }
+    ],
+    "element": "neutral",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 420,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        8,
+        16
+      ],
+      "damagePercent": [
+        70,
+        130
+      ],
+      "hits": 2
+    }
+  },
+  "extended_da5f59a5d5": {
+    "id": "extended_da5f59a5d5",
+    "name": "재빠른 손놀림",
+    "description": "명중률·회피율 1 → 20 증가",
+    "tier": 1,
+    "maxLevel": 20,
+    "departments": [
+      "sales",
+      "facilities"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "stat-passive",
+    "values": {
+      "accuracyIncrease": 0,
+      "evasionIncrease": [
+        1,
+        20
+      ],
+      "movementSpeedIncrease": 0
+    }
+  },
+  "extended_ab7110a265": {
+    "id": "extended_ab7110a265",
+    "name": "멀리 보는 눈",
+    "description": "아대와 투척 무기 사거리 25 → 200 증가",
+    "tier": 1,
+    "maxLevel": 8,
+    "departments": [
+      "sales",
+      "facilities"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "utility-passive",
+    "values": {}
+  },
+  "extended_27600a42fe": {
+    "id": "extended_27600a42fe",
+    "name": "업무 방해",
+    "description": "MP 5 → 10, 7 → 60초간 적 공격력·물리 방어력 1 → 20 감소",
+    "tier": 1,
+    "maxLevel": 20,
+    "departments": [
+      "sales",
+      "facilities"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 150,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        5,
+        10
+      ],
+      "durationSeconds": [
+        7,
+        60
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": [
+        1,
+        20
+      ],
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_47fcdc0ba0": {
+    "id": "extended_47fcdc0ba0",
+    "name": "잠복 근무",
+    "description": "필요: 업무 방해 3. MP 24 → 5, 10 → 200초간 은신. 공격 시 해제",
+    "tier": 1,
+    "maxLevel": 20,
+    "departments": [
+      "sales",
+      "facilities"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_27600a42fe",
+        "level": 3
+      }
+    ],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        24,
+        5
+      ],
+      "durationSeconds": [
+        10,
+        200
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_f32b37170e": {
+    "id": "extended_f32b37170e",
+    "name": "이중 보고",
+    "description": "MP 8 → 14, 단검으로 공격력의 98% → 140% 피해 2회",
+    "tier": 1,
+    "maxLevel": 20,
+    "departments": [
+      "sales",
+      "facilities"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 105,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        8,
+        14
+      ],
+      "damagePercent": [
+        98,
+        140
+      ],
+      "hits": 2
+    }
+  },
+  "extended_e229094b8d": {
+    "id": "extended_e229094b8d",
+    "name": "행운의 제안",
+    "description": "MP 8 → 16, 표창 2개로 58% → 150% 피해 2회",
+    "tier": 1,
+    "maxLevel": 20,
+    "departments": [
+      "sales",
+      "facilities"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 180,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        8,
+        16
+      ],
+      "damagePercent": [
+        58,
+        150
+      ],
+      "hits": 2
+    }
+  },
+  "extended_510ccd5562": {
+    "id": "extended_510ccd5562",
+    "name": "정신력 회복 향상",
+    "description": "10초마다 캐릭터 레벨 × 스킬 레벨 × 0.1 + 3 MP 회복",
+    "tier": 1,
+    "maxLevel": 16,
+    "departments": [
+      "development",
+      "research",
+      "management_support"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "periodic-recovery",
+    "values": {
+      "periodicHpRestore": 0,
+      "periodicMpRestore": 0,
+      "intervalSeconds": 10
+    }
+  },
+  "extended_4cf6d537ae": {
+    "id": "extended_4cf6d537ae",
+    "name": "정신력 증가량 향상",
+    "description": "필요: 정신력 회복 향상 5. 레벨업 시 최대 MP 2 → 20, 스탯 투자 시 1 → 10 추가 증가. 늦게 배워도 소급 적용",
+    "tier": 1,
+    "maxLevel": 10,
+    "departments": [
+      "development",
+      "research",
+      "management_support"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_510ccd5562",
+        "level": 5
+      }
+    ],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "utility-passive",
+    "values": {
+      "mpCost": [
+        2,
+        20
+      ]
+    }
+  },
+  "extended_51dd415210": {
+    "id": "extended_51dd415210",
+    "name": "집중력 방어",
+    "description": "MP 12, 600초간 받는 피해의 4% → 80%를 MP로 대신 소모",
+    "tier": 1,
+    "maxLevel": 20,
+    "departments": [
+      "development",
+      "research",
+      "management_support"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": 12,
+      "primaryPercent": [
+        4,
+        80
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": [
+        4,
+        80
+      ],
+      "criticalChance": 0
+    }
+  },
+  "extended_0850825cc5": {
+    "id": "extended_0850825cc5",
+    "name": "업무 보호막",
+    "description": "필요: 집중력 방어 3. MP 16, 400초간 방어력 2 → 40 증가",
+    "tier": 1,
+    "maxLevel": 20,
+    "departments": [
+      "development",
+      "research",
+      "management_support"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_51dd415210",
+        "level": 3
+      }
+    ],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": 16,
+      "attackIncrease": 0,
+      "defenseIncrease": [
+        2,
+        40
+      ],
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_95cc04b09a": {
+    "id": "extended_95cc04b09a",
+    "name": "에너지 드링크",
+    "description": "MP 5 → 14, 기본 마법 공격력 20 → 55, 숙련도 15% → 60%",
+    "tier": 1,
+    "maxLevel": 20,
+    "departments": [
+      "development",
+      "research",
+      "management_support"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 360,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        5,
+        14
+      ],
+      "primaryPercent": [
+        15,
+        60
+      ],
+      "attackIncrease": [
+        20,
+        55
+      ],
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": [
+        15,
+        60
+      ],
+      "criticalChance": 0
+    }
+  },
+  "extended_f95d36e0d6": {
+    "id": "extended_f95d36e0d6",
+    "name": "이중 카페인",
+    "description": "필요: 에너지 구체 1. MP 10 → 20, 기본 마법 공격력 16 → 40으로 2회 공격, 숙련도 15% → 60%",
+    "tier": 1,
+    "maxLevel": 20,
+    "departments": [
+      "development",
+      "research",
+      "management_support"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 330,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        10,
+        20
+      ],
+      "primaryPercent": [
+        15,
+        60
+      ],
+      "attackIncrease": [
+        16,
+        40
+      ],
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": [
+        15,
+        60
+      ],
+      "criticalChance": 0
+    }
+  },
+  "extended_e76286335c": {
+    "id": "extended_e76286335c",
+    "name": "전 직원 역량강화",
+    "description": "MP 10 → 70, 30 → 900초간 파티원의 기본 스탯 1% → 15% 증가",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "accounting",
+      "marketing",
+      "sales",
+      "facilities",
+      "development",
+      "research",
+      "management_support"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "party",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        10,
+        70
+      ],
+      "durationSeconds": [
+        30,
+        900
+      ],
+      "primaryPercent": [
+        1,
+        15
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": [
+        1,
+        15
+      ],
+      "criticalChance": 0
+    }
+  },
+  "extended_b067160f36": {
+    "id": "extended_b067160f36",
+    "name": "정신 차려!",
+    "description": "MP 30, 자신에게 적용된 해제 가능한 상태이상 전부 제거. 쿨타임 10분 → 5분",
+    "tier": 4,
+    "maxLevel": 10,
+    "departments": [
+      "accounting",
+      "marketing",
+      "sales",
+      "facilities",
+      "development",
+      "research",
+      "management_support"
+    ],
+    "passive": false,
+    "quest": true,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": 30,
+      "cooldownSeconds": [
+        10,
+        5
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_b6e323dc92": {
+    "id": "extended_b6e323dc92",
+    "name": "전표 사격 숙련",
+    "description": "석궁 숙련도 15% → 60%, 명중률 1 → 20",
+    "tier": 2,
+    "maxLevel": 20,
+    "departments": [
+      "accounting"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "weapon-mastery",
+    "values": {
+      "primaryPercent": [
+        15,
+        60
+      ],
+      "mastery": [
+        15,
+        60
+      ],
+      "accuracyIncrease": [
+        1,
+        20
+      ]
+    },
+    "weaponTypes": [
+      "crossbow"
+    ]
+  },
+  "extended_22b0e53069": {
+    "id": "extended_22b0e53069",
+    "name": "추가 검산",
+    "description": "필요: 전표 사격 숙련 3. 공격 스킬 후 2% → 60% 확률로 105% → 250% 추가 공격",
+    "tier": 2,
+    "maxLevel": 30,
+    "departments": [
+      "accounting"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_b6e323dc92",
+        "level": 3
+      }
+    ],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "double-strike",
+    "values": {
+      "primaryPercent": [
+        2,
+        60
+      ],
+      "chance": [
+        2,
+        60
+      ],
+      "damagePercent": [
+        105,
+        250
+      ]
+    }
+  },
+  "extended_346394efba": {
+    "id": "extended_346394efba",
+    "name": "신속 결산",
+    "description": "필요: 전표 사격 숙련 5. HP 50 → 10, MP 30 → 10, 200초간 공격속도 1단계 증가",
+    "tier": 2,
+    "maxLevel": 20,
+    "departments": [
+      "accounting"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_b6e323dc92",
+        "level": 5
+      }
+    ],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        30,
+        10
+      ],
+      "hpCost": [
+        50,
+        10
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 1,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_6e014636d6": {
+    "id": "extended_6e014636d6",
+    "name": "반려 처리",
+    "description": "MP 15, 전방 2 → 6명에게 100% → 200% 피해. 20% → 70% 확률로 밀어냄",
+    "tier": 2,
+    "maxLevel": 20,
+    "departments": [
+      "accounting"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 110,
+    "effect": "damage",
+    "values": {
+      "mpCost": 15,
+      "damagePercent": [
+        100,
+        200
+      ]
+    }
+  },
+  "extended_90313dcaa7": {
+    "id": "extended_90313dcaa7",
+    "name": "무전표 처리",
+    "description": "필요: 신속 결산 5. MP 20, 30 → 600초간 화살을 소비하지 않음",
+    "tier": 2,
+    "maxLevel": 20,
+    "departments": [
+      "accounting"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_346394efba",
+        "level": 5
+      }
+    ],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": 20,
+      "durationSeconds": [
+        30,
+        600
+      ],
+      "noAmmoConsumption": 1,
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_de2d3d6352": {
+    "id": "extended_de2d3d6352",
+    "name": "관통 결산",
+    "description": "MP 14 → 28, 직선상의 최대 6명에게 70% → 180% 피해. 관통할 때마다 피해 5% 감소",
+    "tier": 2,
+    "maxLevel": 30,
+    "departments": [
+      "accounting"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 520,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        14,
+        28
+      ],
+      "primaryPercent": [
+        70,
+        180
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": [
+        70,
+        180
+      ],
+      "criticalChance": 0
+    }
+  },
+  "extended_88aee3754c": {
+    "id": "extended_88aee3754c",
+    "name": "신속 처리",
+    "description": "이동속도 2 → 30 증가",
+    "tier": 3,
+    "maxLevel": 20,
+    "departments": [
+      "accounting"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "stat-passive",
+    "values": {
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": [
+        2,
+        30
+      ]
+    }
+  },
+  "extended_29b113878d": {
+    "id": "extended_29b113878d",
+    "name": "오류 말소",
+    "description": "근접한 적에게도 30% → 90% 확률로 석궁 사격. 110% → 250% 피해, HP 50% 이하 일반 몬스터를 1% → 10% 확률로 즉시 처치",
+    "tier": 3,
+    "maxLevel": 20,
+    "departments": [
+      "accounting"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 90,
+    "effect": "damage",
+    "values": {
+      "hpCost": 50,
+      "damagePercent": [
+        30,
+        90
+      ]
+    },
+    "weaponTypes": [
+      "crossbow"
+    ]
+  },
+  "extended_a882003cc1": {
+    "id": "extended_a882003cc1",
+    "name": "대체 장부",
+    "description": "MP 15 → 32, HP 300 → 6,000인 장부 분신을 15 → 60초 소환. 적의 우선 공격 대상이 됨",
+    "tier": 3,
+    "maxLevel": 20,
+    "departments": [
+      "accounting"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 250,
+    "effect": "summon",
+    "values": {
+      "mpCost": [
+        15,
+        32
+      ],
+      "hpCost": [
+        300,
+        6000
+      ],
+      "durationSeconds": [
+        15,
+        60
+      ]
+    }
+  },
+  "extended_32e5d4071d": {
+    "id": "extended_32e5d4071d",
+    "name": "동결 계정",
+    "description": "MP 12 → 30, 최대 6명에게 얼음 속성 70% → 140% 피해, 1 → 3초 빙결",
+    "tier": 3,
+    "maxLevel": 30,
+    "departments": [
+      "accounting"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "ice",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 480,
+    "effect": "damage-stun",
+    "values": {
+      "mpCost": [
+        12,
+        30
+      ],
+      "durationSeconds": [
+        1,
+        3
+      ],
+      "damagePercent": [
+        70,
+        140
+      ]
+    }
+  },
+  "extended_bdeb12eaf6": {
+    "id": "extended_bdeb12eaf6",
+    "name": "장부 역산",
+    "description": "MP 14 → 28, 지면에서 화살을 솟구쳐 최대 6명에게 80% → 160% 피해",
+    "tier": 3,
+    "maxLevel": 30,
+    "departments": [
+      "accounting"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 300,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        14,
+        28
+      ],
+      "damagePercent": [
+        80,
+        160
+      ]
+    }
+  },
+  "extended_a0866f529f": {
+    "id": "extended_a0866f529f",
+    "name": "감사 드론",
+    "description": "MP 80, 30 → 180초간 드론 소환. 공격력 30 → 100, 기절 확률 30% → 99%",
+    "tier": 3,
+    "maxLevel": 30,
+    "departments": [
+      "accounting"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 430,
+    "effect": "summon",
+    "values": {
+      "mpCost": 80,
+      "durationSeconds": [
+        30,
+        180
+      ],
+      "primaryPercent": [
+        30,
+        99
+      ]
+    }
+  },
+  "extended_429a99546b": {
+    "id": "extended_429a99546b",
+    "name": "4중 검산",
+    "description": "MP 20 → 32, 단일 적에게 60% → 100% 피해 4회",
+    "tier": 3,
+    "maxLevel": 30,
+    "departments": [
+      "accounting"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 500,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        20,
+        32
+      ],
+      "damagePercent": [
+        60,
+        100
+      ],
+      "hits": 4
+    }
+  },
+  "extended_f94d4bc9fa": {
+    "id": "extended_f94d4bc9fa",
+    "name": "회계 무기 숙련",
+    "description": "필요: 전표 사격 숙련 20. 석궁 숙련도 65% → 90%, 공격력 1 → 10 증가",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "accounting"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_b6e323dc92",
+        "level": 20
+      }
+    ],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "weapon-mastery",
+    "values": {
+      "primaryPercent": [
+        65,
+        90
+      ],
+      "mastery": [
+        65,
+        90
+      ],
+      "accuracyIncrease": 0
+    },
+    "weaponTypes": [
+      "crossbow"
+    ]
+  },
+  "extended_2926a732db": {
+    "id": "extended_2926a732db",
+    "name": "결산 충격파",
+    "description": "MP 12 → 36, 직선상의 최대 6명에게 60% → 100% 피해를 주고 멀리 밀어냄",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "accounting"
+    ],
+    "passive": false,
+    "quest": true,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 560,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        12,
+        36
+      ],
+      "damagePercent": [
+        60,
+        100
+      ]
+    }
+  },
+  "extended_ccb060a442": {
+    "id": "extended_ccb060a442",
+    "name": "회계감사의 눈",
+    "description": "MP 15 → 40, 30 → 300초간 파티 크리티컬 확률 1% → 15%, 크리티컬 추가 피해 2% → 40%",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "accounting"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "party",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        15,
+        40
+      ],
+      "durationSeconds": [
+        30,
+        300
+      ],
+      "damagePercent": [
+        1,
+        15
+      ]
+    }
+  },
+  "extended_1d8d844e1c": {
+    "id": "extended_1d8d844e1c",
+    "name": "6중 검산",
+    "description": "필요: 4중 검산 30. 4중 검산을 6회 공격으로 강화하고 각 타격 피해를 80% → 120%로 변경하는 제안안",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "accounting"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 500,
+    "effect": "damage",
+    "values": {
+      "damagePercent": [
+        80,
+        120
+      ],
+      "hits": 6
+    }
+  },
+  "extended_b4d0d6df62": {
+    "id": "extended_b4d0d6df62",
+    "name": "동결감사 드론",
+    "description": "필요: 감사 드론 15. MP 20 → 100, 30 → 200초간 최대 4명을 공격하는 얼음 드론 소환. 공격력 120 → 500, 비반감 적 빙결",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "accounting"
+    ],
+    "passive": false,
+    "quest": true,
+    "prerequisites": [
+      {
+        "skillId": "extended_a0866f529f",
+        "level": 15
+      }
+    ],
+    "element": "neutral",
+    "target": "enemies",
+    "maxTargets": 4,
+    "range": 460,
+    "effect": "summon",
+    "values": {
+      "mpCost": [
+        20,
+        100
+      ],
+      "durationSeconds": [
+        30,
+        200
+      ]
+    }
+  },
+  "extended_cd94045605": {
+    "id": "extended_cd94045605",
+    "name": "누적 관통결산",
+    "description": "MP 18 → 33, 최대 1초 충전 후 직선상의 최대 6명 관통. 첫 대상 250%, 관통마다 증가하여 마지막 대상 최대 850%",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "accounting"
+    ],
+    "passive": false,
+    "quest": true,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 650,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        18,
+        33
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_e9c47b999a": {
+    "id": "extended_e9c47b999a",
+    "name": "오차 0원",
+    "description": "MP 11, 일반 몬스터 즉사. 보스에게는 방어 무시 600% → 1,200% 제안. 쿨타임 20초 → 5초",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "accounting"
+    ],
+    "passive": false,
+    "quest": true,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 750,
+    "effect": "damage",
+    "values": {
+      "mpCost": 11,
+      "cooldownSeconds": [
+        20,
+        5
+      ],
+      "damagePercent": 600
+    }
+  },
+  "extended_cfd8670f45": {
+    "id": "extended_cfd8670f45",
+    "name": "분식회계 적발",
+    "description": "MP 15 → 36, 180초간 공격 시 10% → 40% 확률로 적 명중률 30% 감소 디버프를 15초 부여",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "accounting"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 560,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        15,
+        36
+      ],
+      "primaryPercent": [
+        10,
+        40
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": [
+        10,
+        40
+      ],
+      "criticalChance": 0
+    }
+  },
+  "extended_9c9936b28f": {
+    "id": "extended_9c9936b28f",
+    "name": "브랜드 사격 숙련",
+    "description": "활 숙련도 15% → 60%, 명중률 1 → 20",
+    "tier": 2,
+    "maxLevel": 20,
+    "departments": [
+      "marketing"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "weapon-mastery",
+    "values": {
+      "primaryPercent": [
+        15,
+        60
+      ],
+      "mastery": [
+        15,
+        60
+      ],
+      "accuracyIncrease": [
+        1,
+        20
+      ]
+    },
+    "weaponTypes": [
+      "bow"
+    ]
+  },
+  "extended_4051e4e466": {
+    "id": "extended_4051e4e466",
+    "name": "후속 광고",
+    "description": "필요: 브랜드 사격 숙련 3. 공격 스킬 후 2% → 60% 확률로 105% → 250% 추가 공격",
+    "tier": 2,
+    "maxLevel": 30,
+    "departments": [
+      "marketing"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_9c9936b28f",
+        "level": 3
+      }
+    ],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "double-strike",
+    "values": {
+      "primaryPercent": [
+        2,
+        60
+      ],
+      "chance": [
+        2,
+        60
+      ],
+      "damagePercent": [
+        105,
+        250
+      ]
+    }
+  },
+  "extended_6edfb03a77": {
+    "id": "extended_6edfb03a77",
+    "name": "캠페인 가속",
+    "description": "필요: 브랜드 사격 숙련 5. HP 50 → 10, MP 30 → 10, 200초간 공격속도 1단계 증가",
+    "tier": 2,
+    "maxLevel": 20,
+    "departments": [
+      "marketing"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_9c9936b28f",
+        "level": 5
+      }
+    ],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        30,
+        10
+      ],
+      "hpCost": [
+        50,
+        10
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 1,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_aeebcad440": {
+    "id": "extended_aeebcad440",
+    "name": "브랜드 밀어내기",
+    "description": "MP 15, 전방 2 → 6명에게 100% → 200% 피해. 20% → 70% 확률로 밀어냄",
+    "tier": 2,
+    "maxLevel": 20,
+    "departments": [
+      "marketing"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 120,
+    "effect": "damage",
+    "values": {
+      "mpCost": 15,
+      "damagePercent": [
+        100,
+        200
+      ]
+    }
+  },
+  "extended_94ff17c945": {
+    "id": "extended_94ff17c945",
+    "name": "무제한 콘텐츠",
+    "description": "필요: 캠페인 가속 5. MP 20, 30 → 600초간 화살을 소비하지 않음",
+    "tier": 2,
+    "maxLevel": 20,
+    "departments": [
+      "marketing"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_6edfb03a77",
+        "level": 5
+      }
+    ],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": 20,
+      "durationSeconds": [
+        30,
+        600
+      ],
+      "noAmmoConsumption": 1,
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_44fd5663a5": {
+    "id": "extended_44fd5663a5",
+    "name": "바이럴 폭발",
+    "description": "MP 14 → 28, 최대 6명에게 70% → 150% 피해. 20% → 60% 확률로 1 → 4초 기절",
+    "tier": 2,
+    "maxLevel": 30,
+    "departments": [
+      "marketing"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 450,
+    "effect": "damage-stun",
+    "values": {
+      "mpCost": [
+        14,
+        28
+      ],
+      "durationSeconds": [
+        1,
+        4
+      ],
+      "damagePercent": [
+        70,
+        150
+      ]
+    }
+  },
+  "extended_e7cd98fbcf": {
+    "id": "extended_e7cd98fbcf",
+    "name": "트렌드 선점",
+    "description": "이동속도 2 → 30 증가",
+    "tier": 3,
+    "maxLevel": 20,
+    "departments": [
+      "marketing"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "stat-passive",
+    "values": {
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": [
+        2,
+        30
+      ]
+    }
+  },
+  "extended_61747f7343": {
+    "id": "extended_61747f7343",
+    "name": "시장 퇴출",
+    "description": "근접한 적에게도 30% → 90% 확률로 활 사격. 110% → 250% 피해, HP 50% 이하 일반 몬스터를 1% → 10% 확률로 즉시 처치",
+    "tier": 3,
+    "maxLevel": 20,
+    "departments": [
+      "marketing"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 90,
+    "effect": "damage",
+    "values": {
+      "hpCost": 50,
+      "damagePercent": [
+        30,
+        90
+      ]
+    }
+  },
+  "extended_41300a062e": {
+    "id": "extended_41300a062e",
+    "name": "마스코트 배치",
+    "description": "MP 15 → 32, HP 300 → 6,000인 마스코트를 15 → 60초 소환. 적의 우선 공격 대상이 됨",
+    "tier": 3,
+    "maxLevel": 20,
+    "departments": [
+      "marketing"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 250,
+    "effect": "summon",
+    "values": {
+      "mpCost": [
+        15,
+        32
+      ],
+      "hpCost": [
+        300,
+        6000
+      ],
+      "durationSeconds": [
+        15,
+        60
+      ]
+    }
+  },
+  "extended_350a5492c9": {
+    "id": "extended_350a5492c9",
+    "name": "불타는 캠페인",
+    "description": "MP 12 → 30, 최대 6명에게 불 속성 75% → 160% 피해와 6초 화상",
+    "tier": 3,
+    "maxLevel": 30,
+    "departments": [
+      "marketing"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "fire",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 450,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        12,
+        30
+      ],
+      "damagePercent": [
+        75,
+        160
+      ]
+    }
+  },
+  "extended_9ea67e30f4": {
+    "id": "extended_9ea67e30f4",
+    "name": "광고 폭격",
+    "description": "필요: 시장 퇴출 5. MP 14 → 28, 주변 최대 6명에게 80% → 160% 피해",
+    "tier": 3,
+    "maxLevel": 30,
+    "departments": [
+      "marketing"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_61747f7343",
+        "level": 5
+      }
+    ],
+    "element": "neutral",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 320,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        14,
+        28
+      ],
+      "damagePercent": [
+        80,
+        160
+      ]
+    }
+  },
+  "extended_472a2a7dea": {
+    "id": "extended_472a2a7dea",
+    "name": "홍보 드론",
+    "description": "필요: 마스코트 배치 5. MP 80, 30 → 180초간 드론 소환. 공격력 30 → 100, 기절 확률 30% → 99%",
+    "tier": 3,
+    "maxLevel": 30,
+    "departments": [
+      "marketing"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_41300a062e",
+        "level": 5
+      }
+    ],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 430,
+    "effect": "summon",
+    "values": {
+      "mpCost": 80,
+      "durationSeconds": [
+        30,
+        180
+      ],
+      "primaryPercent": [
+        30,
+        99
+      ]
+    }
+  },
+  "extended_b9c8b1a7cd": {
+    "id": "extended_b9c8b1a7cd",
+    "name": "4연속 노출",
+    "description": "MP 20 → 32, 단일 적에게 60% → 100% 피해 4회",
+    "tier": 3,
+    "maxLevel": 30,
+    "departments": [
+      "marketing"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 470,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        20,
+        32
+      ],
+      "damagePercent": [
+        60,
+        100
+      ],
+      "hits": 4
+    }
+  },
+  "extended_16a368f8dd": {
+    "id": "extended_16a368f8dd",
+    "name": "마케팅 무기 숙련",
+    "description": "필요: 브랜드 사격 숙련 20. 활 숙련도 65% → 90%, 공격력 1 → 10 증가",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "marketing"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_9c9936b28f",
+        "level": 20
+      }
+    ],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "weapon-mastery",
+    "values": {
+      "primaryPercent": [
+        65,
+        90
+      ],
+      "mastery": [
+        65,
+        90
+      ],
+      "accuracyIncrease": 0
+    },
+    "weaponTypes": [
+      "bow"
+    ]
+  },
+  "extended_2973270a08": {
+    "id": "extended_2973270a08",
+    "name": "브랜드 파동",
+    "description": "MP 12 → 36, 직선상의 최대 6명에게 60% → 100% 피해를 주고 멀리 밀어냄",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "marketing"
+    ],
+    "passive": false,
+    "quest": true,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 540,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        12,
+        36
+      ],
+      "damagePercent": [
+        60,
+        100
+      ]
+    }
+  },
+  "extended_2dc9886c3e": {
+    "id": "extended_2dc9886c3e",
+    "name": "소비자 인사이트",
+    "description": "MP 15 → 40, 30 → 300초간 파티 크리티컬 확률 1% → 15%, 크리티컬 추가 피해 2% → 40%",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "marketing"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "party",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        15,
+        40
+      ],
+      "durationSeconds": [
+        30,
+        300
+      ],
+      "damagePercent": [
+        1,
+        15
+      ]
+    }
+  },
+  "extended_de542ec818": {
+    "id": "extended_de542ec818",
+    "name": "불사조 캠페인",
+    "description": "필요: 홍보 드론 15. MP 20 → 100, 30 → 200초간 최대 4명을 공격하는 불 속성 드론 소환. 공격력 130 → 550",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "marketing"
+    ],
+    "passive": false,
+    "quest": true,
+    "prerequisites": [
+      {
+        "skillId": "extended_472a2a7dea",
+        "level": 15
+      }
+    ],
+    "element": "fire",
+    "target": "enemies",
+    "maxTargets": 4,
+    "range": 450,
+    "effect": "summon",
+    "values": {
+      "mpCost": [
+        20,
+        100
+      ],
+      "durationSeconds": [
+        30,
+        200
+      ]
+    }
+  },
+  "extended_fc89f3cfc2": {
+    "id": "extended_fc89f3cfc2",
+    "name": "실시간 광고 송출",
+    "description": "발당 MP 3 → 9, 키다운 중 단일 적에게 60% → 100% 피해의 화살을 0.18초마다 발사. 공격속도 영향 없음",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "marketing"
+    ],
+    "passive": false,
+    "quest": true,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 500,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        3,
+        9
+      ],
+      "damagePercent": [
+        60,
+        100
+      ]
+    }
+  },
+  "extended_e7c08ae117": {
+    "id": "extended_e7c08ae117",
+    "name": "집중 캠페인",
+    "description": "MP 12 → 40, 10 → 240초간 공격력 11 → 26, MP 소모 5% → 50% 감소. 쿨타임 6분",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "marketing"
+    ],
+    "passive": false,
+    "quest": true,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        12,
+        40
+      ],
+      "durationSeconds": [
+        10,
+        240
+      ],
+      "primaryPercent": [
+        5,
+        50
+      ],
+      "attackIncrease": [
+        11,
+        26
+      ],
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": [
+        5,
+        50
+      ],
+      "criticalChance": 0
+    }
+  },
+  "extended_172c1fb4b0": {
+    "id": "extended_172c1fb4b0",
+    "name": "경쟁사 발목잡기",
+    "description": "MP 30, 180초간 공격 시 10% → 40% 확률로 적 이동속도 60 감소 디버프를 15초 부여",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "marketing"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 520,
+    "effect": "buff",
+    "values": {
+      "mpCost": 30,
+      "primaryPercent": [
+        10,
+        40
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": [
+        10,
+        40
+      ],
+      "criticalChance": 0
+    }
+  },
+  "extended_61f08a7822": {
+    "id": "extended_61f08a7822",
+    "name": "명함 투척 숙련",
+    "description": "아대 숙련도 15% → 60%, 명중률 1 → 20, 표창 최대 충전량 증가",
+    "tier": 2,
+    "maxLevel": 20,
+    "departments": [
+      "sales"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "weapon-mastery",
+    "values": {
+      "primaryPercent": [
+        15,
+        60
+      ],
+      "mastery": [
+        15,
+        60
+      ],
+      "accuracyIncrease": [
+        1,
+        20
+      ]
+    },
+    "weaponTypes": [
+      "claw"
+    ]
+  },
+  "extended_9ab9c61e42": {
+    "id": "extended_9ab9c61e42",
+    "name": "결정적 제안",
+    "description": "필요: 명함 투척 숙련 3. 크리티컬 확률 2% → 50%, 크리티컬 최종 피해 200%",
+    "tier": 2,
+    "maxLevel": 30,
+    "departments": [
+      "sales"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_61f08a7822",
+        "level": 3
+      }
+    ],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "critical-passive",
+    "values": {
+      "primaryPercent": [
+        2,
+        50
+      ],
+      "criticalChance": [
+        2,
+        50
+      ],
+      "criticalDamagePercent": 200
+    }
+  },
+  "extended_7183e3674d": {
+    "id": "extended_7183e3674d",
+    "name": "영업 체력",
+    "description": "10초마다 HP 3 → 60, MP 1 → 20 추가 회복",
+    "tier": 2,
+    "maxLevel": 20,
+    "departments": [
+      "sales"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "periodic-recovery",
+    "values": {
+      "mpCost": [
+        1,
+        20
+      ],
+      "hpCost": [
+        3,
+        60
+      ],
+      "periodicHpRestore": [
+        3,
+        60
+      ],
+      "periodicMpRestore": [
+        1,
+        20
+      ],
+      "intervalSeconds": 10
+    }
+  },
+  "extended_1b39e60e56": {
+    "id": "extended_1b39e60e56",
+    "name": "영업 가속",
+    "description": "필요: 명함 투척 숙련 5. HP 50 → 10, MP 30 → 10, 200초간 아대 공격속도 1단계 증가",
+    "tier": 2,
+    "maxLevel": 20,
+    "departments": [
+      "sales"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_61f08a7822",
+        "level": 5
+      }
+    ],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        30,
+        10
+      ],
+      "hpCost": [
+        50,
+        10
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 1,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_996216c2f0": {
+    "id": "extended_996216c2f0",
+    "name": "발 빠른 영업",
+    "description": "MP 10 → 30, 200초간 파티 이동속도 2 → 40, 점프력 1 → 20 증가",
+    "tier": 2,
+    "maxLevel": 20,
+    "departments": [
+      "sales"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "party",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        10,
+        30
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": [
+        2,
+        40
+      ],
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_2a1cc7b894": {
+    "id": "extended_2a1cc7b894",
+    "name": "계약금 회수",
+    "description": "필요: 영업 체력 3. MP 12 → 24, 단일 적에게 80% → 160% 피해를 주고 피해의 10% → 45%만큼 HP 회복",
+    "tier": 2,
+    "maxLevel": 30,
+    "departments": [
+      "sales"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_7183e3674d",
+        "level": 3
+      }
+    ],
+    "element": "neutral",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 180,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        12,
+        24
+      ],
+      "damagePercent": [
+        80,
+        160
+      ]
+    }
+  },
+  "extended_4c8c41a55e": {
+    "id": "extended_4c8c41a55e",
+    "name": "접대 노하우",
+    "description": "고정 수치 회복 소비 아이템의 회복량과 지속형 소비 아이템의 지속시간 102% → 150%",
+    "tier": 3,
+    "maxLevel": 20,
+    "departments": [
+      "sales"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "utility-passive",
+    "values": {
+      "primaryPercent": [
+        102,
+        150
+      ]
+    }
+  },
+  "extended_51403b1515": {
+    "id": "extended_51403b1515",
+    "name": "성과급 협상",
+    "description": "MP 20 → 60, 30 → 120초간 파티의 몬스터 돈 드롭량 5% → 50% 증가",
+    "tier": 3,
+    "maxLevel": 20,
+    "departments": [
+      "sales"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "party",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        20,
+        60
+      ],
+      "durationSeconds": [
+        30,
+        120
+      ],
+      "primaryPercent": [
+        5,
+        50
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": [
+        5,
+        50
+      ],
+      "criticalChance": 0
+    }
+  },
+  "extended_55b25d7cb2": {
+    "id": "extended_55b25d7cb2",
+    "name": "영업 대리인",
+    "description": "MP 20 → 55, 30 → 180초간 그림자 대리인 소환. 일반 공격은 본체 피해의 20% → 80%, 스킬은 15% → 50%로 따라 공격",
+    "tier": 3,
+    "maxLevel": 30,
+    "departments": [
+      "sales"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "summon",
+    "values": {
+      "mpCost": [
+        20,
+        55
+      ],
+      "durationSeconds": [
+        30,
+        180
+      ],
+      "primaryPercent": [
+        20,
+        80
+      ]
+    }
+  },
+  "extended_afeb5592b7": {
+    "id": "extended_afeb5592b7",
+    "name": "계약망",
+    "description": "MP 8 → 22, 최대 6명을 20% → 80% 확률로 2 → 8초간 포박",
+    "tier": 3,
+    "maxLevel": 20,
+    "departments": [
+      "sales"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 260,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        8,
+        22
+      ],
+      "durationSeconds": [
+        2,
+        8
+      ],
+      "primaryPercent": [
+        20,
+        80
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": [
+        20,
+        80
+      ],
+      "criticalChance": 0
+    }
+  },
+  "extended_6043075ab5": {
+    "id": "extended_6043075ab5",
+    "name": "돈으로 설득",
+    "description": "돈 340 → 800을 소모해 방어 증가 효과를 무시하는 단일 공격. 10% 확률로 최종 피해 50% 증가. 기본 피해 계수는 경제 밸런스 확정 필요",
+    "tier": 3,
+    "maxLevel": 30,
+    "departments": [
+      "sales"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 180,
+    "effect": "damage",
+    "values": {
+      "damagePercent": 10
+    }
+  },
+  "extended_2ad220b1d0": {
+    "id": "extended_2ad220b1d0",
+    "name": "대형 명함 투척",
+    "description": "MP 15 → 30, 표창 3개를 소모해 직선상의 최대 6명에게 90% → 180% 피해",
+    "tier": 3,
+    "maxLevel": 30,
+    "departments": [
+      "sales"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 500,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        15,
+        30
+      ],
+      "damagePercent": [
+        90,
+        180
+      ]
+    }
+  },
+  "extended_729f1a7cf5": {
+    "id": "extended_729f1a7cf5",
+    "name": "고객 선점",
+    "description": "필요: 대형 명함 투척 5. MP 25 → 13, 바라보는 방향으로 120 → 320 이동",
+    "tier": 3,
+    "maxLevel": 20,
+    "departments": [
+      "sales"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_2ad220b1d0",
+        "level": 5
+      }
+    ],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 320,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        25,
+        13
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_69a82b671f": {
+    "id": "extended_69a82b671f",
+    "name": "가짜 일정",
+    "description": "피격 시 1% → 30% 확률로 공격을 회피하고 대체 인형 연출",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "sales"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "utility-passive",
+    "values": {
+      "primaryPercent": [
+        1,
+        30
+      ]
+    }
+  },
+  "extended_47cf15f1d3": {
+    "id": "extended_47cf15f1d3",
+    "name": "공개 경쟁입찰",
+    "description": "필요: 가짜 일정 10. MP 15 → 40, 최대 6명의 방어력을 40% 높이는 대신 해당 적의 경험치·아이템 드롭률을 5% → 40% 증가",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "sales"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_69a82b671f",
+        "level": 10
+      }
+    ],
+    "element": "neutral",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 450,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        15,
+        40
+      ],
+      "primaryPercent": [
+        5,
+        40
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": [
+        5,
+        40
+      ],
+      "criticalChance": 0
+    }
+  },
+  "extended_3324d2dc32": {
+    "id": "extended_3324d2dc32",
+    "name": "숨은 영업팀",
+    "description": "MP 16 → 43, 최대 6명에게 4 → 12초간 62% → 100% 지속 공격. 이 피해만으로는 HP가 1 아래로 내려가지 않음",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "sales"
+    ],
+    "passive": false,
+    "quest": true,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 110,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        16,
+        43
+      ],
+      "durationSeconds": [
+        4,
+        12
+      ],
+      "damagePercent": [
+        62,
+        100
+      ]
+    }
+  },
+  "extended_3995d7f463": {
+    "id": "extended_3995d7f463",
+    "name": "독한 영업",
+    "description": "공격 시 12% → 30% 확률로 공격력 31 → 60의 독을 2 → 4초 부여. 최대 3중첩, 독 피해로 HP가 1 아래로 내려가지 않음",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "sales"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "damage",
+    "values": {
+      "durationSeconds": [
+        2,
+        4
+      ],
+      "damagePercent": [
+        12,
+        30
+      ]
+    }
+  },
+  "extended_15ddd9bb60": {
+    "id": "extended_15ddd9bb60",
+    "name": "무한 명함",
+    "description": "표창 200개와 MP 25를 소모하여 30 → 120초간 표창을 소비하지 않음",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "sales"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": 25,
+      "durationSeconds": [
+        30,
+        120
+      ],
+      "noAmmoConsumption": 1,
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_eb778160dd": {
+    "id": "extended_eb778160dd",
+    "name": "삼중 제안",
+    "description": "MP 11 → 20, 단일 적에게 102% → 150% 피해 3회",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "sales"
+    ],
+    "passive": false,
+    "quest": true,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 200,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        11,
+        20
+      ],
+      "damagePercent": [
+        102,
+        150
+      ],
+      "hits": 3
+    }
+  },
+  "extended_cbd5e90ff5": {
+    "id": "extended_cbd5e90ff5",
+    "name": "고객 밀어내기",
+    "description": "MP 16 → 25, 주변 적에게 42% → 80% 피해. 42% → 100% 확률로 100 → 300 밀어냄",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "sales"
+    ],
+    "passive": false,
+    "quest": true,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 250,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        16,
+        25
+      ],
+      "damagePercent": [
+        42,
+        80
+      ]
+    }
+  },
+  "extended_09b3b8d9df": {
+    "id": "extended_09b3b8d9df",
+    "name": "정비 공구 숙련",
+    "description": "단검 숙련도 15% → 60%, 명중률 1 → 20",
+    "tier": 2,
+    "maxLevel": 20,
+    "departments": [
+      "facilities"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "weapon-mastery",
+    "values": {
+      "primaryPercent": [
+        15,
+        60
+      ],
+      "mastery": [
+        15,
+        60
+      ],
+      "accuracyIncrease": [
+        1,
+        20
+      ]
+    },
+    "weaponTypes": [
+      "dagger"
+    ]
+  },
+  "extended_7e14b905a0": {
+    "id": "extended_7e14b905a0",
+    "name": "야간 당직",
+    "description": "10초마다 HP 3 → 60, MP 1 → 20 추가 회복",
+    "tier": 2,
+    "maxLevel": 20,
+    "departments": [
+      "facilities"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "periodic-recovery",
+    "values": {
+      "mpCost": [
+        1,
+        20
+      ],
+      "hpCost": [
+        3,
+        60
+      ],
+      "periodicHpRestore": [
+        3,
+        60
+      ],
+      "periodicMpRestore": [
+        1,
+        20
+      ],
+      "intervalSeconds": 10
+    }
+  },
+  "extended_6a4cf37edf": {
+    "id": "extended_6a4cf37edf",
+    "name": "긴급 정비",
+    "description": "필요: 정비 공구 숙련 5. HP 50 → 10, MP 30 → 10, 200초간 단검 공격속도 1단계 증가",
+    "tier": 2,
+    "maxLevel": 20,
+    "departments": [
+      "facilities"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_09b3b8d9df",
+        "level": 5
+      }
+    ],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        30,
+        10
+      ],
+      "hpCost": [
+        50,
+        10
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 1,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_babbd00715": {
+    "id": "extended_babbd00715",
+    "name": "순찰 가속",
+    "description": "MP 10 → 30, 200초간 파티 이동속도 2 → 40, 점프력 1 → 20 증가",
+    "tier": 2,
+    "maxLevel": 20,
+    "departments": [
+      "facilities"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "party",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        10,
+        30
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": [
+        2,
+        40
+      ],
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_2f06060028": {
+    "id": "extended_2f06060028",
+    "name": "부품 회수",
+    "description": "필요: 순찰 가속 5. MP 8 → 24, 단일 적에게 50% → 100% 피해를 주며 5% → 40% 확률로 해당 몬스터의 잡템 1개 추가 획득. 몬스터별 1회 성공",
+    "tier": 2,
+    "maxLevel": 30,
+    "departments": [
+      "facilities"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_babbd00715",
+        "level": 5
+      }
+    ],
+    "element": "neutral",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 110,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        8,
+        24
+      ],
+      "damagePercent": [
+        50,
+        100
+      ]
+    }
+  },
+  "extended_de980f68ec": {
+    "id": "extended_de980f68ec",
+    "name": "6단 수리",
+    "description": "MP 9 → 27, 단일 적에게 40% → 80% 피해 4 → 6회",
+    "tier": 2,
+    "maxLevel": 30,
+    "departments": [
+      "facilities"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 110,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        9,
+        27
+      ],
+      "damagePercent": [
+        40,
+        80
+      ]
+    }
+  },
+  "extended_70020d3469": {
+    "id": "extended_70020d3469",
+    "name": "안전장비 숙련",
+    "description": "장착한 방패의 방어력 5% → 100% 증가",
+    "tier": 3,
+    "maxLevel": 20,
+    "departments": [
+      "facilities"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "utility-passive",
+    "values": {
+      "primaryPercent": [
+        5,
+        100
+      ]
+    }
+  },
+  "extended_90e2cf2c83": {
+    "id": "extended_90e2cf2c83",
+    "name": "응급 정비",
+    "description": "현재 HP가 50% 미만일 때 MP 10 → 27을 소모해 회복력 100% → 300%로 HP 회복. 시전 중 받는 피해 100% → 70%",
+    "tier": 3,
+    "maxLevel": 30,
+    "departments": [
+      "facilities"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        10,
+        27
+      ],
+      "primaryPercent": [
+        100,
+        300
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": [
+        100,
+        300
+      ],
+      "criticalChance": 0
+    }
+  },
+  "extended_f21db630f9": {
+    "id": "extended_f21db630f9",
+    "name": "긴급 출동",
+    "description": "MP 12 → 26, 적 앞으로 순간 이동하며 210% → 450% 피해. 22% → 80% 확률로 기절",
+    "tier": 3,
+    "maxLevel": 30,
+    "departments": [
+      "facilities"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 380,
+    "effect": "damage-stun",
+    "values": {
+      "mpCost": [
+        12,
+        26
+      ],
+      "damagePercent": [
+        210,
+        450
+      ]
+    }
+  },
+  "extended_aaddbfe634": {
+    "id": "extended_aaddbfe634",
+    "name": "부품 낙하",
+    "description": "필요: 부품 폭파 3. MP 20 → 50, 30 → 180초간 공격 시 10% → 60% 확률로 폭파용 부품 드롭",
+    "tier": 3,
+    "maxLevel": 20,
+    "departments": [
+      "facilities"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_0408e31b76",
+        "level": 3
+      }
+    ],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        20,
+        50
+      ],
+      "durationSeconds": [
+        30,
+        180
+      ],
+      "primaryPercent": [
+        10,
+        60
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": [
+        10,
+        60
+      ],
+      "criticalChance": 0
+    }
+  },
+  "extended_04eeda4676": {
+    "id": "extended_04eeda4676",
+    "name": "정비 인력 투입",
+    "description": "MP 12 → 25, 최대 6명에게 100% → 210% 피해. 대상 수에 맞춰 최대 5명의 정비 분신이 등장",
+    "tier": 3,
+    "maxLevel": 30,
+    "departments": [
+      "facilities"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 260,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        12,
+        25
+      ],
+      "damagePercent": [
+        100,
+        210
+      ]
+    }
+  },
+  "extended_e9c17aefbd": {
+    "id": "extended_e9c17aefbd",
+    "name": "수리비 처리",
+    "description": "필요: 응급 정비 3. MP 35, 30 → 120초간 받는 피해의 50%를 돈으로 대신 막음. 막은 피해 대비 돈 소모 효율 120% → 78%",
+    "tier": 3,
+    "maxLevel": 20,
+    "departments": [
+      "facilities"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_90e2cf2c83",
+        "level": 3
+      }
+    ],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": 35,
+      "durationSeconds": [
+        30,
+        120
+      ],
+      "primaryPercent": [
+        120,
+        78
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": [
+        120,
+        78
+      ],
+      "criticalChance": 0
+    }
+  },
+  "extended_0408e31b76": {
+    "id": "extended_0408e31b76",
+    "name": "부품 폭파",
+    "description": "MP 15 → 30, 바닥의 폭파용 부품을 최대 3 → 20개 연쇄 폭발. 부품마다 별도 범위 피해",
+    "tier": 3,
+    "maxLevel": 30,
+    "departments": [
+      "facilities"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 150,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        15,
+        30
+      ],
+      "damagePercent": 100
+    }
+  },
+  "extended_82bcd346d1": {
+    "id": "extended_82bcd346d1",
+    "name": "긴급 차단",
+    "description": "잠복 근무 상태에서 사용. MP 21 → 40, 최대 4 → 8초 충전 후 단일 적을 4회 공격. 기본 계수 34% → 120%, 마지막 공격 크리티컬 확률 32% → 90%, 크리티컬 피해 105% → 250%",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "facilities"
+    ],
+    "passive": false,
+    "quest": true,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 120,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        21,
+        40
+      ],
+      "durationSeconds": [
+        4,
+        8
+      ],
+      "damagePercent": [
+        34,
+        120
+      ],
+      "hits": 4
+    }
+  },
+  "extended_403879a67d": {
+    "id": "extended_403879a67d",
+    "name": "안전 대피",
+    "description": "피격 시 1% → 40% 확률로 공격을 회피하고 대체 인형 연출",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "facilities"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "utility-passive",
+    "values": {
+      "primaryPercent": [
+        1,
+        40
+      ]
+    }
+  },
+  "extended_8bf14061cf": {
+    "id": "extended_8bf14061cf",
+    "name": "위험구역 표식",
+    "description": "필요: 안전 대피 10. MP 15 → 40, 최대 6명의 방어력을 40% 높이는 대신 해당 적의 경험치·아이템 드롭률을 5% → 40% 증가",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "facilities"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_403879a67d",
+        "level": 10
+      }
+    ],
+    "element": "neutral",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 260,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        15,
+        40
+      ],
+      "primaryPercent": [
+        5,
+        40
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": [
+        5,
+        40
+      ],
+      "criticalChance": 0
+    }
+  },
+  "extended_f1561f9de2": {
+    "id": "extended_f1561f9de2",
+    "name": "매복 정비반",
+    "description": "MP 16 → 43, 최대 6명에게 4 → 12초간 62% → 100% 지속 공격. 이 피해만으로는 HP가 1 아래로 내려가지 않음",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "facilities"
+    ],
+    "passive": false,
+    "quest": true,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 110,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        16,
+        43
+      ],
+      "durationSeconds": [
+        4,
+        12
+      ],
+      "damagePercent": [
+        62,
+        100
+      ]
+    }
+  },
+  "extended_038626c3e1": {
+    "id": "extended_038626c3e1",
+    "name": "부식성 도포",
+    "description": "공격 시 12% → 30% 확률로 공격력 31 → 60의 독을 2 → 4초 부여. 최대 3중첩, 독 피해로 HP가 1 아래로 내려가지 않음",
+    "tier": 4,
+    "maxLevel": 20,
+    "departments": [
+      "facilities"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "damage",
+    "values": {
+      "durationSeconds": [
+        2,
+        4
+      ],
+      "damagePercent": [
+        12,
+        30
+      ]
+    }
+  },
+  "extended_d1fad80ea9": {
+    "id": "extended_d1fad80ea9",
+    "name": "비상 연막",
+    "description": "MP 16 → 45, 범위 110 → 200에 31 → 60초간 연막 생성. 범위 안 파티원은 피해를 받지 않음. 쿨타임 10분",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "facilities"
+    ],
+    "passive": false,
+    "quest": true,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "party",
+    "maxTargets": 6,
+    "range": 110,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        16,
+        45
+      ],
+      "durationSeconds": [
+        31,
+        60
+      ],
+      "damagePercent": 100
+    }
+  },
+  "extended_83bf2e5362": {
+    "id": "extended_83bf2e5362",
+    "name": "왕복 점검",
+    "description": "MP 16 → 26, 전방 2 → 4명에게 260% → 500% 피해 2회. 32% → 90% 확률로 기절",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "facilities"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 180,
+    "effect": "damage-stun",
+    "values": {
+      "mpCost": [
+        16,
+        26
+      ],
+      "damagePercent": [
+        260,
+        500
+      ],
+      "hits": 2
+    }
+  },
+  "extended_0c8730d097": {
+    "id": "extended_0c8730d097",
+    "name": "리소스 회수",
+    "description": "마법 공격 적중 시 1% → 30% 확률로 적 최대 MP의 2% → 40%를 흡수",
+    "tier": 2,
+    "maxLevel": 20,
+    "departments": [
+      "development"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "utility-passive",
+    "values": {
+      "primaryPercent": [
+        1,
+        30
+      ]
+    }
+  },
+  "extended_3e40ddc4a3": {
+    "id": "extended_3e40ddc4a3",
+    "name": "코드 리뷰",
+    "description": "필요: 리소스 회수 3. MP 8 → 20, 200초간 파티 마력 1 → 20 증가",
+    "tier": 2,
+    "maxLevel": 20,
+    "departments": [
+      "development"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_0c8730d097",
+        "level": 3
+      }
+    ],
+    "element": "neutral",
+    "target": "party",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        8,
+        20
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_fc8e88e986": {
+    "id": "extended_fc8e88e986",
+    "name": "퀵 배포",
+    "description": "MP 30 → 13, 지정 방향으로 60 → 150 순간 이동",
+    "tier": 2,
+    "maxLevel": 20,
+    "departments": [
+      "development"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 60,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        30,
+        13
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_9521b0057a": {
+    "id": "extended_9521b0057a",
+    "name": "성능 저하",
+    "description": "필요: 퀵 배포 5. MP 8 → 16, 최대 6명의 이동속도를 5 → 40만큼 40초간 감소",
+    "tier": 2,
+    "maxLevel": 20,
+    "departments": [
+      "development"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_fc8e88e986",
+        "level": 5
+      }
+    ],
+    "element": "neutral",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 300,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        8,
+        16
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_992505a4bb": {
+    "id": "extended_992505a4bb",
+    "name": "핫픽스",
+    "description": "MP 12 → 28, 단일 적에게 불 속성 스킬 공격력 60 → 120, 숙련도 15% → 60%",
+    "tier": 2,
+    "maxLevel": 30,
+    "departments": [
+      "development"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "fire",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 430,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        12,
+        28
+      ],
+      "damagePercent": [
+        60,
+        120
+      ]
+    }
+  },
+  "extended_0de11a7ed5": {
+    "id": "extended_0de11a7ed5",
+    "name": "악성 코드",
+    "description": "MP 10 → 20, 단일 적에게 독 속성 스킬 공격력 35 → 70, 숙련도 15% → 60%. 20% → 60% 확률로 10 → 40초 중독",
+    "tier": 2,
+    "maxLevel": 30,
+    "departments": [
+      "development"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "poison",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 380,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        10,
+        20
+      ],
+      "durationSeconds": [
+        10,
+        40
+      ],
+      "damagePercent": [
+        35,
+        70
+      ]
+    }
+  },
+  "extended_2b28b6113f": {
+    "id": "extended_2b28b6113f",
+    "name": "내결함성: 화염·독",
+    "description": "불·독 속성 피해 감소율 3.5% → 70%",
+    "tier": 3,
+    "maxLevel": 20,
+    "departments": [
+      "development"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "poison",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "damage-reduction",
+    "values": {
+      "damagePercent": [
+        3.5,
+        70
+      ],
+      "reductionPercent": [
+        3.5,
+        70
+      ]
+    }
+  },
+  "extended_1f2faa809b": {
+    "id": "extended_1f2faa809b",
+    "name": "오버클럭",
+    "description": "공격 마법의 MP 소모량 103% → 200%, 최종 피해 101% → 135%",
+    "tier": 3,
+    "maxLevel": 30,
+    "departments": [
+      "development"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "damage",
+    "values": {
+      "damagePercent": [
+        103,
+        200
+      ]
+    }
+  },
+  "extended_10e88e224c": {
+    "id": "extended_10e88e224c",
+    "name": "서버 폭발",
+    "description": "MP 20 → 50, 주변 최대 6명에게 불 속성 스킬 공격력 50 → 120, 숙련도 15% → 60%",
+    "tier": 3,
+    "maxLevel": 30,
+    "departments": [
+      "development"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "fire",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 260,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        20,
+        50
+      ],
+      "damagePercent": [
+        50,
+        120
+      ]
+    }
+  },
+  "extended_e5407ab624": {
+    "id": "extended_e5407ab624",
+    "name": "버그 확산",
+    "description": "MP 20 → 50, 10 → 40초간 독 안개 생성. 안개 안 적에게 스킬 공격력 40 → 90, 숙련도 15% → 60%, 중독 확률 20% → 70%",
+    "tier": 3,
+    "maxLevel": 30,
+    "departments": [
+      "development"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 320,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        20,
+        50
+      ],
+      "durationSeconds": [
+        10,
+        40
+      ],
+      "damagePercent": [
+        40,
+        90
+      ]
+    }
+  },
+  "extended_9fbbb61980": {
+    "id": "extended_9fbbb61980",
+    "name": "프로세스 봉쇄",
+    "description": "필요: 오버클럭 3. MP 15 → 30, 주변 적을 20% → 95% 확률로 20초간 스킬 사용 불가. 보스 면역",
+    "tier": 3,
+    "maxLevel": 20,
+    "departments": [
+      "development"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_1f2faa809b",
+        "level": 3
+      }
+    ],
+    "element": "neutral",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 320,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        15,
+        30
+      ],
+      "primaryPercent": [
+        20,
+        95
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": [
+        20,
+        95
+      ],
+      "criticalChance": 0
+    }
+  },
+  "extended_0a67e6684c": {
+    "id": "extended_0a67e6684c",
+    "name": "개발 가속",
+    "description": "필요: 오버클럭 3. HP 60 → 30, MP 45 → 25, 200초간 마법 공격속도 1 → 2단계 증가",
+    "tier": 3,
+    "maxLevel": 20,
+    "departments": [
+      "development"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_1f2faa809b",
+        "level": 3
+      }
+    ],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        45,
+        25
+      ],
+      "hpCost": [
+        60,
+        30
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_ebf121fce2": {
+    "id": "extended_ebf121fce2",
+    "name": "복합 오류",
+    "description": "MP 12 → 22, 단일 적에게 불·독 속성 스킬 공격력 75 → 150, 숙련도 15% → 60%. 20% → 70% 확률로 40초 중독",
+    "tier": 3,
+    "maxLevel": 30,
+    "departments": [
+      "development"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "poison",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 430,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        12,
+        22
+      ],
+      "damagePercent": [
+        75,
+        150
+      ]
+    }
+  },
+  "extended_b517ab1d69": {
+    "id": "extended_b517ab1d69",
+    "name": "대규모 리팩터링",
+    "description": "MP 25 → 50, 최대 1초 충전 후 주변 최대 6명에게 스킬 공격력 160 → 450, 숙련도 35% → 80%",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "development"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 350,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        25,
+        50
+      ],
+      "damagePercent": [
+        160,
+        450
+      ]
+    }
+  },
+  "extended_bb8a82a4b8": {
+    "id": "extended_bb8a82a4b8",
+    "name": "오류 반환",
+    "description": "MP 26 → 45, 10 → 250초간 마법 피격 시 31% → 60% 확률로 받은 마법 피해의 55% → 200% 반사. 적 최대 HP의 20% 상한",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "development"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        26,
+        45
+      ],
+      "durationSeconds": [
+        10,
+        250
+      ],
+      "damagePercent": [
+        31,
+        60
+      ]
+    }
+  },
+  "extended_fae4c32e15": {
+    "id": "extended_fae4c32e15",
+    "name": "레드팀 침투",
+    "description": "MP 15 → 34, 최대 2 → 6명에게 불 속성 스킬 공격력 62 → 120, 숙련도 15% → 60%, 10 → 15초 지속 피해. 적을 얼음 약점으로 변경",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "development"
+    ],
+    "passive": false,
+    "quest": true,
+    "prerequisites": [],
+    "element": "fire",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 480,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        15,
+        34
+      ],
+      "durationSeconds": [
+        10,
+        15
+      ],
+      "damagePercent": [
+        62,
+        120
+      ]
+    }
+  },
+  "extended_0dcef657e3": {
+    "id": "extended_0dcef657e3",
+    "name": "무한 리소스",
+    "description": "11 → 40초간 스킬 MP 소모 없음. 쿨타임 10분",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "development"
+    ],
+    "passive": false,
+    "quest": true,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "durationSeconds": [
+        11,
+        40
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_d46f7acd66": {
+    "id": "extended_d46f7acd66",
+    "name": "냉각 서버",
+    "description": "필요: 레드팀 침투 5. MP 13 → 100, 15 → 160초간 얼음 속성 소환수. 공격력 183 → 270, 최대 3명 공격",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "development"
+    ],
+    "passive": false,
+    "quest": true,
+    "prerequisites": [
+      {
+        "skillId": "extended_fae4c32e15",
+        "level": 5
+      }
+    ],
+    "element": "ice",
+    "target": "enemies",
+    "maxTargets": 3,
+    "range": 460,
+    "effect": "summon",
+    "values": {
+      "mpCost": [
+        13,
+        100
+      ],
+      "durationSeconds": [
+        15,
+        160
+      ]
+    }
+  },
+  "extended_7eb89cdb07": {
+    "id": "extended_7eb89cdb07",
+    "name": "프로세스 정지",
+    "description": "MP 16 → 25, 단일 적에게 스킬 공격력 133 → 210, 숙련도 15% → 60%, 5 → 15초 마비",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "development"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 440,
+    "effect": "damage-stun",
+    "values": {
+      "mpCost": [
+        16,
+        25
+      ],
+      "durationSeconds": [
+        5,
+        15
+      ],
+      "damagePercent": [
+        133,
+        210
+      ]
+    }
+  },
+  "extended_efc52e591a": {
+    "id": "extended_efc52e591a",
+    "name": "프로덕션 대폭발",
+    "description": "MP 2,100 → 3,500, 최대 15명에게 불 속성 스킬 공격력 330 → 620",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "development"
+    ],
+    "passive": false,
+    "quest": true,
+    "prerequisites": [],
+    "element": "fire",
+    "target": "enemies",
+    "maxTargets": 15,
+    "range": 1200,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        2100,
+        3500
+      ],
+      "damagePercent": [
+        330,
+        620
+      ]
+    }
+  },
+  "extended_9bdc4398af": {
+    "id": "extended_9bdc4398af",
+    "name": "에너지 회수",
+    "description": "마법 공격 적중 시 1% → 30% 확률로 적 최대 MP의 2% → 40%를 흡수",
+    "tier": 2,
+    "maxLevel": 20,
+    "departments": [
+      "research"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "utility-passive",
+    "values": {
+      "primaryPercent": [
+        1,
+        30
+      ]
+    }
+  },
+  "extended_f14204e0fc": {
+    "id": "extended_f14204e0fc",
+    "name": "공동 연구",
+    "description": "필요: 에너지 회수 3. MP 8 → 20, 200초간 파티 마력 1 → 20 증가",
+    "tier": 2,
+    "maxLevel": 20,
+    "departments": [
+      "research"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_9bdc4398af",
+        "level": 3
+      }
+    ],
+    "element": "neutral",
+    "target": "party",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        8,
+        20
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_85efaaf08e": {
+    "id": "extended_85efaaf08e",
+    "name": "공간 이동 실험",
+    "description": "MP 30 → 13, 지정 방향으로 60 → 150 순간 이동",
+    "tier": 2,
+    "maxLevel": 20,
+    "departments": [
+      "research"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 60,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        30,
+        13
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_c60be028a3": {
+    "id": "extended_c60be028a3",
+    "name": "시간 지연",
+    "description": "필요: 공간 이동 실험 5. MP 8 → 16, 최대 6명의 이동속도를 5 → 40만큼 40초간 감소",
+    "tier": 2,
+    "maxLevel": 20,
+    "departments": [
+      "research"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_85efaaf08e",
+        "level": 5
+      }
+    ],
+    "element": "neutral",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 300,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        8,
+        16
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_aa22b99234": {
+    "id": "extended_aa22b99234",
+    "name": "극저온 광선",
+    "description": "MP 10 → 24, 단일 적에게 얼음 속성 스킬 공격력 50 → 100, 숙련도 15% → 60%. 비반감 적 빙결",
+    "tier": 2,
+    "maxLevel": 30,
+    "departments": [
+      "research"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "ice",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 420,
+    "effect": "damage-stun",
+    "values": {
+      "mpCost": [
+        10,
+        24
+      ],
+      "damagePercent": [
+        50,
+        100
+      ]
+    }
+  },
+  "extended_bd701985c4": {
+    "id": "extended_bd701985c4",
+    "name": "전자기 방전",
+    "description": "MP 20 → 40, 주변 최대 6명에게 번개 속성 스킬 공격력 30 → 60, 숙련도 15% → 60%",
+    "tier": 2,
+    "maxLevel": 30,
+    "departments": [
+      "research"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "lightning",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 280,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        20,
+        40
+      ],
+      "damagePercent": [
+        30,
+        60
+      ]
+    }
+  },
+  "extended_a6f6cd6180": {
+    "id": "extended_a6f6cd6180",
+    "name": "절연·내한",
+    "description": "얼음·번개 속성 피해 감소율 3.5% → 70%",
+    "tier": 3,
+    "maxLevel": 20,
+    "departments": [
+      "research"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "lightning",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "damage-reduction",
+    "values": {
+      "damagePercent": [
+        3.5,
+        70
+      ],
+      "reductionPercent": [
+        3.5,
+        70
+      ]
+    }
+  },
+  "extended_44a91b0310": {
+    "id": "extended_44a91b0310",
+    "name": "출력 증폭",
+    "description": "공격 마법의 MP 소모량 103% → 200%, 최종 피해 101% → 135%",
+    "tier": 3,
+    "maxLevel": 30,
+    "departments": [
+      "research"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "damage",
+    "values": {
+      "damagePercent": [
+        103,
+        200
+      ]
+    }
+  },
+  "extended_97f50b7e72": {
+    "id": "extended_97f50b7e72",
+    "name": "급속 냉각",
+    "description": "MP 20 → 50, 최대 6명에게 얼음 속성 스킬 공격력 45 → 90, 숙련도 15% → 60%. 비반감 적 빙결",
+    "tier": 3,
+    "maxLevel": 30,
+    "departments": [
+      "research"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "ice",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 420,
+    "effect": "damage-stun",
+    "values": {
+      "mpCost": [
+        20,
+        50
+      ],
+      "damagePercent": [
+        45,
+        90
+      ]
+    }
+  },
+  "extended_489d2ce782": {
+    "id": "extended_489d2ce782",
+    "name": "전류 창",
+    "description": "MP 12 → 24, 단일 적에게 번개 속성 스킬 공격력 85 → 170, 숙련도 15% → 60%",
+    "tier": 3,
+    "maxLevel": 30,
+    "departments": [
+      "research"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "lightning",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 430,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        12,
+        24
+      ],
+      "damagePercent": [
+        85,
+        170
+      ]
+    }
+  },
+  "extended_357e2f7258": {
+    "id": "extended_357e2f7258",
+    "name": "실험체 봉쇄",
+    "description": "필요: 출력 증폭 3. MP 15 → 30, 주변 적을 20% → 95% 확률로 20초간 스킬 사용 불가. 보스 면역",
+    "tier": 3,
+    "maxLevel": 20,
+    "departments": [
+      "research"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_44a91b0310",
+        "level": 3
+      }
+    ],
+    "element": "neutral",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 320,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        15,
+        30
+      ],
+      "primaryPercent": [
+        20,
+        95
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": [
+        20,
+        95
+      ],
+      "criticalChance": 0
+    }
+  },
+  "extended_fbcdf29854": {
+    "id": "extended_fbcdf29854",
+    "name": "연산 가속",
+    "description": "필요: 출력 증폭 3. HP 60 → 30, MP 45 → 25, 200초간 마법 공격속도 1 → 2단계 증가",
+    "tier": 3,
+    "maxLevel": 20,
+    "departments": [
+      "research"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_44a91b0310",
+        "level": 3
+      }
+    ],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        45,
+        25
+      ],
+      "hpCost": [
+        60,
+        30
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_8c91d8991d": {
+    "id": "extended_8c91d8991d",
+    "name": "복합 실험",
+    "description": "MP 12 → 22, 단일 적에게 얼음·번개 속성 스킬 공격력 70 → 140, 숙련도 15% → 60%, 1 → 2초 빙결",
+    "tier": 3,
+    "maxLevel": 30,
+    "departments": [
+      "research"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "lightning",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 430,
+    "effect": "damage-stun",
+    "values": {
+      "mpCost": [
+        12,
+        22
+      ],
+      "durationSeconds": [
+        1,
+        2
+      ],
+      "damagePercent": [
+        70,
+        140
+      ]
+    }
+  },
+  "extended_2e29f80103": {
+    "id": "extended_2e29f80103",
+    "name": "입자 가속 폭발",
+    "description": "MP 25 → 50, 최대 1초 충전 후 주변 최대 6명에게 스킬 공격력 160 → 450, 숙련도 35% → 80%",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "research"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 350,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        25,
+        50
+      ],
+      "damagePercent": [
+        160,
+        450
+      ]
+    }
+  },
+  "extended_c074142eb3": {
+    "id": "extended_c074142eb3",
+    "name": "에너지 역류",
+    "description": "MP 26 → 45, 10 → 250초간 마법 피격 시 31% → 60% 확률로 받은 마법 피해의 55% → 200% 반사. 적 최대 HP의 20% 상한",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "research"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        26,
+        45
+      ],
+      "durationSeconds": [
+        10,
+        250
+      ],
+      "damagePercent": [
+        31,
+        60
+      ]
+    }
+  },
+  "extended_c868507ba3": {
+    "id": "extended_c868507ba3",
+    "name": "극저온 표본",
+    "description": "MP 15 → 34, 최대 2 → 6명에게 얼음 속성 스킬 공격력 42 → 100, 숙련도 15% → 60%, 10 → 15초 지속 피해. 적을 불 약점으로 변경",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "research"
+    ],
+    "passive": false,
+    "quest": true,
+    "prerequisites": [],
+    "element": "ice",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 480,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        15,
+        34
+      ],
+      "durationSeconds": [
+        10,
+        15
+      ],
+      "damagePercent": [
+        42,
+        100
+      ]
+    }
+  },
+  "extended_69705b66e7": {
+    "id": "extended_69705b66e7",
+    "name": "무한 동력",
+    "description": "11 → 40초간 스킬 MP 소모 없음. 쿨타임 10분",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "research"
+    ],
+    "passive": false,
+    "quest": true,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "durationSeconds": [
+        11,
+        40
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_5bf5a28801": {
+    "id": "extended_5bf5a28801",
+    "name": "가열 실험체",
+    "description": "필요: 극저온 표본 5. MP 13 → 100, 15 → 160초간 불 속성 소환수. 공격력 183 → 300, 최대 3명 공격",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "research"
+    ],
+    "passive": false,
+    "quest": true,
+    "prerequisites": [
+      {
+        "skillId": "extended_c868507ba3",
+        "level": 5
+      }
+    ],
+    "element": "fire",
+    "target": "enemies",
+    "maxTargets": 3,
+    "range": 460,
+    "effect": "summon",
+    "values": {
+      "mpCost": [
+        13,
+        100
+      ],
+      "durationSeconds": [
+        15,
+        160
+      ]
+    }
+  },
+  "extended_4561b07dd3": {
+    "id": "extended_4561b07dd3",
+    "name": "연쇄 방전",
+    "description": "MP 16 → 25, 첫 대상과 주변 2 → 6명에게 번개 속성 스킬 공격력 103 → 180, 숙련도 15% → 60%",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "research"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "lightning",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 460,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        16,
+        25
+      ],
+      "damagePercent": [
+        103,
+        180
+      ]
+    }
+  },
+  "extended_5620bb5a09": {
+    "id": "extended_5620bb5a09",
+    "name": "기후 제어 실험",
+    "description": "MP 2,100 → 3,500, 최대 15명에게 얼음 속성 스킬 공격력 330 → 570",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "research"
+    ],
+    "passive": false,
+    "quest": true,
+    "prerequisites": [],
+    "element": "ice",
+    "target": "enemies",
+    "maxTargets": 15,
+    "range": 1200,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        2100,
+        3500
+      ],
+      "damagePercent": [
+        330,
+        570
+      ]
+    }
+  },
+  "extended_d9464f60cf": {
+    "id": "extended_d9464f60cf",
+    "name": "업무 동력 회수",
+    "description": "마법 공격 적중 시 1% → 30% 확률로 적 최대 MP의 2% → 40%를 흡수",
+    "tier": 2,
+    "maxLevel": 20,
+    "departments": [
+      "management_support"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "utility-passive",
+    "values": {
+      "primaryPercent": [
+        1,
+        30
+      ]
+    }
+  },
+  "extended_83750dd151": {
+    "id": "extended_83750dd151",
+    "name": "긴급 지원",
+    "description": "MP 30 → 13, 지정 방향으로 60 → 150 순간 이동",
+    "tier": 2,
+    "maxLevel": 20,
+    "departments": [
+      "management_support"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 60,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        30,
+        13
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_5ca99e7a3e": {
+    "id": "extended_5ca99e7a3e",
+    "name": "복지 지원",
+    "description": "MP 10 → 24, 주변 파티원의 HP를 회복력 30% → 300%로 회복. 언데드 적에게는 성 속성 피해",
+    "tier": 2,
+    "maxLevel": 30,
+    "departments": [
+      "management_support"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "holy",
+    "target": "party",
+    "maxTargets": 6,
+    "range": 400,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        10,
+        24
+      ],
+      "damagePercent": [
+        30,
+        300
+      ]
+    }
+  },
+  "extended_a96a7f6c6e": {
+    "id": "extended_a96a7f6c6e",
+    "name": "산재 예방",
+    "description": "필요: 복지 지원 5. MP 12, 300초간 자신이 받는 물리 피해 2% → 30% 감소",
+    "tier": 2,
+    "maxLevel": 20,
+    "departments": [
+      "management_support"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_5ca99e7a3e",
+        "level": 5
+      }
+    ],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": 12,
+      "primaryPercent": [
+        2,
+        30
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": [
+        2,
+        30
+      ],
+      "criticalChance": 0
+    }
+  },
+  "extended_63286735de": {
+    "id": "extended_63286735de",
+    "name": "업무 지원",
+    "description": "필요: 산재 예방 5. MP 24, 200초간 파티 명중률·회피율·물리 방어력·마법 방어력 1 → 20 증가",
+    "tier": 2,
+    "maxLevel": 20,
+    "departments": [
+      "management_support"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_a96a7f6c6e",
+        "level": 5
+      }
+    ],
+    "element": "neutral",
+    "target": "party",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": 24,
+      "attackIncrease": 0,
+      "defenseIncrease": [
+        1,
+        20
+      ],
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_2a7d156fc2": {
+    "id": "extended_2a7d156fc2",
+    "name": "지원 요청",
+    "description": "MP 12 → 24, 단일 적에게 성 속성 스킬 공격력 40 → 80, 숙련도 15% → 60%. 언데드·악마 추가 피해",
+    "tier": 2,
+    "maxLevel": 30,
+    "departments": [
+      "management_support"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "holy",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 420,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        12,
+        24
+      ],
+      "damagePercent": [
+        40,
+        80
+      ]
+    }
+  },
+  "extended_a2ab24186b": {
+    "id": "extended_a2ab24186b",
+    "name": "전사 내성 교육",
+    "description": "모든 속성 피해 감소율 2.5% → 50%",
+    "tier": 3,
+    "maxLevel": 20,
+    "departments": [
+      "management_support"
+    ],
+    "passive": true,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "damage-reduction",
+    "values": {
+      "damagePercent": [
+        2.5,
+        50
+      ],
+      "reductionPercent": [
+        2.5,
+        50
+      ]
+    }
+  },
+  "extended_d09ebc4e18": {
+    "id": "extended_d09ebc4e18",
+    "name": "고충 처리",
+    "description": "MP 8 → 20, 범위 내 파티원의 해제 가능한 디버프 전부 제거. 적의 해제 가능한 강화 효과도 10% → 100% 확률로 제거",
+    "tier": 3,
+    "maxLevel": 20,
+    "departments": [
+      "management_support"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "party",
+    "maxTargets": 6,
+    "range": 450,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        8,
+        20
+      ],
+      "primaryPercent": [
+        10,
+        100
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": [
+        10,
+        100
+      ],
+      "criticalChance": 0
+    }
+  },
+  "extended_215a9e5622": {
+    "id": "extended_215a9e5622",
+    "name": "귀환 지원",
+    "description": "필요: 고충 처리 3. MP 50 → 33, 30 → 180초간 현재 맵과 가장 가까운 안전지대를 잇는 파티 전용 포탈 생성",
+    "tier": 3,
+    "maxLevel": 20,
+    "departments": [
+      "management_support"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_d09ebc4e18",
+        "level": 3
+      }
+    ],
+    "element": "neutral",
+    "target": "party",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        50,
+        33
+      ],
+      "durationSeconds": [
+        30,
+        180
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_80b1bfaa83": {
+    "id": "extended_80b1bfaa83",
+    "name": "성과 지원",
+    "description": "필요: 고충 처리 3. MP 30 → 80, 120초간 파티 사냥 경험치 배율 105% → 150%. 사용자가 파티에 남아 같은 맵에 있을 때 완전 적용",
+    "tier": 3,
+    "maxLevel": 30,
+    "departments": [
+      "management_support"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [
+      {
+        "skillId": "extended_d09ebc4e18",
+        "level": 3
+      }
+    ],
+    "element": "neutral",
+    "target": "party",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        30,
+        80
+      ],
+      "primaryPercent": [
+        105,
+        150
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": [
+        105,
+        150
+      ],
+      "criticalChance": 0
+    }
+  },
+  "extended_206bd2f4b1": {
+    "id": "extended_206bd2f4b1",
+    "name": "지원의 빛",
+    "description": "MP 20 → 50, 주변 최대 6명에게 성 속성 스킬 공격력 50 → 105, 숙련도 15% → 60%",
+    "tier": 3,
+    "maxLevel": 30,
+    "departments": [
+      "management_support"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "holy",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 360,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        20,
+        50
+      ],
+      "damagePercent": [
+        50,
+        105
+      ]
+    }
+  },
+  "extended_245ea8ab5c": {
+    "id": "extended_245ea8ab5c",
+    "name": "업무 축소",
+    "description": "MP 30, 최대 6명의 일반 몬스터를 20% → 90% 확률로 20초간 약한 형태로 변환. 보스 면역",
+    "tier": 3,
+    "maxLevel": 20,
+    "departments": [
+      "management_support"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 350,
+    "effect": "buff",
+    "values": {
+      "mpCost": 30,
+      "primaryPercent": [
+        20,
+        90
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": [
+        20,
+        90
+      ],
+      "criticalChance": 0
+    }
+  },
+  "extended_1a76b16c24": {
+    "id": "extended_1a76b16c24",
+    "name": "지원 드론",
+    "description": "MP 20 → 80, 20 → 140초간 성 속성 소환수. 공격력 30 → 150",
+    "tier": 3,
+    "maxLevel": 30,
+    "departments": [
+      "management_support"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "holy",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 430,
+    "effect": "summon",
+    "values": {
+      "mpCost": [
+        20,
+        80
+      ],
+      "durationSeconds": [
+        20,
+        140
+      ]
+    }
+  },
+  "extended_72b5477b43": {
+    "id": "extended_72b5477b43",
+    "name": "지원 예산 폭발",
+    "description": "MP 25 → 50, 최대 1초 충전 후 주변 최대 6명에게 스킬 공격력 160 → 450, 숙련도 35% → 80%",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "management_support"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemies",
+    "maxTargets": 6,
+    "range": 350,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        25,
+        50
+      ],
+      "damagePercent": [
+        160,
+        450
+      ]
+    }
+  },
+  "extended_e3ac6849e3": {
+    "id": "extended_e3ac6849e3",
+    "name": "민원 반송",
+    "description": "MP 26 → 45, 10 → 250초간 마법 피격 시 31% → 60% 확률로 받은 마법 피해의 55% → 200% 반사. 적 최대 HP의 20% 상한",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "management_support"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "enemy",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        26,
+        45
+      ],
+      "durationSeconds": [
+        10,
+        250
+      ],
+      "damagePercent": [
+        31,
+        60
+      ]
+    }
+  },
+  "extended_c6e57601ce": {
+    "id": "extended_c6e57601ce",
+    "name": "지원 수호체",
+    "description": "필요: 지원 드론 15. MP 13 → 100, 15 → 160초간 최대 3명을 공격하는 성 속성 소환수. 공격력 113 → 230",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "management_support"
+    ],
+    "passive": false,
+    "quest": true,
+    "prerequisites": [
+      {
+        "skillId": "extended_1a76b16c24",
+        "level": 15
+      }
+    ],
+    "element": "holy",
+    "target": "enemies",
+    "maxTargets": 3,
+    "range": 470,
+    "effect": "summon",
+    "values": {
+      "mpCost": [
+        13,
+        100
+      ],
+      "durationSeconds": [
+        15,
+        160
+      ]
+    }
+  },
+  "extended_4d105c3f1f": {
+    "id": "extended_4d105c3f1f",
+    "name": "무한 예산",
+    "description": "11 → 40초간 스킬 MP 소모 없음. 쿨타임 10분",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "management_support"
+    ],
+    "passive": false,
+    "quest": true,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "self",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "durationSeconds": [
+        11,
+        40
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_7fbad835e4": {
+    "id": "extended_7fbad835e4",
+    "name": "복지 방패",
+    "description": "MP 12 → 40, 파티원에게 11 → 40초간 해제 가능한 상태이상 면역. 쿨타임 2분",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "management_support"
+    ],
+    "passive": false,
+    "quest": false,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "party",
+    "maxTargets": 1,
+    "range": 100,
+    "effect": "buff",
+    "values": {
+      "mpCost": [
+        12,
+        40
+      ],
+      "durationSeconds": [
+        11,
+        40
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_76e11d2ec7": {
+    "id": "extended_76e11d2ec7",
+    "name": "복직 지원",
+    "description": "MP 40, 같은 맵에서 사망한 파티원 1명을 HP 50%, MP는 사망 당시 수치로 부활. 쿨타임 57분 → 30분",
+    "tier": 4,
+    "maxLevel": 10,
+    "departments": [
+      "management_support"
+    ],
+    "passive": false,
+    "quest": true,
+    "prerequisites": [],
+    "element": "neutral",
+    "target": "party",
+    "maxTargets": 1,
+    "range": 350,
+    "effect": "buff",
+    "values": {
+      "mpCost": 40,
+      "hpCost": 50,
+      "cooldownSeconds": [
+        57,
+        30
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": 0
+    }
+  },
+  "extended_7a0f825273": {
+    "id": "extended_7a0f825273",
+    "name": "전략 지원선",
+    "description": "MP 16 → 25, 직선상의 적에게 성 속성 스킬 공격력 123 → 240, 숙련도 15% → 60%. V2 제안: 경로상의 파티원도 소량 회복",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "management_support"
+    ],
+    "passive": false,
+    "quest": true,
+    "prerequisites": [],
+    "element": "holy",
+    "target": "party",
+    "maxTargets": 6,
+    "range": 560,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        16,
+        25
+      ],
+      "damagePercent": [
+        123,
+        240
+      ]
+    }
+  },
+  "extended_aef3d1db17": {
+    "id": "extended_aef3d1db17",
+    "name": "전사 비상지원",
+    "description": "MP 2,100 → 3,500, 최대 15명에게 성 속성 스킬 공격력 430 → 670",
+    "tier": 4,
+    "maxLevel": 30,
+    "departments": [
+      "management_support"
+    ],
+    "passive": false,
+    "quest": true,
+    "prerequisites": [],
+    "element": "holy",
+    "target": "enemies",
+    "maxTargets": 15,
+    "range": 1200,
+    "effect": "damage",
+    "values": {
+      "mpCost": [
+        2100,
+        3500
+      ],
+      "damagePercent": [
+        430,
+        670
+      ]
+    }
+  }
+}

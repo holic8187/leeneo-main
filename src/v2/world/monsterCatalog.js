@@ -62,6 +62,7 @@ function buildMonsterStats(level, overrides = {}) {
     || Math.max(1, Math.round(maxHp * Math.max(0.04, 0.2 - safeLevel * 0.0011)));
   return {
     maxHp,
+    maxMp: Math.max(10, Math.round(18 + safeLevel * 7.5)),
     contactDamage: Math.max(4, Math.round(6 + safeLevel * 1.35)),
     physicalDefense: Math.max(1, Math.round(safeLevel * 0.45)),
     magicDefense: Math.max(1, Math.round(safeLevel * 0.42)),

@@ -20,7 +20,15 @@ test('world contains thirty uniquely named company maps', () => {
 test('the nearest safe zone can be found through the map graph', () => {
   assert.equal(findNearestSafeMap('main_lobby').id, 'main_lobby');
   assert.equal(findNearestSafeMap('newcomer_training').id, 'main_lobby');
-  assert.equal(findNearestSafeMap('data_center').id, 'main_lobby');
+  assert.equal(findNearestSafeMap('data_center').id, 'sales_floor');
+});
+
+test('three regional safe zones expose their own supply shop', () => {
+  const safeMaps = WORLD_MAPS.filter((map) => map.safeZone);
+  assert.deepEqual(
+    safeMaps.map((map) => map.shopId).sort(),
+    ['headquarters', 'personnel_annex', 'sales_outpost']
+  );
 });
 
 test('all map connections are valid and bidirectional', () => {

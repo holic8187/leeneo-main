@@ -37,6 +37,7 @@ test('an occupied map lazily spawns test monsters with configured combat stats',
   assert.equal(state.monsters[0].physicalDefense, 1);
   assert.equal(state.monsters[0].magicDefense, 1);
   assert.equal(state.monsters[0].expReward, 5);
+  assert.equal(state.monsters[0].spawnedAt, 1_000);
 });
 
 test('players in the same map see one another and an empty map is discarded', () => {
@@ -109,6 +110,174 @@ test('a hit gives the monster aggro and applies defense before defeat reward', (
   assert.ok(result.drops.every((drop) => drop.collectAt === 9_000));
 });
 
+test('single-target attacks hit the front-most monster at resolution time', () => {
+  let state = updatePresence({
+    userId: 'front-target-user',
+    nickname: 'front-target-user',
+    mapId: 'newcomer_training',
+    x: 0,
+    floor: 0,
+    activity: 'idle',
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_000
+  });
+  state = updatePresence({
+    userId: 'front-target-user',
+    nickname: 'front-target-user',
+    mapId: 'newcomer_training',
+    x: 0,
+    floor: 0,
+    activity: 'idle',
+    currentHp: 120,
+    maxHp: 120,
+    now: 17_000
+  });
+  const floorGroups = [0, 1].map((floor) => (
+    state.monsters.filter((monster) => monster.floor === floor).sort((a, b) => a.x - b.x)
+  ));
+  const monsters = floorGroups.sort((a, b) => b.length - a.length)[0];
+  assert.ok(monsters.length >= 2);
+  const front = monsters[0];
+  const rear = monsters[1];
+  const playerX = Math.max(0, front.x - 8);
+  updatePresence({
+    userId: 'front-target-user',
+    nickname: 'front-target-user',
+    mapId: 'newcomer_training',
+    x: playerX,
+    floor: front.floor,
+    activity: 'idle',
+    facingLeft: false,
+    currentHp: 120,
+    maxHp: 120,
+    now: 17_100
+  });
+
+  const result = attackMonster({
+    userId: 'front-target-user',
+    mapId: 'newcomer_training',
+    monsterId: rear.id,
+    damage: 2,
+    rangePx: 1_000,
+    now: 17_200
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.targetId, front.id);
+});
+
+test('piercing attacks may directly hit a monster behind the front target', () => {
+  let state = updatePresence({
+    userId: 'piercing-user',
+    nickname: 'piercing-user',
+    mapId: 'newcomer_training',
+    x: 0,
+    floor: 0,
+    activity: 'idle',
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_000
+  });
+  state = updatePresence({
+    userId: 'piercing-user',
+    nickname: 'piercing-user',
+    mapId: 'newcomer_training',
+    x: 0,
+    floor: 0,
+    activity: 'idle',
+    currentHp: 120,
+    maxHp: 120,
+    now: 17_000
+  });
+  const monsters = [0, 1].map((floor) => (
+    state.monsters.filter((monster) => monster.floor === floor).sort((a, b) => a.x - b.x)
+  )).sort((a, b) => b.length - a.length)[0];
+  const front = monsters[0];
+  const rear = monsters[1];
+  updatePresence({
+    userId: 'piercing-user',
+    nickname: 'piercing-user',
+    mapId: 'newcomer_training',
+    x: Math.max(0, front.x - 8),
+    floor: front.floor,
+    activity: 'idle',
+    facingLeft: false,
+    currentHp: 120,
+    maxHp: 120,
+    now: 17_100
+  });
+
+  const result = attackMonster({
+    userId: 'piercing-user',
+    mapId: 'newcomer_training',
+    monsterId: rear.id,
+    damage: 2,
+    rangePx: 1_000,
+    piercing: true,
+    now: 17_200
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.targetId, rear.id);
+});
+
+test('single-target skills also resolve against the front-most monster', () => {
+  let state = updatePresence({
+    userId: 'front-skill-user',
+    nickname: 'front-skill-user',
+    mapId: 'newcomer_training',
+    x: 0,
+    floor: 0,
+    activity: 'idle',
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_000
+  });
+  state = updatePresence({
+    userId: 'front-skill-user',
+    nickname: 'front-skill-user',
+    mapId: 'newcomer_training',
+    x: 0,
+    floor: 0,
+    activity: 'idle',
+    currentHp: 120,
+    maxHp: 120,
+    now: 17_000
+  });
+  const monsters = [0, 1].map((floor) => (
+    state.monsters.filter((monster) => monster.floor === floor).sort((a, b) => a.x - b.x)
+  )).sort((a, b) => b.length - a.length)[0];
+  const front = monsters[0];
+  const rear = monsters[1];
+  updatePresence({
+    userId: 'front-skill-user',
+    nickname: 'front-skill-user',
+    mapId: 'newcomer_training',
+    x: Math.max(0, front.x - 8),
+    floor: front.floor,
+    activity: 'idle',
+    facingLeft: false,
+    currentHp: 120,
+    maxHp: 120,
+    now: 17_100
+  });
+
+  const result = useSkillOnMonsters({
+    userId: 'front-skill-user',
+    mapId: 'newcomer_training',
+    targetId: rear.id,
+    baseDamage: 2,
+    skillPercent: 100,
+    rangePx: 1_000,
+    maxTargets: 1,
+    now: 17_200
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.outcomes[0].monsterId, front.id);
+});
+
 test('defeated monster drops are collected on the next eight-second spawn tick', () => {
   const state = updatePresence({
     userId: 'loot-user',
@@ -166,6 +335,8 @@ test('monster stats keep the level three baseline and scale for higher levels', 
   assert.equal(low.physicalDefense, 1);
   assert.equal(low.magicDefense, 1);
   assert.equal(low.expReward, 5);
+  assert.ok(low.maxMp >= 10);
+  assert.ok(high.maxMp > low.maxMp);
   assert.ok(low.monsterAccuracy > 0);
   assert.ok(low.monsterEvasion > 0);
   assert.ok(high.maxHp > low.maxHp);
@@ -302,6 +473,56 @@ test('contact damage knocks the player backward and grants 1.5 seconds of invuln
   assert.equal(afterInvulnerability.contactEvents.length, 1);
 });
 
+test('moving across a monster applies swept contact damage instead of tunneling through it', () => {
+  const initial = updatePresence({
+    userId: 'moving-contact-user',
+    nickname: 'moving-contact-user',
+    mapId: 'newcomer_training',
+    x: 0,
+    floor: 0,
+    activity: 'idle',
+    facingLeft: false,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_000
+  });
+  const floorGroups = [0, 1].map((floor) => (
+    initial.monsters.filter((monster) => monster.floor === floor).sort((a, b) => a.x - b.x)
+  ));
+  const monsters = floorGroups.sort((a, b) => b.length - a.length)[0];
+  const target = monsters[0];
+  const startX = Math.max(0, target.x - 7);
+  updatePresence({
+    userId: 'moving-contact-user',
+    nickname: 'moving-contact-user',
+    mapId: 'newcomer_training',
+    x: startX,
+    floor: target.floor,
+    activity: 'idle',
+    facingLeft: false,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_050
+  });
+
+  const crossed = updatePresence({
+    userId: 'moving-contact-user',
+    nickname: 'moving-contact-user',
+    mapId: 'newcomer_training',
+    x: Math.min(94, target.x + 7),
+    floor: target.floor,
+    activity: 'moving',
+    facingLeft: false,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_100
+  });
+
+  assert.equal(crossed.contactEvents.length, 1);
+  assert.ok(monsters.some((monster) => monster.id === crossed.contactEvents[0].monsterId));
+  assert.ok(crossed.contactEvents[0].damage > 0);
+});
+
 test('a single hit dealing at least forty percent of max HP knocks a monster back', () => {
   const state = updatePresence({
     userId: 'heavy-user',
@@ -328,6 +549,7 @@ test('a single hit dealing at least forty percent of max HP knocks a monster bac
     monsterId: monster.id,
     damage: Math.ceil(monster.maxHp * 0.4) + monster.physicalDefense,
     rangePx: 1_000,
+    piercing: true,
     now: 1_100
   });
   assert.equal(result.success, true);

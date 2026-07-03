@@ -23,6 +23,7 @@ const {
   attackMonster,
   useSkillOnMonsters,
   updatePlayerResources,
+  listActivePlayers,
   leaveWorld
 } = require('./world/worldRuntime');
 const { LEGACY_CURVE, mapLegacyLevelToV2 } = require('./progression/levelMigration');
@@ -42,6 +43,7 @@ const {
 const { getItemDefinition, listAdminGrantItems } = require('./items/itemCatalog');
 const {
   addInventoryItem,
+  consumeInventoryItem,
   assignPotionQuickSlot,
   setPotionAutoThreshold,
   useQuickSlotPotion,
@@ -57,6 +59,21 @@ const {
   claimAllMail
 } = require('./services/inventoryService');
 const { changeDepartment } = require('./services/jobChangeService');
+const {
+  ensureDailyHuntingMail,
+  getKoreaDateKey,
+  setHuntingEnabled,
+  tickHuntingTime,
+  addHuntingMinutes,
+  serializeHuntingTime
+} = require('./services/huntingTimeService');
+const {
+  getPartyState,
+  invitePlayer,
+  acceptInvitation,
+  declineInvitation,
+  removeMember
+} = require('./services/partyService');
 const { reconcileHpGrowthSkillBonus } = require('./services/hpGrowthBonusService');
 const { reconcileMaxResourceBuff } = require('./services/maxResourceBuffService');
 const {
@@ -70,7 +87,8 @@ const {
   getSkillLevel,
   resolveSkillValues,
   investSkill,
-  setActivePreset
+  setActivePreset,
+  getActiveSkillEffects
 } = require('./skills/skillService');
 
 const V2_RETAINED_FEATURES = Object.freeze([
@@ -160,7 +178,9 @@ const V2_PLANNED_FEATURES = Object.freeze([
 
 function grantV2Experience(character, amount) {
   if (!character) return { gained: 0, levels: 0 };
-  const gained = Math.max(0, Math.floor(Number(amount) || 0));
+  const experienceMultiplier = 1
+    + Math.max(0, Number(getActiveSkillEffects(character).experienceBonusPercent) || 0) / 100;
+  const gained = Math.max(0, Math.floor((Number(amount) || 0) * experienceMultiplier));
   let levels = 0;
   const previousLevel = Math.max(1, Number(character.progression?.level) || 1);
   character.progression.exp = Math.max(0, Number(character.progression.exp) || 0) + gained;
@@ -187,6 +207,18 @@ function grantV2Experience(character, amount) {
     reconcileHpGrowthSkillBonus(character);
   }
   return { gained, levels };
+}
+
+function getCombatAmmunition(profile) {
+  const weaponType = profile?.equipmentLoadout?.weapon?.weaponType
+    || profile?.loadout?.weapon?.weaponType;
+  if (['bow', 'crossbow'].includes(weaponType)) {
+    return { itemId: 'basic_arrow', attackBonus: 2 };
+  }
+  if (weaponType === 'claw') {
+    return { itemId: 'crude_throwing_star', attackBonus: 15 };
+  }
+  return null;
 }
 
 function getBearerToken(req) {
@@ -474,6 +506,7 @@ function registerV2Routes({
       if (!user) return res.status(404).json({ msg: '유저 정보를 찾을 수 없습니다.' });
       const character = await V2Character.findOne({ userId: user._id });
       await ensureV2CharacterFoundation(character);
+      if (ensureDailyHuntingMail(character)) await character.save();
       return res.json({
         displayName: user.nickname || user.username,
         preview: buildMigrationPreview(user),
@@ -521,6 +554,7 @@ function registerV2Routes({
     try {
       const character = await V2Character.findOne({ userId: auth.id });
       await ensureV2CharacterFoundation(character);
+      if (ensureDailyHuntingMail(character)) await character.save();
       return res.json({ character: buildCharacterResponse(character) });
     } catch (err) {
       console.error('V2 character load error:', err);
@@ -676,7 +710,7 @@ function registerV2Routes({
         const damageEffects = new Set([
           'damage', 'multi-damage', 'ignore-defense-damage', 'damage-stun',
           'damage-lock', 'charge', 'consume-combo-damage', 'pull',
-          'element-explosion', 'nonlethal-damage'
+          'element-explosion', 'nonlethal-damage', 'fixed-damage'
         ]);
         if (damageEffects.has(definition.effect)) {
           if (definition.effect === 'consume-combo-damage' && skillState.comboCount <= 0) {
@@ -684,11 +718,33 @@ function registerV2Routes({
           }
           const response = buildCharacterResponse(character);
           const activeEffects = response.skillEffects || {};
+          const archetype = DEPARTMENTS[character.job?.departmentId]?.archetype || 'beginner';
+          const ammunition = definition.effect === 'fixed-damage'
+            ? null
+            : getCombatAmmunition(response);
+          const ammunitionCount = Math.max(1, Number(values.hits) || 1);
+          if (
+            ammunition
+            && !activeEffects.noAmmoConsumption
+            && !consumeInventoryItem(character, ammunition.itemId, ammunitionCount)
+          ) {
+            throw new Error('공격에 필요한 탄약이 부족합니다.');
+          }
           const activeElements = getActiveWeaponElements(skillState, now);
           if (definition.effect === 'element-explosion' && !activeElements.length) {
             throw new Error('폭발시킬 무기 속성이 없습니다.');
           }
-          let baseDamage = Math.max(1, Number(response.derivedStats.attackMaximum) || 4);
+          let baseDamage = definition.effect === 'fixed-damage'
+            ? Math.max(1, Number(values.fixedDamage) || 1)
+            : (archetype === 'mage'
+              ? Math.max(1, Number(response.derivedStats.magic) || 4)
+              : Math.max(1, Number(response.derivedStats.attackMaximum) || 4));
+          baseDamage += Number(ammunition?.attackBonus) || 0;
+          const critical = definition.effect !== 'fixed-damage'
+            && Math.random() * 100 < Number(response.derivedStats.criticalChance || 0);
+          if (critical) {
+            baseDamage *= Number(response.derivedStats.criticalDamagePercent || 200) / 100;
+          }
           baseDamage *= 1 + Number(activeEffects.damageIncreasePercent || 0) / 100;
           if (activeElements.length) {
             baseDamage *= 1 + Number(activeEffects.elementDamageIncreasePercent || 0) / 100;
@@ -723,16 +779,18 @@ function registerV2Routes({
               : 0,
             element: definition.element,
             elements: activeElements.length ? activeElements : [definition.element],
-            ignoreDefense: definition.effect === 'ignore-defense-damage',
+            ignoreDefense: ['ignore-defense-damage', 'fixed-damage'].includes(definition.effect),
             accuracy: response.derivedStats.accuracy,
             playerLevel: response.progression?.level,
             stunChance: Number(values.stunChance) || 0,
             stunSeconds: Number(values.stunSeconds) || 0,
             pull: ['charge', 'pull'].includes(definition.effect),
             dealDamage: definition.effect !== 'pull',
-            leaveAtOneHp: definition.effect === 'nonlethal-damage'
+            leaveAtOneHp: definition.effect === 'nonlethal-damage',
+            piercing: Boolean(definition.piercing)
           });
           if (!combat.success) throw new Error('사거리 안에 공격할 대상이 없습니다.');
+          combat.critical = critical;
           if (definition.effect === 'consume-combo-damage') skillState.comboCount = 0;
           if (definition.effect === 'damage-stun' && Number(values.consumeCombo)) {
             skillState.comboCount = Math.max(0, skillState.comboCount - Number(values.consumeCombo));
@@ -759,6 +817,14 @@ function registerV2Routes({
               (buff) => !ELEMENT_BUFF_SKILL_IDS.includes(buff.skillId)
             );
           }
+        } else if (definition.effect === 'heal') {
+          const maxHp = Math.max(1, Number(character.resources?.maxHp) || 1);
+          const healed = Math.max(
+            0,
+            Math.min(maxHp - character.resources.currentHp, Math.floor(Number(values.heal) || 0))
+          );
+          character.resources.currentHp += healed;
+          combat = { success: true, healed };
         } else if (definition.effect === 'debuff-self-buff') {
           const response = buildCharacterResponse(character);
           combat = useSkillOnMonsters({
@@ -813,7 +879,9 @@ function registerV2Routes({
             'attackIncrease', 'defenseIncrease', 'accuracyIncrease', 'evasionIncrease',
             'attackSpeedStage', 'shieldDefensePercent', 'stanceChance',
             'reflectPercent', 'targetMaxHpCapPercent', 'maxResourcePercent',
-            'maxCombo', 'damagePerComboPercent', 'damageIncreasePercent'
+            'maxCombo', 'damagePerComboPercent', 'damageIncreasePercent',
+            'noAmmoConsumption', 'movementSpeedIncrease', 'criticalChance',
+            'criticalDamagePercent', 'damageReductionPercent'
           ]) {
             if (Number.isFinite(Number(values[key]))) effects[key] = Number(values[key]);
           }
@@ -1030,7 +1098,7 @@ function registerV2Routes({
       if (!map?.safeZone) {
         return res.status(403).json({ msg: '상점은 안전지대에서만 이용할 수 있습니다.' });
       }
-      return res.json({ shop: buildShopView(character) });
+      return res.json({ shop: buildShopView(character, map.shopId) });
     } catch (err) {
       return res.status(500).json({ msg: '상점 정보를 불러오지 못했습니다.' });
     }
@@ -1043,10 +1111,11 @@ function registerV2Routes({
       const result = await withCharacterMutation(auth.id, async () => {
         const character = await V2Character.findOne({ userId: auth.id });
         if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
-        if (!getWorldMap(character.worldState?.mapId)?.safeZone) {
+        const map = getWorldMap(character.worldState?.mapId);
+        if (!map?.safeZone) {
           throw new Error('상점은 안전지대에서만 이용할 수 있습니다.');
         }
-        const purchase = buyShopItem(character, req.body?.itemId, req.body?.quantity);
+        const purchase = buyShopItem(character, req.body?.itemId, req.body?.quantity, map.shopId);
         await character.save();
         worldProfileCache.delete(String(auth.id));
         return purchase;
@@ -1075,6 +1144,72 @@ function registerV2Routes({
       return res.json({ success: true, ...result });
     } catch (err) {
       return res.status(400).json({ msg: err.message || '아이템을 판매하지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/inventory/use-item', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const result = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        const item = getItemDefinition(req.body?.itemId);
+        if (!item || !['return-scroll', 'experience-buff', 'hunting-time'].includes(item.itemType)) {
+          throw new Error('사용할 수 없는 아이템입니다.');
+        }
+        if (
+          item.itemType === 'hunting-time'
+          && Number(character.huntingTime?.remainingSeconds) >= 24000
+        ) {
+          throw new Error('자동사냥 시간이 이미 최대 400분입니다.');
+        }
+        if (!consumeInventoryItem(character, item.id, 1)) {
+          throw new Error('해당 아이템이 부족합니다.');
+        }
+
+        let map = null;
+        let message = '';
+        if (item.itemType === 'return-scroll') {
+          map = findNearestSafeMap(character.worldState?.mapId);
+          character.worldState.mapId = map.id;
+          character.worldState.x = 8;
+          character.worldState.floor = 0;
+          leaveWorld(auth.id);
+          message = `${map.name}(으)로 귀환했습니다.`;
+        } else if (item.itemType === 'experience-buff') {
+          const skillState = ensureSkillState(character);
+          const now = Date.now();
+          skillState.activeBuffs = skillState.activeBuffs.filter(
+            (buff) => buff.skillId !== item.id
+          );
+          skillState.activeBuffs.push({
+            skillId: item.id,
+            name: item.name,
+            effects: { experienceBonusPercent: Number(item.experienceBonusPercent) || 100 },
+            createdAt: new Date(now),
+            expiresAt: new Date(now + Math.max(1, Number(item.durationSeconds) || 900) * 1000)
+          });
+          character.markModified('skills');
+          message = `${item.name} 효과가 15분간 적용됩니다.`;
+        } else {
+          const huntingTime = addHuntingMinutes(character, item.huntingMinutes);
+          message = huntingTime.addedSeconds > 0
+            ? `자동사냥 시간이 ${Math.floor(huntingTime.addedSeconds / 60)}분 충전되었습니다.`
+            : '자동사냥 시간이 이미 최대 400분입니다.';
+        }
+        await character.save();
+        worldProfileCache.delete(String(auth.id));
+        return {
+          message,
+          map,
+          character: buildCharacterResponse(character),
+          inventory: buildInventoryView(character)
+        };
+      });
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '아이템을 사용하지 못했습니다.' });
     }
   });
 
@@ -1167,6 +1302,120 @@ function registerV2Routes({
     }
   });
 
+  app.get('/api/v2/party', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    const profile = await getWorldProfile(auth.id);
+    if (!profile) return res.status(404).json({ msg: 'V2 캐릭터를 찾을 수 없습니다.' });
+    const nearbyPlayers = listActivePlayers(profile.worldState?.mapId)
+      .filter((player) => player.userId !== String(auth.id))
+      .map(({ userId, nickname, activity }) => ({ userId, nickname, activity }));
+    return res.json({ ...getPartyState(auth.id), nearbyPlayers });
+  });
+
+  app.post('/api/v2/hunting-time/toggle', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const huntingTime = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        const result = setHuntingEnabled(character, req.body?.enabled === true);
+        await character.save();
+        worldProfileCache.delete(String(auth.id));
+        return result;
+      });
+      return res.json({ success: true, huntingTime });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '자동사냥 상태를 변경하지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/hunting-time/tick', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const huntingTime = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        const result = tickHuntingTime(character, req.body?.active === true);
+        await character.save();
+        worldProfileCache.delete(String(auth.id));
+        return result;
+      });
+      return res.json({ success: true, huntingTime });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '자동사냥 시간을 동기화하지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/party/invite', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const profile = await getWorldProfile(auth.id);
+      const targetId = String(req.body?.targetId || '');
+      const target = listActivePlayers(profile?.worldState?.mapId)
+        .find((player) => player.userId === targetId);
+      if (!profile || !target) throw new Error('같은 맵에 있는 플레이어만 초대할 수 있습니다.');
+      const invitation = invitePlayer(
+        { userId: auth.id, nickname: profile.displayName },
+        { userId: target.userId, nickname: target.nickname }
+      );
+      return res.json({ success: true, invitation, ...getPartyState(auth.id) });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '파티 초대를 보내지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/party/accept', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const profile = await getWorldProfile(auth.id);
+      const invitation = getPartyState(auth.id).invitation;
+      const inviterPresent = listActivePlayers(profile?.worldState?.mapId)
+        .some((player) => player.userId === invitation?.inviterId);
+      if (!inviterPresent) throw new Error('초대한 플레이어가 같은 맵에 없습니다.');
+      const party = acceptInvitation(
+        { userId: auth.id, nickname: profile?.displayName },
+        req.body?.invitationId
+      );
+      return res.json({ success: true, party, invitation: null });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '파티 초대를 수락하지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/party/decline', (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    declineInvitation(auth.id, req.body?.invitationId);
+    return res.json({ success: true, ...getPartyState(auth.id) });
+  });
+
+  app.post('/api/v2/party/leave', (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      removeMember(auth.id);
+      return res.json({ success: true, ...getPartyState(auth.id) });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '파티를 탈퇴하지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/party/kick', (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      removeMember(req.body?.targetId, auth.id);
+      return res.json({ success: true, ...getPartyState(auth.id) });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '파티원을 추방하지 못했습니다.' });
+    }
+  });
+
   app.post('/api/v2/world/heartbeat', async (req, res) => {
     const auth = requireV2User(req, res);
     if (!auth) return;
@@ -1174,6 +1423,13 @@ function registerV2Routes({
     try {
       const profile = await getWorldProfile(auth.id);
       if (!profile) return res.status(404).json({ msg: 'V2 캐릭터를 찾을 수 없습니다.' });
+      if (String(profile.huntingTime?.lastDailyGrantDate || '') !== getKoreaDateKey()) {
+        await withCharacterMutation(auth.id, async () => {
+          const character = await V2Character.findOne({ userId: auth.id });
+          if (character && ensureDailyHuntingMail(character)) await character.save();
+        });
+        worldProfileCache.delete(String(auth.id));
+      }
       const requestedMapId = String(req.body?.mapId || '');
       const requestedMap = getWorldMap(requestedMapId);
       if (!requestedMap) return res.status(400).json({ msg: '존재하지 않는 맵입니다.' });
@@ -1229,9 +1485,20 @@ function registerV2Routes({
         contactReflectPercent: profile.skillEffects?.contactReflectPercent,
         contactReflectCapPercent: profile.skillEffects?.contactReflectCapPercent,
         periodicHealPercent: recoverySkill?.values?.healPercent,
-        periodicHealIntervalMs: Number(recoverySkill?.values?.intervalSeconds || 0) * 1000,
-        periodicMpAmount: strongMindSkill?.values?.mpRestore,
-        periodicMpIntervalMs: Number(strongMindSkill?.values?.intervalSeconds || 0) * 1000,
+        periodicHealAmount: Number(profile.skillEffects?.periodicHpRestore) || 0,
+        periodicHealIntervalMs: Number(
+          recoverySkill?.values?.intervalSeconds
+          || profile.skillEffects?.periodicRestoreIntervalSeconds
+          || 0
+        ) * 1000,
+        periodicMpIntervalMs: Number(
+          strongMindSkill?.values?.intervalSeconds
+          || profile.skillEffects?.periodicRestoreIntervalSeconds
+          || 0
+        ) * 1000,
+        periodicMpAmount: Number(strongMindSkill?.values?.mpRestore)
+          || Number(profile.skillEffects?.periodicMpRestore)
+          || 0,
         idleHealAmount: endureSkill?.values?.heal,
         idleHealIntervalMs: Number(endureSkill?.values?.intervalSeconds || 0) * 1000
       });
@@ -1310,6 +1577,7 @@ function registerV2Routes({
         contactEvents: state.contactEvents,
         recoveryEvents: state.recoveryEvents,
         lootCollections: state.lootCollections,
+        partyState: getPartyState(auth.id),
         serverTime: Date.now()
       });
     } catch (err) {
@@ -1325,12 +1593,31 @@ function registerV2Routes({
     try {
       const profile = await getWorldProfile(auth.id);
       if (!profile) return res.status(404).json({ msg: 'V2 캐릭터를 찾을 수 없습니다.' });
+      if (!profile.huntingTime?.enabled || Number(profile.huntingTime?.remainingSeconds) <= 0) {
+        return res.status(400).json({ msg: '자동사냥 시간이 활성화되어 있지 않습니다.' });
+      }
+      const ammunition = getCombatAmmunition(profile);
+      const consumesAmmunition = ammunition && !profile.skillEffects?.noAmmoConsumption;
+      if (consumesAmmunition) {
+        const quantity = (profile.inventory?.items || [])
+          .filter((item) => item.id === ammunition.itemId)
+          .reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+        if (quantity <= 0) {
+          return res.status(400).json({ msg: '공격에 필요한 탄약이 부족합니다.' });
+        }
+      }
       const minimum = Math.max(0, Number(profile.derivedStats.attackMinimum) || 0);
       const maximum = Math.max(minimum, Number(profile.derivedStats.attackMaximum) || 0);
       let rolledDamage = maximum > 0
         ? minimum + Math.random() * (maximum - minimum)
         : 5;
+      rolledDamage += Number(ammunition?.attackBonus) || 0;
       const skillEffects = profile.skillEffects || {};
+      const critical = Math.random() * 100
+        < Number(profile.derivedStats.criticalChance || 0);
+      if (critical) {
+        rolledDamage *= Number(profile.derivedStats.criticalDamagePercent || 200) / 100;
+      }
       const activeElements = getActiveWeaponElements(profile.skillTree);
       rolledDamage *= 1 + Number(skillEffects.damageIncreasePercent || 0) / 100;
       if (activeElements.length) {
@@ -1368,6 +1655,19 @@ function registerV2Routes({
           reason: result.reason
         });
       }
+      result.critical = critical;
+      if (consumesAmmunition) {
+        await V2Character.updateOne(
+          {
+            userId: auth.id,
+            'inventory.items': {
+              $elemMatch: { itemId: ammunition.itemId, quantity: { $gte: 1 } }
+            }
+          },
+          { $inc: { 'inventory.items.$.quantity': -1 } }
+        );
+        worldProfileCache.delete(String(auth.id));
+      }
       if (
         !result.defeated
         && !result.missed
@@ -1376,7 +1676,7 @@ function registerV2Routes({
         const second = attackMonster({
           userId: String(auth.id),
           mapId: String(req.body?.mapId || ''),
-          monsterId: String(req.body?.monsterId || ''),
+          monsterId: String(result.targetId || req.body?.monsterId || ''),
           damage: rolledDamage * Number(skillEffects.doubleStrikeDamagePercent || 0) / 100,
           rangePx: profile.combatPresentation?.rangePx || profile.derivedStats.attackRange,
           damageType: archetype === 'mage' ? 'magic' : 'physical',
@@ -1488,7 +1788,9 @@ function registerV2Routes({
             $set: {
               'worldState.mapId': mapId,
               'worldState.x': Math.max(0, Math.min(94, Number(req.body?.x) || 8)),
-              'worldState.floor': Number(req.body?.floor) === 1 ? 1 : 0
+              'worldState.floor': Number(req.body?.floor) === 1 ? 1 : 0,
+              'huntingTime.enabled': false,
+              'huntingTime.lastTickAt': null
             }
           }
         );

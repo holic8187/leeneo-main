@@ -3,14 +3,14 @@
 const START_MAP_ID = 'main_lobby';
 
 const MAP_DEFINITIONS = [
-  { id: 'main_lobby', name: '호이상사 중앙로비', region: '본관 초입', minLevel: 1, maxLevel: 8, theme: 'lobby', features: ['elevator'], safeZone: true },
+  { id: 'main_lobby', name: '호이상사 중앙로비', region: '본관 초입', minLevel: 1, maxLevel: 8, theme: 'lobby', features: ['elevator'], safeZone: true, shopId: 'headquarters' },
   { id: 'newcomer_training', name: '신입사원 연수원', region: '본관 초입', minLevel: 1, maxLevel: 10, theme: 'training', features: ['ladder'] },
   { id: 'document_corridor', name: '결재서류 복도', region: '본관 초입', minLevel: 5, maxLevel: 15, theme: 'office', features: ['rope'] },
   { id: 'pantry_alley', name: '탕비실 뒷골목', region: '본관 초입', minLevel: 8, maxLevel: 18, theme: 'pantry', features: ['boxes'] },
   { id: 'parking_b1', name: '지하주차장 B1', region: '본관 초입', minLevel: 10, maxLevel: 22, theme: 'parking', features: ['ladder'] },
   { id: 'rooftop_garden', name: '옥상 휴게정원', region: '본관 초입', minLevel: 12, maxLevel: 24, theme: 'rooftop', features: ['rope'] },
 
-  { id: 'hr_reception', name: '인사팀 접견실', region: '인사관리동', minLevel: 15, maxLevel: 28, theme: 'hr', features: ['elevator'] },
+  { id: 'hr_reception', name: '인사팀 접견실', region: '인사관리동', minLevel: 15, maxLevel: 28, theme: 'hr', features: ['elevator'], safeZone: true, shopId: 'personnel_annex' },
   { id: 'interview_maze', name: '채용면접 미로', region: '인사관리동', minLevel: 18, maxLevel: 32, theme: 'hr', features: ['ladder'] },
   { id: 'talent_center', name: '인재개발원 수련관', region: '인사관리동', minLevel: 22, maxLevel: 36, theme: 'training', features: ['rope', 'ladder'] },
   { id: 'org_archive', name: '조직문화 기록관', region: '인사관리동', minLevel: 26, maxLevel: 40, theme: 'archive', features: ['boxes'] },
@@ -23,7 +23,7 @@ const MAP_DEFINITIONS = [
   { id: 'brand_studio', name: '브랜드 스튜디오', region: '영업마케팅동', minLevel: 30, maxLevel: 48, theme: 'studio', features: ['rope'] },
   { id: 'ad_set', name: '야외 광고촬영장', region: '영업마케팅동', minLevel: 36, maxLevel: 54, theme: 'studio', features: ['ladder'] },
   { id: 'market_research', name: '시장조사 거리', region: '영업마케팅동', minLevel: 42, maxLevel: 60, theme: 'street', features: ['boxes'] },
-  { id: 'sales_floor', name: '영업본부 전진기지', region: '영업마케팅동', minLevel: 48, maxLevel: 68, theme: 'sales', features: ['elevator'] },
+  { id: 'sales_floor', name: '영업본부 전진기지', region: '영업마케팅동', minLevel: 48, maxLevel: 68, theme: 'sales', features: ['elevator'], safeZone: true, shopId: 'sales_outpost' },
 
   { id: 'dev_floor', name: '개발팀 스프린트실', region: '개발연구동', minLevel: 50, maxLevel: 70, theme: 'development', features: ['ladder'] },
   { id: 'server_corridor', name: '서버실 냉각통로', region: '개발연구동', minLevel: 56, maxLevel: 76, theme: 'server', features: ['rope'] },

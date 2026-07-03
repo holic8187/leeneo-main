@@ -6,6 +6,7 @@ const { SKILL_DEFINITIONS } = require('../../src/v2/skills/skillDefinitions');
 const {
   ensureSkillState,
   resolveSkillValues,
+  getEarnedSkillPointsForTier,
   getInvestmentBlockReason,
   investSkill,
   setActivePreset,
@@ -19,7 +20,7 @@ const {
 function makeCharacter(overrides = {}) {
   return {
     job: { departmentId: 'hr', advancementTier: 4 },
-    progression: { unspentSkillPoints: 500 },
+    progression: { level: 120, unspentSkillPoints: 500 },
     skills: {
       levels: {},
       activePreset: [],
@@ -71,6 +72,47 @@ test('quoted skill values interpolate from level one through master level', () =
   assert.ok(resolveSkillValues(definition, 10).damagePercent > 114);
 });
 
+test('beginner skills use exactly nine points from levels two through ten', () => {
+  const character = makeCharacter({
+    job: { departmentId: 'unassigned', advancementTier: 0 },
+    progression: { level: 10, unspentSkillPoints: 9 },
+    skills: {
+      levels: {},
+      activePreset: [],
+      unlockedQuestSkills: [],
+      activeBuffs: [],
+      cooldowns: {},
+      summon: null,
+      comboCount: 0
+    }
+  });
+  assert.equal(getEarnedSkillPointsForTier(character, 0), 9);
+  assert.equal(resolveSkillValues(SKILL_DEFINITIONS.field_training, 1).fixedDamage, 10);
+  assert.equal(resolveSkillValues(SKILL_DEFINITIONS.field_training, 5).fixedDamage, 30);
+  assert.equal(resolveSkillValues(SKILL_DEFINITIONS.outstanding_recovery, 5).heal, 150);
+  investSkill(character, 'field_training', 5);
+  investSkill(character, 'outstanding_recovery', 4);
+  assert.equal(character.progression.unspentSkillPoints, 0);
+  assert.match(
+    getInvestmentBlockReason(character, SKILL_DEFINITIONS.outstanding_recovery),
+    /0차 스킬 포인트/
+  );
+});
+
+test('first advancement point belongs to tier one and level eleven grants three more', () => {
+  const levelTen = makeCharacter({
+    job: { departmentId: 'hr', advancementTier: 1 },
+    progression: { level: 10, unspentSkillPoints: 1 }
+  });
+  assert.equal(getEarnedSkillPointsForTier(levelTen, 0), 9);
+  assert.equal(getEarnedSkillPointsForTier(levelTen, 1), 1);
+  const levelEleven = makeCharacter({
+    job: { departmentId: 'hr', advancementTier: 1 },
+    progression: { level: 11, unspentSkillPoints: 4 }
+  });
+  assert.equal(getEarnedSkillPointsForTier(levelEleven, 1), 4);
+});
+
 test('skill tree descriptions explain the role before listing current coefficients', () => {
   const character = makeCharacter();
   character.skills.levels.power_strike = 1;
@@ -106,16 +148,16 @@ test('passive skills cannot enter the ten-slot active preset', () => {
   assert.throws(() => setActivePreset(character, ['recovery_improvement']), /액티브/);
 });
 
-test('HR and quality trees expose four tiers and spend real skill points', () => {
+test('HR and quality trees expose beginner plus four advancement tiers', () => {
   const character = makeCharacter({
     job: { departmentId: 'quality', advancementTier: 4 },
-    progression: { unspentSkillPoints: 10 }
+    progression: { level: 120, unspentSkillPoints: 10 }
   });
   const result = investSkill(character, 'recovery_improvement', 3);
   assert.equal(result.level, 3);
   assert.equal(character.progression.unspentSkillPoints, 7);
   const tree = buildSkillTree(character);
-  assert.deepEqual([...new Set(tree.skills.map((skill) => skill.tier))], [1, 2, 3, 4]);
+  assert.deepEqual([...new Set(tree.skills.map((skill) => skill.tier))], [0, 1, 2, 3, 4]);
   assert.ok(tree.skills.some((skill) => skill.name === '작은 동반자'));
 });
 
@@ -132,6 +174,45 @@ test('field operations exposes its mastery, elemental, and finishing skills', ()
   ]) {
     assert.equal(ids.has(skillId), true, `${skillId} should be in field operations tree`);
   }
+});
+
+test('shoulder charge uses each department booster prerequisite', () => {
+  const tierOneLevels = {
+    recovery_improvement: 16,
+    hp_growth_improvement: 10,
+    endure: 8,
+    iron_body: 20,
+    power_strike: 7
+  };
+  const fieldCharacter = makeCharacter({
+    job: { departmentId: 'field_operations', advancementTier: 2 }
+  });
+  fieldCharacter.skills.levels = {
+    ...tierOneLevels,
+    rage: 3,
+    booster_field: 2
+  };
+  assert.match(
+    getInvestmentBlockReason(fieldCharacter, SKILL_DEFINITIONS.shoulder_charge),
+    /부스터 3레벨/
+  );
+  fieldCharacter.skills.levels.booster_field = 3;
+  assert.equal(getInvestmentBlockReason(fieldCharacter, SKILL_DEFINITIONS.shoulder_charge), '');
+
+  const hrCharacter = makeCharacter({
+    job: { departmentId: 'hr', advancementTier: 2 }
+  });
+  hrCharacter.skills.levels = {
+    ...tierOneLevels,
+    booster_hr: 3,
+    rage: 2
+  };
+  assert.match(
+    getInvestmentBlockReason(hrCharacter, SKILL_DEFINITIONS.shoulder_charge),
+    /분노 3레벨/
+  );
+  hrCharacter.skills.levels.rage = 3;
+  assert.equal(getInvestmentBlockReason(hrCharacter, SKILL_DEFINITIONS.shoulder_charge), '');
 });
 
 test('field elemental passives increase elemental and explosion damage', () => {
@@ -192,4 +273,27 @@ test('active buffs expose duration and tooltip data for the combat buff tray', (
   assert.equal(tree.activeBuffs[0].name, '강철몸');
   assert.match(tree.activeBuffs[0].description, /방어력/);
   assert.ok(tree.activeBuffs[0].durationMs >= 10_000);
+});
+
+test('the reviewed draft exposes complete four-tier trees for every ranged and magic department', () => {
+  for (const departmentId of [
+    'accounting',
+    'marketing',
+    'sales',
+    'facilities',
+    'development',
+    'research',
+    'management_support'
+  ]) {
+    const character = makeCharacter({
+      job: { departmentId, advancementTier: 4 }
+    });
+    const tree = buildSkillTree(character);
+    assert.ok(tree.skills.length >= 28, `${departmentId} is missing skills`);
+    assert.deepEqual(
+      [...new Set(tree.skills.map((skill) => skill.tier))].sort(),
+      [0, 1, 2, 3, 4]
+    );
+    assert.ok(tree.skills.every((skill) => skill.description.length > 10));
+  }
 });

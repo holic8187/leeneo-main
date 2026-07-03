@@ -399,6 +399,12 @@ function buildCharacterResponse(character) {
       x: Math.max(0, Math.min(94, Number(plain.worldState?.x) || 8)),
       floor: Number(plain.worldState?.floor) === 1 ? 1 : 0
     },
+    huntingTime: {
+      remainingSeconds: Math.max(0, Number(plain.huntingTime?.remainingSeconds) || 0),
+      maximumSeconds: 24000,
+      enabled: Boolean(plain.huntingTime?.enabled),
+      lastDailyGrantDate: String(plain.huntingTime?.lastDailyGrantDate || '')
+    },
     actionPoints: plain.actionPoints,
     economy: plain.economy,
     combatPresentation,

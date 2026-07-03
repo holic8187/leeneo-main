@@ -9,6 +9,11 @@ const {
 } = require('./inventoryService');
 
 const MAX_TRANSACTION_QUANTITY = 10_000;
+const SHOP_PRICE_MULTIPLIERS = Object.freeze({
+  headquarters: 1,
+  personnel_annex: 0.97,
+  sales_outpost: 1.04
+});
 
 function getMoney(character) {
   return Math.max(0, Math.floor(Number(character?.economy?.money) || 0));
@@ -27,18 +32,35 @@ function normalizeQuantity(quantity) {
   ));
 }
 
-function buyShopItem(character, itemId, quantity) {
+function getRegionalShopItem(itemId, shopId) {
   const item = getItemDefinition(itemId);
-  if (!item || Number(item.buyPrice) <= 0) throw new Error('상점에서 구매할 수 없는 아이템입니다.');
+  if (
+    !item
+    || Number(item.buyPrice) <= 0
+    || !item.shopTags?.includes(String(shopId || 'headquarters'))
+  ) {
+    throw new Error('현재 안전지대 상점에서 구매할 수 없는 아이템입니다.');
+  }
+  const multiplier = SHOP_PRICE_MULTIPLIERS[shopId] || 1;
+  return {
+    ...item,
+    buyPrice: Math.max(1, Math.round(Number(item.buyPrice) * multiplier))
+  };
+}
+
+function buyShopItem(character, itemId, quantity, shopId = 'headquarters') {
+  const item = getRegionalShopItem(itemId, shopId);
   const safeQuantity = normalizeQuantity(quantity);
   const totalPrice = Math.floor(item.buyPrice * safeQuantity);
+  const grantedQuantity = safeQuantity * Math.max(1, Math.floor(Number(item.purchaseQuantity) || 1));
   const currentMoney = getMoney(character);
   if (currentMoney < totalPrice) throw new Error('보유한 돈이 부족합니다.');
-  addInventoryItem(character, item.id, safeQuantity);
+  addInventoryItem(character, item.id, grantedQuantity);
   setMoney(character, currentMoney - totalPrice);
   return {
     item: { ...item },
-    quantity: safeQuantity,
+    quantity: grantedQuantity,
+    purchaseCount: safeQuantity,
     totalPrice,
     money: getMoney(character),
     inventory: buildInventoryView(character)
@@ -65,10 +87,11 @@ function sellInventoryStack(character, stackId, quantity) {
   };
 }
 
-function buildShopView(character) {
+function buildShopView(character, shopId = 'headquarters') {
   return {
     money: getMoney(character),
-    buyItems: listShopItems(),
+    shopId,
+    buyItems: listShopItems(shopId).map((item) => getRegionalShopItem(item.id, shopId)),
     inventory: buildInventoryView(character)
   };
 }
@@ -76,6 +99,7 @@ function buildShopView(character) {
 module.exports = {
   MAX_TRANSACTION_QUANTITY,
   getMoney,
+  getRegionalShopItem,
   buyShopItem,
   sellInventoryStack,
   buildShopView

@@ -58,11 +58,13 @@ function createMonster(map, index, now) {
     elementalMultipliers: species.elementalMultipliers,
     level: species.level,
     hp: stats.maxHp,
+    mp: stats.maxMp,
     ...stats,
     x: upper ? randomBetween(49, 70) : randomBetween(18, 82),
     floor: upper ? 1 : 0,
     direction: Math.random() < 0.5 ? -1 : 1,
     state: 'idle',
+    spawnedAt: now,
     decisionAt: now + randomBetween(800, 2_600),
     stunnedUntil: 0,
     outgoingDamageReductionPercent: 0,
@@ -92,6 +94,8 @@ function serializeMonster(monster) {
     level: monster.level,
     hp: monster.hp,
     maxHp: monster.maxHp,
+    mp: monster.mp,
+    maxMp: monster.maxMp,
     contactDamage: monster.contactDamage,
     physicalDefense: monster.physicalDefense,
     magicDefense: monster.magicDefense,
@@ -103,7 +107,8 @@ function serializeMonster(monster) {
     x: monster.x,
     floor: monster.floor,
     direction: monster.direction,
-    state: monster.state
+    state: monster.state,
+    spawnedAt: monster.spawnedAt
   };
 }
 
@@ -241,17 +246,32 @@ function advanceMonster(monster, runtime, map, deltaSeconds, now) {
 function applyContactDamage(runtime, now) {
   const damagedPlayers = [];
   for (const player of runtime.players.values()) {
+    const movementStartX = Number.isFinite(Number(player.collisionOriginX))
+      ? Number(player.collisionOriginX)
+      : player.x;
+    const movementStartFloor = Number.isFinite(Number(player.collisionOriginFloor))
+      ? Number(player.collisionOriginFloor)
+      : player.floor;
+    player.collisionOriginX = player.x;
+    player.collisionOriginFloor = player.floor;
     if (player.currentHp <= 0 || now < player.invulnerableUntil) continue;
     if (player.lastContactAt && now - player.lastContactAt < CONTACT_COOLDOWN_MS) continue;
     const playerWidthPercent = PLAYER_VISUAL_WIDTH_PX / ASSUMED_STAGE_WIDTH_PX * 100;
     const monsterHalfWidthPercent = MONSTER_VISUAL_WIDTH_PX / 2 / ASSUMED_STAGE_WIDTH_PX * 100;
     const playerLeft = player.x;
     const playerRight = player.x + playerWidthPercent;
+    const canSweepMovement = player.activity === 'moving' && movementStartFloor === player.floor;
+    const sweptPlayerLeft = canSweepMovement
+      ? Math.min(movementStartX, playerLeft)
+      : playerLeft;
+    const sweptPlayerRight = canSweepMovement
+      ? Math.max(movementStartX + playerWidthPercent, playerRight)
+      : playerRight;
     const collider = runtime.monsters.find((monster) => {
       if (monster.hp <= 0 || monster.floor !== player.floor) return false;
       const monsterLeft = monster.x - monsterHalfWidthPercent;
       const monsterRight = monster.x + monsterHalfWidthPercent;
-      return playerRight >= monsterLeft && playerLeft <= monsterRight;
+      return sweptPlayerRight >= monsterLeft && sweptPlayerLeft <= monsterRight;
     });
     if (!collider) continue;
     const outgoingReduction = now < Number(collider.outgoingDamageDebuffUntil || 0)
@@ -368,6 +388,7 @@ function buildPassiveRecoverySchedule({
   currentMp,
   maxMp,
   periodicHealPercent,
+  periodicHealAmount,
   periodicHealIntervalMs,
   periodicMpAmount,
   periodicMpIntervalMs,
@@ -382,11 +403,20 @@ function buildPassiveRecoverySchedule({
   };
   let healAmount = 0;
   const periodicInterval = Math.max(0, Number(periodicHealIntervalMs) || 0);
-  if (Number(periodicHealPercent) > 0 && periodicInterval > 0) {
+  if (
+    (Number(periodicHealPercent) > 0 || Number(periodicHealAmount) > 0)
+    && periodicInterval > 0
+  ) {
     const ticks = Math.floor((now - schedule.periodicAt) / periodicInterval);
     if (ticks > 0) {
       schedule.periodicAt += ticks * periodicInterval;
-      healAmount += ticks * Math.max(1, Math.floor(maxHp * Number(periodicHealPercent) / 100));
+      healAmount += ticks * Math.max(
+        1,
+        Math.floor(
+          maxHp * Number(periodicHealPercent) / 100
+          + Number(periodicHealAmount || 0)
+        )
+      );
     }
   } else {
     schedule.periodicAt = now;
@@ -447,6 +477,7 @@ function updatePresence({
   contactReflectPercent,
   contactReflectCapPercent,
   periodicHealPercent,
+  periodicHealAmount,
   periodicHealIntervalMs,
   periodicMpAmount,
   periodicMpIntervalMs,
@@ -479,6 +510,7 @@ function updatePresence({
     currentMp: resolvedMp,
     maxMp: resolvedMaxMp,
     periodicHealPercent,
+    periodicHealAmount,
     periodicHealIntervalMs,
     periodicMpAmount,
     periodicMpIntervalMs,
@@ -501,6 +533,8 @@ function updatePresence({
     passiveRecoverySchedule: recovery.schedule,
     lastContactAt: previous?.lastContactAt || 0,
     invulnerableUntil: previous?.invulnerableUntil || 0,
+    collisionOriginX: previous?.x ?? clamp(x, 0, 94),
+    collisionOriginFloor: previous?.floor ?? (Number(floor) === 1 ? 1 : 0),
     combatProfile: {
       playerLevel: Math.max(
         1,
@@ -565,6 +599,28 @@ function applyHeavyHitKnockback(monster, player, damage) {
   return true;
 }
 
+function selectFrontMonster(runtime, player, requestedMonster, rangePercent) {
+  if (!requestedMonster) return null;
+  const requestedOffset = requestedMonster.x - player.x;
+  const direction = requestedOffset === 0
+    ? (player.facingLeft ? -1 : 1)
+    : Math.sign(requestedOffset);
+  const requestedDistance = Math.abs(requestedOffset);
+  return runtime.monsters
+    .filter((monster) => {
+      if (monster.hp <= 0 || monster.floor !== player.floor) return false;
+      const offset = monster.x - player.x;
+      const sameDirection = offset === 0 || Math.sign(offset) === direction;
+      const distance = Math.abs(offset);
+      return sameDirection
+        && distance <= requestedDistance + 0.001
+        && distance <= rangePercent + 4.5;
+    })
+    .sort((left, right) => (
+      Math.abs(left.x - player.x) - Math.abs(right.x - player.x)
+    ))[0] || null;
+}
+
 function attackMonster({
   userId,
   mapId,
@@ -577,6 +633,7 @@ function attackMonster({
   freezeSeconds = 0,
   accuracy = null,
   playerLevel = 1,
+  piercing = false,
   now = Date.now()
 }) {
   cleanupInactiveMaps(now);
@@ -584,14 +641,18 @@ function attackMonster({
   if (!runtime) return { success: false, reason: 'inactive-map' };
   tickRuntime(runtime, now);
   const player = runtime.players.get(userId);
-  const monster = runtime.monsters.find((entry) => entry.id === monsterId && entry.hp > 0);
-  if (!player || !monster) return { success: false, reason: 'missing-target' };
+  const requestedMonster = runtime.monsters.find((entry) => entry.id === monsterId && entry.hp > 0);
+  if (!player || !requestedMonster) return { success: false, reason: 'missing-target' };
   if (player.currentHp <= 0) return { success: false, reason: 'dead' };
-  if (player.floor !== monster.floor) return { success: false, reason: 'different-floor' };
+  if (player.floor !== requestedMonster.floor) return { success: false, reason: 'different-floor' };
   const rangePercent = Math.max(1, Number(rangePx) || 22) / ASSUMED_STAGE_WIDTH_PX * 100;
-  if (Math.abs(player.x - monster.x) > rangePercent + 4.5) {
+  if (Math.abs(player.x - requestedMonster.x) > rangePercent + 4.5) {
     return { success: false, reason: 'out-of-range' };
   }
+  const monster = piercing
+    ? requestedMonster
+    : selectFrontMonster(runtime, player, requestedMonster, rangePercent);
+  if (!monster) return { success: false, reason: 'missing-target' };
   const requiredAccuracy = calculateRequiredAccuracy({
     characterLevel: playerLevel,
     monsterLevel: monster.level,
@@ -611,6 +672,7 @@ function attackMonster({
       defeated: false,
       expReward: 0,
       drops: [],
+      targetId: monster.id,
       monster: serializeMonster(monster)
     };
   }
@@ -659,6 +721,7 @@ function attackMonster({
   }
   return {
     success: true,
+    targetId: monster.id,
     damage: finalDamage,
     element: activeElements.join('+') || 'neutral',
     elementMultiplier,
@@ -713,6 +776,7 @@ function useSkillOnMonsters({
   outgoingDamageReductionPercent = 0,
   debuffChance = 100,
   debuffDurationSeconds = 0,
+  piercing = false,
   now = Date.now()
 }) {
   cleanupInactiveMaps(now);
@@ -723,18 +787,22 @@ function useSkillOnMonsters({
   if (!player) return { success: false, reason: 'missing-player' };
   if (player.currentHp <= 0) return { success: false, reason: 'dead' };
   const rangePercent = Math.max(1, Number(rangePx) || 100) / ASSUMED_STAGE_WIDTH_PX * 100;
-  const candidates = runtime.monsters
+  const inRange = runtime.monsters
     .filter((monster) => (
       monster.hp > 0
       && monster.floor === player.floor
       && Math.abs(monster.x - player.x) <= rangePercent + 4.5
-    ))
-    .sort((left, right) => {
+    ));
+  const requestedMonster = inRange.find((monster) => monster.id === targetId);
+  const targetLimit = Math.max(1, Math.floor(Number(maxTargets) || 1));
+  const candidates = targetLimit === 1 && requestedMonster && !piercing
+    ? [selectFrontMonster(runtime, player, requestedMonster, rangePercent)].filter(Boolean)
+    : inRange.sort((left, right) => {
       if (left.id === targetId) return -1;
       if (right.id === targetId) return 1;
       return Math.abs(left.x - player.x) - Math.abs(right.x - player.x);
     })
-    .slice(0, Math.max(1, Math.floor(Number(maxTargets) || 1)));
+      .slice(0, targetLimit);
   if (!candidates.length) return { success: false, reason: 'out-of-range' };
 
   const outcomes = [];
@@ -874,6 +942,13 @@ function leaveWorld(userId) {
   cleanupInactiveMaps(Date.now());
 }
 
+function listActivePlayers(mapId, now = Date.now()) {
+  cleanupInactiveMaps(now);
+  const runtime = activeMaps.get(String(mapId || ''));
+  if (!runtime) return [];
+  return Array.from(runtime.players.values()).map(serializePlayer);
+}
+
 function resetWorldRuntime() {
   activeMaps.clear();
   worldControllers.clear();
@@ -895,6 +970,7 @@ module.exports = {
   attackMonster,
   useSkillOnMonsters,
   updatePlayerResources,
+  listActivePlayers,
   leaveWorld,
   resetWorldRuntime
 };

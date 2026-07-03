@@ -2,6 +2,20 @@
 
 const TIER_SP_REQUIREMENTS = Object.freeze({ 2: 61, 3: 121, 4: 151 });
 const WARRIOR_DEPARTMENTS = Object.freeze(['hr', 'field_operations', 'quality']);
+const ALL_DEPARTMENTS = Object.freeze([
+  'unassigned',
+  'hr',
+  'accounting',
+  'management_support',
+  'sales',
+  'marketing',
+  'development',
+  'field_operations',
+  'facilities',
+  'quality',
+  'research'
+]);
+const EXTENDED_SKILL_DEFINITIONS = require('./extendedSkillDefinitions.generated.json');
 
 function defineSkill(id, options) {
   return Object.freeze({
@@ -18,6 +32,27 @@ function defineSkill(id, options) {
 }
 
 const SKILL_DEFINITIONS = Object.freeze({
+  ...EXTENDED_SKILL_DEFINITIONS,
+  field_training: defineSkill('field_training', {
+    name: '현장실습!',
+    description: '정신력을 10 소모해 전방의 적 1인에게 고정 피해를 입힙니다.',
+    tier: 0,
+    maxLevel: 5,
+    departments: ALL_DEPARTMENTS,
+    target: 'enemy',
+    range: 110,
+    effect: 'fixed-damage',
+    values: { mpCost: 10, fixedDamage: [10, 30] }
+  }),
+  outstanding_recovery: defineSkill('outstanding_recovery', {
+    name: '뛰어난 회복력',
+    description: '정신력을 10 소모해 자신의 체력을 즉시 회복합니다.',
+    tier: 0,
+    maxLevel: 5,
+    departments: ALL_DEPARTMENTS,
+    effect: 'heal',
+    values: { mpCost: 10, heal: [20, 150], cooldownSeconds: 300 }
+  }),
   recovery_improvement: defineSkill('recovery_improvement', {
     name: '회복력 향상', tier: 1, maxLevel: 16, departments: WARRIOR_DEPARTMENTS,
     passive: true, effect: 'periodic-heal', values: { healPercent: [0.2, 2], intervalSeconds: 10 }
@@ -80,7 +115,11 @@ const SKILL_DEFINITIONS = Object.freeze({
   }),
   shoulder_charge: defineSkill('shoulder_charge', {
     name: '어깨빵', tier: 2, maxLevel: 30, departments: ['hr', 'field_operations'],
-    prerequisites: [{ skillId: 'rage', level: 3 }], effect: 'contact-reflect',
+    prerequisitesByDepartment: {
+      hr: [{ skillId: 'rage', level: 3 }],
+      field_operations: [{ skillId: 'booster_field', level: 3 }]
+    },
+    effect: 'contact-reflect',
     values: { mpCost: 30, reflectPercent: [2, 40], targetMaxHpCapPercent: 10 }
   }),
 

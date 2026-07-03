@@ -32,12 +32,18 @@ function markMailboxModified(character) {
   if (typeof character?.markModified === 'function') character.markModified('mailbox');
 }
 
-function createStack(itemId, quantity) {
+function createStack(itemId, quantity, expiresAt = null) {
   return {
     stackId: crypto.randomUUID(),
     itemId: String(itemId),
-    quantity: Math.max(0, Math.floor(Number(quantity) || 0))
+    quantity: Math.max(0, Math.floor(Number(quantity) || 0)),
+    expiresAt
   };
+}
+
+function getDefaultExpiry(item, now = Date.now()) {
+  const seconds = Math.max(0, Number(item?.expiresAfterSeconds) || 0);
+  return seconds ? new Date(now + seconds * 1000) : null;
 }
 
 function getMaxStackSize(item) {
@@ -54,6 +60,16 @@ function normalizeInventoryStacks(character) {
   for (const entry of inventory.items) {
     const itemId = String(entry?.itemId || '');
     const quantity = Math.max(0, Math.floor(Number(entry?.quantity) || 0));
+    const item = getItemDefinition(itemId);
+    let expiresAt = entry?.expiresAt ? new Date(entry.expiresAt) : null;
+    if (item?.expiresAfterSeconds && !expiresAt) {
+      expiresAt = getDefaultExpiry(item);
+      changed = true;
+    }
+    if (expiresAt && expiresAt.getTime() <= Date.now()) {
+      changed = true;
+      continue;
+    }
     if (!itemId || !quantity) {
       changed = true;
       continue;
@@ -66,7 +82,8 @@ function normalizeInventoryStacks(character) {
       normalized.push({
         stackId: first && entry.stackId ? String(entry.stackId) : crypto.randomUUID(),
         itemId,
-        quantity: stackQuantity
+        quantity: stackQuantity,
+        expiresAt
       });
       if (!entry.stackId || quantity > maxStack || !first) changed = true;
       first = false;
@@ -187,8 +204,10 @@ function addInventoryItem(character, itemId, quantity) {
   assertInventorySpace(character, item, safeQuantity);
   const inventory = ensureInventory(character);
   const maxStack = getMaxStackSize(item);
+  const expiresAt = getDefaultExpiry(item);
   let remaining = safeQuantity;
   for (const stack of getItemStacks(character, item.id)) {
+    if (item.expiresAfterSeconds) continue;
     const available = Math.max(0, maxStack - Math.floor(Number(stack.quantity) || 0));
     const added = Math.min(available, remaining);
     stack.quantity += added;
@@ -197,7 +216,7 @@ function addInventoryItem(character, itemId, quantity) {
   }
   while (remaining > 0) {
     const stackQuantity = Math.min(maxStack, remaining);
-    inventory.items.push(createStack(item.id, stackQuantity));
+    inventory.items.push(createStack(item.id, stackQuantity, expiresAt));
     remaining -= stackQuantity;
   }
   markInventoryModified(character);
@@ -383,7 +402,13 @@ function buildInventoryView(character) {
       const item = getItemDefinition(entry.itemId);
       const quantity = Math.max(0, Math.floor(Number(entry.quantity) || 0));
       return item && quantity > 0
-        ? { ...item, stackId: String(entry.stackId || ''), quantity, maxStack: getMaxStackSize(item) }
+        ? {
+          ...item,
+          stackId: String(entry.stackId || ''),
+          quantity,
+          maxStack: getMaxStackSize(item),
+          expiresAt: entry.expiresAt || null
+        }
         : null;
     })
     .filter(Boolean);

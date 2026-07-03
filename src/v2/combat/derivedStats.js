@@ -139,7 +139,13 @@ function buildDerivedStats({
     magic,
     accuracy: roundStat(accuracy),
     evasion: roundStat(evasion),
-    movementSpeed: roundStat(100 + sumLoadoutStat(loadout, 'movementSpeed')),
+    movementSpeed: roundStat(
+      100
+      + sumLoadoutStat(loadout, 'movementSpeed')
+      + finite(skillEffects.movementSpeedIncrease)
+    ),
+    criticalChance: Math.max(0, Math.min(100, finite(skillEffects.criticalChance))),
+    criticalDamagePercent: Math.max(100, finite(skillEffects.criticalDamagePercent) || 200),
     attackRange: Math.max(0, finite(DEFAULT_WEAPON_RANGES[weaponType] || 100)),
     attackSpeedStage: Math.max(1, Math.floor(1 + finite(skillEffects.attackSpeedStage))),
     attackSpeedMultiplier: Math.max(0.1, finite(weapon?.attackSpeedMultiplier) || 1),

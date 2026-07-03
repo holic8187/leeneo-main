@@ -16,6 +16,7 @@ const VALUE_LABELS = Object.freeze({
   mpCost: '정신력 소모',
   hpCost: '체력 소모',
   damagePercent: '데미지',
+  fixedDamage: '고정 피해',
   defenseIncrease: '방어력',
   attackIncrease: '공격력',
   mastery: '숙련도',
@@ -170,6 +171,23 @@ function getTierSpent(character, tier) {
     .reduce((total, definition) => total + getSkillLevel(character, definition.id), 0);
 }
 
+function getEarnedSkillPointsForTier(character, tier) {
+  const level = Math.max(1, Math.min(200, Math.floor(Number(character.progression?.level) || 1)));
+  const advancementTier = Math.max(0, Math.min(4, Math.floor(Number(character.job?.advancementTier) || 0)));
+  const requestedTier = Number(tier);
+  if (requestedTier === 0) return Math.min(9, level - 1);
+  if (requestedTier > advancementTier) return 0;
+  const boundaries = {
+    1: { start: 10, end: 30 },
+    2: { start: 30, end: 70 },
+    3: { start: 70, end: 120 },
+    4: { start: 120, end: 200 }
+  };
+  const boundary = boundaries[requestedTier];
+  if (!boundary) return 0;
+  return 1 + Math.max(0, Math.min(boundary.end, level) - boundary.start) * 3;
+}
+
 function getInvestmentBlockReason(character, definition) {
   if (!definition) return '존재하지 않는 스킬입니다.';
   if (!definition.departments.includes(character.job?.departmentId)) {
@@ -178,6 +196,9 @@ function getInvestmentBlockReason(character, definition) {
   if (Number(character.job?.advancementTier) < definition.tier) {
     return `${definition.tier}차 전직 후 배울 수 있습니다.`;
   }
+  if (getTierSpent(character, definition.tier) >= getEarnedSkillPointsForTier(character, definition.tier)) {
+    return `${definition.tier}차 스킬 포인트를 모두 사용했습니다.`;
+  }
   if (definition.quest && !ensureSkillState(character).unlockedQuestSkills.includes(definition.id)) {
     return '퀘스트를 완료해야 해금됩니다.';
   }
@@ -185,7 +206,14 @@ function getInvestmentBlockReason(character, definition) {
   if (tierRequirement && getTierSpent(character, definition.tier - 1) < tierRequirement) {
     return `${definition.tier - 1}차 스킬에 ${tierRequirement} SP를 먼저 투자해야 합니다.`;
   }
-  for (const prerequisite of definition.prerequisites || []) {
+  const departmentPrerequisites = definition.prerequisitesByDepartment?.[
+    character.job?.departmentId
+  ] || [];
+  const prerequisites = [
+    ...(definition.prerequisites || []),
+    ...departmentPrerequisites
+  ];
+  for (const prerequisite of prerequisites) {
     if (getSkillLevel(character, prerequisite.skillId) < prerequisite.level) {
       const skillName = SKILL_DEFINITIONS[prerequisite.skillId]?.name || prerequisite.skillId;
       return `${skillName} ${prerequisite.level}레벨이 필요합니다.`;
@@ -215,6 +243,8 @@ function investSkill(character, skillId, amount = 1) {
   const investment = Math.min(
     requested,
     definition.maxLevel - current,
+    getEarnedSkillPointsForTier(character, definition.tier)
+      - getTierSpent(character, definition.tier),
     Math.max(0, Math.floor(Number(character.progression?.unspentSkillPoints) || 0))
   );
   if (!investment) throw new Error('투자할 수 있는 스킬 포인트가 없습니다.');
@@ -251,7 +281,7 @@ function describeSkill(definition, values) {
     .filter(([key]) => VALUE_LABELS[key])
     .map(([key, value]) => `${VALUE_LABELS[key]} ${formatValue(key, value)}`)
     .join(' · ');
-  const role = SKILL_ROLE_DESCRIPTIONS[definition.id]
+  const role = definition.description || SKILL_ROLE_DESCRIPTIONS[definition.id]
     || (definition.passive
       ? '조건을 만족하면 자동으로 적용되는 패시브 스킬입니다.'
       : '직접 사용해 효과를 발동하는 액티브 스킬입니다.');
@@ -303,7 +333,15 @@ function getActiveSkillEffects(character, now = Date.now()) {
     damageIncreasePercent: 0,
     elementDamageIncreasePercent: 0,
     elementExplosionDamagePercent: 250,
-    elementPreserveChance: 0
+    elementPreserveChance: 0,
+    experienceBonusPercent: 0,
+    noAmmoConsumption: 0,
+    movementSpeedIncrease: 0,
+    criticalChance: 0,
+    criticalDamagePercent: 200,
+    periodicHpRestore: 0,
+    periodicMpRestore: 0,
+    periodicRestoreIntervalSeconds: 10
   };
   const weaponType = character.loadout?.weapon?.weaponType;
   for (const definition of getDepartmentSkillDefinitions(character.job?.departmentId)) {
@@ -325,6 +363,26 @@ function getActiveSkillEffects(character, now = Date.now()) {
       effects.doubleStrikeDamagePercent = Math.max(
         effects.doubleStrikeDamagePercent,
         Number(values.damagePercent) || 0
+      );
+    }
+    if (definition.effect === 'critical-passive') {
+      effects.criticalChance += Number(values.criticalChance) || 0;
+      effects.criticalDamagePercent = Math.max(
+        effects.criticalDamagePercent,
+        Number(values.criticalDamagePercent) || 200
+      );
+    }
+    if (definition.effect === 'stat-passive') {
+      effects.accuracyIncrease += Number(values.accuracyIncrease) || 0;
+      effects.evasionIncrease += Number(values.evasionIncrease) || 0;
+      effects.movementSpeedIncrease += Number(values.movementSpeedIncrease) || 0;
+    }
+    if (definition.effect === 'periodic-recovery') {
+      effects.periodicHpRestore += Number(values.periodicHpRestore) || 0;
+      effects.periodicMpRestore += Number(values.periodicMpRestore) || 0;
+      effects.periodicRestoreIntervalSeconds = Math.min(
+        effects.periodicRestoreIntervalSeconds,
+        Number(values.intervalSeconds) || 10
       );
     }
     if (definition.effect === 'shield-block' && character.loadout?.shield) {
@@ -460,6 +518,7 @@ module.exports = {
   getSkillLevel,
   resolveSkillValues,
   getTierSpent,
+  getEarnedSkillPointsForTier,
   getInvestmentBlockReason,
   investSkill,
   setActivePreset,
