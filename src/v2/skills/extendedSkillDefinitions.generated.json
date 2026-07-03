@@ -112,6 +112,7 @@
         5,
         16
       ],
+      "durationSeconds": 300,
       "attackIncrease": 0,
       "defenseIncrease": 0,
       "accuracyIncrease": [
@@ -125,7 +126,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_4421a5b77c": {
@@ -276,7 +278,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_47fcdc0ba0": {
@@ -318,7 +321,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_f32b37170e": {
@@ -403,6 +407,8 @@
     "values": {
       "periodicHpRestore": 0,
       "periodicMpRestore": 0,
+      "periodicMpLevelSkillFactor": 0.1,
+      "periodicMpFlat": 3,
       "intervalSeconds": 10
     }
   },
@@ -458,6 +464,7 @@
     "effect": "buff",
     "values": {
       "mpCost": 12,
+      "durationSeconds": 600,
       "primaryPercent": [
         4,
         80
@@ -468,11 +475,9 @@
       "evasionIncrease": 0,
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
-      "damageReductionPercent": [
-        4,
-        80
-      ],
-      "criticalChance": 0
+      "damageReductionPercent": 0,
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_0850825cc5": {
@@ -501,6 +506,7 @@
     "effect": "buff",
     "values": {
       "mpCost": 16,
+      "durationSeconds": 400,
       "attackIncrease": 0,
       "defenseIncrease": [
         2,
@@ -511,7 +517,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_95cc04b09a": {
@@ -551,11 +558,9 @@
       "evasionIncrease": 0,
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
-      "damageReductionPercent": [
-        15,
-        60
-      ],
-      "criticalChance": 0
+      "damageReductionPercent": 0,
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_f95d36e0d6": {
@@ -595,11 +600,9 @@
       "evasionIncrease": 0,
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
-      "damageReductionPercent": [
-        15,
-        60
-      ],
-      "criticalChance": 0
+      "damageReductionPercent": 0,
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_e76286335c": {
@@ -644,11 +647,9 @@
       "evasionIncrease": 0,
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
-      "damageReductionPercent": [
-        1,
-        15
-      ],
-      "criticalChance": 0
+      "damageReductionPercent": 0,
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_b067160f36": {
@@ -687,7 +688,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_b6e323dc92": {
@@ -793,6 +795,7 @@
         50,
         10
       ],
+      "durationSeconds": 200,
       "attackIncrease": 0,
       "defenseIncrease": 0,
       "accuracyIncrease": 0,
@@ -800,7 +803,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 1,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_6e014636d6": {
@@ -864,7 +868,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_de2d3d6352": {
@@ -903,7 +908,8 @@
         70,
         180
       ],
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_88aee3754c": {
@@ -1191,7 +1197,7 @@
     "target": "party",
     "maxTargets": 1,
     "range": 100,
-    "effect": "damage",
+    "effect": "buff",
     "values": {
       "mpCost": [
         15,
@@ -1201,9 +1207,24 @@
         30,
         300
       ],
-      "damagePercent": [
+      "primaryPercent": [
         1,
         15
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": [
+        1,
+        15
+      ],
+      "criticalDamagePercent": [
+        2,
+        40
       ]
     }
   },
@@ -1294,7 +1315,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_e9c47b999a": {
@@ -1345,6 +1367,7 @@
         15,
         36
       ],
+      "durationSeconds": 180,
       "primaryPercent": [
         10,
         40
@@ -1355,11 +1378,9 @@
       "evasionIncrease": 0,
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
-      "damageReductionPercent": [
-        10,
-        40
-      ],
-      "criticalChance": 0
+      "damageReductionPercent": 0,
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_9c9936b28f": {
@@ -1465,6 +1486,7 @@
         50,
         10
       ],
+      "durationSeconds": 200,
       "attackIncrease": 0,
       "defenseIncrease": 0,
       "accuracyIncrease": 0,
@@ -1472,7 +1494,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 1,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_aeebcad440": {
@@ -1536,7 +1559,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_44fd5663a5": {
@@ -1859,7 +1883,7 @@
     "target": "party",
     "maxTargets": 1,
     "range": 100,
-    "effect": "damage",
+    "effect": "buff",
     "values": {
       "mpCost": [
         15,
@@ -1869,9 +1893,24 @@
         30,
         300
       ],
-      "damagePercent": [
+      "primaryPercent": [
         1,
         15
+      ],
+      "attackIncrease": 0,
+      "defenseIncrease": 0,
+      "accuracyIncrease": 0,
+      "evasionIncrease": 0,
+      "movementSpeedIncrease": 0,
+      "attackSpeedStage": 0,
+      "damageReductionPercent": 0,
+      "criticalChance": [
+        1,
+        15
+      ],
+      "criticalDamagePercent": [
+        2,
+        40
       ]
     }
   },
@@ -1975,11 +2014,9 @@
       "evasionIncrease": 0,
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
-      "damageReductionPercent": [
-        5,
-        50
-      ],
-      "criticalChance": 0
+      "damageReductionPercent": 0,
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_172c1fb4b0": {
@@ -2001,6 +2038,7 @@
     "effect": "buff",
     "values": {
       "mpCost": 30,
+      "durationSeconds": 180,
       "primaryPercent": [
         10,
         40
@@ -2011,11 +2049,9 @@
       "evasionIncrease": 0,
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
-      "damageReductionPercent": [
-        10,
-        40
-      ],
-      "criticalChance": 0
+      "damageReductionPercent": 0,
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_61f08a7822": {
@@ -2155,6 +2191,7 @@
         50,
         10
       ],
+      "durationSeconds": 200,
       "attackIncrease": 0,
       "defenseIncrease": 0,
       "accuracyIncrease": 0,
@@ -2162,7 +2199,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 1,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_996216c2f0": {
@@ -2187,6 +2225,7 @@
         10,
         30
       ],
+      "durationSeconds": 200,
       "attackIncrease": 0,
       "defenseIncrease": 0,
       "accuracyIncrease": 0,
@@ -2197,7 +2236,8 @@
       ],
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_2a1cc7b894": {
@@ -2221,13 +2261,13 @@
     "target": "enemy",
     "maxTargets": 1,
     "range": 180,
-    "effect": "damage",
+    "effect": "heal",
     "values": {
       "mpCost": [
         12,
         24
       ],
-      "damagePercent": [
+      "healPercent": [
         80,
         160
       ]
@@ -2293,11 +2333,9 @@
       "evasionIncrease": 0,
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
-      "damageReductionPercent": [
-        5,
-        50
-      ],
-      "criticalChance": 0
+      "damageReductionPercent": 0,
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_55b25d7cb2": {
@@ -2368,11 +2406,9 @@
       "evasionIncrease": 0,
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
-      "damageReductionPercent": [
-        20,
-        80
-      ],
-      "criticalChance": 0
+      "damageReductionPercent": 0,
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_6043075ab5": {
@@ -2458,7 +2494,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_69a82b671f": {
@@ -2522,11 +2559,9 @@
       "evasionIncrease": 0,
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
-      "damageReductionPercent": [
-        5,
-        40
-      ],
-      "criticalChance": 0
+      "damageReductionPercent": 0,
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_3324d2dc32": {
@@ -2620,7 +2655,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_eb778160dd": {
@@ -2783,6 +2819,7 @@
         50,
         10
       ],
+      "durationSeconds": 200,
       "attackIncrease": 0,
       "defenseIncrease": 0,
       "accuracyIncrease": 0,
@@ -2790,7 +2827,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 1,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_babbd00715": {
@@ -2815,6 +2853,7 @@
         10,
         30
       ],
+      "durationSeconds": 200,
       "attackIncrease": 0,
       "defenseIncrease": 0,
       "accuracyIncrease": 0,
@@ -2825,7 +2864,8 @@
       ],
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_2f06060028": {
@@ -2929,27 +2969,16 @@
     "target": "self",
     "maxTargets": 1,
     "range": 100,
-    "effect": "buff",
+    "effect": "heal",
     "values": {
       "mpCost": [
         10,
         27
       ],
-      "primaryPercent": [
+      "healPercent": [
         100,
         300
-      ],
-      "attackIncrease": 0,
-      "defenseIncrease": 0,
-      "accuracyIncrease": 0,
-      "evasionIncrease": 0,
-      "movementSpeedIncrease": 0,
-      "attackSpeedStage": 0,
-      "damageReductionPercent": [
-        100,
-        300
-      ],
-      "criticalChance": 0
+      ]
     }
   },
   "extended_f21db630f9": {
@@ -3021,11 +3050,9 @@
       "evasionIncrease": 0,
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
-      "damageReductionPercent": [
-        10,
-        60
-      ],
-      "criticalChance": 0
+      "damageReductionPercent": 0,
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_04eeda4676": {
@@ -3094,11 +3121,9 @@
       "evasionIncrease": 0,
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
-      "damageReductionPercent": [
-        120,
-        78
-      ],
-      "criticalChance": 0
+      "damageReductionPercent": 0,
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_0408e31b76": {
@@ -3220,11 +3245,9 @@
       "evasionIncrease": 0,
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
-      "damageReductionPercent": [
-        5,
-        40
-      ],
-      "criticalChance": 0
+      "damageReductionPercent": 0,
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_f1561f9de2": {
@@ -3361,11 +3384,15 @@
     "target": "self",
     "maxTargets": 1,
     "range": 100,
-    "effect": "utility-passive",
+    "effect": "mp-absorb",
     "values": {
-      "primaryPercent": [
+      "mpAbsorbChance": [
         1,
         30
+      ],
+      "mpAbsorbPercent": [
+        2,
+        40
       ]
     }
   },
@@ -3396,6 +3423,7 @@
         8,
         20
       ],
+      "durationSeconds": 200,
       "attackIncrease": 0,
       "defenseIncrease": 0,
       "accuracyIncrease": 0,
@@ -3403,7 +3431,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_fc8e88e986": {
@@ -3435,7 +3464,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_9521b0057a": {
@@ -3465,6 +3495,7 @@
         8,
         16
       ],
+      "durationSeconds": 40,
       "attackIncrease": 0,
       "defenseIncrease": 0,
       "accuracyIncrease": 0,
@@ -3472,7 +3503,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_992505a4bb": {
@@ -3674,6 +3706,7 @@
         15,
         30
       ],
+      "durationSeconds": 20,
       "primaryPercent": [
         20,
         95
@@ -3684,11 +3717,9 @@
       "evasionIncrease": 0,
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
-      "damageReductionPercent": [
-        20,
-        95
-      ],
-      "criticalChance": 0
+      "damageReductionPercent": 0,
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_0a67e6684c": {
@@ -3722,6 +3753,7 @@
         60,
         30
       ],
+      "durationSeconds": 200,
       "attackIncrease": 0,
       "defenseIncrease": 0,
       "accuracyIncrease": 0,
@@ -3729,7 +3761,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_ebf121fce2": {
@@ -3881,7 +3914,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_d46f7acd66": {
@@ -3993,11 +4027,15 @@
     "target": "self",
     "maxTargets": 1,
     "range": 100,
-    "effect": "utility-passive",
+    "effect": "mp-absorb",
     "values": {
-      "primaryPercent": [
+      "mpAbsorbChance": [
         1,
         30
+      ],
+      "mpAbsorbPercent": [
+        2,
+        40
       ]
     }
   },
@@ -4028,6 +4066,7 @@
         8,
         20
       ],
+      "durationSeconds": 200,
       "attackIncrease": 0,
       "defenseIncrease": 0,
       "accuracyIncrease": 0,
@@ -4035,7 +4074,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_85efaaf08e": {
@@ -4067,7 +4107,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_c60be028a3": {
@@ -4097,6 +4138,7 @@
         8,
         16
       ],
+      "durationSeconds": 40,
       "attackIncrease": 0,
       "defenseIncrease": 0,
       "accuracyIncrease": 0,
@@ -4104,7 +4146,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_aa22b99234": {
@@ -4298,6 +4341,7 @@
         15,
         30
       ],
+      "durationSeconds": 20,
       "primaryPercent": [
         20,
         95
@@ -4308,11 +4352,9 @@
       "evasionIncrease": 0,
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
-      "damageReductionPercent": [
-        20,
-        95
-      ],
-      "criticalChance": 0
+      "damageReductionPercent": 0,
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_fbcdf29854": {
@@ -4346,6 +4388,7 @@
         60,
         30
       ],
+      "durationSeconds": 200,
       "attackIncrease": 0,
       "defenseIncrease": 0,
       "accuracyIncrease": 0,
@@ -4353,7 +4396,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_8c91d8991d": {
@@ -4509,7 +4553,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_5bf5a28801": {
@@ -4617,11 +4662,15 @@
     "target": "self",
     "maxTargets": 1,
     "range": 100,
-    "effect": "utility-passive",
+    "effect": "mp-absorb",
     "values": {
-      "primaryPercent": [
+      "mpAbsorbChance": [
         1,
         30
+      ],
+      "mpAbsorbPercent": [
+        2,
+        40
       ]
     }
   },
@@ -4654,7 +4703,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_5ca99e7a3e": {
@@ -4673,13 +4723,13 @@
     "target": "party",
     "maxTargets": 6,
     "range": 400,
-    "effect": "damage",
+    "effect": "heal",
     "values": {
       "mpCost": [
         10,
         24
       ],
-      "damagePercent": [
+      "healPercent": [
         30,
         300
       ]
@@ -4709,6 +4759,7 @@
     "effect": "buff",
     "values": {
       "mpCost": 12,
+      "durationSeconds": 300,
       "primaryPercent": [
         2,
         30
@@ -4723,7 +4774,8 @@
         2,
         30
       ],
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_63286735de": {
@@ -4750,17 +4802,29 @@
     "effect": "buff",
     "values": {
       "mpCost": 24,
+      "durationSeconds": 200,
       "attackIncrease": 0,
       "defenseIncrease": [
         1,
         20
       ],
-      "accuracyIncrease": 0,
-      "evasionIncrease": 0,
+      "accuracyIncrease": [
+        1,
+        20
+      ],
+      "evasionIncrease": [
+        1,
+        20
+      ],
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0,
+      "magicDefenseIncrease": [
+        1,
+        20
+      ]
     }
   },
   "extended_2a7d156fc2": {
@@ -4851,11 +4915,9 @@
       "evasionIncrease": 0,
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
-      "damageReductionPercent": [
-        10,
-        100
-      ],
-      "criticalChance": 0
+      "damageReductionPercent": 0,
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_215a9e5622": {
@@ -4896,7 +4958,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_80b1bfaa83": {
@@ -4926,6 +4989,7 @@
         30,
         80
       ],
+      "durationSeconds": 120,
       "primaryPercent": [
         105,
         150
@@ -4936,11 +5000,13 @@
       "evasionIncrease": 0,
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
-      "damageReductionPercent": [
-        105,
-        150
-      ],
-      "criticalChance": 0
+      "damageReductionPercent": 0,
+      "criticalChance": 0,
+      "criticalDamagePercent": 0,
+      "experienceBonusPercent": [
+        5,
+        50
+      ]
     }
   },
   "extended_206bd2f4b1": {
@@ -4990,6 +5056,7 @@
     "effect": "buff",
     "values": {
       "mpCost": 30,
+      "durationSeconds": 20,
       "primaryPercent": [
         20,
         90
@@ -5000,11 +5067,9 @@
       "evasionIncrease": 0,
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
-      "damageReductionPercent": [
-        20,
-        90
-      ],
-      "criticalChance": 0
+      "damageReductionPercent": 0,
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_1a76b16c24": {
@@ -5157,7 +5222,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_7fbad835e4": {
@@ -5193,7 +5259,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_76e11d2ec7": {
@@ -5227,7 +5294,8 @@
       "movementSpeedIncrease": 0,
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
-      "criticalChance": 0
+      "criticalChance": 0,
+      "criticalDamagePercent": 0
     }
   },
   "extended_7a0f825273": {

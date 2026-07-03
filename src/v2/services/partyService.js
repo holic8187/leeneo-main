@@ -50,6 +50,13 @@ function getPartyState(userId) {
   };
 }
 
+function getPartyMemberIds(userId) {
+  const party = getParty(userId);
+  return party
+    ? party.members.map((member) => String(member.userId))
+    : [String(userId)];
+}
+
 function invitePlayer(inviter, target) {
   const source = normalizeUser(inviter);
   const destination = normalizeUser(target);
@@ -142,6 +149,7 @@ module.exports = {
   PARTY_INVITE_TTL_MS,
   MAX_PARTY_SIZE,
   getPartyState,
+  getPartyMemberIds,
   invitePlayer,
   acceptInvitation,
   declineInvitation,

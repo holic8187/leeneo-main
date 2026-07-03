@@ -807,14 +807,13 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .character-arm, .character-leg {
   position: absolute;
   width: 4px;
-  height: 24px;
   background: #f4e6ba;
   transform-origin: 50% 0;
 }
-.character-arm { top: 23px; }
+.field-character > .character-arm { top: 21px; height: 18px; }
 .arm-left { left: 17px; transform: rotate(45deg); }
 .arm-right { left: 19px; transform: rotate(-45deg); }
-.character-leg { top: 42px; }
+.field-character > .character-leg { top: 44px; height: 20px; }
 .leg-left { left: 17px; transform: rotate(28deg); }
 .leg-right { left: 20px; transform: rotate(-28deg); }
 .field-character.facing-left { transform: scaleX(-1); }
@@ -995,10 +994,10 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .remote-head { position: absolute; left: 9px; top: 2px; width: 16px; height: 16px; border: 3px solid currentColor; border-radius: 50%; }
 .remote-body, .remote-arm, .remote-leg { position: absolute; width: 4px; background: currentColor; transform-origin: 50% 0; }
 .remote-body { left: 15px; top: 20px; height: 23px; }
-.remote-arm { top: 23px; height: 21px; }
+.remote-arm { top: 21px; height: 17px; }
 .remote-arm-left { left: 15px; transform: rotate(42deg); }
 .remote-arm-right { left: 17px; transform: rotate(-42deg); }
-.remote-leg { top: 41px; height: 20px; }
+.remote-leg { top: 43px; height: 18px; }
 .remote-leg-left { left: 15px; transform: rotate(28deg); }
 .remote-leg-right { left: 18px; transform: rotate(-28deg); }
 .remote-player.is-walking .remote-arm-left, .remote-player.is-walking .remote-leg-right { animation: remote-step-a .42s ease-in-out infinite alternate; }
@@ -1128,7 +1127,11 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 }
 @keyframes remote-step-a { from { transform: rotate(38deg); } to { transform: rotate(-32deg); } }
 @keyframes remote-step-b { from { transform: rotate(-38deg); } to { transform: rotate(32deg); } }
-@keyframes projectile-shot { 0% { opacity: 1; transform: translateX(0); } 90% { opacity: 1; } 100% { opacity: 0; transform: translateX(260px); } }
+@keyframes projectile-shot {
+  0% { opacity: 1; transform: translate(0, 0); }
+  90% { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--projectile-x, 260px), var(--projectile-y, 0)); }
+}
 @keyframes ghost-float-own { from { translate: 0 -2px; } to { translate: 0 -17px; } }
 @keyframes ghost-float-remote { from { translate: -50% -2px; } to { translate: -50% -17px; } }
 @keyframes floating-damage {
@@ -1230,7 +1233,14 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 @keyframes weapon-thrust { 0%, 100% { opacity: 0; transform: translateX(-15px) scaleX(.35); } 42% { opacity: 1; transform: translateX(8px) scaleX(1); } }
 @keyframes staff-swing { 0% { transform: rotate(-135deg); } 60% { transform: rotate(80deg); } 100% { transform: rotate(-35deg); } }
 @keyframes magic-swing { from { opacity: 0; transform: rotate(-80deg) scale(.55); } 35% { opacity: 1; } to { opacity: 0; transform: rotate(70deg) scale(1.18); } }
-@keyframes thrown-projectile { 0% { opacity: 1; transform: translateX(0) rotate(0); } 90% { opacity: 1; } 100% { opacity: 0; transform: translateX(260px) rotate(720deg); } }
+@keyframes thrown-projectile {
+  0% { opacity: 1; transform: translate(0, 0) rotate(0); }
+  90% { opacity: 1; }
+  100% {
+    opacity: 0;
+    transform: translate(var(--projectile-x, 260px), var(--projectile-y, 0)) rotate(720deg);
+  }
+}
 
 @media (max-width: 620px) {
   .field-command-bar { grid-template-columns: 1fr 1.25fr; }
@@ -1868,7 +1878,7 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .skill-card-actions { display: grid; grid-template-columns: 54px 1fr 1fr; gap: 5px; }
 .skill-card-actions input { min-width: 0; padding: 7px 4px; }
 .skill-card-actions button { min-width: 0; padding: 7px 4px; font-size: 9px; }
-.field-character.is-buff .character-arm { top: 25px; transform-origin: 50% 100%; }
+.field-character.is-buff .character-arm { top: 21px; transform-origin: 50% 100%; }
 .field-character.is-buff .arm-left { animation: buff-arm-left .3s ease-out both; }
 .field-character.is-buff .arm-right { animation: buff-arm-right .3s ease-out both; }
 .field-character.is-buff { filter: drop-shadow(0 0 10px #f6df70); }

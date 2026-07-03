@@ -57,12 +57,20 @@ function inferDefinition({ marker, name, tier, maxLevel, effectText, rangeText, 
   const isSummon = /소환/.test(description);
   const isParty = /파티/.test(description);
   const isArea = /최대 \d+명|주변|전방|직선상|범위|전체/.test(description);
+  const isHeal = !passive && /(?:HP|체력).*회복|회복력.*회복/.test(description);
+  const isMpAbsorb = passive && /최대 MP.*흡수/.test(description);
+  const isTimedBuff = !passive
+    && /(?:[0-9,]+\s*→\s*)?[0-9,]+초간/.test(description)
+    && /증가|감소|면역|부여|소비하지 않음|크리티컬/.test(description);
   let effect = passive ? 'utility-passive' : 'buff';
   if (isSummon) effect = 'summon';
+  else if (isHeal) effect = 'heal';
+  else if (isTimedBuff) effect = 'buff';
   else if (isDamage) effect = /기절|빙결|마비/.test(description) ? 'damage-stun' : 'damage';
   if (passive && /숙련도/.test(description)) effect = 'weapon-mastery';
   else if (passive && /추가 공격|따라 공격/.test(description)) effect = 'double-strike';
   else if (passive && /크리티컬/.test(description)) effect = 'critical-passive';
+  else if (isMpAbsorb) effect = 'mp-absorb';
   else if (passive && /10초마다.*(?:HP|MP)/.test(description)) effect = 'periodic-recovery';
   else if (passive && /피해.*감소|데미지.*감소/.test(description)) effect = 'damage-reduction';
   else if (passive && /명중률|회피율|이동속도/.test(description)) effect = 'stat-passive';
@@ -73,7 +81,8 @@ function inferDefinition({ marker, name, tier, maxLevel, effectText, rangeText, 
   const percentages = [...description.matchAll(/([0-9.]+)%\s*→\s*([0-9.]+)%/g)]
     .map((match) => [Number(match[1]), Number(match[2])]);
   const fixedPercentage = description.match(/([0-9.]+)%/);
-  const duration = numberPair(description, /([0-9,]+)\s*→\s*([0-9,]+)초/);
+  const duration = numberPair(description, /([0-9,]+)\s*→\s*([0-9,]+)초/)
+    ?? numberPair(description, /([0-9,]+)초간/);
   const cooldown = numberPair(description, /쿨타임\s*([0-9,]+)(?:초|분)\s*→\s*([0-9,]+)(?:초|분)/);
   if (mpCost != null) values.mpCost = mpCost;
   if (hpCost != null) values.hpCost = hpCost;
@@ -90,6 +99,15 @@ function inferDefinition({ marker, name, tier, maxLevel, effectText, rangeText, 
   } else {
     if (percentages[0]) values.primaryPercent = percentages[0];
   }
+  if (effect === 'heal') {
+    values.healPercent = percentages[0] || Number(fixedPercentage?.[1]) || 0;
+    delete values.primaryPercent;
+  }
+  if (effect === 'mp-absorb') {
+    values.mpAbsorbChance = percentages[0] || 0;
+    values.mpAbsorbPercent = percentages[1] || 0;
+    delete values.primaryPercent;
+  }
   if (effect === 'weapon-mastery') {
     values.mastery = numberPair(description, /숙련도\s*([0-9.]+)%\s*→\s*([0-9.]+)%/) || 0;
     values.accuracyIncrease = numberPair(description, /명중률\s*([0-9.]+)\s*→\s*([0-9.]+)/) || 0;
@@ -103,13 +121,21 @@ function inferDefinition({ marker, name, tier, maxLevel, effectText, rangeText, 
       description,
       /크리티컬 확률\s*([0-9.]+)%\s*→\s*([0-9.]+)%/
     ) || 0;
-    values.criticalDamagePercent = Number(
+    values.criticalDamagePercent = numberPair(
+      description,
+      /크리티컬 (?:추가|최종) 피해\s*([0-9.]+)%\s*→\s*([0-9.]+)%/
+    ) || 0;
+    values.criticalDamagePercent = values.criticalDamagePercent || Number(
       description.match(/크리티컬 최종 피해\s*([0-9.]+)%/)?.[1]
     ) || 200;
   }
   if (effect === 'periodic-recovery') {
     values.periodicHpRestore = numberPair(description, /HP\s*([0-9.]+)\s*→\s*([0-9.]+)/) || 0;
     values.periodicMpRestore = numberPair(description, /MP\s*([0-9.]+)\s*→\s*([0-9.]+)/) || 0;
+    if (/캐릭터 레벨\s*×\s*스킬 레벨\s*×\s*0\.1\s*\+\s*3/.test(description)) {
+      values.periodicMpLevelSkillFactor = 0.1;
+      values.periodicMpFlat = 3;
+    }
     values.intervalSeconds = 10;
   }
   if (effect === 'damage-reduction') {
@@ -127,11 +153,44 @@ function inferDefinition({ marker, name, tier, maxLevel, effectText, rangeText, 
     values.evasionIncrease = /회피율/.test(description) ? values.accuracyIncrease : 0;
     values.movementSpeedIncrease = numberPair(description, /이동속도\s*([0-9.]+)\s*→\s*([0-9.]+)/) || 0;
     values.attackSpeedStage = Number(description.match(/공격속도\s*([1-9])단계/)?.[1]) || 0;
-    values.damageReductionPercent = percentages[0] || 0;
+    values.damageReductionPercent = /(?:피해|데미지).*감소/.test(description)
+      ? (percentages[0] || 0)
+      : 0;
     values.criticalChance = numberPair(
       description,
       /크리티컬 확률\s*([0-9.]+)%\s*→\s*([0-9.]+)%/
     ) || 0;
+    values.criticalDamagePercent = numberPair(
+      description,
+      /크리티컬 (?:추가|최종) 피해\s*([0-9.]+)%\s*→\s*([0-9.]+)%/
+    ) || 0;
+    const sharedDefenseIncrease = numberPair(
+      description,
+      /물리 방어력·마법 방어력\s*([0-9.]+)\s*→\s*([0-9.]+)/
+    );
+    if (sharedDefenseIncrease != null) {
+      values.defenseIncrease = sharedDefenseIncrease;
+      values.magicDefenseIncrease = sharedDefenseIncrease;
+    }
+    const sharedSupportIncrease = numberPair(
+      description,
+      /명중률·회피율·물리 방어력·마법 방어력\s*([0-9.]+)\s*→\s*([0-9.]+)/
+    );
+    if (sharedSupportIncrease != null) {
+      values.accuracyIncrease = sharedSupportIncrease;
+      values.evasionIncrease = sharedSupportIncrease;
+      values.defenseIncrease = sharedSupportIncrease;
+      values.magicDefenseIncrease = sharedSupportIncrease;
+    }
+    const experienceMultiplier = numberPair(
+      description,
+      /경험치 배율\s*([0-9.]+)%\s*→\s*([0-9.]+)%/
+    );
+    if (experienceMultiplier != null) {
+      values.experienceBonusPercent = Array.isArray(experienceMultiplier)
+        ? experienceMultiplier.map((value) => Math.max(0, value - 100))
+        : Math.max(0, experienceMultiplier - 100);
+    }
   }
   const maxTargets = Number(description.match(/최대\s*([0-9]+)명/)?.[1])
     || (isArea ? 6 : 1);

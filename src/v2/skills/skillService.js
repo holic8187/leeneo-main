@@ -42,6 +42,11 @@ const VALUE_LABELS = Object.freeze({
   preserveElementChance: '속성 유지 확률',
   freezeSeconds: '빙결 시간',
   cooldownSeconds: '재사용 대기시간'
+  ,
+  experienceBonusPercent: '경험치 증가',
+  mpAbsorbChance: '정신력 흡수 확률',
+  mpAbsorbPercent: '정신력 흡수량',
+  magicDefenseIncrease: '마법 방어력'
 });
 
 const PERCENT_KEYS = new Set([
@@ -51,7 +56,8 @@ const PERCENT_KEYS = new Set([
   'selfDamagePercent', 'hpThresholdPercent', 'damageIncreasePercent',
   'damagePerComboPercent', 'doubleChargeChance', 'stanceChance',
   'enemyDamageReductionPercent',
-  'elementDamageIncreasePercent', 'preserveElementChance'
+  'elementDamageIncreasePercent', 'preserveElementChance',
+  'experienceBonusPercent', 'mpAbsorbChance', 'mpAbsorbPercent'
 ]);
 
 const SKILL_ROLE_DESCRIPTIONS = Object.freeze({
@@ -311,6 +317,7 @@ function getActiveSkillEffects(character, now = Date.now()) {
   const effects = {
     attackIncrease: 0,
     defenseIncrease: 0,
+    magicDefenseIncrease: 0,
     accuracyIncrease: 0,
     evasionIncrease: 0,
     weaponMastery: 0,
@@ -341,7 +348,9 @@ function getActiveSkillEffects(character, now = Date.now()) {
     criticalDamagePercent: 200,
     periodicHpRestore: 0,
     periodicMpRestore: 0,
-    periodicRestoreIntervalSeconds: 10
+    periodicRestoreIntervalSeconds: 10,
+    mpAbsorbChance: 0,
+    mpAbsorbPercent: 0
   };
   const weaponType = character.loadout?.weapon?.weaponType;
   for (const definition of getDepartmentSkillDefinitions(character.job?.departmentId)) {
@@ -380,9 +389,25 @@ function getActiveSkillEffects(character, now = Date.now()) {
     if (definition.effect === 'periodic-recovery') {
       effects.periodicHpRestore += Number(values.periodicHpRestore) || 0;
       effects.periodicMpRestore += Number(values.periodicMpRestore) || 0;
+      effects.periodicMpRestore += Math.floor(
+        Math.max(0, Number(character.progression?.level) || 1)
+          * level
+          * Math.max(0, Number(values.periodicMpLevelSkillFactor) || 0)
+          + Math.max(0, Number(values.periodicMpFlat) || 0)
+      );
       effects.periodicRestoreIntervalSeconds = Math.min(
         effects.periodicRestoreIntervalSeconds,
         Number(values.intervalSeconds) || 10
+      );
+    }
+    if (definition.effect === 'mp-absorb') {
+      effects.mpAbsorbChance = Math.max(
+        effects.mpAbsorbChance,
+        Number(values.mpAbsorbChance) || 0
+      );
+      effects.mpAbsorbPercent = Math.max(
+        effects.mpAbsorbPercent,
+        Number(values.mpAbsorbPercent) || 0
       );
     }
     if (definition.effect === 'shield-block' && character.loadout?.shield) {

@@ -69,6 +69,7 @@ const {
 } = require('./services/huntingTimeService');
 const {
   getPartyState,
+  getPartyMemberIds,
   invitePlayer,
   acceptInvitation,
   declineInvitation,
@@ -249,6 +250,85 @@ function registerV2Routes({
     } finally {
       if (characterMutationQueues.get(key) === current) characterMutationQueues.delete(key);
     }
+  }
+
+  function getActivePartyPlayers(userId, mapId) {
+    const partyMemberIds = new Set(getPartyMemberIds(userId));
+    return listActivePlayers(mapId).filter((player) => partyMemberIds.has(String(player.userId)));
+  }
+
+  async function applyBuffToActivePartyMembers(casterId, mapId, buff) {
+    const casterKey = String(casterId);
+    const targets = getActivePartyPlayers(casterKey, mapId)
+      .filter((player) => String(player.userId) !== casterKey);
+    for (const player of targets) {
+      const teammate = await V2Character.findOne({ userId: player.userId });
+      if (!teammate) continue;
+      const teammateSkills = ensureSkillState(teammate);
+      teammateSkills.activeBuffs = teammateSkills.activeBuffs.filter(
+        (entry) => entry.skillId !== buff.skillId
+      );
+      teammateSkills.activeBuffs.push({
+        ...buff,
+        effects: { ...(buff.effects || {}) },
+        createdAt: new Date(buff.createdAt),
+        expiresAt: new Date(buff.expiresAt)
+      });
+      teammate.markModified('skills');
+      await teammate.save();
+      worldProfileCache.delete(String(player.userId));
+    }
+    return targets.map((player) => String(player.userId));
+  }
+
+  async function healActivePartyMembers({
+    caster,
+    mapId,
+    rangePx,
+    amount
+  }) {
+    const casterId = String(caster.userId);
+    const activePlayers = getActivePartyPlayers(casterId, mapId);
+    const casterPresence = activePlayers.find((player) => String(player.userId) === casterId);
+    const rangePercent = Math.max(1, Number(rangePx) || 100) / 1200 * 100;
+    const targetIds = new Set([casterId]);
+    if (casterPresence) {
+      for (const player of activePlayers) {
+        if (
+          player.floor === casterPresence.floor
+          && Math.abs(Number(player.x) - Number(casterPresence.x)) <= rangePercent + 4.5
+        ) targetIds.add(String(player.userId));
+      }
+    }
+
+    const outcomes = [];
+    for (const targetId of targetIds) {
+      if (targetId === casterId) {
+        const currentHp = Math.max(0, Number(caster.resources?.currentHp) || 0);
+        const maxHp = Math.max(1, Number(caster.resources?.maxHp) || 1);
+        const healed = currentHp > 0
+          ? Math.max(0, Math.min(maxHp - currentHp, amount))
+          : 0;
+        caster.resources.currentHp = currentHp + healed;
+        outcomes.push({ userId: targetId, healed });
+        continue;
+      }
+      const teammate = await V2Character.findOne({ userId: targetId });
+      if (!teammate) continue;
+      const currentHp = Math.max(0, Number(teammate.resources?.currentHp) || 0);
+      const maxHp = Math.max(1, Number(teammate.resources?.maxHp) || 1);
+      const healed = currentHp > 0
+        ? Math.max(0, Math.min(maxHp - currentHp, amount))
+        : 0;
+      if (healed > 0) {
+        teammate.resources.currentHp = currentHp + healed;
+        await teammate.save();
+        updatePlayerResources(targetId, teammate.resources);
+        worldProfileCache.delete(targetId);
+      }
+      outcomes.push({ userId: targetId, healed });
+    }
+    return outcomes;
   }
 
   function buildMailResponse(character) {
@@ -707,6 +787,7 @@ function registerV2Routes({
         character.resources.currentMp = currentMp - mpCost;
 
         let combat = null;
+        let partyBuffToShare = null;
         const damageEffects = new Set([
           'damage', 'multi-damage', 'ignore-defense-damage', 'damage-stun',
           'damage-lock', 'charge', 'consume-combo-damage', 'pull',
@@ -780,8 +861,11 @@ function registerV2Routes({
             element: definition.element,
             elements: activeElements.length ? activeElements : [definition.element],
             ignoreDefense: ['ignore-defense-damage', 'fixed-damage'].includes(definition.effect),
+            damageType: archetype === 'mage' ? 'magic' : 'physical',
             accuracy: response.derivedStats.accuracy,
             playerLevel: response.progression?.level,
+            mpAbsorbChance: Number(activeEffects.mpAbsorbChance) || 0,
+            mpAbsorbPercent: Number(activeEffects.mpAbsorbPercent) || 0,
             stunChance: Number(values.stunChance) || 0,
             stunSeconds: Number(values.stunSeconds) || 0,
             pull: ['charge', 'pull'].includes(definition.effect),
@@ -791,6 +875,13 @@ function registerV2Routes({
           });
           if (!combat.success) throw new Error('사거리 안에 공격할 대상이 없습니다.');
           combat.critical = critical;
+          if (Number(combat.mpAbsorbed) > 0) {
+            character.resources.currentMp = Math.min(
+              Math.max(0, Number(character.resources.maxMp) || 0),
+              Math.max(0, Number(character.resources.currentMp) || 0)
+                + Number(combat.mpAbsorbed)
+            );
+          }
           if (definition.effect === 'consume-combo-damage') skillState.comboCount = 0;
           if (definition.effect === 'damage-stun' && Number(values.consumeCombo)) {
             skillState.comboCount = Math.max(0, skillState.comboCount - Number(values.consumeCombo));
@@ -818,13 +909,27 @@ function registerV2Routes({
             );
           }
         } else if (definition.effect === 'heal') {
-          const maxHp = Math.max(1, Number(character.resources?.maxHp) || 1);
-          const healed = Math.max(
-            0,
-            Math.min(maxHp - character.resources.currentHp, Math.floor(Number(values.heal) || 0))
+          const response = buildCharacterResponse(character);
+          const healingAmount = Math.max(
+            1,
+            Math.floor(
+              Math.max(1, Number(response.derivedStats?.magic) || 1)
+                * Math.max(0, Number(values.healPercent) || 0)
+                / 100
+            )
           );
-          character.resources.currentHp += healed;
-          combat = { success: true, healed };
+          const targets = await healActivePartyMembers({
+            caster: character,
+            mapId: String(req.body?.mapId || character.worldState?.mapId || ''),
+            rangePx: Number(values.range ?? definition.range) || 400,
+            amount: healingAmount
+          });
+          combat = {
+            success: true,
+            healed: targets.reduce((sum, target) => sum + target.healed, 0),
+            healingAmount,
+            targets
+          };
         } else if (definition.effect === 'debuff-self-buff') {
           const response = buildCharacterResponse(character);
           combat = useSkillOnMonsters({
@@ -876,12 +981,13 @@ function registerV2Routes({
             );
           }
           for (const key of [
-            'attackIncrease', 'defenseIncrease', 'accuracyIncrease', 'evasionIncrease',
+            'attackIncrease', 'defenseIncrease', 'magicDefenseIncrease',
+            'accuracyIncrease', 'evasionIncrease',
             'attackSpeedStage', 'shieldDefensePercent', 'stanceChance',
             'reflectPercent', 'targetMaxHpCapPercent', 'maxResourcePercent',
             'maxCombo', 'damagePerComboPercent', 'damageIncreasePercent',
             'noAmmoConsumption', 'movementSpeedIncrease', 'criticalChance',
-            'criticalDamagePercent', 'damageReductionPercent'
+            'criticalDamagePercent', 'damageReductionPercent', 'experienceBonusPercent'
           ]) {
             if (Number.isFinite(Number(values[key]))) effects[key] = Number(values[key]);
           }
@@ -895,13 +1001,15 @@ function registerV2Routes({
             effects.comboDamagePerCount = Number(values.damagePerComboPercent) || 0;
           }
           skillState.activeBuffs = skillState.activeBuffs.filter((buff) => buff.skillId !== skillId);
-          skillState.activeBuffs.push({
+          const activeBuff = {
             skillId,
             name: definition.name,
             effects,
-            createdAt: new Date(),
-            expiresAt: new Date(Date.now() + Number(values.durationSeconds || 1) * 1000)
-          });
+            createdAt: new Date(now),
+            expiresAt: new Date(now + Number(values.durationSeconds || 1) * 1000)
+          };
+          skillState.activeBuffs.push(activeBuff);
+          if (definition.target === 'party') partyBuffToShare = activeBuff;
         }
         if (Number(values.cooldownSeconds) > 0) {
           skillState.cooldowns[skillId] = now + Number(values.cooldownSeconds) * 1000;
@@ -909,6 +1017,16 @@ function registerV2Routes({
         reconcileMaxResourceBuff(character);
         character.markModified('skills');
         await character.save();
+        if (partyBuffToShare) {
+          combat = {
+            ...(combat || { success: true }),
+            buffedPartyMemberIds: await applyBuffToActivePartyMembers(
+              auth.id,
+              String(req.body?.mapId || character.worldState?.mapId || ''),
+              partyBuffToShare
+            )
+          };
+        }
         worldProfileCache.delete(String(auth.id));
         updatePlayerResources(auth.id, character.resources);
         return {
@@ -1645,7 +1763,9 @@ function registerV2Routes({
         elements: activeElements,
         freezeSeconds: activeElements.includes('ice') ? 4 : 0,
         accuracy: profile.derivedStats.accuracy,
-        playerLevel: profile.progression?.level
+        playerLevel: profile.progression?.level,
+        mpAbsorbChance: archetype === 'mage' ? Number(skillEffects.mpAbsorbChance) || 0 : 0,
+        mpAbsorbPercent: archetype === 'mage' ? Number(skillEffects.mpAbsorbPercent) || 0 : 0
       });
       if (!result.success) {
         return res.status(['out-of-range', 'dead'].includes(result.reason) ? 409 : 404).json({
@@ -1701,8 +1821,15 @@ function registerV2Routes({
       let character = null;
       let experience = null;
       let inventory = null;
-      if (result.expReward > 0 || skillEffects.comboEnabled) {
+      if (result.expReward > 0 || result.mpAbsorbed > 0 || skillEffects.comboEnabled) {
         character = await V2Character.findOne({ userId: auth.id });
+        if (result.mpAbsorbed > 0) {
+          character.resources.currentMp = Math.min(
+            Math.max(0, Number(character.resources.maxMp) || 0),
+            Math.max(0, Number(character.resources.currentMp) || 0)
+              + Number(result.mpAbsorbed)
+          );
+        }
         if (result.expReward > 0) {
           experience = grantV2Experience(character, result.expReward);
           result.drops = applyCombatDrops(character, result.drops);

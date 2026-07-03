@@ -33,6 +33,55 @@ function makeCharacter(overrides = {}) {
   };
 }
 
+function findSkillByName(name) {
+  return Object.values(SKILL_DEFINITIONS).find((definition) => definition.name === name);
+}
+
+test('generated support skills retain fixed durations and specialized effects', () => {
+  const holySymbol = findSkillByName('성과 지원');
+  const focus = findSkillByName('업무 집중');
+  const consumerInsight = findSkillByName('소비자 인사이트');
+  const workSupport = findSkillByName('업무 지원');
+  const welfareSupport = findSkillByName('복지 지원');
+
+  assert.equal(resolveSkillValues(holySymbol, 30).durationSeconds, 120);
+  assert.equal(resolveSkillValues(holySymbol, 30).experienceBonusPercent, 50);
+  assert.equal(resolveSkillValues(focus, 20).durationSeconds, 300);
+  assert.equal(resolveSkillValues(consumerInsight, 30).durationSeconds, 300);
+  assert.equal(resolveSkillValues(consumerInsight, 30).criticalChance, 15);
+  assert.equal(resolveSkillValues(consumerInsight, 30).criticalDamagePercent, 40);
+  assert.equal(resolveSkillValues(workSupport, 20).durationSeconds, 200);
+  assert.equal(resolveSkillValues(workSupport, 20).magicDefenseIncrease, 20);
+  assert.equal(welfareSupport.effect, 'heal');
+  assert.equal(resolveSkillValues(welfareSupport, 30).healPercent, 300);
+});
+
+test('management support passives calculate periodic MP recovery and MP absorption', () => {
+  const periodic = findSkillByName('정신력 회복 향상');
+  const absorption = findSkillByName('업무 동력 회수');
+  const character = makeCharacter({
+    job: { departmentId: 'management_support', advancementTier: 2 },
+    progression: { level: 120, unspentSkillPoints: 500 },
+    skills: {
+      levels: {
+        [periodic.id]: 16,
+        [absorption.id]: 20
+      },
+      activePreset: [],
+      unlockedQuestSkills: [],
+      activeBuffs: [],
+      cooldowns: {},
+      summon: null,
+      comboCount: 0
+    }
+  });
+  const effects = getActiveSkillEffects(character);
+  assert.equal(effects.periodicMpRestore, 195);
+  assert.equal(effects.periodicRestoreIntervalSeconds, 10);
+  assert.equal(effects.mpAbsorbChance, 30);
+  assert.equal(effects.mpAbsorbPercent, 40);
+});
+
 test('quality inspection raises max HP and MP once and restores them after expiry', () => {
   const character = makeCharacter({
     resources: {

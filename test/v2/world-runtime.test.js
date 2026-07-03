@@ -110,6 +110,48 @@ test('a hit gives the monster aggro and applies defense before defeat reward', (
   assert.ok(result.drops.every((drop) => drop.collectAt === 9_000));
 });
 
+test('a magical hit can absorb monster MP without exceeding the available amount', () => {
+  const state = updatePresence({
+    userId: 'mp-eater-user',
+    nickname: '지원팀',
+    mapId: 'newcomer_training',
+    x: 30,
+    floor: 0,
+    currentHp: 120,
+    maxHp: 120,
+    currentMp: 0,
+    maxMp: 100,
+    now: 1_000
+  });
+  const monster = state.monsters.find((entry) => entry.floor === 0);
+  updatePresence({
+    userId: 'mp-eater-user',
+    nickname: '지원팀',
+    mapId: 'newcomer_training',
+    x: monster.x,
+    floor: 0,
+    currentHp: 120,
+    maxHp: 120,
+    currentMp: 0,
+    maxMp: 100,
+    now: 1_100
+  });
+  const result = attackMonster({
+    userId: 'mp-eater-user',
+    mapId: 'newcomer_training',
+    monsterId: monster.id,
+    damage: 1,
+    damageType: 'magic',
+    rangePx: 100,
+    mpAbsorbChance: 100,
+    mpAbsorbPercent: 40,
+    now: 1_200
+  });
+  assert.equal(result.success, true);
+  assert.equal(result.mpAbsorbed, Math.floor(monster.maxMp * 0.4));
+  assert.equal(result.monster.mp, monster.maxMp - result.mpAbsorbed);
+});
+
 test('single-target attacks hit the front-most monster at resolution time', () => {
   let state = updatePresence({
     userId: 'front-target-user',

@@ -621,6 +621,20 @@ function selectFrontMonster(runtime, player, requestedMonster, rangePercent) {
     ))[0] || null;
 }
 
+function absorbMonsterMp(monster, chance, percent) {
+  if (
+    Number(chance) <= 0
+    || Number(percent) <= 0
+    || Math.random() * 100 >= Number(chance)
+  ) return 0;
+  const amount = Math.min(
+    Math.max(0, Number(monster.mp) || 0),
+    Math.max(0, Math.floor((Number(monster.maxMp) || 0) * Number(percent) / 100))
+  );
+  monster.mp = Math.max(0, Number(monster.mp) - amount);
+  return amount;
+}
+
 function attackMonster({
   userId,
   mapId,
@@ -633,6 +647,8 @@ function attackMonster({
   freezeSeconds = 0,
   accuracy = null,
   playerLevel = 1,
+  mpAbsorbChance = 0,
+  mpAbsorbPercent = 0,
   piercing = false,
   now = Date.now()
 }) {
@@ -688,6 +704,9 @@ function attackMonster({
     1,
     Math.floor((Math.max(1, Number(damage) || 1) - defense * 0.5) * elementMultiplier)
   );
+  const mpAbsorbed = damageType === 'magic'
+    ? absorbMonsterMp(monster, mpAbsorbChance, mpAbsorbPercent)
+    : 0;
   monster.hp = Math.max(0, monster.hp - finalDamage);
   monster.aggroTargetId = userId;
   if (
@@ -729,6 +748,7 @@ function attackMonster({
     knockedBack,
     defeated,
     expReward: defeated ? monster.expReward : 0,
+    mpAbsorbed,
     drops: drops.map(serializeLoot),
     monster: defeated ? null : serializeMonster(monster),
     players: Array.from(runtime.players.values()).map(serializePlayer),
@@ -777,6 +797,8 @@ function useSkillOnMonsters({
   debuffChance = 100,
   debuffDurationSeconds = 0,
   piercing = false,
+  mpAbsorbChance = 0,
+  mpAbsorbPercent = 0,
   now = Date.now()
 }) {
   cleanupInactiveMaps(now);
@@ -850,6 +872,9 @@ function useSkillOnMonsters({
       monster.hp = Math.max(leaveAtOneHp ? 1 : 0, monster.hp - damage);
       totalDamage += damage;
     }
+    const mpAbsorbed = damageType === 'magic' && totalDamage > 0
+      ? absorbMonsterMp(monster, mpAbsorbChance, mpAbsorbPercent)
+      : 0;
     for (let hit = 0; dealDamage && hit < hitCount && monster.hp > 0 && bonusAttackPercent > 0; hit += 1) {
       const defense = damageType === 'magic' ? monster.magicDefense : monster.physicalDefense;
       const beforeElement = Math.max(
@@ -903,6 +928,7 @@ function useSkillOnMonsters({
       knockedBack,
       defeated,
       expReward: defeated ? monster.expReward : 0,
+      mpAbsorbed,
       monster: defeated ? null : serializeMonster(monster)
     });
   }
@@ -910,7 +936,8 @@ function useSkillOnMonsters({
     success: true,
     outcomes,
     drops: drops.map(serializeLoot),
-    expReward: outcomes.reduce((sum, outcome) => sum + outcome.expReward, 0)
+    expReward: outcomes.reduce((sum, outcome) => sum + outcome.expReward, 0),
+    mpAbsorbed: outcomes.reduce((sum, outcome) => sum + (outcome.mpAbsorbed || 0), 0)
   };
 }
 

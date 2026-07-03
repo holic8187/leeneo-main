@@ -121,6 +121,7 @@ function buildDerivedStats({
   const magicDefense = roundStat(
     Math.max(4, finite(stats.workKnowledge ?? stats.intelligence))
     + sumLoadoutStat(loadout, 'magicDefense')
+    + finite(skillEffects.magicDefenseIncrease)
   );
   const level = Math.max(1, Math.floor(finite(progression.level) || 1));
   const magic = roundStat(

@@ -799,8 +799,24 @@ async function playWorldMotion(motion, kind, runId) {
     monster.classList.add('is-hit');
   }
   if (motion === 'shoot' || motion === 'throw') {
-    projectile.style.left = character.style.left;
-    projectile.style.bottom = `${(Number.parseFloat(character.style.bottom) || 42) + 40}px`;
+    const stage = $('worldStage');
+    const stageRect = stage.getBoundingClientRect();
+    const characterRect = character.getBoundingClientRect();
+    const monsterRect = monster?.getBoundingClientRect();
+    const startX = characterRect.left + characterRect.width * .55 - stageRect.left;
+    const startY = characterRect.top + characterRect.height * .42 - stageRect.top;
+    const targetX = monsterRect
+      ? monsterRect.left + monsterRect.width * .5 - stageRect.left
+      : startX + (character.classList.contains('facing-left') ? -260 : 260);
+    // Aim at the lower torso so short ASCII monsters share a generous visual hit line.
+    const targetY = monsterRect
+      ? monsterRect.top + monsterRect.height * .72 - stageRect.top
+      : startY;
+    projectile.style.left = `${startX}px`;
+    projectile.style.top = `${startY}px`;
+    projectile.style.bottom = 'auto';
+    projectile.style.setProperty('--projectile-x', `${targetX - startX}px`);
+    projectile.style.setProperty('--projectile-y', `${targetY - startY}px`);
     projectile.className = `attack-projectile is-${motion}`;
   }
   if (motion === 'hit') character.classList.add('damage-flash');
