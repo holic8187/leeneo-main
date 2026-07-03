@@ -60,3 +60,12 @@ test('job change rejects the current department and missing tickets', () => {
   character.inventory.items = [];
   assert.throws(() => changeDepartment(character, 'quality'));
 });
+
+test('job change recalculates cumulative archer advancement HP bonuses', () => {
+  const character = makeCharacter();
+  addInventoryItem(character, 'job_change_ticket', 1);
+  changeDepartment(character, 'marketing');
+  assert.equal(character.resources.maxHp, 3220);
+  assert.equal(character.resources.maxMp, 1220);
+  assert.equal(character.resources.currentHp, 3220);
+});

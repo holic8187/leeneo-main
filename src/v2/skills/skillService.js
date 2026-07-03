@@ -46,7 +46,8 @@ const VALUE_LABELS = Object.freeze({
   experienceBonusPercent: '경험치 증가',
   mpAbsorbChance: '정신력 흡수 확률',
   mpAbsorbPercent: '정신력 흡수량',
-  magicDefenseIncrease: '마법 방어력'
+  magicDefenseIncrease: '마법 방어력',
+  summonHp: '소환수 체력'
 });
 
 const PERCENT_KEYS = new Set([

@@ -964,6 +964,7 @@ function registerV2Routes({
             skillId,
             name: definition.name,
             masteryIncrease: Number(values.masteryIncrease) || 0,
+            summonHp: Number(values.summonHp) || 0,
             createdAt: new Date(),
             expiresAt: new Date(Date.now() + Number(values.durationSeconds || 0) * 1000)
           };

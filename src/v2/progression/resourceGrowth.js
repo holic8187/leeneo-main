@@ -1,6 +1,6 @@
 'use strict';
 
-const RESOURCE_GROWTH_VERSION = 2;
+const RESOURCE_GROWTH_VERSION = 3;
 const BASE_STATS = Object.freeze({
   grit: 4,
   processingSpeed: 4,
@@ -14,16 +14,30 @@ const SECOND_ADVANCEMENT_BONUSES = Object.freeze({
   hr: Object.freeze({ maxHp: 330, maxMp: 0 }),
   field_operations: Object.freeze({ maxHp: 130, maxMp: 120 }),
   quality: Object.freeze({ maxHp: 130, maxMp: 0 }),
-  accounting: Object.freeze({ maxHp: 320, maxMp: 175 }),
-  marketing: Object.freeze({ maxHp: 320, maxMp: 175 }),
-  sales: Object.freeze({ maxHp: 320, maxMp: 175 }),
-  facilities: Object.freeze({ maxHp: 320, maxMp: 175 }),
+  accounting: Object.freeze({ maxHp: 0, maxMp: 175 }),
+  marketing: Object.freeze({ maxHp: 0, maxMp: 175 }),
+  sales: Object.freeze({ maxHp: 0, maxMp: 175 }),
+  facilities: Object.freeze({ maxHp: 0, maxMp: 175 }),
   // The reference confirms an additional MP grant but not its exact range.
   // Keep this deterministic average isolated so it can be replaced later.
   management_support: Object.freeze({ maxHp: 0, maxMp: 175, provisional: true }),
   development: Object.freeze({ maxHp: 0, maxMp: 175, provisional: true }),
   research: Object.freeze({ maxHp: 0, maxMp: 175, provisional: true })
 });
+
+const ARCHETYPE_ADVANCEMENT_HP_BONUSES = Object.freeze({
+  archer: Object.freeze({ 2: 600, 3: 1000, 4: 1500 }),
+  thief: Object.freeze({ 2: 400, 3: 800, 4: 1000 })
+});
+
+function getAdvancementHpBonus(archetype, tier) {
+  const bonuses = ARCHETYPE_ADVANCEMENT_HP_BONUSES[archetype] || {};
+  let total = 0;
+  for (let currentTier = 2; currentTier <= tier; currentTier += 1) {
+    total += Math.max(0, Number(bonuses[currentTier]) || 0);
+  }
+  return total;
+}
 
 function normalizeLevel(value) {
   return Math.max(1, Math.min(200, Math.floor(Number(value) || 1)));
@@ -92,8 +106,9 @@ function calculateReferenceResources({
   const secondBonus = tier >= 2
     ? (SECOND_ADVANCEMENT_BONUSES[departmentId] || { maxHp: 0, maxMp: 0 })
     : { maxHp: 0, maxMp: 0 };
+  const advancementHpBonus = getAdvancementHpBonus(resolvedArchetype, tier);
   return {
-    maxHp: Math.max(1, Math.floor(base.maxHp + secondBonus.maxHp)),
+    maxHp: Math.max(1, Math.floor(base.maxHp + secondBonus.maxHp + advancementHpBonus)),
     maxMp: Math.max(0, Math.floor(base.maxMp + secondBonus.maxMp)),
     provisional: Boolean(base.provisional || secondBonus.provisional),
     growthVersion: RESOURCE_GROWTH_VERSION
@@ -197,6 +212,8 @@ module.exports = {
   BASE_STATS,
   WARRIOR_FIRST_ADVANCEMENT_RESOURCES,
   SECOND_ADVANCEMENT_BONUSES,
+  ARCHETYPE_ADVANCEMENT_HP_BONUSES,
+  getAdvancementHpBonus,
   calculateReferenceResources,
   applyReferenceResources,
   applyLevelGrowth

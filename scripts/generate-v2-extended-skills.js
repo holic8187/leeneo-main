@@ -85,7 +85,13 @@ function inferDefinition({ marker, name, tier, maxLevel, effectText, rangeText, 
     ?? numberPair(description, /([0-9,]+)초간/);
   const cooldown = numberPair(description, /쿨타임\s*([0-9,]+)(?:초|분)\s*→\s*([0-9,]+)(?:초|분)/);
   if (mpCost != null) values.mpCost = mpCost;
-  if (hpCost != null) values.hpCost = hpCost;
+  if (hpCost != null) {
+    if (effect === 'summon' && /HP\s*[0-9,]+(?:\s*→\s*[0-9,]+)?인/.test(description)) {
+      values.summonHp = hpCost;
+    } else {
+      values.hpCost = hpCost;
+    }
+  }
   if (duration != null) values.durationSeconds = duration;
   if (cooldown != null) values.cooldownSeconds = cooldown;
   if (/화살을 소비하지 않음|표창을 소비하지 않음/.test(description)) {

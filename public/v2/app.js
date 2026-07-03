@@ -35,6 +35,7 @@ const state = {
   selfUserId: '',
   worldMonsters: [],
   combatTargetId: '',
+  rallyPoint: null,
   worldServerTime: 0,
   invulnerableUntil: 0,
   invulnerabilityTimer: null,
@@ -477,6 +478,7 @@ async function snapshotAllUsers() {
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 const CHARACTER_MOVEMENT_TIME_SCALE = 3;
 const CHARACTER_BASE_MOVEMENT_PX_PER_SECOND = 115 / CHARACTER_MOVEMENT_TIME_SCALE;
+const RALLY_POINT_STORAGE_KEY = 'v2RallyPoint';
 const CHARACTER_MOTION_CLASSES = [
   'is-walking',
   'is-jump',
@@ -533,6 +535,92 @@ function getCharacterX() {
     ? renderedLeftPx / stage.clientWidth * 100
     : Number.parseFloat(character.style.left);
   return Math.max(0, Math.min(94, Number(renderedPercent) || 0));
+}
+
+function loadStoredRallyPoint() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(RALLY_POINT_STORAGE_KEY) || 'null');
+    if (
+      parsed
+      && typeof parsed.mapId === 'string'
+      && Number.isFinite(Number(parsed.x))
+      && [0, 1].includes(Number(parsed.floor))
+    ) {
+      return {
+        mapId: parsed.mapId,
+        x: Math.max(2, Math.min(92, Number(parsed.x))),
+        floor: Number(parsed.floor)
+      };
+    }
+  } catch (_) {}
+  return null;
+}
+
+function renderRallyPoint() {
+  const marker = $('rallyPoint');
+  const point = state.rallyPoint;
+  if (!marker) return;
+  const visible = Boolean(point && point.mapId === state.currentMapId);
+  marker.classList.toggle('hidden', !visible);
+  if (!visible) return;
+  marker.style.left = `${point.x}%`;
+  marker.style.bottom = point.floor === 1
+    ? `${getUpperPlatformBottom()}px`
+    : '42px';
+}
+
+function setRallyPoint(point) {
+  state.rallyPoint = point;
+  localStorage.setItem(RALLY_POINT_STORAGE_KEY, JSON.stringify(point));
+  renderRallyPoint();
+}
+
+function clearRallyPoint(removeStored = true) {
+  state.rallyPoint = null;
+  if (removeStored) localStorage.removeItem(RALLY_POINT_STORAGE_KEY);
+  renderRallyPoint();
+}
+
+function getNearestWalkablePoint(clientX, clientY) {
+  const stage = $('worldStage');
+  const stageRect = stage.getBoundingClientRect();
+  const clickX = Math.max(0, Math.min(stageRect.width, clientX - stageRect.left));
+  const clickY = Math.max(0, Math.min(stageRect.height, clientY - stageRect.top));
+  const candidates = [{
+    xPx: Math.max(stageRect.width * .02, Math.min(stageRect.width * .92, clickX)),
+    yPx: stageRect.height - 42,
+    floor: 0
+  }];
+  const ladder = $('worldRope');
+  const upper = stage.querySelector('.platform-upper');
+  if (upper && ladder && !ladder.classList.contains('hidden')) {
+    const upperRect = upper.getBoundingClientRect();
+    const upperLeft = upperRect.left - stageRect.left;
+    const upperRight = upperRect.right - stageRect.left;
+    candidates.push({
+      xPx: Math.max(upperLeft, Math.min(upperRight, clickX)),
+      yPx: upperRect.top - stageRect.top,
+      floor: 1
+    });
+  }
+  const selected = candidates.sort((left, right) => (
+    Math.hypot(left.xPx - clickX, left.yPx - clickY)
+      - Math.hypot(right.xPx - clickX, right.yPx - clickY)
+  ))[0];
+  return {
+    mapId: state.currentMapId,
+    x: Math.max(2, Math.min(92, selected.xPx / stageRect.width * 100)),
+    floor: selected.floor
+  };
+}
+
+function isAtRallyPoint(point = state.rallyPoint) {
+  return Boolean(
+    point
+    && point.mapId === state.currentMapId
+    && point.floor === getCharacterFloor()
+    && Math.abs(point.x - getCharacterX()) <= 1.5
+  );
 }
 
 function getCurrentCharacterMotion() {
@@ -674,6 +762,7 @@ function renderWorldMap(mapId, arrivalPortalIndex = 0) {
     !needsUpperRoute && !map.features.some((feature) => feature === 'rope' || feature === 'ladder')
   );
   renderPortals(map);
+  renderRallyPoint();
 
   const character = $('fieldCharacter');
   const arrival = PORTAL_POSITIONS[arrivalPortalIndex] || PORTAL_POSITIONS[0];
@@ -709,6 +798,18 @@ async function moveCharacter(left, duration, runId) {
   return isRunActive('move', runId);
 }
 
+function getFieldMoveDuration(targetX) {
+  const stage = $('worldStage');
+  const distance = Math.abs(targetX - getCharacterX()) / 100 * stage.clientWidth;
+  return Math.max(
+    220,
+    Math.min(
+      7200,
+      distance / (CHARACTER_BASE_MOVEMENT_PX_PER_SECOND * getMovementSpeedPercent() / 100) * 1000
+    )
+  );
+}
+
 function getLadderCharacterX() {
   const stage = $('worldStage');
   const ladder = $('worldRope');
@@ -738,22 +839,71 @@ async function climbToUpperPlatform(runId) {
   return isRunActive('move', runId);
 }
 
+async function climbToLowerPlatform(runId) {
+  if (!isRunActive('move', runId)) return false;
+  const character = $('fieldCharacter');
+  const duration = getScaledMovementDuration(1100);
+  character.classList.remove('facing-left');
+  setWorldActivity('사다리를 타고 아래층으로 이동 중');
+  setCharacterMotion('climb');
+  character.style.transitionDuration = `${duration}ms`;
+  character.style.bottom = '42px';
+  await sleep(duration + 20);
+  setCharacterMotion(null);
+  return isRunActive('move', runId);
+}
+
+async function walkToFieldPoint(point, runId) {
+  if (!isRunActive('move', runId)) return false;
+  const character = $('fieldCharacter');
+  if (getCharacterFloor() !== point.floor) {
+    const ladderX = getLadderCharacterX();
+    character.classList.toggle('facing-left', ladderX < getCharacterX());
+    if (!await moveCharacter(ladderX, getFieldMoveDuration(ladderX), runId)) return false;
+    if (point.floor === 1) {
+      if (!await climbToUpperPlatform(runId)) return false;
+    } else if (!await climbToLowerPlatform(runId)) return false;
+  }
+  character.classList.toggle('facing-left', point.x < getCharacterX());
+  return moveCharacter(point.x, getFieldMoveDuration(point.x), runId);
+}
+
+async function commandFieldPoint(point, returning = false) {
+  if (!point || state.dead || point.mapId !== state.currentMapId) return;
+  state.moving = true;
+  state.combatTargetId = '';
+  state.combatRunId += 1;
+  const runId = ++state.moveRunId;
+  updateFieldControls();
+  if (!await walkToFieldPoint(point, runId)) return;
+  if (runId !== state.moveRunId) return;
+  state.moving = false;
+  setCharacterMotion(null);
+  updateFieldControls();
+  setWorldActivity(returning ? '기준점 복귀 · 몬스터 대기 중' : '이동 기준점 도착');
+  if (state.autoCombat) startAutoCombat();
+}
+
+function handleWorldStagePoint(event) {
+  if (
+    event.button !== 0
+    || state.dead
+    || event.target.closest('.field-shop-npc, .combat-buff-tray, .rally-point')
+  ) return;
+  const point = getNearestWalkablePoint(event.clientX, event.clientY);
+  setRallyPoint(point);
+  commandFieldPoint(point).catch((err) => {
+    console.error('V2 field point movement error:', err);
+    setWorldActivity('이동 기준점을 다시 선택해주세요.');
+  });
+}
+
 function getCombatTarget() {
   const characterX = getCharacterX();
   const floor = getCharacterFloor();
   const candidates = state.worldMonsters.filter((monster) => monster.floor === floor && monster.hp > 0);
   if (!candidates.length) return null;
-  const current = candidates.find((monster) => monster.id === state.combatTargetId);
-  const currentDirection = current && Math.sign(current.x - characterX);
-  const directionalCandidates = currentDirection
-    ? candidates.filter((monster) => {
-      const direction = Math.sign(monster.x - characterX);
-      return direction === 0 || direction === currentDirection;
-    })
-    : candidates;
-  const selected = directionalCandidates.sort(
-    (a, b) => Math.abs(a.x - characterX) - Math.abs(b.x - characterX)
-  )[0] || candidates.sort(
+  const selected = candidates.sort(
     (a, b) => Math.abs(a.x - characterX) - Math.abs(b.x - characterX)
   )[0];
   state.combatTargetId = selected.id;
@@ -880,6 +1030,7 @@ async function commandMove(targetMapId) {
   if (!connection || !canEnterMap(target)) return;
 
   closeFeature();
+  clearRallyPoint();
   state.moving = true;
   state.combatRunId += 1;
   const runId = ++state.moveRunId;
@@ -1001,6 +1152,15 @@ async function runAutoCombat(runId) {
   while (isRunActive('combat', runId) && state.token && !state.isAdmin && !state.dead) {
     const target = getCombatTarget();
     if (!target) {
+      if (
+        state.rallyPoint?.mapId === state.currentMapId
+        && !isAtRallyPoint()
+      ) {
+        commandFieldPoint(state.rallyPoint, true).catch((err) => {
+          console.error('V2 rally return error:', err);
+        });
+        return;
+      }
       setWorldActivity('몬스터 출현 대기 중');
       await sleep(650);
       continue;
@@ -1475,6 +1635,8 @@ function startWorldSimulation() {
   state.moveRunId += 1;
   state.combatRunId += 1;
   state.moving = false;
+  state.rallyPoint = loadStoredRallyPoint();
+  if (state.rallyPoint?.mapId !== startMap.id) clearRallyPoint();
   renderWorldMap(startMap.id, 0);
   if (startMap.id === persistedWorld.mapId) {
     const character = $('fieldCharacter');
@@ -2558,6 +2720,19 @@ $('hpPotionButton').addEventListener('click', () => useQuickPotion('hp'));
 $('mpPotionButton').addEventListener('click', () => useQuickPotion('mp'));
 $('potionConfigButton').addEventListener('click', () => openFeature('potion-config'));
 $('shopNpc')?.addEventListener('click', openFieldShop);
+$('worldStage')?.addEventListener('click', handleWorldStagePoint);
+$('rallyPoint')?.addEventListener('click', (event) => {
+  event.stopPropagation();
+  clearRallyPoint();
+  if (state.moving) {
+    state.moveRunId += 1;
+    state.moving = false;
+    setCharacterMotion(null);
+    updateFieldControls();
+    if (state.autoCombat) startAutoCombat();
+  }
+  setWorldActivity('이동 기준점을 해제했습니다.');
+});
 $('mailButton').addEventListener('click', () => refreshMailbox(true));
 $('reviveButton').addEventListener('click', revivePlayer);
 document.querySelectorAll('.desk-action').forEach((button) => {

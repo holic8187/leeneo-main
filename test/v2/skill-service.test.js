@@ -56,6 +56,15 @@ test('generated support skills retain fixed durations and specialized effects', 
   assert.equal(resolveSkillValues(welfareSupport, 30).healPercent, 300);
 });
 
+test('marketing mascot summon uses MP only and treats the stated HP as summon HP', () => {
+  const mascot = findSkillByName('마스코트 배치');
+  const values = resolveSkillValues(mascot, mascot.maxLevel);
+  assert.equal(mascot.effect, 'summon');
+  assert.equal(values.mpCost, 32);
+  assert.equal(values.hpCost, undefined);
+  assert.equal(values.summonHp, 6000);
+});
+
 test('management support passives calculate periodic MP recovery and MP absorption', () => {
   const periodic = findSkillByName('정신력 회복 향상');
   const absorption = findSkillByName('업무 동력 회수');
