@@ -56,6 +56,7 @@ function createMonster(map, index, now) {
     lootIcon: species.lootIcon,
     dropTable: species.dropTable,
     elementalMultipliers: species.elementalMultipliers,
+    undead: Boolean(species.undead),
     level: species.level,
     hp: stats.maxHp,
     mp: stats.maxMp,
@@ -104,6 +105,7 @@ function serializeMonster(monster) {
     monsterAccuracy: monster.monsterAccuracy,
     monsterEvasion: monster.monsterEvasion,
     elementalMultipliers: { ...(monster.elementalMultipliers || {}) },
+    undead: Boolean(monster.undead),
     x: monster.x,
     floor: monster.floor,
     direction: monster.direction,
@@ -809,7 +811,7 @@ function attackMonster({
       ...drop,
       id: crypto.randomUUID(),
       userId,
-      x: clamp(monster.x + (index - 0.5) * 1.8, 2, 92),
+      x: clamp(monster.x + (index - 0.5) * 1.8, 5, 88),
       floor: monster.floor,
       collectAt
     }));
@@ -844,7 +846,7 @@ function queueMonsterDrops(runtime, monster, userId, now) {
     ...drop,
     id: crypto.randomUUID(),
     userId,
-    x: clamp(monster.x + (index - 0.5) * 1.8, 2, 92),
+    x: clamp(monster.x + (index - 0.5) * 1.8, 5, 88),
     floor: monster.floor,
     collectAt
   }));
@@ -883,6 +885,7 @@ function useSkillOnMonsters({
   poisonAttack = 0,
   poisonDurationSeconds = 0,
   poisonMaxStacks = 0,
+  undeadOnly = false,
   now = Date.now()
 }) {
   cleanupInactiveMaps(now);
@@ -896,6 +899,7 @@ function useSkillOnMonsters({
   const inRange = runtime.monsters
     .filter((monster) => (
       monster.hp > 0
+      && (!undeadOnly || monster.undead)
       && monster.floor === player.floor
       && Math.abs(monster.x - player.x) <= rangePercent + 4.5
     ));

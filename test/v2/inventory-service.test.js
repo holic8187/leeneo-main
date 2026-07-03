@@ -118,6 +118,20 @@ test('claiming admin mail transfers its attachment once', () => {
   assert.equal(buildInventoryView(character).categories.cash.items[0].quantity, 7);
 });
 
+test('claiming hunting time mail applies it immediately instead of creating a cash stack', () => {
+  const character = characterFixture();
+  character.huntingTime = { remainingSeconds: 0, enabled: false };
+  character.mailbox.push(createAdminMail({
+    itemId: 'hunting_time_180m',
+    quantity: 1,
+    message: '자동사냥 시간'
+  }));
+  const claimed = claimMail(character, character.mailbox[0].id);
+  assert.equal(character.huntingTime.remainingSeconds, 180 * 60);
+  assert.equal(buildInventoryView(character).items.some((item) => item.id === 'hunting_time_180m'), false);
+  assert.equal(claimed.directEffects[0].appliedDirectly, true);
+});
+
 test('unclaimed admin mail disappears after twenty-four hours', () => {
   const character = characterFixture();
   const mail = createAdminMail({ itemId: 'hard_candy', quantity: 1 });

@@ -65,7 +65,9 @@ const state = {
   autoSkillRotationIndex: 0,
   shop: { money: 0, buyItems: [], tab: 'consumable' },
   partyState: { party: null, invitation: null, nearbyPlayers: [] },
-  lastPartyInvitationId: ''
+  lastPartyInvitationId: '',
+  tradeState: { request: null, session: null, nearbyPlayers: [] },
+  lastTradeRequestId: ''
 };
 sessionStorage.setItem('v2WorldClientId', state.worldClientId);
 
@@ -699,8 +701,16 @@ function collectGroundLoot(collections = []) {
   const destinationX = characterRect.left - stageRect.left + characterRect.width / 2;
   const destinationY = stageRect.bottom - characterRect.top;
   collections.forEach((loot) => {
-    const element = layer.querySelector(`[data-loot-id="${CSS.escape(String(loot.id))}"]`);
-    if (!element) return;
+    let element = layer.querySelector(`[data-loot-id="${CSS.escape(String(loot.id))}"]`);
+    if (!element) {
+      element = document.createElement('div');
+      element.className = `field-loot is-${loot.kind}`;
+      element.dataset.lootId = String(loot.id);
+      element.style.left = `${Math.max(5, Math.min(88, Number(loot.x) || 8))}%`;
+      element.style.bottom = getLootBottom(loot.floor);
+      element.innerHTML = `<span>${escapeHtml(loot.icon || '📦')}</span>`;
+      layer.appendChild(element);
+    }
     element.style.setProperty('--loot-target-x', `${destinationX - element.offsetLeft}px`);
     element.style.setProperty('--loot-target-y', `${-(destinationY - element.offsetHeight)}px`);
     element.classList.add('is-collecting');
@@ -741,6 +751,46 @@ function renderPortals(map) {
       <i></i><span>PORTAL</span><small>${escapeHtml(target?.name || connection.targetId)}</small>
     </div>`;
   }).join('');
+}
+
+function renderPartyPortals(portals = []) {
+  const layer = $('portalLayer');
+  if (!layer) return;
+  layer.querySelectorAll('.party-return-portal').forEach((portal) => portal.remove());
+  portals.forEach((portal) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'world-portal party-return-portal';
+    button.dataset.partyPortalId = portal.id;
+    button.style.left = `${Math.max(3, Math.min(88, Number(portal.x) || 8))}%`;
+    button.style.bottom = Number(portal.floor) === 1 ? '176px' : '44px';
+    button.innerHTML = `<i></i><span>PARTY</span><small>${escapeHtml(portal.label)}</small>`;
+    button.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      try {
+        const data = await request('/api/v2/world/party-portal/use', {
+          method: 'POST',
+          body: JSON.stringify({
+            clientId: state.worldClientId,
+            portalId: portal.id,
+            mapId: state.currentMapId
+          })
+        });
+        state.worldStateEpoch += 1;
+        state.moveRunId += 1;
+        state.combatRunId += 1;
+        state.autoCombat = false;
+        renderWorldMap(data.destination.mapId, 0);
+        const character = $('fieldCharacter');
+        character.style.left = `${data.destination.x}%`;
+        character.style.bottom = data.destination.floor === 1 ? `${getUpperPlatformBottom()}px` : '42px';
+        setWorldActivity(`${data.map.name}(으)로 포탈 이동했습니다.`);
+      } catch (err) {
+        setWorldActivity(err.message);
+      }
+    });
+    layer.appendChild(button);
+  });
 }
 
 function renderWorldMap(mapId, arrivalPortalIndex = 0) {
@@ -1502,10 +1552,34 @@ function renderWorldEntities(data = {}) {
       openFeature('party-invite');
     }
   }
+  if (data.tradeState) {
+    const previousSessionId = state.tradeState.session?.id || '';
+    state.tradeState = { ...state.tradeState, ...data.tradeState };
+    if (
+      data.tradeState.request?.id
+      && data.tradeState.request.id !== state.lastTradeRequestId
+    ) {
+      state.lastTradeRequestId = data.tradeState.request.id;
+      openFeature('trade-invite');
+    } else if (data.tradeState.session?.id && data.tradeState.session.id !== previousSessionId) {
+      openFeature('trade');
+    } else if (previousSessionId && !data.tradeState.session) {
+      Promise.all([
+        request('/api/v2/me'),
+        request('/api/v2/inventory')
+      ]).then(([me, inventory]) => {
+        state.character = me.character;
+        setInventoryData(inventory.inventory);
+        renderGame({ preview: state.preview, character: me.character, displayName: state.displayName });
+        setWorldActivity('교환이 종료되었습니다. 자산과 인벤토리를 새로 불러왔습니다.');
+      }).catch(() => {});
+    }
+  }
   state.worldServerTime = Number(data.serverTime) || Date.now();
   if (data.self?.userId) state.selfUserId = data.self.userId;
   renderRemotePlayers(data.players || []);
   renderMonsters(data.monsters || []);
+  renderPartyPortals(data.partyPortals || []);
   if (data.self && state.character?.resources) {
     state.character.resources.currentHp = data.self.currentHp;
     state.character.resources.maxHp = data.self.maxHp;
@@ -1755,6 +1829,48 @@ function maybeUseAutoPotions() {
 
 const INVENTORY_TAB_ORDER = Object.freeze(['equipment', 'consumable', 'misc', 'cash']);
 const INVENTORY_PAGE_SIZE = 16;
+const ITEM_STAT_LABELS = Object.freeze({
+  attack: '공격력',
+  magic: '마력',
+  defense: '방어력',
+  magicDefense: '마법방어력',
+  grit: '맷집',
+  processingSpeed: '처리속도',
+  workKnowledge: '업무지식',
+  awareness: '눈치',
+  maxHp: '최대 HP',
+  maxMp: '최대 MP',
+  evasion: '회피율'
+});
+const ITEM_ARCHETYPE_LABELS = Object.freeze({
+  warrior: '전사 계열',
+  archer: '궁수 계열',
+  thief: '도적 계열',
+  mage: '마법사 계열'
+});
+
+function inventoryItemDetailText(item) {
+  if (item.category !== 'equipment') return '';
+  const requirements = item.requirements || {};
+  const requiredLevel = Number(requirements.level ?? item.requiredLevel) || 1;
+  const allowed = (requirements.allowedArchetypes || [])
+    .map((archetype) => ITEM_ARCHETYPE_LABELS[archetype] || archetype)
+    .join('/');
+  const requiredStats = Object.entries(requirements.stats || {})
+    .filter(([, value]) => Number(value) > 0)
+    .map(([key, value]) => `${ITEM_STAT_LABELS[key] || key} ${formatNumber(value)}`)
+    .join(' · ');
+  const stats = Object.entries(item.stats || {})
+    .filter(([, value]) => Number(value))
+    .map(([key, value]) => `${ITEM_STAT_LABELS[key] || key} +${formatNumber(value)}`)
+    .join(' · ');
+  return [
+    `요구 레벨 ${requiredLevel}`,
+    allowed,
+    requiredStats,
+    stats
+  ].filter(Boolean).join(' / ');
+}
 
 function inventorySlotBody(item, slotNumber, locked = false) {
   if (locked) {
@@ -1768,10 +1884,12 @@ function inventorySlotBody(item, slotNumber, locked = false) {
     usable = '<button class="inventory-item-use" type="button" data-use-expansion-ticket>사용</button>';
   } else if (item.itemType === 'job-change') {
     usable = '<button class="inventory-item-use" type="button" data-use-job-change-ticket>사용</button>';
+  } else if (item.itemType === 'stat-reset') {
+    usable = '<button class="inventory-item-use" type="button" data-use-stat-reset-ticket>사용</button>';
   } else if (['return-scroll', 'experience-buff', 'hunting-time'].includes(item.itemType)) {
     usable = `<button class="inventory-item-use" type="button" data-use-inventory-item="${escapeHtml(item.id)}">사용</button>`;
-  } else if (item.itemType === 'weapon') {
-    usable = `<button class="inventory-item-use" type="button" data-equip-inventory-weapon="${escapeHtml(item.stackId)}">장착</button>`;
+  } else if (item.category === 'equipment') {
+    usable = `<button class="inventory-item-use" type="button" data-equip-inventory-equipment="${escapeHtml(item.stackId)}">장착</button>`;
   }
   const directlyUsable = ['return-scroll', 'experience-buff', 'hunting-time'].includes(item.itemType)
     ? item.id
@@ -1784,6 +1902,7 @@ function inventorySlotBody(item, slotNumber, locked = false) {
     <div class="inventory-item-tooltip" role="tooltip">
       <strong>${escapeHtml(item.name)}</strong>
       <span>${escapeHtml(item.description)}</span>
+      ${inventoryItemDetailText(item) ? `<span>${escapeHtml(inventoryItemDetailText(item))}</span>` : ''}
       <small>${formatNumber(item.quantity)}개 보유${item.expiresAt ? ` · ${new Date(item.expiresAt).toLocaleString('ko-KR')} 만료` : ''}</small>
     </div>
   </article>`;
@@ -1945,9 +2064,10 @@ function bindInventoryControls() {
     state.selectedJobChangeDepartmentId = '';
     rerenderInventory();
   });
-  document.querySelectorAll('[data-equip-inventory-weapon]').forEach((button) => {
-    button.addEventListener('click', () => equipInventoryWeapon(button.dataset.equipInventoryWeapon));
+  document.querySelectorAll('[data-equip-inventory-equipment]').forEach((button) => {
+    button.addEventListener('click', () => equipInventoryWeapon(button.dataset.equipInventoryEquipment));
   });
+  document.querySelector('[data-use-stat-reset-ticket]')?.addEventListener('click', useStatResetTicket);
   document.querySelectorAll('[data-use-inventory-item]').forEach((button) => {
     button.addEventListener('click', () => useInventoryItem(button.dataset.useInventoryItem));
   });
@@ -2026,11 +2146,28 @@ async function equipInventoryWeapon(stackId) {
   }
 }
 
-async function unequipCurrentWeapon() {
+async function useStatResetTicket() {
+  if (!window.confirm('투자한 스탯을 모두 4로 초기화하고 포인트를 돌려받을까요?')) return;
+  try {
+    const data = await request('/api/v2/inventory/use-stat-reset', {
+      method: 'POST',
+      body: JSON.stringify({})
+    });
+    state.character = data.character;
+    setInventoryData(data.inventory);
+    renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
+    rerenderInventory();
+    setWorldActivity('스탯이 초기화되고 투자 포인트가 반환되었습니다.');
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+async function unequipCurrentWeapon(slot = 'weapon') {
   try {
     const data = await request('/api/v2/equipment/unequip', {
       method: 'POST',
-      body: JSON.stringify({})
+      body: JSON.stringify({ slot })
     });
     state.character = data.character;
     setInventoryData(data.inventory);
@@ -2147,6 +2284,10 @@ async function claimMailItem(mailId) {
       body: JSON.stringify({ mailId })
     });
     setInventoryData(data.inventory);
+    if (data.huntingTime) {
+      state.huntingTime = data.huntingTime;
+      renderHuntingTime();
+    }
     setMailboxData(data);
     $('featureBody').innerHTML = mailBody();
     bindMailControls();
@@ -2162,6 +2303,10 @@ async function claimAllMailItems() {
       body: '{}'
     });
     setInventoryData(data.inventory);
+    if (data.huntingTime) {
+      state.huntingTime = data.huntingTime;
+      renderHuntingTime();
+    }
     setMailboxData(data);
     $('featureBody').innerHTML = mailBody();
     bindMailControls();
@@ -2327,6 +2472,116 @@ function partyInviteBody() {
   </div>`;
 }
 
+function tradeBody() {
+  const session = state.tradeState.session;
+  if (!session) {
+    const players = state.tradeState.nearbyPlayers || [];
+    return `<div class="trade-sheet">
+      <header><strong>같은 맵의 사원과 교환</strong><small>돈을 넘길 때 받는 쪽 금액에서 수수료 5%가 차감됩니다.</small></header>
+      <div class="party-member-list">${players.length ? players.map((player) => `<article>
+        <div><strong>${escapeHtml(player.nickname)}</strong><small>같은 맵 접속 중</small></div>
+        <button type="button" data-trade-request="${escapeHtml(player.userId)}">교환 요청</button>
+      </article>`).join('') : '<p>현재 같은 맵에 교환 가능한 사원이 없습니다.</p>'}</div>
+    </div>`;
+  }
+  const offerableItems = state.inventory.items || [];
+  return `<div class="trade-sheet">
+    <header><strong>${escapeHtml(session.partner?.nickname || '상대')}님과 교환</strong><small>양쪽 모두 교환 확정을 눌러야 완료됩니다.</small></header>
+    <div class="trade-columns">
+      <section>
+        <h3>내 제안</h3>
+        <label>교환할 돈<input type="number" min="0" step="1" value="${Number(session.myOffer?.money) || 0}" data-trade-money></label>
+        <div class="trade-item-list">${offerableItems.length ? offerableItems.map((item) => `<label>
+          <input type="checkbox" data-trade-item="${escapeHtml(item.stackId)}">
+          <span>${escapeHtml(item.icon)} ${escapeHtml(item.name)} ×${formatNumber(item.quantity)}</span>
+          <input type="number" min="1" max="${Number(item.quantity) || 1}" value="1" data-trade-quantity="${escapeHtml(item.stackId)}">
+        </label>`).join('') : '<p>교환할 아이템이 없습니다.</p>'}</div>
+        <button type="button" data-trade-save>제안 올리기</button>
+      </section>
+      <section>
+        <h3>상대 제안</h3>
+        <strong>${formatNumber(session.partnerOffer?.money)}원</strong>
+        <div class="trade-partner-items">${session.partnerOffer?.items?.length
+          ? session.partnerOffer.items.map((item) => `<span>${escapeHtml(item.name || item.itemId || item.stackId)} ×${formatNumber(item.quantity)}</span>`).join('')
+          : '<span>등록된 아이템 없음</span>'}</div>
+        <p>${session.partnerOffer?.confirmed ? '상대가 교환을 확정했습니다.' : '상대 확인 대기 중'}</p>
+      </section>
+    </div>
+    <div class="trade-actions">
+      <button type="button" data-trade-confirm>${session.myOffer?.confirmed ? '확정 완료' : '교환 확정'}</button>
+      <button class="secondary-action" type="button" data-trade-cancel>교환 취소</button>
+    </div>
+  </div>`;
+}
+
+function tradeInviteBody() {
+  const tradeRequest = state.tradeState.request;
+  if (!tradeRequest) return '<div class="empty-ledger"><b>대기 중인 교환 요청이 없습니다.</b></div>';
+  return `<div class="party-invite-card">
+    <span>TRADE REQUEST</span>
+    <strong>${escapeHtml(tradeRequest.inviterNickname)}님의 교환 요청</strong>
+    <p>수락하면 두 플레이어가 교환 창으로 이동합니다. 돈 교환 수수료는 5%입니다.</p>
+    <div><button type="button" data-trade-respond="true">수락</button>
+    <button class="secondary-action" type="button" data-trade-respond="false">거절</button></div>
+  </div>`;
+}
+
+async function refreshTrade(openAfter = false) {
+  try {
+    state.tradeState = await request('/api/v2/trade');
+    if (openAfter) openFeature('trade');
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+async function tradeRequest(path, body = {}) {
+  try {
+    const data = await request(`/api/v2/trade/${path}`, {
+      method: 'POST',
+      body: JSON.stringify(body)
+    });
+    if (data.session !== undefined || data.request !== undefined) {
+      state.tradeState = { ...state.tradeState, ...data };
+    }
+    if (data.character) state.character = data.character;
+    if (data.inventory) setInventoryData(data.inventory);
+    if (path === 'cancel' || data.completed) {
+      closeFeature();
+      setWorldActivity(data.completed ? '교환이 완료되었습니다.' : '교환을 취소했습니다.');
+      return;
+    }
+    $('featureBody').innerHTML = tradeBody();
+    bindTradeControls();
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+function bindTradeControls() {
+  document.querySelectorAll('[data-trade-request]').forEach((button) => {
+    button.addEventListener('click', () => tradeRequest('request', { targetId: button.dataset.tradeRequest }));
+  });
+  document.querySelectorAll('[data-trade-respond]').forEach((button) => {
+    button.addEventListener('click', () => tradeRequest('respond', {
+      requestId: state.tradeState.request?.id,
+      accepted: button.dataset.tradeRespond === 'true'
+    }));
+  });
+  document.querySelector('[data-trade-save]')?.addEventListener('click', () => {
+    const items = [...document.querySelectorAll('[data-trade-item]:checked')].map((input) => ({
+      stackId: input.dataset.tradeItem,
+      quantity: document.querySelector(`[data-trade-quantity="${CSS.escape(input.dataset.tradeItem)}"]`)?.value || 1
+    }));
+    tradeRequest('offer', {
+      money: document.querySelector('[data-trade-money]')?.value || 0,
+      items
+    });
+  });
+  document.querySelector('[data-trade-confirm]')?.addEventListener('click', () => tradeRequest('confirm'));
+  document.querySelector('[data-trade-cancel]')?.addEventListener('click', () => tradeRequest('cancel'));
+}
+
 async function refreshParty(openAfter = false) {
   try {
     state.partyState = await request('/api/v2/party');
@@ -2382,6 +2637,8 @@ const featureMeta = {
   stock: { code: '09 / MARKET', title: '주식' },
   party: { code: '10 / PARTY', title: '파티' },
   'party-invite': { code: 'PARTY / INVITE', title: '파티 초대' },
+  trade: { code: '11 / TRADE', title: '사원 교환' },
+  'trade-invite': { code: 'TRADE / INVITE', title: '교환 요청' },
   quest: { code: 'QUEST / HR', title: '전직 퀘스트' },
   move: { code: 'MAP / MOVE', title: '이동 목적지' },
   mail: { code: 'ADMIN / MAIL', title: '우편함' },
@@ -2437,13 +2694,13 @@ function equipmentBody() {
         <small>${item ? equipmentStatText(item) : '현재 장착한 장비가 없습니다.'}</small>
       </div>
       <i>${item ? 'EQUIPPED' : 'EMPTY'}</i>
-      ${slot.key === 'weapon' && item ? '<button type="button" data-unequip-weapon>해제</button>' : ''}
+      ${item ? `<button type="button" data-unequip-equipment="${slot.key}">해제</button>` : ''}
     </article>`;
   }).join('');
   return `<div class="equipment-sheet">
     <div class="equipment-tabs" role="tablist">${tabs}</div>
     <div class="equipment-slots">${slots}</div>
-    <p class="notice-line">무기는 인벤토리 장비 탭에서 장착합니다. 무기 종류별 무기상수와 공격속도가 능력치 및 전투에 적용됩니다.</p>
+    <p class="notice-line">장비는 인벤토리 장비 탭에서 장착합니다. 직업·레벨·요구 스탯과 장착 슬롯을 모두 충족해야 합니다.</p>
   </div>`;
 }
 
@@ -2455,7 +2712,9 @@ function bindEquipmentTabs() {
       bindEquipmentTabs();
     });
   });
-  document.querySelector('[data-unequip-weapon]')?.addEventListener('click', unequipCurrentWeapon);
+  document.querySelectorAll('[data-unequip-equipment]').forEach((button) => {
+    button.addEventListener('click', () => unequipCurrentWeapon(button.dataset.unequipEquipment));
+  });
 }
 
 function questBody() {
@@ -2624,6 +2883,8 @@ function featureBody(feature) {
   if (feature === 'shop') return shopBody();
   if (feature === 'party') return partyBody();
   if (feature === 'party-invite') return partyInviteBody();
+  if (feature === 'trade') return tradeBody();
+  if (feature === 'trade-invite') return tradeInviteBody();
   const messages = {
     shop: '물약, 탄환, 장비 보급품을 구매하는 사내 보급소입니다.',
     cash: 'V2 전용 상품 구성 후 개장합니다.',
@@ -2660,6 +2921,7 @@ function openFeature(feature) {
   if (feature === 'mail') bindMailControls();
   if (feature === 'shop') bindShopControls();
   if (feature === 'party' || feature === 'party-invite') bindPartyControls();
+  if (feature === 'trade' || feature === 'trade-invite') bindTradeControls();
   $('featureModal').classList.remove('hidden');
   document.body.classList.add('modal-open');
   document.querySelector('.modal-close')?.focus();
@@ -2749,6 +3011,8 @@ document.querySelectorAll('.desk-action').forEach((button) => {
       ? openFieldShop()
       : button.dataset.feature === 'party'
         ? refreshParty(true)
+      : button.dataset.feature === 'trade'
+        ? refreshTrade(true)
       : openFeature(button.dataset.feature)
   ));
 });

@@ -397,7 +397,10 @@
         150
       ],
       "hits": 2
-    }
+    },
+    "weaponTypes": [
+      "claw"
+    ]
   },
   "extended_510ccd5562": {
     "id": "extended_510ccd5562",
@@ -2258,7 +2261,10 @@
       "damageReductionPercent": 0,
       "criticalChance": 0,
       "criticalDamagePercent": 0
-    }
+    },
+    "weaponTypes": [
+      "claw"
+    ]
   },
   "extended_996216c2f0": {
     "id": "extended_996216c2f0",
@@ -2415,7 +2421,7 @@
     "target": "enemy",
     "maxTargets": 1,
     "range": 100,
-    "effect": "summon",
+    "effect": "damage",
     "values": {
       "mpCost": [
         20,
@@ -2425,7 +2431,7 @@
         30,
         180
       ],
-      "primaryPercent": [
+      "damagePercent": [
         20,
         80
       ]
@@ -2519,7 +2525,10 @@
         90,
         180
       ]
-    }
+    },
+    "weaponTypes": [
+      "claw"
+    ]
   },
   "extended_729f1a7cf5": {
     "id": "extended_729f1a7cf5",
@@ -2735,7 +2744,10 @@
       "damageReductionPercent": 0,
       "criticalChance": 0,
       "criticalDamagePercent": 0
-    }
+    },
+    "weaponTypes": [
+      "claw"
+    ]
   },
   "extended_eb778160dd": {
     "id": "extended_eb778160dd",
@@ -5056,7 +5068,7 @@
     "target": "party",
     "maxTargets": 1,
     "range": 100,
-    "effect": "buff",
+    "effect": "party-portal",
     "values": {
       "mpCost": [
         50,
@@ -5065,16 +5077,7 @@
       "durationSeconds": [
         30,
         180
-      ],
-      "attackIncrease": 0,
-      "defenseIncrease": 0,
-      "accuracyIncrease": 0,
-      "evasionIncrease": 0,
-      "movementSpeedIncrease": 0,
-      "attackSpeedStage": 0,
-      "damageReductionPercent": 0,
-      "criticalChance": 0,
-      "criticalDamagePercent": 0
+      ]
     }
   },
   "extended_80b1bfaa83": {

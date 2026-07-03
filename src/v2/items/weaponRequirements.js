@@ -94,6 +94,33 @@ function canEquipWeapon(character = {}, item = {}) {
   return !getWeaponEquipFailureReason(character, item);
 }
 
+function getEquipmentEquipFailureReason(character = {}, item = {}) {
+  if (item.itemType === 'weapon') return getWeaponEquipFailureReason(character, item);
+  const requirements = item.requirements || {};
+  const allowedArchetypes = getAllowedWeaponArchetypes(requirements);
+  const characterArchetype = getCharacterArchetype(character);
+  if (allowedArchetypes.length && !allowedArchetypes.includes(characterArchetype)) {
+    const allowed = allowedArchetypes
+      .map((archetype) => ARCHETYPE_LABELS[archetype] || archetype)
+      .join(', ');
+    return `${allowed} 직업군만 장착할 수 있는 장비입니다.`;
+  }
+  const requiredLevel = Math.max(
+    1,
+    Number(requirements.level ?? item.requiredLevel ?? item.levelRequirement) || 1
+  );
+  const level = Math.max(1, Math.floor(Number(character.progression?.level) || 1));
+  if (level < requiredLevel) return `레벨 ${requiredLevel} 이상부터 장착할 수 있습니다.`;
+  const missingStat = Object.entries(requirements.stats || {}).find(
+    ([stat, required]) => Number(character.stats?.[stat] || 0) < Number(required)
+  );
+  if (missingStat) {
+    const [stat, required] = missingStat;
+    return `${stat} 능력치가 ${required} 이상이어야 합니다.`;
+  }
+  return '';
+}
+
 module.exports = {
   WEAPON_REQUIREMENT_RULES,
   buildWeaponRequirements,
@@ -101,5 +128,6 @@ module.exports = {
   getCharacterArchetype,
   getAllowedWeaponArchetypes,
   getWeaponEquipFailureReason,
+  getEquipmentEquipFailureReason,
   canEquipWeapon
 };

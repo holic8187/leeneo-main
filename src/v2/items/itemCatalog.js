@@ -2,6 +2,7 @@
 
 const { MONSTER_CATALOG } = require('../world/monsterCatalog');
 const { applyWeaponRequirements } = require('./weaponRequirements');
+const { EQUIPMENT_ITEMS } = require('./equipmentCatalog');
 
 const INVENTORY_CATEGORIES = Object.freeze({
   equipment: Object.freeze({ key: 'equipment', label: '장비', icon: '🛡️' }),
@@ -211,6 +212,16 @@ const BASE_ITEMS = {
     description: '현재 전직 차수를 유지한 채 보직을 변경합니다. 투자한 스탯과 스킬 포인트는 모두 초기화되어 환급됩니다. 받은 뒤 72시간 후 사라집니다.',
     adminGrantOnly: true
   },
+  stat_reset_coupon: {
+    id: 'stat_reset_coupon',
+    name: '스탯 초기화 쿠폰',
+    category: 'cash',
+    itemType: 'stat-reset',
+    icon: '🧾',
+    maxStack: 100,
+    description: '투자한 스탯만 초기화하고 사용 가능한 스탯 포인트로 돌려받습니다.',
+    adminGrantOnly: true
+  },
   hunting_time_180m: {
     id: 'hunting_time_180m',
     name: '자동사냥 시간 180분',
@@ -295,6 +306,10 @@ const BASE_ITEMS = {
     attackSpeedMultiplier: 0.9, stats: { attack: 8, magic: 22 }, archetype: 'mage'
   })
 };
+
+for (const item of EQUIPMENT_ITEMS) {
+  BASE_ITEMS[item.id] = { ...item };
+}
 
 for (const monster of MONSTER_CATALOG) {
   BASE_ITEMS[monster.lootItemId] = {

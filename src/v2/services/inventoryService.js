@@ -6,7 +6,7 @@ const {
   getItemDefinition,
   getInventoryCategory
 } = require('../items/itemCatalog');
-const { getWeaponEquipFailureReason } = require('../items/weaponRequirements');
+const { getEquipmentEquipFailureReason } = require('../items/weaponRequirements');
 
 const DEFAULT_INVENTORY_CAPACITY = 20;
 const MAX_INVENTORY_CAPACITY = 64;
@@ -14,6 +14,7 @@ const INVENTORY_EXPANSION_SIZE = 4;
 const INVENTORY_EXPANSION_TICKET_ID = 'inventory_expansion_ticket';
 const DEFAULT_STACK_SIZE = 100;
 const MAIL_TTL_MS = 24 * 60 * 60 * 1000;
+const MAX_HUNTING_SECONDS = 400 * 60;
 
 const QUICK_SLOT_RESOURCES = Object.freeze({
   hp: 'hp',
@@ -260,28 +261,29 @@ function consumeInventoryStack(character, stackId, quantity = 1) {
   return { itemId: String(stack.itemId), quantity: consumed };
 }
 
-function equipInventoryWeapon(character, stackId) {
+function equipInventoryEquipment(character, stackId) {
   const inventory = ensureInventory(character);
   const stack = inventory.items.find(
     (entry) => String(entry.stackId) === String(stackId)
       && Number(entry.quantity) > 0
   );
   const item = getItemDefinition(stack?.itemId);
-  if (!item || item.category !== 'equipment' || item.itemType !== 'weapon') {
-    throw new Error('장착할 무기를 찾을 수 없습니다.');
+  if (!item || item.category !== 'equipment' || !item.equipmentSlot) {
+    throw new Error('장착할 장비를 찾을 수 없습니다.');
   }
-  const equipFailureReason = getWeaponEquipFailureReason(character, item);
+  const equipFailureReason = getEquipmentEquipFailureReason(character, item);
   if (equipFailureReason) throw new Error(equipFailureReason);
   if (!character.loadout || typeof character.loadout !== 'object') character.loadout = {};
-  const previous = character.loadout.weapon;
+  const slot = String(item.equipmentSlot);
+  const previous = character.loadout[slot];
   if (previous && !getItemDefinition(previous.itemId)) {
-    throw new Error('현재 장착 무기를 먼저 정리해주세요.');
+    throw new Error('현재 장착 장비 정보를 먼저 정리해주세요.');
   }
 
   const consumed = consumeInventoryStack(character, stack.stackId, 1);
-  if (!consumed) throw new Error('장착할 무기를 찾을 수 없습니다.');
+  if (!consumed) throw new Error('장착할 장비를 찾을 수 없습니다.');
   if (previous?.itemId) addInventoryItem(character, previous.itemId, 1);
-  character.loadout.weapon = {
+  character.loadout[slot] = {
     ...item,
     itemId: item.id,
     stats: { ...(item.stats || {}) },
@@ -292,22 +294,27 @@ function equipInventoryWeapon(character, stackId) {
   };
   markInventoryModified(character);
   return {
-    equipped: { ...character.loadout.weapon },
+    slot,
+    equipped: { ...character.loadout[slot] },
     unequipped: previous ? { ...previous } : null
   };
 }
 
-function unequipInventoryWeapon(character) {
+function unequipInventoryEquipment(character, requestedSlot = 'weapon') {
   if (!character.loadout || typeof character.loadout !== 'object') character.loadout = {};
-  const current = character.loadout.weapon;
-  if (!current?.itemId) throw new Error('장착 중인 무기가 없습니다.');
+  const slot = String(requestedSlot || 'weapon');
+  const current = character.loadout[slot];
+  if (!current?.itemId) throw new Error('해당 슬롯에 장착 중인 장비가 없습니다.');
   const item = getItemDefinition(current.itemId);
-  if (!item) throw new Error('현재 무기 정보를 찾을 수 없습니다.');
+  if (!item) throw new Error('현재 장비 정보를 찾을 수 없습니다.');
   addInventoryItem(character, item.id, 1);
-  character.loadout.weapon = null;
+  character.loadout[slot] = null;
   markInventoryModified(character);
-  return { unequipped: { ...current } };
+  return { slot, unequipped: { ...current } };
 }
+
+const equipInventoryWeapon = equipInventoryEquipment;
+const unequipInventoryWeapon = (character) => unequipInventoryEquipment(character, 'weapon');
 
 function assignPotionQuickSlot(character, slot, itemId) {
   const expectedResource = QUICK_SLOT_RESOURCES[String(slot || '')];
@@ -535,20 +542,48 @@ function assertAttachmentsFit(character, attachments) {
     mailbox: []
   };
   for (const attachment of attachments || []) {
+    const item = getItemDefinition(attachment.itemId);
+    if (item?.itemType === 'hunting-time') continue;
     addInventoryItem(simulated, attachment.itemId, attachment.quantity);
   }
+}
+
+function applyMailAttachment(character, attachment) {
+  const item = getItemDefinition(attachment.itemId);
+  const quantity = Math.max(1, Math.floor(Number(attachment.quantity) || 1));
+  if (item?.itemType !== 'hunting-time') {
+    addInventoryItem(character, attachment.itemId, quantity);
+    return null;
+  }
+  if (!character.huntingTime || typeof character.huntingTime !== 'object') {
+    character.huntingTime = {};
+  }
+  const before = Math.max(0, Math.floor(Number(character.huntingTime.remainingSeconds) || 0));
+  const requestedSeconds = Math.max(0, Number(item.huntingMinutes) || 0) * 60 * quantity;
+  character.huntingTime.remainingSeconds = Math.min(
+    MAX_HUNTING_SECONDS,
+    before + requestedSeconds
+  );
+  if (typeof character.markModified === 'function') character.markModified('huntingTime');
+  return {
+    itemId: item.id,
+    name: item.name,
+    appliedDirectly: true,
+    addedSeconds: character.huntingTime.remainingSeconds - before,
+    remainingSeconds: character.huntingTime.remainingSeconds
+  };
 }
 
 function claimMail(character, mailId) {
   const mail = getPendingMail(character).find((entry) => String(entry.id || entry._id) === String(mailId));
   if (!mail) throw new Error('수령할 우편을 찾을 수 없습니다.');
   assertAttachmentsFit(character, mail.attachments);
-  for (const attachment of mail.attachments || []) {
-    addInventoryItem(character, attachment.itemId, attachment.quantity);
-  }
+  const directEffects = (mail.attachments || [])
+    .map((attachment) => applyMailAttachment(character, attachment))
+    .filter(Boolean);
   mail.claimedAt = new Date();
   markInventoryModified(character);
-  return serializeMail(mail);
+  return { ...serializeMail(mail), directEffects };
 }
 
 function claimAllMail(character) {
@@ -570,10 +605,14 @@ module.exports = {
   ensureInventory,
   getUsedSlots,
   getMaxStackSize,
+  getItemStack,
   getItemQuantity,
+  assertInventorySpace,
   addInventoryItem,
   consumeInventoryItem,
   consumeInventoryStack,
+  equipInventoryEquipment,
+  unequipInventoryEquipment,
   equipInventoryWeapon,
   unequipInventoryWeapon,
   assignPotionQuickSlot,

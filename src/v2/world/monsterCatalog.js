@@ -1,5 +1,7 @@
 'use strict';
 
+const { getEquipmentDropsForMonsterLevel } = require('../items/equipmentCatalog');
+
 const ELEMENTS = Object.freeze(['neutral', 'fire', 'lightning', 'ice', 'holy']);
 
 // HP and EXP are explicit so the internal EXP/HP ratio remains reviewable.
@@ -9,26 +11,26 @@ const MONSTER_ROWS = [
   ['runaway_stapler', '도망친 스테이플러', 10, 120, 18, '휘어진 심', '📎'],
   ['coffee_slime', '커피 얼룩 슬라임', 17, 300, 30, '굳은 커피 찌꺼기', '☕', { fire: 0.5, ice: 1.5 }],
   ['meeting_mouse', '회의실 생쥐', 24, 600, 48, '갉아먹은 회의록', '📄'],
-  ['overtime_bat', '야근 박쥐', 31, 1_000, 68, '검은 출입 기록', '🦇', { holy: 1.5 }],
+  ['overtime_bat', '야근 박쥐', 31, 1_000, 68, '검은 출입 기록', '🦇', { holy: 1.5 }, true],
   ['payroll_mimic', '급여대장 미믹', 38, 1_800, 92, '찢어진 급여명세서', '🧮'],
-  ['audit_ghost', '감사실 유령', 45, 2_500, 112, '희미한 감사 도장', '👻', { neutral: 0.75, holy: 1.5 }],
+  ['audit_ghost', '감사실 유령', 45, 2_500, 112, '희미한 감사 도장', '👻', { neutral: 0.75, holy: 1.5 }, true],
   ['sales_fox', '영업 여우', 52, 4_200, 160, '낡은 계약서', '🦊'],
   ['ad_chameleon', '광고 카멜레온', 59, 7_000, 252, '바랜 광고 전단', '🦎', { lightning: 1.5 }],
   ['bug_beetle', '버그 딱정벌레', 66, 10_500, 340, '깨진 코드 조각', '🐞'],
-  ['server_wisp', '서버실 도깨비불', 73, 15_000, 455, '그을린 케이블', '🔥', { fire: 0.5, ice: 1.5 }],
+  ['server_wisp', '서버실 도깨비불', 73, 15_000, 455, '그을린 케이블', '🔥', { fire: 0.5, ice: 1.5, holy: 1.5 }, true],
   ['prototype_golem', '시제품 골렘', 80, 27_000, 850, '불량 부품', '🗿', { lightning: 1.5 }],
   ['conveyor_crab', '컨베이어 게', 87, 37_000, 1_300, '녹슨 톱니', '🦀'],
-  ['quality_spider', '품질검사 거미', 94, 50_000, 2_250, '검사 탈락표', '🕷️', { fire: 1.5, ice: 0.75 }],
+  ['quality_spider', '품질검사 거미', 94, 50_000, 2_250, '검사 탈락표', '🕷️', { fire: 1.5, ice: 0.75, holy: 1.5 }, true],
   ['warehouse_boar', '물류창고 멧돼지', 101, 57_000, 3_050, '부서진 운송장', '🐗'],
   ['facility_drone', '시설관리 드론', 108, 72_000, 3_900, '방전된 배터리', '🤖', { lightning: 1.5 }],
   ['research_chimera', '연구동 키메라', 115, 100_000, 5_200, '정체불명 시료', '🧪'],
   ['executive_lion', '임원실 사자', 122, 140_000, 7_000, '금이 간 명패', '🦁', { fire: 0.75, ice: 1.25 }],
-  ['overtime_reaper', '무한야근 사신', 131, 210_000, 10_000, '낡은 퇴근 카드', '💀', { neutral: 0.75, holy: 1.75 }],
+  ['overtime_reaper', '무한야근 사신', 131, 210_000, 10_000, '낡은 퇴근 카드', '💀', { neutral: 0.75, holy: 1.75 }, true],
   ['deadline_dragon', '마감기한 드래곤', 140, 320_000, 15_000, '타버린 결재 문서', '🐉', { fire: 0.5, lightning: 0.75, ice: 1.5 }]
 ];
 
 const MONSTER_CATALOG = Object.freeze(MONSTER_ROWS.map((
-  [id, name, level, maxHp, expReward, lootName, icon, elementalMultipliers = {}]
+  [id, name, level, maxHp, expReward, lootName, icon, elementalMultipliers = {}, undead = false]
 ) => {
   const lootItemId = `monster_loot_${id}`;
   return Object.freeze({
@@ -41,12 +43,15 @@ const MONSTER_CATALOG = Object.freeze(MONSTER_ROWS.map((
     lootItemId,
     lootName,
     lootIcon: icon,
+    undead,
     elementalMultipliers: Object.freeze({ ...elementalMultipliers }),
     dropTable: Object.freeze({
       misc: Object.freeze([
         Object.freeze({ itemId: lootItemId, name: lootName, icon, quantity: 1, chance: 0.7 })
       ]),
-      equipment: Object.freeze([]),
+      equipment: Object.freeze(
+        getEquipmentDropsForMonsterLevel(level).map((entry) => Object.freeze(entry))
+      ),
       scrolls: Object.freeze([]),
       potions: Object.freeze([])
     })

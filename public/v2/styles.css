@@ -25,7 +25,9 @@ body {
     radial-gradient(circle at 12% 15%, rgba(199, 168, 79, .12), transparent 24rem),
     linear-gradient(135deg, rgba(23, 107, 77, .04), transparent 42%),
     var(--paper);
-  font-family: Georgia, "Noto Serif KR", "Malgun Gothic", serif;
+  font-family: "Pretendard", "Noto Sans KR", "Malgun Gothic", sans-serif;
+  font-size: 16px;
+  font-weight: 600;
 }
 
 body.modal-open { overflow: hidden; }
@@ -91,7 +93,7 @@ main {
 }
 
 form { display: grid; gap: 14px; }
-label { display: grid; gap: 7px; color: var(--muted); font-size: 13px; font-weight: 700; }
+label { display: grid; gap: 7px; color: var(--muted); font-size: 15px; font-weight: 700; }
 input {
   min-height: 50px;
   padding: 0 14px;
@@ -746,6 +748,15 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   box-shadow: inset 0 0 20px rgba(79, 210, 154, .2), 0 0 14px rgba(79, 210, 154, .22);
   animation: portal-glow 1.8s ease-in-out infinite;
 }
+.party-return-portal {
+  z-index: 5;
+  pointer-events: auto;
+  cursor: pointer;
+  border-color: #ffd36a;
+  background: rgba(45, 31, 5, .86);
+  box-shadow: inset 0 0 22px rgba(255, 211, 106, .24), 0 0 18px rgba(255, 211, 106, .45);
+}
+.party-return-portal span { color: #fff1b9; }
 .world-portal::before { content: ""; position: absolute; inset: 7px; border: 1px dashed rgba(201,246,224,.55); }
 .world-portal span { font: 800 8px ui-monospace, monospace; letter-spacing: .12em; }
 .world-portal small {
@@ -2004,4 +2015,56 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   color: #d45b38;
   font: 800 12px/1 monospace;
   letter-spacing: .16em;
+}
+
+.trade-sheet { display: grid; gap: 18px; }
+.trade-sheet > header { display: grid; gap: 5px; }
+.trade-sheet > header small { color: var(--muted); }
+.trade-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.trade-columns > section {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  background: #f7f7f1;
+}
+.trade-item-list {
+  max-height: 300px;
+  margin: 12px 0;
+  overflow: auto;
+  border-block: 1px solid var(--line-soft);
+}
+.trade-item-list label {
+  grid-template-columns: auto minmax(0, 1fr) 74px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.trade-item-list input[type="number"] { min-height: 36px; }
+.trade-partner-items { display: grid; gap: 6px; margin: 12px 0; }
+.trade-partner-items span { padding: 7px; background: #e8eee8; }
+.trade-actions { display: flex; gap: 10px; justify-content: flex-end; }
+
+@media (max-width: 680px) {
+  .trade-columns { grid-template-columns: 1fr; }
+}
+
+/* Readability pass: compact labels remain dense, but no gameplay text falls below 12px. */
+.resource-row > div:first-child,
+.employee-facts dt,
+.migration-strip p,
+.notice-line,
+.move-destination small,
+.equipment-slot-item small,
+.skill-quick strong,
+.combat-buff-tooltip strong,
+.skill-preset-card strong,
+.skill-card p,
+.mail-entry span,
+.mail-attachments b,
+.inventory-item-tooltip span {
+  font-size: max(12px, 0.78rem);
 }

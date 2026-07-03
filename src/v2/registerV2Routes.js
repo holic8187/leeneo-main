@@ -26,7 +26,11 @@ const {
   listActivePlayers,
   leaveWorld
 } = require('./world/worldRuntime');
-const { LEGACY_CURVE, mapLegacyLevelToV2 } = require('./progression/levelMigration');
+const {
+  LEGACY_CURVE,
+  mapLegacyLevelToV2,
+  getStatPointsForLevel
+} = require('./progression/levelMigration');
 const {
   MIGRATION_VERSION,
   buildMigrationPreview,
@@ -44,12 +48,14 @@ const { getItemDefinition, listAdminGrantItems } = require('./items/itemCatalog'
 const {
   addInventoryItem,
   consumeInventoryItem,
+  consumeInventoryStack,
+  assertInventorySpace,
   assignPotionQuickSlot,
   setPotionAutoThreshold,
   useQuickSlotPotion,
   useInventoryExpansionTicket,
-  equipInventoryWeapon,
-  unequipInventoryWeapon,
+  equipInventoryEquipment,
+  unequipInventoryEquipment,
   buildInventoryView,
   createAdminMail,
   serializeMail,
@@ -75,6 +81,20 @@ const {
   declineInvitation,
   removeMember
 } = require('./services/partyService');
+const {
+  createPartyReturnPortals,
+  listVisiblePartyPortals,
+  usePartyPortal
+} = require('./services/partyPortalService');
+const {
+  requestTrade,
+  respondTrade,
+  setTradeOffer,
+  confirmTrade,
+  resetTradeConfirmations,
+  closeTrade,
+  getTradeState
+} = require('./services/tradeService');
 const { reconcileHpGrowthSkillBonus } = require('./services/hpGrowthBonusService');
 const { reconcileMpGrowthSkillBonus } = require('./services/mpGrowthBonusService');
 const { reconcileMaxResourceBuff } = require('./services/maxResourceBuffService');
@@ -252,6 +272,15 @@ function registerV2Routes({
     } finally {
       if (characterMutationQueues.get(key) === current) characterMutationQueues.delete(key);
     }
+  }
+
+  async function withTwoCharacterMutations(leftId, rightId, operation) {
+    const [firstId, secondId] = [String(leftId), String(rightId)].sort();
+    return withCharacterMutation(firstId, () => (
+      firstId === secondId
+        ? operation()
+        : withCharacterMutation(secondId, operation)
+    ));
   }
 
   function getActivePartyPlayers(userId, mapId) {
@@ -770,6 +799,14 @@ function registerV2Routes({
         if (!skillState.activePreset.includes(skillId)) {
           throw new Error('전투 프리셋에 등록된 스킬만 사용할 수 있습니다.');
         }
+        const equippedWeaponType = String(character.loadout?.weapon?.weaponType || '');
+        if (
+          Array.isArray(definition.weaponTypes)
+          && definition.weaponTypes.length
+          && !definition.weaponTypes.includes(equippedWeaponType)
+        ) {
+          throw new Error('현재 장착한 무기로는 이 스킬을 사용할 수 없습니다.');
+        }
         const values = resolveSkillValues(definition, level);
         const now = Date.now();
         const cooldownUntil = Number(skillState.cooldowns?.[skillId]) || 0;
@@ -958,11 +995,46 @@ function registerV2Routes({
             rangePx: Number(values.range ?? definition.range) || 400,
             amount: healingAmount
           });
+          const undeadCombat = useSkillOnMonsters({
+            userId: String(auth.id),
+            mapId: String(req.body?.mapId || character.worldState?.mapId || ''),
+            targetId: String(req.body?.targetId || ''),
+            baseDamage: Math.max(1, Number(response.derivedStats?.magic) || 1),
+            skillPercent: Math.max(0, Number(values.healPercent) || 0),
+            rangePx: Number(values.range ?? definition.range) || 400,
+            maxTargets: 15,
+            damageType: 'magic',
+            element: 'holy',
+            accuracy: response.derivedStats?.accuracy,
+            playerLevel: response.progression?.level,
+            undeadOnly: true
+          });
+          if (undeadCombat.success) {
+            grantV2Experience(character, undeadCombat.expReward);
+            undeadCombat.drops = applyCombatDrops(character, undeadCombat.drops);
+          }
           combat = {
             success: true,
             healed: targets.reduce((sum, target) => sum + target.healed, 0),
             healingAmount,
-            targets
+            targets,
+            undeadCombat: undeadCombat.success ? undeadCombat : null
+          };
+        } else if (definition.effect === 'party-portal') {
+          const sourceMapId = String(req.body?.mapId || character.worldState?.mapId || '');
+          const safeMap = findNearestSafeMap(sourceMapId);
+          if (!safeMap) throw new Error('연결할 안전지대를 찾지 못했습니다.');
+          combat = {
+            success: true,
+            portals: createPartyReturnPortals({
+              casterId: auth.id,
+              memberIds: getPartyMemberIds(auth.id),
+              fieldMapId: sourceMapId,
+              fieldX: Number(req.body?.x ?? character.worldState?.x) || 8,
+              fieldFloor: Number(req.body?.floor ?? character.worldState?.floor) || 0,
+              safeMapId: safeMap.id,
+              durationSeconds: Number(values.durationSeconds) || 30
+            })
           };
         } else if (definition.effect === 'debuff-self-buff') {
           const response = buildCharacterResponse(character);
@@ -1227,7 +1299,7 @@ function registerV2Routes({
       const result = await withCharacterMutation(auth.id, async () => {
         const character = await V2Character.findOne({ userId: auth.id });
         if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
-        const equipment = equipInventoryWeapon(character, req.body?.stackId);
+        const equipment = equipInventoryEquipment(character, req.body?.stackId);
         await character.save();
         worldProfileCache.delete(String(auth.id));
         return {
@@ -1249,7 +1321,7 @@ function registerV2Routes({
       const result = await withCharacterMutation(auth.id, async () => {
         const character = await V2Character.findOne({ userId: auth.id });
         if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
-        const equipment = unequipInventoryWeapon(character);
+        const equipment = unequipInventoryEquipment(character, req.body?.slot);
         await character.save();
         worldProfileCache.delete(String(auth.id));
         return {
@@ -1260,7 +1332,40 @@ function registerV2Routes({
       });
       return res.json({ success: true, ...result });
     } catch (err) {
-      return res.status(400).json({ msg: err.message || '무기를 해제하지 못했습니다.' });
+      return res.status(400).json({ msg: err.message || '장비를 해제하지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/inventory/use-stat-reset', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const result = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        if (!consumeInventoryItem(character, 'stat_reset_coupon', 1)) {
+          throw new Error('스탯 초기화 쿠폰이 부족합니다.');
+        }
+        for (const stat of ['grit', 'processingSpeed', 'workKnowledge', 'awareness']) {
+          character.stats[stat] = 4;
+        }
+        character.progression.unspentStatPoints = getStatPointsForLevel(
+          character.progression?.level
+        );
+        reconcileHpGrowthSkillBonus(character);
+        reconcileMpGrowthSkillBonus(character);
+        character.markModified('stats');
+        character.markModified('progression');
+        await character.save();
+        worldProfileCache.delete(String(auth.id));
+        return {
+          character: buildCharacterResponse(character),
+          inventory: buildInventoryView(character)
+        };
+      });
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '스탯을 초기화하지 못했습니다.' });
     }
   });
 
@@ -1424,12 +1529,14 @@ function registerV2Routes({
       const result = await withCharacterMutation(auth.id, async () => {
         const character = await V2Character.findOne({ userId: auth.id });
         if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        await ensureV2CharacterFoundation(character);
         purgeExpiredMail(character);
         const claimed = claimMail(character, req.body?.mailId);
         await character.save();
         return {
           claimed,
           inventory: buildInventoryView(character),
+          huntingTime: serializeHuntingTime(character),
           ...buildMailResponse(character)
         };
       });
@@ -1446,12 +1553,14 @@ function registerV2Routes({
       const result = await withCharacterMutation(auth.id, async () => {
         const character = await V2Character.findOne({ userId: auth.id });
         if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        await ensureV2CharacterFoundation(character);
         purgeExpiredMail(character);
         const claimedCount = claimAllMail(character);
         await character.save();
         return {
           claimedCount,
           inventory: buildInventoryView(character),
+          huntingTime: serializeHuntingTime(character),
           ...buildMailResponse(character)
         };
       });
@@ -1590,6 +1699,199 @@ function registerV2Routes({
     } catch (err) {
       return res.status(400).json({ msg: err.message || '파티원을 추방하지 못했습니다.' });
     }
+  });
+
+  app.get('/api/v2/trade', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const profile = await getWorldProfile(auth.id);
+      const nearbyPlayers = listActivePlayers(profile?.worldState?.mapId)
+        .filter((player) => String(player.userId) !== String(auth.id))
+        .map((player) => ({
+          userId: player.userId,
+          nickname: player.nickname
+        }));
+      return res.json({ ...getTradeState(auth.id), nearbyPlayers });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '교환 정보를 불러오지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/trade/request', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const profile = await getWorldProfile(auth.id);
+      const target = listActivePlayers(profile?.worldState?.mapId).find(
+        (player) => String(player.userId) === String(req.body?.targetId)
+      );
+      if (!target) throw new Error('교환 상대가 같은 맵에 없습니다.');
+      const request = requestTrade(
+        {
+          userId: auth.id,
+          nickname: profile.displayName,
+          mapId: profile.worldState?.mapId
+        },
+        target
+      );
+      return res.json({ success: true, request });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '교환을 요청하지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/trade/respond', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      if (req.body?.accepted === true) {
+        const profile = await getWorldProfile(auth.id);
+        const pending = getTradeState(auth.id).request;
+        const inviterPresent = listActivePlayers(profile?.worldState?.mapId)
+          .some((player) => String(player.userId) === String(pending?.inviterId));
+        if (!pending || pending.mapId !== profile?.worldState?.mapId || !inviterPresent) {
+          throw new Error('교환을 요청한 플레이어가 같은 맵에 없습니다.');
+        }
+      }
+      respondTrade(auth.id, req.body?.requestId, req.body?.accepted === true);
+      return res.json({ success: true, ...getTradeState(auth.id) });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '교환 요청에 응답하지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/trade/offer', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const character = await V2Character.findOne({ userId: auth.id }).select('inventory');
+      if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+      const items = (Array.isArray(req.body?.items) ? req.body.items : []).map((requested) => {
+        const stack = character.inventory?.items?.find(
+          (entry) => String(entry.stackId) === String(requested.stackId)
+        );
+        const item = getItemDefinition(stack?.itemId);
+        return {
+          stackId: String(requested.stackId || ''),
+          itemId: item?.id || '',
+          name: item?.name || '',
+          icon: item?.icon || '',
+          quantity: requested.quantity
+        };
+      });
+      const session = setTradeOffer(auth.id, {
+        money: req.body?.money,
+        items
+      });
+      return res.json({ success: true, session: getTradeState(auth.id).session, id: session.id });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '교환 물품을 등록하지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/trade/confirm', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    const confirmation = confirmTrade(auth.id);
+    if (!confirmation.ready) {
+      return res.json({ success: true, completed: false, ...getTradeState(auth.id) });
+    }
+    const session = confirmation.session;
+    const [leftUser, rightUser] = session.users;
+    try {
+      const result = await withTwoCharacterMutations(
+        leftUser.userId,
+        rightUser.userId,
+        async () => {
+          const [leftCharacter, rightCharacter] = await Promise.all([
+            V2Character.findOne({ userId: leftUser.userId }),
+            V2Character.findOne({ userId: rightUser.userId })
+          ]);
+          if (!leftCharacter || !rightCharacter) throw new Error('교환 캐릭터를 찾지 못했습니다.');
+          if (
+            String(leftCharacter.worldState?.mapId) !== session.mapId
+            || String(rightCharacter.worldState?.mapId) !== session.mapId
+          ) throw new Error('두 플레이어가 같은 맵에 있지 않습니다.');
+
+          const characterById = {
+            [leftUser.userId]: leftCharacter,
+            [rightUser.userId]: rightCharacter
+          };
+          const transferPlans = session.users.map((sourceUser) => {
+            const targetUser = session.users.find((user) => user.userId !== sourceUser.userId);
+            const source = characterById[sourceUser.userId];
+            const target = characterById[targetUser.userId];
+            const offer = session.offers[sourceUser.userId];
+            const sourceMoney = Math.max(0, Math.floor(Number(source.economy?.money) || 0));
+            if (sourceMoney < offer.money) throw new Error('교환할 돈이 부족합니다.');
+            const items = offer.items.map(({ stackId, quantity }) => {
+              const stack = source.inventory?.items?.find(
+                (entry) => String(entry.stackId) === stackId
+              );
+              const item = getItemDefinition(stack?.itemId);
+              if (!stack || !item || Number(stack.quantity) < quantity) {
+                throw new Error('교환할 아이템 수량이 부족합니다.');
+              }
+              assertInventorySpace(target, item, quantity);
+              return { stackId, itemId: item.id, quantity };
+            });
+            return { source, target, offer, items };
+          });
+
+          for (const plan of transferPlans) {
+            plan.source.economy.money = Math.max(
+              0,
+              Math.floor(Number(plan.source.economy?.money) || 0) - plan.offer.money
+            );
+            plan.target.economy.money = Math.max(
+              0,
+              Math.floor(Number(plan.target.economy?.money) || 0)
+                + Math.floor(plan.offer.money * 0.95)
+            );
+            for (const item of plan.items) {
+              const consumed = consumeInventoryStack(plan.source, item.stackId, item.quantity);
+              if (!consumed || consumed.quantity !== item.quantity) {
+                throw new Error('교환 중 아이템 수량이 변경되었습니다.');
+              }
+              addInventoryItem(plan.target, item.itemId, item.quantity);
+            }
+          }
+          leftCharacter.markModified('economy');
+          rightCharacter.markModified('economy');
+          await Promise.all([leftCharacter.save(), rightCharacter.save()]);
+          worldProfileCache.delete(leftUser.userId);
+          worldProfileCache.delete(rightUser.userId);
+          return {
+            left: buildCharacterResponse(leftCharacter),
+            right: buildCharacterResponse(rightCharacter)
+          };
+        }
+      );
+      closeTrade(auth.id);
+      const myCharacter = String(auth.id) === String(leftUser.userId) ? result.left : result.right;
+      return res.json({
+        success: true,
+        completed: true,
+        feePercent: 5,
+        character: myCharacter,
+        inventory: buildInventoryView(
+          String(auth.id) === String(leftUser.userId)
+            ? await V2Character.findOne({ userId: leftUser.userId })
+            : await V2Character.findOne({ userId: rightUser.userId })
+        )
+      });
+    } catch (err) {
+      resetTradeConfirmations(session);
+      return res.status(400).json({ msg: err.message || '교환을 완료하지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/trade/cancel', (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    closeTrade(auth.id);
+    return res.json({ success: true });
   });
 
   app.post('/api/v2/world/heartbeat', async (req, res) => {
@@ -1755,11 +2057,43 @@ function registerV2Routes({
         recoveryEvents: state.recoveryEvents,
         lootCollections: state.lootCollections,
         partyState: getPartyState(auth.id),
+        tradeState: getTradeState(auth.id),
+        partyPortals: listVisiblePartyPortals(auth.id, state.mapId),
         serverTime: Date.now()
       });
     } catch (err) {
       console.error('V2 world heartbeat error:', err);
       return res.status(400).json({ msg: err.message || '필드 상태를 동기화하지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/world/party-portal/use', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    if (!requireWorldControl(req, res, auth)) return;
+    try {
+      const destination = usePartyPortal(
+        auth.id,
+        req.body?.portalId,
+        req.body?.mapId
+      );
+      const map = getWorldMap(destination.mapId);
+      if (!map) throw new Error('포탈 목적지를 찾지 못했습니다.');
+      await V2Character.updateOne(
+        { userId: auth.id },
+        {
+          $set: {
+            'worldState.mapId': destination.mapId,
+            'worldState.x': destination.x,
+            'worldState.floor': destination.floor
+          }
+        }
+      );
+      leaveWorld(auth.id);
+      worldProfileCache.delete(String(auth.id));
+      return res.json({ success: true, destination, map });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '귀환 포탈을 사용하지 못했습니다.' });
     }
   });
 
@@ -2041,6 +2375,7 @@ function registerV2Routes({
       await ensureV2MigrationForUser(user);
       const mail = await withCharacterMutation(user._id, async () => {
         const character = await V2Character.findOne({ userId: user._id });
+        await ensureV2CharacterFoundation(character);
         const entry = createAdminMail({
           itemId,
           quantity,

@@ -154,6 +154,7 @@ function inferDefinition({ marker, name, tier, maxLevel, effectText, rangeText, 
     && /증가|감소|면역|부여|소비하지 않음|크리티컬/.test(description);
   let effect = passive ? 'utility-passive' : 'buff';
   if (isSummon) effect = 'summon';
+  if (name === '귀환 지원') effect = 'party-portal';
   else if (isHeal) effect = 'heal';
   else if (isTimedBuff) effect = 'buff';
   else if (isDamage) effect = /기절|빙결|마비/.test(description) ? 'damage-stun' : 'damage';
@@ -303,7 +304,8 @@ function inferDefinition({ marker, name, tier, maxLevel, effectText, rangeText, 
           : /독 속성/.test(description)
             ? 'poison'
             : 'neutral';
-  const weaponTypes = /석궁/.test(description) ? ['crossbow']
+  const weaponTypes = /표창|아대/.test(description) ? ['claw']
+    : /석궁/.test(description) ? ['crossbow']
     : /활 숙련도/.test(description) ? ['bow']
       : /아대 숙련도/.test(description) ? ['claw']
         : /단검 숙련도/.test(description) ? ['dagger']
