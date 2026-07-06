@@ -132,6 +132,23 @@ function normalizeInventoryStacks(character) {
   }
 }
 
+function purgeExpiredEquippedItems(character, now = Date.now()) {
+  if (!character.loadout || typeof character.loadout !== 'object') return 0;
+  let removed = 0;
+  for (const [slot, equipped] of Object.entries(character.loadout)) {
+    if (!equipped?.itemId) continue;
+    const definition = getItemDefinition(equipped.itemId);
+    const expiryValue = equipped.expiresAt || definition?.fixedExpiresAt;
+    if (!expiryValue) continue;
+    const expiresAt = new Date(expiryValue).getTime();
+    if (!Number.isFinite(expiresAt) || expiresAt > now) continue;
+    character.loadout[slot] = null;
+    removed += 1;
+  }
+  if (removed) markInventoryModified(character);
+  return removed;
+}
+
 function ensureInventory(character) {
   if (!character.inventory || typeof character.inventory !== 'object') {
     character.inventory = {};
@@ -182,6 +199,7 @@ function ensureInventory(character) {
   );
   if (!Array.isArray(character.mailbox)) character.mailbox = [];
   normalizeInventoryStacks(character);
+  purgeExpiredEquippedItems(character);
   return inventory;
 }
 
@@ -339,6 +357,7 @@ function equipInventoryEquipment(character, stackId) {
   character.loadout[slot] = {
     ...item,
     itemId: item.id,
+    expiresAt: stack.expiresAt || getDefaultExpiry(item),
     stats: { ...(stack.data?.stats || item.stats || {}) },
     instanceData: stack.data && typeof stack.data === 'object' ? { ...stack.data } : null,
     enhancement: getEquipmentEnhancement(item, stack.data),
@@ -670,6 +689,7 @@ module.exports = {
   QUICK_SLOT_RESOURCES,
   markInventoryModified,
   ensureInventory,
+  purgeExpiredEquippedItems,
   getUsedSlots,
   getMaxStackSize,
   getItemStack,

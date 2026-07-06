@@ -704,7 +704,15 @@ function getLootBottom(floor) {
 function showGroundLoot(drops = []) {
   const layer = $('lootLayer');
   if (!layer) return;
-  drops.filter((drop) => drop.stored !== false).forEach((drop) => {
+  layer.querySelectorAll('[data-loot-id="undefined"], [data-loot-id=""]').forEach(
+    (element) => element.remove()
+  );
+  drops.filter((drop) => (
+    drop.stored !== false
+    && drop.grounded !== false
+    && drop.id
+    && Number.isFinite(Number(drop.x))
+  )).forEach((drop) => {
     if (layer.querySelector(`[data-loot-id="${CSS.escape(String(drop.id))}"]`)) return;
     const element = document.createElement('div');
     element.className = `field-loot is-${drop.kind}`;
@@ -720,6 +728,9 @@ function collectGroundLoot(collections = []) {
   const layer = $('lootLayer');
   const character = $('fieldCharacter');
   if (!layer || !character) return;
+  layer.querySelectorAll('[data-loot-id="undefined"], [data-loot-id=""]').forEach(
+    (element) => element.remove()
+  );
   const stageRect = $('worldStage').getBoundingClientRect();
   const characterRect = character.getBoundingClientRect();
   const destinationX = characterRect.left - stageRect.left + characterRect.width / 2;
@@ -1948,6 +1959,7 @@ const ITEM_SLOT_LABELS = Object.freeze({
   top: '상의',
   bottom: '하의',
   necklace: '목걸이',
+  ring: '반지',
   earrings: '귀걸이'
 });
 
@@ -1989,18 +2001,22 @@ function inventorySlotBody(item, slotNumber, locked = false) {
     return `<div class="inventory-slot is-empty"><span>${slotNumber}</span></div>`;
   }
   let usable = '';
+  const directlyUsableItem = (
+    ['return-scroll', 'experience-buff', 'hunting-time', 'level-up'].includes(item.itemType)
+    || item.id === 'level_up_coupon'
+  );
   if (item.itemType === 'inventory-expansion') {
     usable = '<button class="inventory-item-use" type="button" data-use-expansion-ticket>사용</button>';
   } else if (item.itemType === 'job-change') {
     usable = '<button class="inventory-item-use" type="button" data-use-job-change-ticket>사용</button>';
   } else if (item.itemType === 'stat-reset') {
     usable = `<button class="inventory-item-use" type="button" data-use-stat-reset-ticket="${escapeHtml(item.id)}">사용</button>`;
-  } else if (['return-scroll', 'experience-buff', 'hunting-time', 'level-up'].includes(item.itemType)) {
+  } else if (directlyUsableItem) {
     usable = `<button class="inventory-item-use" type="button" data-use-inventory-item="${escapeHtml(item.id)}">사용</button>`;
   } else if (item.category === 'equipment') {
     usable = `<button class="inventory-item-use" type="button" data-equip-inventory-equipment="${escapeHtml(item.stackId)}">장착</button>`;
   }
-  const directlyUsable = ['return-scroll', 'experience-buff', 'hunting-time', 'level-up'].includes(item.itemType)
+  const directlyUsable = directlyUsableItem
     ? item.id
     : '';
   const equipmentTooltip = equipmentTooltipHtml(item);
@@ -2822,6 +2838,7 @@ const EQUIPMENT_TABS = Object.freeze({
     label: '장신구',
     slots: [
       { key: 'necklace', label: '목걸이', code: 'NECKLACE' },
+      { key: 'ring', label: '반지', code: 'RING' },
       { key: 'earrings', label: '귀걸이', code: 'EARRINGS' }
     ]
   }
@@ -3213,7 +3230,7 @@ function eventBody() {
     <header>
       <span>2026.07.06 - 2026.07.31</span>
       <h3>기간제 정착 지원 이벤트</h3>
-      <p>자신의 레벨 기준 ±10 범위 몬스터를 처치하고 이벤트 코인을 모아 보상과 교환하세요.</p>
+      <p>79레벨까지는 자신의 레벨 기준 ±10 범위 몬스터, 80레벨부터는 70레벨 이상 몬스터를 처치하고 이벤트 코인을 모아 보상과 교환하세요.</p>
     </header>
     <div class="event-balance">
       <b>보유 코인 ${formatNumber(event.coins)}개</b>
@@ -3222,10 +3239,10 @@ function eventBody() {
     <div class="event-shop-list">
       ${event.shopItems.map((item) => `<article>
         <div><strong>${escapeHtml(item.name)}</strong><p>${escapeHtml(item.description)}</p></div>
-        <span>🪙 ${formatNumber(item.coinPrice)}</span>
+        <span>${item.coinPrice > 0 ? `🪙 ${formatNumber(item.coinPrice)}` : '무료'}</span>
         <button type="button" data-event-buy="${escapeHtml(item.key)}"
-          ${item.remainingToday === 0 || event.coins < item.coinPrice || !event.active ? 'disabled' : ''}>
-          ${item.remainingToday === 0 ? '오늘 구매 완료' : '교환'}
+          ${item.remainingToday === 0 || item.remainingTotal === 0 || event.coins < item.coinPrice || !event.active ? 'disabled' : ''}>
+          ${item.remainingTotal === 0 ? '수령 완료' : (item.remainingToday === 0 ? '오늘 구매 완료' : (item.coinPrice > 0 ? '교환' : '무료 수령'))}
         </button>
       </article>`).join('')}
     </div>

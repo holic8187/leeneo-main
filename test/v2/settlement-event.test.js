@@ -6,6 +6,7 @@ const { getItemDefinition } = require('../../src/v2/items/itemCatalog');
 const { MONSTER_CATALOG } = require('../../src/v2/world/monsterCatalog');
 const {
   getSettlementEventView,
+  isEventLevelRangeMonster,
   rollSettlementEventCoin,
   purchaseSettlementEventItem
 } = require('../../src/v2/services/settlementEventService');
@@ -35,6 +36,21 @@ test('event coins only drop from monsters within ten levels and respect the dail
   assert.equal(rollSettlementEventCoin(character, 30, () => 0, eventDate), null);
 });
 
+test('level eighty and above accepts every monster from level seventy upward', () => {
+  assert.equal(isEventLevelRangeMonster(79, 69), true);
+  assert.equal(isEventLevelRangeMonster(79, 90), false);
+  assert.equal(isEventLevelRangeMonster(80, 69), false);
+  assert.equal(isEventLevelRangeMonster(80, 70), true);
+  assert.equal(isEventLevelRangeMonster(80, 140), true);
+  assert.equal(isEventLevelRangeMonster(132, 70), true);
+
+  const character = makeCharacter(132);
+  const drop = rollSettlementEventCoin(character, 70, () => 0, eventDate);
+  assert.ok(drop);
+  assert.equal(drop.grounded, false);
+  assert.equal(rollSettlementEventCoin(character, 69, () => 0, eventDate), null);
+});
+
 test('the blessed necklace is event-shop-only and costs three hundred coins', () => {
   const necklace = getItemDefinition('blessed_settlement_necklace');
   assert.equal(necklace.equipmentSlot, 'necklace');
@@ -60,6 +76,30 @@ test('the blessed necklace is event-shop-only and costs three hundred coins', ()
   const view = getSettlementEventView(character, eventDate);
   assert.equal(view.coins, 0);
   assert.ok(character.inventory.items.some((entry) => entry.itemId === necklace.id));
+});
+
+test('the settlement ring is free once per account and expires after July', () => {
+  const character = makeCharacter();
+  const ring = getItemDefinition('settlement_support_ring');
+
+  assert.equal(ring.equipmentSlot, 'ring');
+  assert.equal(ring.tradeable, false);
+  assert.equal(ring.requiredLevel, 1);
+  assert.equal(ring.stats.attack, 40);
+  assert.equal(ring.stats.magic, 80);
+  assert.deepEqual(
+    [ring.stats.grit, ring.stats.processingSpeed, ring.stats.workKnowledge, ring.stats.awareness],
+    [5, 5, 5, 5]
+  );
+
+  purchaseSettlementEventItem(character, 'settlement-ring', eventDate);
+  const stack = character.inventory.items.find((entry) => entry.itemId === ring.id);
+  assert.ok(stack);
+  assert.equal(new Date(stack.expiresAt).toISOString(), '2026-07-31T15:00:00.000Z');
+  assert.throws(
+    () => purchaseSettlementEventItem(character, 'settlement-ring', eventDate),
+    /한 번/
+  );
 });
 
 test('event experience coupons are limited to one purchase per day', () => {

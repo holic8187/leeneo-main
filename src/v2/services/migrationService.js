@@ -47,6 +47,7 @@ const EQUIPMENT_SLOT_KEYS = Object.freeze([
   'top',
   'bottom',
   'necklace',
+  'ring',
   'earrings'
 ]);
 

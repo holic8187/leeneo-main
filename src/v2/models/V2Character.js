@@ -67,6 +67,7 @@ const v2CharacterSchema = new mongoose.Schema({
     top: { type: mongoose.Schema.Types.Mixed, default: null },
     bottom: { type: mongoose.Schema.Types.Mixed, default: null },
     necklace: { type: mongoose.Schema.Types.Mixed, default: null },
+    ring: { type: mongoose.Schema.Types.Mixed, default: null },
     earrings: { type: mongoose.Schema.Types.Mixed, default: null }
   },
   inventory: {

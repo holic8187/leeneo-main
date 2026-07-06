@@ -295,6 +295,37 @@ const BASE_ITEMS = {
     dropEligible: false,
     description: '정착 지원 이벤트에서 획득하는 전 직업 공용 목걸이입니다.'
   },
+  settlement_support_ring: {
+    id: 'settlement_support_ring',
+    name: '정착 지원 반지',
+    category: 'equipment',
+    itemType: 'accessory',
+    equipmentSlot: 'ring',
+    icon: '💍',
+    requiredLevel: 1,
+    requirements: {
+      level: 1,
+      stats: {},
+      archetype: '',
+      allowedArchetypes: ['warrior', 'archer', 'thief', 'mage']
+    },
+    stats: {
+      attack: 40,
+      magic: 80,
+      grit: 5,
+      processingSpeed: 5,
+      workKnowledge: 5,
+      awareness: 5
+    },
+    upgradeSlots: 0,
+    maxStack: 1,
+    sellPrice: 0,
+    tradeable: false,
+    fixedExpiresAt: '2026-08-01T00:00:00+09:00',
+    acquisitionSource: 'settlement-event-shop',
+    dropEligible: false,
+    description: '계정당 한 번 무료로 받는 기간제 전직업 공용 반지입니다. 2026년 7월 31일 이후 사라집니다.'
+  },
   event_blessed_necklace_scroll_60: {
     id: 'event_blessed_necklace_scroll_60',
     name: '이벤트 목걸이 전용 주문서 60%',

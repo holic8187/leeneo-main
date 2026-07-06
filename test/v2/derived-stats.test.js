@@ -41,6 +41,35 @@ test('derived stats use equipped weapon, loadout totals, and base movement speed
   assert.equal(result.attackSpeedMultiplier, 1);
 });
 
+test('ring stats contribute to physical magic and all four base stats', () => {
+  const result = buildDerivedStats({
+    progression: { level: 1 },
+    stats: { grit: 4, processingSpeed: 4, workKnowledge: 4, awareness: 4 },
+    job: { departmentId: 'unassigned', advancementTier: 0 },
+    loadout: {
+      ring: {
+        stats: {
+          attack: 40,
+          magic: 80,
+          grit: 5,
+          processingSpeed: 5,
+          workKnowledge: 5,
+          awareness: 5
+        }
+      }
+    }
+  });
+
+  assert.deepEqual(result.effectiveStats, {
+    grit: 9,
+    processingSpeed: 9,
+    workKnowledge: 9,
+    awareness: 9
+  });
+  assert.equal(result.magic, 89);
+  assert.ok(result.attackMaximum > 4);
+});
+
 test('warrior weapon constants produce different attack ranges from identical stats and attack', () => {
   const common = {
     progression: { level: 30 },

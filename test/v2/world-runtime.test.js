@@ -445,6 +445,82 @@ test('defeated monster drops are collected on the next eight-second spawn tick',
   assert.ok(collected.some((drop) => drop.kind === 'money'));
 });
 
+test('edge loot auto-collects and never blocks later drops', () => {
+  const typedUserId = { toString: () => 'edge-loot-user' };
+  let state = updatePresence({
+    userId: typedUserId,
+    nickname: 'edge-loot-user',
+    mapId: 'newcomer_training',
+    x: 86,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_000
+  });
+  let monster = state.monsters.find((entry) => entry.floor === 0);
+  updatePresence({
+    userId: typedUserId,
+    nickname: 'edge-loot-user',
+    mapId: 'newcomer_training',
+    x: monster.x,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_100
+  });
+  const first = attackMonster({
+    userId: typedUserId,
+    mapId: 'newcomer_training',
+    monsterId: monster.id,
+    damage: 999,
+    rangePx: 1_000,
+    now: 1_200
+  });
+  assert.ok(first.drops.length);
+  assert.ok(first.drops.every((drop) => drop.x >= 8 && drop.x <= 86));
+
+  state = updatePresence({
+    userId: 'edge-loot-user',
+    nickname: 'edge-loot-user',
+    mapId: 'newcomer_training',
+    x: 86,
+    currentHp: 120,
+    maxHp: 120,
+    now: 9_000
+  });
+  assert.equal(state.lootCollections.length, first.drops.length);
+
+  monster = state.monsters.find((entry) => entry.floor === 0);
+  updatePresence({
+    userId: 'edge-loot-user',
+    nickname: 'edge-loot-user',
+    mapId: 'newcomer_training',
+    x: monster.x,
+    currentHp: 120,
+    maxHp: 120,
+    now: 9_100
+  });
+  const second = attackMonster({
+    userId: 'edge-loot-user',
+    mapId: 'newcomer_training',
+    monsterId: monster.id,
+    damage: 999,
+    rangePx: 1_000,
+    now: 9_200
+  });
+  assert.ok(second.drops.length);
+  assert.notEqual(second.drops[0].id, first.drops[0].id);
+
+  state = updatePresence({
+    userId: 'edge-loot-user',
+    nickname: 'edge-loot-user',
+    mapId: 'newcomer_training',
+    x: 86,
+    currentHp: 120,
+    maxHp: 120,
+    now: 17_000
+  });
+  assert.equal(state.lootCollections.length, second.drops.length);
+});
+
 test('monster stats keep the level three baseline and scale for higher levels', () => {
   const low = buildMonsterStats(3);
   const high = buildMonsterStats(100);
@@ -724,10 +800,11 @@ test('multi-target skills use the same forty-percent knockback threshold', () =>
   const result = useSkillOnMonsters({
     userId: 'skill-user',
     mapId: 'newcomer_training',
-    baseDamage: 20,
+    baseDamage: 999,
     skillPercent: 100,
     rangePx: 1_000,
     maxTargets: 4,
+    leaveAtOneHp: true,
     now: 1_100
   });
   assert.equal(result.success, true);

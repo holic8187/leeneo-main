@@ -14,7 +14,7 @@ const { DEFAULT_WEAPON_RANGES } = require('./weaponMotion');
 
 const LOADOUT_SLOT_KEYS = Object.freeze([
   'weapon', 'shield', 'helmet', 'gloves', 'shoes', 'cape',
-  'top', 'bottom', 'necklace', 'earrings'
+  'top', 'bottom', 'necklace', 'ring', 'earrings'
 ]);
 
 function finite(value) {

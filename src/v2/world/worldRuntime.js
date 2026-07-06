@@ -386,8 +386,15 @@ function tickRuntime(runtime, now) {
 }
 
 function collectDueLoot(runtime, userId, now) {
+  const ownerId = String(userId);
   const collected = runtime.groundLoot.filter(
-    (loot) => loot.userId === userId && loot.collectAt <= now
+    (loot) => (
+      String(loot.userId) === ownerId
+      && Math.min(
+        Number(loot.collectAt) || now,
+        (Number(loot.createdAt) || now) + MONSTER_SPAWN_INTERVAL_MS
+      ) <= now
+    )
   );
   if (collected.length) {
     const ids = new Set(collected.map((loot) => loot.id));
@@ -528,15 +535,16 @@ function updatePresence({
   now = Date.now()
 }) {
   cleanupInactiveMaps(now);
+  const userKey = String(userId);
   const map = getWorldMap(mapId);
   if (!map) throw new Error('존재하지 않는 맵입니다.');
-  removePlayerFromOtherMaps(userId, mapId);
+  removePlayerFromOtherMaps(userKey, mapId);
   let runtime = activeMaps.get(mapId);
   if (!runtime) {
     runtime = createMapRuntime(mapId, now);
     activeMaps.set(mapId, runtime);
   }
-  const previous = runtime.players.get(userId);
+  const previous = runtime.players.get(userKey);
   const resolvedHp = Math.max(0, Number(previous?.currentHp ?? currentHp) || 0);
   const resolvedMaxHp = Math.max(1, Number(previous?.maxHp ?? maxHp) || 120);
   const resolvedMp = Math.max(0, Number(previous?.currentMp ?? currentMp) || 0);
@@ -560,8 +568,8 @@ function updatePresence({
     idleHealIntervalMs,
     now
   });
-  runtime.players.set(userId, {
-    userId,
+  runtime.players.set(userKey, {
+    userId: userKey,
     nickname: String(nickname || '사원').slice(0, 16),
     mapId,
     x: clamp(x, 0, 94),
@@ -627,7 +635,7 @@ function updatePresence({
   const contactEvents = tickRuntime(runtime, now);
   const recoveryEvents = recovery.healAmount > 0 || recovery.mpAmount > 0
     ? [{
-      userId: String(userId),
+      userId: userKey,
       amount: recovery.healAmount,
       hpAmount: recovery.healAmount,
       mpAmount: recovery.mpAmount
@@ -639,7 +647,7 @@ function updatePresence({
     monsters: runtime.monsters.filter((monster) => monster.hp > 0).map(serializeMonster),
     contactEvents,
     recoveryEvents,
-    lootCollections: collectDueLoot(runtime, userId, now)
+    lootCollections: collectDueLoot(runtime, userKey, now)
   };
 }
 
@@ -718,6 +726,14 @@ function applyPoisonPassive(monster, {
   return true;
 }
 
+function getLootCollectionTime(runtime, now) {
+  const nextSpawnAt = Number(runtime?.nextSpawnAt);
+  if (!Number.isFinite(nextSpawnAt) || nextSpawnAt <= now) {
+    return now + MONSTER_SPAWN_INTERVAL_MS;
+  }
+  return Math.min(nextSpawnAt, now + MONSTER_SPAWN_INTERVAL_MS);
+}
+
 function attackMonster({
   userId,
   mapId,
@@ -744,10 +760,11 @@ function attackMonster({
   now = Date.now()
 }) {
   cleanupInactiveMaps(now);
+  const userKey = String(userId);
   const runtime = activeMaps.get(mapId);
   if (!runtime) return { success: false, reason: 'inactive-map' };
   tickRuntime(runtime, now);
-  const player = runtime.players.get(userId);
+  const player = runtime.players.get(userKey);
   const requestedMonster = runtime.monsters.find((entry) => entry.id === monsterId && entry.hp > 0);
   if (!player || !requestedMonster) return { success: false, reason: 'missing-target' };
   if (player.currentHp <= 0) return { success: false, reason: 'dead' };
@@ -769,7 +786,7 @@ function attackMonster({
     ? 1
     : calculateHitChance({ accuracy, requiredAccuracy });
   if (Math.random() > hitChance) {
-    monster.aggroTargetId = userId;
+    monster.aggroTargetId = userKey;
     monster.state = 'chase';
     return {
       success: true,
@@ -814,14 +831,14 @@ function attackMonster({
     && Math.random() * 100 < Number(executeChance);
   if (executed) monster.hp = 0;
   const poisoned = monster.hp > 0 && applyPoisonPassive(monster, {
-    userId,
+    userId: userKey,
     chance: poisonChance,
     attack: poisonAttack,
     durationSeconds: poisonDurationSeconds,
     maxStacks: poisonMaxStacks,
     now
   });
-  monster.aggroTargetId = userId;
+  monster.aggroTargetId = userKey;
   if (
     activeElements.includes('ice')
     && elementMultiplier >= 1
@@ -838,15 +855,14 @@ function attackMonster({
   if (defeated) {
     monster.state = 'defeated';
     monster.aggroTargetId = '';
-    const collectAt = runtime.nextSpawnAt > now
-      ? runtime.nextSpawnAt
-      : now + MONSTER_SPAWN_INTERVAL_MS;
+    const collectAt = getLootCollectionTime(runtime, now);
     drops = rollMonsterDrops(monster).map((drop, index) => ({
       ...drop,
       id: crypto.randomUUID(),
-      userId,
-      x: clamp(monster.x + (index - 0.5) * 1.8, 5, 88),
+      userId: userKey,
+      x: clamp(monster.x + (index - 0.5) * 1.8, 8, 86),
       floor: monster.floor,
+      createdAt: now,
       collectAt
     }));
     runtime.groundLoot.push(...drops);
@@ -874,15 +890,15 @@ function attackMonster({
 }
 
 function queueMonsterDrops(runtime, monster, userId, now) {
-  const collectAt = runtime.nextSpawnAt > now
-    ? runtime.nextSpawnAt
-    : now + MONSTER_SPAWN_INTERVAL_MS;
+  const ownerId = String(userId);
+  const collectAt = getLootCollectionTime(runtime, now);
   const drops = rollMonsterDrops(monster).map((drop, index) => ({
     ...drop,
     id: crypto.randomUUID(),
-    userId,
-    x: clamp(monster.x + (index - 0.5) * 1.8, 5, 88),
+    userId: ownerId,
+    x: clamp(monster.x + (index - 0.5) * 1.8, 8, 86),
     floor: monster.floor,
+    createdAt: now,
     collectAt
   }));
   runtime.groundLoot.push(...drops);
@@ -924,10 +940,11 @@ function useSkillOnMonsters({
   now = Date.now()
 }) {
   cleanupInactiveMaps(now);
+  const userKey = String(userId);
   const runtime = activeMaps.get(mapId);
   if (!runtime) return { success: false, reason: 'inactive-map' };
   tickRuntime(runtime, now);
-  const player = runtime.players.get(userId);
+  const player = runtime.players.get(userKey);
   if (!player) return { success: false, reason: 'missing-player' };
   if (player.currentHp <= 0) return { success: false, reason: 'dead' };
   const rangePercent = Math.max(1, Number(rangePx) || 100) / ASSUMED_STAGE_WIDTH_PX * 100;
@@ -966,7 +983,7 @@ function useSkillOnMonsters({
       ? 1
       : calculateHitChance({ accuracy, requiredAccuracy });
     if (Math.random() > hitChance) {
-      monster.aggroTargetId = userId;
+      monster.aggroTargetId = userKey;
       monster.state = 'chase';
       outcomes.push({
         monsterId: monster.id,
@@ -999,7 +1016,7 @@ function useSkillOnMonsters({
       ? absorbMonsterMp(monster, mpAbsorbChance, mpAbsorbPercent)
       : 0;
     const poisoned = totalDamage > 0 && monster.hp > 0 && applyPoisonPassive(monster, {
-      userId,
+      userId: userKey,
       chance: poisonChance,
       attack: poisonAttack,
       durationSeconds: poisonDurationSeconds,
@@ -1021,7 +1038,7 @@ function useSkillOnMonsters({
       monster.hp = Math.max(leaveAtOneHp ? 1 : 0, monster.hp - damage);
       totalDamage += damage;
     }
-    monster.aggroTargetId = userId;
+    monster.aggroTargetId = userKey;
     if (
       Number(outgoingDamageReductionPercent) > 0
       && Math.random() * 100 < Number(debuffChance || 0)
@@ -1048,7 +1065,7 @@ function useSkillOnMonsters({
     if (defeated) {
       monster.state = 'defeated';
       monster.aggroTargetId = '';
-      drops.push(...queueMonsterDrops(runtime, monster, userId, now));
+      drops.push(...queueMonsterDrops(runtime, monster, userKey, now));
     }
     outcomes.push({
       monsterId: monster.id,

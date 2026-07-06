@@ -16,6 +16,16 @@ const COIN_DROP_CHANCE = 0.05;
 
 const EVENT_SHOP_ITEMS = Object.freeze([
   Object.freeze({
+    key: 'settlement-ring',
+    itemId: 'settlement_support_ring',
+    name: '정착 지원 반지',
+    quantity: 1,
+    coinPrice: 0,
+    dailyLimit: 0,
+    lifetimeLimit: 1,
+    description: '계정당 한 번 무료 수령할 수 있습니다. 교환 불가이며 2026년 7월 31일 이후 사라집니다.'
+  }),
+  Object.freeze({
     key: 'exp-coupon',
     itemId: 'event_experience_coupon_2x_15m',
     name: '경험치 2배 쿠폰 4개',
@@ -89,6 +99,10 @@ function getDailyPurchaseCount(state, key, now = new Date()) {
   return record?.date === koreaDateKey(now) ? Math.max(0, Number(record.count) || 0) : 0;
 }
 
+function getLifetimePurchaseCount(state, key) {
+  return Math.max(0, Number(state.purchases?.[key]?.totalCount) || 0);
+}
+
 function getSettlementEventView(character, now = new Date()) {
   const state = ensureEventState(character, now);
   return {
@@ -104,15 +118,26 @@ function getSettlementEventView(character, now = new Date()) {
       purchasedToday: getDailyPurchaseCount(state, item.key, now),
       remainingToday: item.dailyLimit
         ? Math.max(0, item.dailyLimit - getDailyPurchaseCount(state, item.key, now))
+        : null,
+      purchasedTotal: getLifetimePurchaseCount(state, item.key),
+      remainingTotal: item.lifetimeLimit
+        ? Math.max(0, item.lifetimeLimit - getLifetimePurchaseCount(state, item.key))
         : null
     }))
   };
 }
 
+function isEventLevelRangeMonster(playerLevel, monsterLevel) {
+  const safePlayerLevel = Math.max(1, Math.floor(Number(playerLevel) || 1));
+  const safeMonsterLevel = Math.max(1, Math.floor(Number(monsterLevel) || 1));
+  if (safePlayerLevel >= 80) return safeMonsterLevel >= 70;
+  return Math.abs(safeMonsterLevel - safePlayerLevel) <= 10;
+}
+
 function rollSettlementEventCoin(character, monsterLevel, random = Math.random, now = new Date()) {
   if (!isEventActive(now)) return null;
   const playerLevel = Math.max(1, Number(character.progression?.level) || 1);
-  if (Math.abs(Number(monsterLevel) - playerLevel) > 10) return null;
+  if (!isEventLevelRangeMonster(playerLevel, monsterLevel)) return null;
   const state = ensureEventState(character, now);
   if (state.dailyCoinCount >= DAILY_COIN_LIMIT || random() >= COIN_DROP_CHANCE) return null;
   addInventoryItem(character, EVENT_COIN_ID, 1);
@@ -126,7 +151,8 @@ function rollSettlementEventCoin(character, monsterLevel, random = Math.random, 
     name: '정착 지원 이벤트 코인',
     category: 'misc',
     stored: true,
-    eventDrop: true
+    eventDrop: true,
+    grounded: false
   };
 }
 
@@ -136,20 +162,23 @@ function purchaseSettlementEventItem(character, key, now = new Date()) {
   if (!item) throw new Error('존재하지 않는 이벤트 상품입니다.');
   const state = ensureEventState(character, now);
   const purchasedToday = getDailyPurchaseCount(state, item.key, now);
+  const purchasedTotal = getLifetimePurchaseCount(state, item.key);
   if (item.dailyLimit && purchasedToday >= item.dailyLimit) {
     throw new Error('오늘 구매 가능한 수량을 모두 구매했습니다.');
+  }
+  if (item.lifetimeLimit && purchasedTotal >= item.lifetimeLimit) {
+    throw new Error('계정당 한 번만 받을 수 있는 아이템입니다.');
   }
   if (getItemQuantity(character, EVENT_COIN_ID) < item.coinPrice) {
     throw new Error('이벤트 코인이 부족합니다.');
   }
   addInventoryItem(character, item.itemId, item.quantity);
-  consumeInventoryItem(character, EVENT_COIN_ID, item.coinPrice);
-  if (item.dailyLimit) {
-    state.purchases[item.key] = {
-      date: koreaDateKey(now),
-      count: purchasedToday + 1
-    };
-  }
+  if (item.coinPrice > 0) consumeInventoryItem(character, EVENT_COIN_ID, item.coinPrice);
+  state.purchases[item.key] = {
+    date: koreaDateKey(now),
+    count: item.dailyLimit ? purchasedToday + 1 : getDailyPurchaseCount(state, item.key, now),
+    totalCount: purchasedTotal + 1
+  };
   markInventoryModified(character);
   if (typeof character.markModified === 'function') character.markModified('events');
   return { ...item };
@@ -166,6 +195,7 @@ module.exports = {
   isEventActive,
   ensureEventState,
   getSettlementEventView,
+  isEventLevelRangeMonster,
   rollSettlementEventCoin,
   purchaseSettlementEventItem
 };

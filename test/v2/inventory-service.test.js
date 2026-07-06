@@ -8,6 +8,7 @@ const {
   setPotionAutoThreshold,
   useQuickSlotPotion,
   useInventoryExpansionTicket,
+  purgeExpiredEquippedItems,
   buildInventoryView,
   createAdminMail,
   purgeExpiredMail,
@@ -44,6 +45,21 @@ test('all four inventory categories start at twenty slots', () => {
     Object.fromEntries(Object.entries(view.categories).map(([key, value]) => [key, value.capacity])),
     { equipment: 20, consumable: 20, misc: 20, cash: 20 }
   );
+});
+
+test('expired event equipment disappears even while equipped', () => {
+  const character = characterFixture();
+  character.loadout = {
+    ring: {
+      itemId: 'settlement_support_ring',
+      expiresAt: new Date('2026-08-01T00:00:00+09:00')
+    }
+  };
+  assert.equal(
+    purgeExpiredEquippedItems(character, new Date('2026-08-01T00:00:01+09:00').getTime()),
+    1
+  );
+  assert.equal(character.loadout.ring, null);
 });
 
 test('legacy potion stacks migrate into the consumable inventory', () => {
