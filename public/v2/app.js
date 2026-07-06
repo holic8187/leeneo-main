@@ -1995,12 +1995,12 @@ function inventorySlotBody(item, slotNumber, locked = false) {
     usable = '<button class="inventory-item-use" type="button" data-use-job-change-ticket>사용</button>';
   } else if (item.itemType === 'stat-reset') {
     usable = `<button class="inventory-item-use" type="button" data-use-stat-reset-ticket="${escapeHtml(item.id)}">사용</button>`;
-  } else if (['return-scroll', 'experience-buff', 'hunting-time'].includes(item.itemType)) {
+  } else if (['return-scroll', 'experience-buff', 'hunting-time', 'level-up'].includes(item.itemType)) {
     usable = `<button class="inventory-item-use" type="button" data-use-inventory-item="${escapeHtml(item.id)}">사용</button>`;
   } else if (item.category === 'equipment') {
     usable = `<button class="inventory-item-use" type="button" data-equip-inventory-equipment="${escapeHtml(item.stackId)}">장착</button>`;
   }
-  const directlyUsable = ['return-scroll', 'experience-buff', 'hunting-time'].includes(item.itemType)
+  const directlyUsable = ['return-scroll', 'experience-buff', 'hunting-time', 'level-up'].includes(item.itemType)
     ? item.id
     : '';
   const equipmentTooltip = equipmentTooltipHtml(item);
@@ -2197,12 +2197,19 @@ function bindInventoryControls() {
 }
 
 async function useInventoryItem(itemId) {
+  if (
+    itemId === 'level_up_coupon'
+    && !window.confirm('현재 경험치를 모두 버리고 정확히 1레벨 상승할까요?')
+  ) return;
   try {
     const data = await request('/api/v2/inventory/use-item', {
       method: 'POST',
       body: JSON.stringify({ itemId })
     });
     state.character = data.character;
+    if (itemId === 'level_up_coupon') {
+      renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
+    }
     if (data.character?.huntingTime) {
       state.huntingTime = data.character.huntingTime;
       renderHuntingTime();

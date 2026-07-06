@@ -227,6 +227,18 @@ const BASE_ITEMS = {
     description: '투자한 스탯만 초기화하고 사용 가능한 스탯 포인트로 돌려받습니다.',
     adminGrantOnly: true
   },
+  level_up_coupon: {
+    id: 'level_up_coupon',
+    name: '레벨업 쿠폰',
+    category: 'cash',
+    itemType: 'level-up',
+    icon: '⬆️',
+    maxStack: 100,
+    sellPrice: 0,
+    tradeable: false,
+    description: '현재 경험치와 관계없이 정확히 1레벨 상승하고 경험치는 0%가 됩니다. 만렙에서는 사용할 수 없습니다.',
+    adminGrantOnly: true
+  },
   settlement_event_coin: {
     id: 'settlement_event_coin',
     name: '정착 지원 이벤트 코인',

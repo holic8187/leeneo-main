@@ -78,6 +78,7 @@ const {
   purchaseSettlementEventItem
 } = require('./services/settlementEventService');
 const { changeDepartment } = require('./services/jobChangeService');
+const { applyLevelUpCoupon } = require('./services/levelUpCouponService');
 const {
   ensureDailyHuntingMail,
   getKoreaDateKey,
@@ -2123,8 +2124,11 @@ function registerV2Routes({
         const character = await V2Character.findOne({ userId: auth.id });
         if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
         const item = getItemDefinition(req.body?.itemId);
-        if (!item || !['return-scroll', 'experience-buff', 'hunting-time'].includes(item.itemType)) {
+        if (!item || !['return-scroll', 'experience-buff', 'hunting-time', 'level-up'].includes(item.itemType)) {
           throw new Error('사용할 수 없는 아이템입니다.');
+        }
+        if (item.itemType === 'level-up' && Number(character.progression?.level) >= MAX_LEVEL) {
+          throw new Error('만렙에서는 레벨업 쿠폰을 사용할 수 없습니다.');
         }
         if (
           item.itemType === 'hunting-time'
@@ -2160,11 +2164,14 @@ function registerV2Routes({
           });
           character.markModified('skills');
           message = `${item.name} 효과가 15분간 적용됩니다.`;
-        } else {
+        } else if (item.itemType === 'hunting-time') {
           const huntingTime = addHuntingMinutes(character, item.huntingMinutes);
           message = huntingTime.addedSeconds > 0
             ? `자동사냥 시간이 ${Math.floor(huntingTime.addedSeconds / 60)}분 충전되었습니다.`
             : '자동사냥 시간이 이미 최대 400분입니다.';
+        } else {
+          const levelUp = applyLevelUpCoupon(character);
+          message = `레벨업 쿠폰을 사용하여 Lv.${levelUp.level}이 되었습니다. 경험치는 0%로 초기화되었습니다.`;
         }
         await character.save();
         worldProfileCache.delete(String(auth.id));
