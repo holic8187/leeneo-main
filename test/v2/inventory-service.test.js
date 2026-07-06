@@ -14,12 +14,14 @@ const {
   getPendingMail,
   claimMail,
   getMaxStackSize,
+  consumeInventoryStack,
   equipInventoryWeapon,
   unequipInventoryWeapon
 } = require('../../src/v2/services/inventoryService');
 const {
   buyShopItem,
-  sellInventoryStack
+  sellInventoryStack,
+  rechargeThrowingStarStack
 } = require('../../src/v2/services/shopService');
 
 function characterFixture() {
@@ -165,6 +167,28 @@ test('regional shops vary prices within five percent and sell ammunition bundles
   const returnScroll = buyShopItem(sales, 'safe_zone_return_scroll', 1, 'sales_outpost');
   assert.equal(returnScroll.quantity, 1);
   assert.equal(returnScroll.totalPrice, 832);
+});
+
+test('an empty throwing-star stack remains in inventory and refills for a flat 4,000 won', () => {
+  const character = characterFixture();
+  character.economy.money = 10_000;
+  addInventoryItem(character, 'crude_throwing_star', 1);
+  const stack = buildInventoryView(character).categories.consumable.items[0];
+  consumeInventoryStack(character, stack.stackId, 1);
+  const empty = buildInventoryView(character).categories.consumable.items[0];
+  assert.equal(empty.quantity, 0);
+  assert.equal(empty.stackId, stack.stackId);
+  const recharge = rechargeThrowingStarStack(character, stack.stackId);
+  assert.equal(recharge.quantity, empty.maxStack);
+  assert.equal(recharge.rechargeCost, 4_000);
+  assert.equal(recharge.money, 6_000);
+});
+
+test('cash items are marked non-tradeable in inventory responses', () => {
+  const character = characterFixture();
+  addInventoryItem(character, 'inventory_expansion_ticket', 1);
+  const ticket = buildInventoryView(character).categories.cash.items[0];
+  assert.equal(ticket.tradeable, false);
 });
 
 test('existing job change tickets receive a seventy-two hour expiry', () => {

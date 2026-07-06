@@ -477,6 +477,7 @@ async function useActiveSkill(skillId, options = {}) {
     if (data.inventory) setInventoryData(data.inventory);
     state.character = data.character;
     renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
+    showSkillUseLabel($('fieldCharacter'), data.skill.name);
     setWorldActivity(`${data.skill.name} 사용`);
     if (!options.automatic) await sleep(300);
     return true;

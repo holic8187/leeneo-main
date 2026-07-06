@@ -274,12 +274,52 @@ async function ensureV2MigrationForUser(user) {
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
 
-  await ensureV2SkillPointGrant(character);
   await ensureV2CharacterFoundation(character);
+  await ensureV2SkillPointGrant(character);
   return { snapshot, character, preview };
 }
 
+async function repairV2StatBaselines(character) {
+  if (!character) return false;
+  const baselineUpdate = {};
+  let changed = false;
+  for (const [stat, baseline] of Object.entries(BASE_STATS)) {
+    if (Number(character.stats?.[stat]) >= baseline) continue;
+    if (!character.stats || typeof character.stats !== 'object') character.stats = {};
+    character.stats[stat] = baseline;
+    baselineUpdate[`stats.${stat}`] = baseline;
+    changed = true;
+  }
+  if (!changed) return false;
+  if (typeof character.markModified === 'function') character.markModified('stats');
+  if (character._id) {
+    // Old V2 documents can contain zero stats that fail schema validation before
+    // normal save hooks run. $max repairs those fields without validating the
+    // still-invalid in-memory document, after which normal saves are safe.
+    await V2Character.updateOne(
+      { _id: character._id },
+      { $max: baselineUpdate },
+      { runValidators: false }
+    );
+  }
+  return true;
+}
+
+async function repairV2CharacterStatBaselinesByUserId(userId) {
+  if (!userId) return { matchedCount: 0, modifiedCount: 0 };
+  return V2Character.updateOne(
+    { userId },
+    {
+      $max: Object.fromEntries(
+        Object.entries(BASE_STATS).map(([stat, baseline]) => [`stats.${stat}`, baseline])
+      )
+    },
+    { runValidators: false }
+  );
+}
+
 async function ensureV2SkillPointGrant(character) {
+  await repairV2StatBaselines(character);
   if (
     !character
     || Number(character.progression?.skillPointGrantVersion) >= SKILL_POINT_GRANT_VERSION
@@ -301,17 +341,11 @@ async function ensureV2SkillPointGrant(character) {
 
 async function ensureV2CharacterFoundation(character) {
   if (!character) return character;
-  let changed = false;
+  let changed = await repairV2StatBaselines(character);
   if (!character.skills || typeof character.skills !== 'object') {
     ensureSkillState(character);
     changed = true;
   }
-  for (const [stat, baseline] of Object.entries(BASE_STATS)) {
-    if (Number(character.stats?.[stat]) >= baseline) continue;
-    character.stats[stat] = baseline;
-    changed = true;
-  }
-
   if (Number(character.resources?.growthVersion) < RESOURCE_GROWTH_VERSION) {
     const department = DEPARTMENTS[character.job?.departmentId];
     const reference = calculateReferenceResources({
@@ -430,6 +464,7 @@ module.exports = {
   buildV2AccountSeed,
   buildMigrationPreview,
   ensureV2MigrationForUser,
+  repairV2CharacterStatBaselinesByUserId,
   ensureV2SkillPointGrant,
   ensureV2CharacterFoundation,
   buildResourceResponse,

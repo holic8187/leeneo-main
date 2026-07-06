@@ -6,7 +6,8 @@ const inventoryStackSchema = new mongoose.Schema({
   stackId: { type: String, default: '' },
   itemId: { type: String, required: true },
   quantity: { type: Number, default: 0, min: 0 },
-  expiresAt: { type: Date, default: null }
+  expiresAt: { type: Date, default: null },
+  data: { type: mongoose.Schema.Types.Mixed, default: null }
 }, { _id: false });
 
 const mailAttachmentSchema = new mongoose.Schema({
@@ -140,6 +141,16 @@ const v2CharacterSchema = new mongoose.Schema({
   collection: 'v2_characters',
   timestamps: true,
   minimize: false
+});
+
+v2CharacterSchema.index({
+  'huntingTime.enabled': 1,
+  updatedAt: 1
+});
+v2CharacterSchema.index({
+  'progression.level': -1,
+  'progression.exp': -1,
+  updatedAt: 1
 });
 
 module.exports = mongoose.models.V2Character

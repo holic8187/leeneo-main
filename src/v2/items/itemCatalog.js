@@ -326,7 +326,10 @@ for (const monster of MONSTER_CATALOG) {
 }
 
 const ITEM_CATALOG = Object.freeze(Object.fromEntries(
-  Object.entries(BASE_ITEMS).map(([key, item]) => [key, Object.freeze(item)])
+  Object.entries(BASE_ITEMS).map(([key, item]) => [key, Object.freeze({
+    ...item,
+    tradeable: item.tradeable == null ? item.category !== 'cash' : Boolean(item.tradeable)
+  })])
 ));
 
 function getItemDefinition(itemId) {

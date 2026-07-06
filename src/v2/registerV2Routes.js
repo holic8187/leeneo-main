@@ -23,7 +23,9 @@ const {
   attackMonster,
   useSkillOnMonsters,
   updatePlayerResources,
+  recordSkillUse,
   listActivePlayers,
+  listAllActivePlayers,
   leaveWorld
 } = require('./world/worldRuntime');
 const {
@@ -35,6 +37,7 @@ const {
   MIGRATION_VERSION,
   buildMigrationPreview,
   ensureV2MigrationForUser,
+  repairV2CharacterStatBaselinesByUserId,
   ensureV2SkillPointGrant,
   ensureV2CharacterFoundation,
   buildCharacterResponse
@@ -101,6 +104,7 @@ const { reconcileMaxResourceBuff } = require('./services/maxResourceBuffService'
 const {
   buyShopItem,
   sellInventoryStack,
+  rechargeThrowingStarStack,
   buildShopView
 } = require('./services/shopService');
 const { SKILL_DEFINITIONS } = require('./skills/skillDefinitions');
@@ -152,6 +156,8 @@ function getActiveWeaponElements(skillState, now = Date.now()) {
 }
 
 const SIGNUP_CODE_SETTING_KEY = 'signup-code';
+const OFFLINE_HUNTING_SWEEP_MS = 5_000;
+const OFFLINE_HUNTING_BATCH_SIZE = 20;
 
 function validateSignupPayload(payload = {}) {
   const username = String(payload.username || '').trim();
@@ -378,7 +384,7 @@ function registerV2Routes({
         return { ...drop, stored: true };
       }
       try {
-        addInventoryItem(character, drop.itemId, drop.quantity);
+        addInventoryItem(character, drop.itemId, drop.quantity, drop.instanceData);
         return { ...drop, stored: true };
       } catch (_) {
         return { ...drop, stored: false };
@@ -423,10 +429,278 @@ function registerV2Routes({
       skillEffects: response.skillEffects,
       job: response.job,
       combatPresentation: response.combatPresentation,
-      worldState: response.worldState
+      worldState: response.worldState,
+      huntingTime: response.huntingTime,
+      inventory: response.inventory,
+      equipmentLoadout: response.equipmentLoadout
     };
     worldProfileCache.set(key, profile);
     return profile;
+  }
+
+  function buildWorldPresenceFromResponse(response, {
+    userId = response.userId || response.id,
+    x = response.worldState?.x,
+    floor = response.worldState?.floor,
+    activity = 'combat',
+    motion = response.combatPresentation?.motion || 'idle',
+    offline = false,
+    now = Date.now()
+  } = {}) {
+    const recoverySkill = response.skillTree?.skills?.find(
+      (skill) => skill.id === 'recovery_improvement' && skill.level > 0
+    );
+    const endureSkill = response.skillTree?.skills?.find(
+      (skill) => skill.id === 'endure' && skill.level > 0
+    );
+    const strongMindSkill = response.skillTree?.skills?.find(
+      (skill) => skill.id === 'strong_mind' && skill.level > 0
+    );
+    return updatePresence({
+      userId: String(userId),
+      nickname: response.displayName,
+      mapId: String(response.worldState?.mapId || START_MAP_ID),
+      x,
+      floor,
+      activity,
+      motion,
+      currentHp: response.resources.currentHp,
+      maxHp: response.resources.maxHp,
+      currentMp: response.resources.currentMp,
+      maxMp: response.resources.maxMp,
+      playerLevel: response.progression?.level,
+      playerStats: response.stats,
+      physicalDefense: response.derivedStats.physicalDefense ?? response.derivedStats.defense,
+      magicDefense: response.derivedStats.magicDefense,
+      archetype: DEPARTMENTS[response.job?.departmentId]?.archetype || 'beginner',
+      damageReductionPercent: response.skillEffects?.damageReductionPercent,
+      dodgeChance: response.skillEffects?.dodgeChance,
+      blockChance: response.skillEffects?.blockChance,
+      stanceChance: response.skillEffects?.stanceChance,
+      contactReflectPercent: response.skillEffects?.contactReflectPercent,
+      contactReflectCapPercent: response.skillEffects?.contactReflectCapPercent,
+      periodicHealPercent: recoverySkill?.values?.healPercent,
+      periodicHealAmount: Number(response.skillEffects?.periodicHpRestore) || 0,
+      periodicHealIntervalMs: Number(
+        recoverySkill?.values?.intervalSeconds
+        || response.skillEffects?.periodicRestoreIntervalSeconds
+        || 0
+      ) * 1000,
+      periodicMpIntervalMs: Number(
+        strongMindSkill?.values?.intervalSeconds
+        || response.skillEffects?.periodicRestoreIntervalSeconds
+        || 0
+      ) * 1000,
+      periodicMpAmount: Number(strongMindSkill?.values?.mpRestore)
+        || Number(response.skillEffects?.periodicMpRestore)
+        || 0,
+      idleHealAmount: endureSkill?.values?.heal,
+      idleHealIntervalMs: Number(endureSkill?.values?.intervalSeconds || 0) * 1000,
+      autoHunting: Boolean(response.huntingTime?.enabled),
+      autoHuntRemainingSeconds: Number(response.huntingTime?.remainingSeconds) || 0,
+      offline,
+      now
+    });
+  }
+
+  function rollBasicAttackDamage(profile) {
+    const ammunition = getCombatAmmunition(profile);
+    const minimum = Math.max(0, Number(profile.derivedStats?.attackMinimum) || 0);
+    const maximum = Math.max(minimum, Number(profile.derivedStats?.attackMaximum) || 0);
+    let damage = maximum > 0
+      ? minimum + Math.random() * (maximum - minimum)
+      : 5;
+    damage += Number(ammunition?.attackBonus) || 0;
+    const critical = Math.random() * 100
+      < Number(profile.derivedStats?.criticalChance || 0);
+    if (critical) {
+      damage *= Number(profile.derivedStats?.criticalDamagePercent || 200) / 100;
+    }
+    damage *= 1 + Number(profile.skillEffects?.damageIncreasePercent || 0) / 100;
+    return { damage, critical, ammunition };
+  }
+
+  function applyOfflineAutoPotions(character) {
+    if (Number(character.resources?.currentHp) <= 0) return [];
+    const used = [];
+    const consumableMultiplier = Math.max(
+      100,
+      Number(getActiveSkillEffects(character).consumableEffectPercent) || 100
+    );
+    for (const slot of ['hp', 'mp']) {
+      const current = Number(character.resources?.[slot === 'hp' ? 'currentHp' : 'currentMp']) || 0;
+      const maximum = Math.max(
+        1,
+        Number(character.resources?.[slot === 'hp' ? 'maxHp' : 'maxMp']) || 1
+      );
+      const threshold = Number(character.inventory?.quickSlots?.[
+        slot === 'hp' ? 'autoHpPercent' : 'autoMpPercent'
+      ]) || 0;
+      if (threshold <= 0 || current / maximum * 100 > threshold) continue;
+      try {
+        used.push(useQuickSlotPotion(character, slot, consumableMultiplier));
+      } catch (_) {
+        // Empty or unassigned slots simply wait for the next user configuration.
+      }
+    }
+    return used;
+  }
+
+  async function processOfflineHunter(userId, now = Date.now()) {
+    return withCharacterMutation(userId, async () => {
+      const character = await V2Character.findOne({ userId });
+      if (!character?.huntingTime?.enabled) return;
+      tickHuntingTime(character, true, now);
+      if (!character.huntingTime.enabled || Number(character.resources?.currentHp) <= 0) {
+        await character.save();
+        return;
+      }
+
+      let response = buildCharacterResponse(character);
+      let state = buildWorldPresenceFromResponse(response, { userId, offline: true, now });
+      const selfContact = state.contactEvents.find(
+        (event) => String(event.userId) === String(userId)
+      );
+      if (selfContact) {
+        const beforeHp = Math.max(0, Number(character.resources.currentHp) || 0);
+        character.resources.currentHp = Math.max(0, beforeHp - Number(selfContact.damage || 0));
+        character.worldState.x = Math.max(0, Math.min(94, Number(selfContact.x) || 8));
+        character.worldState.floor = Number(selfContact.floor) === 1 ? 1 : 0;
+        if (beforeHp > 0 && character.resources.currentHp <= 0) {
+          const requiredExp = getRequiredExpV2(character.progression?.level);
+          const currentExp = Math.max(0, Number(character.progression?.exp) || 0);
+          character.progression.exp = currentExp - Math.min(
+            currentExp,
+            Math.floor(requiredExp * 0.1)
+          );
+          character.huntingTime.enabled = false;
+        }
+        updatePlayerResources(userId, character.resources);
+      }
+      const selfRecovery = state.recoveryEvents.find(
+        (event) => String(event.userId) === String(userId)
+      );
+      if (selfRecovery && Number(character.resources?.currentHp) > 0) {
+        character.resources.currentHp = Math.min(
+          Math.max(1, Number(character.resources.maxHp) || 1),
+          Math.max(0, Number(character.resources.currentHp) || 0)
+            + Math.max(0, Number(selfRecovery.hpAmount) || 0)
+        );
+        character.resources.currentMp = Math.min(
+          Math.max(0, Number(character.resources.maxMp) || 0),
+          Math.max(0, Number(character.resources.currentMp) || 0)
+            + Math.max(0, Number(selfRecovery.mpAmount) || 0)
+        );
+        updatePlayerResources(userId, character.resources);
+      }
+      applyOfflineAutoPotions(character);
+      if (!character.huntingTime.enabled || Number(character.resources.currentHp) <= 0) {
+        await character.save();
+        worldProfileCache.delete(String(userId));
+        return;
+      }
+
+      response = buildCharacterResponse(character);
+      const self = state.players.find((player) => String(player.userId) === String(userId));
+      const sameFloorMonsters = state.monsters.filter(
+        (monster) => Number(monster.floor) === Number(self?.floor)
+      );
+      const target = sameFloorMonsters.sort((left, right) => (
+        Math.abs(Number(left.x) - Number(self?.x))
+        - Math.abs(Number(right.x) - Number(self?.x))
+      ))[0];
+      if (target) {
+        const rangePx = Number(response.combatPresentation?.rangePx)
+          || Number(response.derivedStats?.attackRange)
+          || 100;
+        const rangePercent = Math.max(1, rangePx / 1200 * 100);
+        const distance = Math.abs(Number(target.x) - Number(self?.x));
+        if (distance > rangePercent + 4.5) {
+          const direction = Number(target.x) >= Number(self?.x) ? 1 : -1;
+          const nextX = Math.max(0, Math.min(
+            94,
+            Number(self?.x) + direction * Math.min(4, distance - rangePercent - 3.5)
+          ));
+          character.worldState.x = nextX;
+          character.worldState.floor = Number(self?.floor) === 1 ? 1 : 0;
+          state = buildWorldPresenceFromResponse(response, {
+            userId,
+            x: nextX,
+            floor: character.worldState.floor,
+            activity: 'moving',
+            motion: 'walk',
+            offline: true,
+            now
+          });
+        } else {
+          const rolled = rollBasicAttackDamage(response);
+          const consumesAmmunition = rolled.ammunition
+            && !response.skillEffects?.noAmmoConsumption;
+          const hasAmmunition = !consumesAmmunition
+            || (response.inventory?.items || []).some(
+              (item) => item.id === rolled.ammunition.itemId && Number(item.quantity) > 0
+            );
+          if (hasAmmunition) {
+            const result = attackMonster({
+              userId: String(userId),
+              mapId: String(response.worldState.mapId),
+              monsterId: String(target.id),
+              damage: rolled.damage,
+              rangePx,
+              damageType: DEPARTMENTS[response.job?.departmentId]?.archetype === 'mage'
+                ? 'magic'
+                : 'physical',
+              elements: getActiveWeaponElements(response.skillTree),
+              accuracy: response.derivedStats.accuracy,
+              playerLevel: response.progression.level
+            });
+            if (result.success) {
+              if (consumesAmmunition) {
+                consumeInventoryItem(character, rolled.ammunition.itemId, 1);
+              }
+              if (result.expReward > 0) {
+                grantV2Experience(character, result.expReward);
+                applyCombatDrops(character, result.drops);
+              }
+            }
+          }
+        }
+      }
+      await character.save();
+      worldProfileCache.delete(String(userId));
+    });
+  }
+
+  let offlineHuntingSweepRunning = false;
+  async function runOfflineHuntingSweep() {
+    if (offlineHuntingSweepRunning || V2Character.db?.readyState !== 1) return;
+    offlineHuntingSweepRunning = true;
+    try {
+      const onlineIds = new Set(
+        listAllActivePlayers()
+          .filter((player) => player.online)
+          .map((player) => String(player.userId))
+      );
+      const query = {
+        'huntingTime.enabled': true,
+        'huntingTime.remainingSeconds': { $gt: 0 },
+        'resources.currentHp': { $gt: 0 }
+      };
+      if (onlineIds.size) query.userId = { $nin: [...onlineIds] };
+      const candidates = await V2Character.find(query)
+        .select('userId')
+        .sort({ updatedAt: 1 })
+        .limit(OFFLINE_HUNTING_BATCH_SIZE)
+        .lean();
+      for (const candidate of candidates) {
+        const userId = String(candidate.userId);
+        await processOfflineHunter(userId);
+      }
+    } catch (err) {
+      console.error('V2 offline hunting sweep error:', err);
+    } finally {
+      offlineHuntingSweepRunning = false;
+    }
   }
 
   function requireV2User(req, res) {
@@ -567,6 +841,7 @@ function registerV2Routes({
         if (!(await bcrypt.compare(password, v2Account.passwordHash))) {
           return res.status(400).json({ msg: '아이디 또는 비밀번호가 올바르지 않습니다.' });
         }
+        await repairV2CharacterStatBaselinesByUserId(v2Account.sourceUserId);
         let character = await V2Character.findOne({ userId: v2Account.sourceUserId });
         if (!character) {
           const sourceUser = await User.findById(v2Account.sourceUserId);
@@ -576,8 +851,8 @@ function registerV2Routes({
           const migration = await ensureV2MigrationForUser(sourceUser);
           character = migration.character;
         } else {
-          await ensureV2SkillPointGrant(character);
           await ensureV2CharacterFoundation(character);
+          await ensureV2SkillPointGrant(character);
         }
         const token = jwt.sign({ id: v2Account.sourceUserId, v2: true }, jwtSecret, { expiresIn: '1d' });
         return res.json({
@@ -594,6 +869,7 @@ function registerV2Routes({
         return res.status(400).json({ msg: '아이디 또는 비밀번호가 올바르지 않습니다.' });
       }
 
+      await repairV2CharacterStatBaselinesByUserId(user._id);
       const migration = await ensureV2MigrationForUser(user);
       const token = jwt.sign({ id: user._id, v2: true }, jwtSecret, { expiresIn: '1d' });
       return res.json({
@@ -1018,7 +1294,10 @@ function registerV2Routes({
             healed: targets.reduce((sum, target) => sum + target.healed, 0),
             healingAmount,
             targets,
-            undeadCombat: undeadCombat.success ? undeadCombat : null
+            undeadCombat: undeadCombat.success ? undeadCombat : null,
+            outcomes: undeadCombat.success ? undeadCombat.outcomes : [],
+            drops: undeadCombat.success ? undeadCombat.drops : [],
+            expReward: undeadCombat.success ? undeadCombat.expReward : 0
           };
         } else if (definition.effect === 'party-portal') {
           const sourceMapId = String(req.body?.mapId || character.worldState?.mapId || '');
@@ -1142,6 +1421,11 @@ function registerV2Routes({
         reconcileMaxResourceBuff(character);
         character.markModified('skills');
         await character.save();
+        recordSkillUse(
+          auth.id,
+          String(req.body?.mapId || character.worldState?.mapId || ''),
+          definition.name
+        );
         if (partyBuffToShare) {
           combat = {
             ...(combat || { success: true }),
@@ -1428,6 +1712,27 @@ function registerV2Routes({
     }
   });
 
+  app.post('/api/v2/shop/recharge-throwing-star', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const result = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        if (!getWorldMap(character.worldState?.mapId)?.safeZone) {
+          throw new Error('표창 충전은 안전지대 상점에서만 이용할 수 있습니다.');
+        }
+        const recharge = rechargeThrowingStarStack(character, req.body?.stackId);
+        await character.save();
+        worldProfileCache.delete(String(auth.id));
+        return recharge;
+      });
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '표창을 충전하지 못했습니다.' });
+    }
+  });
+
   app.post('/api/v2/inventory/use-item', async (req, res) => {
     const auth = requireV2User(req, res);
     if (!auth) return;
@@ -1584,6 +1889,41 @@ function registerV2Routes({
       return res.json({ success: true, control });
     } catch (err) {
       return res.status(400).json({ msg: err.message || '월드 조작권을 연결하지 못했습니다.' });
+    }
+  });
+
+  app.get('/api/v2/ranking', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const onlinePlayers = listAllActivePlayers();
+      const onlineById = new Map(
+        onlinePlayers.map((player) => [String(player.userId), player])
+      );
+      const characters = await V2Character.find({})
+        .select('userId displayName progression job worldState')
+        .sort({ 'progression.level': -1, 'progression.exp': -1, updatedAt: 1 })
+        .lean();
+      const ranking = characters.map((character, index) => {
+        const presence = onlineById.get(String(character.userId));
+        return {
+          rank: index + 1,
+          userId: String(character.userId),
+          displayName: character.displayName,
+          level: Number(character.progression?.level) || 1,
+          exp: Math.max(0, Number(character.progression?.exp) || 0),
+          departmentId: character.job?.departmentId || 'unassigned',
+          mapId: presence ? presence.mapId : character.worldState?.mapId,
+          online: Boolean(presence?.online),
+          autoHunting: Boolean(presence?.autoHunting)
+        };
+      });
+      return res.json({
+        ranking,
+        online: ranking.filter((entry) => entry.online)
+      });
+    } catch (err) {
+      return res.status(500).json({ msg: '랭킹을 불러오지 못했습니다.' });
     }
   });
 
@@ -1772,6 +2112,9 @@ function registerV2Routes({
           (entry) => String(entry.stackId) === String(requested.stackId)
         );
         const item = getItemDefinition(stack?.itemId);
+        if (item?.tradeable === false || item?.category === 'cash') {
+          throw new Error('캐쉬 아이템은 교환할 수 없습니다.');
+        }
         return {
           stackId: String(requested.stackId || ''),
           itemId: item?.id || '',
@@ -1830,7 +2173,13 @@ function registerV2Routes({
                 (entry) => String(entry.stackId) === stackId
               );
               const item = getItemDefinition(stack?.itemId);
-              if (!stack || !item || Number(stack.quantity) < quantity) {
+              if (
+                !stack
+                || !item
+                || item.tradeable === false
+                || item.category === 'cash'
+                || Number(stack.quantity) < quantity
+              ) {
                 throw new Error('교환할 아이템 수량이 부족합니다.');
               }
               assertInventorySpace(target, item, quantity);
@@ -1854,7 +2203,7 @@ function registerV2Routes({
               if (!consumed || consumed.quantity !== item.quantity) {
                 throw new Error('교환 중 아이템 수량이 변경되었습니다.');
               }
-              addInventoryItem(plan.target, item.itemId, item.quantity);
+              addInventoryItem(plan.target, item.itemId, item.quantity, consumed.data);
             }
           }
           leftCharacter.markModified('economy');
@@ -1979,7 +2328,9 @@ function registerV2Routes({
           || Number(profile.skillEffects?.periodicMpRestore)
           || 0,
         idleHealAmount: endureSkill?.values?.heal,
-        idleHealIntervalMs: Number(endureSkill?.values?.intervalSeconds || 0) * 1000
+        idleHealIntervalMs: Number(endureSkill?.values?.intervalSeconds || 0) * 1000,
+        autoHunting: Boolean(profile.huntingTime?.enabled),
+        autoHuntRemainingSeconds: Number(profile.huntingTime?.remainingSeconds) || 0
       });
       if (state.contactEvents.length) {
         await Promise.all(state.contactEvents.map((event) => (
@@ -1990,14 +2341,14 @@ function registerV2Routes({
             character.resources.currentHp = Math.max(0, currentHp - event.damage);
             event.currentHp = character.resources.currentHp;
             event.expLost = 0;
+            character.worldState.mapId = state.mapId;
+            character.worldState.x = Math.max(0, Math.min(94, Number(event.x) || 8));
+            character.worldState.floor = Number(event.floor) === 1 ? 1 : 0;
             if (currentHp > 0 && character.resources.currentHp <= 0) {
               const requiredExp = getRequiredExpV2(character.progression?.level);
               const currentExp = Math.max(0, Number(character.progression?.exp) || 0);
               event.expLost = Math.min(currentExp, Math.floor(requiredExp * 0.1));
               character.progression.exp = currentExp - event.expLost;
-              character.worldState.mapId = state.mapId;
-              character.worldState.x = Math.max(0, Math.min(94, Number(event.x) || 8));
-              character.worldState.floor = Number(req.body?.floor) === 1 ? 1 : 0;
             }
             await character.save();
             updatePlayerResources(event.userId, character.resources);
@@ -2372,6 +2723,18 @@ function registerV2Routes({
         $or: [{ username: target }, { nickname: target }]
       });
       if (!user) return res.status(404).json({ msg: '대상 유저를 찾을 수 없습니다.' });
+      await V2Character.updateOne(
+        { userId: user._id },
+        {
+          $max: {
+            'stats.grit': 4,
+            'stats.processingSpeed': 4,
+            'stats.workKnowledge': 4,
+            'stats.awareness': 4
+          }
+        },
+        { runValidators: false }
+      );
       await ensureV2MigrationForUser(user);
       const mail = await withCharacterMutation(user._id, async () => {
         const character = await V2Character.findOne({ userId: user._id });
@@ -2492,6 +2855,14 @@ function registerV2Routes({
       return res.status(500).json({ msg: 'V2 일괄 스냅샷 생성에 실패했습니다.' });
     }
   });
+
+  if (String(process.env.APP_MODE || '').toLowerCase() === 'v2') {
+    const offlineHuntingTimer = setInterval(
+      runOfflineHuntingSweep,
+      OFFLINE_HUNTING_SWEEP_MS
+    );
+    offlineHuntingTimer.unref?.();
+  }
 }
 
 module.exports = {

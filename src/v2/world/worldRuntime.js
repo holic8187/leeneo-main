@@ -115,9 +115,11 @@ function serializeMonster(monster) {
 }
 
 function serializePlayer(player) {
+  const now = Date.now();
   return {
     userId: player.userId,
     nickname: player.nickname,
+    mapId: player.mapId,
     x: player.x,
     floor: player.floor,
     activity: player.activity,
@@ -128,6 +130,9 @@ function serializePlayer(player) {
     currentMp: player.currentMp,
     maxMp: player.maxMp,
     invulnerableUntil: player.invulnerableUntil,
+    online: now - Number(player.lastSeenAt || 0) <= PLAYER_TIMEOUT_MS,
+    autoHunting: Boolean(player.autoHunting),
+    recentSkill: player.recentSkill?.expiresAt > now ? { ...player.recentSkill } : null,
     isDead: player.currentHp <= 0
   };
 }
@@ -141,6 +146,13 @@ function serializeLoot(loot) {
     amount: loot.amount || 0,
     icon: loot.icon,
     name: loot.name,
+    instanceData: loot.instanceData && typeof loot.instanceData === 'object'
+      ? {
+        ...loot.instanceData,
+        stats: { ...(loot.instanceData.stats || {}) },
+        rolls: { ...(loot.instanceData.rolls || {}) }
+      }
+      : null,
     x: loot.x,
     floor: loot.floor,
     collectAt: loot.collectAt
@@ -149,14 +161,24 @@ function serializeLoot(loot) {
 
 function removePlayerFromOtherMaps(userId, exceptMapId) {
   for (const [mapId, runtime] of activeMaps) {
-    if (mapId !== exceptMapId) runtime.players.delete(userId);
+    if (mapId !== exceptMapId) {
+      runtime.players.delete(userId);
+      runtime.groundLoot = runtime.groundLoot.filter(
+        (loot) => String(loot.userId) !== String(userId)
+      );
+    }
   }
 }
 
 function cleanupInactiveMaps(now) {
   for (const [mapId, runtime] of activeMaps) {
     for (const [userId, player] of runtime.players) {
-      if (now - player.lastSeenAt > PLAYER_TIMEOUT_MS) runtime.players.delete(userId);
+      if (now - player.lastSeenAt <= PLAYER_TIMEOUT_MS) continue;
+      if (player.autoHunting && now < Number(player.autoHuntEndsAt || 0)) continue;
+      runtime.players.delete(userId);
+      runtime.groundLoot = runtime.groundLoot.filter(
+        (loot) => String(loot.userId) !== String(userId)
+      );
     }
     if (!runtime.players.size) {
       runtime.monsters = [];
@@ -333,6 +355,7 @@ function applyContactDamage(runtime, now) {
       currentHp: player.currentHp,
       maxHp: player.maxHp,
       x: player.x,
+      floor: player.floor,
       invulnerableUntil: player.invulnerableUntil
     });
   }
@@ -499,6 +522,9 @@ function updatePresence({
   periodicMpIntervalMs,
   idleHealAmount,
   idleHealIntervalMs,
+  autoHunting = false,
+  autoHuntRemainingSeconds = 0,
+  offline = false,
   now = Date.now()
 }) {
   cleanupInactiveMaps(now);
@@ -537,6 +563,7 @@ function updatePresence({
   runtime.players.set(userId, {
     userId,
     nickname: String(nickname || '사원').slice(0, 16),
+    mapId,
     x: clamp(x, 0, 94),
     floor: Number(floor) === 1 ? 1 : 0,
     activity: resolvedActivity,
@@ -547,6 +574,11 @@ function updatePresence({
     currentMp: resolvedMp,
     maxMp: resolvedMaxMp,
     passiveRecoverySchedule: recovery.schedule,
+    autoHunting: Boolean(autoHunting),
+    autoHuntEndsAt: Boolean(autoHunting)
+      ? now + Math.max(0, Number(autoHuntRemainingSeconds) || 0) * 1000
+      : 0,
+    recentSkill: previous?.recentSkill || null,
     lastContactAt: previous?.lastContactAt || 0,
     invulnerableUntil: previous?.invulnerableUntil || 0,
     collisionOriginX: previous?.x ?? clamp(x, 0, 94),
@@ -588,7 +620,9 @@ function updatePresence({
         Number(contactReflectCapPercent ?? previous?.combatProfile?.contactReflectCapPercent) || 10
       )
     },
-    lastSeenAt: now
+    lastSeenAt: offline
+      ? Number(previous?.lastSeenAt || now - PLAYER_TIMEOUT_MS - 1)
+      : now
   });
   const contactEvents = tickRuntime(runtime, now);
   const recoveryEvents = recovery.healAmount > 0 || recovery.mpAmount > 0
@@ -1066,11 +1100,32 @@ function leaveWorld(userId) {
   cleanupInactiveMaps(Date.now());
 }
 
+function recordSkillUse(userId, mapId, skillName, now = Date.now()) {
+  const runtime = activeMaps.get(String(mapId || ''));
+  const player = runtime?.players.get(String(userId));
+  if (!player) return false;
+  player.recentSkill = {
+    name: String(skillName || '').slice(0, 40),
+    createdAt: now,
+    expiresAt: now + 1_500
+  };
+  return true;
+}
+
 function listActivePlayers(mapId, now = Date.now()) {
   cleanupInactiveMaps(now);
   const runtime = activeMaps.get(String(mapId || ''));
   if (!runtime) return [];
   return Array.from(runtime.players.values()).map(serializePlayer);
+}
+
+function listAllActivePlayers(now = Date.now()) {
+  cleanupInactiveMaps(now);
+  const players = [];
+  for (const runtime of activeMaps.values()) {
+    players.push(...Array.from(runtime.players.values()).map(serializePlayer));
+  }
+  return players;
 }
 
 function resetWorldRuntime() {
@@ -1094,7 +1149,9 @@ module.exports = {
   attackMonster,
   useSkillOnMonsters,
   updatePlayerResources,
+  recordSkillUse,
   listActivePlayers,
+  listAllActivePlayers,
   leaveWorld,
   resetWorldRuntime
 };

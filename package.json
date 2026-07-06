@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "start:v2-test": "node scripts/v2-test-server.js",
+    "docs:v2-equipment": "node scripts/generate-v2-equipment-balance-doc.js",
     "test:v2": "node --test test/v2/*.test.js"
   },
   "keywords": [],

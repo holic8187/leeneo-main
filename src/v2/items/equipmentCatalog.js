@@ -46,23 +46,75 @@ function deterministicRate(id) {
   return Math.min(DROP_RATE_MAX, DROP_RATE_MIN + (hash % 7) * 0.00001);
 }
 
+function scaledEquipmentPrice(level, minimum, maximum) {
+  const ratio = Math.max(0, Math.min(1, (Number(level) - 10) / 130));
+  return Math.round(minimum + (maximum - minimum) * ratio);
+}
+
+function getEquipmentSellPrice(level, slot = 'weapon') {
+  const baseArmorPrice = scaledEquipmentPrice(level, 23_000, 307_692);
+  if (slot === 'weapon') {
+    // Weapons are about 30% more valuable than same-level general armor.
+    return Math.max(30_000, Math.round(baseArmorPrice * 1.3));
+  }
+  const slotMultiplier = {
+    top: 1,
+    bottom: 0.96,
+    helmet: 0.93,
+    gloves: 0.88,
+    cape: 0.84,
+    shoes: 0.78,
+    necklace: 0.68,
+    earrings: 0.65
+  }[slot] || 0.9;
+  const slotMinimum = ['necklace', 'earrings'].includes(slot)
+    ? 20_000
+    : (slot === 'shoes' ? 21_000 : 23_000);
+  return Math.max(
+    slotMinimum,
+    Math.round(baseArmorPrice * slotMultiplier)
+  );
+}
+
+function rollEquipmentInstanceData(item, random = Math.random) {
+  const baseStats = item?.stats && typeof item.stats === 'object' ? item.stats : {};
+  const stats = {};
+  const rolls = {};
+  for (const [stat, rawValue] of Object.entries(baseStats)) {
+    const value = Number(rawValue);
+    if (!Number.isFinite(value)) continue;
+    const variation = Math.floor(random() * 11) - 5;
+    rolls[stat] = variation;
+    stats[stat] = value > 0
+      ? Math.max(1, Math.round(value + variation))
+      : Math.round(value + variation);
+  }
+  return {
+    stats,
+    rolls,
+    rolledAt: new Date().toISOString()
+  };
+}
+
 function weaponStats(archetype, level, weaponType) {
   const attack = Math.min(94, Math.max(6, Math.round(6 + level * 0.72)));
   if (archetype === 'mage') {
-    return {
+    const stats = {
       attack: Math.max(3, Math.round(2 + level * 0.18)),
-      magic: Math.min(112, Math.round(7 + level * 0.82)),
-      workKnowledge: Math.max(0, Math.floor(level / 30))
+      magic: Math.min(112, Math.round(7 + level * 0.82))
     };
+    const knowledge = Math.floor(level / 30);
+    if (knowledge > 0) stats.workKnowledge = knowledge;
+    return stats;
   }
   const speedBonus = ['twoHandedAxe', 'spear', 'polearm', 'crossbow'].includes(weaponType) ? 3 : 0;
   const mainStat = archetype === 'archer'
     ? 'processingSpeed'
     : archetype === 'thief' ? 'awareness' : 'grit';
-  return {
-    attack: attack + speedBonus,
-    [mainStat]: Math.max(0, Math.floor(level / 30))
-  };
+  const stats = { attack: attack + speedBonus };
+  const mainStatBonus = Math.floor(level / 30);
+  if (mainStatBonus > 0) stats[mainStat] = mainStatBonus;
+  return stats;
 }
 
 function weaponSpeed(weaponType) {
@@ -88,7 +140,7 @@ function createWeapon(line, level, index) {
     stats: weaponStats(archetype, level, weaponType),
     attackSpeedMultiplier: weaponSpeed(weaponType),
     maxStack: 1,
-    sellPrice: Math.max(40, Math.round(level * level * 1.8)),
+    sellPrice: getEquipmentSellPrice(level, 'weapon'),
     sourceReference: 'dreaminfo-maple-drop-list',
     description: `${level}레벨 ${archetype} 계열 무기입니다. 직업과 요구 능력치를 충족해야 장착할 수 있습니다.`
   });
@@ -126,7 +178,7 @@ function createArmor(archetype, slotRow, level) {
     },
     stats,
     maxStack: 1,
-    sellPrice: Math.max(25, Math.round(level * level * defenseRatio)),
+    sellPrice: getEquipmentSellPrice(level, slot),
     dropChance: deterministicRate(id),
     description: `${level}레벨 ${archetype} 계열 ${label}입니다. 해당 직업만 장착할 수 있습니다.`
   };
@@ -154,7 +206,7 @@ function createBossWeapon({
     stats: { attack, ...(magic ? { magic } : {}), ...extraStats },
     attackSpeedMultiplier: weaponSpeed(weaponType),
     maxStack: 1,
-    sellPrice: 1,
+    sellPrice: 400_000,
     bossDropOnly: true,
     endgameTier: true,
     description: '보스에게서만 획득할 수 있는 100레벨 종결급 드래곤 장비입니다.'
@@ -190,7 +242,19 @@ const BOSS_ENDGAME_WEAPONS = Object.freeze([
   })
 ].map((item) => Object.freeze(item)));
 
+const STARTER_DROP_ITEMS = Object.freeze([
+  createWeapon(['warrior', 'oneHandedSword', '⚔️', ['연습용 목검']], 1, 0),
+  createWeapon(['archer', 'bow', '🏹', ['연습용 단궁']], 1, 0),
+  createWeapon(['thief', 'dagger', '🗡️', ['연습용 단검']], 1, 0),
+  createWeapon(['mage', 'wand', '🪄', ['연습용 완드']], 1, 0),
+  createArmor('warrior', ['top', '상의', '👔', 1.18], 1),
+  createArmor('archer', ['shoes', '신발', '🥾', 0.52], 1),
+  createArmor('thief', ['gloves', '장갑', '🧤', 0.58], 1),
+  createArmor('mage', ['helmet', '투구', '🪖', 1], 1)
+].map((item) => Object.freeze(item)));
+
 const EQUIPMENT_ITEMS = Object.freeze([
+  ...STARTER_DROP_ITEMS,
   ...WEAPON_LINES.flatMap((line) => EQUIPMENT_LEVELS.map((level, index) => createWeapon(line, level, index))),
   ...Object.keys(ARCHETYPE_PREFIX).flatMap((archetype) => (
     EQUIPMENT_LEVELS.filter((level) => level % 20 === 0).flatMap((level) => (
@@ -202,7 +266,7 @@ const EQUIPMENT_ITEMS = Object.freeze([
 
 function getEquipmentDropsForMonsterLevel(monsterLevel) {
   const level = Math.max(1, Math.floor(Number(monsterLevel) || 1));
-  return EQUIPMENT_ITEMS
+  const eligible = EQUIPMENT_ITEMS
     .filter((item) => {
       if (item.bossDropOnly) return false;
       const requiredLevel = Number(item.requiredLevel || item.requirements?.level) || 1;
@@ -211,14 +275,45 @@ function getEquipmentDropsForMonsterLevel(monsterLevel) {
     .sort((left, right) => (
       Math.abs(Number(left.requiredLevel) - level) - Math.abs(Number(right.requiredLevel) - level)
       || String(left.id).localeCompare(String(right.id))
+    ));
+  const archetypes = ['warrior', 'archer', 'thief', 'mage'];
+  const groups = Object.fromEntries(archetypes.map((archetype) => [
+    archetype,
+    eligible.filter((item) => (
+      item.requirements?.archetype === archetype
+      || item.requirements?.allowedArchetypes?.includes(archetype)
     ))
-    .slice(0, 8)
+  ]));
+  const selected = [];
+  const selectedIds = new Set();
+  for (let round = 0; selected.length < 12; round += 1) {
+    let added = false;
+    for (let offset = 0; offset < archetypes.length && selected.length < 12; offset += 1) {
+      const archetype = archetypes[(offset + level) % archetypes.length];
+      const candidate = groups[archetype][round];
+      if (!candidate || selectedIds.has(candidate.id)) continue;
+      selected.push(candidate);
+      selectedIds.add(candidate.id);
+      added = true;
+    }
+    if (!added) break;
+  }
+  for (const candidate of eligible) {
+    if (selected.length >= 12) break;
+    if (selectedIds.has(candidate.id)) continue;
+    selected.push(candidate);
+    selectedIds.add(candidate.id);
+  }
+  return selected
     .map((item) => ({
       itemId: item.id,
       name: item.name,
       icon: item.icon,
       quantity: 1,
-      chance: item.dropChance
+      chance: item.dropChance,
+      archetype: item.requirements?.archetype || '',
+      equipmentSlot: item.equipmentSlot,
+      baseStats: { ...(item.stats || {}) }
     }));
 }
 
@@ -227,6 +322,9 @@ module.exports = {
   DROP_RATE_MAX,
   EQUIPMENT_LEVELS,
   EQUIPMENT_ITEMS,
+  STARTER_DROP_ITEMS,
   BOSS_ENDGAME_WEAPONS,
+  getEquipmentSellPrice,
+  rollEquipmentInstanceData,
   getEquipmentDropsForMonsterLevel
 };

@@ -48,6 +48,21 @@ async function executeAutomaticMigration({
   concurrency,
   onProgress
 }) {
+  // Repair every early V2 document before Mongoose attempts any validated save.
+  // This also directly recovers accounts created while the four base stats
+  // could be persisted as zero.
+  await V2Character.updateMany(
+    {},
+    {
+      $max: {
+        'stats.grit': 4,
+        'stats.processingSpeed': 4,
+        'stats.workKnowledge': 4,
+        'stats.awareness': 4
+      }
+    },
+    { runValidators: false }
+  );
   let afterId = null;
   const summary = {
     scanned: 0,

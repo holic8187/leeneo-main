@@ -1,6 +1,9 @@
 'use strict';
 
-const { getEquipmentDropsForMonsterLevel } = require('../items/equipmentCatalog');
+const {
+  getEquipmentDropsForMonsterLevel,
+  rollEquipmentInstanceData
+} = require('../items/equipmentCatalog');
 
 const ELEMENTS = Object.freeze(['neutral', 'fire', 'lightning', 'ice', 'holy']);
 
@@ -127,7 +130,10 @@ function rollMonsterDrops(monster, random = Math.random) {
         quantity: Math.max(1, Math.floor(Number(entry.quantity) || 1)),
         icon: entry.icon || '📦',
         name: entry.name || entry.itemId,
-        category
+        category,
+        instanceData: category === 'equipment'
+          ? rollEquipmentInstanceData({ stats: entry.baseStats }, random)
+          : null
       });
     }
   }

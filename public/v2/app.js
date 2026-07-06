@@ -13,7 +13,9 @@ const state = {
   autoCombat: localStorage.getItem('v2AutoCombat') === 'true',
   huntingTime: { remainingSeconds: 0, maximumSeconds: 24000, enabled: false },
   huntingTickCounter: 0,
+  huntingSyncBusy: false,
   moving: false,
+  activeMoveTargetX: null,
   moveRunId: 0,
   combatRunId: 0,
   combatAttackCount: 0,
@@ -67,7 +69,8 @@ const state = {
   partyState: { party: null, invitation: null, nearbyPlayers: [] },
   lastPartyInvitationId: '',
   tradeState: { request: null, session: null, nearbyPlayers: [] },
-  lastTradeRequestId: ''
+  lastTradeRequestId: '',
+  ranking: { all: [], online: [], tab: 'all' }
 };
 sessionStorage.setItem('v2WorldClientId', state.worldClientId);
 
@@ -496,6 +499,8 @@ const CHARACTER_MOTION_CLASSES = [
   'is-shoot',
   'is-throw',
   'is-staff-swing',
+  'is-buff',
+  'is-cast',
   'is-dead'
 ];
 const PORTAL_POSITIONS = [
@@ -673,6 +678,21 @@ function showFloatingDamage(targetElement, amount, kind = 'outgoing') {
   setTimeout(() => element.remove(), 650);
 }
 
+function showSkillUseLabel(targetElement, skillName) {
+  const stage = $('worldStage');
+  if (!stage || !targetElement || !targetElement.isConnected || !skillName) return;
+  const stageRect = stage.getBoundingClientRect();
+  const targetRect = targetElement.getBoundingClientRect();
+  const element = document.createElement('span');
+  element.className = 'skill-use-label';
+  element.textContent = skillName;
+  element.style.left = `${targetRect.left - stageRect.left + targetRect.width / 2}px`;
+  element.style.top = `${Math.max(10, targetRect.top - stageRect.top - 18)}px`;
+  stage.appendChild(element);
+  element.addEventListener('animationend', () => element.remove(), { once: true });
+  setTimeout(() => element.remove(), 1_700);
+}
+
 function getLootBottom(floor) {
   return Number(floor) === 1 ? `${getUpperPlatformBottom() + 3}px` : '44px';
 }
@@ -813,6 +833,7 @@ function renderWorldMap(mapId, arrivalPortalIndex = 0) {
   );
   renderPortals(map);
   renderRallyPoint();
+  $('lootLayer').replaceChildren();
 
   const character = $('fieldCharacter');
   const arrival = PORTAL_POSITIONS[arrivalPortalIndex] || PORTAL_POSITIONS[0];
@@ -839,11 +860,22 @@ async function moveCharacter(left, duration, runId) {
   if (!isRunActive('move', runId)) return false;
   const character = $('fieldCharacter');
   const resolvedDuration = getScaledMovementDuration(duration);
+  const deadline = Date.now() + resolvedDuration * 2 + 1_000;
+  state.activeMoveTargetX = left;
   setWorldActivity('목적지로 걷는 중');
   setCharacterMotion('walking');
-  character.style.transitionDuration = `${resolvedDuration}ms`;
-  character.style.left = `${left}%`;
-  await sleep(resolvedDuration);
+  while (isRunActive('move', runId) && Date.now() < deadline) {
+    if (Math.abs(left - getCharacterX()) <= 0.35) break;
+    const remainingDuration = getScaledMovementDuration(getFieldMoveDuration(left));
+    character.style.transitionDuration = `${remainingDuration}ms`;
+    character.style.left = `${left}%`;
+    await sleep(Math.min(160, remainingDuration));
+  }
+  if (isRunActive('move', runId)) {
+    character.style.transitionDuration = '0ms';
+    character.style.left = `${left}%`;
+  }
+  if (state.activeMoveTargetX === left) state.activeMoveTargetX = null;
   setCharacterMotion(null);
   return isRunActive('move', runId);
 }
@@ -1288,16 +1320,24 @@ function formatDuration(seconds) {
 }
 
 function renderHuntingTime() {
-  $('huntingTimeLabel').textContent = `사냥시간 ${formatDuration(state.huntingTime.remainingSeconds)} / ${formatDuration(state.huntingTime.maximumSeconds)}`;
+  $('huntingTimeLabel').textContent = `남은 자동사냥시간 ${formatDuration(state.huntingTime.remainingSeconds)} / ${formatDuration(state.huntingTime.maximumSeconds)}`;
 }
 
 async function syncHuntingTime(active = state.autoCombat) {
+  if (state.huntingSyncBusy) return;
+  state.huntingSyncBusy = true;
   try {
+    const previousRemaining = Math.max(0, Number(state.huntingTime.remainingSeconds) || 0);
     const data = await request('/api/v2/hunting-time/tick', {
       method: 'POST',
       body: JSON.stringify({ active })
     });
-    state.huntingTime = data.huntingTime;
+    state.huntingTime = {
+      ...data.huntingTime,
+      remainingSeconds: state.autoCombat
+        ? Math.min(previousRemaining, Number(data.huntingTime?.remainingSeconds) || 0)
+        : Number(data.huntingTime?.remainingSeconds) || 0
+    };
     if (!state.huntingTime.enabled || state.huntingTime.remainingSeconds <= 0) {
       state.autoCombat = false;
       localStorage.setItem('v2AutoCombat', 'false');
@@ -1307,6 +1347,8 @@ async function syncHuntingTime(active = state.autoCombat) {
     renderHuntingTime();
   } catch (err) {
     console.error('V2 hunting time sync error:', err);
+  } finally {
+    state.huntingSyncBusy = false;
   }
 }
 
@@ -1356,6 +1398,7 @@ function ensureRemotePlayerElement(player) {
   element.dataset.userId = player.userId;
   element.innerHTML = `
     <span class="remote-player-tag"><b></b><small></small></span>
+    <span class="remote-skill-use"></span>
     <i class="remote-head"></i><i class="remote-body"></i>
     <i class="remote-arm remote-arm-left"></i><i class="remote-arm remote-arm-right"></i>
     <i class="remote-leg remote-leg-left"></i><i class="remote-leg remote-leg-right"></i>`;
@@ -1369,7 +1412,18 @@ function renderRemotePlayers(players = []) {
     visibleIds.add(player.userId);
     const element = ensureRemotePlayerElement(player);
     element.querySelector('b').textContent = player.nickname;
-    element.querySelector('small').textContent = activityLabel(player.activity);
+    element.querySelector('small').textContent = player.online === false
+      ? `${activityLabel(player.activity)} · 오프라인`
+      : activityLabel(player.activity);
+    const skillLabel = element.querySelector('.remote-skill-use');
+    const skillKey = `${player.recentSkill?.name || ''}:${player.recentSkill?.createdAt || 0}`;
+    if (player.recentSkill?.name && element.dataset.skillKey !== skillKey) {
+      element.dataset.skillKey = skillKey;
+      skillLabel.textContent = player.recentSkill.name;
+      skillLabel.classList.remove('is-visible');
+      void skillLabel.offsetWidth;
+      skillLabel.classList.add('is-visible');
+    }
     element.style.left = `${player.x}%`;
     element.style.bottom = player.floor === 1 ? `${getUpperPlatformBottom()}px` : '42px';
     element.classList.toggle('facing-left', Boolean(player.facingLeft));
@@ -1598,8 +1652,12 @@ function renderWorldEntities(data = {}) {
   const ownContact = (data.contactEvents || []).find((event) => event.userId === state.selfUserId);
   if (ownContact) {
     const character = $('fieldCharacter');
-    character.style.transitionDuration = '180ms';
+    character.style.transitionDuration = '0ms';
     character.style.left = `${ownContact.x}%`;
+    character.style.bottom = Number(ownContact.floor) === 1
+      ? `${getUpperPlatformBottom()}px`
+      : '42px';
+    void character.offsetWidth;
     character.classList.add('damage-flash');
     setTimeout(() => character.classList.remove('damage-flash'), 260);
     const damageKey = `${ownContact.monsterId}:${ownContact.invulnerableUntil}:${ownContact.damage}`;
@@ -1903,6 +1961,7 @@ function inventorySlotBody(item, slotNumber, locked = false) {
       <strong>${escapeHtml(item.name)}</strong>
       <span>${escapeHtml(item.description)}</span>
       ${inventoryItemDetailText(item) ? `<span>${escapeHtml(inventoryItemDetailText(item))}</span>` : ''}
+      ${item.tradeable === false ? '<span>교환 불가</span>' : ''}
       <small>${formatNumber(item.quantity)}개 보유${item.expiresAt ? ` · ${new Date(item.expiresAt).toLocaleString('ko-KR')} 만료` : ''}</small>
     </div>
   </article>`;
@@ -2345,7 +2404,14 @@ function bindMailControls() {
 
 function shopBody() {
   const category = state.inventory.categories[state.shop.tab] || { items: [] };
-  const sellable = (category.items || []).filter((item) => Number(item.sellPrice) > 0);
+  const sellable = (category.items || []).filter((item) => (
+    Number(item.sellPrice) > 0
+    || (
+      item.itemType === 'ammunition'
+      && item.ammunitionType === 'throwing-star'
+      && Number(item.quantity) < Number(item.maxStack)
+    )
+  ));
   return `<div class="field-shop">
     <header><div><span>HOI SUPPLY</span><strong>사내 보급 상점</strong></div><b>보유 ${formatNumber(state.shop.money)}원</b></header>
     <div class="field-shop-columns">
@@ -2369,8 +2435,13 @@ function shopBody() {
           ${sellable.length ? sellable.map((item) => `<article>
             <span>${escapeHtml(item.icon)}</span>
             <div><strong>${escapeHtml(item.name)}</strong><small>${formatNumber(item.quantity)}개 보유</small><b>개당 ${formatNumber(item.sellPrice)}원</b></div>
-            <input type="number" min="1" max="${Number(item.quantity) || 1}" value="1" inputmode="numeric" data-shop-sell-quantity="${escapeHtml(item.stackId)}">
-            <button type="button" data-shop-sell="${escapeHtml(item.stackId)}">판매</button>
+            ${item.itemType === 'ammunition' && item.ammunitionType === 'throwing-star' && Number(item.quantity) < Number(item.maxStack)
+              ? `<span class="shop-recharge-note">${formatNumber(item.quantity)} / ${formatNumber(item.maxStack)} · 4,000원</span>
+                 <button type="button" data-shop-recharge-star="${escapeHtml(item.stackId)}">충전</button>`
+              : `<input type="number" min="1" max="${Number(item.quantity) || 1}" value="1" inputmode="numeric" data-shop-sell-quantity="${escapeHtml(item.stackId)}">`}
+            ${item.itemType === 'ammunition' && item.ammunitionType === 'throwing-star' && Number(item.quantity) < Number(item.maxStack)
+              ? ''
+              : `<button type="button" data-shop-sell="${escapeHtml(item.stackId)}">판매</button>`}
           </article>`).join('') : '<div class="empty-ledger"><b>판매할 수 있는 아이템이 없습니다.</b></div>'}
         </div>
       </section>
@@ -2422,6 +2493,22 @@ async function sellFieldShopItem(stackId) {
   }
 }
 
+async function rechargeThrowingStar(stackId) {
+  try {
+    const data = await request('/api/v2/shop/recharge-throwing-star', {
+      method: 'POST',
+      body: JSON.stringify({ stackId })
+    });
+    state.shop.money = Number(data.money) || 0;
+    setInventoryData(data.inventory);
+    $('featureBody').innerHTML = shopBody();
+    bindShopControls();
+    setWorldActivity(`표창을 ${formatNumber(data.quantity)}개로 충전했습니다. (-4,000원)`);
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
 function bindShopControls() {
   document.querySelectorAll('[data-shop-tab]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -2435,6 +2522,9 @@ function bindShopControls() {
   });
   document.querySelectorAll('[data-shop-sell]').forEach((button) => {
     button.addEventListener('click', () => sellFieldShopItem(button.dataset.shopSell));
+  });
+  document.querySelectorAll('[data-shop-recharge-star]').forEach((button) => {
+    button.addEventListener('click', () => rechargeThrowingStar(button.dataset.shopRechargeStar));
   });
 }
 
@@ -2484,7 +2574,7 @@ function tradeBody() {
       </article>`).join('') : '<p>현재 같은 맵에 교환 가능한 사원이 없습니다.</p>'}</div>
     </div>`;
   }
-  const offerableItems = state.inventory.items || [];
+  const offerableItems = (state.inventory.items || []).filter((item) => item.tradeable !== false);
   return `<div class="trade-sheet">
     <header><strong>${escapeHtml(session.partner?.nickname || '상대')}님과 교환</strong><small>양쪽 모두 교환 확정을 눌러야 완료됩니다.</small></header>
     <div class="trade-columns">
@@ -2638,6 +2728,7 @@ const featureMeta = {
   party: { code: '10 / PARTY', title: '파티' },
   'party-invite': { code: 'PARTY / INVITE', title: '파티 초대' },
   trade: { code: '11 / TRADE', title: '사원 교환' },
+  ranking: { code: '12 / RANKING', title: '사원 랭킹' },
   'trade-invite': { code: 'TRADE / INVITE', title: '교환 요청' },
   quest: { code: 'QUEST / HR', title: '전직 퀘스트' },
   move: { code: 'MAP / MOVE', title: '이동 목적지' },
@@ -2675,7 +2766,7 @@ function equipmentStatText(item) {
     ? Object.entries(item.stats).filter(([, value]) => Number(value))
     : [];
   return stats.length
-    ? stats.map(([key, value]) => `${escapeHtml(key)} +${formatNumber(value)}`).join(' · ')
+    ? stats.map(([key, value]) => `${escapeHtml(ITEM_STAT_LABELS[key] || key)} +${formatNumber(value)}`).join(' · ')
     : '장비 능력치 정보 없음';
 }
 
@@ -2871,6 +2962,44 @@ function skillBody() {
   return buildSkillBody();
 }
 
+function rankingBody() {
+  const entries = state.ranking.tab === 'online'
+    ? state.ranking.online
+    : state.ranking.all;
+  return `<div class="ranking-sheet">
+    <div class="ranking-tabs">
+      <button type="button" data-ranking-tab="all" class="${state.ranking.tab === 'all' ? 'is-active' : ''}">전체 레벨 랭킹</button>
+      <button type="button" data-ranking-tab="online" class="${state.ranking.tab === 'online' ? 'is-active' : ''}">현재 온라인 유저</button>
+    </div>
+    <div class="ranking-list">${entries.length ? entries.map((entry) => `<article>
+      <b>${formatNumber(entry.rank)}</b>
+      <div><strong>${escapeHtml(entry.displayName)}</strong><small>${entry.online ? '온라인' : (entry.autoHunting ? '오프라인 자동사냥 중' : '오프라인')}</small></div>
+      <span>Lv.${formatNumber(entry.level)}</span>
+    </article>`).join('') : '<p>표시할 유저가 없습니다.</p>'}</div>
+  </div>`;
+}
+
+async function refreshRanking(openAfter = false) {
+  try {
+    const data = await request('/api/v2/ranking');
+    state.ranking.all = data.ranking || [];
+    state.ranking.online = data.online || [];
+    if (openAfter) openFeature('ranking');
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+function bindRankingControls() {
+  document.querySelectorAll('[data-ranking-tab]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.ranking.tab = button.dataset.rankingTab;
+      $('featureBody').innerHTML = rankingBody();
+      bindRankingControls();
+    });
+  });
+}
+
 function featureBody(feature) {
   if (feature === 'stats') return statBody();
   if (feature === 'quest') return questBody();
@@ -2884,6 +3013,7 @@ function featureBody(feature) {
   if (feature === 'party') return partyBody();
   if (feature === 'party-invite') return partyInviteBody();
   if (feature === 'trade') return tradeBody();
+  if (feature === 'ranking') return rankingBody();
   if (feature === 'trade-invite') return tradeInviteBody();
   const messages = {
     shop: '물약, 탄환, 장비 보급품을 구매하는 사내 보급소입니다.',
@@ -2922,6 +3052,7 @@ function openFeature(feature) {
   if (feature === 'shop') bindShopControls();
   if (feature === 'party' || feature === 'party-invite') bindPartyControls();
   if (feature === 'trade' || feature === 'trade-invite') bindTradeControls();
+  if (feature === 'ranking') bindRankingControls();
   $('featureModal').classList.remove('hidden');
   document.body.classList.add('modal-open');
   document.querySelector('.modal-close')?.focus();
@@ -3013,6 +3144,8 @@ document.querySelectorAll('.desk-action').forEach((button) => {
         ? refreshParty(true)
       : button.dataset.feature === 'trade'
         ? refreshTrade(true)
+      : button.dataset.feature === 'ranking'
+        ? refreshRanking(true)
       : openFeature(button.dataset.feature)
   ));
 });
@@ -3035,12 +3168,12 @@ async function boot() {
 boot();
 
 setInterval(() => {
-  if (!state.token || state.isAdmin || !state.autoCombat || state.moving) return;
+  if (!state.token || state.isAdmin || !state.autoCombat) return;
   state.huntingTime.remainingSeconds = Math.max(0, state.huntingTime.remainingSeconds - 1);
   renderHuntingTime();
   state.huntingTickCounter += 1;
   if (state.huntingTickCounter >= 10 || state.huntingTime.remainingSeconds <= 0) {
     state.huntingTickCounter = 0;
-    syncHuntingTime(!state.moving);
+    syncHuntingTime(true);
   }
 }, 1000);

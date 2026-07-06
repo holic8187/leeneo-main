@@ -33,12 +33,13 @@ function markMailboxModified(character) {
   if (typeof character?.markModified === 'function') character.markModified('mailbox');
 }
 
-function createStack(itemId, quantity, expiresAt = null) {
+function createStack(itemId, quantity, expiresAt = null, data = null) {
   return {
     stackId: crypto.randomUUID(),
     itemId: String(itemId),
     quantity: Math.max(0, Math.floor(Number(quantity) || 0)),
-    expiresAt
+    expiresAt,
+    data: data && typeof data === 'object' ? { ...data } : null
   };
 }
 
@@ -71,20 +72,33 @@ function normalizeInventoryStacks(character) {
       changed = true;
       continue;
     }
-    if (!itemId || !quantity) {
+    const persistentEmptyAmmunition = item?.itemType === 'ammunition' && quantity === 0;
+    if (!itemId || (!quantity && !persistentEmptyAmmunition)) {
       changed = true;
       continue;
     }
     const maxStack = getMaxStackSize(getItemDefinition(itemId));
     let remaining = quantity;
     let first = true;
+    if (persistentEmptyAmmunition) {
+      normalized.push({
+        stackId: entry.stackId ? String(entry.stackId) : crypto.randomUUID(),
+        itemId,
+        quantity: 0,
+        expiresAt,
+        data: entry.data && typeof entry.data === 'object' ? { ...entry.data } : null
+      });
+      if (!entry.stackId) changed = true;
+      continue;
+    }
     while (remaining > 0) {
       const stackQuantity = Math.min(maxStack, remaining);
       normalized.push({
         stackId: first && entry.stackId ? String(entry.stackId) : crypto.randomUUID(),
         itemId,
         quantity: stackQuantity,
-        expiresAt
+        expiresAt,
+        data: entry.data && typeof entry.data === 'object' ? { ...entry.data } : null
       });
       if (!entry.stackId || quantity > maxStack || !first) changed = true;
       first = false;
@@ -153,8 +167,12 @@ function ensureInventory(character) {
 
 function getItemStacks(character, itemId) {
   return ensureInventory(character).items.filter(
-    (entry) => String(entry.itemId) === String(itemId)
-      && Number(entry.quantity) > 0
+    (entry) => {
+      if (String(entry.itemId) !== String(itemId)) return false;
+      const item = getItemDefinition(entry.itemId);
+      return Number(entry.quantity) > 0
+        || (item?.itemType === 'ammunition' && Number(entry.quantity) === 0);
+    }
   );
 }
 
@@ -172,7 +190,10 @@ function getItemQuantity(character, itemId) {
 function getUsedSlots(character, category) {
   return ensureInventory(character).items.filter((entry) => {
     const item = getItemDefinition(entry.itemId);
-    return item?.category === category && Number(entry.quantity) > 0;
+    return item?.category === category && (
+      Number(entry.quantity) > 0
+      || (item.itemType === 'ammunition' && Number(entry.quantity) === 0)
+    );
   }).length;
 }
 
@@ -196,7 +217,7 @@ function assertInventorySpace(character, item, quantity) {
   }
 }
 
-function addInventoryItem(character, itemId, quantity) {
+function addInventoryItem(character, itemId, quantity, instanceData = null) {
   const item = getItemDefinition(itemId);
   const safeQuantity = Math.max(0, Math.floor(Number(quantity) || 0));
   if (!item) throw new Error('존재하지 않는 아이템입니다.');
@@ -217,7 +238,7 @@ function addInventoryItem(character, itemId, quantity) {
   }
   while (remaining > 0) {
     const stackQuantity = Math.min(maxStack, remaining);
-    inventory.items.push(createStack(item.id, stackQuantity, expiresAt));
+    inventory.items.push(createStack(item.id, stackQuantity, expiresAt, instanceData));
     remaining -= stackQuantity;
   }
   markInventoryModified(character);
@@ -238,7 +259,9 @@ function consumeInventoryItem(character, itemId, quantity = 1) {
     const consumed = Math.min(Math.floor(Number(stack.quantity) || 0), remaining);
     stack.quantity -= consumed;
     remaining -= consumed;
-    if (stack.quantity <= 0) inventory.items.splice(index, 1);
+    if (stack.quantity <= 0 && getItemDefinition(stack.itemId)?.itemType !== 'ammunition') {
+      inventory.items.splice(index, 1);
+    }
     else index += 1;
   }
   markInventoryModified(character);
@@ -256,9 +279,12 @@ function consumeInventoryStack(character, stackId, quantity = 1) {
   const requested = Math.max(1, Math.floor(Number(quantity) || 1));
   const consumed = Math.min(requested, Math.floor(Number(stack.quantity) || 0));
   stack.quantity -= consumed;
-  if (stack.quantity <= 0) inventory.items.splice(index, 1);
+  const data = stack.data && typeof stack.data === 'object' ? { ...stack.data } : null;
+  if (stack.quantity <= 0 && getItemDefinition(stack.itemId)?.itemType !== 'ammunition') {
+    inventory.items.splice(index, 1);
+  }
   markInventoryModified(character);
-  return { itemId: String(stack.itemId), quantity: consumed };
+  return { itemId: String(stack.itemId), quantity: consumed, data };
 }
 
 function equipInventoryEquipment(character, stackId) {
@@ -282,11 +308,19 @@ function equipInventoryEquipment(character, stackId) {
 
   const consumed = consumeInventoryStack(character, stack.stackId, 1);
   if (!consumed) throw new Error('장착할 장비를 찾을 수 없습니다.');
-  if (previous?.itemId) addInventoryItem(character, previous.itemId, 1);
+  if (previous?.itemId) {
+    addInventoryItem(
+      character,
+      previous.itemId,
+      1,
+      previous.instanceData || { stats: previous.stats }
+    );
+  }
   character.loadout[slot] = {
     ...item,
     itemId: item.id,
-    stats: { ...(item.stats || {}) },
+    stats: { ...(stack.data?.stats || item.stats || {}) },
+    instanceData: stack.data && typeof stack.data === 'object' ? { ...stack.data } : null,
     requirements: {
       ...(item.requirements || {}),
       stats: { ...(item.requirements?.stats || {}) }
@@ -307,7 +341,7 @@ function unequipInventoryEquipment(character, requestedSlot = 'weapon') {
   if (!current?.itemId) throw new Error('해당 슬롯에 장착 중인 장비가 없습니다.');
   const item = getItemDefinition(current.itemId);
   if (!item) throw new Error('현재 장비 정보를 찾을 수 없습니다.');
-  addInventoryItem(character, item.id, 1);
+  addInventoryItem(character, item.id, 1, current.instanceData || { stats: current.stats });
   character.loadout[slot] = null;
   markInventoryModified(character);
   return { slot, unequipped: { ...current } };
@@ -412,11 +446,14 @@ function buildInventoryView(character) {
     .map((entry) => {
       const item = getItemDefinition(entry.itemId);
       const quantity = Math.max(0, Math.floor(Number(entry.quantity) || 0));
-      return item && quantity > 0
+      const visible = quantity > 0 || (item?.itemType === 'ammunition' && quantity === 0);
+      return item && visible
         ? {
           ...item,
           stackId: String(entry.stackId || ''),
           quantity,
+          instanceData: entry.data && typeof entry.data === 'object' ? { ...entry.data } : null,
+          stats: { ...(entry.data?.stats || item.stats || {}) },
           maxStack: getMaxStackSize(item),
           expiresAt: entry.expiresAt || null
         }

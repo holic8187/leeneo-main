@@ -7,7 +7,8 @@ const {
   buildLegacyPayload,
   buildV2AccountSeed,
   buildMigrationPreview,
-  buildCharacterResponse
+  buildCharacterResponse,
+  ensureV2SkillPointGrant
 } = require('../../src/v2/services/migrationService');
 const { registerV2Routes, validateSignupPayload } = require('../../src/v2/registerV2Routes');
 const { getIncompleteMigrationIds } = require('../../src/v2/services/automaticMigrationService');
@@ -109,6 +110,32 @@ test('V2 character response supplies provisional resources, EXP target, and empt
   assert.equal(response.equipmentLoadout.earrings, null);
 });
 
+test('legacy zero stats are repaired before the skill-point migration performs its first save', async () => {
+  const savedStats = [];
+  const character = {
+    stats: { grit: 0, processingSpeed: 0, workKnowledge: 0, awareness: 0 },
+    progression: {
+      level: 20,
+      unspentSkillPoints: 0,
+      totalSkillPointsEarned: 0,
+      skillPointGrantVersion: 0
+    },
+    job: { departmentId: 'unassigned', advancementTier: 0 },
+    skills: { levels: {} },
+    async save() {
+      savedStats.push({ ...this.stats });
+    }
+  };
+  await ensureV2SkillPointGrant(character);
+  assert.equal(savedStats.length, 1);
+  assert.deepEqual(savedStats[0], {
+    grit: 4,
+    processingSpeed: 4,
+    workKnowledge: 4,
+    awareness: 4
+  });
+});
+
 test('V2 signup fields require matching passwords and a signup code', () => {
   assert.equal(validateSignupPayload({
     username: 'employee_01',
@@ -169,12 +196,14 @@ test('V2 router exposes the current migration, world, inventory, and shop endpoi
     'GET /api/v2/shop',
     'POST /api/v2/shop/buy',
     'POST /api/v2/shop/sell',
+    'POST /api/v2/shop/recharge-throwing-star',
     'POST /api/v2/inventory/use-item',
     'GET /api/v2/mail',
     'GET /api/v2/mail/status',
     'POST /api/v2/mail/claim',
     'POST /api/v2/mail/claim-all',
     'POST /api/v2/world/claim-control',
+    'GET /api/v2/ranking',
     'GET /api/v2/party',
     'POST /api/v2/hunting-time/toggle',
     'POST /api/v2/hunting-time/tick',

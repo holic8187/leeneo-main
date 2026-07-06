@@ -152,6 +152,82 @@ test('a magical hit can absorb monster MP without exceeding the available amount
   assert.equal(result.monster.mp, monster.maxMp - result.mpAbsorbed);
 });
 
+test('holy healing damage targets undead monsters and ignores living monsters', () => {
+  const initial = updatePresence({
+    userId: 'support-user',
+    nickname: '경영지원',
+    mapId: 'org_archive',
+    x: 50,
+    floor: 0,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_000
+  });
+  const undead = initial.monsters.find((monster) => monster.undead && monster.floor === 0);
+  assert.ok(undead);
+  updatePresence({
+    userId: 'support-user',
+    nickname: '경영지원',
+    mapId: 'org_archive',
+    x: undead.x,
+    floor: 0,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_100
+  });
+  const result = useSkillOnMonsters({
+    userId: 'support-user',
+    mapId: 'org_archive',
+    targetId: undead.id,
+    baseDamage: 100,
+    skillPercent: 100,
+    rangePx: 400,
+    maxTargets: 15,
+    damageType: 'magic',
+    element: 'holy',
+    undeadOnly: true,
+    now: 1_200
+  });
+  assert.equal(result.success, true);
+  assert.ok(result.outcomes.length >= 1);
+  assert.ok(result.outcomes.every((outcome) => (
+    initial.monsters.find((monster) => monster.id === outcome.monsterId)?.undead
+  )));
+  assert.ok(result.outcomes.every((outcome) => outcome.damage > 0));
+});
+
+test('an offline auto-hunter remains visible but is marked offline', () => {
+  updatePresence({
+    userId: 'offline-hunter',
+    nickname: '야근사원',
+    mapId: 'newcomer_training',
+    x: 20,
+    floor: 0,
+    currentHp: 120,
+    maxHp: 120,
+    autoHunting: true,
+    autoHuntRemainingSeconds: 600,
+    now: 1_000
+  });
+  const state = updatePresence({
+    userId: 'offline-hunter',
+    nickname: '야근사원',
+    mapId: 'newcomer_training',
+    x: 24,
+    floor: 0,
+    currentHp: 120,
+    maxHp: 120,
+    autoHunting: true,
+    autoHuntRemainingSeconds: 590,
+    offline: true,
+    now: 20_000
+  });
+  const player = state.players.find((entry) => entry.userId === 'offline-hunter');
+  assert.ok(player);
+  assert.equal(player.online, false);
+  assert.equal(player.autoHunting, true);
+});
+
 test('single-target attacks hit the front-most monster at resolution time', () => {
   let state = updatePresence({
     userId: 'front-target-user',

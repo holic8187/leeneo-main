@@ -9,6 +9,7 @@ const {
 } = require('./inventoryService');
 
 const MAX_TRANSACTION_QUANTITY = 10_000;
+const THROWING_STAR_RECHARGE_COST = 4_000;
 const SHOP_PRICE_MULTIPLIERS = Object.freeze({
   headquarters: 1,
   personnel_annex: 0.97,
@@ -87,6 +88,33 @@ function sellInventoryStack(character, stackId, quantity) {
   };
 }
 
+function rechargeThrowingStarStack(character, stackId) {
+  const inventory = ensureInventory(character);
+  const stack = inventory.items.find((entry) => String(entry.stackId) === String(stackId));
+  if (!stack) throw new Error('충전할 표창을 찾을 수 없습니다.');
+  const item = getItemDefinition(stack.itemId);
+  if (item?.itemType !== 'ammunition' || item?.ammunitionType !== 'throwing-star') {
+    throw new Error('표창 묶음만 충전할 수 있습니다.');
+  }
+  const maximum = Math.max(1, Math.floor(Number(item.maxStack) || 1));
+  const current = Math.max(0, Math.floor(Number(stack.quantity) || 0));
+  if (current >= maximum) throw new Error('이미 표창이 가득 충전되어 있습니다.');
+  const money = getMoney(character);
+  if (money < THROWING_STAR_RECHARGE_COST) throw new Error('표창 충전 비용이 부족합니다.');
+  stack.quantity = maximum;
+  setMoney(character, money - THROWING_STAR_RECHARGE_COST);
+  if (typeof character.markModified === 'function') character.markModified('inventory');
+  return {
+    item: { ...item },
+    stackId: String(stack.stackId),
+    previousQuantity: current,
+    quantity: maximum,
+    rechargeCost: THROWING_STAR_RECHARGE_COST,
+    money: getMoney(character),
+    inventory: buildInventoryView(character)
+  };
+}
+
 function buildShopView(character, shopId = 'headquarters') {
   return {
     money: getMoney(character),
@@ -98,9 +126,11 @@ function buildShopView(character, shopId = 'headquarters') {
 
 module.exports = {
   MAX_TRANSACTION_QUANTITY,
+  THROWING_STAR_RECHARGE_COST,
   getMoney,
   getRegionalShopItem,
   buyShopItem,
   sellInventoryStack,
+  rechargeThrowingStarStack,
   buildShopView
 };

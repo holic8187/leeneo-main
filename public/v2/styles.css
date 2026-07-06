@@ -794,7 +794,7 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   padding: 2px 5px;
   color: #14251e;
   background: #fff0a8;
-  font: 900 8px ui-monospace, monospace;
+  font: 900 16px ui-monospace, monospace;
   transform: translateX(-50%);
 }
 .character-head {
@@ -822,8 +822,8 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   transform-origin: 50% 0;
 }
 .field-character > .character-arm { top: 21px; height: 18px; }
-.arm-left { left: 17px; transform: rotate(45deg); }
-.arm-right { left: 19px; transform: rotate(-45deg); }
+.arm-left { left: 17px; transform: rotate(78deg); }
+.arm-right { left: 19px; transform: rotate(-78deg); }
 .field-character > .character-leg { top: 44px; height: 20px; }
 .leg-left { left: 17px; transform: rotate(28deg); }
 .leg-right { left: 20px; transform: rotate(-28deg); }
@@ -946,7 +946,7 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .field-monster.facing-left .monster-level,
 .field-monster.facing-left .monster-hp { transform: scaleX(-1); }
 .field-monster pre { margin: 3px 0; font: 800 17px ui-monospace, monospace; }
-.monster-name, .monster-level { display: block; font: 700 8px ui-monospace, monospace; }
+.monster-name, .monster-level { display: block; font: 800 16px ui-monospace, monospace; }
 .monster-name { overflow: hidden; color: #ffd7cc; text-overflow: ellipsis; white-space: nowrap; }
 .monster-hp { width: 66px; height: 5px; margin: auto; overflow: hidden; background: #260b0b; }
 .monster-hp i { display: block; width: 100%; height: 100%; background: #e44f44; transition: width .25s ease; }
@@ -975,7 +975,7 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   overflow: hidden;
   border-radius: 3px;
   background: rgba(0,0,0,.56);
-  font-size: 8px;
+  font-size: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1025,19 +1025,21 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   transform: translateX(-50%);
 }
 .remote-player.facing-left .remote-player-tag { transform: translateX(-50%) scaleX(-1); }
-.remote-player-tag b { max-width: 120px; overflow: hidden; color: #e4fbff; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-.remote-player-tag small { margin-top: 2px; padding: 1px 5px; color: #12303b; background: #83d8ef; font-size: 7px; }
+.remote-player-tag b { max-width: 160px; overflow: hidden; color: #e4fbff; font-size: 18px; text-overflow: ellipsis; white-space: nowrap; }
+.remote-player-tag small { margin-top: 2px; padding: 1px 5px; color: #12303b; background: #83d8ef; font-size: 14px; }
 .remote-head { position: absolute; left: 9px; top: 2px; width: 16px; height: 16px; border: 3px solid currentColor; border-radius: 50%; }
 .remote-body, .remote-arm, .remote-leg { position: absolute; width: 4px; background: currentColor; transform-origin: 50% 0; }
 .remote-body { left: 15px; top: 20px; height: 23px; }
 .remote-arm { top: 21px; height: 17px; }
-.remote-arm-left { left: 15px; transform: rotate(42deg); }
-.remote-arm-right { left: 17px; transform: rotate(-42deg); }
+.remote-arm-left { left: 15px; transform: rotate(78deg); }
+.remote-arm-right { left: 17px; transform: rotate(-78deg); }
 .remote-leg { top: 43px; height: 18px; }
 .remote-leg-left { left: 15px; transform: rotate(28deg); }
 .remote-leg-right { left: 18px; transform: rotate(-28deg); }
-.remote-player.is-walking .remote-arm-left, .remote-player.is-walking .remote-leg-right { animation: remote-step-a .42s ease-in-out infinite alternate; }
-.remote-player.is-walking .remote-arm-right, .remote-player.is-walking .remote-leg-left { animation: remote-step-b .42s ease-in-out infinite alternate; }
+.remote-player.is-walking .remote-arm-left { animation: remote-arm-left .42s ease-in-out infinite alternate; }
+.remote-player.is-walking .remote-arm-right { animation: remote-arm-right .42s ease-in-out infinite alternate; }
+.remote-player.is-walking .remote-leg-right { animation: remote-step-a .42s ease-in-out infinite alternate; }
+.remote-player.is-walking .remote-leg-left { animation: remote-step-b .42s ease-in-out infinite alternate; }
 .remote-player.is-combat { color: #ff9d73; filter: drop-shadow(0 0 8px rgba(255, 126, 82, .65)); }
 .field-character.is-dead,
 .remote-player.is-dead {
@@ -1104,6 +1106,34 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   translate: -50% -100%;
   animation: floating-damage .5s ease-out forwards;
 }
+.skill-use-label,
+.remote-skill-use {
+  position: absolute;
+  z-index: 12;
+  pointer-events: none;
+  color: #dfffe9;
+  font: 900 14px/1.2 "Pretendard", "Noto Sans KR", sans-serif;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px #001c12, 0 0 8px rgba(75, 255, 179, .75);
+  translate: -50% -100%;
+}
+.skill-use-label { animation: skill-use-label 1.45s ease-out forwards; }
+.remote-skill-use {
+  top: -49px;
+  left: 50%;
+  display: none;
+  font-size: 18px;
+}
+.remote-skill-use.is-visible {
+  display: block;
+  animation: skill-use-label 1.45s ease-out forwards;
+}
+@keyframes skill-use-label {
+  0% { opacity: 0; translate: -50% -75%; scale: .86; }
+  18% { opacity: 1; translate: -50% -110%; scale: 1.06; }
+  72% { opacity: 1; }
+  100% { opacity: 0; translate: -50% -175%; scale: 1; }
+}
 .floating-damage.is-critical {
   color: #ff62ae;
   font-size: 21px;
@@ -1139,8 +1169,8 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 @keyframes walking-bob { from { translate: 0 0; } to { translate: 0 -2px; } }
 @keyframes leg-left { from { transform: rotate(28deg); } to { transform: rotate(-30deg); } }
 @keyframes leg-right { from { transform: rotate(-28deg); } to { transform: rotate(30deg); } }
-@keyframes arm-left { from { transform: rotate(42deg); } to { transform: rotate(-38deg); } }
-@keyframes arm-right { from { transform: rotate(-42deg); } to { transform: rotate(38deg); } }
+@keyframes arm-left { from { transform: rotate(68deg); } to { transform: rotate(108deg); } }
+@keyframes arm-right { from { transform: rotate(-68deg); } to { transform: rotate(-108deg); } }
 @keyframes character-jump { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-62px); } }
 @keyframes sword-swing { from { transform: rotate(-120deg); } to { transform: rotate(75deg); } }
 @keyframes slash-arc { from { opacity: 0; transform: rotate(-65deg) scale(.5); } 40% { opacity: 1; } to { opacity: 0; transform: rotate(35deg) scale(1.2); } }
@@ -1167,6 +1197,8 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 }
 @keyframes remote-step-a { from { transform: rotate(38deg); } to { transform: rotate(-32deg); } }
 @keyframes remote-step-b { from { transform: rotate(-38deg); } to { transform: rotate(32deg); } }
+@keyframes remote-arm-left { from { transform: rotate(68deg); } to { transform: rotate(108deg); } }
+@keyframes remote-arm-right { from { transform: rotate(-68deg); } to { transform: rotate(-108deg); } }
 @keyframes projectile-shot {
   0% { opacity: 1; transform: translate(0, 0); }
   90% { opacity: 1; }
@@ -2047,6 +2079,22 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .trade-partner-items { display: grid; gap: 6px; margin: 12px 0; }
 .trade-partner-items span { padding: 7px; background: #e8eee8; }
 .trade-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.ranking-sheet { display: grid; gap: 12px; }
+.ranking-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.ranking-tabs button.is-active { color: #fff; background: var(--green); }
+.ranking-list { max-height: min(62vh, 620px); overflow: auto; border: 1px solid var(--line); }
+.ranking-list article {
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 88px;
+  align-items: center;
+  border-bottom: 1px solid var(--line-soft);
+}
+.ranking-list article > b,
+.ranking-list article > span { text-align: center; }
+.ranking-list article > div { min-width: 0; display: grid; gap: 3px; }
+.ranking-list article strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ranking-list article small { color: var(--muted); }
 
 @media (max-width: 680px) {
   .trade-columns { grid-template-columns: 1fr; }
