@@ -13,8 +13,8 @@ const { getStandardPdd } = require('./incomingDamage');
 const { DEFAULT_WEAPON_RANGES } = require('./weaponMotion');
 
 const LOADOUT_SLOT_KEYS = Object.freeze([
-  'weapon', 'helmet', 'gloves', 'shoes', 'cape',
-  'top', 'bottom', 'earrings'
+  'weapon', 'shield', 'helmet', 'gloves', 'shoes', 'cape',
+  'top', 'bottom', 'necklace', 'earrings'
 ]);
 
 function finite(value) {
@@ -133,7 +133,8 @@ function buildDerivedStats({
   const basePhysicalDefense = calculateBasePhysicalDefense(archetype, effectiveStats);
   const equipmentDefense = sumLoadoutStat(loadout, 'defense', 'physicalDefense');
   const shieldMultiplier = 1 + finite(skillEffects.shieldDefensePercent) / 100;
-  const shieldDefense = getItemStat(loadout?.shield, 'defense', 'physicalDefense') * shieldMultiplier;
+  const shieldDefense = getItemStat(loadout?.shield, 'defense', 'physicalDefense')
+    * Math.max(0, shieldMultiplier - 1);
   const physicalDefense = roundStat(
     basePhysicalDefense
     + equipmentDefense

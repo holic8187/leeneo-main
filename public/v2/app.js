@@ -70,7 +70,11 @@ const state = {
   lastPartyInvitationId: '',
   tradeState: { request: null, session: null, nearbyPlayers: [] },
   lastTradeRequestId: '',
-  ranking: { all: [], online: [], tab: 'all' }
+  ranking: { all: [], online: [], tab: 'all' },
+  enhancementSlot: '',
+  enhancementScrollStackId: '',
+  eventState: null,
+  marketplace: { listings: [], mine: [], rules: {}, search: '' }
 };
 sessionStorage.setItem('v2WorldClientId', state.worldClientId);
 
@@ -759,7 +763,7 @@ function updateFieldControls() {
   $('hpPotionButton').disabled = state.dead;
   $('mpPotionButton').disabled = state.dead;
   $('potionConfigButton').disabled = state.dead;
-  document.querySelectorAll('.desk-action, #questButton, #mailButton').forEach((control) => {
+  document.querySelectorAll('.desk-action, #questButton, #mailButton, #eventButton').forEach((control) => {
     control.disabled = state.dead;
   });
   $('combatMotionLabel').textContent = `전투 모션 · ${getCombatPresentation().label}`;
@@ -1924,7 +1928,9 @@ const ITEM_STAT_LABELS = Object.freeze({
   maxHp: '최대 HP',
   maxMp: '최대 MP',
   accuracy: '명중률',
-  evasion: '회피율'
+  evasion: '회피율',
+  movementSpeed: '이동속도',
+  jump: '점프력'
 });
 const ITEM_ARCHETYPE_LABELS = Object.freeze({
   warrior: '전사 계열',
@@ -1934,17 +1940,21 @@ const ITEM_ARCHETYPE_LABELS = Object.freeze({
 });
 const ITEM_SLOT_LABELS = Object.freeze({
   weapon: '무기',
+  shield: '방패',
   helmet: '투구',
   gloves: '장갑',
   shoes: '신발',
   cape: '망토',
   top: '상의',
   bottom: '하의',
+  necklace: '목걸이',
   earrings: '귀걸이'
 });
 
 function equipmentTooltipHtml(item) {
   if (item.category !== 'equipment') return '';
+  const enhancementLevel = Math.max(0, Number(item.enhancement?.level) || 0);
+  const displayName = `${item.name}${enhancementLevel ? ` +${enhancementLevel}` : ''}`;
   const requirements = item.requirements || {};
   const requiredLevel = Number(requirements.level ?? item.requiredLevel) || 1;
   const allowed = (requirements.allowedArchetypes || [])
@@ -1962,11 +1972,12 @@ function equipmentTooltipHtml(item) {
     .map(([key, value]) => `${ITEM_STAT_LABELS[key] || key} +${formatNumber(value)}`)
     .join(' · ');
   return `<div class="equipment-tooltip-spec">
-    <span><b>장비명</b>${escapeHtml(item.name)}</span>
+    <span><b>장비명</b>${escapeHtml(displayName)}</span>
     <span><b>장착 부위</b>${escapeHtml(ITEM_SLOT_LABELS[item.equipmentSlot] || item.equipmentSlot || '미지정')}</span>
     <span><b>착용가능 직업</b>${escapeHtml(availableJobs)}</span>
     <span><b>착용에 필요한 스탯</b>${escapeHtml(`레벨 ${requiredLevel}${requiredStats ? ` · ${requiredStats}` : ' · 추가 요구 없음'}`)}</span>
     <span><b>장비 스탯</b>${escapeHtml(stats || '없음')}</span>
+    <span><b>업그레이드</b>${formatNumber(item.enhancement?.remaining ?? item.upgradeSlots ?? 0)}회 남음 / 총 ${formatNumber(item.enhancement?.maximum ?? item.upgradeSlots ?? 0)}회</span>
   </div>`;
 }
 
@@ -1983,7 +1994,7 @@ function inventorySlotBody(item, slotNumber, locked = false) {
   } else if (item.itemType === 'job-change') {
     usable = '<button class="inventory-item-use" type="button" data-use-job-change-ticket>사용</button>';
   } else if (item.itemType === 'stat-reset') {
-    usable = '<button class="inventory-item-use" type="button" data-use-stat-reset-ticket>사용</button>';
+    usable = `<button class="inventory-item-use" type="button" data-use-stat-reset-ticket="${escapeHtml(item.id)}">사용</button>`;
   } else if (['return-scroll', 'experience-buff', 'hunting-time'].includes(item.itemType)) {
     usable = `<button class="inventory-item-use" type="button" data-use-inventory-item="${escapeHtml(item.id)}">사용</button>`;
   } else if (item.category === 'equipment') {
@@ -2166,7 +2177,9 @@ function bindInventoryControls() {
   document.querySelectorAll('[data-equip-inventory-equipment]').forEach((button) => {
     button.addEventListener('click', () => equipInventoryWeapon(button.dataset.equipInventoryEquipment));
   });
-  document.querySelector('[data-use-stat-reset-ticket]')?.addEventListener('click', useStatResetTicket);
+  document.querySelectorAll('[data-use-stat-reset-ticket]').forEach((button) => {
+    button.addEventListener('click', () => useStatResetTicket(button.dataset.useStatResetTicket));
+  });
   document.querySelectorAll('[data-use-inventory-item]').forEach((button) => {
     button.addEventListener('click', () => useInventoryItem(button.dataset.useInventoryItem));
   });
@@ -2245,12 +2258,12 @@ async function equipInventoryWeapon(stackId) {
   }
 }
 
-async function useStatResetTicket() {
+async function useStatResetTicket(itemId = 'stat_reset_coupon') {
   if (!window.confirm('투자한 스탯을 모두 4로 초기화하고 포인트를 돌려받을까요?')) return;
   try {
     const data = await request('/api/v2/inventory/use-stat-reset', {
       method: 'POST',
-      body: JSON.stringify({})
+      body: JSON.stringify({ itemId })
     });
     state.character = data.character;
     setInventoryData(data.inventory);
@@ -2769,17 +2782,23 @@ const featureMeta = {
   'party-invite': { code: 'PARTY / INVITE', title: '파티 초대' },
   trade: { code: '11 / TRADE', title: '사원 교환' },
   ranking: { code: '12 / RANKING', title: '사원 랭킹' },
+  marketplace: { code: '13 / MARKETPLACE', title: '사내 거래소' },
   'trade-invite': { code: 'TRADE / INVITE', title: '교환 요청' },
   quest: { code: 'QUEST / HR', title: '전직 퀘스트' },
   move: { code: 'MAP / MOVE', title: '이동 목적지' },
   mail: { code: 'ADMIN / MAIL', title: '우편함' },
+  event: { code: 'EVENT / SETTLEMENT', title: '정착 지원 이벤트' },
+  enhancement: { code: 'EQUIPMENT / ENHANCE', title: '장비 강화' },
   'potion-config': { code: 'QUICK / POTION', title: '포션 설정' }
 };
 
 const EQUIPMENT_TABS = Object.freeze({
   weapon: {
     label: '무기',
-    slots: [{ key: 'weapon', label: '무기', code: 'WEAPON' }]
+    slots: [
+      { key: 'weapon', label: '무기', code: 'WEAPON' },
+      { key: 'shield', label: '방패', code: 'SHIELD' }
+    ]
   },
   armor: {
     label: '방어구',
@@ -2795,6 +2814,7 @@ const EQUIPMENT_TABS = Object.freeze({
   accessory: {
     label: '장신구',
     slots: [
+      { key: 'necklace', label: '목걸이', code: 'NECKLACE' },
       { key: 'earrings', label: '귀걸이', code: 'EARRINGS' }
     ]
   }
@@ -2809,6 +2829,18 @@ function equipmentStatText(item) {
     : '장비 능력치 정보 없음';
 }
 
+function equipmentDisplayName(item) {
+  const level = Math.max(0, Number(item?.enhancement?.level) || 0);
+  return `${item?.name || '미장착'}${level ? ` +${level}` : ''}`;
+}
+
+function isClientScrollApplicable(scroll, equipment) {
+  if (!scroll || scroll.itemType !== 'equipment-scroll' || !equipment) return false;
+  if (scroll.specialEquipmentId) return scroll.specialEquipmentId === equipment.itemId;
+  if (scroll.applicableSlot && scroll.applicableSlot !== equipment.equipmentSlot) return false;
+  return !scroll.applicableWeaponType || scroll.applicableWeaponType === equipment.weaponType;
+}
+
 function equipmentBody() {
   const activeTab = EQUIPMENT_TABS[state.equipmentTab] || EQUIPMENT_TABS.weapon;
   const loadout = state.character?.equipmentLoadout || {};
@@ -2820,7 +2852,7 @@ function equipmentBody() {
     return `<article class="equipment-slot ${item ? 'is-equipped' : 'is-empty'}">
       <div class="equipment-slot-code"><span>${slot.code}</span><b>${slot.label}</b></div>
       <div class="equipment-slot-item">
-        <strong>${escapeHtml(item?.name || '미장착')}</strong>
+        <strong>${escapeHtml(equipmentDisplayName(item))}</strong>
         <small>${item ? equipmentStatText(item) : '현재 장착한 장비가 없습니다.'}</small>
       </div>
       <i>${item ? 'EQUIPPED' : 'EMPTY'}</i>
@@ -2830,8 +2862,113 @@ function equipmentBody() {
   return `<div class="equipment-sheet">
     <div class="equipment-tabs" role="tablist">${tabs}</div>
     <div class="equipment-slots">${slots}</div>
-    <p class="notice-line">장비는 인벤토리 장비 탭에서 장착합니다. 직업·레벨·요구 스탯과 장착 슬롯을 모두 충족해야 합니다.</p>
+    <div class="equipment-actions">
+      <button type="button" data-open-enhancement ${Object.values(loadout).some(Boolean) ? '' : 'disabled'}>장비 강화</button>
+    </div>
+    <p class="notice-line">장비는 인벤토리 장비 탭에서 장착합니다. 강화는 현재 장착 중인 장비에만 가능합니다.</p>
   </div>`;
+}
+
+function enhancementBody() {
+  const loadout = state.character?.equipmentLoadout || {};
+  const equipped = Object.entries(loadout).filter(([, item]) => item?.itemId);
+  if (!equipped.length) {
+    return '<div class="empty-ledger"><b>장착 중인 장비가 없습니다.</b><p>장비를 장착한 뒤 강화할 수 있습니다.</p></div>';
+  }
+  if (!equipped.some(([slot]) => slot === state.enhancementSlot)) {
+    state.enhancementSlot = equipped[0][0];
+  }
+  const selected = loadout[state.enhancementSlot];
+  const enhancement = selected.enhancement || {
+    level: 0,
+    remaining: selected.upgradeSlots || 0,
+    maximum: selected.upgradeSlots || 0,
+    bonusStats: {}
+  };
+  const scrolls = (state.inventory.items || []).filter(
+    (item) => item.itemType === 'equipment-scroll' && isClientScrollApplicable(item, selected)
+  );
+  if (!scrolls.some((item) => item.stackId === state.enhancementScrollStackId)) {
+    state.enhancementScrollStackId = '';
+  }
+  const bonusText = Object.entries(enhancement.bonusStats || {})
+    .filter(([, value]) => Number(value))
+    .map(([key, value]) => `${ITEM_STAT_LABELS[key] || key} +${formatNumber(value)}`)
+    .join(' · ') || '아직 강화로 증가한 능력치가 없습니다.';
+  return `<div class="enhancement-sheet">
+    <section>
+      <h3>장착 장비 선택</h3>
+      <div class="enhancement-equipment-list">
+        ${equipped.map(([slot, item]) => `<button type="button"
+          class="${slot === state.enhancementSlot ? 'is-selected' : ''}"
+          data-enhancement-slot="${escapeHtml(slot)}">
+          <b>${escapeHtml(equipmentDisplayName(item))}</b>
+          <small>${escapeHtml(ITEM_SLOT_LABELS[slot] || slot)} · 업그레이드 ${formatNumber(item.enhancement?.remaining ?? item.upgradeSlots ?? 0)}회 남음</small>
+        </button>`).join('')}
+      </div>
+    </section>
+    <section class="enhancement-focus">
+      <span>ENHANCEMENT TARGET</span>
+      <h3>${escapeHtml(equipmentDisplayName(selected))}</h3>
+      <p>${escapeHtml(equipmentStatText(selected))}</p>
+      <p><b>강화 능력치 합계</b> ${escapeHtml(bonusText)}</p>
+      <strong>남은 업그레이드 ${formatNumber(enhancement.remaining)} / ${formatNumber(enhancement.maximum)}</strong>
+    </section>
+    <section>
+      <h3>사용 가능한 주문서</h3>
+      <div class="enhancement-scroll-list">
+        ${scrolls.length ? scrolls.map((scroll) => `<button type="button"
+          class="${scroll.stackId === state.enhancementScrollStackId ? 'is-selected' : ''}"
+          data-enhancement-scroll="${escapeHtml(scroll.stackId)}">
+          <b>${escapeHtml(scroll.name)}</b>
+          <small>${escapeHtml(scroll.description)} · ${formatNumber(scroll.quantity)}장</small>
+        </button>`).join('') : '<p class="notice-line">이 장비에 적용 가능한 주문서를 보유하고 있지 않습니다.</p>'}
+      </div>
+    </section>
+    <button class="enhancement-submit" type="button" data-submit-enhancement
+      ${state.enhancementScrollStackId && enhancement.remaining > 0 ? '' : 'disabled'}>강화하기</button>
+    <p class="notice-line">주문서는 성공과 실패에 관계없이 1장과 업그레이드 가능 횟수 1회를 소모합니다.</p>
+  </div>`;
+}
+
+async function submitEnhancement() {
+  try {
+    const data = await request('/api/v2/equipment/enhance', {
+      method: 'POST',
+      body: JSON.stringify({
+        slot: state.enhancementSlot,
+        scrollStackId: state.enhancementScrollStackId
+      })
+    });
+    state.character = data.character;
+    setInventoryData(data.inventory);
+    state.enhancementScrollStackId = '';
+    renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
+    $('featureBody').innerHTML = enhancementBody();
+    bindEnhancementControls();
+    setWorldActivity(data.enhancement.message);
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+function bindEnhancementControls() {
+  document.querySelectorAll('[data-enhancement-slot]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.enhancementSlot = button.dataset.enhancementSlot;
+      state.enhancementScrollStackId = '';
+      $('featureBody').innerHTML = enhancementBody();
+      bindEnhancementControls();
+    });
+  });
+  document.querySelectorAll('[data-enhancement-scroll]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.enhancementScrollStackId = button.dataset.enhancementScroll;
+      $('featureBody').innerHTML = enhancementBody();
+      bindEnhancementControls();
+    });
+  });
+  document.querySelector('[data-submit-enhancement]')?.addEventListener('click', submitEnhancement);
 }
 
 function bindEquipmentTabs() {
@@ -2845,6 +2982,7 @@ function bindEquipmentTabs() {
   document.querySelectorAll('[data-unequip-equipment]').forEach((button) => {
     button.addEventListener('click', () => unequipCurrentWeapon(button.dataset.unequipEquipment));
   });
+  document.querySelector('[data-open-enhancement]')?.addEventListener('click', () => openFeature('enhancement'));
 }
 
 function questBody() {
@@ -3046,11 +3184,235 @@ function bindRankingControls() {
   });
 }
 
+async function refreshSettlementEvent(openAfter = false) {
+  try {
+    const data = await request('/api/v2/event/settlement-support');
+    state.eventState = data.event;
+    if (data.inventory) setInventoryData(data.inventory);
+    if (openAfter) openFeature('event');
+    else if (!$('featureModal').classList.contains('hidden') && $('featureTitle').textContent === '정착 지원 이벤트') {
+      $('featureBody').innerHTML = eventBody();
+      bindEventControls();
+    }
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+function eventBody() {
+  const event = state.eventState;
+  if (!event) return '<div class="empty-ledger"><b>이벤트 정보를 불러오는 중입니다.</b></div>';
+  return `<div class="event-sheet">
+    <header>
+      <span>2026.07.06 - 2026.07.31</span>
+      <h3>기간제 정착 지원 이벤트</h3>
+      <p>자신의 레벨 기준 ±10 범위 몬스터를 처치하고 이벤트 코인을 모아 보상과 교환하세요.</p>
+    </header>
+    <div class="event-balance">
+      <b>보유 코인 ${formatNumber(event.coins)}개</b>
+      <span>오늘 획득 ${formatNumber(event.dailyCoins)} / ${formatNumber(event.dailyCoinLimit)}</span>
+    </div>
+    <div class="event-shop-list">
+      ${event.shopItems.map((item) => `<article>
+        <div><strong>${escapeHtml(item.name)}</strong><p>${escapeHtml(item.description)}</p></div>
+        <span>🪙 ${formatNumber(item.coinPrice)}</span>
+        <button type="button" data-event-buy="${escapeHtml(item.key)}"
+          ${item.remainingToday === 0 || event.coins < item.coinPrice || !event.active ? 'disabled' : ''}>
+          ${item.remainingToday === 0 ? '오늘 구매 완료' : '교환'}
+        </button>
+      </article>`).join('')}
+    </div>
+    <p class="notice-line">이벤트 코인과 이벤트 전용 보상은 교환할 수 없습니다. 이벤트 코인 드랍 확률은 게임 화면에 공개되지 않습니다.</p>
+  </div>`;
+}
+
+async function buySettlementEventItem(key) {
+  try {
+    const data = await request('/api/v2/event/settlement-support/buy', {
+      method: 'POST',
+      body: JSON.stringify({ key })
+    });
+    state.eventState = data.event;
+    state.character = data.character;
+    setInventoryData(data.inventory);
+    renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
+    $('featureBody').innerHTML = eventBody();
+    bindEventControls();
+    setWorldActivity(`${data.purchased.name} 교환 완료`);
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+function bindEventControls() {
+  document.querySelectorAll('[data-event-buy]').forEach((button) => {
+    button.addEventListener('click', () => buySettlementEventItem(button.dataset.eventBuy));
+  });
+}
+
+async function refreshMarketplace(openAfter = false) {
+  try {
+    const query = state.marketplace.search
+      ? `?search=${encodeURIComponent(state.marketplace.search)}`
+      : '';
+    const data = await request(`/api/v2/marketplace${query}`);
+    state.marketplace = {
+      ...state.marketplace,
+      listings: data.listings || [],
+      mine: data.mine || [],
+      rules: data.rules || {}
+    };
+    if (openAfter) openFeature('marketplace');
+    else {
+      $('featureBody').innerHTML = marketplaceBody();
+      bindMarketplaceControls();
+    }
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+function marketplaceListingName(listing) {
+  const level = Math.max(0, Number(listing.instanceData?.enhancement?.level) || 0);
+  return `${listing.itemName}${level ? ` +${level}` : ''}`;
+}
+
+function marketplaceBody() {
+  const market = state.marketplace;
+  const registerable = (state.inventory.items || []).filter(
+    (item) => ['equipment', 'consumable', 'misc'].includes(item.category) && item.tradeable !== false
+  );
+  const statusLabel = {
+    active: '판매 중',
+    sold: '판매 완료 · 정산 대기',
+    expired: '만료 · 회수 대기'
+  };
+  return `<div class="marketplace-sheet">
+    <header class="marketplace-toolbar">
+      <div><h3>사내 거래소</h3><p>등록 수수료 1% · 판매 정산 수수료 3% · 등록 후 48시간 유지</p></div>
+      <button type="button" data-market-settle>판매 정산 / 만료 회수</button>
+    </header>
+    <section class="market-register">
+      <h3>물품 등록</h3>
+      <select data-market-stack>
+        <option value="">등록할 아이템 선택</option>
+        ${registerable.map((item) => `<option value="${escapeHtml(item.stackId)}">${escapeHtml(equipmentDisplayName(item))} ×${formatNumber(item.quantity)}</option>`).join('')}
+      </select>
+      <input data-market-quantity type="number" min="1" value="1" aria-label="등록 수량">
+      <input data-market-price type="number" min="1" placeholder="개당 판매 가격" aria-label="개당 판매 가격">
+      <button type="button" data-market-register>등록</button>
+    </section>
+    <section class="market-search">
+      <input data-market-search type="search" value="${escapeHtml(market.search)}" placeholder="아이템 이름 검색">
+      <button type="button" data-market-search-submit>검색</button>
+      <button type="button" data-market-search-reset>초기화</button>
+    </section>
+    <section>
+      <h3>최근 등록 물품</h3>
+      <div class="market-list">
+        ${market.listings.length ? market.listings.map((listing) => `<article>
+          <span class="market-icon">${escapeHtml(listing.itemIcon)}</span>
+          <div><strong>${escapeHtml(marketplaceListingName(listing))}</strong><small>${formatNumber(listing.quantity)}개 · ${new Date(listing.createdAt).toLocaleString('ko-KR')} 등록</small></div>
+          <b>${formatNumber(listing.totalPrice)}원</b>
+          <button type="button" data-market-buy="${escapeHtml(listing.id)}">구매</button>
+        </article>`).join('') : '<p class="notice-line">검색 조건에 맞는 판매 물품이 없습니다.</p>'}
+      </div>
+    </section>
+    <section>
+      <h3>내 등록 물품</h3>
+      <div class="market-list is-mine">
+        ${market.mine.length ? market.mine.map((listing) => `<article>
+          <span class="market-icon">${escapeHtml(listing.itemIcon)}</span>
+          <div><strong>${escapeHtml(marketplaceListingName(listing))}</strong><small>${escapeHtml(statusLabel[listing.status] || listing.status)} · ${new Date(listing.expiresAt).toLocaleString('ko-KR')}까지</small></div>
+          <b>${formatNumber(listing.status === 'sold' ? listing.sellerProceeds : listing.totalPrice)}원</b>
+        </article>`).join('') : '<p class="notice-line">등록하거나 정산할 물품이 없습니다.</p>'}
+      </div>
+    </section>
+  </div>`;
+}
+
+async function registerMarketplaceItem() {
+  const stackId = document.querySelector('[data-market-stack]')?.value || '';
+  const quantity = Number(document.querySelector('[data-market-quantity]')?.value || 1);
+  const pricePerItem = Number(document.querySelector('[data-market-price]')?.value || 0);
+  try {
+    const data = await request('/api/v2/marketplace/list', {
+      method: 'POST',
+      body: JSON.stringify({ stackId, quantity, pricePerItem })
+    });
+    state.character = data.character;
+    setInventoryData(data.inventory);
+    renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
+    setWorldActivity(`${data.listing.itemName} 거래소 등록 완료`);
+    await refreshMarketplace();
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+async function buyMarketplaceItem(listingId) {
+  if (!window.confirm('이 물품을 구매할까요?')) return;
+  try {
+    const data = await request('/api/v2/marketplace/buy', {
+      method: 'POST',
+      body: JSON.stringify({ listingId })
+    });
+    state.character = data.character;
+    setInventoryData(data.inventory);
+    renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
+    setWorldActivity(`${data.listing.itemName} 구매 완료`);
+    await refreshMarketplace();
+  } catch (err) {
+    setWorldActivity(err.message);
+    await refreshMarketplace();
+  }
+}
+
+async function settleMarketplace() {
+  try {
+    const data = await request('/api/v2/marketplace/settle', {
+      method: 'POST',
+      body: JSON.stringify({})
+    });
+    state.character = data.character;
+    setInventoryData(data.inventory);
+    renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
+    setWorldActivity(`거래소 정산 ${formatNumber(data.proceeds)}원 · 만료 물품 ${formatNumber(data.returnedCount)}개 회수`);
+    await refreshMarketplace();
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+function bindMarketplaceControls() {
+  document.querySelector('[data-market-register]')?.addEventListener('click', registerMarketplaceItem);
+  document.querySelectorAll('[data-market-buy]').forEach((button) => {
+    button.addEventListener('click', () => buyMarketplaceItem(button.dataset.marketBuy));
+  });
+  document.querySelector('[data-market-settle]')?.addEventListener('click', settleMarketplace);
+  const search = document.querySelector('[data-market-search]');
+  const runSearch = () => {
+    state.marketplace.search = String(search?.value || '').trim();
+    refreshMarketplace();
+  };
+  document.querySelector('[data-market-search-submit]')?.addEventListener('click', runSearch);
+  search?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    runSearch();
+  });
+  document.querySelector('[data-market-search-reset]')?.addEventListener('click', () => {
+    state.marketplace.search = '';
+    refreshMarketplace();
+  });
+}
+
 function featureBody(feature) {
   if (feature === 'stats') return statBody();
   if (feature === 'quest') return questBody();
   if (feature === 'move') return movementSelectionBody();
   if (feature === 'equipment') return equipmentBody();
+  if (feature === 'enhancement') return enhancementBody();
   if (feature === 'inventory') return inventoryBody();
   if (feature === 'skills') return skillBody();
   if (feature === 'potion-config') return potionConfigurationBody();
@@ -3060,6 +3422,8 @@ function featureBody(feature) {
   if (feature === 'party-invite') return partyInviteBody();
   if (feature === 'trade') return tradeBody();
   if (feature === 'ranking') return rankingBody();
+  if (feature === 'event') return eventBody();
+  if (feature === 'marketplace') return marketplaceBody();
   if (feature === 'trade-invite') return tradeInviteBody();
   const messages = {
     shop: '물약, 탄환, 장비 보급품을 구매하는 사내 보급소입니다.',
@@ -3089,6 +3453,7 @@ function openFeature(feature) {
     });
   }
   if (feature === 'equipment') bindEquipmentTabs();
+  if (feature === 'enhancement') bindEnhancementControls();
   if (feature === 'quest') bindQuestControls();
   if (feature === 'stats') bindStatControls();
   if (feature === 'skills') bindSkillControls();
@@ -3099,6 +3464,8 @@ function openFeature(feature) {
   if (feature === 'party' || feature === 'party-invite') bindPartyControls();
   if (feature === 'trade' || feature === 'trade-invite') bindTradeControls();
   if (feature === 'ranking') bindRankingControls();
+  if (feature === 'event') bindEventControls();
+  if (feature === 'marketplace') bindMarketplaceControls();
   $('featureModal').classList.remove('hidden');
   document.body.classList.add('modal-open');
   document.querySelector('.modal-close')?.focus();
@@ -3181,6 +3548,7 @@ $('rallyPoint')?.addEventListener('click', (event) => {
   setWorldActivity('이동 기준점을 해제했습니다.');
 });
 $('mailButton').addEventListener('click', () => refreshMailbox(true));
+$('eventButton').addEventListener('click', () => refreshSettlementEvent(true));
 $('reviveButton').addEventListener('click', revivePlayer);
 document.querySelectorAll('.desk-action').forEach((button) => {
   button.addEventListener('click', () => (
@@ -3192,6 +3560,8 @@ document.querySelectorAll('.desk-action').forEach((button) => {
         ? refreshTrade(true)
       : button.dataset.feature === 'ranking'
         ? refreshRanking(true)
+      : button.dataset.feature === 'marketplace'
+        ? refreshMarketplace(true)
       : openFeature(button.dataset.feature)
   ));
 });

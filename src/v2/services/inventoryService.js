@@ -44,6 +44,10 @@ function createStack(itemId, quantity, expiresAt = null, data = null) {
 }
 
 function getDefaultExpiry(item, now = Date.now()) {
+  if (item?.fixedExpiresAt) {
+    const fixed = new Date(item.fixedExpiresAt);
+    if (Number.isFinite(fixed.getTime())) return fixed;
+  }
   const seconds = Math.max(0, Number(item?.expiresAfterSeconds) || 0);
   return seconds ? new Date(now + seconds * 1000) : null;
 }
@@ -52,6 +56,22 @@ function getMaxStackSize(item) {
   if (!item) return DEFAULT_STACK_SIZE;
   if (item.category === 'equipment') return 1;
   return Math.max(1, Math.floor(Number(item.maxStack) || DEFAULT_STACK_SIZE));
+}
+
+function getEquipmentEnhancement(item, instanceData = null) {
+  if (item?.category !== 'equipment') return null;
+  const maximum = Math.max(0, Math.floor(Number(
+    instanceData?.enhancement?.maximum ?? item.upgradeSlots
+  ) || 0));
+  return {
+    level: Math.max(0, Math.floor(Number(instanceData?.enhancement?.level) || 0)),
+    maximum,
+    remaining: Math.max(
+      0,
+      Math.min(maximum, Math.floor(Number(instanceData?.enhancement?.remaining ?? maximum) || 0))
+    ),
+    bonusStats: { ...(instanceData?.enhancement?.bonusStats || {}) }
+  };
 }
 
 function normalizeInventoryStacks(character) {
@@ -64,7 +84,7 @@ function normalizeInventoryStacks(character) {
     const quantity = Math.max(0, Math.floor(Number(entry?.quantity) || 0));
     const item = getItemDefinition(itemId);
     let expiresAt = entry?.expiresAt ? new Date(entry.expiresAt) : null;
-    if (item?.expiresAfterSeconds && !expiresAt) {
+    if ((item?.expiresAfterSeconds || item?.fixedExpiresAt) && !expiresAt) {
       expiresAt = getDefaultExpiry(item);
       changed = true;
     }
@@ -229,7 +249,7 @@ function addInventoryItem(character, itemId, quantity, instanceData = null) {
   const expiresAt = getDefaultExpiry(item);
   let remaining = safeQuantity;
   for (const stack of getItemStacks(character, item.id)) {
-    if (item.expiresAfterSeconds) continue;
+    if (item.expiresAfterSeconds || item.fixedExpiresAt) continue;
     const available = Math.max(0, maxStack - Math.floor(Number(stack.quantity) || 0));
     const added = Math.min(available, remaining);
     stack.quantity += added;
@@ -321,6 +341,7 @@ function equipInventoryEquipment(character, stackId) {
     itemId: item.id,
     stats: { ...(stack.data?.stats || item.stats || {}) },
     instanceData: stack.data && typeof stack.data === 'object' ? { ...stack.data } : null,
+    enhancement: getEquipmentEnhancement(item, stack.data),
     requirements: {
       ...(item.requirements || {}),
       stats: { ...(item.requirements?.stats || {}) }
@@ -460,6 +481,7 @@ function buildInventoryView(character) {
           stackId: String(entry.stackId || ''),
           quantity,
           instanceData: entry.data && typeof entry.data === 'object' ? { ...entry.data } : null,
+          enhancement: getEquipmentEnhancement(item, entry.data),
           stats: { ...(entry.data?.stats || item.stats || {}) },
           maxStack: getMaxStackSize(item),
           expiresAt: entry.expiresAt || null
@@ -646,6 +668,7 @@ module.exports = {
   DEFAULT_STACK_SIZE,
   MAIL_TTL_MS,
   QUICK_SLOT_RESOURCES,
+  markInventoryModified,
   ensureInventory,
   getUsedSlots,
   getMaxStackSize,

@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { EQUIPMENT_ITEMS } = require('../src/v2/items/equipmentCatalog');
+const { listItemDefinitions } = require('../src/v2/items/itemCatalog');
 
 const STAT_LABELS = Object.freeze({
   attack: '공격력',
@@ -74,11 +74,13 @@ const headers = [
   '드랍 옵션 범위(-5~+5)',
   '공격속도 배율',
   '상점 판매가',
+  '업그레이드 가능 횟수',
   '일반 몬스터 드랍률',
   '보스 전용'
 ];
 
-const rows = EQUIPMENT_ITEMS
+const rows = listItemDefinitions()
+  .filter((item) => item.category === 'equipment')
   .slice()
   .sort((left, right) => (
     Number(left.requiredLevel) - Number(right.requiredLevel)
@@ -101,7 +103,8 @@ const rows = EQUIPMENT_ITEMS
       formatStats(item.stats, true),
       item.attackSpeedMultiplier || '',
       item.sellPrice || 0,
-      item.bossDropOnly ? '' : `${(Number(item.dropChance) * 100).toFixed(4)}%`,
+      item.upgradeSlots || 0,
+      Number(item.dropChance) > 0 ? `${(Number(item.dropChance) * 100).toFixed(4)}%` : '',
       item.bossDropOnly ? '예' : '아니오'
     ].map(csv).join(',');
   });

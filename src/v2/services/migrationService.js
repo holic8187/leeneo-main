@@ -26,6 +26,8 @@ const {
   applyReferenceResources
 } = require('../progression/resourceGrowth');
 const { buildInventoryView, getPendingMail } = require('./inventoryService');
+const { getItemDefinition } = require('../items/itemCatalog');
+const { buildEnhancementView } = require('./equipmentEnhancementService');
 const { reconcileHpGrowthSkillBonus } = require('./hpGrowthBonusService');
 const { reconcileMpGrowthSkillBonus } = require('./mpGrowthBonusService');
 const { reconcileMaxResourceBuff } = require('./maxResourceBuffService');
@@ -37,7 +39,7 @@ const TEMPORARY_RESOURCE_DEFAULTS = Object.freeze({
   maxMp: 5
 });
 const EQUIPMENT_SLOT_KEYS = Object.freeze([
-  'weapon',
+  'weapon', 'shield',
   'helmet',
   'gloves',
   'shoes',
@@ -390,7 +392,28 @@ function buildResourceResponse(resources = {}) {
 }
 
 function buildEquipmentLoadout(loadout = {}) {
-  return Object.fromEntries(EQUIPMENT_SLOT_KEYS.map((slot) => [slot, loadout[slot] || null]));
+  return Object.fromEntries(EQUIPMENT_SLOT_KEYS.map((slot) => {
+    const stored = loadout[slot] || null;
+    if (!stored) return [slot, null];
+    const definition = getItemDefinition(stored.itemId || stored.id);
+    const equipment = {
+      ...stored,
+      ...(definition || {}),
+      itemId: stored.itemId || stored.id,
+      instanceData: stored.instanceData || null,
+      stats: { ...(stored.stats || definition?.stats || {}) },
+      requirements: {
+        ...(definition?.requirements || {}),
+        ...(stored.requirements || {}),
+        stats: {
+          ...(definition?.requirements?.stats || {}),
+          ...(stored.requirements?.stats || {})
+        }
+      }
+    };
+    equipment.enhancement = buildEnhancementView(equipment);
+    return [slot, equipment];
+  }));
 }
 
 function buildCharacterResponse(character) {

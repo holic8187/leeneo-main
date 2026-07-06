@@ -59,6 +59,7 @@ const v2CharacterSchema = new mongoose.Schema({
   },
   loadout: {
     weapon: { type: mongoose.Schema.Types.Mixed, default: null },
+    shield: { type: mongoose.Schema.Types.Mixed, default: null },
     helmet: { type: mongoose.Schema.Types.Mixed, default: null },
     gloves: { type: mongoose.Schema.Types.Mixed, default: null },
     shoes: { type: mongoose.Schema.Types.Mixed, default: null },
@@ -117,6 +118,13 @@ const v2CharacterSchema = new mongoose.Schema({
   economy: {
     money: { type: Number, default: 0 },
     stockPortfolio: { type: [mongoose.Schema.Types.Mixed], default: [] }
+  },
+  events: {
+    settlementSupport: {
+      dailyCoinDate: { type: String, default: '' },
+      dailyCoinCount: { type: Number, default: 0, min: 0, max: 200 },
+      purchases: { type: mongoose.Schema.Types.Mixed, default: {} }
+    }
   },
   migration: {
     status: { type: String, enum: ['prepared', 'converted', 'failed'], default: 'prepared' },

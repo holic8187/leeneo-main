@@ -4,6 +4,7 @@ const V2Account = require('./models/V2Account');
 const V2Character = require('./models/V2Character');
 const LegacyUserSnapshot = require('./models/LegacyUserSnapshot');
 const V2Setting = require('./models/V2Setting');
+const V2MarketListing = require('./models/V2MarketListing');
 const { MAX_LEVEL, getRequiredExpV2 } = require('./constants/experienceTable');
 const {
   START_MAP_ID,
@@ -50,6 +51,7 @@ const {
 const { getItemDefinition, listAdminGrantItems } = require('./items/itemCatalog');
 const {
   addInventoryItem,
+  ensureInventory,
   consumeInventoryItem,
   consumeInventoryStack,
   assertInventorySpace,
@@ -67,6 +69,14 @@ const {
   claimMail,
   claimAllMail
 } = require('./services/inventoryService');
+const {
+  enhanceEquippedItem
+} = require('./services/equipmentEnhancementService');
+const {
+  getSettlementEventView,
+  rollSettlementEventCoin,
+  purchaseSettlementEventItem
+} = require('./services/settlementEventService');
 const { changeDepartment } = require('./services/jobChangeService');
 const {
   ensureDailyHuntingMail,
@@ -255,6 +265,46 @@ function getBearerToken(req) {
   return header.startsWith('Bearer ') ? header.slice(7) : null;
 }
 
+function serializeMarketplaceListing(listing = {}) {
+  return {
+    id: String(listing._id || listing.id || ''),
+    sellerId: String(listing.sellerId || ''),
+    sellerName: String(listing.sellerName || ''),
+    itemId: String(listing.itemId || ''),
+    itemName: String(listing.itemName || ''),
+    itemIcon: String(listing.itemIcon || '📦'),
+    itemCategory: String(listing.itemCategory || ''),
+    quantity: Math.max(1, Number(listing.quantity) || 1),
+    instanceData: listing.instanceData || null,
+    pricePerItem: Math.max(1, Number(listing.pricePerItem) || 1),
+    totalPrice: Math.max(1, Number(listing.totalPrice) || 1),
+    sellerProceeds: Math.max(0, Number(listing.sellerProceeds) || 0),
+    status: String(listing.status || ''),
+    createdAt: listing.createdAt || null,
+    expiresAt: listing.expiresAt || null,
+    soldAt: listing.soldAt || null
+  };
+}
+
+function calculateWelfareSupportDamage({
+  workKnowledge = 0,
+  awareness = 0,
+  magic = 0,
+  targetCount = 1,
+  healPercent = 100,
+  random = Math.random
+} = {}) {
+  const intelligence = Math.max(0, Number(workKnowledge) || 0);
+  const luck = Math.max(0, Number(awareness) || 0);
+  const magicAttack = Math.max(0, Number(magic) || 0);
+  const count = Math.max(1, Math.floor(Number(targetCount) || 1));
+  const mobCoefficient = 1.5 + 5 / count;
+  const minimum = (intelligence * 0.3 + luck) * magicAttack / 1000 * mobCoefficient;
+  const maximum = (intelligence * 1.2 + luck) * magicAttack / 1000 * mobCoefficient;
+  const rolled = minimum + Math.max(0, Math.min(1, Number(random()) || 0)) * (maximum - minimum);
+  return Math.max(1, Math.floor(rolled * Math.max(0, Number(healPercent) || 0) / 100));
+}
+
 function registerV2Routes({
   app,
   User,
@@ -390,6 +440,20 @@ function registerV2Routes({
         return { ...drop, stored: false };
       }
     });
+  }
+
+  function applySettlementEventDrops(character, monsterLevels = [], drops = []) {
+    const awarded = [];
+    for (const monsterLevel of monsterLevels) {
+      try {
+        const eventDrop = rollSettlementEventCoin(character, monsterLevel);
+        if (eventDrop) awarded.push(eventDrop);
+      } catch (_) {
+        // A full inventory should not invalidate the monster kill or its normal rewards.
+      }
+    }
+    drops.push(...awarded);
+    return drops;
   }
 
   async function getWorldProfile(userId, force = false) {
@@ -668,6 +732,7 @@ function registerV2Routes({
               if (result.expReward > 0) {
                 grantV2Experience(character, result.expReward);
                 applyCombatDrops(character, result.drops);
+                applySettlementEventDrops(character, [result.monsterLevel], result.drops);
               }
             }
           }
@@ -1254,6 +1319,13 @@ function registerV2Routes({
           }
           grantV2Experience(character, combat.expReward);
           combat.drops = applyCombatDrops(character, combat.drops);
+          combat.drops = applySettlementEventDrops(
+            character,
+            (combat.outcomes || [])
+              .filter((outcome) => outcome.defeated)
+              .map((outcome) => outcome.monsterLevel),
+            combat.drops
+          );
           if (
             definition.effect === 'element-explosion'
             && Math.random() * 100 >= Number(activeEffects.elementPreserveChance || 0)
@@ -1278,12 +1350,23 @@ function registerV2Routes({
             rangePx: Number(values.range ?? definition.range) || 400,
             amount: healingAmount
           });
+          const welfareDamage = definition.name === '복지 지원'
+            ? calculateWelfareSupportDamage({
+              workKnowledge: response.derivedStats?.effectiveStats?.workKnowledge,
+              awareness: response.derivedStats?.effectiveStats?.awareness,
+              magic: response.derivedStats?.magic,
+              targetCount: targets.length,
+              healPercent: values.healPercent
+            })
+            : Math.max(1, Number(response.derivedStats?.magic) || 1);
           const undeadCombat = useSkillOnMonsters({
             userId: String(auth.id),
             mapId: String(req.body?.mapId || character.worldState?.mapId || ''),
             targetId: String(req.body?.targetId || ''),
-            baseDamage: Math.max(1, Number(response.derivedStats?.magic) || 1),
-            skillPercent: Math.max(0, Number(values.healPercent) || 0),
+            baseDamage: welfareDamage,
+            skillPercent: definition.name === '복지 지원'
+              ? 100
+              : Math.max(0, Number(values.healPercent) || 0),
             rangePx: Number(values.range ?? definition.range) || 400,
             maxTargets: 15,
             damageType: 'magic',
@@ -1400,7 +1483,15 @@ function registerV2Routes({
             'noAmmoConsumption', 'movementSpeedIncrease', 'criticalChance',
             'criticalDamagePercent', 'damageReductionPercent', 'experienceBonusPercent'
           ]) {
-            if (Number.isFinite(Number(values[key]))) effects[key] = Number(values[key]);
+            if (Number.isFinite(Number(values[key]))) {
+              const soloPerformanceSupport = definition.name === '성과 지원'
+                && key === 'experienceBonusPercent'
+                && getActivePartyPlayers(
+                  auth.id,
+                  String(req.body?.mapId || character.worldState?.mapId || '')
+                ).length < 2;
+              effects[key] = soloPerformanceSupport ? 10 : Number(values[key]);
+            }
           }
           if (effects.reflectPercent) effects.contactReflectPercent = effects.reflectPercent;
           if (effects.targetMaxHpCapPercent) {
@@ -1630,6 +1721,32 @@ function registerV2Routes({
     }
   });
 
+  app.post('/api/v2/equipment/enhance', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const result = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        const enhancement = enhanceEquippedItem(
+          character,
+          req.body?.slot,
+          req.body?.scrollStackId
+        );
+        await character.save();
+        worldProfileCache.delete(String(auth.id));
+        return {
+          enhancement,
+          character: buildCharacterResponse(character),
+          inventory: buildInventoryView(character)
+        };
+      });
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '장비 강화에 실패했습니다.' });
+    }
+  });
+
   app.post('/api/v2/inventory/use-stat-reset', async (req, res) => {
     const auth = requireV2User(req, res);
     if (!auth) return;
@@ -1637,7 +1754,9 @@ function registerV2Routes({
       const result = await withCharacterMutation(auth.id, async () => {
         const character = await V2Character.findOne({ userId: auth.id });
         if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
-        if (!consumeInventoryItem(character, 'stat_reset_coupon', 1)) {
+        const requestedItemId = String(req.body?.itemId || 'stat_reset_coupon');
+        const resetItem = getItemDefinition(requestedItemId);
+        if (resetItem?.itemType !== 'stat-reset' || !consumeInventoryItem(character, requestedItemId, 1)) {
           throw new Error('스탯 초기화 쿠폰이 부족합니다.');
         }
         for (const stat of ['grit', 'processingSpeed', 'workKnowledge', 'awareness']) {
@@ -1660,6 +1779,259 @@ function registerV2Routes({
       return res.json({ success: true, ...result });
     } catch (err) {
       return res.status(400).json({ msg: err.message || '스탯을 초기화하지 못했습니다.' });
+    }
+  });
+
+  app.get('/api/v2/event/settlement-support', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const character = await V2Character.findOne({ userId: auth.id });
+      if (!character) return res.status(404).json({ msg: 'V2 캐릭터를 찾을 수 없습니다.' });
+      return res.json({
+        event: getSettlementEventView(character),
+        inventory: buildInventoryView(character)
+      });
+    } catch (err) {
+      return res.status(500).json({ msg: '이벤트 정보를 불러오지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/event/settlement-support/buy', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const result = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        const purchased = purchaseSettlementEventItem(character, req.body?.key);
+        await character.save();
+        worldProfileCache.delete(String(auth.id));
+        return {
+          purchased,
+          event: getSettlementEventView(character),
+          character: buildCharacterResponse(character),
+          inventory: buildInventoryView(character)
+        };
+      });
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '이벤트 상품을 구매하지 못했습니다.' });
+    }
+  });
+
+  app.get('/api/v2/marketplace', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const now = new Date();
+      await V2MarketListing.updateMany(
+        { status: 'active', expiresAt: { $lte: now } },
+        { $set: { status: 'expired' } }
+      );
+      const search = String(req.query?.search || '').trim().slice(0, 40);
+      const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const listings = await V2MarketListing.find({
+        status: 'active',
+        expiresAt: { $gt: now },
+        ...(escapedSearch ? { itemName: { $regex: escapedSearch, $options: 'i' } } : {})
+      })
+        .sort({ createdAt: -1 })
+        .limit(100)
+        .lean();
+      const mine = await V2MarketListing.find({
+        sellerId: auth.id,
+        status: { $in: ['active', 'sold', 'expired'] }
+      }).sort({ createdAt: -1 }).limit(100).lean();
+      return res.json({
+        listings: listings.map(serializeMarketplaceListing),
+        mine: mine.map(serializeMarketplaceListing),
+        rules: {
+          registrationFeePercent: 1,
+          settlementFeePercent: 3,
+          listingHours: 48
+        }
+      });
+    } catch (err) {
+      console.error('V2 marketplace load error:', err);
+      return res.status(500).json({ msg: '거래소 정보를 불러오지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/marketplace/list', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    let pendingListing = null;
+    try {
+      const stackId = String(req.body?.stackId || '');
+      const quantity = Math.max(1, Math.floor(Number(req.body?.quantity) || 1));
+      const pricePerItem = Math.floor(Number(req.body?.pricePerItem) || 0);
+      if (!Number.isSafeInteger(pricePerItem) || pricePerItem <= 0) {
+        throw new Error('판매 가격을 올바르게 입력해주세요.');
+      }
+      const character = await V2Character.findOne({ userId: auth.id });
+      if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+      const stack = ensureInventory(character).items.find(
+        (entry) => String(entry.stackId) === stackId && Number(entry.quantity) >= quantity
+      );
+      const item = getItemDefinition(stack?.itemId);
+      if (
+        !item
+        || !['equipment', 'consumable', 'misc'].includes(item.category)
+        || item.tradeable === false
+      ) {
+        throw new Error('거래소에 등록할 수 없는 아이템입니다.');
+      }
+      if (item.category === 'equipment' && quantity !== 1) {
+        throw new Error('장비는 한 번에 1개만 등록할 수 있습니다.');
+      }
+      const totalPrice = pricePerItem * quantity;
+      if (!Number.isSafeInteger(totalPrice)) throw new Error('판매 가격이 너무 큽니다.');
+      const registrationFee = Math.max(1, Math.ceil(totalPrice * 0.01));
+      pendingListing = await V2MarketListing.create({
+        sellerId: auth.id,
+        sellerName: character.displayName,
+        itemId: item.id,
+        itemName: item.name,
+        itemIcon: item.icon,
+        itemCategory: item.category,
+        quantity,
+        instanceData: stack.data || null,
+        pricePerItem,
+        totalPrice,
+        registrationFee,
+        sellerProceeds: Math.floor(totalPrice * 0.97),
+        status: 'pending',
+        expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000)
+      });
+      const result = await withCharacterMutation(auth.id, async () => {
+        const current = await V2Character.findOne({ userId: auth.id });
+        if (!current) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        const currentStack = ensureInventory(current).items.find(
+          (entry) => String(entry.stackId) === stackId && Number(entry.quantity) >= quantity
+        );
+        if (!currentStack) throw new Error('등록할 아이템 수량이 부족합니다.');
+        const money = Math.max(0, Number(current.economy?.money) || 0);
+        if (money < registrationFee) throw new Error('등록 수수료가 부족합니다.');
+        const consumed = consumeInventoryStack(current, stackId, quantity);
+        if (!consumed || consumed.quantity !== quantity) throw new Error('아이템 등록에 실패했습니다.');
+        current.economy.money = money - registrationFee;
+        await current.save();
+        pendingListing.instanceData = consumed.data || null;
+        pendingListing.status = 'active';
+        await pendingListing.save();
+        worldProfileCache.delete(String(auth.id));
+        return {
+          listing: serializeMarketplaceListing(pendingListing.toObject()),
+          character: buildCharacterResponse(current),
+          inventory: buildInventoryView(current)
+        };
+      });
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      if (pendingListing?.status === 'pending') await V2MarketListing.deleteOne({ _id: pendingListing._id });
+      return res.status(400).json({ msg: err.message || '물품을 등록하지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/marketplace/buy', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    let listing = null;
+    try {
+      listing = await V2MarketListing.findOneAndUpdate(
+        {
+          _id: req.body?.listingId,
+          status: 'active',
+          expiresAt: { $gt: new Date() },
+          sellerId: { $ne: auth.id }
+        },
+        { $set: { status: 'processing', buyerId: auth.id } },
+        { new: true }
+      );
+      if (!listing) throw new Error('이미 판매되었거나 만료된 물품입니다.');
+      const result = await withCharacterMutation(auth.id, async () => {
+        const buyer = await V2Character.findOne({ userId: auth.id });
+        if (!buyer) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        const money = Math.max(0, Number(buyer.economy?.money) || 0);
+        if (money < listing.totalPrice) throw new Error('구매 금액이 부족합니다.');
+        addInventoryItem(buyer, listing.itemId, listing.quantity, listing.instanceData);
+        buyer.economy.money = money - listing.totalPrice;
+        await buyer.save();
+        listing.status = 'sold';
+        listing.soldAt = new Date();
+        await listing.save();
+        worldProfileCache.delete(String(auth.id));
+        return {
+          listing: serializeMarketplaceListing(listing.toObject()),
+          character: buildCharacterResponse(buyer),
+          inventory: buildInventoryView(buyer)
+        };
+      });
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      if (listing?.status === 'processing') {
+        listing.status = listing.expiresAt <= new Date() ? 'expired' : 'active';
+        listing.buyerId = null;
+        await listing.save();
+      }
+      return res.status(400).json({ msg: err.message || '물품을 구매하지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/marketplace/settle', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      await V2MarketListing.updateMany(
+        { sellerId: auth.id, status: 'active', expiresAt: { $lte: new Date() } },
+        { $set: { status: 'expired' } }
+      );
+      const result = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        const sold = await V2MarketListing.find({ sellerId: auth.id, status: 'sold' });
+        const expired = await V2MarketListing.find({ sellerId: auth.id, status: 'expired' });
+        const proceeds = sold.reduce(
+          (sum, entry) => sum + Math.max(0, Number(entry.sellerProceeds) || 0),
+          0
+        );
+        character.economy.money = Math.max(0, Number(character.economy?.money) || 0) + proceeds;
+        const returned = [];
+        for (const entry of expired) {
+          try {
+            addInventoryItem(character, entry.itemId, entry.quantity, entry.instanceData);
+            returned.push(entry);
+          } catch (_) {
+            // Keep the listing in expired state until inventory space is available.
+          }
+        }
+        await character.save();
+        const now = new Date();
+        if (sold.length) {
+          await V2MarketListing.updateMany(
+            { _id: { $in: sold.map((entry) => entry._id) }, status: 'sold' },
+            { $set: { status: 'settled', settledAt: now } }
+          );
+        }
+        if (returned.length) {
+          await V2MarketListing.updateMany(
+            { _id: { $in: returned.map((entry) => entry._id) }, status: 'expired' },
+            { $set: { status: 'returned', returnedAt: now } }
+          );
+        }
+        worldProfileCache.delete(String(auth.id));
+        return {
+          proceeds,
+          returnedCount: returned.length,
+          pendingReturnCount: expired.length - returned.length,
+          character: buildCharacterResponse(character),
+          inventory: buildInventoryView(character)
+        };
+      });
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '거래소 정산에 실패했습니다.' });
     }
   });
 
@@ -2604,6 +2976,7 @@ function registerV2Routes({
           result.doubleStrike = true;
           result.knockedBack = result.knockedBack || second.knockedBack;
           result.defeated = second.defeated;
+          if (second.monsterLevel) result.monsterLevel = second.monsterLevel;
           result.expReward += Number(second.expReward) || 0;
           result.drops.push(...(second.drops || []));
           result.monster = second.monster;
@@ -2627,6 +3000,11 @@ function registerV2Routes({
         if (result.expReward > 0) {
           experience = grantV2Experience(character, result.expReward);
           result.drops = applyCombatDrops(character, result.drops);
+          result.drops = applySettlementEventDrops(
+            character,
+            [result.monsterLevel],
+            result.drops
+          );
         }
         if (skillEffects.comboEnabled && !result.missed && result.damage > 0) {
           const skills = ensureSkillState(character);
@@ -2904,5 +3282,7 @@ module.exports = {
   V2_RETAINED_FEATURES,
   V2_REMOVED_FEATURES,
   V2_PLANNED_FEATURES,
-  validateSignupPayload
+  validateSignupPayload,
+  calculateWelfareSupportDamage,
+  serializeMarketplaceListing
 };

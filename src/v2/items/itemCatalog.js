@@ -3,6 +3,10 @@
 const { MONSTER_CATALOG } = require('../world/monsterCatalog');
 const { applyWeaponRequirements } = require('./weaponRequirements');
 const { EQUIPMENT_ITEMS } = require('./equipmentCatalog');
+const {
+  EQUIPMENT_SCROLLS,
+  getDefaultUpgradeSlots
+} = require('./scrollCatalog');
 
 const INVENTORY_CATEGORIES = Object.freeze({
   equipment: Object.freeze({ key: 'equipment', label: '장비', icon: '🛡️' }),
@@ -37,6 +41,7 @@ function createEventWeapon({
     adminGrantOnly: true,
     eventItem: true
   });
+  item.upgradeSlots = getDefaultUpgradeSlots(item);
   item.requirements = {
     level: 1,
     stats: {},
@@ -222,6 +227,94 @@ const BASE_ITEMS = {
     description: '투자한 스탯만 초기화하고 사용 가능한 스탯 포인트로 돌려받습니다.',
     adminGrantOnly: true
   },
+  settlement_event_coin: {
+    id: 'settlement_event_coin',
+    name: '정착 지원 이벤트 코인',
+    category: 'misc',
+    itemType: 'event-currency',
+    icon: '🪙',
+    maxStack: 100,
+    sellPrice: 0,
+    tradeable: false,
+    description: '정착 지원 이벤트 상점에서 사용하는 코인입니다. 하루 최대 200개까지 획득할 수 있습니다.'
+  },
+  event_experience_coupon_2x_15m: {
+    id: 'event_experience_coupon_2x_15m',
+    name: '정착 지원 경험치 2배 쿠폰 (15분)',
+    category: 'consumable',
+    itemType: 'experience-buff',
+    icon: '🎟️',
+    maxStack: 100,
+    durationSeconds: 900,
+    experienceBonusPercent: 100,
+    expiresAfterSeconds: 7 * 24 * 60 * 60,
+    tradeable: false,
+    sellPrice: 0,
+    description: '사용 후 15분 동안 획득 경험치가 2배가 됩니다. 구매 후 7일 안에 사용해야 합니다.'
+  },
+  blessed_settlement_necklace: {
+    id: 'blessed_settlement_necklace',
+    name: '축복받은 목걸이',
+    category: 'equipment',
+    itemType: 'accessory',
+    equipmentSlot: 'necklace',
+    icon: '📿',
+    requiredLevel: 5,
+    requirements: {
+      level: 5,
+      stats: {},
+      archetype: '',
+      allowedArchetypes: ['warrior', 'archer', 'thief', 'mage']
+    },
+    stats: {
+      grit: 4,
+      processingSpeed: 4,
+      workKnowledge: 4,
+      awareness: 4,
+      defense: 30,
+      maxHp: 50,
+      movementSpeed: 10
+    },
+    upgradeSlots: 3,
+    maxStack: 1,
+    sellPrice: 1,
+    tradeable: false,
+    acquisitionSource: 'settlement-event-shop',
+    dropEligible: false,
+    description: '정착 지원 이벤트에서 획득하는 전 직업 공용 목걸이입니다.'
+  },
+  event_blessed_necklace_scroll_60: {
+    id: 'event_blessed_necklace_scroll_60',
+    name: '이벤트 목걸이 전용 주문서 60%',
+    category: 'consumable',
+    itemType: 'equipment-scroll',
+    icon: '📜',
+    maxStack: 100,
+    sellPrice: 1,
+    tradeable: false,
+    successRate: 60,
+    scrollStats: {
+      grit: 2,
+      processingSpeed: 2,
+      workKnowledge: 2,
+      awareness: 2
+    },
+    applicableSlot: 'necklace',
+    specialEquipmentId: 'blessed_settlement_necklace',
+    description: '축복받은 목걸이에만 사용할 수 있습니다. 성공 시 STR/DEX/INT/LUK +2.'
+  },
+  event_stat_reset_coupon: {
+    id: 'event_stat_reset_coupon',
+    name: '정착 지원 스탯 초기화 쿠폰',
+    category: 'consumable',
+    itemType: 'stat-reset',
+    icon: '🧾',
+    maxStack: 100,
+    fixedExpiresAt: '2026-08-01T00:00:00+09:00',
+    tradeable: false,
+    sellPrice: 1,
+    description: '투자한 스탯을 초기화합니다. 2026년 7월 31일 이후 사라집니다.'
+  },
   hunting_time_180m: {
     id: 'hunting_time_180m',
     name: '자동사냥 시간 180분',
@@ -308,7 +401,14 @@ const BASE_ITEMS = {
 };
 
 for (const item of EQUIPMENT_ITEMS) {
-  BASE_ITEMS[item.id] = { ...item };
+  BASE_ITEMS[item.id] = {
+    ...item,
+    upgradeSlots: getDefaultUpgradeSlots(item)
+  };
+}
+
+for (const scroll of EQUIPMENT_SCROLLS) {
+  BASE_ITEMS[scroll.id] = { ...scroll };
 }
 
 for (const monster of MONSTER_CATALOG) {

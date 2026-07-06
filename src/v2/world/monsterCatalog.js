@@ -4,6 +4,7 @@ const {
   getEquipmentDropsForMonsterLevel,
   rollEquipmentInstanceData
 } = require('../items/equipmentCatalog');
+const { getScrollsForMonster } = require('../items/scrollCatalog');
 
 const ELEMENTS = Object.freeze(['neutral', 'fire', 'lightning', 'ice', 'holy']);
 
@@ -55,7 +56,9 @@ const MONSTER_CATALOG = Object.freeze(MONSTER_ROWS.map((
       equipment: Object.freeze(
         getEquipmentDropsForMonsterLevel(level).map((entry) => Object.freeze(entry))
       ),
-      scrolls: Object.freeze([]),
+      scrolls: Object.freeze(
+        getScrollsForMonster(id).map((entry) => Object.freeze(entry))
+      ),
       potions: Object.freeze([])
     })
   });
