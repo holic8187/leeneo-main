@@ -35,7 +35,6 @@ const SLOT_LABELS = Object.freeze({
   cape: '망토',
   top: '상의',
   bottom: '하의',
-  necklace: '목걸이',
   earrings: '귀걸이'
 });
 

@@ -415,6 +415,40 @@ function buildCharacterResponse(character) {
     loadout: equipmentLoadout,
     skillEffects
   });
+  const baseResources = buildResourceResponse(plain.resources);
+  const adjustedMaxHp = Math.max(
+    1,
+    baseResources.maxHp + Math.max(0, Number(derivedStats.maxHpBonus) || 0)
+  );
+  const adjustedMaxMp = Math.max(
+    0,
+    baseResources.maxMp + Math.max(0, Number(derivedStats.maxMpBonus) || 0)
+  );
+  const hasStoredCurrentHp = plain.resources?.currentHp !== null
+    && plain.resources?.currentHp !== undefined;
+  const hasStoredCurrentMp = plain.resources?.currentMp !== null
+    && plain.resources?.currentMp !== undefined;
+  const hasStoredHpPool = Number(plain.resources?.maxHp) > 0;
+  const hasStoredMpPool = Number(plain.resources?.maxMp) > 0;
+  const storedCurrentHp = Number(plain.resources?.currentHp);
+  const storedCurrentMp = Number(plain.resources?.currentMp);
+  const resources = {
+    ...baseResources,
+    currentHp: Math.max(0, Math.min(
+      adjustedMaxHp,
+      hasStoredHpPool && hasStoredCurrentHp && Number.isFinite(storedCurrentHp)
+        ? storedCurrentHp
+        : baseResources.currentHp
+    )),
+    maxHp: adjustedMaxHp,
+    currentMp: Math.max(0, Math.min(
+      adjustedMaxMp,
+      hasStoredMpPool && hasStoredCurrentMp && Number.isFinite(storedCurrentMp)
+        ? storedCurrentMp
+        : baseResources.currentMp
+    )),
+    maxMp: adjustedMaxMp
+  };
   return {
     id: String(plain._id),
     displayName: plain.displayName,
@@ -428,7 +462,7 @@ function buildCharacterResponse(character) {
       departmentName: DEPARTMENTS[plain.job?.departmentId]?.name || '미전직',
       jobName: getJobName(plain.job?.departmentId, plain.job?.advancementTier)
     },
-    resources: buildResourceResponse(plain.resources),
+    resources,
     inventory: buildInventoryView(plain),
     pendingMailCount: getPendingMail(plain).length,
     equipmentLoadout,

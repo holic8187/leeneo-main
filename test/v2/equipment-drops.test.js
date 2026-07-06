@@ -54,9 +54,33 @@ test('ordinary monsters mix equipment from at least two job archetypes', () => {
 test('equipment prices stay ordered by slot and endgame weapons reach 400,000 won', () => {
   assert.ok(getEquipmentSellPrice(10, 'weapon') > getEquipmentSellPrice(10, 'top'));
   assert.ok(getEquipmentSellPrice(10, 'top') > getEquipmentSellPrice(10, 'shoes'));
-  assert.ok(getEquipmentSellPrice(10, 'shoes') > getEquipmentSellPrice(10, 'necklace'));
+  assert.ok(getEquipmentSellPrice(10, 'shoes') > getEquipmentSellPrice(10, 'earrings'));
   assert.ok(EQUIPMENT_ITEMS.every((item) => Number(item.sellPrice) >= 20_000));
   assert.ok(BOSS_ENDGAME_WEAPONS.every((item) => item.sellPrice === 400_000));
+});
+
+test('necklaces are absent and capes and earrings are common equipment', () => {
+  const commonArchetypes = ['archer', 'mage', 'thief', 'warrior'];
+  assert.equal(EQUIPMENT_ITEMS.some((item) => item.equipmentSlot === 'necklace'), false);
+  const commonItems = EQUIPMENT_ITEMS.filter(
+    (item) => item.equipmentSlot === 'cape' || item.equipmentSlot === 'earrings'
+  );
+  assert.ok(commonItems.length > 0);
+  for (const item of commonItems) {
+    assert.deepEqual(
+      [...item.requirements.allowedArchetypes].sort(),
+      commonArchetypes
+    );
+    assert.equal(item.requirements.archetype, '');
+  }
+});
+
+test('regular equipment names do not expose class or level placeholders', () => {
+  const ordinary = EQUIPMENT_ITEMS.filter((item) => !item.bossDropOnly);
+  for (const item of ordinary) {
+    assert.doesNotMatch(item.name, /\d+\s*제/);
+    assert.doesNotMatch(item.name, /^(전사|궁수|도적|마법사)\s/);
+  }
 });
 
 test('dropped equipment rolls each numeric stat between minus five and plus five', () => {

@@ -14,7 +14,7 @@ const { DEFAULT_WEAPON_RANGES } = require('./weaponMotion');
 
 const LOADOUT_SLOT_KEYS = Object.freeze([
   'weapon', 'helmet', 'gloves', 'shoes', 'cape',
-  'top', 'bottom', 'necklace', 'earrings'
+  'top', 'bottom', 'earrings'
 ]);
 
 function finite(value) {
@@ -35,6 +35,19 @@ function sumLoadoutStat(loadout, ...keys) {
     (sum, slot) => sum + getItemStat(loadout?.[slot], ...keys),
     0
   );
+}
+
+function buildEffectiveStats(stats = {}, loadout = {}) {
+  return {
+    grit: finite(stats.grit ?? stats.strength)
+      + sumLoadoutStat(loadout, 'grit', 'strength'),
+    processingSpeed: finite(stats.processingSpeed ?? stats.dexterity)
+      + sumLoadoutStat(loadout, 'processingSpeed', 'dexterity'),
+    workKnowledge: finite(stats.workKnowledge ?? stats.intelligence)
+      + sumLoadoutStat(loadout, 'workKnowledge', 'intelligence'),
+    awareness: finite(stats.awareness ?? stats.luck)
+      + sumLoadoutStat(loadout, 'awareness', 'luck')
+  };
 }
 
 function getAccuracyGroup(archetype) {
@@ -77,6 +90,15 @@ function buildDerivedStats({
   const archetype = department?.archetype || 'beginner';
   const weapon = loadout.weapon || null;
   const weaponType = weapon?.weaponType || null;
+  const effectiveStats = buildEffectiveStats(stats, loadout);
+  const equipmentStatBonuses = {
+    grit: effectiveStats.grit - finite(stats.grit ?? stats.strength),
+    processingSpeed: effectiveStats.processingSpeed
+      - finite(stats.processingSpeed ?? stats.dexterity),
+    workKnowledge: effectiveStats.workKnowledge
+      - finite(stats.workKnowledge ?? stats.intelligence),
+    awareness: effectiveStats.awareness - finite(stats.awareness ?? stats.luck)
+  };
   const totalAttack = sumLoadoutStat(loadout, 'attack', 'weaponAttack')
     + finite(skillEffects.attackIncrease);
   const mastery = Math.max(
@@ -89,26 +111,26 @@ function buildDerivedStats({
     attackRange = calculatePhysicalAttackRange({
       archetype,
       weaponType,
-      stats,
+      stats: effectiveStats,
       totalAttack,
       mastery
     });
   } else {
-    const baseAttack = Math.max(4, finite(stats.grit ?? stats.strength));
+    const baseAttack = Math.max(4, finite(effectiveStats.grit));
     attackRange = { minimum: baseAttack, maximum: baseAttack };
   }
 
   const accuracy = calculateAccuracy({
     group: getAccuracyGroup(archetype),
-    stats,
+    stats: effectiveStats,
     bonusAccuracy: sumLoadoutStat(loadout, 'accuracy') + finite(skillEffects.accuracyIncrease)
   });
   const evasion = 1 + calculateEvasion({
     group: getEvasionGroup(archetype),
-    stats,
+    stats: effectiveStats,
     bonusEvasion: sumLoadoutStat(loadout, 'evasion') + finite(skillEffects.evasionIncrease)
   });
-  const basePhysicalDefense = calculateBasePhysicalDefense(archetype, stats);
+  const basePhysicalDefense = calculateBasePhysicalDefense(archetype, effectiveStats);
   const equipmentDefense = sumLoadoutStat(loadout, 'defense', 'physicalDefense');
   const shieldMultiplier = 1 + finite(skillEffects.shieldDefensePercent) / 100;
   const shieldDefense = getItemStat(loadout?.shield, 'defense', 'physicalDefense') * shieldMultiplier;
@@ -119,13 +141,13 @@ function buildDerivedStats({
     + finite(skillEffects.defenseIncrease)
   );
   const magicDefense = roundStat(
-    Math.max(4, finite(stats.workKnowledge ?? stats.intelligence))
+    Math.max(4, finite(effectiveStats.workKnowledge))
     + sumLoadoutStat(loadout, 'magicDefense')
     + finite(skillEffects.magicDefenseIncrease)
   );
   const level = Math.max(1, Math.floor(finite(progression.level) || 1));
   const magic = roundStat(
-    Math.max(4, finite(stats.workKnowledge ?? stats.intelligence))
+    Math.max(4, finite(effectiveStats.workKnowledge))
     + sumLoadoutStat(loadout, 'magic', 'magicAttack')
   );
 
@@ -159,6 +181,10 @@ function buildDerivedStats({
     weaponType,
     level,
     archetype,
+    effectiveStats,
+    equipmentStatBonuses,
+    maxHpBonus: roundStat(sumLoadoutStat(loadout, 'maxHp')),
+    maxMpBonus: roundStat(sumLoadoutStat(loadout, 'maxMp')),
     provisionalRange: true
   };
 }
@@ -167,6 +193,7 @@ module.exports = {
   LOADOUT_SLOT_KEYS,
   buildDerivedStats,
   sumLoadoutStat,
+  buildEffectiveStats,
   getAccuracyGroup,
   getEvasionGroup,
   calculateBasePhysicalDefense

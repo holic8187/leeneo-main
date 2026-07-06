@@ -6,38 +6,81 @@ const DROP_RATE_MIN = 0.00002;
 const DROP_RATE_MAX = 0.00008;
 const EQUIPMENT_LEVELS = Object.freeze([10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140]);
 
+const WEAPON_TIER_NAMES = Object.freeze([
+  '수습', '칼퇴', '결재선', '실무', '야근', '성과급', '감사실',
+  '마감', '임원회의', '본부장', '이사회', '대표이사', '회장실', '최종결재'
+]);
+
+function buildWeaponNames(noun) {
+  return WEAPON_TIER_NAMES.map((tier) => `${tier} ${noun}`);
+}
+
 const WEAPON_LINES = Object.freeze([
-  ['warrior', 'oneHandedSword', '⚔️', ['목검', '바이킹 소드', '글라디우스', '커틀러스', '쥬얼 쿠아다라', '네오코라', '레드 카타나', '프라우테', '스파타', '골드 아룬드', '드래곤 카라벨라', '타임리스 세이버', '본부장 세이버', '마감의 검']],
-  ['warrior', 'twoHandedSword', '🗡️', ['양손검', '클레이모어', '호검', '하이랜더', '쟈드', '그리스', '그륜힐', '라 투핸더', '참화도', '드래곤 클레이모어', '집행의 대검', '타임리스 니플하임', '본부장 대검', '결재 파쇄검']],
-  ['warrior', 'oneHandedAxe', '🪓', ['손도끼', '버크', '콘트라 액스', '블루 카운터', '호크헤드', '버드빌', '리프 액스', '토마호크', '레드 너클액스', '드래곤 액스', '감사 대응 도끼', '타임리스 타바르', '실적 절단기', '임원용 손도끼']],
-  ['warrior', 'twoHandedAxe', '🪓', ['쇠도끼', '미스릴 폴액스', '버크', '더블테일 너클', '라이징', '샤이닝', '헬리오스', '크로노', '드래곤 배틀액스', '타임리스 문라이트', '공정 파쇄도끼', '현장 총괄도끼', '생산본부 도끼', '마감 분쇄기']],
-  ['warrior', 'oneHandedBlunt', '🔨', ['몽둥이', '사각 망치', '퓨전 메이스', '워 해머', '호스맨즈', '골든 해머', '스튬', '배틀 해머', '드래곤 메이스', '타임리스 엔릴티어', '현장 안전망치', '품질 보증망치', '본부장 망치', '최종 승인망치']],
-  ['warrior', 'spear', '🔱', ['창', '포크 창', '제코', '나카마키', '십자창', '스페판', '스카이 스노우보드', '피나카', '드래곤 팔티잔', '타임리스 알슈피스', '공정 점검창', 'QA 장창', '생산 지휘창', '마감 관통창']],
-  ['warrior', 'polearm', '⚜️', ['폴암', '철제 폴암', '미스릴 폴암', '크레센트', '구룡도', '방천극', '월아산', '헬리오스', '드래곤 헬버드', '타임리스 디에스이라에', '공정 절삭기', '현장 집행폴암', '생산 지휘폴암', '마감 대낫']],
-  ['archer', 'bow', '🏹', ['워 보우', '사냥꾼의 활', '라이덴', '발터2000', '올림푸스', '봉황위궁', '힌켈', '아룬드', '메투스', '니스록', '드래곤 샤인보우', '타임리스 엔가우', '마케팅 장궁', '캠페인 피날레']],
-  ['archer', 'crossbow', '🎯', ['석궁', '산양 석궁', '발란쉐', '헤클러', '로우어', '골든 크로우', '그로스야거', '아다만티움 석궁', '네쉐르', '드래곤 샤인크로스', '타임리스 블랙뷰티', '회계 결산석궁', '정산 집행석궁', '마감 명세서']],
-  ['thief', 'claw', '✴️', ['가니어', '이고르', '메바', '가즈', '스틸 티탄즈', '브론즈 가디언', '보닌', '슬레인', '스칸다', '캐스터스', '드래곤 퍼플 슬레브', '타임리스 람피온', '영업 비밀아대', '계약 종결아대']],
-  ['thief', 'dagger', '🗡️', ['후르츠 대거', '삼각 자마다르', '게파트', '반월 자마다르', '신기타', '게타', '칸디네', '용천권', '블러드 대거', '드래곤 크리스', '타임리스 패스워드', '시설 비상단검', '보안 절단검', '최종 점검단검']],
-  ['mage', 'wand', '🪄', ['우드 완드', '미스릴 완드', '위저드 완드', '페어리 완드', '크리스탈 완드', '이블테일러', '레이든 완드', '엔젤윙즈', '다이몬 완드', '드래곤 완드', '타임리스 에아스 핸드', '개발자 완드', '연구총괄 완드', '최종 배포완드']],
-  ['mage', 'staff', '🔮', ['우드 스태프', '사파이어 스태프', '에메랄드 스태프', '페탈 스태프', '쏜즈', '이블윙즈', '레이든 스태프', '케이그', '블루 마린', '드래곤 스태프', '타임리스 에아스 핸드', '연구소 스태프', '기술이사 스태프', '최종 빌드스태프']]
+  ['warrior', 'oneHandedSword', '⚔️', buildWeaponNames('결재검')],
+  ['warrior', 'twoHandedSword', '🗡️', buildWeaponNames('보고대검')],
+  ['warrior', 'oneHandedAxe', '🪓', buildWeaponNames('정리도끼')],
+  ['warrior', 'twoHandedAxe', '🪓', buildWeaponNames('공정파쇄도끼')],
+  ['warrior', 'oneHandedBlunt', '🔨', buildWeaponNames('승인망치')],
+  ['warrior', 'spear', '🔱', buildWeaponNames('점검창')],
+  ['warrior', 'polearm', '⚜️', buildWeaponNames('집행폴암')],
+  ['archer', 'bow', '🏹', buildWeaponNames('홍보장궁')],
+  ['archer', 'crossbow', '🎯', buildWeaponNames('결산석궁')],
+  ['thief', 'claw', '✴️', buildWeaponNames('계약아대')],
+  ['thief', 'dagger', '🗡️', buildWeaponNames('시설단검')],
+  ['mage', 'wand', '🪄', buildWeaponNames('개발완드')],
+  ['mage', 'staff', '🔮', buildWeaponNames('연구스태프')]
 ]);
 
 const ARMOR_SLOTS = Object.freeze([
   ['helmet', '투구', '🪖', 1],
   ['gloves', '장갑', '🧤', 0.58],
   ['shoes', '신발', '🥾', 0.52],
-  ['cape', '망토', '🧥', 0.48],
   ['top', '상의', '👔', 1.18],
-  ['bottom', '하의', '👖', 0.92],
-  ['necklace', '목걸이', '📿', 0.25],
-  ['earrings', '귀걸이', '💎', 0.22]
+  ['bottom', '하의', '👖', 0.92]
 ]);
 
-const ARCHETYPE_PREFIX = Object.freeze({
-  warrior: '현장',
-  archer: '정산',
-  thief: '영업',
-  mage: '연구'
+const ARMOR_TIER_THEMES = Object.freeze({
+  warrior: ['첫 출근', '안전제일', '강철근무', '불굴현장', '철야방호', '본부직속', '무결점공정'],
+  archer: ['초급정산', '오차없는', '정밀분석', '월말결산', '감사대응', '수석회계', '완벽결산'],
+  thief: ['첫 계약', '은밀협상', '현장잠입', '실적추적', '비밀계약', '수석영업', '전설계약'],
+  mage: ['초급개발', '서비스안정', '고급연구', '서버수호', '혁신기술', '수석연구', '무중단배포']
+});
+
+const ARMOR_SLOT_NAMES = Object.freeze({
+  helmet: '보호모',
+  gloves: '업무장갑',
+  shoes: '근무화',
+  top: '업무복',
+  bottom: '근무바지'
+});
+
+const COMMON_CAPE_NAMES = Object.freeze([
+  '신입의 출입증 망토',
+  '방풍 출퇴근 망토',
+  '야근 순찰 망토',
+  '성과보고 망토',
+  '임원회의 망토',
+  '대표이사 망토',
+  '호이상사 명예망토'
+]);
+
+const COMMON_EARRING_NAMES = Object.freeze([
+  '사내 메신저 이어셋',
+  '업무집중 이어셋',
+  '회의녹취 이어셋',
+  '노이즈차단 이어셋',
+  '임원전용 이어셋',
+  '대표이사 이어셋',
+  '호이상사 지휘 이어셋'
+]);
+
+const ALL_ARCHETYPES = Object.freeze(['warrior', 'archer', 'thief', 'mage']);
+
+const ARCHETYPE_LABELS = Object.freeze({
+  warrior: '전사',
+  archer: '궁수',
+  thief: '도적',
+  mage: '마법사'
 });
 
 function deterministicRate(id) {
@@ -62,12 +105,10 @@ function getEquipmentSellPrice(level, slot = 'weapon') {
     bottom: 0.96,
     helmet: 0.93,
     gloves: 0.88,
-    cape: 0.84,
     shoes: 0.78,
-    necklace: 0.68,
     earrings: 0.65
   }[slot] || 0.9;
-  const slotMinimum = ['necklace', 'earrings'].includes(slot)
+  const slotMinimum = slot === 'earrings'
     ? 20_000
     : (slot === 'shoes' ? 21_000 : 23_000);
   return Math.max(
@@ -156,17 +197,20 @@ function createArmor(archetype, slotRow, level) {
     : archetype === 'archer'
       ? 'processingSpeed'
       : archetype === 'mage' ? 'workKnowledge' : 'awareness';
-  const isAccessory = ['necklace', 'earrings'].includes(slot);
   const stats = {
     defense: Math.max(1, Math.round((3 + level * 0.72) * defenseRatio)),
-    [mainStat]: Math.max(1, Math.floor(level / (isAccessory ? 24 : 18)))
+    [mainStat]: Math.max(1, Math.floor(level / 18))
   };
   if (archetype === 'mage') stats.magicDefense = Math.max(1, Math.round(level * defenseRatio * 0.5));
+  const themeIndex = Math.max(0, Math.min(
+    ARMOR_TIER_THEMES[archetype].length - 1,
+    Math.floor(level / 20) - 1
+  ));
   return {
     id,
-    name: `${ARCHETYPE_PREFIX[archetype]} ${level}제 ${label}`,
+    name: `${ARMOR_TIER_THEMES[archetype][themeIndex]} ${ARMOR_SLOT_NAMES[slot] || label}`,
     category: 'equipment',
-    itemType: isAccessory ? 'accessory' : 'armor',
+    itemType: 'armor',
     equipmentSlot: slot,
     icon,
     requiredLevel: level,
@@ -180,7 +224,42 @@ function createArmor(archetype, slotRow, level) {
     maxStack: 1,
     sellPrice: getEquipmentSellPrice(level, slot),
     dropChance: deterministicRate(id),
-    description: `${level}레벨 ${archetype} 계열 ${label}입니다. 해당 직업만 장착할 수 있습니다.`
+    description: `${level}레벨 ${ARCHETYPE_LABELS[archetype]} 계열 ${label}입니다.`
+  };
+}
+
+function createCommonEquipment(slot, level) {
+  const index = Math.max(0, Math.min(6, Math.floor(level / 20) - 1));
+  const cape = slot === 'cape';
+  const id = `drop_common_${slot}_${level}`;
+  const stats = cape
+    ? {
+      defense: Math.max(1, Math.round((3 + level * 0.72) * 0.48)),
+      evasion: Math.max(1, Math.floor(level / 35))
+    }
+    : {
+      magicDefense: Math.max(1, Math.round(level * 0.28)),
+      accuracy: Math.max(1, Math.floor(level / 28))
+    };
+  return {
+    id,
+    name: cape ? COMMON_CAPE_NAMES[index] : COMMON_EARRING_NAMES[index],
+    category: 'equipment',
+    itemType: cape ? 'armor' : 'accessory',
+    equipmentSlot: slot,
+    icon: cape ? '🧥' : '💎',
+    requiredLevel: level,
+    requirements: {
+      level,
+      stats: {},
+      archetype: '',
+      allowedArchetypes: [...ALL_ARCHETYPES]
+    },
+    stats,
+    maxStack: 1,
+    sellPrice: getEquipmentSellPrice(level, slot),
+    dropChance: deterministicRate(id),
+    description: `${level}레벨부터 모든 직업이 착용할 수 있는 공용 ${cape ? '망토' : '귀걸이'}입니다.`
   };
 }
 
@@ -209,7 +288,7 @@ function createBossWeapon({
     sellPrice: 400_000,
     bossDropOnly: true,
     endgameTier: true,
-    description: '보스에게서만 획득할 수 있는 100레벨 종결급 드래곤 장비입니다.'
+    description: '보스에게서만 획득할 수 있는 호이상사 최상위 결재 장비입니다.'
   });
   item.requirements.allowedArchetypes = [archetype];
   item.requirements.archetype = archetype;
@@ -217,23 +296,23 @@ function createBossWeapon({
 }
 
 const BOSS_ENDGAME_WEAPONS = Object.freeze([
-  createBossWeapon({ id: 'boss_dragon_carabella', name: '드래곤 카라벨라', archetype: 'warrior', weaponType: 'oneHandedSword', icon: '⚔️', attack: 103 }),
-  createBossWeapon({ id: 'boss_dragon_claymore', name: '드래곤 클레이모어', archetype: 'warrior', weaponType: 'twoHandedSword', icon: '🗡️', attack: 105 }),
-  createBossWeapon({ id: 'boss_dragon_axe', name: '드래곤 엑스', archetype: 'warrior', weaponType: 'oneHandedAxe', icon: '🪓', attack: 103 }),
-  createBossWeapon({ id: 'boss_dragon_battleaxe', name: '드래곤 배틀엑스', archetype: 'warrior', weaponType: 'twoHandedAxe', icon: '🪓', attack: 107 }),
-  createBossWeapon({ id: 'boss_dragon_mace', name: '드래곤 메이스', archetype: 'warrior', weaponType: 'oneHandedBlunt', icon: '🔨', attack: 103 }),
-  createBossWeapon({ id: 'boss_dragon_flame', name: '드래곤 플레임', archetype: 'warrior', weaponType: 'twoHandedBlunt', icon: '🔨', attack: 107 }),
-  createBossWeapon({ id: 'boss_dragon_halberd', name: '드래곤 헬버드', archetype: 'warrior', weaponType: 'polearm', icon: '⚜️', attack: 107 }),
-  createBossWeapon({ id: 'boss_dragon_partisan', name: '드래곤 팔티잔', archetype: 'warrior', weaponType: 'spear', icon: '🔱', attack: 107 }),
-  createBossWeapon({ id: 'boss_dragon_wand', name: '드래곤 완드', archetype: 'mage', weaponType: 'wand', icon: '🪄', attack: 75, magic: 123 }),
-  createBossWeapon({ id: 'boss_dragon_staff', name: '드래곤 스태프', archetype: 'mage', weaponType: 'staff', icon: '🔮', attack: 80, magic: 125 }),
-  createBossWeapon({ id: 'boss_dragon_shinebow', name: '드래곤 샤인보우', archetype: 'archer', weaponType: 'bow', icon: '🏹', attack: 100 }),
-  createBossWeapon({ id: 'boss_dragon_shinecross', name: '드래곤 샤인크로스', archetype: 'archer', weaponType: 'crossbow', icon: '🎯', attack: 103 }),
-  createBossWeapon({ id: 'boss_dragon_kris', name: '드래곤 크리스', archetype: 'thief', weaponType: 'dagger', icon: '🗡️', attack: 98 }),
-  createBossWeapon({ id: 'boss_dragon_khanjar', name: '드래곤 칸자르', archetype: 'thief', weaponType: 'dagger', icon: '🗡️', attack: 100 }),
+  createBossWeapon({ id: 'boss_dragon_carabella', name: '회장 전용 결재검', archetype: 'warrior', weaponType: 'oneHandedSword', icon: '⚔️', attack: 103 }),
+  createBossWeapon({ id: 'boss_dragon_claymore', name: '최종보고 대검', archetype: 'warrior', weaponType: 'twoHandedSword', icon: '🗡️', attack: 105 }),
+  createBossWeapon({ id: 'boss_dragon_axe', name: '감사종결 도끼', archetype: 'warrior', weaponType: 'oneHandedAxe', icon: '🪓', attack: 103 }),
+  createBossWeapon({ id: 'boss_dragon_battleaxe', name: '공정혁신 대도끼', archetype: 'warrior', weaponType: 'twoHandedAxe', icon: '🪓', attack: 107 }),
+  createBossWeapon({ id: 'boss_dragon_mace', name: '최종승인 망치', archetype: 'warrior', weaponType: 'oneHandedBlunt', icon: '🔨', attack: 103 }),
+  createBossWeapon({ id: 'boss_dragon_flame', name: '생산본부 대망치', archetype: 'warrior', weaponType: 'twoHandedBlunt', icon: '🔨', attack: 107 }),
+  createBossWeapon({ id: 'boss_dragon_halberd', name: '현장집행 폴암', archetype: 'warrior', weaponType: 'polearm', icon: '⚜️', attack: 107 }),
+  createBossWeapon({ id: 'boss_dragon_partisan', name: '품질보증 장창', archetype: 'warrior', weaponType: 'spear', icon: '🔱', attack: 107 }),
+  createBossWeapon({ id: 'boss_dragon_wand', name: '무중단배포 완드', archetype: 'mage', weaponType: 'wand', icon: '🪄', attack: 75, magic: 123 }),
+  createBossWeapon({ id: 'boss_dragon_staff', name: '기술이사 스태프', archetype: 'mage', weaponType: 'staff', icon: '🔮', attack: 80, magic: 125 }),
+  createBossWeapon({ id: 'boss_dragon_shinebow', name: '전사캠페인 장궁', archetype: 'archer', weaponType: 'bow', icon: '🏹', attack: 100 }),
+  createBossWeapon({ id: 'boss_dragon_shinecross', name: '완전무결 결산석궁', archetype: 'archer', weaponType: 'crossbow', icon: '🎯', attack: 103 }),
+  createBossWeapon({ id: 'boss_dragon_kris', name: '시설봉쇄 단검', archetype: 'thief', weaponType: 'dagger', icon: '🗡️', attack: 98 }),
+  createBossWeapon({ id: 'boss_dragon_khanjar', name: '비상대응 단검', archetype: 'thief', weaponType: 'dagger', icon: '🗡️', attack: 100 }),
   createBossWeapon({
     id: 'boss_dragon_green_sleeve',
-    name: '드래곤 그린 슬레브',
+    name: '전설영업 계약아대',
     archetype: 'thief',
     weaponType: 'claw',
     icon: '✴️',
@@ -243,10 +322,10 @@ const BOSS_ENDGAME_WEAPONS = Object.freeze([
 ].map((item) => Object.freeze(item)));
 
 const STARTER_DROP_ITEMS = Object.freeze([
-  createWeapon(['warrior', 'oneHandedSword', '⚔️', ['연습용 목검']], 1, 0),
-  createWeapon(['archer', 'bow', '🏹', ['연습용 단궁']], 1, 0),
-  createWeapon(['thief', 'dagger', '🗡️', ['연습용 단검']], 1, 0),
-  createWeapon(['mage', 'wand', '🪄', ['연습용 완드']], 1, 0),
+  createWeapon(['warrior', 'oneHandedSword', '⚔️', ['신입 결재검']], 1, 0),
+  createWeapon(['archer', 'bow', '🏹', ['신입 홍보활']], 1, 0),
+  createWeapon(['thief', 'dagger', '🗡️', ['신입 시설단검']], 1, 0),
+  createWeapon(['mage', 'wand', '🪄', ['신입 개발완드']], 1, 0),
   createArmor('warrior', ['top', '상의', '👔', 1.18], 1),
   createArmor('archer', ['shoes', '신발', '🥾', 0.52], 1),
   createArmor('thief', ['gloves', '장갑', '🧤', 0.58], 1),
@@ -256,11 +335,17 @@ const STARTER_DROP_ITEMS = Object.freeze([
 const EQUIPMENT_ITEMS = Object.freeze([
   ...STARTER_DROP_ITEMS,
   ...WEAPON_LINES.flatMap((line) => EQUIPMENT_LEVELS.map((level, index) => createWeapon(line, level, index))),
-  ...Object.keys(ARCHETYPE_PREFIX).flatMap((archetype) => (
+  ...Object.keys(ARMOR_TIER_THEMES).flatMap((archetype) => (
     EQUIPMENT_LEVELS.filter((level) => level % 20 === 0).flatMap((level) => (
       ARMOR_SLOTS.map((slot) => createArmor(archetype, slot, level))
     ))
   )),
+  ...EQUIPMENT_LEVELS
+    .filter((level) => level % 20 === 0)
+    .flatMap((level) => [
+      createCommonEquipment('cape', level),
+      createCommonEquipment('earrings', level)
+    ]),
   ...BOSS_ENDGAME_WEAPONS
 ].map((item) => Object.freeze(item)));
 

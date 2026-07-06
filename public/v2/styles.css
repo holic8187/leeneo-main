@@ -1663,6 +1663,16 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .inventory-item-tooltip strong { color: #c8f1dc; font-size: 14px; }
 .inventory-item-tooltip span { line-height: 1.5; font-size: 11px; }
 .inventory-item-tooltip small { color: #9fc0b3; }
+.equipment-tooltip-spec {
+  display: grid;
+  gap: 4px;
+}
+.equipment-tooltip-spec span {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 7px;
+}
+.equipment-tooltip-spec b { color: #c8f1dc; }
 .inventory-pagination { display: flex; align-items: center; justify-content: center; gap: 10px; }
 .inventory-pagination button { min-width: 80px; }
 .inventory-pagination span { min-width: 54px; text-align: center; font: 800 11px ui-monospace, monospace; }

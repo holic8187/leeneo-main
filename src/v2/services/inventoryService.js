@@ -377,7 +377,7 @@ function setPotionAutoThreshold(character, slot, percent) {
   return value;
 }
 
-function useQuickSlotPotion(character, slot, effectPercent = 100) {
+function useQuickSlotPotion(character, slot, effectPercent = 100, maximumOverride = null) {
   const resource = QUICK_SLOT_RESOURCES[String(slot || '')];
   if (!resource) throw new Error('올바르지 않은 포션 슬롯입니다.');
   const inventory = ensureInventory(character);
@@ -392,7 +392,14 @@ function useQuickSlotPotion(character, slot, effectPercent = 100) {
   const currentKey = resource === 'hp' ? 'currentHp' : 'currentMp';
   const maxKey = resource === 'hp' ? 'maxHp' : 'maxMp';
   const current = Math.max(0, Number(character.resources?.[currentKey]) || 0);
-  const maximum = Math.max(1, Number(character.resources?.[maxKey]) || 1);
+  const maximum = Math.max(
+    1,
+    maximumOverride !== null
+      && maximumOverride !== undefined
+      && Number.isFinite(Number(maximumOverride))
+      ? Number(maximumOverride)
+      : (Number(character.resources?.[maxKey]) || 1)
+  );
   if (current >= maximum) {
     throw new Error(resource === 'hp' ? '체력이 이미 가득 찼습니다.' : '정신력이 이미 가득 찼습니다.');
   }

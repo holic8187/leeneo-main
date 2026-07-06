@@ -342,7 +342,7 @@ function registerV2Routes({
     for (const targetId of targetIds) {
       if (targetId === casterId) {
         const currentHp = Math.max(0, Number(caster.resources?.currentHp) || 0);
-        const maxHp = Math.max(1, Number(caster.resources?.maxHp) || 1);
+        const maxHp = buildCharacterResponse(caster).resources.maxHp;
         const healed = currentHp > 0
           ? Math.max(0, Math.min(maxHp - currentHp, amount))
           : 0;
@@ -353,14 +353,14 @@ function registerV2Routes({
       const teammate = await V2Character.findOne({ userId: targetId });
       if (!teammate) continue;
       const currentHp = Math.max(0, Number(teammate.resources?.currentHp) || 0);
-      const maxHp = Math.max(1, Number(teammate.resources?.maxHp) || 1);
+      const maxHp = buildCharacterResponse(teammate).resources.maxHp;
       const healed = currentHp > 0
         ? Math.max(0, Math.min(maxHp - currentHp, amount))
         : 0;
       if (healed > 0) {
         teammate.resources.currentHp = currentHp + healed;
         await teammate.save();
-        updatePlayerResources(targetId, teammate.resources);
+        updatePlayerResources(targetId, buildCharacterResponse(teammate).resources);
         worldProfileCache.delete(targetId);
       }
       outcomes.push({ userId: targetId, healed });
@@ -538,7 +538,13 @@ function registerV2Routes({
       ]) || 0;
       if (threshold <= 0 || current / maximum * 100 > threshold) continue;
       try {
-        used.push(useQuickSlotPotion(character, slot, consumableMultiplier));
+        const response = buildCharacterResponse(character);
+        used.push(useQuickSlotPotion(
+          character,
+          slot,
+          consumableMultiplier,
+          slot === 'hp' ? response.resources.maxHp : response.resources.maxMp
+        ));
       } catch (_) {
         // Empty or unassigned slots simply wait for the next user configuration.
       }
@@ -594,6 +600,7 @@ function registerV2Routes({
         updatePlayerResources(userId, character.resources);
       }
       applyOfflineAutoPotions(character);
+      updatePlayerResources(userId, buildCharacterResponse(character).resources);
       if (!character.huntingTime.enabled || Number(character.resources.currentHp) <= 0) {
         await character.save();
         worldProfileCache.delete(String(userId));
@@ -1513,17 +1520,20 @@ function registerV2Routes({
           throw new Error('사망 상태에서는 포션을 사용할 수 없습니다. 먼저 안전지대에서 부활해주세요.');
         }
         const skillEffects = getActiveSkillEffects(character);
+        const resourceCaps = buildCharacterResponse(character).resources;
         const used = useQuickSlotPotion(
           character,
           req.body?.slot,
-          skillEffects.consumableEffectPercent
+          skillEffects.consumableEffectPercent,
+          req.body?.slot === 'hp' ? resourceCaps.maxHp : resourceCaps.maxMp
         );
         await character.save();
         worldProfileCache.delete(String(auth.id));
-        updatePlayerResources(auth.id, character.resources);
+        const characterResponse = buildCharacterResponse(character);
+        updatePlayerResources(auth.id, characterResponse.resources);
         return {
           used,
-          character: buildCharacterResponse(character),
+          character: characterResponse,
           inventory: buildInventoryView(character)
         };
       });
@@ -1945,7 +1955,11 @@ function registerV2Routes({
       const huntingTime = await withCharacterMutation(auth.id, async () => {
         const character = await V2Character.findOne({ userId: auth.id });
         if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
-        const result = setHuntingEnabled(character, req.body?.enabled === true);
+        const enabled = req.body?.enabled === true;
+        if (enabled && getWorldMap(character.worldState?.mapId)?.safeZone) {
+          throw new Error('안전지대에서는 자동전투를 사용할 수 없습니다.');
+        }
+        const result = setHuntingEnabled(character, enabled);
         await character.save();
         worldProfileCache.delete(String(auth.id));
         return result;
@@ -1963,7 +1977,10 @@ function registerV2Routes({
       const huntingTime = await withCharacterMutation(auth.id, async () => {
         const character = await V2Character.findOne({ userId: auth.id });
         if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
-        const result = tickHuntingTime(character, req.body?.active === true);
+        const safeZone = Boolean(getWorldMap(character.worldState?.mapId)?.safeZone);
+        const result = safeZone
+          ? setHuntingEnabled(character, false)
+          : tickHuntingTime(character, req.body?.active === true);
         await character.save();
         worldProfileCache.delete(String(auth.id));
         return result;
@@ -2273,20 +2290,37 @@ function registerV2Routes({
       const mapId = isDead
         ? String(profile.worldState?.mapId || START_MAP_ID)
         : requestedMapId;
-      if (!isDead && mapId !== profile.worldState?.mapId) {
+      const enteringSafeZoneWithAutoCombat = !isDead
+        && requestedMap.safeZone
+        && Boolean(profile.huntingTime?.enabled);
+      if (!isDead && (mapId !== profile.worldState?.mapId || enteringSafeZoneWithAutoCombat)) {
         const x = Math.max(0, Math.min(94, Number(req.body?.x) || 8));
         const floor = Number(req.body?.floor) === 1 ? 1 : 0;
+        const safeZoneHuntingUpdate = requestedMap.safeZone
+          ? {
+            'huntingTime.enabled': false,
+            'huntingTime.lastTickAt': null
+          }
+          : {};
         await V2Character.updateOne(
           { userId: auth.id },
           {
             $set: {
               'worldState.mapId': mapId,
               'worldState.x': x,
-              'worldState.floor': floor
+              'worldState.floor': floor,
+              ...safeZoneHuntingUpdate
             }
           }
         );
         profile.worldState = { ...profile.worldState, mapId, x, floor };
+        if (requestedMap.safeZone) {
+          profile.huntingTime = {
+            ...(profile.huntingTime || {}),
+            enabled: false,
+            lastTickAt: null
+          };
+        }
       }
       const state = updatePresence({
         userId: String(auth.id),
@@ -2329,7 +2363,7 @@ function registerV2Routes({
           || 0,
         idleHealAmount: endureSkill?.values?.heal,
         idleHealIntervalMs: Number(endureSkill?.values?.intervalSeconds || 0) * 1000,
-        autoHunting: Boolean(profile.huntingTime?.enabled),
+        autoHunting: !requestedMap.safeZone && Boolean(profile.huntingTime?.enabled),
         autoHuntRemainingSeconds: Number(profile.huntingTime?.remainingSeconds) || 0
       });
       if (state.contactEvents.length) {

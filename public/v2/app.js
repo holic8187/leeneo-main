@@ -749,11 +749,13 @@ function collectGroundLoot(collections = []) {
 
 function updateFieldControls() {
   const button = $('autoCombatButton');
+  const safeZone = Boolean(getMap(state.currentMapId)?.safeZone);
   button.textContent = state.autoCombat ? '자동 전투 ON' : '자동 전투 OFF';
   button.setAttribute('aria-pressed', String(state.autoCombat));
   button.classList.toggle('is-on', state.autoCombat);
+  button.title = safeZone ? '안전지대에서는 자동전투를 사용할 수 없습니다.' : '';
   $('moveMapButton').disabled = state.moving || state.dead;
-  button.disabled = state.dead;
+  button.disabled = state.dead || safeZone;
   $('hpPotionButton').disabled = state.dead;
   $('mpPotionButton').disabled = state.dead;
   $('potionConfigButton').disabled = state.dead;
@@ -818,6 +820,21 @@ function renderWorldMap(mapId, arrivalPortalIndex = 0) {
   if (!map) return;
   state.currentMapId = map.id;
   localStorage.setItem('v2CurrentMapId', map.id);
+  if (map.safeZone && (state.autoCombat || state.huntingTime.enabled)) {
+    state.autoCombat = false;
+    state.huntingTime.enabled = false;
+    state.combatRunId += 1;
+    localStorage.setItem('v2AutoCombat', 'false');
+    if (state.token && !state.isAdmin) {
+      request('/api/v2/hunting-time/toggle', {
+        method: 'POST',
+        body: JSON.stringify({ enabled: false })
+      }).then((data) => {
+        state.huntingTime = data.huntingTime;
+        renderHuntingTime();
+      }).catch((err) => console.error('V2 safe-zone auto combat stop error:', err));
+    }
+  }
 
   $('mapRegion').textContent = `MAP / ${map.region}`;
   $('mapName').textContent = map.name;
@@ -845,7 +862,7 @@ function renderWorldMap(mapId, arrivalPortalIndex = 0) {
   character.classList.toggle('is-dead', state.dead);
   void character.offsetWidth;
   character.style.transitionDuration = '';
-  setWorldActivity(state.autoCombat ? '자동 전투 준비 중' : '명령 대기 중');
+  setWorldActivity(map.safeZone ? '안전지대에서는 자동전투를 사용할 수 없습니다.' : (state.autoCombat ? '자동 전투 준비 중' : '명령 대기 중'));
   updateFieldControls();
 }
 
@@ -1304,7 +1321,7 @@ async function runAutoCombat(runId) {
 }
 
 function startAutoCombat() {
-  if (!state.autoCombat || state.moving || state.dead) return;
+  if (!state.autoCombat || state.moving || state.dead || getMap(state.currentMapId)?.safeZone) return;
   const runId = ++state.combatRunId;
   runAutoCombat(runId).catch((err) => {
     console.error('V2 auto combat error:', err);
@@ -1355,6 +1372,14 @@ async function syncHuntingTime(active = state.autoCombat) {
 async function toggleAutoCombat() {
   if (state.dead) return;
   const requested = !state.autoCombat;
+  if (requested && getMap(state.currentMapId)?.safeZone) {
+    state.autoCombat = false;
+    state.huntingTime.enabled = false;
+    localStorage.setItem('v2AutoCombat', 'false');
+    updateFieldControls();
+    setWorldActivity('안전지대에서는 자동전투를 사용할 수 없습니다.');
+    return;
+  }
   if (requested && state.huntingTime.remainingSeconds <= 0) {
     setWorldActivity('남은 자동사냥 시간이 없습니다. 우편에서 사냥시간을 수령해주세요.');
     return;
@@ -1898,6 +1923,7 @@ const ITEM_STAT_LABELS = Object.freeze({
   awareness: '눈치',
   maxHp: '최대 HP',
   maxMp: '최대 MP',
+  accuracy: '명중률',
   evasion: '회피율'
 });
 const ITEM_ARCHETYPE_LABELS = Object.freeze({
@@ -1906,14 +1932,27 @@ const ITEM_ARCHETYPE_LABELS = Object.freeze({
   thief: '도적 계열',
   mage: '마법사 계열'
 });
+const ITEM_SLOT_LABELS = Object.freeze({
+  weapon: '무기',
+  helmet: '투구',
+  gloves: '장갑',
+  shoes: '신발',
+  cape: '망토',
+  top: '상의',
+  bottom: '하의',
+  earrings: '귀걸이'
+});
 
-function inventoryItemDetailText(item) {
+function equipmentTooltipHtml(item) {
   if (item.category !== 'equipment') return '';
   const requirements = item.requirements || {};
   const requiredLevel = Number(requirements.level ?? item.requiredLevel) || 1;
   const allowed = (requirements.allowedArchetypes || [])
     .map((archetype) => ITEM_ARCHETYPE_LABELS[archetype] || archetype)
     .join('/');
+  const availableJobs = (requirements.allowedArchetypes || []).length >= 4
+    ? '전 직업'
+    : (allowed || '전 직업');
   const requiredStats = Object.entries(requirements.stats || {})
     .filter(([, value]) => Number(value) > 0)
     .map(([key, value]) => `${ITEM_STAT_LABELS[key] || key} ${formatNumber(value)}`)
@@ -1922,12 +1961,13 @@ function inventoryItemDetailText(item) {
     .filter(([, value]) => Number(value))
     .map(([key, value]) => `${ITEM_STAT_LABELS[key] || key} +${formatNumber(value)}`)
     .join(' · ');
-  return [
-    `요구 레벨 ${requiredLevel}`,
-    allowed,
-    requiredStats,
-    stats
-  ].filter(Boolean).join(' / ');
+  return `<div class="equipment-tooltip-spec">
+    <span><b>장비명</b>${escapeHtml(item.name)}</span>
+    <span><b>장착 부위</b>${escapeHtml(ITEM_SLOT_LABELS[item.equipmentSlot] || item.equipmentSlot || '미지정')}</span>
+    <span><b>착용가능 직업</b>${escapeHtml(availableJobs)}</span>
+    <span><b>착용에 필요한 스탯</b>${escapeHtml(`레벨 ${requiredLevel}${requiredStats ? ` · ${requiredStats}` : ' · 추가 요구 없음'}`)}</span>
+    <span><b>장비 스탯</b>${escapeHtml(stats || '없음')}</span>
+  </div>`;
 }
 
 function inventorySlotBody(item, slotNumber, locked = false) {
@@ -1952,15 +1992,15 @@ function inventorySlotBody(item, slotNumber, locked = false) {
   const directlyUsable = ['return-scroll', 'experience-buff', 'hunting-time'].includes(item.itemType)
     ? item.id
     : '';
+  const equipmentTooltip = equipmentTooltipHtml(item);
   return `<article class="inventory-slot has-item" tabindex="0" data-inventory-usable="${escapeHtml(directlyUsable)}">
     <span class="inventory-slot-number">${slotNumber}</span>
     <div class="inventory-item-icon" aria-hidden="true">${escapeHtml(item.icon || '📦')}</div>
     <b class="inventory-item-quantity">${formatNumber(item.quantity)}</b>
     ${usable}
     <div class="inventory-item-tooltip" role="tooltip">
-      <strong>${escapeHtml(item.name)}</strong>
-      <span>${escapeHtml(item.description)}</span>
-      ${inventoryItemDetailText(item) ? `<span>${escapeHtml(inventoryItemDetailText(item))}</span>` : ''}
+      ${equipmentTooltip || `<strong>${escapeHtml(item.name)}</strong>`}
+      ${equipmentTooltip ? '' : `<span>${escapeHtml(item.description)}</span>`}
       ${item.tradeable === false ? '<span>교환 불가</span>' : ''}
       <small>${formatNumber(item.quantity)}개 보유${item.expiresAt ? ` · ${new Date(item.expiresAt).toLocaleString('ko-KR')} 만료` : ''}</small>
     </div>
@@ -2755,7 +2795,6 @@ const EQUIPMENT_TABS = Object.freeze({
   accessory: {
     label: '장신구',
     slots: [
-      { key: 'necklace', label: '목걸이', code: 'NECKLACE' },
       { key: 'earrings', label: '귀걸이', code: 'EARRINGS' }
     ]
   }
@@ -2888,6 +2927,13 @@ function statBody() {
   const stats = character.stats || {};
   const progression = character.progression || {};
   const derived = character.derivedStats || {};
+  const effectiveStats = derived.effectiveStats || stats;
+  const equipmentBonuses = derived.equipmentStatBonuses || {};
+  const statValue = (key) => (
+    `${formatNumber(effectiveStats[key])}${Number(equipmentBonuses[key]) > 0
+      ? ` <small>(기본 ${formatNumber(stats[key])} + 장비 ${formatNumber(equipmentBonuses[key])})</small>`
+      : ''}`
+  );
   const abilities = [
     ['공격력', `${formatNumber(derived.attackMinimum)} ~ ${formatNumber(derived.attackMaximum)}`],
     ['방어력', formatNumber(derived.defense)],
@@ -2904,10 +2950,10 @@ function statBody() {
           <div class="skill-total"><span>사용 가능한 스킬 포인트</span><strong>${formatNumber(progression.unspentSkillPoints)} SP</strong></div>
         </div>
         <div class="stat-grid">
-          <article><span>맷집 / STR</span><strong>${formatNumber(stats.grit)}</strong><small>물리 계열 주스탯 후보</small>${statInvestmentControl('grit', progression.unspentStatPoints)}</article>
-          <article><span>처리속도 / DEX</span><strong>${formatNumber(stats.processingSpeed)}</strong><small>명중·회피 및 원거리 계열</small>${statInvestmentControl('processingSpeed', progression.unspentStatPoints)}</article>
-          <article><span>업무지식 / INT</span><strong>${formatNumber(stats.workKnowledge)}</strong><small>마법 피해와 정신력 계열</small>${statInvestmentControl('workKnowledge', progression.unspentStatPoints)}</article>
-          <article><span>눈치 / LUK</span><strong>${formatNumber(stats.awareness)}</strong><small>도적 계열 및 회피 보조</small>${statInvestmentControl('awareness', progression.unspentStatPoints)}</article>
+          <article><span>맷집 / STR</span><strong>${statValue('grit')}</strong><small>물리 계열 주스탯 후보</small>${statInvestmentControl('grit', progression.unspentStatPoints)}</article>
+          <article><span>처리속도 / DEX</span><strong>${statValue('processingSpeed')}</strong><small>명중·회피 및 원거리 계열</small>${statInvestmentControl('processingSpeed', progression.unspentStatPoints)}</article>
+          <article><span>업무지식 / INT</span><strong>${statValue('workKnowledge')}</strong><small>마법 피해와 정신력 계열</small>${statInvestmentControl('workKnowledge', progression.unspentStatPoints)}</article>
+          <article><span>눈치 / LUK</span><strong>${statValue('awareness')}</strong><small>도적 계열 및 회피 보조</small>${statInvestmentControl('awareness', progression.unspentStatPoints)}</article>
         </div>
       </section>
       <aside class="ability-panel">

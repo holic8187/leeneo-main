@@ -103,3 +103,34 @@ test('passive weapon range is added to the equipped weapon base range', () => {
   });
   assert.equal(result.attackRange, 380);
 });
+
+test('equipment main stats and resource bonuses are included in derived stats', () => {
+  const result = buildDerivedStats({
+    progression: { level: 30 },
+    stats: { grit: 40, processingSpeed: 15, workKnowledge: 4, awareness: 4 },
+    job: { departmentId: 'hr', advancementTier: 2 },
+    loadout: {
+      weapon: {
+        weaponType: 'oneHandedSword',
+        stats: { attack: 20, grit: 5 }
+      },
+      helmet: { stats: { defense: 10, grit: 3 } },
+      cape: { stats: { evasion: 4, maxHp: 50 } },
+      earrings: { stats: { accuracy: 7, maxMp: 20 } }
+    }
+  });
+
+  assert.deepEqual(result.equipmentStatBonuses, {
+    grit: 8,
+    processingSpeed: 0,
+    workKnowledge: 0,
+    awareness: 0
+  });
+  assert.equal(result.effectiveStats.grit, 48);
+  assert.equal(result.maxHpBonus, 50);
+  assert.equal(result.maxMpBonus, 20);
+  assert.ok(result.attackMaximum > 35);
+  assert.ok(result.defense > 10);
+  assert.ok(result.accuracy > 7);
+  assert.ok(result.evasion > 4);
+});
