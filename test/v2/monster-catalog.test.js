@@ -4,7 +4,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   MONSTER_CATALOG,
-  getElementMultiplier
+  getElementMultiplier,
+  rollMonsterDrops
 } = require('../../src/v2/world/monsterCatalog');
 
 test('monster EXP-to-HP ratios vary without extreme adjacent spikes', () => {
@@ -27,4 +28,17 @@ test('most monsters are neutral while selected species have elemental traits', (
   assert.equal(getElementMultiplier(coffee, 'fire'), 0.5);
   assert.equal(getElementMultiplier(coffee, 'ice'), 1.5);
   assert.equal(getElementMultiplier(coffee, 'holy'), 1);
+});
+
+test('normal monster drops can include equipment and scrolls without event coins replacing them', () => {
+  const monster = MONSTER_CATALOG.find((entry) => (
+    entry.dropTable?.equipment?.length && entry.dropTable?.scrolls?.length
+  ));
+  assert.ok(monster);
+
+  const drops = rollMonsterDrops(monster, () => 0);
+  assert.ok(drops.some((drop) => drop.kind === 'money'));
+  assert.ok(drops.some((drop) => drop.category === 'equipment'));
+  assert.ok(drops.some((drop) => drop.category === 'scrolls'));
+  assert.equal(drops.some((drop) => drop.itemId === 'settlement_event_coin'), false);
 });

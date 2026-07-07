@@ -51,6 +51,7 @@ const v2CharacterSchema = new mongoose.Schema({
   skills: {
     levels: { type: mongoose.Schema.Types.Mixed, default: {} },
     activePreset: { type: [String], default: [] },
+    autoPreset: { type: [String], default: [] },
     unlockedQuestSkills: { type: [String], default: [] },
     activeBuffs: { type: [mongoose.Schema.Types.Mixed], default: [] },
     cooldowns: { type: mongoose.Schema.Types.Mixed, default: {} },

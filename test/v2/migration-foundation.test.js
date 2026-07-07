@@ -183,6 +183,7 @@ test('V2 router exposes the current migration, world, inventory, and shop endpoi
     'POST /api/v2/advancement',
     'POST /api/v2/skills/invest',
     'POST /api/v2/skills/preset',
+    'POST /api/v2/skills/auto-preset',
     'POST /api/v2/skills/use',
     'GET /api/v2/inventory',
     'POST /api/v2/inventory/quick-slot',

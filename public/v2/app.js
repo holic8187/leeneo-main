@@ -2604,17 +2604,27 @@ function bindShopControls() {
 
 function partyBody() {
   const party = state.partyState.party;
+  const players = state.partyState.nearbyPlayers || [];
   if (party) {
+    const memberIds = new Set(party.members.map((member) => String(member.userId)));
+    const inviteTargets = players.filter((player) => !memberIds.has(String(player.userId)));
+    const partyFull = party.members.length >= 6;
     return `<div class="party-sheet">
       <header><strong>현재 파티 ${party.members.length}/6</strong><small>같은 맵의 파티원과 함께 전투할 수 있습니다.</small></header>
       <div class="party-member-list">${party.members.map((member) => `<article>
         <div><b>${member.isLeader ? '👑 ' : ''}${escapeHtml(member.nickname)}</b><small>${member.isSelf ? '나' : '파티원'}</small></div>
         ${party.isLeader && !member.isSelf ? `<button type="button" data-party-kick="${escapeHtml(member.userId)}">추방</button>` : ''}
       </article>`).join('')}</div>
+      ${party.isLeader ? `<section class="party-invite-panel">
+        <strong>추가 파티원 초대</strong>
+        ${partyFull ? '<p>파티 정원이 가득 찼습니다.</p>' : `<div class="party-member-list">${inviteTargets.length ? inviteTargets.map((player) => `<article>
+          <div><b>${escapeHtml(player.nickname)}</b><small>${escapeHtml(player.activity || '대기 중')}</small></div>
+          <button type="button" data-party-invite="${escapeHtml(player.userId)}">초대</button>
+        </article>`).join('') : '<div class="empty-ledger"><b>추가로 초대할 사원이 없습니다.</b><p>같은 맵에 있는 미가입 사원만 표시됩니다.</p></div>'}</div>`}
+      </section>` : ''}
       <button class="secondary-action" type="button" data-party-leave>파티 탈퇴</button>
     </div>`;
   }
-  const players = state.partyState.nearbyPlayers || [];
   return `<div class="party-sheet">
     <header><strong>같은 맵의 사원</strong><small>상대가 수락하면 파티가 만들어집니다.</small></header>
     <div class="party-member-list">${players.length ? players.map((player) => `<article>

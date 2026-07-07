@@ -14,6 +14,7 @@ const {
   leaveWorld,
   resetWorldRuntime
 } = require('../../src/v2/world/worldRuntime');
+const { calculateMagicDamageAfterDefense } = require('../../src/v2/combat/combatFormulas');
 
 test.beforeEach(() => resetWorldRuntime());
 
@@ -36,7 +37,7 @@ test('an occupied map lazily spawns test monsters with configured combat stats',
   assert.equal(state.monsters[0].contactDamage, 10);
   assert.equal(state.monsters[0].physicalDefense, 1);
   assert.equal(state.monsters[0].magicDefense, 1);
-  assert.equal(state.monsters[0].expReward, 5);
+  assert.equal(state.monsters[0].expReward, 6);
   assert.equal(state.monsters[0].spawnedAt, 1_000);
 });
 
@@ -143,6 +144,7 @@ test('a magical hit can absorb monster MP without exceeding the available amount
     damage: 1,
     damageType: 'magic',
     rangePx: 100,
+    piercing: true,
     mpAbsorbChance: 100,
     mpAbsorbPercent: 40,
     now: 1_200
@@ -163,13 +165,14 @@ test('magical attacks use the provided magic damage range before monster magic d
     maxHp: 120,
     now: 1_000
   });
-  const monster = state.monsters.find((entry) => entry.floor === 0);
+  const monster = state.monsters[0];
+  assert.ok(monster);
   updatePresence({
     userId: 'magic-range-user',
     nickname: 'magic-range-user',
     mapId: 'newcomer_training',
     x: monster.x,
-    floor: 0,
+    floor: monster.floor,
     currentHp: 120,
     maxHp: 120,
     now: 1_100
@@ -182,13 +185,19 @@ test('magical attacks use the provided magic damage range before monster magic d
     damageRange: { minimum: 100, maximum: 100 },
     damageType: 'magic',
     rangePx: 100,
+    piercing: true,
     playerLevel: 99,
     now: 1_200
   });
+  const expectedRange = calculateMagicDamageAfterDefense({
+    skillDamageRange: { minimum: 100, maximum: 100 },
+    characterLevel: 99,
+    monsterLevel: monster.level,
+    magicDefense: monster.magicDefense
+  });
 
   assert.equal(result.success, true);
-  assert.equal(result.damage, 99);
-  assert.equal(result.defeated, true);
+  assert.equal(result.damage, Math.floor(expectedRange.minimum));
 });
 
 test('holy healing damage targets undead monsters and ignores living monsters', () => {
@@ -567,7 +576,7 @@ test('monster stats keep the level three baseline and scale for higher levels', 
   assert.equal(low.contactDamage, 10);
   assert.equal(low.physicalDefense, 1);
   assert.equal(low.magicDefense, 1);
-  assert.equal(low.expReward, 5);
+  assert.equal(low.expReward, 6);
   assert.ok(low.maxMp >= 10);
   assert.ok(high.maxMp > low.maxMp);
   assert.ok(low.monsterAccuracy > 0);

@@ -7,6 +7,11 @@ const {
 const { getScrollsForMonster } = require('../items/scrollCatalog');
 
 const ELEMENTS = Object.freeze(['neutral', 'fire', 'lightning', 'ice', 'holy']);
+const MONSTER_EXP_MULTIPLIER = 1.2;
+
+function scaleMonsterExp(expReward) {
+  return Math.max(1, Math.round(Math.max(0, Number(expReward) || 0) * MONSTER_EXP_MULTIPLIER));
+}
 
 // HP and EXP are explicit so the internal EXP/HP ratio remains reviewable.
 // Nearby monsters vary slightly, while the overall curve stays smooth.
@@ -42,7 +47,7 @@ const MONSTER_CATALOG = Object.freeze(MONSTER_ROWS.map((
     name,
     level,
     maxHp,
-    expReward,
+    expReward: scaleMonsterExp(expReward),
     icon,
     lootItemId,
     lootName,
@@ -70,7 +75,7 @@ function buildMonsterStats(level, overrides = {}) {
   const maxHp = Number(overrides.maxHp ?? matched?.maxHp)
     || Math.max(8, Math.round(8 * (1.078 ** (safeLevel - 1))));
   const expReward = Number(overrides.expReward ?? matched?.expReward)
-    || Math.max(1, Math.round(maxHp * Math.max(0.04, 0.2 - safeLevel * 0.0011)));
+    || scaleMonsterExp(maxHp * Math.max(0.04, 0.2 - safeLevel * 0.0011));
   return {
     maxHp,
     maxMp: Math.max(10, Math.round(18 + safeLevel * 7.5)),
@@ -145,6 +150,7 @@ function rollMonsterDrops(monster, random = Math.random) {
 
 module.exports = {
   ELEMENTS,
+  MONSTER_EXP_MULTIPLIER,
   MONSTER_CATALOG,
   buildMonsterStats,
   getElementMultiplier,

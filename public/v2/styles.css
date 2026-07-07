@@ -1843,15 +1843,15 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .skill-quick-slot {
   min-width: 0;
   display: grid;
-  grid-template-rows: minmax(54px, auto) 23px;
-  gap: 3px;
+  grid-template-rows: minmax(52px, auto) 18px;
+  gap: 2px;
 }
 .skill-quick {
   position: relative;
   width: 100%;
   min-width: 0;
-  min-height: 54px;
-  padding: 7px 6px 6px 24px;
+  min-height: 52px;
+  padding: 6px 5px 5px 22px;
   display: grid;
   align-content: center;
   gap: 2px;
@@ -1865,17 +1865,21 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .skill-quick small { font-size: 8px; opacity: .7; }
 .skill-auto-toggle {
   min-width: 0;
-  padding: 2px 5px;
+  min-height: 18px;
+  padding: 0 3px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 3px;
   color: #6d766f;
   border: 1px solid #bdc5bd;
   background: #e6e9e4;
-  font: 800 8px ui-monospace, monospace;
+  font: 800 7px/1 ui-monospace, monospace;
+  overflow: hidden;
 }
-.skill-auto-toggle strong { color: #777; font-size: 9px; }
+.skill-auto-toggle span,
+.skill-auto-toggle strong { line-height: 1; }
+.skill-auto-toggle strong { color: #777; font-size: 8px; }
 .skill-auto-toggle[aria-pressed="true"] {
   color: #eafff4;
   border-color: #39a873;
@@ -2126,6 +2130,23 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .party-member-list article div {
   display: grid;
   gap: 3px;
+}
+
+.party-invite-panel {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px dashed #b9c4b8;
+}
+
+.party-invite-panel > strong {
+  color: #1d5543;
+  font-size: 14px;
+}
+
+.party-invite-panel > p {
+  margin: 0;
+  color: #6d766f;
 }
 
 .party-invite-card {

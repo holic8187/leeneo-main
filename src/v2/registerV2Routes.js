@@ -125,6 +125,7 @@ const {
   resolveSkillValues,
   investSkill,
   setActivePreset,
+  setAutoPreset,
   getActiveSkillEffects
 } = require('./skills/skillService');
 const { calculateMagicDamageRange } = require('./combat/combatFormulas');
@@ -775,6 +776,406 @@ function registerV2Routes({
     return used;
   }
 
+  const OFFLINE_AUTO_SKILL_DAMAGE_EFFECTS = new Set([
+    'damage', 'multi-damage', 'ignore-defense-damage', 'damage-stun',
+    'damage-lock', 'charge', 'consume-combo-damage', 'pull',
+    'element-explosion', 'nonlethal-damage', 'fixed-damage'
+  ]);
+
+  function hasActiveOfflineSkillEffect(skillState, skillId, definition, now) {
+    if (['element_fire', 'element_ice'].includes(skillId)) {
+      return (skillState.activeBuffs || []).some((buff) => (
+        ['element_fire', 'element_ice'].includes(buff.skillId)
+        && (!buff.expiresAt || new Date(buff.expiresAt).getTime() > now)
+      ));
+    }
+    if (
+      definition.effect === 'summon'
+      && skillState.summon?.skillId === skillId
+      && (!skillState.summon.expiresAt || new Date(skillState.summon.expiresAt).getTime() > now)
+    ) {
+      return true;
+    }
+    return (skillState.activeBuffs || []).some((buff) => (
+      buff.skillId === skillId
+      && (!buff.expiresAt || new Date(buff.expiresAt).getTime() > now)
+    ));
+  }
+
+  function getOfflineAutoSkill(character, profile, target, now) {
+    const skillState = ensureSkillState(character);
+    const activePreset = [...(skillState.activePreset || [])].map(String);
+    const autoPreset = [...(skillState.autoPreset || [])].map(String);
+    if (!autoPreset.length) return null;
+    const autoSet = new Set(autoPreset);
+    const equippedWeaponType = String(character.loadout?.weapon?.weaponType || '');
+    const currentHp = Math.max(0, Number(character.resources?.currentHp) || 0);
+    const currentMp = Math.max(0, Number(character.resources?.currentMp) || 0);
+    const maxHp = Math.max(1, Number(character.resources?.maxHp) || 1);
+    const preUseEffects = getActiveSkillEffects(character, now);
+    const archetype = DEPARTMENTS[character.job?.departmentId]?.archetype || 'beginner';
+    for (const skillId of activePreset) {
+      if (!autoSet.has(skillId)) continue;
+      const definition = SKILL_DEFINITIONS[skillId];
+      const level = getSkillLevel(character, skillId);
+      if (!definition || definition.passive || level <= 0) continue;
+      if (definition.effect === 'party-portal') continue;
+      if (Number(skillState.cooldowns?.[skillId]) > now) continue;
+      if (hasActiveOfflineSkillEffect(skillState, skillId, definition, now)) continue;
+      if (
+        Array.isArray(definition.weaponTypes)
+        && definition.weaponTypes.length
+        && !definition.weaponTypes.includes(equippedWeaponType)
+      ) {
+        continue;
+      }
+      if (OFFLINE_AUTO_SKILL_DAMAGE_EFFECTS.has(definition.effect) && !target) continue;
+      if (definition.effect === 'consume-combo-damage' && skillState.comboCount <= 0) continue;
+      if (definition.effect === 'element-explosion' && !getActiveWeaponElements(skillState, now).length) {
+        continue;
+      }
+      const values = resolveSkillValues(definition, level);
+      if (values.minimumHpPercent && currentHp / maxHp * 100 < values.minimumHpPercent) continue;
+      const hpCost = Math.max(
+        0,
+        Math.floor(Number(values.hpCost) || maxHp * Number(values.maxHpCostPercent || 0) / 100)
+      );
+      const baseMpCost = Math.max(0, Number(values.mpCost) || 0);
+      const magicAttackAmplified = archetype === 'mage'
+        && ['enemy', 'enemies'].includes(definition.target);
+      const mpCost = Math.max(0, Math.floor(
+        baseMpCost * (
+          1 + (
+            magicAttackAmplified
+              ? Number(preUseEffects.magicMpCostIncreasePercent) || 0
+              : 0
+          ) / 100
+        )
+      ));
+      if (currentHp <= hpCost || currentMp < mpCost) continue;
+      return { skillId, definition, level, values, hpCost, mpCost, preUseEffects, archetype };
+    }
+    return null;
+  }
+
+  async function applyOfflineAutoSkill({ character, profile, target, now }) {
+    const selected = getOfflineAutoSkill(character, profile, target, now);
+    if (!selected) return null;
+    const { skillId, definition, values, hpCost, mpCost, preUseEffects, archetype } = selected;
+    const skillState = ensureSkillState(character);
+    const mapId = String(profile.worldState?.mapId || character.worldState?.mapId || '');
+    const targetId = String(target?.id || '');
+    let combat = null;
+    let partyBuffToShare = null;
+
+    if (OFFLINE_AUTO_SKILL_DAMAGE_EFFECTS.has(definition.effect)) {
+      const upgradedAudit = definition.name === '4중 감사'
+        && Number(preUseEffects.upgradedAuditHits) > 0;
+      const ammunition = definition.effect === 'fixed-damage'
+        ? null
+        : getCombatAmmunition(profile);
+      const ammunitionCount = Math.max(
+        1,
+        upgradedAudit
+          ? Number(preUseEffects.upgradedAuditHits)
+          : Number(values.hits) || 1
+      );
+      if (
+        ammunition
+        && !preUseEffects.noAmmoConsumption
+        && !(profile.inventory?.items || []).some(
+          (item) => item.id === ammunition.itemId && Number(item.quantity) >= ammunitionCount
+        )
+      ) {
+        return null;
+      }
+      let skillPercentForRuntime = upgradedAudit
+        ? Number(preUseEffects.upgradedAuditDamagePercent)
+        : (definition.effect === 'element-explosion'
+          ? Number(preUseEffects.elementExplosionDamagePercent || values.damagePercent || 250)
+          : Number(values.damagePercent) || 100);
+      let damageRange = null;
+      let baseDamage = definition.effect === 'fixed-damage'
+        ? Math.max(1, Number(values.fixedDamage) || 1)
+        : Math.max(1, Number(profile.derivedStats.attackMaximum) || 4);
+      if (archetype === 'mage' && definition.effect !== 'fixed-damage') {
+        damageRange = buildProfileMagicDamageRange(profile, skillPercentForRuntime);
+        baseDamage = 1;
+        skillPercentForRuntime = 100;
+      } else {
+        baseDamage += Number(ammunition?.attackBonus) || 0;
+      }
+      const activeElements = getActiveWeaponElements(skillState, now);
+      const critical = definition.effect !== 'fixed-damage'
+        && Math.random() * 100 < Number(profile.derivedStats.criticalChance || 0);
+      let damageMultiplier = 1;
+      if (critical) {
+        damageMultiplier *= Number(profile.derivedStats.criticalDamagePercent || 200) / 100;
+      }
+      damageMultiplier *= 1 + Number(preUseEffects.damageIncreasePercent || 0) / 100;
+      if (activeElements.length) {
+        damageMultiplier *= 1 + Number(preUseEffects.elementDamageIncreasePercent || 0) / 100;
+      }
+      if (preUseEffects.comboEnabled) {
+        damageMultiplier *= 1
+          + Number(skillState.comboCount || 0)
+            * Number(preUseEffects.comboDamagePerCount || 0) / 100;
+      }
+      const resourcePercent = Math.max(0, Number(character.resources?.currentHp) || 0)
+        / Math.max(1, Number(character.resources?.maxHp) || 1)
+        * 100;
+      if (
+        preUseEffects.lowHpThresholdPercent
+        && resourcePercent <= Number(preUseEffects.lowHpThresholdPercent)
+      ) {
+        damageMultiplier *= 1 + Number(preUseEffects.lowHpDamageIncreasePercent || 0) / 100;
+      }
+      if (damageRange) damageRange = scaleDamageRange(damageRange, damageMultiplier);
+      else baseDamage *= damageMultiplier;
+      const doubleStrike = Math.random() * 100
+        < Number(preUseEffects.doubleStrikeChance || 0);
+      combat = useSkillOnMonsters({
+        userId: String(character.userId),
+        mapId,
+        targetId,
+        baseDamage,
+        damageRange,
+        skillPercent: skillPercentForRuntime,
+        rangePx: Number(values.range ?? definition.range) || 100,
+        maxTargets: Number(values.targetCount ?? definition.maxTargets) || 1,
+        hits: upgradedAudit
+          ? Number(preUseEffects.upgradedAuditHits)
+          : Number(values.hits) || 1,
+        bonusAttackPercent: doubleStrike
+          ? Number(preUseEffects.doubleStrikeDamagePercent || 0)
+          : 0,
+        element: definition.element,
+        elements: activeElements.length ? activeElements : [definition.element],
+        ignoreDefense: ['ignore-defense-damage', 'fixed-damage'].includes(definition.effect),
+        damageType: archetype === 'mage' ? 'magic' : 'physical',
+        accuracy: profile.derivedStats.accuracy,
+        playerLevel: profile.progression?.level,
+        mpAbsorbChance: Number(preUseEffects.mpAbsorbChance) || 0,
+        mpAbsorbPercent: Number(preUseEffects.mpAbsorbPercent) || 0,
+        poisonChance: Number(preUseEffects.poisonChance) || 0,
+        poisonAttack: Number(preUseEffects.poisonAttack) || 0,
+        poisonDurationSeconds: Number(preUseEffects.poisonDurationSeconds) || 0,
+        poisonMaxStacks: Number(preUseEffects.poisonMaxStacks) || 0,
+        stunChance: Number(values.stunChance) || 0,
+        stunSeconds: Number(values.stunSeconds) || 0,
+        pull: ['charge', 'pull'].includes(definition.effect),
+        dealDamage: definition.effect !== 'pull',
+        leaveAtOneHp: definition.effect === 'nonlethal-damage',
+        piercing: Boolean(definition.piercing),
+        now
+      });
+      if (!combat.success) return null;
+      combat.critical = critical;
+      character.resources.currentHp = Math.max(0, Number(character.resources.currentHp) - hpCost);
+      character.resources.currentMp = Math.max(0, Number(character.resources.currentMp) - mpCost);
+      if (ammunition && !preUseEffects.noAmmoConsumption) {
+        consumeInventoryItem(character, ammunition.itemId, ammunitionCount);
+      }
+      if (Number(combat.mpAbsorbed) > 0) {
+        character.resources.currentMp = Math.min(
+          Math.max(0, Number(character.resources.maxMp) || 0),
+          Math.max(0, Number(character.resources.currentMp) || 0) + Number(combat.mpAbsorbed)
+        );
+      }
+      if (definition.effect === 'consume-combo-damage') skillState.comboCount = 0;
+      if (definition.effect === 'damage-stun' && Number(values.consumeCombo)) {
+        skillState.comboCount = Math.max(0, skillState.comboCount - Number(values.consumeCombo));
+      }
+      if (
+        preUseEffects.comboEnabled
+        && !['consume-combo-damage', 'damage-stun'].includes(definition.effect)
+        && combat.outcomes?.some((outcome) => !outcome.missed && outcome.damage > 0)
+      ) {
+        const charge = Math.random() * 100
+          < Number(preUseEffects.comboDoubleChargeChance || 0) ? 2 : 1;
+        skillState.comboCount = Math.min(
+          Number(preUseEffects.comboMaximum) || 5,
+          Number(skillState.comboCount || 0) + charge
+        );
+      }
+      if (Number(combat.expReward) > 0) {
+        const expGrant = await grantCombatExperience(character, combat.expReward, mapId);
+        combat.partyExperience = expGrant.party;
+        combat.drops = applyCombatDrops(character, combat.drops);
+        combat.drops = applySettlementEventDrops(
+          character,
+          (combat.outcomes || [])
+            .filter((outcome) => outcome.defeated)
+            .map((outcome) => outcome.monsterLevel),
+          combat.drops
+        );
+      }
+      if (
+        definition.effect === 'element-explosion'
+        && Math.random() * 100 >= Number(preUseEffects.elementPreserveChance || 0)
+      ) {
+        skillState.activeBuffs = skillState.activeBuffs.filter(
+          (buff) => !ELEMENT_BUFF_SKILL_IDS.includes(buff.skillId)
+        );
+      }
+    } else if (definition.effect === 'heal') {
+      character.resources.currentHp = Math.max(0, Number(character.resources.currentHp) - hpCost);
+      character.resources.currentMp = Math.max(0, Number(character.resources.currentMp) - mpCost);
+      const healingAmount = Math.max(
+        1,
+        Math.floor(
+          Math.max(1, Number(profile.derivedStats?.magic) || 1)
+            * Math.max(0, Number(values.healPercent) || 0)
+            / 100
+        )
+      );
+      await healActivePartyMembers({
+        caster: character,
+        mapId,
+        rangePx: Number(values.range ?? definition.range) || 400,
+        amount: healingAmount
+      });
+      const welfareDamage = definition.name === '복지 지원'
+        ? calculateWelfareSupportDamage({
+          workKnowledge: profile.derivedStats?.effectiveStats?.workKnowledge,
+          awareness: profile.derivedStats?.effectiveStats?.awareness,
+          magic: profile.derivedStats?.magic,
+          targetCount: 1,
+          healPercent: values.healPercent
+        })
+        : Math.max(1, Number(profile.derivedStats?.magic) || 1);
+      combat = useSkillOnMonsters({
+        userId: String(character.userId),
+        mapId,
+        targetId,
+        baseDamage: welfareDamage,
+        skillPercent: definition.name === '복지 지원'
+          ? 100
+          : Math.max(0, Number(values.healPercent) || 0),
+        rangePx: Number(values.range ?? definition.range) || 400,
+        maxTargets: 15,
+        damageType: 'magic',
+        element: 'holy',
+        accuracy: profile.derivedStats?.accuracy,
+        playerLevel: profile.progression?.level,
+        undeadOnly: true,
+        now
+      });
+      if (combat.success && Number(combat.expReward) > 0) {
+        const expGrant = await grantCombatExperience(character, combat.expReward, mapId);
+        combat.partyExperience = expGrant.party;
+        combat.drops = applyCombatDrops(character, combat.drops);
+      }
+    } else if (definition.effect === 'debuff-self-buff') {
+      combat = useSkillOnMonsters({
+        userId: String(character.userId),
+        mapId,
+        targetId,
+        baseDamage: 1,
+        skillPercent: 0,
+        rangePx: Number(values.range ?? definition.range) || 450,
+        maxTargets: Number(values.targetCount ?? definition.maxTargets) || 15,
+        accuracy: profile.derivedStats.accuracy,
+        playerLevel: profile.progression?.level,
+        dealDamage: false,
+        outgoingDamageReductionPercent: Number(values.enemyDamageReductionPercent) || 0,
+        debuffChance: Number(values.successChance) || 0,
+        debuffDurationSeconds: Number(values.durationSeconds) || 0,
+        now
+      });
+      if (!combat.success) return null;
+      character.resources.currentHp = Math.max(0, Number(character.resources.currentHp) - hpCost);
+      character.resources.currentMp = Math.max(0, Number(character.resources.currentMp) - mpCost);
+      skillState.activeBuffs = skillState.activeBuffs.filter((buff) => buff.skillId !== skillId);
+      skillState.activeBuffs.push({
+        skillId,
+        name: definition.name,
+        effects: {
+          damageIncreasePercent: Number(values.damageIncreasePercent) || 0,
+          accuracyIncrease: Number(values.accuracyIncrease) || 0
+        },
+        createdAt: new Date(now),
+        expiresAt: new Date(now + Number(values.durationSeconds || 1) * 1000)
+      });
+    } else if (definition.effect === 'summon') {
+      character.resources.currentHp = Math.max(0, Number(character.resources.currentHp) - hpCost);
+      character.resources.currentMp = Math.max(0, Number(character.resources.currentMp) - mpCost);
+      skillState.summon = {
+        skillId,
+        name: definition.name,
+        masteryIncrease: Number(values.masteryIncrease) || 0,
+        summonHp: Number(values.summonHp) || 0,
+        createdAt: new Date(now),
+        expiresAt: new Date(now + Number(values.durationSeconds || 0) * 1000)
+      };
+      combat = { success: true };
+    } else {
+      character.resources.currentHp = Math.max(0, Number(character.resources.currentHp) - hpCost);
+      character.resources.currentMp = Math.max(0, Number(character.resources.currentMp) - mpCost);
+      if (definition.effect === 'combo-buff') skillState.comboCount = 0;
+      const effects = {};
+      if (definition.effect === 'element-buff') {
+        const conflicting = skillId === 'element_fire'
+          ? new Set(['element_fire', 'element_ice'])
+          : (skillId === 'element_ice'
+            ? new Set(['element_fire', 'element_ice'])
+            : new Set([skillId]));
+        skillState.activeBuffs = skillState.activeBuffs.filter(
+          (buff) => !conflicting.has(buff.skillId)
+        );
+      }
+      for (const key of [
+        'attackIncrease', 'defenseIncrease', 'magicDefenseIncrease',
+        'accuracyIncrease', 'evasionIncrease',
+        'attackSpeedStage', 'shieldDefensePercent', 'stanceChance',
+        'reflectPercent', 'targetMaxHpCapPercent', 'maxResourcePercent',
+        'maxCombo', 'damagePerComboPercent', 'damageIncreasePercent',
+        'noAmmoConsumption', 'movementSpeedIncrease', 'criticalChance',
+        'criticalDamagePercent', 'damageReductionPercent', 'experienceBonusPercent'
+      ]) {
+        if (Number.isFinite(Number(values[key]))) effects[key] = Number(values[key]);
+      }
+      if (effects.reflectPercent) effects.contactReflectPercent = effects.reflectPercent;
+      if (effects.targetMaxHpCapPercent) {
+        effects.contactReflectCapPercent = effects.targetMaxHpCapPercent;
+      }
+      if (definition.effect === 'combo-buff') {
+        effects.comboEnabled = 1;
+        effects.comboMaximum = Number(values.maxCombo) || 5;
+        effects.comboDamagePerCount = Number(values.damagePerComboPercent) || 0;
+      }
+      skillState.activeBuffs = skillState.activeBuffs.filter((buff) => buff.skillId !== skillId);
+      const activeBuff = {
+        skillId,
+        name: definition.name,
+        effects,
+        createdAt: new Date(now),
+        expiresAt: new Date(now + Number(values.durationSeconds || 1) * 1000)
+      };
+      skillState.activeBuffs.push(activeBuff);
+      if (definition.target === 'party') partyBuffToShare = activeBuff;
+      combat = { success: true };
+    }
+
+    if (Number(values.cooldownSeconds) > 0) {
+      skillState.cooldowns[skillId] = now + Number(values.cooldownSeconds) * 1000;
+    }
+    reconcileMaxResourceBuff(character);
+    character.markModified('skills');
+    recordSkillUse(String(character.userId), mapId, definition.name, now);
+    if (partyBuffToShare) {
+      combat = {
+        ...(combat || { success: true }),
+        buffedPartyMemberIds: await applyBuffToActivePartyMembers(
+          String(character.userId),
+          mapId,
+          partyBuffToShare
+        )
+      };
+    }
+    return { skillId, name: definition.name, combat };
+  }
+
   async function processOfflineHunter(userId, now = Date.now()) {
     return withCharacterMutation(userId, async () => {
       const character = await V2Character.findOne({ userId });
@@ -867,6 +1268,19 @@ function registerV2Routes({
             now
           });
         } else {
+          const autoSkillResult = await applyOfflineAutoSkill({
+            character,
+            profile: response,
+            target,
+            now
+          });
+          if (autoSkillResult?.combat?.success) {
+            updatePlayerResources(userId, character.resources);
+            await character.save();
+            worldProfileCache.delete(String(userId));
+            return;
+          }
+          response = buildCharacterResponse(character);
           const activeElements = getActiveWeaponElements(response.skillTree);
           const rolled = rollBasicAttackDamage(response, { activeElements });
           const consumesAmmunition = rolled.ammunition
@@ -1291,6 +1705,23 @@ function registerV2Routes({
       return res.json({ success: true, character: buildCharacterResponse(character) });
     } catch (err) {
       return res.status(400).json({ msg: err.message || '스킬 프리셋을 저장하지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/skills/auto-preset', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const character = await withCharacterMutation(auth.id, async () => {
+        const current = await V2Character.findOne({ userId: auth.id });
+        if (!current) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        setAutoPreset(current, req.body?.skillIds);
+        await current.save();
+        return current;
+      });
+      return res.json({ success: true, character: buildCharacterResponse(character) });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '자동 스킬 설정을 저장하지 못했습니다.' });
     }
   });
 

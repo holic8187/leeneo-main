@@ -92,18 +92,36 @@ function ensureAutoSkillPreferences() {
   const storageKey = getAutoSkillStorageKey();
   if (state.autoSkillOwnerKey === storageKey) return;
   state.autoSkillOwnerKey = storageKey;
+  const serverAutoPreset = state.character?.skillTree?.autoPreset || [];
   try {
-    const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
+    const raw = localStorage.getItem(storageKey);
+    const stored = raw == null ? serverAutoPreset : JSON.parse(raw || '[]');
     state.autoSkillIds = new Set(Array.isArray(stored) ? stored.map(String) : []);
   } catch (_) {
-    state.autoSkillIds = new Set();
+    state.autoSkillIds = new Set(serverAutoPreset.map(String));
   }
   state.autoSkillRotationIndex = 0;
+  syncAutoSkillPreferencesToServer();
 }
 
 function saveAutoSkillPreferences() {
   if (!state.autoSkillOwnerKey) ensureAutoSkillPreferences();
   localStorage.setItem(state.autoSkillOwnerKey, JSON.stringify([...state.autoSkillIds]));
+  syncAutoSkillPreferencesToServer();
+}
+
+async function syncAutoSkillPreferencesToServer() {
+  if (!state.token || state.isAdmin || !state.character?.skillTree) return;
+  const skillIds = [...state.autoSkillIds];
+  try {
+    const data = await request('/api/v2/skills/auto-preset', {
+      method: 'POST',
+      body: JSON.stringify({ skillIds })
+    });
+    if (data.character) state.character = data.character;
+  } catch (err) {
+    console.warn('V2 auto skill sync failed:', err);
+  }
 }
 
 function toggleAutoSkill(skillId) {

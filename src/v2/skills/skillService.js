@@ -130,6 +130,7 @@ function ensureSkillState(character) {
   const skills = character.skills;
   if (!skills.levels || typeof skills.levels !== 'object') skills.levels = {};
   if (!Array.isArray(skills.activePreset)) skills.activePreset = [];
+  if (!Array.isArray(skills.autoPreset)) skills.autoPreset = [];
   if (!Array.isArray(skills.unlockedQuestSkills)) skills.unlockedQuestSkills = [];
   if (!Array.isArray(skills.activeBuffs)) skills.activeBuffs = [];
   if (!skills.cooldowns || typeof skills.cooldowns !== 'object') skills.cooldowns = {};
@@ -272,6 +273,26 @@ function setActivePreset(character, skillIds = []) {
     }
   }
   ensureSkillState(character).activePreset = normalized;
+  const activeSet = new Set(normalized);
+  ensureSkillState(character).autoPreset = ensureSkillState(character).autoPreset
+    .filter((skillId) => activeSet.has(String(skillId)));
+  if (typeof character.markModified === 'function') character.markModified('skills');
+  return normalized;
+}
+
+function setAutoPreset(character, skillIds = []) {
+  const skills = ensureSkillState(character);
+  const activeSet = new Set(skills.activePreset.map(String));
+  const normalized = [...new Set((Array.isArray(skillIds) ? skillIds : [])
+    .map((skillId) => String(skillId || ''))
+    .filter((skillId) => activeSet.has(skillId)))].slice(0, MAX_ACTIVE_PRESET_SIZE);
+  for (const skillId of normalized) {
+    const definition = SKILL_DEFINITIONS[skillId];
+    if (!definition || definition.passive || getSkillLevel(character, skillId) <= 0) {
+      throw new Error('자동 사용은 전투 프리셋에 등록된 액티브 스킬만 설정할 수 있습니다.');
+    }
+  }
+  skills.autoPreset = normalized;
   if (typeof character.markModified === 'function') character.markModified('skills');
   return normalized;
 }
@@ -602,6 +623,7 @@ function buildSkillTree(character) {
     tierSpent: Object.fromEntries([1, 2, 3, 4].map((tier) => [tier, getTierSpent(character, tier)])),
     tierRequirements: TIER_SP_REQUIREMENTS,
     activePreset: [...skills.activePreset],
+    autoPreset: [...skills.autoPreset],
     summon,
     activeBuffs,
     comboCount: skills.comboCount,
@@ -653,6 +675,7 @@ module.exports = {
   getInvestmentBlockReason,
   investSkill,
   setActivePreset,
+  setAutoPreset,
   pruneExpiredSkillState,
   getActiveSkillEffects,
   buildSkillTree,
