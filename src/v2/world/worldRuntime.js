@@ -10,7 +10,11 @@ const {
   rollMonsterDrops
 } = require('./monsterCatalog');
 const { calculateIncomingPhysicalDamage } = require('../combat/incomingDamage');
-const { calculateRequiredAccuracy, calculateHitChance } = require('../combat/combatFormulas');
+const {
+  calculateRequiredAccuracy,
+  calculateHitChance,
+  calculateMagicDamageAfterDefense
+} = require('../combat/combatFormulas');
 
 const PLAYER_TIMEOUT_MS = 12_000;
 const CONTACT_COOLDOWN_MS = 1_200;
@@ -734,11 +738,66 @@ function getLootCollectionTime(runtime, now) {
   return Math.min(nextSpawnAt, now + MONSTER_SPAWN_INTERVAL_MS);
 }
 
+function normalizeDamageRange(range = {}) {
+  const minimum = Math.max(0, Number(range.minimum) || 0);
+  const maximum = Math.max(0, Number(range.maximum) || 0);
+  return minimum <= maximum
+    ? { minimum, maximum }
+    : { minimum: maximum, maximum: minimum };
+}
+
+function scaleDamageRange(range, multiplier = 1) {
+  const normalized = normalizeDamageRange(range);
+  const safeMultiplier = Math.max(0, Number(multiplier) || 0);
+  return {
+    minimum: normalized.minimum * safeMultiplier,
+    maximum: normalized.maximum * safeMultiplier
+  };
+}
+
+function rollDamageRange(range = {}) {
+  const normalized = normalizeDamageRange(range);
+  if (normalized.maximum <= normalized.minimum) return normalized.minimum;
+  return normalized.minimum + Math.random() * (normalized.maximum - normalized.minimum);
+}
+
+function resolveOutgoingDamage({
+  damage,
+  damageRange,
+  damageType = 'physical',
+  skillPercent = 100,
+  defense = 0,
+  ignoreDefense = false,
+  playerLevel = 1,
+  monsterLevel = 1,
+  elementMultiplier = 1
+} = {}) {
+  const safeElementMultiplier = Math.max(0, Number(elementMultiplier) || 0);
+  if (damageType === 'magic' && damageRange) {
+    const defendedRange = ignoreDefense
+      ? normalizeDamageRange(damageRange)
+      : calculateMagicDamageAfterDefense({
+        skillDamageRange: damageRange,
+        characterLevel: playerLevel,
+        monsterLevel,
+        magicDefense: defense
+      });
+    return Math.max(1, Math.floor(rollDamageRange(defendedRange) * safeElementMultiplier));
+  }
+  const beforeElement = Math.max(
+    1,
+    Number(damage || 1) * Number(skillPercent || 100) / 100
+      - (ignoreDefense ? 0 : Number(defense || 0) * 0.5)
+  );
+  return Math.max(1, Math.floor(beforeElement * safeElementMultiplier));
+}
+
 function attackMonster({
   userId,
   mapId,
   monsterId,
   damage,
+  damageRange = null,
   rangePx,
   damageType = 'physical',
   element = 'neutral',
@@ -812,13 +871,18 @@ function attackMonster({
   const closeRangeTriggered = distancePx <= 100
     && Number(closeRangeChance) > 0
     && Math.random() * 100 < Number(closeRangeChance);
-  const adjustedDamage = closeRangeTriggered
-    ? Number(damage) * Math.max(0, Number(closeRangeDamagePercent) || 100) / 100
-    : Number(damage);
-  const finalDamage = Math.max(
-    1,
-    Math.floor((Math.max(1, adjustedDamage || 1) - defense * 0.5) * elementMultiplier)
-  );
+  const closeRangeMultiplier = closeRangeTriggered
+    ? Math.max(0, Number(closeRangeDamagePercent) || 100) / 100
+    : 1;
+  const finalDamage = resolveOutgoingDamage({
+    damage: Number(damage) * closeRangeMultiplier,
+    damageRange: damageRange ? scaleDamageRange(damageRange, closeRangeMultiplier) : null,
+    damageType,
+    defense,
+    playerLevel,
+    monsterLevel: monster.level,
+    elementMultiplier
+  });
   const mpAbsorbed = damageType === 'magic'
     ? absorbMonsterMp(monster, mpAbsorbChance, mpAbsorbPercent)
     : 0;
@@ -910,6 +974,7 @@ function useSkillOnMonsters({
   mapId,
   targetId,
   baseDamage,
+  damageRange = null,
   skillPercent = 100,
   rangePx = 100,
   maxTargets = 1,
@@ -1000,15 +1065,20 @@ function useSkillOnMonsters({
     let totalDamage = 0;
     for (let hit = 0; dealDamage && hit < hitCount && monster.hp > 0; hit += 1) {
       const defense = damageType === 'magic' ? monster.magicDefense : monster.physicalDefense;
-      const beforeElement = Math.max(
-        1,
-        Number(baseDamage || 1) * Number(skillPercent || 100) / 100
-          - (ignoreDefense ? 0 : defense * 0.5)
-      );
       const multiplier = Math.max(
         ...activeElements.map((activeElement) => getElementMultiplier(monster, activeElement))
       );
-      const damage = Math.max(1, Math.floor(beforeElement * multiplier));
+      const damage = resolveOutgoingDamage({
+        damage: baseDamage,
+        damageRange,
+        damageType,
+        skillPercent,
+        defense,
+        ignoreDefense,
+        playerLevel,
+        monsterLevel: monster.level,
+        elementMultiplier: multiplier
+      });
       monster.hp = Math.max(leaveAtOneHp ? 1 : 0, monster.hp - damage);
       totalDamage += damage;
     }
@@ -1025,16 +1095,22 @@ function useSkillOnMonsters({
     });
     for (let hit = 0; dealDamage && hit < hitCount && monster.hp > 0 && bonusAttackPercent > 0; hit += 1) {
       const defense = damageType === 'magic' ? monster.magicDefense : monster.physicalDefense;
-      const beforeElement = Math.max(
-        1,
-        Number(baseDamage || 1) * Number(skillPercent || 100) / 100
-          * Number(bonusAttackPercent) / 100
-          - (ignoreDefense ? 0 : defense * 0.5)
-      );
       const multiplier = Math.max(
         ...activeElements.map((activeElement) => getElementMultiplier(monster, activeElement))
       );
-      const damage = Math.max(1, Math.floor(beforeElement * multiplier));
+      const damage = resolveOutgoingDamage({
+        damage: baseDamage,
+        damageRange: damageRange
+          ? scaleDamageRange(damageRange, Number(bonusAttackPercent) / 100)
+          : null,
+        damageType,
+        skillPercent: damageRange ? 100 : Number(skillPercent || 100) * Number(bonusAttackPercent) / 100,
+        defense,
+        ignoreDefense,
+        playerLevel,
+        monsterLevel: monster.level,
+        elementMultiplier: multiplier
+      });
       monster.hp = Math.max(leaveAtOneHp ? 1 : 0, monster.hp - damage);
       totalDamage += damage;
     }

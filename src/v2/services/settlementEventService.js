@@ -12,7 +12,7 @@ const EVENT_START_AT = new Date('2026-07-06T00:00:00+09:00');
 const EVENT_END_AT = new Date('2026-08-01T00:00:00+09:00');
 const EVENT_COIN_ID = 'settlement_event_coin';
 const DAILY_COIN_LIMIT = 200;
-const COIN_DROP_CHANCE = 0.05;
+const COIN_DROP_CHANCE = 0.15;
 
 const EVENT_SHOP_ITEMS = Object.freeze([
   Object.freeze({

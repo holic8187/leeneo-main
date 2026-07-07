@@ -1098,7 +1098,7 @@ async function playWorldMotion(motion, kind, runId) {
 }
 
 function canEnterMap(target) {
-  return target && target.minLevel <= getCharacterLevel() + 5;
+  return Boolean(target);
 }
 
 function movementSelectionBody() {
@@ -1808,9 +1808,7 @@ function startWorldSimulation() {
   if (!state.maps.length) return;
   const persistedWorld = state.character?.worldState || {};
   const savedMap = getMap(persistedWorld.mapId || state.currentMapId);
-  const accessibleSavedMap = savedMap && savedMap.minLevel <= getCharacterLevel() + 5
-    ? savedMap
-    : null;
+  const accessibleSavedMap = savedMap || null;
   const startMap = accessibleSavedMap || getMap(state.startMapId) || state.maps[0];
   state.moveRunId += 1;
   state.combatRunId += 1;

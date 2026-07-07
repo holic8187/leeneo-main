@@ -245,7 +245,7 @@ const BASE_ITEMS = {
     category: 'misc',
     itemType: 'event-currency',
     icon: '🪙',
-    maxStack: 100,
+    maxStack: 5000,
     sellPrice: 0,
     tradeable: false,
     description: '정착 지원 이벤트 상점에서 사용하는 코인입니다. 하루 최대 200개까지 획득할 수 있습니다.'

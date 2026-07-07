@@ -127,6 +127,7 @@ const {
   setActivePreset,
   getActiveSkillEffects
 } = require('./skills/skillService');
+const { calculateMagicDamageRange } = require('./combat/combatFormulas');
 
 const V2_RETAINED_FEATURES = Object.freeze([
   '계정 및 닉네임',
@@ -261,6 +262,77 @@ function getCombatAmmunition(profile) {
   return null;
 }
 
+function isMageProfile(profile) {
+  return (profile?.derivedStats?.archetype || DEPARTMENTS[profile?.job?.departmentId]?.archetype) === 'mage';
+}
+
+function scaleDamageRange(range, multiplier = 1) {
+  const minimum = Math.max(0, Number(range?.minimum) || 0);
+  const maximum = Math.max(minimum, Number(range?.maximum) || 0);
+  const safeMultiplier = Math.max(0, Number(multiplier) || 0);
+  return {
+    minimum: minimum * safeMultiplier,
+    maximum: maximum * safeMultiplier
+  };
+}
+
+function buildProfileMagicDamageRange(profile, skillAttack = 100) {
+  return calculateMagicDamageRange({
+    magic: profile?.derivedStats?.magic,
+    workKnowledge: profile?.derivedStats?.effectiveStats?.workKnowledge
+      ?? profile?.stats?.workKnowledge,
+    skillAttack,
+    mastery: profile?.derivedStats?.weaponMastery
+      || profile?.skillEffects?.weaponMastery
+      || 0
+  });
+}
+
+function calculatePartyExperienceShares({ baseExp = 0, members = [], killerId = '' } = {}) {
+  const killerFixedRatio = 0.2;
+  const partyShareRatio = 0.8;
+  const partyBonusPerMember = 0.05;
+  const exp = Math.max(0, Math.floor(Number(baseExp) || 0));
+  const normalizedMembers = [...new Map(
+    members
+      .filter((member) => member?.userId)
+      .map((member) => [
+        String(member.userId),
+        {
+          userId: String(member.userId),
+          level: Math.max(1, Math.floor(Number(member.level) || 1))
+        }
+      ])
+  ).values()];
+  const killerKey = String(killerId || '');
+  if (exp <= 0) {
+    return normalizedMembers.map((member) => ({
+      ...member,
+      exp: 0,
+      killer: member.userId === killerKey
+    }));
+  }
+  if (normalizedMembers.length <= 1) {
+    return [{
+      userId: killerKey || normalizedMembers[0]?.userId || '',
+      level: normalizedMembers[0]?.level || 1,
+      exp,
+      killer: true
+    }];
+  }
+  const totalLevel = normalizedMembers.reduce((sum, member) => sum + member.level, 0) || 1;
+  const partyBonus = 1 + partyBonusPerMember * normalizedMembers.length;
+  return normalizedMembers.map((member) => {
+    const baseShare = exp * partyShareRatio * member.level / totalLevel;
+    const killerBonus = member.userId === killerKey ? exp * killerFixedRatio : 0;
+    return {
+      ...member,
+      exp: Math.max(0, Math.floor((baseShare + killerBonus) * partyBonus)),
+      killer: member.userId === killerKey
+    };
+  });
+}
+
 function getBearerToken(req) {
   const header = req.headers.authorization || '';
   return header.startsWith('Bearer ') ? header.slice(7) : null;
@@ -343,6 +415,63 @@ function registerV2Routes({
   function getActivePartyPlayers(userId, mapId) {
     const partyMemberIds = new Set(getPartyMemberIds(userId));
     return listActivePlayers(mapId).filter((player) => partyMemberIds.has(String(player.userId)));
+  }
+
+  async function grantCombatExperience(character, baseExp, mapId) {
+    const killerId = String(character?.userId || '');
+    const activePartyPlayers = getActivePartyPlayers(killerId, mapId);
+    const activePartyIds = [...new Set(activePartyPlayers.map((player) => String(player.userId)))];
+    if (!activePartyIds.includes(killerId)) activePartyIds.push(killerId);
+    if (activePartyIds.length <= 1) {
+      return {
+        self: grantV2Experience(character, baseExp),
+        party: []
+      };
+    }
+
+    const partyCharacters = await V2Character.find({ userId: { $in: activePartyIds } });
+    const byUserId = new Map(partyCharacters.map((partyCharacter) => (
+      [String(partyCharacter.userId), partyCharacter]
+    )));
+    if (!byUserId.has(killerId)) byUserId.set(killerId, character);
+    const members = activePartyIds
+      .map((userId) => {
+        const partyCharacter = byUserId.get(userId);
+        if (!partyCharacter) return null;
+        return {
+          userId,
+          level: partyCharacter.progression?.level
+        };
+      })
+      .filter(Boolean);
+    if (members.length <= 1) {
+      return {
+        self: grantV2Experience(character, baseExp),
+        party: []
+      };
+    }
+
+    const shares = calculatePartyExperienceShares({ baseExp, members, killerId });
+    let self = { gained: 0, levels: 0 };
+    const party = [];
+    for (const share of shares) {
+      const target = share.userId === killerId ? character : byUserId.get(share.userId);
+      if (!target) continue;
+      const granted = grantV2Experience(target, share.exp);
+      if (share.userId === killerId) {
+        self = granted;
+      } else {
+        await target.save();
+        worldProfileCache.delete(share.userId);
+        updatePlayerResources(share.userId, buildCharacterResponse(target).resources);
+        party.push({
+          userId: share.userId,
+          gained: granted.gained,
+          levels: granted.levels
+        });
+      }
+    }
+    return { self, party };
   }
 
   async function applyBuffToActivePartyMembers(casterId, mapId, buff) {
@@ -568,21 +697,50 @@ function registerV2Routes({
     });
   }
 
-  function rollBasicAttackDamage(profile) {
+  function rollBasicAttackDamage(profile, {
+    activeElements = [],
+    comboCount = 0,
+    hpPercent = null
+  } = {}) {
     const ammunition = getCombatAmmunition(profile);
+    const skillEffects = profile.skillEffects || {};
+    const critical = Math.random() * 100
+      < Number(profile.derivedStats?.criticalChance || 0);
+    let multiplier = 1 + Number(skillEffects.damageIncreasePercent || 0) / 100;
+    if (activeElements.length) {
+      multiplier *= 1 + Number(skillEffects.elementDamageIncreasePercent || 0) / 100;
+    }
+    if (skillEffects.comboEnabled) {
+      multiplier *= 1
+        + Math.max(0, Number(comboCount) || 0)
+          * Number(skillEffects.comboDamagePerCount || 0) / 100;
+    }
+    if (
+      hpPercent != null
+      && skillEffects.lowHpThresholdPercent
+      && Number(hpPercent) <= Number(skillEffects.lowHpThresholdPercent)
+    ) {
+      multiplier *= 1 + Number(skillEffects.lowHpDamageIncreasePercent || 0) / 100;
+    }
+    if (critical) {
+      multiplier *= Number(profile.derivedStats?.criticalDamagePercent || 200) / 100;
+    }
+    if (isMageProfile(profile)) {
+      return {
+        damage: 1,
+        damageRange: scaleDamageRange(buildProfileMagicDamageRange(profile, 100), multiplier),
+        critical,
+        ammunition
+      };
+    }
     const minimum = Math.max(0, Number(profile.derivedStats?.attackMinimum) || 0);
     const maximum = Math.max(minimum, Number(profile.derivedStats?.attackMaximum) || 0);
     let damage = maximum > 0
       ? minimum + Math.random() * (maximum - minimum)
       : 5;
     damage += Number(ammunition?.attackBonus) || 0;
-    const critical = Math.random() * 100
-      < Number(profile.derivedStats?.criticalChance || 0);
-    if (critical) {
-      damage *= Number(profile.derivedStats?.criticalDamagePercent || 200) / 100;
-    }
-    damage *= 1 + Number(profile.skillEffects?.damageIncreasePercent || 0) / 100;
-    return { damage, critical, ammunition };
+    damage *= multiplier;
+    return { damage, damageRange: null, critical, ammunition };
   }
 
   function applyOfflineAutoPotions(character) {
@@ -689,9 +847,13 @@ function registerV2Routes({
         const distance = Math.abs(Number(target.x) - Number(self?.x));
         if (distance > rangePercent + 4.5) {
           const direction = Number(target.x) >= Number(self?.x) ? 1 : -1;
+          const movementStep = Math.max(
+            1,
+            Math.min(8, 4 * (Number(response.derivedStats?.movementSpeed) || 100) / 100)
+          );
           const nextX = Math.max(0, Math.min(
             94,
-            Number(self?.x) + direction * Math.min(4, distance - rangePercent - 3.5)
+            Number(self?.x) + direction * Math.min(movementStep, distance - rangePercent - 3.5)
           ));
           character.worldState.x = nextX;
           character.worldState.floor = Number(self?.floor) === 1 ? 1 : 0;
@@ -705,7 +867,8 @@ function registerV2Routes({
             now
           });
         } else {
-          const rolled = rollBasicAttackDamage(response);
+          const activeElements = getActiveWeaponElements(response.skillTree);
+          const rolled = rollBasicAttackDamage(response, { activeElements });
           const consumesAmmunition = rolled.ammunition
             && !response.skillEffects?.noAmmoConsumption;
           const hasAmmunition = !consumesAmmunition
@@ -718,11 +881,12 @@ function registerV2Routes({
               mapId: String(response.worldState.mapId),
               monsterId: String(target.id),
               damage: rolled.damage,
+              damageRange: rolled.damageRange,
               rangePx,
               damageType: DEPARTMENTS[response.job?.departmentId]?.archetype === 'mage'
                 ? 'magic'
                 : 'physical',
-              elements: getActiveWeaponElements(response.skillTree),
+              elements: activeElements,
               accuracy: response.derivedStats.accuracy,
               playerLevel: response.progression.level
             });
@@ -731,7 +895,7 @@ function registerV2Routes({
                 consumeInventoryItem(character, rolled.ammunition.itemId, 1);
               }
               if (result.expReward > 0) {
-                grantV2Experience(character, result.expReward);
+                await grantCombatExperience(character, result.expReward, response.worldState.mapId);
                 applyCombatDrops(character, result.drops);
                 applySettlementEventDrops(character, [result.monsterLevel], result.drops);
               }
@@ -1227,23 +1391,34 @@ function registerV2Routes({
           if (definition.effect === 'element-explosion' && !activeElements.length) {
             throw new Error('폭발시킬 무기 속성이 없습니다.');
           }
+          let skillPercentForRuntime = upgradedAudit
+            ? Number(activeEffects.upgradedAuditDamagePercent)
+            : (definition.effect === 'element-explosion'
+              ? Number(activeEffects.elementExplosionDamagePercent || values.damagePercent || 250)
+              : Number(values.damagePercent) || 100);
+          let damageRange = null;
           let baseDamage = definition.effect === 'fixed-damage'
             ? Math.max(1, Number(values.fixedDamage) || 1)
-            : (archetype === 'mage'
-              ? Math.max(1, Number(response.derivedStats.magic) || 4)
-              : Math.max(1, Number(response.derivedStats.attackMaximum) || 4));
-          baseDamage += Number(ammunition?.attackBonus) || 0;
+            : Math.max(1, Number(response.derivedStats.attackMaximum) || 4);
+          if (archetype === 'mage' && definition.effect !== 'fixed-damage') {
+            damageRange = buildProfileMagicDamageRange(response, skillPercentForRuntime);
+            baseDamage = 1;
+            skillPercentForRuntime = 100;
+          } else {
+            baseDamage += Number(ammunition?.attackBonus) || 0;
+          }
           const critical = definition.effect !== 'fixed-damage'
             && Math.random() * 100 < Number(response.derivedStats.criticalChance || 0);
+          let damageMultiplier = 1;
           if (critical) {
-            baseDamage *= Number(response.derivedStats.criticalDamagePercent || 200) / 100;
+            damageMultiplier *= Number(response.derivedStats.criticalDamagePercent || 200) / 100;
           }
-          baseDamage *= 1 + Number(activeEffects.damageIncreasePercent || 0) / 100;
+          damageMultiplier *= 1 + Number(activeEffects.damageIncreasePercent || 0) / 100;
           if (activeElements.length) {
-            baseDamage *= 1 + Number(activeEffects.elementDamageIncreasePercent || 0) / 100;
+            damageMultiplier *= 1 + Number(activeEffects.elementDamageIncreasePercent || 0) / 100;
           }
           if (activeEffects.comboEnabled) {
-            baseDamage *= 1
+            damageMultiplier *= 1
               + Number(skillState.comboCount || 0)
                 * Number(activeEffects.comboDamagePerCount || 0) / 100;
           }
@@ -1252,8 +1427,10 @@ function registerV2Routes({
             activeEffects.lowHpThresholdPercent
             && resourcePercent <= Number(activeEffects.lowHpThresholdPercent)
           ) {
-            baseDamage *= 1 + Number(activeEffects.lowHpDamageIncreasePercent || 0) / 100;
+            damageMultiplier *= 1 + Number(activeEffects.lowHpDamageIncreasePercent || 0) / 100;
           }
+          if (damageRange) damageRange = scaleDamageRange(damageRange, damageMultiplier);
+          else baseDamage *= damageMultiplier;
           const doubleStrike = Math.random() * 100
             < Number(activeEffects.doubleStrikeChance || 0);
           combat = useSkillOnMonsters({
@@ -1261,11 +1438,8 @@ function registerV2Routes({
             mapId: String(req.body?.mapId || ''),
             targetId: String(req.body?.targetId || ''),
             baseDamage,
-            skillPercent: upgradedAudit
-              ? Number(activeEffects.upgradedAuditDamagePercent)
-              : (definition.effect === 'element-explosion'
-              ? Number(activeEffects.elementExplosionDamagePercent || values.damagePercent || 250)
-              : Number(values.damagePercent) || 100),
+            damageRange,
+            skillPercent: skillPercentForRuntime,
             rangePx: Number(values.range ?? definition.range) || 100,
             maxTargets: Number(values.targetCount ?? definition.maxTargets) || 1,
             hits: upgradedAudit
@@ -1318,7 +1492,12 @@ function registerV2Routes({
               Number(skillState.comboCount || 0) + charge
             );
           }
-          grantV2Experience(character, combat.expReward);
+          const expGrant = await grantCombatExperience(
+            character,
+            combat.expReward,
+            String(req.body?.mapId || character.worldState?.mapId || '')
+          );
+          combat.partyExperience = expGrant.party;
           combat.drops = applyCombatDrops(character, combat.drops);
           combat.drops = applySettlementEventDrops(
             character,
@@ -1377,7 +1556,12 @@ function registerV2Routes({
             undeadOnly: true
           });
           if (undeadCombat.success) {
-            grantV2Experience(character, undeadCombat.expReward);
+            const expGrant = await grantCombatExperience(
+              character,
+              undeadCombat.expReward,
+              String(req.body?.mapId || character.worldState?.mapId || '')
+            );
+            undeadCombat.partyExperience = expGrant.party;
             undeadCombat.drops = applyCombatDrops(character, undeadCombat.drops);
           }
           combat = {
@@ -2881,40 +3065,18 @@ function registerV2Routes({
           return res.status(400).json({ msg: '공격에 필요한 탄약이 부족합니다.' });
         }
       }
-      const minimum = Math.max(0, Number(profile.derivedStats.attackMinimum) || 0);
-      const maximum = Math.max(minimum, Number(profile.derivedStats.attackMaximum) || 0);
-      let rolledDamage = maximum > 0
-        ? minimum + Math.random() * (maximum - minimum)
-        : 5;
-      rolledDamage += Number(ammunition?.attackBonus) || 0;
       const skillEffects = profile.skillEffects || {};
-      const critical = Math.random() * 100
-        < Number(profile.derivedStats.criticalChance || 0);
-      if (critical) {
-        rolledDamage *= Number(profile.derivedStats.criticalDamagePercent || 200) / 100;
-      }
       const activeElements = getActiveWeaponElements(profile.skillTree);
-      rolledDamage *= 1 + Number(skillEffects.damageIncreasePercent || 0) / 100;
-      if (activeElements.length) {
-        rolledDamage *= 1 + Number(skillEffects.elementDamageIncreasePercent || 0) / 100;
-      }
       const comboCount = Math.max(0, Number(profile.skillTree?.comboCount) || 0);
-      if (skillEffects.comboEnabled) {
-        rolledDamage *= 1 + comboCount * Number(skillEffects.comboDamagePerCount || 0) / 100;
-      }
       const hpPercent = Number(profile.resources?.currentHp) / Math.max(1, Number(profile.resources?.maxHp)) * 100;
-      if (
-        skillEffects.lowHpThresholdPercent
-        && hpPercent <= Number(skillEffects.lowHpThresholdPercent)
-      ) {
-        rolledDamage *= 1 + Number(skillEffects.lowHpDamageIncreasePercent || 0) / 100;
-      }
+      const rolled = rollBasicAttackDamage(profile, { activeElements, comboCount, hpPercent });
       const archetype = DEPARTMENTS[profile.job?.departmentId]?.archetype;
       const result = attackMonster({
         userId: String(auth.id),
         mapId: String(req.body?.mapId || ''),
         monsterId: String(req.body?.monsterId || ''),
-        damage: rolledDamage,
+        damage: rolled.damage,
+        damageRange: rolled.damageRange,
         rangePx: profile.combatPresentation?.rangePx || profile.derivedStats.attackRange,
         damageType: archetype === 'mage' ? 'magic' : 'physical',
         elements: activeElements,
@@ -2940,7 +3102,7 @@ function registerV2Routes({
           reason: result.reason
         });
       }
-      result.critical = critical;
+      result.critical = rolled.critical;
       if (consumesAmmunition) {
         await V2Character.updateOne(
           {
@@ -2962,7 +3124,10 @@ function registerV2Routes({
           userId: String(auth.id),
           mapId: String(req.body?.mapId || ''),
           monsterId: String(result.targetId || req.body?.monsterId || ''),
-          damage: rolledDamage * Number(skillEffects.doubleStrikeDamagePercent || 0) / 100,
+          damage: rolled.damage * Number(skillEffects.doubleStrikeDamagePercent || 0) / 100,
+          damageRange: rolled.damageRange
+            ? scaleDamageRange(rolled.damageRange, Number(skillEffects.doubleStrikeDamagePercent || 0) / 100)
+            : null,
           rangePx: profile.combatPresentation?.rangePx || profile.derivedStats.attackRange,
           damageType: archetype === 'mage' ? 'magic' : 'physical',
           elements: activeElements,
@@ -3005,7 +3170,13 @@ function registerV2Routes({
           );
         }
         if (result.expReward > 0) {
-          experience = grantV2Experience(character, result.expReward);
+          const expGrant = await grantCombatExperience(
+            character,
+            result.expReward,
+            String(req.body?.mapId || profile.worldState?.mapId || '')
+          );
+          experience = expGrant.self;
+          result.partyExperience = expGrant.party;
           result.drops = applyCombatDrops(character, result.drops);
           result.drops = applySettlementEventDrops(
             character,
@@ -3290,6 +3461,7 @@ module.exports = {
   V2_REMOVED_FEATURES,
   V2_PLANNED_FEATURES,
   validateSignupPayload,
+  calculatePartyExperienceShares,
   calculateWelfareSupportDamage,
   serializeMarketplaceListing
 };

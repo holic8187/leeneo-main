@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const { getItemDefinition } = require('../../src/v2/items/itemCatalog');
 const { MONSTER_CATALOG } = require('../../src/v2/world/monsterCatalog');
 const {
+  COIN_DROP_CHANCE,
   getSettlementEventView,
   isEventLevelRangeMonster,
   rollSettlementEventCoin,
@@ -34,6 +35,12 @@ test('event coins only drop from monsters within ten levels and respect the dail
   assert.equal(rollSettlementEventCoin(character, 41, () => 0, eventDate), null);
   character.events.settlementSupport.dailyCoinCount = 200;
   assert.equal(rollSettlementEventCoin(character, 30, () => 0, eventDate), null);
+});
+
+test('event coin drop chance is tripled and one stack holds five thousand coins', () => {
+  const coin = getItemDefinition('settlement_event_coin');
+  assert.equal(COIN_DROP_CHANCE, 0.15);
+  assert.equal(coin.maxStack, 5000);
 });
 
 test('level eighty and above accepts every monster from level seventy upward', () => {

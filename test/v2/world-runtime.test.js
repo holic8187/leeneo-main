@@ -152,6 +152,45 @@ test('a magical hit can absorb monster MP without exceeding the available amount
   assert.equal(result.monster.mp, monster.maxMp - result.mpAbsorbed);
 });
 
+test('magical attacks use the provided magic damage range before monster magic defense', () => {
+  const state = updatePresence({
+    userId: 'magic-range-user',
+    nickname: 'magic-range-user',
+    mapId: 'newcomer_training',
+    x: 30,
+    floor: 0,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_000
+  });
+  const monster = state.monsters.find((entry) => entry.floor === 0);
+  updatePresence({
+    userId: 'magic-range-user',
+    nickname: 'magic-range-user',
+    mapId: 'newcomer_training',
+    x: monster.x,
+    floor: 0,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_100
+  });
+  const result = attackMonster({
+    userId: 'magic-range-user',
+    mapId: 'newcomer_training',
+    monsterId: monster.id,
+    damage: 1,
+    damageRange: { minimum: 100, maximum: 100 },
+    damageType: 'magic',
+    rangePx: 100,
+    playerLevel: 99,
+    now: 1_200
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.damage, 99);
+  assert.equal(result.defeated, true);
+});
+
 test('holy healing damage targets undead monsters and ignores living monsters', () => {
   const initial = updatePresence({
     userId: 'support-user',
