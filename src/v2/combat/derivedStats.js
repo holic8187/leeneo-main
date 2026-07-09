@@ -120,11 +120,15 @@ function buildDerivedStats({
     attackRange = { minimum: baseAttack, maximum: baseAttack };
   }
 
-  const accuracy = calculateAccuracy({
+  const physicalAccuracy = calculateAccuracy({
     group: getAccuracyGroup(archetype),
     stats: effectiveStats,
     bonusAccuracy: sumLoadoutStat(loadout, 'accuracy') + finite(skillEffects.accuracyIncrease)
   });
+  const magicAccuracy = Math.floor(Math.max(0, finite(effectiveStats.workKnowledge)) / 10)
+    + Math.floor(Math.max(0, finite(effectiveStats.awareness)) / 10)
+    + 1;
+  const accuracy = archetype === 'mage' ? magicAccuracy : physicalAccuracy;
   const evasion = 1 + calculateEvasion({
     group: getEvasionGroup(archetype),
     stats: effectiveStats,
@@ -162,6 +166,8 @@ function buildDerivedStats({
     standardPhysicalDefense: roundStat(getStandardPdd(archetype, level)),
     magic,
     accuracy: roundStat(accuracy),
+    physicalAccuracy: roundStat(physicalAccuracy),
+    magicAccuracy: roundStat(magicAccuracy),
     evasion: roundStat(evasion),
     movementSpeed: roundStat(
       100

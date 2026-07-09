@@ -14,7 +14,8 @@ const {
 } = require('./world/mapDefinitions');
 const {
   DEPARTMENTS,
-  applyAdvancement
+  applyAdvancement,
+  getJobName
 } = require('./jobs/advancementRules');
 const {
   claimWorldControl,
@@ -67,7 +68,8 @@ const {
   purgeExpiredMail,
   getPendingMail,
   claimMail,
-  claimAllMail
+  claimAllMail,
+  sortInventory
 } = require('./services/inventoryService');
 const {
   enhanceEquippedItem
@@ -340,6 +342,24 @@ function getBearerToken(req) {
 }
 
 function serializeMarketplaceListing(listing = {}) {
+  const item = getItemDefinition(listing.itemId);
+  const instanceData = listing.instanceData || null;
+  const enhancement = instanceData?.enhancement || null;
+  const equipmentSpec = item?.category === 'equipment'
+    ? {
+      equipmentSlot: item.equipmentSlot || '',
+      weaponType: item.weaponType || '',
+      requiredLevel: Number(item.requiredLevel ?? item.requirements?.level) || 1,
+      requirements: item.requirements || {},
+      stats: instanceData?.stats || item.stats || {},
+      enhancement: enhancement || {
+        level: 0,
+        remaining: Number(item.upgradeSlots) || 0,
+        maximum: Number(item.upgradeSlots) || 0,
+        bonusStats: {}
+      }
+    }
+    : null;
   return {
     id: String(listing._id || listing.id || ''),
     sellerId: String(listing.sellerId || ''),
@@ -349,7 +369,8 @@ function serializeMarketplaceListing(listing = {}) {
     itemIcon: String(listing.itemIcon || '📦'),
     itemCategory: String(listing.itemCategory || ''),
     quantity: Math.max(1, Number(listing.quantity) || 1),
-    instanceData: listing.instanceData || null,
+    instanceData,
+    equipmentSpec,
     pricePerItem: Math.max(1, Number(listing.pricePerItem) || 1),
     totalPrice: Math.max(1, Number(listing.totalPrice) || 1),
     sellerProceeds: Math.max(0, Number(listing.sellerProceeds) || 0),
@@ -2178,6 +2199,23 @@ function registerV2Routes({
     }
   });
 
+  app.post('/api/v2/inventory/sort', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const result = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        const inventory = sortInventory(character);
+        await character.save();
+        return inventory;
+      });
+      return res.json({ success: true, inventory: result });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '인벤토리를 정렬하지 못했습니다.' });
+    }
+  });
+
   app.post('/api/v2/inventory/quick-slot', async (req, res) => {
     const auth = requireV2User(req, res);
     if (!auth) return;
@@ -2595,6 +2633,47 @@ function registerV2Routes({
     }
   });
 
+  app.post('/api/v2/marketplace/cancel', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    let listing = null;
+    try {
+      listing = await V2MarketListing.findOneAndUpdate(
+        {
+          _id: req.body?.listingId,
+          sellerId: auth.id,
+          status: 'active',
+          expiresAt: { $gt: new Date() }
+        },
+        { $set: { status: 'processing' } },
+        { new: true }
+      );
+      if (!listing) throw new Error('취소할 수 있는 판매 물품이 없습니다.');
+      const result = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        addInventoryItem(character, listing.itemId, listing.quantity, listing.instanceData);
+        await character.save();
+        listing.status = 'cancelled';
+        listing.returnedAt = new Date();
+        await listing.save();
+        worldProfileCache.delete(String(auth.id));
+        return {
+          listing: serializeMarketplaceListing(listing.toObject()),
+          character: buildCharacterResponse(character),
+          inventory: buildInventoryView(character)
+        };
+      });
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      if (listing?.status === 'processing') {
+        listing.status = listing.expiresAt <= new Date() ? 'expired' : 'active';
+        await listing.save();
+      }
+      return res.status(400).json({ msg: err.message || '판매 취소에 실패했습니다.' });
+    }
+  });
+
   app.post('/api/v2/marketplace/settle', async (req, res) => {
     const auth = requireV2User(req, res);
     if (!auth) return;
@@ -2651,6 +2730,19 @@ function registerV2Routes({
     }
   });
 
+  function resolveSafeZoneShopId(map, requestedShopId = '') {
+    if (!map?.safeZone) {
+      throw new Error('상점은 안전지대에서만 이용할 수 있습니다.');
+    }
+    const allowedShopIds = [map.shopId, map.scrollShopId].filter(Boolean);
+    const candidate = String(requestedShopId || '').trim();
+    if (!candidate) return map.shopId;
+    if (!allowedShopIds.includes(candidate)) {
+      throw new Error('현재 위치에서 이용할 수 없는 상점입니다.');
+    }
+    return candidate;
+  }
+
   app.get('/api/v2/shop', async (req, res) => {
     const auth = requireV2User(req, res);
     if (!auth) return;
@@ -2658,12 +2750,10 @@ function registerV2Routes({
       const character = await V2Character.findOne({ userId: auth.id });
       if (!character) return res.status(404).json({ msg: 'V2 캐릭터를 찾을 수 없습니다.' });
       const map = getWorldMap(character.worldState?.mapId);
-      if (!map?.safeZone) {
-        return res.status(403).json({ msg: '상점은 안전지대에서만 이용할 수 있습니다.' });
-      }
-      return res.json({ shop: buildShopView(character, map.shopId) });
+      const shopId = resolveSafeZoneShopId(map, req.query?.shopId);
+      return res.json({ shop: buildShopView(character, shopId) });
     } catch (err) {
-      return res.status(500).json({ msg: '상점 정보를 불러오지 못했습니다.' });
+      return res.status(err.message?.includes('상점') ? 403 : 500).json({ msg: err.message || '상점 정보를 불러오지 못했습니다.' });
     }
   });
 
@@ -2675,10 +2765,8 @@ function registerV2Routes({
         const character = await V2Character.findOne({ userId: auth.id });
         if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
         const map = getWorldMap(character.worldState?.mapId);
-        if (!map?.safeZone) {
-          throw new Error('상점은 안전지대에서만 이용할 수 있습니다.');
-        }
-        const purchase = buyShopItem(character, req.body?.itemId, req.body?.quantity, map.shopId);
+        const shopId = resolveSafeZoneShopId(map, req.body?.shopId);
+        const purchase = buyShopItem(character, req.body?.itemId, req.body?.quantity, shopId);
         await character.save();
         worldProfileCache.delete(String(auth.id));
         return purchase;
@@ -2739,7 +2827,7 @@ function registerV2Routes({
         const character = await V2Character.findOne({ userId: auth.id });
         if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
         const item = getItemDefinition(req.body?.itemId);
-        if (!item || !['return-scroll', 'experience-buff', 'hunting-time', 'level-up'].includes(item.itemType)) {
+        if (!item || !['return-scroll', 'experience-buff', 'hunting-time', 'level-up', 'skill-reset'].includes(item.itemType)) {
           throw new Error('사용할 수 없는 아이템입니다.');
         }
         if (item.itemType === 'level-up' && Number(character.progression?.level) >= MAX_LEVEL) {
@@ -2767,6 +2855,12 @@ function registerV2Routes({
         } else if (item.itemType === 'experience-buff') {
           const skillState = ensureSkillState(character);
           const now = Date.now();
+          const existing = skillState.activeBuffs.find((buff) => buff.skillId === item.id);
+          const existingExpiry = existing?.expiresAt ? new Date(existing.expiresAt).getTime() : 0;
+          const baseTime = Number.isFinite(existingExpiry) && existingExpiry > now
+            ? existingExpiry
+            : now;
+          const durationMs = Math.max(1, Number(item.durationSeconds) || 900) * 1000;
           skillState.activeBuffs = skillState.activeBuffs.filter(
             (buff) => buff.skillId !== item.id
           );
@@ -2775,15 +2869,38 @@ function registerV2Routes({
             name: item.name,
             effects: { experienceBonusPercent: Number(item.experienceBonusPercent) || 100 },
             createdAt: new Date(now),
-            expiresAt: new Date(now + Math.max(1, Number(item.durationSeconds) || 900) * 1000)
+            expiresAt: new Date(baseTime + durationMs)
           });
           character.markModified('skills');
-          message = `${item.name} 효과가 15분간 적용됩니다.`;
+          message = `${item.name} 효과 시간이 누적되었습니다.`;
         } else if (item.itemType === 'hunting-time') {
           const huntingTime = addHuntingMinutes(character, item.huntingMinutes);
           message = huntingTime.addedSeconds > 0
             ? `자동사냥 시간이 ${Math.floor(huntingTime.addedSeconds / 60)}분 충전되었습니다.`
             : '자동사냥 시간이 이미 최대 400분입니다.';
+        } else if (item.itemType === 'skill-reset') {
+          const skillState = ensureSkillState(character);
+          const skillDefinitionIds = new Set(Object.keys(SKILL_DEFINITIONS));
+          skillState.levels = {};
+          skillState.activePreset = [];
+          skillState.autoPreset = [];
+          skillState.cooldowns = {};
+          skillState.summon = null;
+          skillState.comboCount = 0;
+          skillState.activeBuffs = skillState.activeBuffs.filter(
+            (buff) => !skillDefinitionIds.has(String(buff.skillId || ''))
+          );
+          character.progression.unspentSkillPoints = Math.max(
+            0,
+            Math.floor(Number(character.progression?.totalSkillPointsEarned) || 0)
+          );
+          reconcileHpGrowthSkillBonus(character);
+          reconcileMpGrowthSkillBonus(character);
+          reconcileMaxResourceBuff(character);
+          character.markModified('skills');
+          character.markModified('progression');
+          character.markModified('resources');
+          message = '투자한 스킬포인트를 모두 회수했습니다.';
         } else {
           const levelUp = applyLevelUpCoupon(character);
           message = `레벨업 쿠폰을 사용하여 Lv.${levelUp.level}이 되었습니다. 경험치는 0%로 초기화되었습니다.`;
@@ -2910,13 +3027,18 @@ function registerV2Routes({
         .lean();
       const ranking = characters.map((character, index) => {
         const presence = onlineById.get(String(character.userId));
+        const departmentId = character.job?.departmentId || 'unassigned';
+        const advancementTier = Number(character.job?.advancementTier) || 0;
         return {
           rank: index + 1,
           userId: String(character.userId),
           displayName: character.displayName,
           level: Number(character.progression?.level) || 1,
           exp: Math.max(0, Number(character.progression?.exp) || 0),
-          departmentId: character.job?.departmentId || 'unassigned',
+          departmentId,
+          departmentName: DEPARTMENTS[departmentId]?.name || '부서 미정',
+          advancementTier,
+          jobName: getJobName(departmentId, advancementTier),
           mapId: presence ? presence.mapId : character.worldState?.mapId,
           online: Boolean(presence?.online),
           autoHunting: Boolean(presence?.autoHunting)
@@ -3777,6 +3899,56 @@ function registerV2Routes({
     } catch (err) {
       console.error('V2 admin mail send error:', err);
       return res.status(500).json({ msg: err.message || '운영자 선물을 보내지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/admin/account/delete', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const target = String(req.body?.target || '').trim();
+      if (!target) return res.status(400).json({ msg: '삭제할 계정 아이디 또는 닉네임을 입력해주세요.' });
+      const legacyUser = await User.findOne({
+        $or: [{ username: target }, { nickname: target }]
+      }).select('_id username nickname').lean();
+      const v2Account = await V2Account.findOne({
+        $or: [
+          { username: target },
+          { nickname: target },
+          ...(legacyUser?._id ? [{ sourceUserId: legacyUser._id }] : [])
+        ]
+      }).lean();
+      const v2Character = await V2Character.findOne({
+        $or: [
+          { displayName: target },
+          ...(legacyUser?._id ? [{ userId: legacyUser._id }] : []),
+          ...(v2Account?.sourceUserId ? [{ userId: v2Account.sourceUserId }] : [])
+        ]
+      }).lean();
+      const sourceUserId = legacyUser?._id || v2Account?.sourceUserId || v2Character?.userId;
+      if (!sourceUserId && !v2Account?._id && !v2Character?._id) {
+        return res.status(404).json({ msg: '삭제할 V2 계정을 찾을 수 없습니다.' });
+      }
+      if (sourceUserId) {
+        leaveWorld(sourceUserId);
+        worldProfileCache.delete(String(sourceUserId));
+      }
+      const [accountResult, characterResult] = await Promise.all([
+        sourceUserId
+          ? V2Account.deleteMany({ sourceUserId })
+          : V2Account.deleteMany({ _id: v2Account?._id }),
+        sourceUserId
+          ? V2Character.deleteMany({ userId: sourceUserId })
+          : V2Character.deleteMany({ _id: v2Character?._id })
+      ]);
+      return res.json({
+        success: true,
+        target,
+        deletedAccounts: accountResult.deletedCount || 0,
+        deletedCharacters: characterResult.deletedCount || 0
+      });
+    } catch (err) {
+      console.error('V2 admin account delete error:', err);
+      return res.status(500).json({ msg: err.message || 'V2 계정을 삭제하지 못했습니다.' });
     }
   });
 

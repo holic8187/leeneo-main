@@ -107,7 +107,20 @@ function statDescription(stats) {
     .join(', ');
 }
 
-function createScroll({ baseName, rate, stats, equipmentSlot = '', weaponType = '', idPrefix }) {
+function isSinglePointStatScroll(stats, statKey) {
+  const entries = Object.entries(stats || {});
+  return entries.length === 1
+    && entries[0][0] === statKey
+    && Number(entries[0][1]) === 1;
+}
+
+function createScroll({ baseName, rate, stats, equipmentSlot = '', weaponType = '', idPrefix, groupKey }) {
+  const isBasicWeapon100 = equipmentSlot === 'weapon'
+    && Number(rate) === 100
+    && (
+      isSinglePointStatScroll(stats, 'attack')
+      || isSinglePointStatScroll(stats, 'magic')
+    );
   return {
     id: `scroll_${slug(idPrefix)}_${rate}`,
     name: `${baseName} 주문서 ${rate}%`,
@@ -115,8 +128,10 @@ function createScroll({ baseName, rate, stats, equipmentSlot = '', weaponType = 
     itemType: 'equipment-scroll',
     icon: '📜',
     maxStack: 100,
+    ...(isBasicWeapon100 ? { buyPrice: 200_000, shopTags: ['scroll_vendor'] } : {}),
     sellPrice: 100,
     successRate: rate,
+    scrollGroupKey: groupKey || idPrefix,
     scrollStats: Object.freeze({ ...stats }),
     applicableSlot: equipmentSlot,
     applicableWeaponType: weaponType,
@@ -133,7 +148,8 @@ for (const [slot, slotName, groups] of SLOT_SCROLL_GROUPS) {
         rate,
         stats: rates[rate],
         equipmentSlot: slot,
-        idPrefix: `${slot}_${effectName}`
+        idPrefix: `${slot}_${effectName}`,
+        groupKey: `${slot}_${effectName}`
       }));
     }
   }
@@ -146,26 +162,45 @@ for (const [weaponType, weaponName, effectName, rates] of WEAPON_SCROLL_GROUPS) 
       stats: rates[rate],
       equipmentSlot: 'weapon',
       weaponType,
-      idPrefix: `${weaponType}_${effectName}`
+      idPrefix: `${weaponType}_${effectName}`,
+      groupKey: `${weaponType}_${effectName}`
     }));
   }
 }
 
 const EQUIPMENT_SCROLLS = Object.freeze(scrolls.map((scroll) => Object.freeze(scroll)));
+const EQUIPMENT_SCROLL_GROUPS = (() => {
+  const groups = new Map();
+  for (const scroll of EQUIPMENT_SCROLLS) {
+    const key = scroll.scrollGroupKey || scroll.id;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(scroll);
+  }
+  return Object.freeze([...groups.values()].map((group) => Object.freeze(
+    [...group].sort((left, right) => Number(left.successRate) - Number(right.successRate))
+  )));
+})();
 
 function getScrollsForMonster(monsterId) {
   let hash = 0;
   for (const character of String(monsterId)) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
   const count = 1 + hash % 3;
   const selected = [];
-  for (let index = 0; index < count; index += 1) {
-    const scroll = EQUIPMENT_SCROLLS[(hash + index * 37) % EQUIPMENT_SCROLLS.length];
+  const usedIndexes = new Set();
+  for (let index = 0; index < count && usedIndexes.size < EQUIPMENT_SCROLLS.length; index += 1) {
+    let scrollIndex = (hash + index * 37) % EQUIPMENT_SCROLLS.length;
+    while (usedIndexes.has(scrollIndex)) {
+      scrollIndex = (scrollIndex + 1) % EQUIPMENT_SCROLLS.length;
+    }
+    usedIndexes.add(scrollIndex);
+    const scroll = EQUIPMENT_SCROLLS[scrollIndex];
+    const chance = (0.00002 + ((hash + index) % 7) * 0.00001) * EQUIPMENT_SCROLL_DROP_MULTIPLIER;
     selected.push({
       itemId: scroll.id,
       name: scroll.name,
       icon: scroll.icon,
       quantity: 1,
-      chance: (0.00002 + ((hash + index) % 7) * 0.00001) * EQUIPMENT_SCROLL_DROP_MULTIPLIER
+      chance
     });
   }
   return selected;

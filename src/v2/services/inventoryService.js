@@ -679,6 +679,45 @@ function claimAllMail(character) {
   return pending.length;
 }
 
+function sortInventory(character) {
+  const inventory = ensureInventory(character);
+  const categoryRank = {
+    equipment: 0,
+    consumable: 1,
+    misc: 2,
+    cash: 3
+  };
+  inventory.items = inventory.items
+    .map((entry, index) => ({ entry, index, item: getItemDefinition(entry.itemId) }))
+    .sort((left, right) => {
+      const leftCategory = left.item?.category || '';
+      const rightCategory = right.item?.category || '';
+      const categoryDifference = (categoryRank[leftCategory] ?? 99) - (categoryRank[rightCategory] ?? 99);
+      if (categoryDifference) return categoryDifference;
+
+      const leftExpiry = left.entry.expiresAt ? new Date(left.entry.expiresAt).getTime() : Infinity;
+      const rightExpiry = right.entry.expiresAt ? new Date(right.entry.expiresAt).getTime() : Infinity;
+      const leftHasExpiry = Number.isFinite(leftExpiry);
+      const rightHasExpiry = Number.isFinite(rightExpiry);
+      if (leftHasExpiry !== rightHasExpiry) return leftHasExpiry ? -1 : 1;
+      if (leftHasExpiry && leftExpiry !== rightExpiry) return leftExpiry - rightExpiry;
+
+      if (leftCategory === 'equipment') {
+        const leftLevel = Number(left.item?.requiredLevel || left.item?.requirements?.level) || 0;
+        const rightLevel = Number(right.item?.requiredLevel || right.item?.requirements?.level) || 0;
+        if (leftLevel !== rightLevel) return leftLevel - rightLevel;
+      }
+
+      const nameDifference = String(left.item?.name || left.entry.itemId)
+        .localeCompare(String(right.item?.name || right.entry.itemId), 'ko-KR');
+      if (nameDifference) return nameDifference;
+      return left.index - right.index;
+    })
+    .map(({ entry }) => entry);
+  markInventoryModified(character);
+  return buildInventoryView(character);
+}
+
 module.exports = {
   DEFAULT_INVENTORY_CAPACITY,
   MAX_INVENTORY_CAPACITY,
@@ -712,5 +751,6 @@ module.exports = {
   purgeExpiredMail,
   getPendingMail,
   claimMail,
-  claimAllMail
+  claimAllMail,
+  sortInventory
 };

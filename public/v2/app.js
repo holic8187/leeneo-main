@@ -58,6 +58,7 @@ const state = {
   jobChangePrompt: false,
   mailbox: [],
   pendingMailCount: 0,
+  floatingButtonsMinimized: localStorage.getItem('v2FloatingButtonsMinimized') === 'true',
   mailPollTimer: null,
   adminGrantItems: [],
   autoPotionBusy: { hp: false, mp: false },
@@ -65,7 +66,7 @@ const state = {
   autoSkillOwnerKey: '',
   autoSkillIds: new Set(),
   autoSkillRotationIndex: 0,
-  shop: { money: 0, buyItems: [], tab: 'consumable' },
+  shop: { money: 0, buyItems: [], tab: 'consumable', shopId: '' },
   partyState: { party: null, invitation: null, nearbyPlayers: [] },
   lastPartyInvitationId: '',
   tradeState: { request: null, session: null, nearbyPlayers: [] },
@@ -275,6 +276,29 @@ async function sendAdminGift(event) {
     $('adminGiftMessage').value = '';
   } catch (err) {
     $('adminGiftStatus').textContent = err.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function deleteAdminAccount(event) {
+  event.preventDefault();
+  const target = $('adminDeleteAccountTarget')?.value?.trim() || '';
+  if (!target) return;
+  if (!window.confirm(`${target} V2 계정과 캐릭터를 삭제할까요? V1 원본 계정은 유지됩니다.`)) return;
+  const button = event.currentTarget.querySelector('button[type="submit"]');
+  button.disabled = true;
+  $('adminDeleteAccountStatus').textContent = 'V2 계정 삭제 처리 중입니다.';
+  try {
+    const data = await request('/api/v2/admin/account/delete', {
+      method: 'POST',
+      body: JSON.stringify({ target })
+    });
+    $('adminDeleteAccountTarget').value = '';
+    $('adminDeleteAccountStatus').textContent = `${data.deleted?.displayName || target} 계정을 삭제했습니다.`;
+    await loadAdminSummary();
+  } catch (err) {
+    $('adminDeleteAccountStatus').textContent = err.message;
   } finally {
     button.disabled = false;
   }
@@ -856,7 +880,8 @@ function renderWorldMap(mapId, arrivalPortalIndex = 0) {
   $('mapLevelRange').textContent = map.safeZone ? 'SAFE ZONE' : 'FIELD';
   $('currentLocation').textContent = map.name;
   $('worldStage').dataset.theme = map.theme;
-  $('shopNpc')?.classList.toggle('hidden', !map.safeZone);
+  $('shopNpc')?.classList.toggle('hidden', !map.safeZone || !map.shopId);
+  $('scrollShopNpc')?.classList.toggle('hidden', !map.safeZone || !map.scrollShopId);
   const needsUpperRoute = map.connections.length > 2;
   $('worldRope').classList.toggle('is-ladder', map.features.includes('ladder') || needsUpperRoute);
   $('worldRope').classList.toggle(
@@ -1456,14 +1481,11 @@ function renderRemotePlayers(players = []) {
       ? `${activityLabel(player.activity)} · 오프라인`
       : activityLabel(player.activity);
     const skillLabel = element.querySelector('.remote-skill-use');
-    const skillKey = `${player.recentSkill?.name || ''}:${player.recentSkill?.createdAt || 0}`;
-    if (player.recentSkill?.name && element.dataset.skillKey !== skillKey) {
-      element.dataset.skillKey = skillKey;
-      skillLabel.textContent = player.recentSkill.name;
+    if (skillLabel) {
+      skillLabel.textContent = '';
       skillLabel.classList.remove('is-visible');
-      void skillLabel.offsetWidth;
-      skillLabel.classList.add('is-visible');
     }
+    element.dataset.skillKey = '';
     element.style.left = `${player.x}%`;
     element.style.bottom = player.floor === 1 ? `${getUpperPlatformBottom()}px` : '42px';
     element.classList.toggle('facing-left', Boolean(player.facingLeft));
@@ -1861,6 +1883,25 @@ function updateMailButton(pendingCount) {
   state.pendingMailCount = Math.max(0, Number(pendingCount) || 0);
   $('mailPendingCount').textContent = formatNumber(state.pendingMailCount);
   $('mailButton').classList.toggle('hidden', state.pendingMailCount <= 0);
+  $('mailButton').classList.toggle('has-alert', state.pendingMailCount > 0);
+}
+
+function setFloatingButtonsMinimized(minimized) {
+  state.floatingButtonsMinimized = Boolean(minimized);
+  localStorage.setItem('v2FloatingButtonsMinimized', String(state.floatingButtonsMinimized));
+  document.body.classList.toggle('floating-actions-minimized', state.floatingButtonsMinimized);
+  const button = $('floatMinimizeButton');
+  if (button) {
+    button.textContent = state.floatingButtonsMinimized ? '+' : '−';
+    button.setAttribute(
+      'aria-label',
+      state.floatingButtonsMinimized ? '우편/이벤트 버튼 펼치기' : '우편/이벤트 버튼 최소화'
+    );
+  }
+}
+
+function getDisplayedMoney() {
+  return Number(state.character?.economy?.money ?? state.shop.money ?? 0) || 0;
 }
 
 function renderPotionQuickbar() {
@@ -2000,7 +2041,7 @@ function inventorySlotBody(item, slotNumber, locked = false) {
   }
   let usable = '';
   const directlyUsableItem = (
-    ['return-scroll', 'experience-buff', 'hunting-time', 'level-up'].includes(item.itemType)
+    ['return-scroll', 'experience-buff', 'hunting-time', 'level-up', 'skill-reset'].includes(item.itemType)
     || item.id === 'level_up_coupon'
   );
   if (item.itemType === 'inventory-expansion') {
@@ -2104,6 +2145,10 @@ function inventoryBody() {
   }).join('');
 
   return `<div class="inventory-window">
+    <div class="inventory-wallet">
+      <div><span>보유 재화</span><strong>${formatNumber(getDisplayedMoney())}원</strong></div>
+      <button type="button" data-sort-inventory>자동 정렬</button>
+    </div>
     <div class="inventory-tabs" role="tablist">
       ${INVENTORY_TAB_ORDER.map((key) => {
         const tab = state.inventory.categories[key] || { label: key, icon: '📦', capacity: 20, usedSlots: 0 };
@@ -2131,6 +2176,20 @@ function inventoryBody() {
 function rerenderInventory() {
   $('featureBody').innerHTML = inventoryBody();
   bindInventoryControls();
+}
+
+async function sortInventory() {
+  try {
+    const data = await request('/api/v2/inventory/sort', {
+      method: 'POST',
+      body: JSON.stringify({})
+    });
+    setInventoryData(data.inventory);
+    rerenderInventory();
+    setWorldActivity('인벤토리를 자동 정렬했습니다.');
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
 }
 
 function openInventoryExpansionChoice() {
@@ -2171,6 +2230,7 @@ function bindInventoryControls() {
     });
   });
   document.querySelector('[data-use-expansion-ticket]')?.addEventListener('click', openInventoryExpansionChoice);
+  document.querySelector('[data-sort-inventory]')?.addEventListener('click', sortInventory);
   document.querySelector('[data-use-job-change-ticket]')?.addEventListener('click', () => {
     state.jobChangePrompt = true;
     state.selectedJobChangeDepartmentId = '';
@@ -2523,11 +2583,13 @@ function shopBody() {
   </div>`;
 }
 
-async function openFieldShop() {
+async function openFieldShop(shopId = '') {
   try {
-    const data = await request('/api/v2/shop');
+    const query = shopId ? `?shopId=${encodeURIComponent(shopId)}` : '';
+    const data = await request(`/api/v2/shop${query}`);
     state.shop.money = Number(data.shop?.money) || 0;
     state.shop.buyItems = data.shop?.buyItems || [];
+    state.shop.shopId = data.shop?.shopId || shopId || '';
     setInventoryData(data.shop?.inventory);
     openFeature('shop');
   } catch (err) {
@@ -2540,7 +2602,7 @@ async function buyFieldShopItem(itemId) {
   try {
     const data = await request('/api/v2/shop/buy', {
       method: 'POST',
-      body: JSON.stringify({ itemId, quantity: input?.value })
+      body: JSON.stringify({ itemId, quantity: input?.value, shopId: state.shop.shopId })
     });
     state.shop.money = Number(data.money) || 0;
     setInventoryData(data.inventory);
@@ -2611,12 +2673,13 @@ function partyBody() {
     const partyFull = party.members.length >= 6;
     return `<div class="party-sheet">
       <header><strong>현재 파티 ${party.members.length}/6</strong><small>같은 맵의 파티원과 함께 전투할 수 있습니다.</small></header>
+      <button class="party-refresh-button" type="button" data-party-refresh>현재 맵 인원 새로고침</button>
       <div class="party-member-list">${party.members.map((member) => `<article>
         <div><b>${member.isLeader ? '👑 ' : ''}${escapeHtml(member.nickname)}</b><small>${member.isSelf ? '나' : '파티원'}</small></div>
         ${party.isLeader && !member.isSelf ? `<button type="button" data-party-kick="${escapeHtml(member.userId)}">추방</button>` : ''}
       </article>`).join('')}</div>
       ${party.isLeader ? `<section class="party-invite-panel">
-        <strong>추가 파티원 초대</strong>
+        <strong>현재 맵 인원 초대</strong>
         ${partyFull ? '<p>파티 정원이 가득 찼습니다.</p>' : `<div class="party-member-list">${inviteTargets.length ? inviteTargets.map((player) => `<article>
           <div><b>${escapeHtml(player.nickname)}</b><small>${escapeHtml(player.activity || '대기 중')}</small></div>
           <button type="button" data-party-invite="${escapeHtml(player.userId)}">초대</button>
@@ -2627,6 +2690,7 @@ function partyBody() {
   }
   return `<div class="party-sheet">
     <header><strong>같은 맵의 사원</strong><small>상대가 수락하면 파티가 만들어집니다.</small></header>
+    <button class="party-refresh-button" type="button" data-party-refresh>현재 맵 인원 새로고침</button>
     <div class="party-member-list">${players.length ? players.map((player) => `<article>
       <div><b>${escapeHtml(player.nickname)}</b><small>${escapeHtml(player.activity || '대기 중')}</small></div>
       <button type="button" data-party-invite="${escapeHtml(player.userId)}">초대</button>
@@ -2791,6 +2855,7 @@ function bindPartyControls() {
     button.addEventListener('click', () => partyRequest('kick', { targetId: button.dataset.partyKick }));
   });
   document.querySelector('[data-party-leave]')?.addEventListener('click', () => partyRequest('leave'));
+  document.querySelector('[data-party-refresh]')?.addEventListener('click', () => refreshParty(true));
   document.querySelector('[data-party-accept]')?.addEventListener('click', (event) => (
     partyRequest('accept', { invitationId: event.currentTarget.dataset.partyAccept })
   ));
@@ -3178,7 +3243,7 @@ function skillBody() {
   return buildSkillBody();
 }
 
-function rankingBody() {
+function legacyRankingBody() {
   const entries = state.ranking.tab === 'online'
     ? state.ranking.online
     : state.ranking.all;
@@ -3192,6 +3257,32 @@ function rankingBody() {
       <div><strong>${escapeHtml(entry.displayName)}</strong><small>${entry.online ? '온라인' : (entry.autoHunting ? '오프라인 자동사냥 중' : '오프라인')}</small></div>
       <span>Lv.${formatNumber(entry.level)}</span>
     </article>`).join('') : '<p>표시할 유저가 없습니다.</p>'}</div>
+  </div>`;
+}
+
+function rankingBody() {
+  const entries = state.ranking.tab === 'online'
+    ? state.ranking.online
+    : state.ranking.all;
+  const entryHtml = entries.map((entry) => {
+    const presenceLabel = entry.online ? '온라인' : (entry.autoHunting ? '오프라인 자동사냥 중' : '오프라인');
+    const jobLabel = entry.jobName || entry.departmentName || '미전직';
+    return `<article>
+      <b>${formatNumber(entry.rank)}</b>
+      <div class="ranking-profile">
+        <strong>${escapeHtml(entry.displayName)}</strong>
+        <small>${escapeHtml(jobLabel)}</small>
+        <small>${escapeHtml(presenceLabel)}</small>
+      </div>
+      <span>Lv.${formatNumber(entry.level)}</span>
+    </article>`;
+  }).join('');
+  return `<div class="ranking-sheet">
+    <div class="ranking-tabs">
+      <button type="button" data-ranking-tab="all" class="${state.ranking.tab === 'all' ? 'is-active' : ''}">레벨 순위</button>
+      <button type="button" data-ranking-tab="online" class="${state.ranking.tab === 'online' ? 'is-active' : ''}">현재 온라인 유저</button>
+    </div>
+    <div class="ranking-list">${entries.length ? entryHtml : '<p>표시할 유저가 없습니다.</p>'}</div>
   </div>`;
 }
 
@@ -3305,8 +3396,40 @@ async function refreshMarketplace(openAfter = false) {
 }
 
 function marketplaceListingName(listing) {
-  const level = Math.max(0, Number(listing.instanceData?.enhancement?.level) || 0);
-  return `${listing.itemName}${level ? ` +${level}` : ''}`;
+  const enhancement = listing.equipmentSpec?.enhancement || listing.instanceData?.enhancement || {};
+  const level = Math.max(0, Number(enhancement.level) || 0);
+  const maximum = Math.max(0, Number(enhancement.maximum) || 0);
+  const remaining = Math.max(0, Number(enhancement.remaining ?? maximum) || 0);
+  const attempted = level > 0 || (maximum > 0 && remaining < maximum);
+  return `${listing.itemName}${attempted ? ` (+${level})` : ''}`;
+}
+
+function marketplaceEquipmentSpecHtml(listing) {
+  const spec = listing.equipmentSpec;
+  if (!spec) return '';
+  const requirements = spec.requirements || {};
+  const requiredLevel = Number(requirements.level ?? spec.requiredLevel) || 1;
+  const allowed = (requirements.allowedArchetypes || [])
+    .map((archetype) => ITEM_ARCHETYPE_LABELS[archetype] || archetype)
+    .join('/');
+  const requirementStats = Object.entries(requirements.stats || {})
+    .filter(([, value]) => Number(value) > 0)
+    .map(([key, value]) => `${ITEM_STAT_LABELS[key] || key} ${formatNumber(value)}`)
+    .join(' · ') || '없음';
+  const stats = Object.entries(spec.stats || {})
+    .filter(([, value]) => Number(value))
+    .map(([key, value]) => `${ITEM_STAT_LABELS[key] || key} +${formatNumber(value)}`)
+    .join(' · ') || '없음';
+  const enhancement = spec.enhancement || {};
+  const remaining = Number(enhancement.remaining ?? spec.upgradeSlots ?? 0) || 0;
+  return `<div class="market-equipment-spec">
+    <span>부위 ${escapeHtml(ITEM_SLOT_LABELS[spec.equipmentSlot] || spec.equipmentSlot || '-')}</span>
+    <span>레벨 ${formatNumber(requiredLevel)}</span>
+    <span>직업 ${escapeHtml(allowed || '전 직업')}</span>
+    <span>요구 ${escapeHtml(requirementStats)}</span>
+    <span>스탯 ${escapeHtml(stats)}</span>
+    <span>업그레이드 ${formatNumber(remaining)}회 남음</span>
+  </div>`;
 }
 
 function marketplaceBody() {
@@ -3317,7 +3440,8 @@ function marketplaceBody() {
   const statusLabel = {
     active: '판매 중',
     sold: '판매 완료 · 정산 대기',
-    expired: '만료 · 회수 대기'
+    expired: '만료 · 회수 대기',
+    cancelled: '판매 취소'
   };
   return `<div class="marketplace-sheet">
     <header class="marketplace-toolbar">
@@ -3344,7 +3468,7 @@ function marketplaceBody() {
       <div class="market-list">
         ${market.listings.length ? market.listings.map((listing) => `<article>
           <span class="market-icon">${escapeHtml(listing.itemIcon)}</span>
-          <div><strong>${escapeHtml(marketplaceListingName(listing))}</strong><small>${formatNumber(listing.quantity)}개 · ${new Date(listing.createdAt).toLocaleString('ko-KR')} 등록</small></div>
+          <div><strong>${escapeHtml(marketplaceListingName(listing))}</strong><small>${formatNumber(listing.quantity)}개 · ${new Date(listing.createdAt).toLocaleString('ko-KR')} 등록</small>${marketplaceEquipmentSpecHtml(listing)}</div>
           <b>${formatNumber(listing.totalPrice)}원</b>
           <button type="button" data-market-buy="${escapeHtml(listing.id)}">구매</button>
         </article>`).join('') : '<p class="notice-line">검색 조건에 맞는 판매 물품이 없습니다.</p>'}
@@ -3355,8 +3479,9 @@ function marketplaceBody() {
       <div class="market-list is-mine">
         ${market.mine.length ? market.mine.map((listing) => `<article>
           <span class="market-icon">${escapeHtml(listing.itemIcon)}</span>
-          <div><strong>${escapeHtml(marketplaceListingName(listing))}</strong><small>${escapeHtml(statusLabel[listing.status] || listing.status)} · ${new Date(listing.expiresAt).toLocaleString('ko-KR')}까지</small></div>
+          <div><strong>${escapeHtml(marketplaceListingName(listing))}</strong><small>${escapeHtml(statusLabel[listing.status] || listing.status)} · ${new Date(listing.expiresAt).toLocaleString('ko-KR')}까지</small>${marketplaceEquipmentSpecHtml(listing)}</div>
           <b>${formatNumber(listing.status === 'sold' ? listing.sellerProceeds : listing.totalPrice)}원</b>
+          ${listing.status === 'active' ? `<button type="button" data-market-cancel="${escapeHtml(listing.id)}">판매 취소</button>` : ''}
         </article>`).join('') : '<p class="notice-line">등록하거나 정산할 물품이 없습니다.</p>'}
       </div>
     </section>
@@ -3400,6 +3525,24 @@ async function buyMarketplaceItem(listingId) {
   }
 }
 
+async function cancelMarketplaceItem(listingId) {
+  if (!window.confirm('판매 등록을 취소하고 아이템을 회수할까요? 등록 수수료는 반환되지 않습니다.')) return;
+  try {
+    const data = await request('/api/v2/marketplace/cancel', {
+      method: 'POST',
+      body: JSON.stringify({ listingId })
+    });
+    state.character = data.character;
+    setInventoryData(data.inventory);
+    renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
+    setWorldActivity(`${data.listing.itemName} 판매 등록을 취소했습니다.`);
+    await refreshMarketplace();
+  } catch (err) {
+    setWorldActivity(err.message);
+    await refreshMarketplace();
+  }
+}
+
 async function settleMarketplace() {
   try {
     const data = await request('/api/v2/marketplace/settle', {
@@ -3420,6 +3563,9 @@ function bindMarketplaceControls() {
   document.querySelector('[data-market-register]')?.addEventListener('click', registerMarketplaceItem);
   document.querySelectorAll('[data-market-buy]').forEach((button) => {
     button.addEventListener('click', () => buyMarketplaceItem(button.dataset.marketBuy));
+  });
+  document.querySelectorAll('[data-market-cancel]').forEach((button) => {
+    button.addEventListener('click', () => cancelMarketplaceItem(button.dataset.marketCancel));
   });
   document.querySelector('[data-market-settle]')?.addEventListener('click', settleMarketplace);
   const search = document.querySelector('[data-market-search]');
@@ -3538,6 +3684,7 @@ $('openSignupButton').addEventListener('click', openSignup);
 $('signupForm').addEventListener('submit', signup);
 $('signupCodeForm').addEventListener('submit', saveAdminSignupCode);
 $('adminGiftForm').addEventListener('submit', sendAdminGift);
+$('adminDeleteAccountForm')?.addEventListener('submit', deleteAdminAccount);
 $('adminGiftAll').addEventListener('change', () => {
   const sendAll = $('adminGiftAll').checked;
   $('adminGiftTarget').disabled = sendAll;
@@ -3565,7 +3712,8 @@ $('autoCombatButton').addEventListener('click', toggleAutoCombat);
 $('hpPotionButton').addEventListener('click', () => useQuickPotion('hp'));
 $('mpPotionButton').addEventListener('click', () => useQuickPotion('mp'));
 $('potionConfigButton').addEventListener('click', () => openFeature('potion-config'));
-$('shopNpc')?.addEventListener('click', openFieldShop);
+$('shopNpc')?.addEventListener('click', () => openFieldShop());
+$('scrollShopNpc')?.addEventListener('click', () => openFieldShop('scroll_vendor'));
 $('worldStage')?.addEventListener('click', handleWorldStagePoint);
 $('rallyPoint')?.addEventListener('click', (event) => {
   event.stopPropagation();
@@ -3581,12 +3729,11 @@ $('rallyPoint')?.addEventListener('click', (event) => {
 });
 $('mailButton').addEventListener('click', () => refreshMailbox(true));
 $('eventButton').addEventListener('click', () => refreshSettlementEvent(true));
+$('floatMinimizeButton')?.addEventListener('click', () => setFloatingButtonsMinimized(!state.floatingButtonsMinimized));
 $('reviveButton').addEventListener('click', revivePlayer);
 document.querySelectorAll('.desk-action').forEach((button) => {
   button.addEventListener('click', () => (
-    button.dataset.feature === 'shop'
-      ? openFieldShop()
-      : button.dataset.feature === 'party'
+    button.dataset.feature === 'party'
         ? refreshParty(true)
       : button.dataset.feature === 'trade'
         ? refreshTrade(true)
@@ -3606,6 +3753,7 @@ document.addEventListener('keydown', (event) => {
 
 async function boot() {
   try {
+    setFloatingButtonsMinimized(state.floatingButtonsMinimized);
     await loadMeta();
     await restoreLogin();
   } catch (err) {

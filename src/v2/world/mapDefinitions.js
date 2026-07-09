@@ -10,7 +10,7 @@ const MAP_DEFINITIONS = [
   { id: 'parking_b1', name: '지하주차장 B1', region: '본관 초입', minLevel: 10, maxLevel: 22, theme: 'parking', features: ['ladder'] },
   { id: 'rooftop_garden', name: '옥상 휴게정원', region: '본관 초입', minLevel: 12, maxLevel: 24, theme: 'rooftop', features: ['rope'] },
 
-  { id: 'hr_reception', name: '인사팀 접견실', region: '인사관리동', minLevel: 15, maxLevel: 28, theme: 'hr', features: ['elevator'], safeZone: true, shopId: 'personnel_annex' },
+  { id: 'hr_reception', name: '인사팀 접견실', region: '인사관리동', minLevel: 15, maxLevel: 28, theme: 'hr', features: ['elevator'], safeZone: true, shopId: 'personnel_annex', scrollShopId: 'scroll_vendor' },
   { id: 'interview_maze', name: '채용면접 미로', region: '인사관리동', minLevel: 18, maxLevel: 32, theme: 'hr', features: ['ladder'] },
   { id: 'talent_center', name: '인재개발원 수련관', region: '인사관리동', minLevel: 22, maxLevel: 36, theme: 'training', features: ['rope', 'ladder'] },
   { id: 'org_archive', name: '조직문화 기록관', region: '인사관리동', minLevel: 26, maxLevel: 40, theme: 'archive', features: ['boxes'] },
@@ -38,12 +38,33 @@ const MAP_DEFINITIONS = [
   { id: 'logistics_warehouse', name: '야간 물류창고', region: '생산관리동', minLevel: 100, maxLevel: 128, theme: 'warehouse', features: ['boxes', 'ladder'] },
 
   { id: 'overtime_depths', name: '무한야근 심층구역', region: '경영전략층', minLevel: 112, maxLevel: 145, theme: 'overtime', features: ['rope', 'hazard'] },
-  { id: 'executive_strategy', name: '임원 전략회의층', region: '경영전략층', minLevel: 125, maxLevel: 160, theme: 'executive', features: ['elevator'] }
+  { id: 'executive_strategy', name: '임원 전략회의층', region: '경영전략층', minLevel: 125, maxLevel: 160, theme: 'executive', features: ['elevator'] },
+
+  { id: 'memo_shredder_room', name: '파쇄기 문서더미실', region: '단일 사냥터', minLevel: 3, maxLevel: 8, theme: 'office', features: ['boxes'], monsterIds: ['paper_dust'] },
+  { id: 'stapler_repair_bay', name: '스테이플러 수리대', region: '단일 사냥터', minLevel: 9, maxLevel: 14, theme: 'training', features: ['ladder'], monsterIds: ['runaway_stapler'] },
+  { id: 'coffee_storage', name: '식은 커피 보관실', region: '단일 사냥터', minLevel: 15, maxLevel: 22, theme: 'pantry', features: ['boxes'], monsterIds: ['coffee_slime'] },
+  { id: 'meeting_mouse_hole', name: '회의실 쥐구멍', region: '단일 사냥터', minLevel: 23, maxLevel: 30, theme: 'office', features: ['rope'], monsterIds: ['meeting_mouse'] },
+  { id: 'overtime_roost', name: '야근 박쥐 둥지', region: '단일 사냥터', minLevel: 31, maxLevel: 36, theme: 'overtime', features: ['rope'], monsterIds: ['overtime_bat'] },
+  { id: 'payroll_mimic_vault', name: '급여함 미믹 금고', region: '단일 사냥터', minLevel: 37, maxLevel: 44, theme: 'vault', features: ['boxes'], monsterIds: ['payroll_mimic'] },
+  { id: 'sales_fox_den', name: '영업여우 접선로', region: '단일 사냥터', minLevel: 50, maxLevel: 58, theme: 'sales', features: ['ladder'], monsterIds: ['sales_fox'] },
+  { id: 'bug_nest', name: '버그 딱정벌레 둥지', region: '단일 사냥터', minLevel: 64, maxLevel: 72, theme: 'server', features: ['hazard'], monsterIds: ['bug_beetle'] },
+  { id: 'prototype_hangar', name: '시제품 골렘 격납고', region: '단일 사냥터', minLevel: 78, maxLevel: 86, theme: 'laboratory', features: ['elevator'], monsterIds: ['prototype_golem'] },
+  { id: 'deadline_rooftop', name: '마감기한 드래곤 옥상', region: '단일 사냥터', minLevel: 132, maxLevel: 145, theme: 'executive', features: ['hazard', 'rope'], monsterIds: ['deadline_dragon'] }
 ];
 
 const MAP_EDGES = [
   ['main_lobby', 'newcomer_training', '연수원 통로'],
   ['main_lobby', 'document_corridor', '결재동 복도'],
+  ['newcomer_training', 'memo_shredder_room', '파쇄기실 쪽문'],
+  ['parking_b1', 'stapler_repair_bay', '수리대 계단'],
+  ['pantry_alley', 'coffee_storage', '커피창고 문'],
+  ['interview_maze', 'meeting_mouse_hole', '회의실 틈새'],
+  ['payroll_vault', 'overtime_roost', '야근 둥지 사다리'],
+  ['payroll_vault', 'payroll_mimic_vault', '미믹 금고문'],
+  ['sales_floor', 'sales_fox_den', '접선로'],
+  ['bug_quarantine', 'bug_nest', '버그 둥지'],
+  ['prototype_lab', 'prototype_hangar', '골렘 격납고'],
+  ['overtime_depths', 'deadline_rooftop', '옥상 비상문'],
   ['newcomer_training', 'pantry_alley', '비상계단'],
   ['newcomer_training', 'hr_reception', '교육동 엘리베이터'],
   ['document_corridor', 'parking_b1', '지하 연결계단'],

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>호이상사 V2</title>
-  <link rel="stylesheet" href="/v2/styles.css?v=23">
+  <link rel="stylesheet" href="/v2/styles.css?v=25">
 </head>
 <body>
   <div class="blueprint-grid" aria-hidden="true"></div>
@@ -73,6 +73,9 @@
                 aria-label="이동 기준점 해제" title="다시 누르면 기준점이 사라집니다."></button>
               <button id="shopNpc" class="field-shop-npc hidden" type="button" aria-label="사내 보급 상점 열기">
                 <span>🧑‍💼</span><strong>보급 담당자</strong><small>상점</small>
+              </button>
+              <button id="scrollShopNpc" class="field-shop-npc scroll-shop-npc hidden" type="button" aria-label="주문서 상점 열기">
+                <span>▣</span><strong>주문서 상인</strong><small>SCROLL</small>
               </button>
 
               <div id="fieldCharacter" class="field-character is-walking" aria-hidden="true">
@@ -164,7 +167,6 @@
           <button class="desk-action" data-feature="inventory" type="button"><b>02</b><span>인벤토리<small>INVENTORY</small></span></button>
           <button class="desk-action equipment-action" data-feature="equipment" type="button"><b>03</b><span>장비<small>EQUIPMENT</small></span></button>
           <button class="desk-action" data-feature="skills" type="button"><b>04</b><span>스킬<small>SKILLS</small></span></button>
-          <button class="desk-action" data-feature="shop" type="button"><b>05</b><span>상점<small>SUPPLY</small></span></button>
           <button class="desk-action" data-feature="cash" type="button"><b>06</b><span>캐쉬상점<small>CASH SHOP</small></span></button>
           <button class="desk-action" data-feature="company" type="button"><b>07</b><span>회사 운영<small>COMPANY</small></span></button>
           <button class="desk-action danger" data-feature="boss" type="button"><b>08</b><span>보스<small>RAID</small></span></button>
@@ -192,6 +194,7 @@
           <strong>정착 지원</strong>
           <small>7월 31일까지</small>
         </button>
+        <button id="floatMinimizeButton" class="float-minimize-button" type="button" aria-label="우편/이벤트 버튼 최소화">−</button>
 
         <section class="migration-strip">
           <div>
@@ -236,6 +239,18 @@
             <button type="submit">우편으로 보내기</button>
           </form>
           <p id="adminGiftStatus" class="status"></p>
+        </section>
+        <section class="admin-setting-card">
+          <div>
+            <p class="section-number">ACCOUNT DELETE</p>
+            <h3>V2 계정 선택 삭제</h3>
+            <p>선택한 V2 계정과 캐릭터를 삭제합니다. V1 원본 계정은 삭제하지 않습니다.</p>
+          </div>
+          <form id="adminDeleteAccountForm">
+            <label>대상<input id="adminDeleteAccountTarget" maxlength="24" placeholder="아이디 또는 닉네임" required></label>
+            <button type="submit">V2 계정 삭제</button>
+          </form>
+          <p id="adminDeleteAccountStatus" class="status"></p>
         </section>
       </section>
     </section>
@@ -296,6 +311,6 @@
   </div>
 
   <script src="/v2/skills-ui.js?v=22"></script>
-  <script src="/v2/app.js?v=24"></script>
+  <script src="/v2/app.js?v=26"></script>
 </body>
 </html>

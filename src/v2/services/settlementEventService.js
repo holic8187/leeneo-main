@@ -60,6 +60,15 @@ const EVENT_SHOP_ITEMS = Object.freeze([
     coinPrice: 100,
     dailyLimit: 0,
     description: '2026년 7월 31일 이후 사라집니다.'
+  }),
+  Object.freeze({
+    key: 'skill-reset',
+    itemId: 'event_skill_reset_coupon',
+    name: '스킬포인트 초기화권',
+    quantity: 1,
+    coinPrice: 100,
+    dailyLimit: 0,
+    description: '투자한 스킬포인트를 모두 돌려받습니다. 2026년 7월 31일 이후 사라집니다.'
   })
 ]);
 

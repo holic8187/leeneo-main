@@ -227,6 +227,18 @@ const BASE_ITEMS = {
     description: '투자한 스탯만 초기화하고 사용 가능한 스탯 포인트로 돌려받습니다.',
     adminGrantOnly: true
   },
+  skill_reset_coupon: {
+    id: 'skill_reset_coupon',
+    name: '스킬포인트 초기화권',
+    category: 'cash',
+    itemType: 'skill-reset',
+    icon: '📘',
+    maxStack: 100,
+    sellPrice: 0,
+    tradeable: false,
+    description: '투자한 모든 스킬포인트를 회수하고 사용 가능한 스킬포인트로 돌려받습니다.',
+    adminGrantOnly: true
+  },
   level_up_coupon: {
     id: 'level_up_coupon',
     name: '레벨업 쿠폰',
@@ -358,6 +370,18 @@ const BASE_ITEMS = {
     sellPrice: 1,
     description: '투자한 스탯을 초기화합니다. 2026년 7월 31일 이후 사라집니다.'
   },
+  event_skill_reset_coupon: {
+    id: 'event_skill_reset_coupon',
+    name: '정착 지원 스킬포인트 초기화권',
+    category: 'consumable',
+    itemType: 'skill-reset',
+    icon: '📘',
+    maxStack: 100,
+    fixedExpiresAt: '2026-08-01T00:00:00+09:00',
+    tradeable: false,
+    sellPrice: 1,
+    description: '투자한 모든 스킬포인트를 회수합니다. 2026년 7월 31일 이후 사라집니다.'
+  },
   hunting_time_180m: {
     id: 'hunting_time_180m',
     name: '자동사냥 시간 180분',
@@ -461,7 +485,7 @@ for (const monster of MONSTER_CATALOG) {
     category: 'misc',
     itemType: 'monster-loot',
     icon: monster.lootIcon,
-    maxStack: 100,
+    maxStack: 200,
     sellPrice: Math.max(1, Math.floor(monster.level * 2)),
     description: `${monster.name}이 남긴 잡템입니다. 퀘스트 재료로 쓰거나 상점에 판매할 수 있습니다.`,
     adminGrantOnly: false

@@ -84,7 +84,7 @@ function buildMonsterStats(level, overrides = {}) {
     magicDefense: Math.max(1, Math.round(safeLevel * 0.42)),
     movementSpeed: 30 + safeLevel % 16,
     monsterAccuracy: 15 + safeLevel * 1.5,
-    monsterEvasion: 3 + safeLevel * 0.45,
+    monsterEvasion: Math.max(1, Math.floor(1 + safeLevel * 0.18)),
     expReward
   };
 }
@@ -96,6 +96,12 @@ function getElementMultiplier(monster, element = 'neutral') {
 
 function getMonsterSpeciesForMap(map) {
   if (!map || map.safeZone) return [];
+  if (Array.isArray(map.monsterIds) && map.monsterIds.length) {
+    const selected = map.monsterIds
+      .map((monsterId) => MONSTER_CATALOG.find((monster) => monster.id === monsterId))
+      .filter(Boolean);
+    if (selected.length) return selected;
+  }
   const center = (Number(map.minLevel) + Number(map.maxLevel)) / 2;
   return [...MONSTER_CATALOG]
     .sort((left, right) => {

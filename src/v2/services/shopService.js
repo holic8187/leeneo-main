@@ -13,7 +13,8 @@ const THROWING_STAR_RECHARGE_COST = 4_000;
 const SHOP_PRICE_MULTIPLIERS = Object.freeze({
   headquarters: 1,
   personnel_annex: 0.97,
-  sales_outpost: 1.04
+  sales_outpost: 1.04,
+  scroll_vendor: 1
 });
 
 function getMoney(character) {
