@@ -50,6 +50,19 @@ const MAP_DEFINITIONS = [
   { id: 'bug_nest', name: '버그 딱정벌레 둥지', region: '단일 사냥터', minLevel: 64, maxLevel: 72, theme: 'server', features: ['hazard'], monsterIds: ['bug_beetle'] },
   { id: 'prototype_hangar', name: '시제품 골렘 격납고', region: '단일 사냥터', minLevel: 78, maxLevel: 86, theme: 'laboratory', features: ['elevator'], monsterIds: ['prototype_golem'] },
   { id: 'deadline_rooftop', name: '마감기한 드래곤 옥상', region: '단일 사냥터', minLevel: 132, maxLevel: 145, theme: 'executive', features: ['hazard', 'rope'], monsterIds: ['deadline_dragon'] }
+  ,
+  {
+    id: 'hidden_hwang_overtime',
+    name: '히든 스트리트 - 미쳐버린 야근실',
+    region: '히든 스트리트',
+    minLevel: 50,
+    maxLevel: 70,
+    theme: 'overtime',
+    features: ['hazard'],
+    monsterIds: [],
+    fieldBossId: 'mad_hwang_manager',
+    hidden: true
+  }
 ];
 
 const MAP_EDGES = [
@@ -107,6 +120,8 @@ const MAP_EDGES = [
   ['quality_lab', 'logistics_warehouse', '출고검사 문'],
   ['logistics_warehouse', 'overtime_depths', '야간배송 통로'],
   ['overtime_depths', 'executive_strategy', '최종보고 계단']
+  ,
+  ['overtime_depths', 'hidden_hwang_overtime', '히든 야근실']
 ];
 
 function buildMapGraph() {

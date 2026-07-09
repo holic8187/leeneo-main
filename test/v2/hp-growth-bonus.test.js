@@ -28,9 +28,9 @@ function makeCharacter() {
   };
 }
 
-test('learning HP growth late retroactively grants level-up and invested-stat bonuses', () => {
+test('learning HP growth late retroactively grants level-up bonuses only', () => {
   const character = makeCharacter();
-  const expected = (132 - 10) * 40 + (100 - 4) * 30;
+  const expected = (132 - 10) * 40;
   assert.equal(calculateHpGrowthSkillBonus(character), expected);
   const result = reconcileHpGrowthSkillBonus(character);
   assert.equal(result.delta, expected);
@@ -47,7 +47,7 @@ test('HP growth reconciliation is idempotent and only adds later changes', () =>
   assert.equal(character.resources.maxHp, maxAfterFirst);
 
   character.stats.grit += 5;
-  assert.equal(reconcileHpGrowthSkillBonus(character).delta, 150);
+  assert.equal(reconcileHpGrowthSkillBonus(character).delta, 0);
   character.progression.level += 1;
   assert.equal(reconcileHpGrowthSkillBonus(character).delta, 40);
 });

@@ -75,7 +75,8 @@ const state = {
   enhancementSlot: '',
   enhancementScrollStackId: '',
   eventState: null,
-  marketplace: { listings: [], mine: [], rules: {}, search: '' }
+  marketplace: { listings: [], mine: [], rules: {}, search: '' },
+  pendingPatchNotes: null
 };
 sessionStorage.setItem('v2WorldClientId', state.worldClientId);
 
@@ -219,6 +220,47 @@ async function loadUserWorkspace() {
   state.worldControlActive = true;
   startWorldSimulation();
   startMailPolling();
+  maybeShowPatchNotes();
+}
+
+function patchNotesBody(notes = {}) {
+  const lines = Array.isArray(notes.lines) ? notes.lines : [];
+  return `<div class="patch-note-sheet">
+    <span>${escapeHtml(notes.publishedAt || '')} PATCH</span>
+    <h3>${escapeHtml(notes.title || '패치노트')}</h3>
+    <ul>
+      ${lines.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}
+    </ul>
+    <button type="button" data-patch-notes-seen>패치노트 확인</button>
+  </div>`;
+}
+
+function openPatchNotes(notes = {}) {
+  state.pendingPatchNotes = notes;
+  $('featureCode').textContent = `PATCH / ${escapeHtml(notes.version || 'NOTES')}`;
+  $('featureTitle').textContent = notes.title || '패치노트';
+  $('featureBody').innerHTML = patchNotesBody(notes);
+  document.querySelector('[data-patch-notes-seen]')?.addEventListener('click', async () => {
+    try {
+      await request('/api/v2/patch-notes/seen', { method: 'POST' });
+    } catch (err) {
+      setWorldActivity(err.message);
+      return;
+    }
+    state.pendingPatchNotes = null;
+    closeFeature();
+  });
+  $('featureModal').classList.remove('hidden');
+  document.body.classList.add('modal-open');
+}
+
+async function maybeShowPatchNotes() {
+  try {
+    const data = await request('/api/v2/patch-notes');
+    if (data.patchNotes && !data.seen) openPatchNotes(data.patchNotes);
+  } catch (err) {
+    console.warn('V2 patch note check failed:', err);
+  }
 }
 
 async function loadAdminSignupCode() {
@@ -719,6 +761,80 @@ function showSkillUseLabel(targetElement, skillName) {
   stage.appendChild(element);
   element.addEventListener('animationend', () => element.remove(), { once: true });
   setTimeout(() => element.remove(), 1_700);
+}
+
+function classifySkillVisual(skill = {}) {
+  const id = String(skill.id || '').toLowerCase();
+  const effect = String(skill.effect || '').toLowerCase();
+  const element = String(skill.element || '').toLowerCase();
+  const target = String(skill.target || '').toLowerCase();
+  const text = `${id} ${effect} ${element} ${target} ${skill.name || ''} ${skill.description || ''}`.toLowerCase();
+  if (effect.includes('heal') || id.includes('heal') || text.includes('복지 지원')) return 'heal';
+  if (effect.includes('summon') || id.includes('companion') || id.includes('mascot')) return 'summon';
+  if (effect.includes('teleport') || id.includes('teleport') || text.includes('텔레포트')) return 'teleport';
+  if (effect.includes('element') || ['fire', 'ice', 'lightning', 'holy'].includes(element)) {
+    return `element-${element || 'neutral'}`;
+  }
+  if (target === 'party' || target === 'self' || effect.includes('buff') || text.includes('동안')) return 'buff';
+  if (target === 'enemies' || text.includes('전체') || text.includes('범위') || text.includes('광역')) return 'area';
+  if (target === 'enemy' || effect.includes('damage')) return 'strike';
+  return 'pulse';
+}
+
+function getSkillEffectAnchor(combat = {}) {
+  const firstOutcome = (combat.outcomes || []).find((outcome) => outcome?.monsterId);
+  const monsterId = firstOutcome?.monsterId || state.combatTargetId;
+  if (monsterId) {
+    const target = Array.from($('monsterLayer')?.children || []).find(
+      (element) => element.dataset.monsterId === String(monsterId)
+    );
+    if (target) return target;
+  }
+  return $('fieldCharacter');
+}
+
+function playSkillVisualEffect(skill = {}, combat = {}) {
+  const stage = $('worldStage');
+  const caster = $('fieldCharacter');
+  if (!stage || !caster || !skill) return;
+  const kind = classifySkillVisual(skill);
+  const anchor = ['heal', 'buff', 'summon', 'teleport'].includes(kind)
+    ? caster
+    : getSkillEffectAnchor(combat);
+  if (!anchor || !anchor.isConnected) return;
+
+  const stageRect = stage.getBoundingClientRect();
+  const casterRect = caster.getBoundingClientRect();
+  const anchorRect = anchor.getBoundingClientRect();
+  const duration = Math.max(180, Math.round(820 / getAttackSpeedMultiplier()));
+  const effect = document.createElement('span');
+  effect.className = `skill-visual-effect is-${kind}`;
+  effect.style.setProperty('--skill-effect-duration', `${duration}ms`);
+  effect.style.left = `${anchorRect.left - stageRect.left + anchorRect.width / 2}px`;
+  effect.style.top = `${anchorRect.top - stageRect.top + anchorRect.height / 2}px`;
+
+  if (kind === 'heal') {
+    const healDiameter = Math.min(stageRect.width * 1.08, stageRect.width * (800 / 760));
+    effect.style.setProperty('--skill-effect-size', `${Math.max(180, healDiameter)}px`);
+  } else if (kind === 'area') {
+    const areaSize = Math.min(stageRect.width * .82, 460);
+    effect.style.setProperty('--skill-effect-size', `${Math.max(180, areaSize)}px`);
+  } else if (kind === 'strike' || kind === 'pulse') {
+    effect.style.setProperty('--skill-effect-size', `${Math.max(70, anchorRect.width * 1.8)}px`);
+  }
+
+  if (kind === 'strike' || kind === 'pulse' || kind.startsWith('element-')) {
+    const casterX = casterRect.left - stageRect.left + casterRect.width / 2;
+    const casterY = casterRect.top - stageRect.top + casterRect.height / 2;
+    const targetX = anchorRect.left - stageRect.left + anchorRect.width / 2;
+    const targetY = anchorRect.top - stageRect.top + anchorRect.height / 2;
+    effect.style.setProperty('--skill-travel-x', `${targetX - casterX}px`);
+    effect.style.setProperty('--skill-travel-y', `${targetY - casterY}px`);
+  }
+
+  stage.appendChild(effect);
+  effect.addEventListener('animationend', () => effect.remove(), { once: true });
+  setTimeout(() => effect.remove(), duration + 420);
 }
 
 function getLootBottom(floor) {
@@ -1337,6 +1453,9 @@ async function runAutoCombat(runId) {
       );
       applyAttackResult(result);
       showGroundLoot(result.drops || []);
+      if (result.fieldBossRewardResult) {
+        handleFieldBossEvents({ fieldBossRewards: [result.fieldBossRewardResult] });
+      }
       if (result.inventory) setInventoryData(result.inventory);
       if (state.character?.economy && Number.isFinite(Number(result.money))) {
         state.character.economy.money = Number(result.money);
@@ -1534,6 +1653,8 @@ function renderMonsters(monsters = []) {
     element.querySelector('.monster-level').textContent = `Lv.${monster.level}`;
     element.querySelector('pre').textContent = monster.icon || '(•̀ᴗ•́)';
     element.querySelector('.monster-hp i').style.width = `${ratio(monster.hp, monster.maxHp)}%`;
+    element.classList.toggle('is-field-boss', Boolean(monster.fieldBoss));
+    element.style.setProperty('--monster-scale', String(Math.max(0.5, 0.5 * (Number(monster.visualScale) || 1))));
     element.style.left = `${monster.x}%`;
     element.style.bottom = monster.floor === 1 ? `${getUpperPlatformBottom() + 1}px` : '43px';
     element.classList.toggle('facing-left', monster.direction < 0);
@@ -1625,6 +1746,36 @@ function showDeathState(expLost = 0) {
     : '현재 경험치가 부족하여 차감된 경험치는 없습니다.';
   $('deathModal').classList.remove('hidden');
   document.body.classList.add('modal-open');
+}
+
+function handleFieldBossEvents(data = {}) {
+  const ownStatus = (data.fieldBossStatusEvents || []).find((event) => (
+    event.targetUserId === state.selfUserId
+  ));
+  if (ownStatus?.type === 'silence') {
+    setWorldActivity(`${ownStatus.bossName || '필드보스'}의 침묵에 걸렸습니다.`);
+  } else if (ownStatus?.type === 'ranged') {
+    setWorldActivity(`${ownStatus.bossName || '필드보스'}의 원거리 공격에 피격되었습니다.`);
+  }
+
+  const bossReward = (data.fieldBossRewards || []).find((event) => (
+    (event.rewards || []).some((reward) => reward.userId === state.selfUserId)
+  ));
+  if (!bossReward) return;
+  const ownReward = (bossReward.rewards || []).find((reward) => reward.userId === state.selfUserId);
+  const itemText = (ownReward?.items || [])
+    .filter((item) => item.stored)
+    .map((item) => `${item.name || item.itemId} x${formatNumber(item.quantity || 1)}`)
+    .join(' · ');
+  setWorldActivity(`${bossReward.bossName || '필드보스'} 처치 보상 획득 · 경험치 ${formatNumber(ownReward?.exp)} · ${formatNumber(ownReward?.money)}원${itemText ? ` · ${itemText}` : ''}`);
+  Promise.all([
+    request('/api/v2/me'),
+    request('/api/v2/inventory')
+  ]).then(([me, inventory]) => {
+    state.character = me.character;
+    setInventoryData(inventory.inventory);
+    renderGame({ preview: state.preview, character: me.character, displayName: state.displayName });
+  }).catch(() => {});
 }
 
 async function revivePlayer() {
@@ -1754,6 +1905,7 @@ function renderWorldEntities(data = {}) {
     }
     setWorldActivity(`패시브 회복 · ${recoveryLabels.join(' · ')}`);
   }
+  handleFieldBossEvents(data);
   collectGroundLoot(data.lootCollections || []);
   maybeUseAutoPotions();
 }
@@ -2879,6 +3031,7 @@ const featureMeta = {
   trade: { code: '11 / TRADE', title: '사원 교환' },
   ranking: { code: '12 / RANKING', title: '사원 랭킹' },
   marketplace: { code: '13 / MARKETPLACE', title: '사내 거래소' },
+  'world-map': { code: '14 / MAP', title: '사내 지도' },
   'trade-invite': { code: 'TRADE / INVITE', title: '교환 요청' },
   quest: { code: 'QUEST / HR', title: '전직 퀘스트' },
   move: { code: 'MAP / MOVE', title: '이동 목적지' },
@@ -2917,6 +3070,15 @@ const EQUIPMENT_TABS = Object.freeze({
   }
 });
 
+const EQUIPMENT_SLOT_ALIASES = Object.freeze({
+  cape: ['cape', 'cloak', 'mantle']
+});
+
+function getEquippedItem(loadout = {}, slotKey = '') {
+  const aliases = EQUIPMENT_SLOT_ALIASES[slotKey] || [slotKey];
+  return aliases.map((key) => loadout[key]).find(Boolean) || null;
+}
+
 function equipmentStatText(item) {
   const stats = item?.stats && typeof item.stats === 'object'
     ? Object.entries(item.stats).filter(([, value]) => Number(value))
@@ -2945,7 +3107,7 @@ function equipmentBody() {
     `<button class="equipment-tab ${key === state.equipmentTab ? 'is-active' : ''}" type="button" data-equipment-tab="${key}">${tab.label}</button>`
   )).join('');
   const slots = activeTab.slots.map((slot) => {
-    const item = loadout[slot.key];
+    const item = getEquippedItem(loadout, slot.key);
     return `<article class="equipment-slot ${item ? 'is-equipped' : 'is-empty'}">
       <div class="equipment-slot-code"><span>${slot.code}</span><b>${slot.label}</b></div>
       <div class="equipment-slot-item">
@@ -3585,6 +3747,41 @@ function bindMarketplaceControls() {
   });
 }
 
+function worldMapBody() {
+  const maps = (state.maps || []).filter((map) => !map.hidden);
+  if (!maps.length) {
+    return '<div class="empty-ledger"><b>지도를 불러오지 못했습니다.</b><p>잠시 뒤 다시 시도해주세요.</p></div>';
+  }
+  const visibleIds = new Set(maps.map((map) => map.id));
+  const groups = maps.reduce((acc, map) => {
+    const region = map.region || '미분류 구역';
+    if (!acc[region]) acc[region] = [];
+    acc[region].push(map);
+    return acc;
+  }, {});
+  return `<div class="world-map-sheet">
+    <p class="notice-line">히든 스트리트와 필드보스 출현 맵은 지도에 표시되지 않습니다.</p>
+    ${Object.entries(groups).map(([region, regionMaps]) => `<section class="world-map-region">
+      <h3>${escapeHtml(region)}</h3>
+      <div class="world-map-grid">
+        ${regionMaps.map((map) => {
+          const links = (map.connections || [])
+            .filter((connection) => visibleIds.has(connection.targetId))
+            .map((connection) => {
+              const target = maps.find((entry) => entry.id === connection.targetId);
+              return target ? target.name : connection.targetId;
+            });
+          return `<article class="world-map-card ${map.safeZone ? 'is-safe' : ''}">
+            <span>${map.safeZone ? 'SAFE ZONE' : 'FIELD'}</span>
+            <strong>${escapeHtml(map.name)}</strong>
+            <small>${links.length ? escapeHtml(links.join(' · ')) : '연결된 일반 맵 없음'}</small>
+          </article>`;
+        }).join('')}
+      </div>
+    </section>`).join('')}
+  </div>`;
+}
+
 function featureBody(feature) {
   if (feature === 'stats') return statBody();
   if (feature === 'quest') return questBody();
@@ -3602,6 +3799,7 @@ function featureBody(feature) {
   if (feature === 'ranking') return rankingBody();
   if (feature === 'event') return eventBody();
   if (feature === 'marketplace') return marketplaceBody();
+  if (feature === 'world-map') return worldMapBody();
   if (feature === 'trade-invite') return tradeInviteBody();
   const messages = {
     shop: '물약, 탄환, 장비 보급품을 구매하는 사내 보급소입니다.',

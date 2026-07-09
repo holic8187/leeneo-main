@@ -25,7 +25,7 @@ const {
   calculateReferenceResources,
   applyReferenceResources
 } = require('../progression/resourceGrowth');
-const { buildInventoryView, getPendingMail } = require('./inventoryService');
+const { addInventoryItem, buildInventoryView, getPendingMail } = require('./inventoryService');
 const { getItemDefinition } = require('../items/itemCatalog');
 const { buildEnhancementView } = require('./equipmentEnhancementService');
 const { reconcileHpGrowthSkillBonus } = require('./hpGrowthBonusService');
@@ -38,6 +38,7 @@ const TEMPORARY_RESOURCE_DEFAULTS = Object.freeze({
   maxHp: 50,
   maxMp: 5
 });
+const LEGACY_EXCHANGE_COUPON_ID = 'legacy_exchange_coupon';
 const EQUIPMENT_SLOT_KEYS = Object.freeze([
   'weapon', 'shield',
   'helmet',
@@ -50,6 +51,9 @@ const EQUIPMENT_SLOT_KEYS = Object.freeze([
   'ring',
   'earrings'
 ]);
+const EQUIPMENT_SLOT_ALIASES = Object.freeze({
+  cape: Object.freeze(['cape', 'cloak', 'mantle'])
+});
 
 const SNAPSHOT_FIELDS = Object.freeze([
   'username',
@@ -124,6 +128,97 @@ function sumQuantity(entries) {
   );
 }
 
+function getLegacyQuantity(entry) {
+  if (!entry || typeof entry !== 'object') return 0;
+  for (const key of ['quantity', 'count', 'amount', 'qty']) {
+    const value = Number(entry[key]);
+    if (Number.isFinite(value) && value > 0) return Math.floor(value);
+  }
+  return 1;
+}
+
+function legacyText(entry) {
+  if (!entry || typeof entry !== 'object') return '';
+  return [
+    entry.id,
+    entry.itemId,
+    entry.cardId,
+    entry.name,
+    entry.cardName,
+    entry.displayName,
+    entry.type,
+    entry.itemType
+  ].filter(Boolean).map(String).join(' ').toLowerCase();
+}
+
+function flattenLegacyEntries(value, depth = 0) {
+  if (!value || depth > 5) return [];
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => flattenLegacyEntries(entry, depth + 1));
+  }
+  if (typeof value !== 'object') return [];
+  const directKeys = ['id', 'itemId', 'cardId', 'name', 'cardName', 'displayName', 'grade', 'tier', 'rank'];
+  const hasDirectIdentity = directKeys.some((key) => value[key] !== undefined);
+  const nested = Object.entries(value)
+    .filter(([key, entry]) => !['_id', 'createdAt', 'updatedAt'].includes(key) && typeof entry === 'object')
+    .flatMap(([, entry]) => flattenLegacyEntries(entry, depth + 1));
+  return hasDirectIdentity ? [value, ...nested] : nested;
+}
+
+function countLegacySCards(plain = {}) {
+  const entries = [
+    ...flattenLegacyEntries(plain.cards),
+    ...flattenLegacyEntries(plain.enhancedCards),
+    ...flattenLegacyEntries(plain.lockedCards)
+  ];
+  return entries.reduce((sum, entry) => {
+    const grade = String(entry.grade || entry.tier || entry.rank || '').trim().toUpperCase();
+    const text = legacyText(entry);
+    const isSGrade = grade === 'S'
+      || grade === 'S급'
+      || /\bgrade[:_\s-]?s\b/.test(text)
+      || /\bs[-_\s]?grade\b/.test(text)
+      || text.includes('s급');
+    return sum + (isSGrade ? getLegacyQuantity(entry) : 0);
+  }, 0);
+}
+
+function countLegacyItems(plain = {}, matcher) {
+  const entries = [
+    ...flattenLegacyEntries(plain.inventory),
+    ...flattenLegacyEntries(plain.gameState),
+    ...flattenLegacyEntries(plain.shopState)
+  ];
+  return entries.reduce((sum, entry) => (
+    matcher(entry, legacyText(entry)) ? sum + getLegacyQuantity(entry) : sum
+  ), 0);
+}
+
+function calculateLegacyExchangeCoupons(user) {
+  const plain = toPlainObject(user);
+  const sCardCount = countLegacySCards(plain);
+  const businessCardCount = countLegacyItems(plain, (entry, text) => (
+    text.includes('business_card')
+    || text.includes('namecard')
+    || text.includes('card_pack')
+    || text.includes('명함')
+  ));
+  const bacchusCount = countLegacyItems(plain, (entry, text) => (
+    text.includes('bacchus')
+    || text.includes('bakas')
+    || text.includes('박카스')
+  ));
+  const couponCount = sCardCount
+    + Math.floor(businessCardCount / 200)
+    + Math.floor(bacchusCount / 100);
+  return {
+    sCardCount,
+    businessCardCount,
+    bacchusCount,
+    couponCount: Math.max(0, couponCount)
+  };
+}
+
 function buildMigrationPreview(user) {
   const plain = toPlainObject(user);
   const sourceLevel = Math.max(1, Math.floor(Number(plain.gameState?.level) || 1));
@@ -132,6 +227,7 @@ function buildMigrationPreview(user) {
   const enhancedCardCount = sumQuantity(plain.enhancedCards);
   const equipmentCount = Array.isArray(plain.equipments) ? plain.equipments.length : 0;
   const inventoryQuantity = sumQuantity(plain.inventory);
+  const legacyExchange = calculateLegacyExchangeCoupons(user);
 
   return {
     sourceLevel,
@@ -150,7 +246,8 @@ function buildMigrationPreview(user) {
       enhancedCardCount,
       equipmentCount,
       inventoryQuantity,
-      companyData: Boolean(plain.branchOffice?.isFounded)
+      companyData: Boolean(plain.branchOffice?.isFounded),
+      legacyExchange
     }
   };
 }
@@ -267,6 +364,7 @@ async function ensureV2MigrationForUser(user) {
           legacyEquipmentCount: preview.preserved.equipmentCount,
           legacyInventoryQuantity: preview.preserved.inventoryQuantity,
           legacyCompanyPreserved: preview.preserved.companyData,
+          legacyExchangeCouponCount: 0,
           cardsConversionStatus: 'pending',
           equipmentConversionStatus: 'pending',
           companyConversionStatus: 'pending',
@@ -279,7 +377,27 @@ async function ensureV2MigrationForUser(user) {
 
   await ensureV2CharacterFoundation(character);
   await ensureV2SkillPointGrant(character);
+  await ensureLegacyExchangeCoupons(character, preview.preserved.legacyExchange);
   return { snapshot, character, preview };
+}
+
+async function ensureLegacyExchangeCoupons(character, conversion = {}) {
+  if (!character) return { granted: 0, target: 0 };
+  const target = Math.max(0, Math.floor(Number(conversion.couponCount) || 0));
+  const alreadyGranted = Math.max(
+    0,
+    Math.floor(Number(character.migration?.legacyExchangeCouponCount) || 0)
+  );
+  const grantCount = Math.max(0, target - alreadyGranted);
+  if (grantCount > 0) {
+    addInventoryItem(character, LEGACY_EXCHANGE_COUPON_ID, grantCount);
+  }
+  if (grantCount > 0 || alreadyGranted !== target) {
+    character.migration.legacyExchangeCouponCount = target;
+    if (typeof character.markModified === 'function') character.markModified('migration');
+    await character.save();
+  }
+  return { granted: grantCount, target };
 }
 
 async function repairV2StatBaselines(character) {
@@ -394,7 +512,8 @@ function buildResourceResponse(resources = {}) {
 
 function buildEquipmentLoadout(loadout = {}) {
   return Object.fromEntries(EQUIPMENT_SLOT_KEYS.map((slot) => {
-    const stored = loadout[slot] || null;
+    const aliases = EQUIPMENT_SLOT_ALIASES[slot] || [slot];
+    const stored = aliases.map((key) => loadout[key]).find(Boolean) || null;
     if (!stored) return [slot, null];
     const definition = getItemDefinition(stored.itemId || stored.id);
     const equipment = {

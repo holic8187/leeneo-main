@@ -251,6 +251,28 @@ const BASE_ITEMS = {
     description: '현재 경험치와 관계없이 정확히 1레벨 상승하고 경험치는 0%가 됩니다. 만렙에서는 사용할 수 없습니다.',
     adminGrantOnly: true
   },
+  legacy_exchange_coupon: {
+    id: 'legacy_exchange_coupon',
+    name: '특수 교환권',
+    category: 'cash',
+    itemType: 'legacy-exchange-coupon',
+    icon: '🎟️',
+    maxStack: 999999,
+    sellPrice: 0,
+    tradeable: false,
+    description: '이전 게임 재화 반영용 교환권입니다. 현재는 사용할 수 없고 추후 교환 상점에서 사용됩니다.'
+  },
+  hwang_manager_mark: {
+    id: 'hwang_manager_mark',
+    name: '황과장의 분노의 표식',
+    category: 'misc',
+    itemType: 'field-boss-token',
+    icon: '🔥',
+    maxStack: 200,
+    sellPrice: 1000,
+    tradeable: true,
+    description: '야근하다 미쳐버린 황과장을 처치한 흔적입니다. 추후 교환 재료로 사용될 수 있습니다.'
+  },
   settlement_event_coin: {
     id: 'settlement_event_coin',
     name: '정착 지원 이벤트 코인',
@@ -391,6 +413,17 @@ const BASE_ITEMS = {
     maxStack: 100,
     huntingMinutes: 180,
     description: '사용 시 자동사냥 시간을 180분 충전합니다. 보유 시간은 최대 400분입니다.',
+    adminGrantOnly: true
+  },
+  hunting_time_360m: {
+    id: 'hunting_time_360m',
+    name: '자동사냥 시간 360분',
+    category: 'cash',
+    itemType: 'hunting-time',
+    icon: '⏱️',
+    maxStack: 100,
+    huntingMinutes: 360,
+    description: '사용 시 자동사냥 시간을 360분 충전합니다. 보유 시간은 최대 400분입니다.',
     adminGrantOnly: true
   },
   event_two_handed_sword: createEventWeapon({

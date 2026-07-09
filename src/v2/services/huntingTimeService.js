@@ -3,8 +3,8 @@
 const { createAdminMail } = require('./inventoryService');
 
 const MAX_HUNTING_SECONDS = 400 * 60;
-const DAILY_HUNTING_MINUTES = 180;
-const DAILY_HUNTING_ITEM_ID = 'hunting_time_180m';
+const DAILY_HUNTING_MINUTES = 360;
+const DAILY_HUNTING_ITEM_ID = 'hunting_time_360m';
 
 function getKoreaDateKey(now = new Date()) {
   return new Intl.DateTimeFormat('en-CA', {
@@ -35,7 +35,7 @@ function ensureDailyHuntingMail(character, now = new Date()) {
   const mail = createAdminMail({
     itemId: DAILY_HUNTING_ITEM_ID,
     quantity: 1,
-    message: '오늘의 무료 자동사냥 시간 180분입니다. 우편은 24시간 뒤 사라집니다.'
+    message: '오늘의 무료 자동사냥 시간 360분입니다. 우편은 24시간 뒤 사라집니다.'
   });
   mail.sender = '호이상사 운영실';
   mail.title = '일일 자동사냥 시간 지급';

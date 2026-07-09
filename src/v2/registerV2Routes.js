@@ -24,6 +24,7 @@ const {
   updatePresence,
   attackMonster,
   useSkillOnMonsters,
+  isPlayerSilenced,
   updatePlayerResources,
   recordSkillUse,
   listActivePlayers,
@@ -173,6 +174,19 @@ function getActiveWeaponElements(skillState, now = Date.now()) {
 const SIGNUP_CODE_SETTING_KEY = 'signup-code';
 const OFFLINE_HUNTING_SWEEP_MS = 5_000;
 const OFFLINE_HUNTING_BATCH_SIZE = 20;
+const V2_PATCH_NOTE_VERSION = '2026-07-09-field-boss-1';
+const V2_PATCH_NOTES = Object.freeze({
+  version: V2_PATCH_NOTE_VERSION,
+  title: '필드보스와 지도 기능 1차 패치',
+  publishedAt: '2026-07-09',
+  lines: Object.freeze([
+    '히든 스트리트 필드보스 야근하다 미쳐버린 황과장을 추가했습니다.',
+    '황과장은 기여자 기준 경험치, 돈, 표식, 주문서와 60~70제 무기를 분배합니다.',
+    '텔레포트가 캐릭터의 현재 바라보는 방향 기준으로 이동하도록 수정했습니다.',
+    '지도 버튼을 추가해 일반 필드 연결 구조를 볼 수 있게 했습니다.',
+    'V1 S카드, 명함, 박카스 보유량을 특수 교환권으로 반영했습니다.'
+  ])
+});
 
 function validateSignupPayload(payload = {}) {
   const username = String(payload.username || '').trim();
@@ -606,6 +620,67 @@ function registerV2Routes({
     }
     drops.push(...awarded);
     return drops;
+  }
+
+  async function applyFieldBossRewards(rewardEvent = {}, currentCharacter = null) {
+    const rewards = Array.isArray(rewardEvent.rewards) ? rewardEvent.rewards : [];
+    const results = [];
+    const applyReward = async (character, reward, { save = true } = {}) => {
+      if (!character) return null;
+      await ensureV2CharacterFoundation(character);
+      if (!character.economy || typeof character.economy !== 'object') character.economy = {};
+      const experience = grantV2Experience(character, reward.exp);
+      character.economy.money = Math.max(0, Number(character.economy.money) || 0)
+        + Math.max(0, Math.floor(Number(reward.money) || 0));
+      const items = [];
+      for (const item of reward.items || []) {
+        try {
+          addInventoryItem(
+            character,
+            item.itemId,
+            Math.max(1, Math.floor(Number(item.quantity) || 1)),
+            item.instanceData
+          );
+          items.push({ ...item, stored: true });
+        } catch (_) {
+          items.push({ ...item, stored: false });
+        }
+      }
+      if (save) await character.save();
+      worldProfileCache.delete(String(character.userId));
+      updatePlayerResources(character.userId, character.resources);
+      return {
+        userId: String(character.userId),
+        exp: Math.max(0, Math.floor(Number(reward.exp) || 0)),
+        money: Math.max(0, Math.floor(Number(reward.money) || 0)),
+        experience,
+        items
+      };
+    };
+
+    for (const reward of rewards) {
+      const userId = String(reward.userId || '');
+      if (!userId) continue;
+      if (currentCharacter && String(currentCharacter.userId) === userId) {
+        const result = await applyReward(currentCharacter, reward, { save: false });
+        if (result) results.push(result);
+        continue;
+      }
+      const result = await withCharacterMutation(userId, async () => {
+        const character = await V2Character.findOne({ userId });
+        return applyReward(character, reward, { save: true });
+      });
+      if (result) results.push(result);
+    }
+
+    return {
+      bossId: rewardEvent.bossId || '',
+      bossName: rewardEvent.bossName || '',
+      mapId: rewardEvent.mapId || '',
+      defeatedAt: rewardEvent.defeatedAt || null,
+      respawnAt: rewardEvent.respawnAt || null,
+      rewards: results
+    };
   }
 
   async function getWorldProfile(userId, force = false) {
@@ -1607,6 +1682,36 @@ function registerV2Routes({
     });
   });
 
+  app.get('/api/v2/patch-notes', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const character = await V2Character.findOne({ userId: auth.id })
+        .select('ui.patchNotesSeenVersion')
+        .lean();
+      return res.json({
+        patchNotes: V2_PATCH_NOTES,
+        seen: String(character?.ui?.patchNotesSeenVersion || '') === V2_PATCH_NOTE_VERSION
+      });
+    } catch (err) {
+      return res.status(500).json({ msg: '패치노트 정보를 불러오지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/patch-notes/seen', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      await V2Character.updateOne(
+        { userId: auth.id },
+        { $set: { 'ui.patchNotesSeenVersion': V2_PATCH_NOTE_VERSION } }
+      );
+      return res.json({ success: true, version: V2_PATCH_NOTE_VERSION });
+    } catch (err) {
+      return res.status(500).json({ msg: '패치노트 확인 상태를 저장하지 못했습니다.' });
+    }
+  });
+
   app.get('/api/v2/me', async (req, res) => {
     const auth = requireV2User(req, res);
     if (!auth) return;
@@ -1781,6 +1886,13 @@ function registerV2Routes({
         const currentHp = Math.max(0, Number(character.resources?.currentHp) || 0);
         const currentMp = Math.max(0, Number(character.resources?.currentMp) || 0);
         const maxHp = Math.max(1, Number(character.resources?.maxHp) || 1);
+        const sourceMapId = String(req.body?.mapId || character.worldState?.mapId || '');
+        if (
+          isPlayerSilenced(auth.id, sourceMapId, now)
+          && !['heal', 'buff', 'party-portal', 'teleport'].includes(definition.effect)
+        ) {
+          throw new Error('침묵 상태에서는 공격 스킬을 사용할 수 없습니다.');
+        }
         const preUseEffects = getActiveSkillEffects(character);
         const preUseArchetype = DEPARTMENTS[character.job?.departmentId]?.archetype || 'beginner';
         if (values.minimumHpPercent && currentHp / maxHp * 100 < values.minimumHpPercent) {
@@ -1921,6 +2033,14 @@ function registerV2Routes({
           });
           if (!combat.success) throw new Error('사거리 안에 공격할 대상이 없습니다.');
           combat.critical = critical;
+          if (Array.isArray(combat.fieldBossRewards) && combat.fieldBossRewards.length) {
+            combat.fieldBossRewardResults = [];
+            for (const rewardEvent of combat.fieldBossRewards) {
+              combat.fieldBossRewardResults.push(
+                await applyFieldBossRewards(rewardEvent, character)
+              );
+            }
+          }
           if (Number(combat.mpAbsorbed) > 0) {
             character.resources.currentMp = Math.min(
               Math.max(0, Number(character.resources.maxMp) || 0),
@@ -2008,6 +2128,14 @@ function registerV2Routes({
             undeadOnly: true
           });
           if (undeadCombat.success) {
+            if (Array.isArray(undeadCombat.fieldBossRewards) && undeadCombat.fieldBossRewards.length) {
+              undeadCombat.fieldBossRewardResults = [];
+              for (const rewardEvent of undeadCombat.fieldBossRewards) {
+                undeadCombat.fieldBossRewardResults.push(
+                  await applyFieldBossRewards(rewardEvent, character)
+                );
+              }
+            }
             const expGrant = await grantCombatExperience(
               character,
               undeadCombat.expReward,
@@ -2041,6 +2169,35 @@ function registerV2Routes({
               safeMapId: safeMap.id,
               durationSeconds: Number(values.durationSeconds) || 30
             })
+          };
+        } else if (definition.effect === 'teleport' || String(skillId).includes('teleport')) {
+          const activeMapId = String(req.body?.mapId || character.worldState?.mapId || START_MAP_ID);
+          const distancePx = Math.max(1, Math.min(300, Number(values.distance ?? definition.range) || 300));
+          const direction = String(req.body?.direction || '').toLowerCase() === 'left'
+            || Boolean(req.body?.facingLeft)
+            ? -1
+            : 1;
+          const currentX = Math.max(
+            0,
+            Math.min(94, Number(req.body?.x ?? character.worldState?.x) || 8)
+          );
+          const nextX = Math.max(
+            0,
+            Math.min(94, currentX + direction * distancePx / 760 * 100)
+          );
+          const nextFloor = Number(req.body?.floor ?? character.worldState?.floor) === 1 ? 1 : 0;
+          character.worldState.mapId = activeMapId;
+          character.worldState.x = nextX;
+          character.worldState.floor = nextFloor;
+          combat = {
+            success: true,
+            teleport: {
+              mapId: activeMapId,
+              x: nextX,
+              floor: nextFloor,
+              direction,
+              distancePx
+            }
           };
         } else if (definition.effect === 'debuff-self-buff') {
           const response = buildCharacterResponse(character);
@@ -3549,6 +3706,10 @@ function registerV2Routes({
         profile.resources.currentMp = self.currentMp;
         profile.resources.maxMp = self.maxMp;
       }
+      const fieldBossRewards = [];
+      for (const rewardEvent of state.fieldBossRewards || []) {
+        fieldBossRewards.push(await applyFieldBossRewards(rewardEvent));
+      }
       return res.json({
         mapId: state.mapId,
         players: state.players,
@@ -3556,6 +3717,8 @@ function registerV2Routes({
         self,
         contactEvents: state.contactEvents,
         recoveryEvents: state.recoveryEvents,
+        fieldBossStatusEvents: state.fieldBossStatusEvents,
+        fieldBossRewards,
         lootCollections: state.lootCollections,
         partyState: getPartyState(auth.id),
         tradeState: getTradeState(auth.id),
@@ -3704,6 +3867,7 @@ function registerV2Routes({
           if (second.monsterLevel) result.monsterLevel = second.monsterLevel;
           result.expReward += Number(second.expReward) || 0;
           result.drops.push(...(second.drops || []));
+          if (second.fieldBossReward) result.fieldBossReward = second.fieldBossReward;
           result.monster = second.monster;
           result.players = second.players;
           result.monsters = second.monsters;
@@ -3713,8 +3877,14 @@ function registerV2Routes({
       let character = null;
       let experience = null;
       let inventory = null;
-      if (result.expReward > 0 || result.mpAbsorbed > 0 || skillEffects.comboEnabled) {
+      let fieldBossRewardResult = null;
+      if (result.fieldBossReward) {
+        fieldBossRewardResult = await applyFieldBossRewards(result.fieldBossReward);
         character = await V2Character.findOne({ userId: auth.id });
+        if (character) inventory = buildInventoryView(character);
+      }
+      if (result.expReward > 0 || result.mpAbsorbed > 0 || skillEffects.comboEnabled) {
+        character = character || await V2Character.findOne({ userId: auth.id });
         if (result.mpAbsorbed > 0) {
           character.resources.currentMp = Math.min(
             Math.max(0, Number(character.resources.maxMp) || 0),
@@ -3752,6 +3922,7 @@ function registerV2Routes({
       }
       return res.json({
         ...result,
+        fieldBossRewardResult,
         experience,
         character: character ? buildCharacterResponse(character) : null,
         inventory,

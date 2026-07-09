@@ -9,10 +9,15 @@ const {
   findNearestSafeMap
 } = require('../../src/v2/world/mapDefinitions');
 
-test('world contains forty uniquely named company maps', () => {
-  assert.equal(WORLD_MAPS.length, 40);
-  assert.equal(new Set(WORLD_MAPS.map((map) => map.id)).size, 40);
-  assert.equal(new Set(WORLD_MAPS.map((map) => map.name)).size, 40);
+test('world contains forty visible company maps and one hidden field-boss map', () => {
+  const visibleMaps = WORLD_MAPS.filter((map) => !map.hidden);
+  const hiddenMaps = WORLD_MAPS.filter((map) => map.hidden);
+  assert.equal(WORLD_MAPS.length, 41);
+  assert.equal(visibleMaps.length, 40);
+  assert.equal(hiddenMaps.length, 1);
+  assert.equal(hiddenMaps[0].fieldBossId, 'mad_hwang_manager');
+  assert.equal(new Set(WORLD_MAPS.map((map) => map.id)).size, 41);
+  assert.equal(new Set(WORLD_MAPS.map((map) => map.name)).size, 41);
   assert.equal(getWorldMap(START_MAP_ID).name, '호이상사 중앙로비');
   assert.equal(getWorldMap(START_MAP_ID).safeZone, true);
 });

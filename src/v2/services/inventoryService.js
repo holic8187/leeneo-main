@@ -21,6 +21,16 @@ const QUICK_SLOT_RESOURCES = Object.freeze({
   mp: 'mp'
 });
 
+const EQUIPMENT_SLOT_ALIASES = Object.freeze({
+  cloak: 'cape',
+  mantle: 'cape'
+});
+
+function normalizeEquipmentSlot(slot = 'weapon') {
+  const normalized = String(slot || 'weapon').trim();
+  return EQUIPMENT_SLOT_ALIASES[normalized] || normalized || 'weapon';
+}
+
 function markInventoryModified(character) {
   if (typeof character?.markModified !== 'function') return;
   character.markModified('inventory');
@@ -338,7 +348,7 @@ function equipInventoryEquipment(character, stackId) {
   const equipFailureReason = getEquipmentEquipFailureReason(character, item);
   if (equipFailureReason) throw new Error(equipFailureReason);
   if (!character.loadout || typeof character.loadout !== 'object') character.loadout = {};
-  const slot = String(item.equipmentSlot);
+  const slot = normalizeEquipmentSlot(item.equipmentSlot);
   const previous = character.loadout[slot];
   if (previous && !getItemDefinition(previous.itemId)) {
     throw new Error('현재 장착 장비 정보를 먼저 정리해주세요.');
@@ -376,13 +386,16 @@ function equipInventoryEquipment(character, stackId) {
 
 function unequipInventoryEquipment(character, requestedSlot = 'weapon') {
   if (!character.loadout || typeof character.loadout !== 'object') character.loadout = {};
-  const slot = String(requestedSlot || 'weapon');
-  const current = character.loadout[slot];
+  const slot = normalizeEquipmentSlot(requestedSlot);
+  const aliasKeys = slot === 'cape' ? ['cape', 'cloak', 'mantle'] : [slot];
+  const storedSlot = aliasKeys.find((key) => character.loadout?.[key]?.itemId) || slot;
+  const current = character.loadout[storedSlot];
   if (!current?.itemId) throw new Error('해당 슬롯에 장착 중인 장비가 없습니다.');
   const item = getItemDefinition(current.itemId);
   if (!item) throw new Error('현재 장비 정보를 찾을 수 없습니다.');
   addInventoryItem(character, item.id, 1, current.instanceData || { stats: current.stats });
-  character.loadout[slot] = null;
+  character.loadout[storedSlot] = null;
+  if (storedSlot !== slot) character.loadout[slot] = null;
   markInventoryModified(character);
   return { slot, unequipped: { ...current } };
 }

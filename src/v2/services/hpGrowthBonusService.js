@@ -23,10 +23,8 @@ function calculateHpGrowthSkillBonus(character = {}) {
   const values = resolveSkillValues(SKILL_DEFINITIONS[HP_GROWTH_SKILL_ID], skillLevel);
   const level = Math.max(1, Math.floor(Number(character.progression?.level) || 1));
   const eligibleLevelUps = Math.max(0, level - FIRST_WARRIOR_ADVANCEMENT_LEVEL);
-  const investedStatPoints = getInvestedStatPointCount(character);
   return Math.max(0, Math.floor(
     eligibleLevelUps * (Number(values.levelUpHp) || 0)
-    + investedStatPoints * (Number(values.statPointHp) || 0)
   ));
 }
 

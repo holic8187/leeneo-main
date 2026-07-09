@@ -128,6 +128,9 @@ const v2CharacterSchema = new mongoose.Schema({
       purchases: { type: mongoose.Schema.Types.Mixed, default: {} }
     }
   },
+  ui: {
+    patchNotesSeenVersion: { type: String, default: '' }
+  },
   migration: {
     status: { type: String, enum: ['prepared', 'converted', 'failed'], default: 'prepared' },
     migrationVersion: { type: Number, default: 1 },
@@ -142,6 +145,7 @@ const v2CharacterSchema = new mongoose.Schema({
     legacyEquipmentCount: { type: Number, default: 0 },
     legacyInventoryQuantity: { type: Number, default: 0 },
     legacyCompanyPreserved: { type: Boolean, default: false },
+    legacyExchangeCouponCount: { type: Number, default: 0 },
     cardsConversionStatus: { type: String, default: 'pending' },
     equipmentConversionStatus: { type: String, default: 'pending' },
     companyConversionStatus: { type: String, default: 'pending' },

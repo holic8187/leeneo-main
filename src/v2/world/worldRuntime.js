@@ -9,6 +9,11 @@ const {
   getMonsterSpeciesForMap,
   rollMonsterDrops
 } = require('./monsterCatalog');
+const {
+  EQUIPMENT_ITEMS,
+  rollEquipmentInstanceData
+} = require('../items/equipmentCatalog');
+const { EQUIPMENT_SCROLLS } = require('../items/scrollCatalog');
 const { calculateIncomingPhysicalDamage } = require('../combat/incomingDamage');
 const {
   calculateRequiredAccuracy,
@@ -28,6 +33,33 @@ const MONSTER_VISUAL_WIDTH_PX = 36;
 
 const activeMaps = new Map();
 const worldControllers = new Map();
+const fieldBossRespawns = new Map();
+
+const FIELD_BOSS_RESPAWN_MIN_MS = 90 * 60 * 1000;
+const FIELD_BOSS_RESPAWN_MAX_MS = 180 * 60 * 1000;
+const FIELD_BOSS_DEFINITIONS = Object.freeze({
+  mad_hwang_manager: Object.freeze({
+    id: 'mad_hwang_manager',
+    name: '야근하다 미쳐버린 황과장',
+    icon: '🧟‍♂️',
+    level: 60,
+    maxHp: 500_000,
+    maxMp: 0,
+    contactDamage: 2_000,
+    physicalDefense: 500,
+    magicDefense: 500,
+    monsterEvasion: 40,
+    monsterAccuracy: 75,
+    movementSpeed: 34,
+    expReward: 300_000,
+    visualScale: 2,
+    rangedIntervalMs: 4_000,
+    rangedDamage: 1_500,
+    rangedRangePx: 1_000,
+    silenceIntervalMs: 15_000,
+    silenceDurationMs: 10_000
+  })
+});
 
 function clamp(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, Number(value) || 0));
@@ -35,6 +67,197 @@ function clamp(value, minimum, maximum) {
 
 function randomBetween(minimum, maximum) {
   return minimum + Math.random() * (maximum - minimum);
+}
+
+function pickRandom(array, random = Math.random) {
+  if (!Array.isArray(array) || !array.length) return null;
+  return array[Math.floor(random() * array.length)] || array[0];
+}
+
+function getFieldBossDefinition(fieldBossId) {
+  return FIELD_BOSS_DEFINITIONS[String(fieldBossId || '')] || null;
+}
+
+function findScrollDrop(predicate, chance) {
+  const scroll = EQUIPMENT_SCROLLS.find(predicate);
+  if (!scroll) return null;
+  return {
+    kind: 'item',
+    itemId: scroll.id,
+    quantity: 1,
+    icon: scroll.icon,
+    name: scroll.name,
+    chance
+  };
+}
+
+function getHwangFieldBossDrops() {
+  return [
+    findScrollDrop((scroll) => (
+      scroll.applicableSlot === 'gloves'
+      && Number(scroll.successRate) === 60
+      && Number(scroll.scrollStats?.attack) === 2
+    ), 0.003),
+    findScrollDrop((scroll) => (
+      scroll.applicableSlot === 'helmet'
+      && Number(scroll.successRate) === 60
+      && Number(scroll.scrollStats?.maxHp) === 10
+    ), 0.005),
+    findScrollDrop((scroll) => (
+      scroll.applicableSlot === 'helmet'
+      && Number(scroll.successRate) === 100
+      && Number(scroll.scrollStats?.processingSpeed) === 1
+    ), 0.004),
+    findScrollDrop((scroll) => (
+      scroll.applicableWeaponType === 'staff'
+      && Number(scroll.successRate) === 10
+      && Number(scroll.scrollStats?.magic) === 5
+    ), 0.007),
+    findScrollDrop((scroll) => (
+      scroll.applicableSlot === 'gloves'
+      && Number(scroll.successRate) === 10
+      && Number(scroll.scrollStats?.attack) === 3
+    ), 0.001),
+    findScrollDrop((scroll) => (
+      scroll.applicableSlot === 'shoes'
+      && Number(scroll.successRate) === 60
+      && Number(scroll.scrollStats?.movementSpeed) === 2
+    ), 0.003),
+    findScrollDrop((scroll) => (
+      scroll.applicableSlot === 'shoes'
+      && Number(scroll.successRate) === 10
+      && Number(scroll.scrollStats?.movementSpeed) === 3
+    ), 0.002)
+  ].filter(Boolean);
+}
+
+function getFieldBossWeaponPool() {
+  return EQUIPMENT_ITEMS.filter((item) => {
+    if (!item || item.category !== 'equipment' || item.itemType !== 'weapon') return false;
+    if (item.bossDropOnly) return false;
+    const requiredLevel = Number(item.requiredLevel || item.requirements?.level) || 1;
+    return requiredLevel >= 60 && requiredLevel <= 70;
+  });
+}
+
+function scheduleFieldBossRespawn(mapId, now = Date.now()) {
+  const delay = FIELD_BOSS_RESPAWN_MIN_MS
+    + Math.floor(Math.random() * (FIELD_BOSS_RESPAWN_MAX_MS - FIELD_BOSS_RESPAWN_MIN_MS + 1));
+  const respawnAt = now + delay;
+  fieldBossRespawns.set(String(mapId), respawnAt);
+  return respawnAt;
+}
+
+function recordMonsterContribution(monster, userId, damage) {
+  if (!monster?.fieldBoss || Number(damage) <= 0) return;
+  const key = String(userId || '');
+  if (!key) return;
+  if (!monster.contributors || typeof monster.contributors !== 'object') monster.contributors = {};
+  monster.contributors[key] = Math.max(0, Number(monster.contributors[key]) || 0)
+    + Math.max(0, Math.floor(Number(damage) || 0));
+}
+
+function rollFieldBossRandomRewards() {
+  const rewards = [];
+  for (const drop of getHwangFieldBossDrops()) {
+    if (Math.random() >= Number(drop.chance || 0)) continue;
+    rewards.push({
+      itemId: drop.itemId,
+      quantity: Number(drop.quantity) || 1,
+      name: drop.name,
+      icon: drop.icon
+    });
+  }
+  if (Math.random() < 0.05) {
+    const pool = getFieldBossWeaponPool();
+    const count = Math.random() < 0.5 ? 1 : 2;
+    for (let index = 0; index < count; index += 1) {
+      const item = pickRandom(pool);
+      if (!item) continue;
+      rewards.push({
+        itemId: item.id,
+        quantity: 1,
+        name: item.name,
+        icon: item.icon,
+        instanceData: rollEquipmentInstanceData(item)
+      });
+    }
+  }
+  return rewards;
+}
+
+function buildFieldBossRewardEvent(runtime, monster, mapId, defeatedBy, now = Date.now()) {
+  if (!monster?.fieldBoss) return null;
+  const respawnAt = scheduleFieldBossRespawn(mapId, now);
+  const participants = Object.entries(monster.contributors || {})
+    .map(([userId, damage]) => ({
+      userId,
+      damage: Math.max(0, Math.floor(Number(damage) || 0)),
+      player: runtime.players.get(String(userId))
+    }))
+    .filter((entry) => (
+      entry.damage > 0
+      && entry.player
+      && Number(entry.player.combatProfile?.playerLevel || 0) >= 50
+    ))
+    .sort((left, right) => right.damage - left.damage);
+  if (!participants.length) {
+    return {
+      bossId: monster.fieldBossId,
+      bossName: monster.name,
+      mapId,
+      defeatedBy: String(defeatedBy || ''),
+      defeatedAt: now,
+      respawnAt,
+      rewards: []
+    };
+  }
+
+  const totalExp = Math.max(0, Math.floor(Number(monster.expReward) || 0));
+  const rewards = participants.map((participant) => ({
+    userId: participant.userId,
+    damage: participant.damage,
+    exp: 0,
+    money: 0,
+    items: []
+  }));
+  if (rewards.length === 1) {
+    rewards[0].exp = totalExp;
+  } else {
+    rewards[0].exp = Math.floor(totalExp * 0.4);
+    const remainingExp = Math.max(0, totalExp - rewards[0].exp);
+    const share = Math.floor(remainingExp / (rewards.length - 1));
+    rewards.slice(1).forEach((reward) => {
+      reward.exp = share;
+    });
+  }
+
+  const moneyShare = Math.floor(30_000 * 5 / rewards.length);
+  rewards.forEach((reward) => {
+    reward.money = moneyShare;
+  });
+
+  const markReceiver = pickRandom(rewards);
+  if (markReceiver) {
+    markReceiver.items.push({
+      itemId: 'hwang_manager_mark',
+      quantity: Math.random() < 0.5 ? 1 : 2
+    });
+  }
+  for (const item of rollFieldBossRandomRewards()) {
+    const receiver = pickRandom(rewards);
+    if (receiver) receiver.items.push(item);
+  }
+
+  return {
+    bossId: monster.fieldBossId,
+    bossName: monster.name,
+    mapId,
+    defeatedBy: String(defeatedBy || ''),
+    defeatedAt: now,
+    respawnAt,
+    rewards
+  };
 }
 
 function mapHasUpperFloor(map) {
@@ -78,12 +301,55 @@ function createMonster(map, index, now) {
   };
 }
 
+function createFieldBoss(map, now) {
+  const definition = getFieldBossDefinition(map.fieldBossId);
+  if (!definition) return null;
+  return {
+    id: crypto.randomUUID(),
+    speciesId: definition.id,
+    fieldBoss: true,
+    fieldBossId: definition.id,
+    name: definition.name,
+    icon: definition.icon,
+    level: definition.level,
+    hp: definition.maxHp,
+    maxHp: definition.maxHp,
+    mp: definition.maxMp,
+    maxMp: definition.maxMp,
+    contactDamage: definition.contactDamage,
+    physicalDefense: definition.physicalDefense,
+    magicDefense: definition.magicDefense,
+    movementSpeed: definition.movementSpeed,
+    expReward: definition.expReward,
+    monsterAccuracy: definition.monsterAccuracy,
+    monsterEvasion: definition.monsterEvasion,
+    elementalMultipliers: {},
+    undead: false,
+    visualScale: definition.visualScale,
+    x: 72,
+    floor: 0,
+    direction: -1,
+    state: 'field-boss',
+    spawnedAt: now,
+    decisionAt: now + 1200,
+    stunnedUntil: 0,
+    outgoingDamageReductionPercent: 0,
+    outgoingDamageDebuffUntil: 0,
+    aggroTargetId: '',
+    contributors: {},
+    nextRangedAt: now + definition.rangedIntervalMs,
+    nextSilenceAt: now + definition.silenceIntervalMs
+  };
+}
+
 function createMapRuntime(mapId, now) {
   return {
     mapId,
     players: new Map(),
     monsters: [],
     groundLoot: [],
+    fieldBossRewards: [],
+    fieldBossStatusEvents: [],
     lastTickAt: now,
     nextSpawnAt: now,
     spawnSequence: 0
@@ -94,6 +360,8 @@ function serializeMonster(monster) {
   return {
     id: monster.id,
     speciesId: monster.speciesId,
+    fieldBoss: Boolean(monster.fieldBoss),
+    fieldBossId: monster.fieldBossId || '',
     name: monster.name,
     icon: monster.icon,
     level: monster.level,
@@ -114,7 +382,8 @@ function serializeMonster(monster) {
     floor: monster.floor,
     direction: monster.direction,
     state: monster.state,
-    spawnedAt: monster.spawnedAt
+    spawnedAt: monster.spawnedAt,
+    visualScale: Math.max(1, Number(monster.visualScale) || 1)
   };
 }
 
@@ -134,6 +403,7 @@ function serializePlayer(player) {
     currentMp: player.currentMp,
     maxMp: player.maxMp,
     invulnerableUntil: player.invulnerableUntil,
+    silencedUntil: Number(player.silencedUntil) || 0,
     online: now - Number(player.lastSeenAt || 0) <= PLAYER_TIMEOUT_MS,
     autoHunting: Boolean(player.autoHunting),
     recentSkill: player.recentSkill?.expiresAt > now ? { ...player.recentSkill } : null,
@@ -199,6 +469,18 @@ function spawnMonstersIfNeeded(runtime, map, now) {
     return;
   }
   if (!runtime.players.size || now < runtime.nextSpawnAt) return;
+  if (map.fieldBossId) {
+    const hasLiveBoss = runtime.monsters.some((monster) => (
+      monster.fieldBoss && monster.hp > 0
+    ));
+    const respawnAt = Number(fieldBossRespawns.get(map.id)) || 0;
+    if (!hasLiveBoss && now >= respawnAt) {
+      const boss = createFieldBoss(map, now);
+      if (boss) runtime.monsters.push(boss);
+    }
+    runtime.nextSpawnAt = now + MONSTER_SPAWN_INTERVAL_MS;
+    return;
+  }
   const availableSlots = Math.max(0, MONSTER_MAX_PER_MAP - runtime.monsters.length);
   const spawnCount = Math.min(MONSTER_SPAWN_PER_WAVE, availableSlots);
   for (let index = 0; index < spawnCount; index += 1) {
@@ -335,10 +617,22 @@ function applyContactDamage(runtime, now) {
         reflectCap
       )));
     if (reflectedDamage > 0) {
+      recordMonsterContribution(collider, player.userId, reflectedDamage);
       collider.hp = Math.max(0, collider.hp - reflectedDamage);
       if (collider.hp <= 0) {
         collider.state = 'defeated';
-        queueMonsterDrops(runtime, collider, player.userId, now);
+        if (collider.fieldBoss) {
+          const rewardEvent = buildFieldBossRewardEvent(
+            runtime,
+            collider,
+            runtime.mapId,
+            player.userId,
+            now
+          );
+          if (rewardEvent) runtime.fieldBossRewards.push(rewardEvent);
+        } else {
+          queueMonsterDrops(runtime, collider, player.userId, now);
+        }
       }
     }
     damagedPlayers.push({
@@ -366,6 +660,80 @@ function applyContactDamage(runtime, now) {
   return damagedPlayers;
 }
 
+function applyFieldBossMechanics(runtime, now) {
+  const events = [];
+  const livePlayers = () => Array.from(runtime.players.values())
+    .filter((player) => player.currentHp > 0);
+  for (const boss of runtime.monsters) {
+    if (!boss.fieldBoss || boss.hp <= 0) continue;
+    const definition = getFieldBossDefinition(boss.fieldBossId);
+    if (!definition) continue;
+
+    if (now >= Number(boss.nextRangedAt || 0)) {
+      boss.nextRangedAt = now + definition.rangedIntervalMs;
+      const rangePercent = definition.rangedRangePx / ASSUMED_STAGE_WIDTH_PX * 100;
+      const targets = livePlayers().filter((player) => (
+        player.floor === boss.floor
+        && Math.abs(Number(player.x) - Number(boss.x)) <= rangePercent + 4.5
+        && now >= Number(player.invulnerableUntil || 0)
+      ));
+      const target = pickRandom(targets);
+      if (target) {
+        const damage = Math.max(1, Math.floor(Number(definition.rangedDamage) || 1));
+        target.currentHp = Math.max(0, Number(target.currentHp) - damage);
+        target.invulnerableUntil = now + CONTACT_INVULNERABILITY_MS;
+        events.push({
+          userId: target.userId,
+          damage,
+          blocked: false,
+          dodged: false,
+          resistedKnockback: true,
+          reflectedDamage: 0,
+          monsterId: boss.id,
+          source: 'field-boss-ranged',
+          currentHp: target.currentHp,
+          maxHp: target.maxHp,
+          x: target.x,
+          floor: target.floor,
+          invulnerableUntil: target.invulnerableUntil
+        });
+        runtime.fieldBossStatusEvents.push({
+          type: 'ranged',
+          bossId: boss.id,
+          bossName: boss.name,
+          targetUserId: target.userId,
+          damage,
+          createdAt: now
+        });
+      }
+    }
+
+    if (now >= Number(boss.nextSilenceAt || 0)) {
+      boss.nextSilenceAt = now + definition.silenceIntervalMs;
+      const targets = livePlayers()
+        .filter((player) => player.floor === boss.floor)
+        .sort(() => Math.random() - 0.5)
+        .slice(0, 2);
+      for (const target of targets) {
+        target.silencedUntil = Math.max(
+          Number(target.silencedUntil) || 0,
+          now + definition.silenceDurationMs
+        );
+        runtime.fieldBossStatusEvents.push({
+          type: 'silence',
+          bossId: boss.id,
+          bossName: boss.name,
+          targetUserId: target.userId,
+          durationMs: definition.silenceDurationMs,
+          expiresAt: target.silencedUntil,
+          createdAt: now
+        });
+      }
+    }
+  }
+  return events;
+}
+
 function tickRuntime(runtime, now) {
   const map = getWorldMap(runtime.mapId);
   if (!map) return [];
@@ -386,7 +754,10 @@ function tickRuntime(runtime, now) {
     }
   });
   runtime.monsters.forEach((monster) => advanceMonster(monster, runtime, map, deltaSeconds, now));
-  return applyContactDamage(runtime, now);
+  return [
+    ...applyFieldBossMechanics(runtime, now),
+    ...applyContactDamage(runtime, now)
+  ];
 }
 
 function collectDueLoot(runtime, userId, now) {
@@ -593,6 +964,7 @@ function updatePresence({
     recentSkill: previous?.recentSkill || null,
     lastContactAt: previous?.lastContactAt || 0,
     invulnerableUntil: previous?.invulnerableUntil || 0,
+    silencedUntil: previous?.silencedUntil || 0,
     collisionOriginX: previous?.x ?? clamp(x, 0, 94),
     collisionOriginFloor: previous?.floor ?? (Number(floor) === 1 ? 1 : 0),
     combatProfile: {
@@ -651,7 +1023,9 @@ function updatePresence({
     monsters: runtime.monsters.filter((monster) => monster.hp > 0).map(serializeMonster),
     contactEvents,
     recoveryEvents,
-    lootCollections: collectDueLoot(runtime, userKey, now)
+    lootCollections: collectDueLoot(runtime, userKey, now),
+    fieldBossRewards: runtime.fieldBossRewards.splice(0),
+    fieldBossStatusEvents: runtime.fieldBossStatusEvents.splice(0)
   };
 }
 
@@ -886,6 +1260,7 @@ function attackMonster({
   const mpAbsorbed = damageType === 'magic'
     ? absorbMonsterMp(monster, mpAbsorbChance, mpAbsorbPercent)
     : 0;
+  recordMonsterContribution(monster, userKey, finalDamage);
   const wasBelowExecuteThreshold = monster.hp / Math.max(1, monster.maxHp) * 100
     <= Number(executeThresholdPercent || 0);
   monster.hp = Math.max(0, monster.hp - finalDamage);
@@ -916,20 +1291,25 @@ function attackMonster({
   const knockedBack = applyHeavyHitKnockback(monster, player, finalDamage);
   const defeated = monster.hp <= 0;
   let drops = [];
+  let fieldBossReward = null;
   if (defeated) {
     monster.state = 'defeated';
     monster.aggroTargetId = '';
-    const collectAt = getLootCollectionTime(runtime, now);
-    drops = rollMonsterDrops(monster).map((drop, index) => ({
-      ...drop,
-      id: crypto.randomUUID(),
-      userId: userKey,
-      x: clamp(monster.x + (index - 0.5) * 1.8, 8, 86),
-      floor: monster.floor,
-      createdAt: now,
-      collectAt
-    }));
-    runtime.groundLoot.push(...drops);
+    if (monster.fieldBoss) {
+      fieldBossReward = buildFieldBossRewardEvent(runtime, monster, mapId, userKey, now);
+    } else {
+      const collectAt = getLootCollectionTime(runtime, now);
+      drops = rollMonsterDrops(monster).map((drop, index) => ({
+        ...drop,
+        id: crypto.randomUUID(),
+        userId: userKey,
+        x: clamp(monster.x + (index - 0.5) * 1.8, 8, 86),
+        floor: monster.floor,
+        createdAt: now,
+        collectAt
+      }));
+      runtime.groundLoot.push(...drops);
+    }
   }
   return {
     success: true,
@@ -944,7 +1324,8 @@ function attackMonster({
     knockedBack,
     defeated,
     monsterLevel: monster.level,
-    expReward: defeated ? monster.expReward : 0,
+    expReward: defeated && !fieldBossReward ? monster.expReward : 0,
+    fieldBossReward,
     mpAbsorbed,
     drops: drops.map(serializeLoot),
     monster: defeated ? null : serializeMonster(monster),
@@ -1034,6 +1415,7 @@ function useSkillOnMonsters({
 
   const outcomes = [];
   const drops = [];
+  const fieldBossRewards = [];
   const hitCount = Math.max(1, Math.floor(Number(hits) || 1));
   const activeElements = [...new Set(
     (Array.isArray(elements) && elements.length ? elements : [element]).filter(Boolean)
@@ -1079,6 +1461,7 @@ function useSkillOnMonsters({
         monsterLevel: monster.level,
         elementMultiplier: multiplier
       });
+      recordMonsterContribution(monster, userKey, damage);
       monster.hp = Math.max(leaveAtOneHp ? 1 : 0, monster.hp - damage);
       totalDamage += damage;
     }
@@ -1111,6 +1494,7 @@ function useSkillOnMonsters({
         monsterLevel: monster.level,
         elementMultiplier: multiplier
       });
+      recordMonsterContribution(monster, userKey, damage);
       monster.hp = Math.max(leaveAtOneHp ? 1 : 0, monster.hp - damage);
       totalDamage += damage;
     }
@@ -1141,7 +1525,12 @@ function useSkillOnMonsters({
     if (defeated) {
       monster.state = 'defeated';
       monster.aggroTargetId = '';
-      drops.push(...queueMonsterDrops(runtime, monster, userKey, now));
+      if (monster.fieldBoss) {
+        const rewardEvent = buildFieldBossRewardEvent(runtime, monster, mapId, userKey, now);
+        if (rewardEvent) fieldBossRewards.push(rewardEvent);
+      } else {
+        drops.push(...queueMonsterDrops(runtime, monster, userKey, now));
+      }
     }
     outcomes.push({
       monsterId: monster.id,
@@ -1152,7 +1541,7 @@ function useSkillOnMonsters({
       knockedBack,
       defeated,
       monsterLevel: monster.level,
-      expReward: defeated ? monster.expReward : 0,
+      expReward: defeated && !monster.fieldBoss ? monster.expReward : 0,
       mpAbsorbed,
       poisoned,
       monster: defeated ? null : serializeMonster(monster)
@@ -1163,7 +1552,8 @@ function useSkillOnMonsters({
     outcomes,
     drops: drops.map(serializeLoot),
     expReward: outcomes.reduce((sum, outcome) => sum + outcome.expReward, 0),
-    mpAbsorbed: outcomes.reduce((sum, outcome) => sum + (outcome.mpAbsorbed || 0), 0)
+    mpAbsorbed: outcomes.reduce((sum, outcome) => sum + (outcome.mpAbsorbed || 0), 0),
+    fieldBossRewards
   };
 }
 
@@ -1223,6 +1613,12 @@ function listAllActivePlayers(now = Date.now()) {
   return players;
 }
 
+function isPlayerSilenced(userId, mapId, now = Date.now()) {
+  const runtime = activeMaps.get(String(mapId || ''));
+  const player = runtime?.players.get(String(userId || ''));
+  return Boolean(player && Number(player.silencedUntil || 0) > now);
+}
+
 function resetWorldRuntime() {
   activeMaps.clear();
   worldControllers.clear();
@@ -1243,6 +1639,7 @@ module.exports = {
   updatePresence,
   attackMonster,
   useSkillOnMonsters,
+  isPlayerSilenced,
   updatePlayerResources,
   recordSkillUse,
   listActivePlayers,

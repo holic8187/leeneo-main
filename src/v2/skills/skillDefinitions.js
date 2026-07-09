@@ -60,7 +60,7 @@ const SKILL_DEFINITIONS = Object.freeze({
   hp_growth_improvement: defineSkill('hp_growth_improvement', {
     name: '체력증가량 향상', tier: 1, maxLevel: 10, departments: WARRIOR_DEPARTMENTS,
     passive: true, prerequisites: [{ skillId: 'recovery_improvement', level: 5 }],
-    effect: 'hp-growth', values: { levelUpHp: [4, 40], statPointHp: [3, 30] }
+    effect: 'hp-growth', values: { levelUpHp: [4, 40] }
   }),
   endure: defineSkill('endure', {
     name: '견디기', tier: 1, maxLevel: 8, departments: WARRIOR_DEPARTMENTS,

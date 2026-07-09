@@ -178,6 +178,8 @@ test('V2 router exposes the current migration, world, inventory, and shop endpoi
     'GET /api/v2/migration/preview',
     'POST /api/v2/migration/prepare',
     'GET /api/v2/world/maps',
+    'GET /api/v2/patch-notes',
+    'POST /api/v2/patch-notes/seen',
     'GET /api/v2/me',
     'POST /api/v2/stats/allocate',
     'POST /api/v2/advancement',

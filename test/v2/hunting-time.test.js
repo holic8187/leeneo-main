@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   MAX_HUNTING_SECONDS,
+  DAILY_HUNTING_MINUTES,
   ensureDailyHuntingMail,
   setHuntingEnabled,
   tickHuntingTime,
@@ -20,7 +21,8 @@ test('daily hunting time mail is issued once per Korea calendar day', () => {
   assert.equal(ensureDailyHuntingMail(character, now), true);
   assert.equal(ensureDailyHuntingMail(character, now), false);
   assert.equal(character.mailbox.length, 1);
-  assert.equal(character.mailbox[0].attachments[0].itemId, 'hunting_time_180m');
+  assert.equal(character.mailbox[0].attachments[0].itemId, 'hunting_time_360m');
+  assert.equal(DAILY_HUNTING_MINUTES, 360);
 });
 
 test('hunting time drains only while enabled and caps at four hundred minutes', () => {

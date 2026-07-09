@@ -484,13 +484,39 @@ async function useActiveSkill(skillId, options = {}) {
       body: JSON.stringify({
         clientId: state.worldClientId,
         mapId: state.currentMapId,
+        x: typeof getCharacterX === 'function' ? getCharacterX() : 8,
+        floor: typeof getCharacterFloor === 'function' ? getCharacterFloor() : 0,
+        facingLeft: $('fieldCharacter')?.classList.contains('facing-left') || false,
+        direction: $('fieldCharacter')?.classList.contains('facing-left') ? 'left' : 'right',
         targetId: state.combatTargetId,
         skillId
       })
     });
     if (data.combat) {
+      if (data.combat.teleport) {
+        const character = $('fieldCharacter');
+        const teleport = data.combat.teleport;
+        state.currentMapId = teleport.mapId || state.currentMapId;
+        localStorage.setItem('v2CurrentMapId', state.currentMapId);
+        character.style.transitionDuration = '120ms';
+        character.style.left = `${Math.max(0, Math.min(94, Number(teleport.x) || 8))}%`;
+        character.style.bottom = Number(teleport.floor) === 1
+          ? `${getUpperPlatformBottom()}px`
+          : '42px';
+        setTimeout(() => {
+          character.style.transitionDuration = '';
+        }, 160);
+      }
       applySkillCombat(data.combat);
       showGroundLoot(data.combat.drops || []);
+      if (typeof handleFieldBossEvents === 'function' && Array.isArray(data.combat.fieldBossRewardResults)) {
+        data.combat.fieldBossRewardResults.forEach((rewardResult) => (
+          handleFieldBossEvents({ fieldBossRewards: [rewardResult] })
+        ));
+      }
+    }
+    if (typeof playSkillVisualEffect === 'function') {
+      playSkillVisualEffect(data.skill, data.combat);
     }
     if (data.inventory) setInventoryData(data.inventory);
     state.character = data.character;
