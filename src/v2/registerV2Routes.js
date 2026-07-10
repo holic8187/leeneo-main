@@ -174,6 +174,8 @@ function getActiveWeaponElements(skillState, now = Date.now()) {
 const SIGNUP_CODE_SETTING_KEY = 'signup-code';
 const OFFLINE_HUNTING_SWEEP_MS = 5_000;
 const OFFLINE_HUNTING_BATCH_SIZE = 20;
+const OFFLINE_HUNTING_ACTION_INTERVAL_MS = 1_200;
+const OFFLINE_HUNTING_MAX_ACTIONS_PER_SWEEP = 8;
 const V2_PATCH_NOTE_VERSION = '2026-07-09-field-boss-1';
 const V2_PATCH_NOTES = Object.freeze({
   version: V2_PATCH_NOTE_VERSION,
@@ -187,6 +189,23 @@ const V2_PATCH_NOTES = Object.freeze({
     'V1 S카드, 명함, 박카스 보유량을 특수 교환권으로 반영했습니다.'
   ])
 });
+
+const V2_PATCH_NOTE_HISTORY = Object.freeze([
+  V2_PATCH_NOTES,
+  Object.freeze({
+    version: '2026-07-10-combat-polish-1',
+    title: '전투 편의성과 오프라인 사냥 보강',
+    publishedAt: '2026-07-10',
+    lines: Object.freeze([
+      '마법사 계열 텔레포트 스킬 3종을 실제 순간이동 효과와 전용 애니메이션에 연결했습니다.',
+      '필드 보스가 등장하면 전투 화면 최상단에 남은 HP 바가 표시됩니다.',
+      '전사 계열 2차, 3차, 4차 전직 시 추가 최대 체력 보너스를 지급하도록 반영했습니다.',
+      '오프라인 사냥 중 자동 스킬 사용, MP 소모, 경험치와 드랍 기록이 처리되도록 보강했습니다.',
+      '재접속 시 오프라인 사냥 정산 창이 뜨고 획득 결과를 확인할 수 있게 했습니다.'
+    ])
+  })
+]);
+const V2_CURRENT_PATCH_NOTES = V2_PATCH_NOTE_HISTORY[V2_PATCH_NOTE_HISTORY.length - 1];
 
 function validateSignupPayload(payload = {}) {
   const username = String(payload.username || '').trim();
@@ -622,6 +641,68 @@ function registerV2Routes({
     return drops;
   }
 
+  function ensureOfflineHuntingSummary(character, now = Date.now()) {
+    if (!character.huntingTime || typeof character.huntingTime !== 'object') {
+      character.huntingTime = {};
+    }
+    if (
+      !character.huntingTime.offlineSummary
+      || typeof character.huntingTime.offlineSummary !== 'object'
+    ) {
+      character.huntingTime.offlineSummary = {
+        startedAt: new Date(now).toISOString(),
+        updatedAt: new Date(now).toISOString(),
+        elapsedSeconds: 0,
+        kills: 0,
+        skillUses: 0,
+        exp: 0,
+        money: 0,
+        items: []
+      };
+    }
+    return character.huntingTime.offlineSummary;
+  }
+
+  function mergeOfflineSummaryItem(summary, drop = {}) {
+    if (drop.kind === 'money') {
+      summary.money += Math.max(0, Math.floor(Number(drop.amount) || 0));
+      return;
+    }
+    if (drop.kind !== 'item' || drop.stored === false || !drop.itemId) return;
+    const definition = getItemDefinition(drop.itemId);
+    const quantity = Math.max(1, Math.floor(Number(drop.quantity) || 1));
+    const existing = summary.items.find((entry) => entry.itemId === drop.itemId);
+    if (existing) {
+      existing.quantity += quantity;
+      return;
+    }
+    summary.items.push({
+      itemId: drop.itemId,
+      name: drop.name || definition?.name || drop.itemId,
+      icon: drop.icon || definition?.icon || '?',
+      quantity,
+      stored: true
+    });
+  }
+
+  function recordOfflineHuntingSummary(character, {
+    elapsedMs = 0,
+    exp = 0,
+    kills = 0,
+    skillUses = 0,
+    drops = []
+  } = {}, now = Date.now()) {
+    const summary = ensureOfflineHuntingSummary(character, now);
+    summary.updatedAt = new Date(now).toISOString();
+    summary.elapsedSeconds += Math.max(0, Math.floor(Number(elapsedMs) || 0) / 1000);
+    summary.kills += Math.max(0, Math.floor(Number(kills) || 0));
+    summary.skillUses += Math.max(0, Math.floor(Number(skillUses) || 0));
+    summary.exp += Math.max(0, Math.floor(Number(exp) || 0));
+    for (const drop of drops || []) mergeOfflineSummaryItem(summary, drop);
+    if (typeof character.markModified === 'function') character.markModified('huntingTime');
+    return summary;
+  }
+
   async function applyFieldBossRewards(rewardEvent = {}, currentCharacter = null) {
     const rewards = Array.isArray(rewardEvent.rewards) ? rewardEvent.rewards : [];
     const results = [];
@@ -916,6 +997,7 @@ function registerV2Routes({
       const level = getSkillLevel(character, skillId);
       if (!definition || definition.passive || level <= 0) continue;
       if (definition.effect === 'party-portal') continue;
+      if (definition.effect === 'teleport') continue;
       if (Number(skillState.cooldowns?.[skillId]) > now) continue;
       if (hasActiveOfflineSkillEffect(skillState, skillId, definition, now)) continue;
       if (
@@ -1096,6 +1178,7 @@ function registerV2Routes({
       }
       if (Number(combat.expReward) > 0) {
         const expGrant = await grantCombatExperience(character, combat.expReward, mapId);
+        combat.experience = expGrant.self;
         combat.partyExperience = expGrant.party;
         combat.drops = applyCombatDrops(character, combat.drops);
         combat.drops = applySettlementEventDrops(
@@ -1159,6 +1242,7 @@ function registerV2Routes({
       });
       if (combat.success && Number(combat.expReward) > 0) {
         const expGrant = await grantCombatExperience(character, combat.expReward, mapId);
+        combat.experience = expGrant.self;
         combat.partyExperience = expGrant.party;
         combat.drops = applyCombatDrops(character, combat.drops);
       }
@@ -1272,147 +1356,193 @@ function registerV2Routes({
     return { skillId, name: definition.name, combat };
   }
 
+  async function processOfflineHunterAction({ character, userId, now }) {
+    let response = buildCharacterResponse(character);
+    let state = buildWorldPresenceFromResponse(response, { userId, offline: true, now });
+    const selfContact = state.contactEvents.find(
+      (event) => String(event.userId) === String(userId)
+    );
+    if (selfContact) {
+      const beforeHp = Math.max(0, Number(character.resources.currentHp) || 0);
+      character.resources.currentHp = Math.max(0, beforeHp - Number(selfContact.damage || 0));
+      character.worldState.x = Math.max(0, Math.min(94, Number(selfContact.x) || 8));
+      character.worldState.floor = Number(selfContact.floor) === 1 ? 1 : 0;
+      if (beforeHp > 0 && character.resources.currentHp <= 0) {
+        const requiredExp = getRequiredExpV2(character.progression?.level);
+        const currentExp = Math.max(0, Number(character.progression?.exp) || 0);
+        character.progression.exp = currentExp - Math.min(
+          currentExp,
+          Math.floor(requiredExp * 0.1)
+        );
+        character.huntingTime.enabled = false;
+      }
+      updatePlayerResources(userId, character.resources);
+    }
+    const selfRecovery = state.recoveryEvents.find(
+      (event) => String(event.userId) === String(userId)
+    );
+    if (selfRecovery && Number(character.resources?.currentHp) > 0) {
+      character.resources.currentHp = Math.min(
+        Math.max(1, Number(character.resources.maxHp) || 1),
+        Math.max(0, Number(character.resources.currentHp) || 0)
+          + Math.max(0, Number(selfRecovery.hpAmount) || 0)
+      );
+      character.resources.currentMp = Math.min(
+        Math.max(0, Number(character.resources.maxMp) || 0),
+        Math.max(0, Number(character.resources.currentMp) || 0)
+          + Math.max(0, Number(selfRecovery.mpAmount) || 0)
+      );
+      updatePlayerResources(userId, character.resources);
+    }
+    applyOfflineAutoPotions(character);
+    response = buildCharacterResponse(character);
+    updatePlayerResources(userId, response.resources);
+    if (!character.huntingTime.enabled || Number(character.resources.currentHp) <= 0) {
+      return { stopped: true };
+    }
+
+    state = buildWorldPresenceFromResponse(response, {
+      userId,
+      x: character.worldState?.x,
+      floor: character.worldState?.floor,
+      activity: 'combat',
+      motion: response.combatPresentation?.motion || 'idle',
+      offline: true,
+      now
+    });
+    const self = state.players.find((player) => String(player.userId) === String(userId));
+    const sameFloorMonsters = state.monsters.filter(
+      (monster) => Number(monster.floor) === Number(self?.floor)
+    );
+    const target = sameFloorMonsters.sort((left, right) => (
+      Math.abs(Number(left.x) - Number(self?.x))
+      - Math.abs(Number(right.x) - Number(self?.x))
+    ))[0];
+    if (!target) return { idle: true };
+
+    const rangePx = Number(response.combatPresentation?.rangePx)
+      || Number(response.derivedStats?.attackRange)
+      || 100;
+    const rangePercent = Math.max(1, rangePx / 1200 * 100);
+    const distance = Math.abs(Number(target.x) - Number(self?.x));
+    if (distance > rangePercent + 4.5) {
+      const direction = Number(target.x) >= Number(self?.x) ? 1 : -1;
+      const movementStep = Math.max(
+        1,
+        Math.min(8, 4 * (Number(response.derivedStats?.movementSpeed) || 100) / 100)
+      );
+      const nextX = Math.max(0, Math.min(
+        94,
+        Number(self?.x) + direction * Math.min(movementStep, distance - rangePercent - 3.5)
+      ));
+      character.worldState.x = nextX;
+      character.worldState.floor = Number(self?.floor) === 1 ? 1 : 0;
+      buildWorldPresenceFromResponse(response, {
+        userId,
+        x: nextX,
+        floor: character.worldState.floor,
+        activity: 'moving',
+        motion: 'walk',
+        offline: true,
+        now
+      });
+      return { moved: true };
+    }
+
+    const autoSkillResult = await applyOfflineAutoSkill({
+      character,
+      profile: response,
+      target,
+      now
+    });
+    if (autoSkillResult?.combat?.success) {
+      const combat = autoSkillResult.combat;
+      const kills = (combat.outcomes || []).filter((outcome) => outcome.defeated).length;
+      recordOfflineHuntingSummary(character, {
+        exp: combat.experience?.gained,
+        kills,
+        skillUses: 1,
+        drops: combat.drops || []
+      }, now);
+      updatePlayerResources(userId, character.resources);
+      return { acted: true, usedSkill: true };
+    }
+
+    response = buildCharacterResponse(character);
+    const activeElements = getActiveWeaponElements(response.skillTree);
+    const rolled = rollBasicAttackDamage(response, { activeElements });
+    const consumesAmmunition = rolled.ammunition
+      && !response.skillEffects?.noAmmoConsumption;
+    const hasAmmunition = !consumesAmmunition
+      || (response.inventory?.items || []).some(
+        (item) => item.id === rolled.ammunition.itemId && Number(item.quantity) > 0
+      );
+    if (!hasAmmunition) return { idle: true };
+
+    const result = attackMonster({
+      userId: String(userId),
+      mapId: String(response.worldState.mapId),
+      monsterId: String(target.id),
+      damage: rolled.damage,
+      damageRange: rolled.damageRange,
+      rangePx,
+      damageType: DEPARTMENTS[response.job?.departmentId]?.archetype === 'mage'
+        ? 'magic'
+        : 'physical',
+      elements: activeElements,
+      accuracy: response.derivedStats.accuracy,
+      playerLevel: response.progression.level,
+      now
+    });
+    if (!result.success) return { idle: true };
+    if (consumesAmmunition) consumeInventoryItem(character, rolled.ammunition.itemId, 1);
+    if (result.expReward > 0) {
+      const expGrant = await grantCombatExperience(character, result.expReward, response.worldState.mapId);
+      result.experience = expGrant.self;
+      result.drops = applyCombatDrops(character, result.drops);
+      result.drops = applySettlementEventDrops(character, [result.monsterLevel], result.drops);
+    }
+    recordOfflineHuntingSummary(character, {
+      exp: result.experience?.gained,
+      kills: result.defeated ? 1 : 0,
+      drops: result.drops || []
+    }, now);
+    updatePlayerResources(userId, character.resources);
+    return { acted: true };
+  }
+
   async function processOfflineHunter(userId, now = Date.now()) {
     return withCharacterMutation(userId, async () => {
       const character = await V2Character.findOne({ userId });
       if (!character?.huntingTime?.enabled) return;
+      const lastTickAt = character.huntingTime?.lastTickAt
+        ? new Date(character.huntingTime.lastTickAt).getTime()
+        : now;
+      const elapsedMs = Math.max(0, now - lastTickAt);
       tickHuntingTime(character, true, now);
+      if (elapsedMs > 0) {
+        recordOfflineHuntingSummary(character, { elapsedMs }, now);
+      }
       if (!character.huntingTime.enabled || Number(character.resources?.currentHp) <= 0) {
-        await character.save();
-        return;
-      }
-
-      let response = buildCharacterResponse(character);
-      let state = buildWorldPresenceFromResponse(response, { userId, offline: true, now });
-      const selfContact = state.contactEvents.find(
-        (event) => String(event.userId) === String(userId)
-      );
-      if (selfContact) {
-        const beforeHp = Math.max(0, Number(character.resources.currentHp) || 0);
-        character.resources.currentHp = Math.max(0, beforeHp - Number(selfContact.damage || 0));
-        character.worldState.x = Math.max(0, Math.min(94, Number(selfContact.x) || 8));
-        character.worldState.floor = Number(selfContact.floor) === 1 ? 1 : 0;
-        if (beforeHp > 0 && character.resources.currentHp <= 0) {
-          const requiredExp = getRequiredExpV2(character.progression?.level);
-          const currentExp = Math.max(0, Number(character.progression?.exp) || 0);
-          character.progression.exp = currentExp - Math.min(
-            currentExp,
-            Math.floor(requiredExp * 0.1)
-          );
-          character.huntingTime.enabled = false;
-        }
-        updatePlayerResources(userId, character.resources);
-      }
-      const selfRecovery = state.recoveryEvents.find(
-        (event) => String(event.userId) === String(userId)
-      );
-      if (selfRecovery && Number(character.resources?.currentHp) > 0) {
-        character.resources.currentHp = Math.min(
-          Math.max(1, Number(character.resources.maxHp) || 1),
-          Math.max(0, Number(character.resources.currentHp) || 0)
-            + Math.max(0, Number(selfRecovery.hpAmount) || 0)
-        );
-        character.resources.currentMp = Math.min(
-          Math.max(0, Number(character.resources.maxMp) || 0),
-          Math.max(0, Number(character.resources.currentMp) || 0)
-            + Math.max(0, Number(selfRecovery.mpAmount) || 0)
-        );
-        updatePlayerResources(userId, character.resources);
-      }
-      applyOfflineAutoPotions(character);
-      updatePlayerResources(userId, buildCharacterResponse(character).resources);
-      if (!character.huntingTime.enabled || Number(character.resources.currentHp) <= 0) {
         await character.save();
         worldProfileCache.delete(String(userId));
         return;
       }
 
-      response = buildCharacterResponse(character);
-      const self = state.players.find((player) => String(player.userId) === String(userId));
-      const sameFloorMonsters = state.monsters.filter(
-        (monster) => Number(monster.floor) === Number(self?.floor)
+      const actionCount = Math.max(
+        1,
+        Math.min(
+          OFFLINE_HUNTING_MAX_ACTIONS_PER_SWEEP,
+          Math.floor(Math.max(elapsedMs, OFFLINE_HUNTING_SWEEP_MS) / OFFLINE_HUNTING_ACTION_INTERVAL_MS)
+        )
       );
-      const target = sameFloorMonsters.sort((left, right) => (
-        Math.abs(Number(left.x) - Number(self?.x))
-        - Math.abs(Number(right.x) - Number(self?.x))
-      ))[0];
-      if (target) {
-        const rangePx = Number(response.combatPresentation?.rangePx)
-          || Number(response.derivedStats?.attackRange)
-          || 100;
-        const rangePercent = Math.max(1, rangePx / 1200 * 100);
-        const distance = Math.abs(Number(target.x) - Number(self?.x));
-        if (distance > rangePercent + 4.5) {
-          const direction = Number(target.x) >= Number(self?.x) ? 1 : -1;
-          const movementStep = Math.max(
-            1,
-            Math.min(8, 4 * (Number(response.derivedStats?.movementSpeed) || 100) / 100)
-          );
-          const nextX = Math.max(0, Math.min(
-            94,
-            Number(self?.x) + direction * Math.min(movementStep, distance - rangePercent - 3.5)
-          ));
-          character.worldState.x = nextX;
-          character.worldState.floor = Number(self?.floor) === 1 ? 1 : 0;
-          state = buildWorldPresenceFromResponse(response, {
-            userId,
-            x: nextX,
-            floor: character.worldState.floor,
-            activity: 'moving',
-            motion: 'walk',
-            offline: true,
-            now
-          });
-        } else {
-          const autoSkillResult = await applyOfflineAutoSkill({
-            character,
-            profile: response,
-            target,
-            now
-          });
-          if (autoSkillResult?.combat?.success) {
-            updatePlayerResources(userId, character.resources);
-            await character.save();
-            worldProfileCache.delete(String(userId));
-            return;
-          }
-          response = buildCharacterResponse(character);
-          const activeElements = getActiveWeaponElements(response.skillTree);
-          const rolled = rollBasicAttackDamage(response, { activeElements });
-          const consumesAmmunition = rolled.ammunition
-            && !response.skillEffects?.noAmmoConsumption;
-          const hasAmmunition = !consumesAmmunition
-            || (response.inventory?.items || []).some(
-              (item) => item.id === rolled.ammunition.itemId && Number(item.quantity) > 0
-            );
-          if (hasAmmunition) {
-            const result = attackMonster({
-              userId: String(userId),
-              mapId: String(response.worldState.mapId),
-              monsterId: String(target.id),
-              damage: rolled.damage,
-              damageRange: rolled.damageRange,
-              rangePx,
-              damageType: DEPARTMENTS[response.job?.departmentId]?.archetype === 'mage'
-                ? 'magic'
-                : 'physical',
-              elements: activeElements,
-              accuracy: response.derivedStats.accuracy,
-              playerLevel: response.progression.level
-            });
-            if (result.success) {
-              if (consumesAmmunition) {
-                consumeInventoryItem(character, rolled.ammunition.itemId, 1);
-              }
-              if (result.expReward > 0) {
-                await grantCombatExperience(character, result.expReward, response.worldState.mapId);
-                applyCombatDrops(character, result.drops);
-                applySettlementEventDrops(character, [result.monsterLevel], result.drops);
-              }
-            }
-          }
-        }
+      for (let index = 0; index < actionCount; index += 1) {
+        if (!character.huntingTime.enabled || Number(character.resources?.currentHp) <= 0) break;
+        const actionNow = now - Math.max(0, actionCount - index - 1) * OFFLINE_HUNTING_ACTION_INTERVAL_MS;
+        const result = await processOfflineHunterAction({ character, userId, now: actionNow });
+        if (result?.stopped) break;
       }
+
       await character.save();
       worldProfileCache.delete(String(userId));
     });
@@ -1690,8 +1820,9 @@ function registerV2Routes({
         .select('ui.patchNotesSeenVersion')
         .lean();
       return res.json({
-        patchNotes: V2_PATCH_NOTES,
-        seen: String(character?.ui?.patchNotesSeenVersion || '') === V2_PATCH_NOTE_VERSION
+        patchNotes: V2_CURRENT_PATCH_NOTES,
+        patchNotesHistory: V2_PATCH_NOTE_HISTORY,
+        seen: String(character?.ui?.patchNotesSeenVersion || '') === V2_CURRENT_PATCH_NOTES.version
       });
     } catch (err) {
       return res.status(500).json({ msg: '패치노트 정보를 불러오지 못했습니다.' });
@@ -1704,9 +1835,9 @@ function registerV2Routes({
     try {
       await V2Character.updateOne(
         { userId: auth.id },
-        { $set: { 'ui.patchNotesSeenVersion': V2_PATCH_NOTE_VERSION } }
+        { $set: { 'ui.patchNotesSeenVersion': V2_CURRENT_PATCH_NOTES.version } }
       );
-      return res.json({ success: true, version: V2_PATCH_NOTE_VERSION });
+      return res.json({ success: true, version: V2_CURRENT_PATCH_NOTES.version });
     } catch (err) {
       return res.status(500).json({ msg: '패치노트 확인 상태를 저장하지 못했습니다.' });
     }
@@ -3261,6 +3392,27 @@ function registerV2Routes({
       return res.json({ success: true, huntingTime });
     } catch (err) {
       return res.status(400).json({ msg: err.message || '자동사냥 시간을 동기화하지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/hunting-time/offline-summary/seen', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const huntingTime = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('V2 character not found.');
+        if (!character.huntingTime || typeof character.huntingTime !== 'object') {
+          character.huntingTime = {};
+        }
+        character.huntingTime.offlineSummary = null;
+        character.markModified('huntingTime');
+        await character.save();
+        return serializeHuntingTime(character);
+      });
+      return res.json({ success: true, huntingTime });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '오프라인 사냥 정산 확인 처리에 실패했습니다.' });
     }
   });
 

@@ -498,14 +498,18 @@ async function useActiveSkill(skillId, options = {}) {
         const teleport = data.combat.teleport;
         state.currentMapId = teleport.mapId || state.currentMapId;
         localStorage.setItem('v2CurrentMapId', state.currentMapId);
-        character.style.transitionDuration = '120ms';
-        character.style.left = `${Math.max(0, Math.min(94, Number(teleport.x) || 8))}%`;
-        character.style.bottom = Number(teleport.floor) === 1
-          ? `${getUpperPlatformBottom()}px`
-          : '42px';
-        setTimeout(() => {
-          character.style.transitionDuration = '';
-        }, 160);
+        if (character) {
+          character.classList.add('is-teleporting');
+          character.style.transitionDuration = '90ms';
+          character.style.left = `${Math.max(0, Math.min(94, Number(teleport.x) || 8))}%`;
+          character.style.bottom = Number(teleport.floor) === 1
+            ? `${getUpperPlatformBottom()}px`
+            : '42px';
+          setTimeout(() => {
+            character.style.transitionDuration = '';
+            character.classList.remove('is-teleporting');
+          }, 240);
+        }
       }
       applySkillCombat(data.combat);
       showGroundLoot(data.combat.drops || []);

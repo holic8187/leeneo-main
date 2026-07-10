@@ -536,6 +536,33 @@ function buildEquipmentLoadout(loadout = {}) {
   }));
 }
 
+function buildOfflineSummaryView(summary = null) {
+  if (!summary || typeof summary !== 'object') return null;
+  const items = Array.isArray(summary.items) ? summary.items : [];
+  const normalizedItems = items
+    .map((entry) => {
+      const definition = getItemDefinition(entry.itemId);
+      return {
+        itemId: String(entry.itemId || ''),
+        name: entry.name || definition?.name || String(entry.itemId || ''),
+        icon: entry.icon || definition?.icon || '?',
+        quantity: Math.max(0, Math.floor(Number(entry.quantity) || 0)),
+        stored: entry.stored !== false
+      };
+    })
+    .filter((entry) => entry.itemId && entry.quantity > 0);
+  return {
+    startedAt: summary.startedAt || null,
+    updatedAt: summary.updatedAt || null,
+    elapsedSeconds: Math.max(0, Math.floor(Number(summary.elapsedSeconds) || 0)),
+    kills: Math.max(0, Math.floor(Number(summary.kills) || 0)),
+    skillUses: Math.max(0, Math.floor(Number(summary.skillUses) || 0)),
+    exp: Math.max(0, Math.floor(Number(summary.exp) || 0)),
+    money: Math.max(0, Math.floor(Number(summary.money) || 0)),
+    items: normalizedItems
+  };
+}
+
 function buildCharacterResponse(character) {
   if (!character) return null;
   const plain = toPlainObject(character);
@@ -618,7 +645,8 @@ function buildCharacterResponse(character) {
       remainingSeconds: Math.max(0, Number(plain.huntingTime?.remainingSeconds) || 0),
       maximumSeconds: 24000,
       enabled: Boolean(plain.huntingTime?.enabled),
-      lastDailyGrantDate: String(plain.huntingTime?.lastDailyGrantDate || '')
+      lastDailyGrantDate: String(plain.huntingTime?.lastDailyGrantDate || ''),
+      offlineSummary: buildOfflineSummaryView(plain.huntingTime?.offlineSummary)
     },
     actionPoints: plain.actionPoints,
     economy: plain.economy,

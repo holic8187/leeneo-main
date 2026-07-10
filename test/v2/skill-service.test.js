@@ -65,6 +65,19 @@ test('marketing mascot summon uses MP only and treats the stated HP as summon HP
   assert.equal(values.summonHp, 6000);
 });
 
+test('all mage teleport variants use the shared teleport runtime effect', () => {
+  for (const skillId of ['extended_fc8e88e986', 'extended_85efaaf08e', 'extended_83750dd151']) {
+    const skill = SKILL_DEFINITIONS[skillId];
+    assert.equal(skill.effect, 'teleport');
+    assert.equal(skill.target, 'self');
+    assert.equal(skill.range, 150);
+    assert.equal(resolveSkillValues(skill, 1).mpCost, 30);
+    assert.equal(resolveSkillValues(skill, skill.maxLevel).mpCost, 13);
+    assert.equal(resolveSkillValues(skill, 1).distance, 60);
+    assert.equal(resolveSkillValues(skill, skill.maxLevel).distance, 150);
+  }
+});
+
 test('archer core passive exposes its full critical chance and weapon range bonus', () => {
   const critical = findSkillByName('핵심 포착');
   const range = findSkillByName('멀리 보는 안목');

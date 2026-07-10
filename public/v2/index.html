@@ -57,6 +57,13 @@
             </div>
 
             <div id="worldStage" class="world-stage" data-theme="lobby" aria-label="캐릭터 이동 및 자동 전투 화면">
+              <div id="fieldBossTopBar" class="field-boss-top-bar hidden" aria-live="polite">
+                <div class="field-boss-top-meta">
+                  <strong id="fieldBossTopName">FIELD BOSS</strong>
+                  <span id="fieldBossTopText">0 / 0</span>
+                </div>
+                <div class="field-boss-top-track"><i id="fieldBossTopFill"></i></div>
+              </div>
               <div class="office-skyline" aria-hidden="true"></div>
               <div class="world-grid" aria-hidden="true"></div>
               <div class="hanging-light light-a" aria-hidden="true"></div>
@@ -176,6 +183,7 @@
           <button class="desk-action" data-feature="ranking" type="button"><b>12</b><span>랭킹<small>RANKING</small></span></button>
           <button class="desk-action" data-feature="marketplace" type="button"><b>13</b><span>거래소<small>MARKETPLACE</small></span></button>
           <button class="desk-action" data-feature="world-map" type="button"><b>14</b><span>지도<small>MAP</small></span></button>
+          <button class="desk-action" data-feature="patch-notes" type="button"><b>15</b><span>패치노트<small>PATCH</small></span></button>
         </nav>
 
         <button id="questButton" class="quest-callout hidden" type="button">

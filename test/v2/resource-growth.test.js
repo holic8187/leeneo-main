@@ -9,7 +9,7 @@ const {
 test('beginner resource averages match the supplied level 1 through 10 table', () => {
   assert.deepEqual(
     calculateReferenceResources({ level: 1 }),
-    { maxHp: 50, maxMp: 5, provisional: false, growthVersion: 3 }
+    { maxHp: 50, maxMp: 5, provisional: false, growthVersion: 4 }
   );
   assert.equal(calculateReferenceResources({ level: 10 }).maxHp, 176);
   assert.equal(calculateReferenceResources({ level: 10 }).maxMp, 104);
@@ -31,7 +31,7 @@ test('warrior reference excludes the separately reconciled HP growth passive', (
     advancementTier: 2,
     archetype: 'warrior'
   });
-  assert.equal(talentManager.maxHp, 1250);
+  assert.equal(talentManager.maxHp, 2000);
   assert.equal(talentManager.maxMp, 204);
 
   const fieldWorker = calculateReferenceResources({
@@ -40,8 +40,17 @@ test('warrior reference excludes the separately reconciled HP growth passive', (
     advancementTier: 2,
     archetype: 'warrior'
   });
-  assert.equal(fieldWorker.maxHp, 1830);
+  assert.equal(fieldWorker.maxHp, 2580);
   assert.equal(fieldWorker.maxMp, 474);
+
+  const director = calculateReferenceResources({
+    level: 120,
+    departmentId: 'hr',
+    advancementTier: 4,
+    archetype: 'warrior'
+  });
+  assert.equal(director.maxHp, 8340);
+  assert.equal(director.maxMp, 654);
 });
 
 test('archer and thief advancement HP bonuses accumulate by job tier', () => {

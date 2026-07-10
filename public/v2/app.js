@@ -76,7 +76,10 @@ const state = {
   enhancementScrollStackId: '',
   eventState: null,
   marketplace: { listings: [], mine: [], rules: {}, search: '' },
-  pendingPatchNotes: null
+  pendingPatchNotes: null,
+  patchNotesHistory: [],
+  offlineSummaryKey: '',
+  offlineSummaryRetryTimer: null
 };
 sessionStorage.setItem('v2WorldClientId', state.worldClientId);
 
@@ -152,7 +155,8 @@ function renderGame(data) {
   state.huntingTime = {
     remainingSeconds: Math.max(0, Number(character.huntingTime?.remainingSeconds) || 0),
     maximumSeconds: Math.max(1, Number(character.huntingTime?.maximumSeconds) || 24000),
-    enabled: Boolean(character.huntingTime?.enabled)
+    enabled: Boolean(character.huntingTime?.enabled),
+    offlineSummary: character.huntingTime?.offlineSummary || null
   };
   state.autoCombat = state.huntingTime.enabled && state.huntingTime.remainingSeconds > 0;
   localStorage.setItem('v2AutoCombat', String(state.autoCombat));
@@ -191,6 +195,7 @@ function renderGame(data) {
   const quest = character.advancementQuest;
   $('questButton').classList.toggle('hidden', !quest);
   $('mailButton').classList.toggle('quest-visible', Boolean(quest));
+  maybeShowOfflineHuntingSummary(state.huntingTime.offlineSummary);
   if (quest) {
     $('questButtonTitle').textContent = `${quest.targetTier}차 전직 가능`;
     $('questButtonMeta').textContent = `Lv.${quest.requiredLevel} · ${quest.nextJobName}`;
@@ -235,6 +240,24 @@ function patchNotesBody(notes = {}) {
   </div>`;
 }
 
+function patchNotesArchiveBody(notesList = []) {
+  const notes = Array.isArray(notesList) ? [...notesList].reverse() : [];
+  if (!notes.length) {
+    return '<div class="empty-ledger"><b>아직 등록된 패치노트가 없습니다.</b><p>다음 패치부터 이곳에 기록됩니다.</p></div>';
+  }
+  return `<div class="patch-note-archive">
+    <p class="notice-line">최근 패치부터 순서대로 표시됩니다. 자동 팝업에서 놓친 내용도 여기서 다시 확인할 수 있습니다.</p>
+    ${notes.map((note) => {
+      const lines = Array.isArray(note.lines) ? note.lines : [];
+      return `<article class="patch-note-sheet is-archive">
+        <span>${escapeHtml(note.publishedAt || '')} PATCH / ${escapeHtml(note.version || 'NOTES')}</span>
+        <h3>${escapeHtml(note.title || '패치노트')}</h3>
+        <ul>${lines.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>
+      </article>`;
+    }).join('')}
+  </div>`;
+}
+
 function openPatchNotes(notes = {}) {
   state.pendingPatchNotes = notes;
   $('featureCode').textContent = `PATCH / ${escapeHtml(notes.version || 'NOTES')}`;
@@ -254,12 +277,107 @@ function openPatchNotes(notes = {}) {
   document.body.classList.add('modal-open');
 }
 
+function offlineSummaryKey(summary = {}) {
+  const itemKey = (summary.items || [])
+    .map((item) => `${item.itemId}:${item.quantity}`)
+    .join(',');
+  return [
+    summary.startedAt || '',
+    summary.updatedAt || '',
+    Math.floor(Number(summary.elapsedSeconds) || 0),
+    Math.floor(Number(summary.kills) || 0),
+    Math.floor(Number(summary.exp) || 0),
+    Math.floor(Number(summary.money) || 0),
+    itemKey
+  ].join('|');
+}
+
+function offlineSummaryBody(summary = {}) {
+  const items = Array.isArray(summary.items) ? summary.items : [];
+  const itemRows = items.length
+    ? items.map((item) => `
+      <li>${escapeHtml(item.icon || '□')} ${escapeHtml(item.name || item.itemId)} ×${formatNumber(item.quantity)}</li>
+    `).join('')
+    : '<li>획득한 아이템이 없습니다.</li>';
+  return `<div class="offline-summary-sheet">
+    <span>OFFLINE HUNTING</span>
+    <h3>오프라인 사냥 정산</h3>
+    <p>자리를 비운 동안 자동사냥이 처리한 결과입니다.</p>
+    <div class="offline-summary-grid">
+      <strong>사냥 시간</strong><b>${formatDuration(summary.elapsedSeconds)}</b>
+      <strong>처치 수</strong><b>${formatNumber(summary.kills)}마리</b>
+      <strong>스킬 사용</strong><b>${formatNumber(summary.skillUses)}회</b>
+      <strong>경험치</strong><b>+${formatNumber(summary.exp)}</b>
+      <strong>돈</strong><b>+${formatNumber(summary.money)}원</b>
+    </div>
+    <h4>획득 아이템</h4>
+    <ul>${itemRows}</ul>
+    <button type="button" data-offline-summary-seen>확인</button>
+  </div>`;
+}
+
+function maybeShowOfflineHuntingSummary(summary) {
+  if (!summary) return;
+  const elapsedSeconds = Math.floor(Number(summary.elapsedSeconds) || 0);
+  const hasResult = elapsedSeconds >= 30
+    || Number(summary.kills) > 0
+    || Number(summary.skillUses) > 0
+    || Number(summary.exp) > 0
+    || Number(summary.money) > 0
+    || (Array.isArray(summary.items) && summary.items.length > 0);
+  if (!hasResult) return;
+  const key = offlineSummaryKey(summary);
+  if (!key || state.offlineSummaryKey === key) return;
+  if (!$('featureModal')?.classList.contains('hidden')) {
+    if (state.offlineSummaryRetryTimer) clearTimeout(state.offlineSummaryRetryTimer);
+    state.offlineSummaryRetryTimer = setTimeout(() => maybeShowOfflineHuntingSummary(summary), 600);
+    return;
+  }
+  state.offlineSummaryKey = key;
+  $('featureCode').textContent = 'AUTO HUNTING / OFFLINE';
+  $('featureTitle').textContent = '오프라인 사냥 정산';
+  $('featureBody').innerHTML = offlineSummaryBody(summary);
+  document.querySelector('[data-offline-summary-seen]')?.addEventListener('click', async () => {
+    try {
+      const data = await request('/api/v2/hunting-time/offline-summary/seen', { method: 'POST' });
+      state.huntingTime = data.huntingTime || { ...state.huntingTime, offlineSummary: null };
+      if (state.character?.huntingTime) state.character.huntingTime.offlineSummary = null;
+    } catch (err) {
+      setWorldActivity(err.message);
+      return;
+    }
+    closeFeature();
+  });
+  $('featureModal').classList.remove('hidden');
+  document.body.classList.add('modal-open');
+}
+
 async function maybeShowPatchNotes() {
   try {
     const data = await request('/api/v2/patch-notes');
-    if (data.patchNotes && !data.seen) openPatchNotes(data.patchNotes);
+    state.patchNotesHistory = data.patchNotesHistory || (data.patchNotes ? [data.patchNotes] : []);
+    if (data.patchNotes && !data.seen) {
+      if (!$('featureModal')?.classList.contains('hidden')) {
+        setTimeout(maybeShowPatchNotes, 700);
+        return;
+      }
+      openPatchNotes(data.patchNotes);
+    }
   } catch (err) {
     console.warn('V2 patch note check failed:', err);
+  }
+}
+
+async function refreshPatchNotes(openAfter = false) {
+  try {
+    const data = await request('/api/v2/patch-notes');
+    state.patchNotesHistory = data.patchNotesHistory || (data.patchNotes ? [data.patchNotes] : []);
+    if (openAfter) openFeature('patch-notes');
+    else if (!$('featureModal')?.classList.contains('hidden') && $('featureTitle')?.textContent === '패치노트') {
+      $('featureBody').innerHTML = patchNotesArchiveBody(state.patchNotesHistory);
+    }
+  } catch (err) {
+    setWorldActivity(err.message);
   }
 }
 
@@ -1665,6 +1783,18 @@ function renderMonsters(monsters = []) {
   Array.from($('monsterLayer').children).forEach((element) => {
     if (!visibleIds.has(element.dataset.monsterId)) element.remove();
   });
+  renderFieldBossTopBar(monsters);
+}
+
+function renderFieldBossTopBar(monsters = state.worldMonsters || []) {
+  const bar = $('fieldBossTopBar');
+  if (!bar) return;
+  const boss = (monsters || []).find((monster) => monster.fieldBoss && Number(monster.hp) > 0);
+  bar.classList.toggle('hidden', !boss);
+  if (!boss) return;
+  $('fieldBossTopName').textContent = boss.name || 'FIELD BOSS';
+  $('fieldBossTopText').textContent = `${formatNumber(boss.hp)} / ${formatNumber(boss.maxHp)}`;
+  $('fieldBossTopFill').style.width = `${ratio(boss.hp, boss.maxHp)}%`;
 }
 
 function applyAttackResult(result = {}) {
@@ -1677,6 +1807,7 @@ function applyAttackResult(result = {}) {
   if (result.defeated || !result.monster) {
     state.worldMonsters = state.worldMonsters.filter((monster) => monster.id !== targetId);
     targetElement?.remove();
+    renderFieldBossTopBar();
     return;
   }
 
@@ -1699,6 +1830,7 @@ function applyAttackResult(result = {}) {
     setTimeout(() => targetElement?.classList.remove('is-knockback'), 420);
   }
   targetElement?.classList.toggle('is-chasing', result.monster.state === 'chase');
+  renderFieldBossTopBar();
 }
 
 function syncInvulnerabilityVisual(invulnerableUntil, serverTime) {
@@ -3032,6 +3164,7 @@ const featureMeta = {
   ranking: { code: '12 / RANKING', title: '사원 랭킹' },
   marketplace: { code: '13 / MARKETPLACE', title: '사내 거래소' },
   'world-map': { code: '14 / MAP', title: '사내 지도' },
+  'patch-notes': { code: '15 / PATCH NOTES', title: '패치노트' },
   'trade-invite': { code: 'TRADE / INVITE', title: '교환 요청' },
   quest: { code: 'QUEST / HR', title: '전직 퀘스트' },
   move: { code: 'MAP / MOVE', title: '이동 목적지' },
@@ -3800,6 +3933,7 @@ function featureBody(feature) {
   if (feature === 'event') return eventBody();
   if (feature === 'marketplace') return marketplaceBody();
   if (feature === 'world-map') return worldMapBody();
+  if (feature === 'patch-notes') return patchNotesArchiveBody(state.patchNotesHistory);
   if (feature === 'trade-invite') return tradeInviteBody();
   const messages = {
     shop: '물약, 탄환, 장비 보급품을 구매하는 사내 보급소입니다.',
@@ -3939,6 +4073,8 @@ document.querySelectorAll('.desk-action').forEach((button) => {
         ? refreshRanking(true)
       : button.dataset.feature === 'marketplace'
         ? refreshMarketplace(true)
+      : button.dataset.feature === 'patch-notes'
+        ? refreshPatchNotes(true)
       : openFeature(button.dataset.feature)
   ));
 });

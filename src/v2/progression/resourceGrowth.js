@@ -1,6 +1,6 @@
 'use strict';
 
-const RESOURCE_GROWTH_VERSION = 3;
+const RESOURCE_GROWTH_VERSION = 4;
 const BASE_STATS = Object.freeze({
   grit: 4,
   processingSpeed: 4,
@@ -26,6 +26,7 @@ const SECOND_ADVANCEMENT_BONUSES = Object.freeze({
 });
 
 const ARCHETYPE_ADVANCEMENT_HP_BONUSES = Object.freeze({
+  warrior: Object.freeze({ 2: 750, 3: 1500, 4: 2500 }),
   archer: Object.freeze({ 2: 600, 3: 1000, 4: 1500 }),
   thief: Object.freeze({ 2: 400, 3: 800, 4: 1000 })
 });

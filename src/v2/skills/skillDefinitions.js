@@ -16,6 +16,11 @@ const ALL_DEPARTMENTS = Object.freeze([
   'research'
 ]);
 const EXTENDED_SKILL_DEFINITIONS = require('./extendedSkillDefinitions.generated.json');
+const TELEPORT_SKILL_IDS = new Set([
+  'extended_fc8e88e986',
+  'extended_85efaaf08e',
+  'extended_83750dd151'
+]);
 
 function defineSkill(id, options) {
   return Object.freeze({
@@ -32,7 +37,20 @@ function defineSkill(id, options) {
 }
 
 const SKILL_DEFINITIONS = Object.freeze({
-  ...EXTENDED_SKILL_DEFINITIONS,
+  ...Object.fromEntries(Object.entries(EXTENDED_SKILL_DEFINITIONS).map(([id, definition]) => {
+    if (!TELEPORT_SKILL_IDS.has(id)) return [id, definition];
+    return [id, {
+      ...definition,
+      effect: 'teleport',
+      target: 'self',
+      range: 150,
+      values: {
+        ...(definition.values || {}),
+        mpCost: [30, 13],
+        distance: [60, 150]
+      }
+    }];
+  })),
   field_training: defineSkill('field_training', {
     name: '현장실습!',
     description: '정신력을 10 소모해 전방의 적 1인에게 고정 피해를 입힙니다.',

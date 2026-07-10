@@ -90,7 +90,8 @@ function serializeHuntingTime(character) {
   return {
     remainingSeconds: state.remainingSeconds,
     maximumSeconds: MAX_HUNTING_SECONDS,
-    enabled: state.enabled
+    enabled: state.enabled,
+    offlineSummary: state.offlineSummary || null
   };
 }
 

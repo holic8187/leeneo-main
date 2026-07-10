@@ -115,7 +115,8 @@ const v2CharacterSchema = new mongoose.Schema({
     remainingSeconds: { type: Number, default: 0, min: 0, max: 24000 },
     enabled: { type: Boolean, default: false },
     lastTickAt: { type: Date, default: null },
-    lastDailyGrantDate: { type: String, default: '' }
+    lastDailyGrantDate: { type: String, default: '' },
+    offlineSummary: { type: mongoose.Schema.Types.Mixed, default: null }
   },
   economy: {
     money: { type: Number, default: 0 },

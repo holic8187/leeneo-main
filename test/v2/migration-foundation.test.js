@@ -219,6 +219,7 @@ test('V2 router exposes the current migration, world, inventory, and shop endpoi
     'GET /api/v2/party',
     'POST /api/v2/hunting-time/toggle',
     'POST /api/v2/hunting-time/tick',
+    'POST /api/v2/hunting-time/offline-summary/seen',
     'POST /api/v2/party/invite',
     'POST /api/v2/party/accept',
     'POST /api/v2/party/decline',
