@@ -37,6 +37,14 @@ test('event coins only drop from monsters within ten levels and respect the dail
   assert.equal(rollSettlementEventCoin(character, 30, () => 0, eventDate), null);
 });
 
+test('a level sixty-five player can receive coins from the level sixty-two sales fox', () => {
+  const salesFox = MONSTER_CATALOG.find((monster) => monster.id === 'sales_fox');
+  assert.equal(salesFox.level, 62);
+  assert.equal(isEventLevelRangeMonster(65, salesFox.level), true);
+  const character = makeCharacter(65);
+  assert.ok(rollSettlementEventCoin(character, salesFox.level, () => 0, eventDate));
+});
+
 test('event coin drop chance is tripled and one stack holds five thousand coins', () => {
   const coin = getItemDefinition('settlement_event_coin');
   assert.equal(COIN_DROP_CHANCE, 0.15);

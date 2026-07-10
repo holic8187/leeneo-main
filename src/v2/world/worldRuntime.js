@@ -512,7 +512,9 @@ function advanceMonster(monster, runtime, map, deltaSeconds, now) {
     return;
   }
 
-  const target = monster.aggroTargetId && runtime.players.get(monster.aggroTargetId);
+  const aggroTarget = monster.aggroTargetId && runtime.players.get(monster.aggroTargetId);
+  const target = Number(aggroTarget?.combatProfile?.stealth) > 0 ? null : aggroTarget;
+  if (aggroTarget && !target) monster.aggroTargetId = '';
   if (target && target.floor === monster.floor) {
     const difference = target.x - monster.x;
     if (Math.abs(difference) > 2.2) {
@@ -567,7 +569,11 @@ function applyContactDamage(runtime, now) {
       : player.floor;
     player.collisionOriginX = player.x;
     player.collisionOriginFloor = player.floor;
-    if (player.currentHp <= 0 || now < player.invulnerableUntil) continue;
+    if (
+      player.currentHp <= 0
+      || now < player.invulnerableUntil
+      || Number(player.combatProfile?.stealth) > 0
+    ) continue;
     if (player.lastContactAt && now - player.lastContactAt < CONTACT_COOLDOWN_MS) continue;
     const playerWidthPercent = PLAYER_VISUAL_WIDTH_PX / ASSUMED_STAGE_WIDTH_PX * 100;
     const monsterHalfWidthPercent = MONSTER_VISUAL_WIDTH_PX / 2 / ASSUMED_STAGE_WIDTH_PX * 100;
@@ -674,7 +680,9 @@ function applyContactDamage(runtime, now) {
 function applyFieldBossMechanics(runtime, now) {
   const events = [];
   const livePlayers = () => Array.from(runtime.players.values())
-    .filter((player) => player.currentHp > 0);
+    .filter((player) => (
+      player.currentHp > 0 && Number(player.combatProfile?.stealth) <= 0
+    ));
   for (const boss of runtime.monsters) {
     if (!boss.fieldBoss || boss.hp <= 0) continue;
     const definition = getFieldBossDefinition(boss.fieldBossId);
@@ -919,6 +927,7 @@ function updatePresence({
   contactReflectPercent,
   contactReflectCapPercent,
   mpDamageGuardPercent,
+  stealth,
   periodicHealPercent,
   periodicHealAmount,
   periodicHealIntervalMs,
@@ -1031,7 +1040,8 @@ function updatePresence({
           100,
           Number(mpDamageGuardPercent ?? previous?.combatProfile?.mpDamageGuardPercent) || 0
         )
-      )
+      ),
+      stealth: Number(stealth ?? previous?.combatProfile?.stealth) > 0 ? 1 : 0
     },
     lastSeenAt: offline
       ? Number(previous?.lastSeenAt || now - PLAYER_TIMEOUT_MS - 1)
@@ -1239,6 +1249,7 @@ function attackMonster({
     ? requestedMonster
     : selectFrontMonster(runtime, player, requestedMonster, rangePercent);
   if (!monster) return { success: false, reason: 'missing-target' };
+  player.combatProfile.stealth = 0;
   const requiredAccuracy = calculateRequiredAccuracy({
     characterLevel: playerLevel,
     monsterLevel: monster.level,
@@ -1441,6 +1452,7 @@ function useSkillOnMonsters({
     })
       .slice(0, targetLimit);
   if (!candidates.length) return { success: false, reason: 'out-of-range' };
+  if (dealDamage) player.combatProfile.stealth = 0;
 
   const outcomes = [];
   const drops = [];

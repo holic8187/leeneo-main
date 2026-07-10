@@ -104,6 +104,32 @@ test('magic guard exposes MP damage guard as an active buff effect', () => {
   assert.equal(getActiveSkillEffects(character).mpDamageGuardPercent, 80);
 });
 
+test('undercover work exposes a real stealth buff for sales and facilities', () => {
+  const stealth = SKILL_DEFINITIONS.extended_47fcdc0ba0;
+  assert.equal(stealth.name, '잠복 근무');
+  assert.equal(stealth.effect, 'buff');
+  assert.equal(resolveSkillValues(stealth, stealth.maxLevel).stealth, 1);
+
+  const character = makeCharacter({
+    job: { departmentId: 'sales', advancementTier: 1 },
+    skills: {
+      levels: { [stealth.id]: stealth.maxLevel },
+      activePreset: [],
+      unlockedQuestSkills: [],
+      activeBuffs: [{
+        skillId: stealth.id,
+        effects: { stealth: 1 },
+        createdAt: new Date(Date.now() - 1_000),
+        expiresAt: new Date(Date.now() + 200_000)
+      }],
+      cooldowns: {},
+      summon: null,
+      comboCount: 0
+    }
+  });
+  assert.equal(getActiveSkillEffects(character).stealth, 1);
+});
+
 test('archer core passive exposes its full critical chance and weapon range bonus', () => {
   const critical = findSkillByName('핵심 포착');
   const range = findSkillByName('멀리 보는 안목');

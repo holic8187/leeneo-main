@@ -46,7 +46,7 @@ const MAP_DEFINITIONS = [
   { id: 'meeting_mouse_hole', name: '회의실 쥐구멍', region: '단일 사냥터', minLevel: 23, maxLevel: 30, theme: 'office', features: ['rope'], monsterIds: ['meeting_mouse'] },
   { id: 'overtime_roost', name: '야근 박쥐 둥지', region: '단일 사냥터', minLevel: 31, maxLevel: 36, theme: 'overtime', features: ['rope'], monsterIds: ['overtime_bat'] },
   { id: 'payroll_mimic_vault', name: '급여함 미믹 금고', region: '단일 사냥터', minLevel: 37, maxLevel: 44, theme: 'vault', features: ['boxes'], monsterIds: ['payroll_mimic'] },
-  { id: 'sales_fox_den', name: '영업여우 접선로', region: '단일 사냥터', minLevel: 50, maxLevel: 58, theme: 'sales', features: ['ladder'], monsterIds: ['sales_fox'] },
+  { id: 'sales_fox_den', name: '영업여우 접선로', region: '단일 사냥터', minLevel: 57, maxLevel: 67, theme: 'sales', features: ['ladder'], monsterIds: ['sales_fox'] },
   { id: 'bug_nest', name: '버그 딱정벌레 둥지', region: '단일 사냥터', minLevel: 64, maxLevel: 72, theme: 'server', features: ['hazard'], monsterIds: ['bug_beetle'] },
   { id: 'prototype_hangar', name: '시제품 골렘 격납고', region: '단일 사냥터', minLevel: 78, maxLevel: 86, theme: 'laboratory', features: ['elevator'], monsterIds: ['prototype_golem'] },
   { id: 'deadline_rooftop', name: '마감기한 드래곤 옥상', region: '단일 사냥터', minLevel: 132, maxLevel: 145, theme: 'executive', features: ['hazard', 'rope'], monsterIds: ['deadline_dragon'] }

@@ -715,6 +715,59 @@ test('contact damage knocks the player backward and grants 1.5 seconds of invuln
   assert.equal(afterInvulnerability.contactEvents.length, 1);
 });
 
+test('stealth prevents contact damage and is removed when the player attacks', () => {
+  const initial = updatePresence({
+    userId: 'stealth-user',
+    nickname: '잠복사원',
+    mapId: 'newcomer_training',
+    x: 0,
+    floor: 0,
+    activity: 'idle',
+    currentHp: 120,
+    maxHp: 120,
+    stealth: 1,
+    now: 1_000
+  });
+  const monster = initial.monsters.find((entry) => entry.floor === 0);
+  const hidden = updatePresence({
+    userId: 'stealth-user',
+    nickname: '잠복사원',
+    mapId: 'newcomer_training',
+    x: monster.x,
+    floor: 0,
+    activity: 'idle',
+    currentHp: 120,
+    maxHp: 120,
+    stealth: 1,
+    now: 1_100
+  });
+  assert.equal(hidden.contactEvents.length, 0);
+  const result = attackMonster({
+    userId: 'stealth-user',
+    mapId: 'newcomer_training',
+    monsterId: monster.id,
+    damage: 1,
+    rangePx: 1_000,
+    piercing: true,
+    now: 1_200
+  });
+  assert.equal(result.success, true);
+
+  const revealed = updatePresence({
+    userId: 'stealth-user',
+    nickname: '잠복사원',
+    mapId: 'newcomer_training',
+    x: monster.x,
+    floor: 0,
+    activity: 'idle',
+    currentHp: 120,
+    maxHp: 120,
+    stealth: 0,
+    now: 1_300
+  });
+  assert.equal(revealed.contactEvents.length, 1);
+});
+
 test('passive dodge prevents contact damage and knockback', () => {
   resetWorldRuntime();
   const initial = updatePresence({

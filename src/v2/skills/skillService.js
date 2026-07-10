@@ -388,7 +388,8 @@ function getActiveSkillEffects(character, now = Date.now()) {
     periodicMpRestore: 0,
     periodicRestoreIntervalSeconds: 10,
     mpAbsorbChance: 0,
-    mpAbsorbPercent: 0
+    mpAbsorbPercent: 0,
+    stealth: 0
   };
   const weaponType = character.loadout?.weapon?.weaponType;
   for (const definition of getDepartmentSkillDefinitions(character.job?.departmentId)) {

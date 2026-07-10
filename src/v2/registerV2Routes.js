@@ -134,6 +134,16 @@ const {
 } = require('./skills/skillService');
 const { calculateMagicDamageRange } = require('./combat/combatFormulas');
 
+const STEALTH_SKILL_ID = 'extended_47fcdc0ba0';
+
+function clearStealthBuff(skillState) {
+  const activeBuffs = Array.isArray(skillState?.activeBuffs) ? skillState.activeBuffs : [];
+  const filtered = activeBuffs.filter((buff) => buff.skillId !== STEALTH_SKILL_ID);
+  const removed = filtered.length !== activeBuffs.length;
+  if (removed) skillState.activeBuffs = filtered;
+  return removed;
+}
+
 const V2_RETAINED_FEATURES = Object.freeze([
   '계정 및 닉네임',
   '행동력',
@@ -853,6 +863,7 @@ function registerV2Routes({
       contactReflectPercent: response.skillEffects?.contactReflectPercent,
       contactReflectCapPercent: response.skillEffects?.contactReflectCapPercent,
       mpDamageGuardPercent: response.skillEffects?.mpDamageGuardPercent,
+      stealth: response.skillEffects?.stealth,
       periodicHealPercent: recoverySkill?.values?.healPercent,
       periodicHealAmount: Number(response.skillEffects?.periodicHpRestore) || 0,
       periodicHealIntervalMs: Number(
@@ -1151,6 +1162,7 @@ function registerV2Routes({
       });
       if (!combat.success) return null;
       combat.critical = critical;
+      clearStealthBuff(skillState);
       character.resources.currentHp = Math.max(0, Number(character.resources.currentHp) - hpCost);
       character.resources.currentMp = Math.max(0, Number(character.resources.currentMp) - mpCost);
       if (ammunition && !preUseEffects.noAmmoConsumption) {
@@ -1314,7 +1326,7 @@ function registerV2Routes({
         'maxCombo', 'damagePerComboPercent', 'damageIncreasePercent',
         'noAmmoConsumption', 'movementSpeedIncrease', 'criticalChance',
         'criticalDamagePercent', 'damageReductionPercent', 'experienceBonusPercent',
-        'mpDamageGuardPercent'
+        'mpDamageGuardPercent', 'stealth'
       ]) {
         if (Number.isFinite(Number(values[key]))) effects[key] = Number(values[key]);
       }
@@ -2181,6 +2193,7 @@ function registerV2Routes({
           });
           if (!combat.success) throw new Error('사거리 안에 공격할 대상이 없습니다.');
           combat.critical = critical;
+          clearStealthBuff(skillState);
           if (Array.isArray(combat.fieldBossRewards) && combat.fieldBossRewards.length) {
             combat.fieldBossRewardResults = [];
             for (const rewardEvent of combat.fieldBossRewards) {
@@ -2424,7 +2437,7 @@ function registerV2Routes({
             'maxCombo', 'damagePerComboPercent', 'damageIncreasePercent',
             'noAmmoConsumption', 'movementSpeedIncrease', 'criticalChance',
             'criticalDamagePercent', 'damageReductionPercent', 'experienceBonusPercent',
-            'mpDamageGuardPercent'
+            'mpDamageGuardPercent', 'stealth'
           ]) {
             if (Number.isFinite(Number(values[key]))) {
               const soloPerformanceSupport = definition.name === '성과 지원'
@@ -3790,6 +3803,7 @@ function registerV2Routes({
         contactReflectPercent: profile.skillEffects?.contactReflectPercent,
         contactReflectCapPercent: profile.skillEffects?.contactReflectCapPercent,
         mpDamageGuardPercent: profile.skillEffects?.mpDamageGuardPercent,
+        stealth: profile.skillEffects?.stealth,
         periodicHealPercent: recoverySkill?.values?.healPercent,
         periodicHealAmount: Number(profile.skillEffects?.periodicHpRestore) || 0,
         periodicHealIntervalMs: Number(

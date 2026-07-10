@@ -22,6 +22,7 @@ const TELEPORT_SKILL_IDS = new Set([
   'extended_83750dd151'
 ]);
 const MP_DAMAGE_GUARD_SKILL_ID = 'extended_51dd415210';
+const STEALTH_SKILL_ID = 'extended_47fcdc0ba0';
 
 function defineSkill(id, options) {
   return Object.freeze({
@@ -39,6 +40,16 @@ function defineSkill(id, options) {
 
 const SKILL_DEFINITIONS = Object.freeze({
   ...Object.fromEntries(Object.entries(EXTENDED_SKILL_DEFINITIONS).map(([id, definition]) => {
+    if (id === STEALTH_SKILL_ID) {
+      return [id, {
+        ...definition,
+        effect: 'buff',
+        values: {
+          ...(definition.values || {}),
+          stealth: 1
+        }
+      }];
+    }
     if (id === MP_DAMAGE_GUARD_SKILL_ID) {
       return [id, {
         ...definition,

@@ -1426,19 +1426,39 @@ async function enterWorldPortal(connection, runId) {
   return true;
 }
 
-async function commandMove(targetMapId) {
-  if (state.moving || state.dead) return;
+function findMapTravelRoute(startMapId, targetMapId) {
+  if (startMapId === targetMapId) return [startMapId];
+  const visibleMaps = (state.maps || []).filter((map) => !map.hidden);
+  const visibleIds = new Set(visibleMaps.map((map) => map.id));
+  if (!visibleIds.has(startMapId) || !visibleIds.has(targetMapId)) return [];
+  const queue = [startMapId];
+  const previous = new Map([[startMapId, null]]);
+  while (queue.length) {
+    const mapId = queue.shift();
+    const map = getMap(mapId);
+    for (const connection of map?.connections || []) {
+      if (!visibleIds.has(connection.targetId) || previous.has(connection.targetId)) continue;
+      previous.set(connection.targetId, mapId);
+      if (connection.targetId === targetMapId) {
+        const route = [targetMapId];
+        let cursor = mapId;
+        while (cursor) {
+          route.unshift(cursor);
+          cursor = previous.get(cursor);
+        }
+        return route;
+      }
+      queue.push(connection.targetId);
+    }
+  }
+  return [];
+}
+
+async function performMapMoveStep(targetMapId, runId) {
   const map = getMap(state.currentMapId);
   const connection = map?.connections.find((entry) => entry.targetId === targetMapId);
   const target = getMap(targetMapId);
-  if (!connection || !canEnterMap(target)) return;
-
-  closeFeature();
-  clearRallyPoint();
-  state.moving = true;
-  state.combatRunId += 1;
-  const runId = ++state.moveRunId;
-  updateFieldControls();
+  if (!connection || !canEnterMap(target) || !isRunActive('move', runId)) return false;
 
   const portalIndex = Math.max(0, map.connections.slice(0, 4).findIndex(
     (entry) => entry.targetId === targetMapId
@@ -1453,22 +1473,43 @@ async function commandMove(targetMapId) {
     const ladderX = getLadderCharacterX();
     const currentX = Number.parseFloat(character.style.left) || 38;
     character.classList.toggle('facing-left', ladderX < currentX);
-    if (!await moveCharacter(ladderX, 1050, runId)) { finishMoveCommand(runId); return; }
-    if (!await climbToUpperPlatform(runId)) { finishMoveCommand(runId); return; }
+    if (!await moveCharacter(ladderX, 1050, runId)) return false;
+    if (!await climbToUpperPlatform(runId)) return false;
     character.classList.toggle('facing-left', portal.characterX < ladderX);
-    if (!await moveCharacter(portal.characterX, 650, runId)) { finishMoveCommand(runId); return; }
+    if (!await moveCharacter(portal.characterX, 650, runId)) return false;
   } else {
     const currentX = Number.parseFloat(character.style.left) || 38;
     character.classList.toggle('facing-left', portal.characterX < currentX);
-    if (!await moveCharacter(portal.characterX, 1700, runId)) { finishMoveCommand(runId); return; }
+    if (!await moveCharacter(portal.characterX, 1700, runId)) return false;
   }
   if (!await ensureCharacterTouchesPortal(portal, runId)) {
-    finishMoveCommand(runId, 'Portal contact failed. Move canceled.');
+    setWorldActivity('포탈에 도착하지 못해 이동을 중단했습니다.');
+    return false;
+  }
+  return enterWorldPortal(connection, runId);
+}
+
+async function commandTravelTo(targetMapId) {
+  if (state.moving || state.dead) return;
+  const route = findMapTravelRoute(state.currentMapId, targetMapId);
+  if (route.length <= 1) {
+    if (route.length === 1) setWorldActivity('이미 해당 맵에 있습니다.');
+    else setWorldActivity('현재 위치에서 이동할 수 없는 맵입니다.');
     return;
   }
-  if (!await enterWorldPortal(connection, runId)) {
-    finishMoveCommand(runId);
-    return;
+
+  closeFeature();
+  clearRallyPoint();
+  state.moving = true;
+  state.combatRunId += 1;
+  const runId = ++state.moveRunId;
+  updateFieldControls();
+
+  for (const nextMapId of route.slice(1)) {
+    if (!await performMapMoveStep(nextMapId, runId)) {
+      finishMoveCommand(runId);
+      return;
+    }
   }
 
   if (runId !== state.moveRunId) return;
@@ -1478,6 +1519,10 @@ async function commandMove(targetMapId) {
   } else {
     setWorldActivity('명령 대기 중');
   }
+}
+
+async function commandMove(targetMapId) {
+  return commandTravelTo(targetMapId);
 }
 
 async function approachMonsterForCombat(runId) {
@@ -4066,6 +4111,52 @@ function worldMapBodyIllustrated() {
   </div>`;
 }
 
+function worldMapOfficeBody() {
+  const maps = (state.maps || []).filter((map) => !map.hidden);
+  if (!maps.length) return worldMapBody();
+  const byId = new Map(maps.map((map) => [map.id, map]));
+  const groups = maps.reduce((acc, map) => {
+    const region = map.region || '기타 구역';
+    if (!acc[region]) acc[region] = [];
+    acc[region].push(map);
+    return acc;
+  }, {});
+  const rooms = Object.entries(groups).map(([region, regionMaps], regionIndex) => {
+    const mapButtons = regionMaps.map((map, mapIndex) => {
+      const isCurrent = map.id === state.currentMapId;
+      const route = findMapTravelRoute(state.currentMapId, map.id);
+      const accessible = isCurrent || route.length > 1;
+      const links = (map.connections || [])
+        .filter((connection) => byId.has(connection.targetId))
+        .map((connection) => byId.get(connection.targetId)?.name || connection.targetId);
+      const tooltip = `${map.name}${links.length ? ` · 연결: ${links.join(', ')}` : ''}`;
+      return `<button class="office-map-destination ${map.safeZone ? 'is-safe' : 'is-field'} ${isCurrent ? 'is-current' : ''}"
+        type="button" data-map-travel="${escapeHtml(map.id)}" title="${escapeHtml(tooltip)}"
+        ${accessible && !isCurrent ? '' : 'disabled'}>
+        <span class="office-map-index">${String(regionIndex + 1).padStart(2, '0')}-${String(mapIndex + 1).padStart(2, '0')}</span>
+        <strong>${escapeHtml(map.name)}</strong>
+        <small>${isCurrent ? '현재 위치' : (map.safeZone ? '안전지대 · 자동 이동' : '사냥터 · 자동 이동')}</small>
+        <span class="office-map-tooltip" role="tooltip">${escapeHtml(tooltip)}</span>
+      </button>`;
+    }).join('');
+    return `<section class="office-map-room">
+      <header><span>DEPARTMENT ${String(regionIndex + 1).padStart(2, '0')}</span><h3>${escapeHtml(region)}</h3></header>
+      <div class="office-map-room-list">${mapButtons}</div>
+    </section>`;
+  }).join('');
+  return `<div class="world-map-sheet office-world-map">
+    <div class="office-map-heading">
+      <div><span>HOI COMPANY / FLOOR DIRECTORY</span><h2>사내 이동 안내도</h2></div>
+      <p>맵을 누르면 현재 위치에서 최단 경로의 포탈을 차례로 통과합니다.</p>
+    </div>
+    <div class="office-map-legend">
+      <span><i class="safe"></i>안전지대</span><span><i class="field"></i>사냥터</span><span><i class="current"></i>현재 위치</span>
+    </div>
+    <div class="office-floorplan">${rooms}</div>
+    <p class="notice-line">맵에 마우스를 올리면 전체 이름과 직접 연결된 맵을 확인할 수 있습니다. 히든 스트리트와 필드보스 출현 맵은 표시되지 않습니다.</p>
+  </div>`;
+}
+
 function featureBody(feature) {
   if (feature === 'stats') return statBody();
   if (feature === 'quest') return questBody();
@@ -4083,7 +4174,7 @@ function featureBody(feature) {
   if (feature === 'ranking') return rankingBody();
   if (feature === 'event') return eventBody();
   if (feature === 'marketplace') return marketplaceBody();
-  if (feature === 'world-map') return worldMapBodyIllustrated();
+  if (feature === 'world-map') return worldMapOfficeBody();
   if (feature === 'patch-notes') return patchNotesArchiveBody(state.patchNotesHistory);
   if (feature === 'trade-invite') return tradeInviteBody();
   const messages = {
@@ -4127,6 +4218,11 @@ function openFeature(feature) {
   if (feature === 'ranking') bindRankingControls();
   if (feature === 'event') bindEventControls();
   if (feature === 'marketplace') bindMarketplaceControls();
+  if (feature === 'world-map') {
+    document.querySelectorAll('[data-map-travel]').forEach((button) => {
+      button.addEventListener('click', () => commandTravelTo(button.dataset.mapTravel));
+    });
+  }
   $('featureModal').classList.remove('hidden');
   document.body.classList.add('modal-open');
   document.querySelector('.modal-close')?.focus();
