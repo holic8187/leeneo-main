@@ -16,6 +16,8 @@ const {
   claimMail,
   getMaxStackSize,
   consumeInventoryStack,
+  equipInventoryEquipment,
+  unequipInventoryEquipment,
   equipInventoryWeapon,
   unequipInventoryWeapon
 } = require('../../src/v2/services/inventoryService');
@@ -238,4 +240,50 @@ test('admin event weapons occupy one slot and can be equipped and returned', () 
   unequipInventoryWeapon(character);
   assert.equal(character.loadout.weapon, null);
   assert.equal(buildInventoryView(character).categories.equipment.items[0].id, 'event_spear');
+});
+
+test('legacy capes with id-only data can be unequipped without item loss', () => {
+  const character = characterFixture();
+  character.loadout = {
+    cape: {
+      id: 'legacy_archer_cape_80',
+      name: '정산 80제 망토',
+      requiredLevel: 80,
+      stats: { defense: 29, movementSpeed: 4 }
+    }
+  };
+
+  const result = unequipInventoryEquipment(character, 'cape');
+  assert.equal(result.slot, 'cape');
+  assert.equal(character.loadout.cape, null);
+  const returned = buildInventoryView(character).categories.equipment.items[0];
+  assert.equal(returned.id, 'drop_common_cape_80');
+  assert.deepEqual(returned.instanceData.stats, { defense: 29, movementSpeed: 4 });
+});
+
+test('equipping a new cape replaces a legacy cape stored under an alias', () => {
+  const character = characterFixture();
+  character.progression = { level: 100 };
+  character.job = { departmentId: 'hr', advancementTier: 3 };
+  character.stats = { grit: 100, processingSpeed: 30, workKnowledge: 4, awareness: 4 };
+  character.loadout = {
+    cape: null,
+    cloak: {
+      id: 'legacy_archer_cape_80',
+      name: '정산 80제 망토',
+      requiredLevel: 80,
+      stats: { defense: 29, movementSpeed: 4 }
+    }
+  };
+  addInventoryItem(character, 'drop_common_cape_100', 1);
+  const newCape = buildInventoryView(character).categories.equipment.items[0];
+
+  const result = equipInventoryEquipment(character, newCape.stackId);
+  assert.equal(result.slot, 'cape');
+  assert.equal(character.loadout.cape.itemId, 'drop_common_cape_100');
+  assert.equal(character.loadout.cloak, null);
+  assert.equal(
+    buildInventoryView(character).categories.equipment.items[0].id,
+    'drop_common_cape_80'
+  );
 });

@@ -528,7 +528,8 @@ async function useActiveSkill(skillId, options = {}) {
     await playWorldMotion(
       offensive ? (getCombatPresentation().motion || 'slash') : 'buff',
       'combat',
-      state.combatRunId
+      state.combatRunId,
+      `${skill.name} 시전`
     );
     const data = await request('/api/v2/skills/use', {
       method: 'POST',

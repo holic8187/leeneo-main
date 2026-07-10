@@ -31,6 +31,46 @@ function normalizeEquipmentSlot(slot = 'weapon') {
   return EQUIPMENT_SLOT_ALIASES[normalized] || normalized || 'weapon';
 }
 
+function getStoredEquipmentSlot(loadout = {}, requestedSlot = 'weapon') {
+  const slot = normalizeEquipmentSlot(requestedSlot);
+  const aliases = slot === 'cape' ? ['cape', 'cloak', 'mantle'] : [slot];
+  return aliases.find((key) => {
+    const equipped = loadout?.[key];
+    return equipped && typeof equipped === 'object'
+      && (equipped.itemId || equipped.id || equipped.name);
+  }) || slot;
+}
+
+function resolveEquippedItemDefinition(equipped, slot = '') {
+  if (!equipped || typeof equipped !== 'object') return null;
+  const storedId = String(equipped.itemId || equipped.id || '');
+  const direct = getItemDefinition(storedId);
+  if (direct) return direct;
+
+  // Early V2 capes were saved under job-specific ids that were retired when
+  // capes became shared equipment. Recover them by their original level.
+  if (normalizeEquipmentSlot(slot) !== 'cape') return null;
+  const nameLevel = String(equipped.name || '').match(/(\d+)\s*제/)?.[1];
+  const requiredLevel = Math.max(1, Math.floor(Number(
+    equipped.requiredLevel ?? equipped.requirements?.level ?? nameLevel
+  ) || 1));
+  const capeLevels = [20, 40, 60, 80, 100, 120, 140];
+  const closestLevel = capeLevels.reduce((closest, level) => (
+    Math.abs(level - requiredLevel) < Math.abs(closest - requiredLevel) ? level : closest
+  ), capeLevels[0]);
+  return getItemDefinition(`drop_common_cape_${closestLevel}`);
+}
+
+function buildEquippedInstanceData(equipped) {
+  return {
+    ...(equipped?.instanceData && typeof equipped.instanceData === 'object'
+      ? equipped.instanceData
+      : {}),
+    stats: { ...(equipped?.stats || equipped?.instanceData?.stats || {}) },
+    ...(equipped?.enhancement ? { enhancement: { ...equipped.enhancement } } : {})
+  };
+}
+
 function markInventoryModified(character) {
   if (typeof character?.markModified !== 'function') return;
   character.markModified('inventory');
@@ -349,8 +389,10 @@ function equipInventoryEquipment(character, stackId) {
   if (equipFailureReason) throw new Error(equipFailureReason);
   if (!character.loadout || typeof character.loadout !== 'object') character.loadout = {};
   const slot = normalizeEquipmentSlot(item.equipmentSlot);
-  const previous = character.loadout[slot];
-  if (previous && !getItemDefinition(previous.itemId)) {
+  const previousSlot = getStoredEquipmentSlot(character.loadout, slot);
+  const previous = character.loadout[previousSlot];
+  const previousDefinition = resolveEquippedItemDefinition(previous, slot);
+  if (previous && !previousDefinition) {
     throw new Error('현재 장착 장비 정보를 먼저 정리해주세요.');
   }
 
@@ -359,11 +401,15 @@ function equipInventoryEquipment(character, stackId) {
   if (previous?.itemId) {
     addInventoryItem(
       character,
-      previous.itemId,
+      previousDefinition.id,
       1,
-      previous.instanceData || { stats: previous.stats }
+      buildEquippedInstanceData(previous)
     );
   }
+  if (previous && !previous.itemId && previousDefinition) {
+    addInventoryItem(character, previousDefinition.id, 1, buildEquippedInstanceData(previous));
+  }
+  if (previousSlot !== slot) character.loadout[previousSlot] = null;
   character.loadout[slot] = {
     ...item,
     itemId: item.id,
@@ -387,13 +433,14 @@ function equipInventoryEquipment(character, stackId) {
 function unequipInventoryEquipment(character, requestedSlot = 'weapon') {
   if (!character.loadout || typeof character.loadout !== 'object') character.loadout = {};
   const slot = normalizeEquipmentSlot(requestedSlot);
-  const aliasKeys = slot === 'cape' ? ['cape', 'cloak', 'mantle'] : [slot];
-  const storedSlot = aliasKeys.find((key) => character.loadout?.[key]?.itemId) || slot;
+  const storedSlot = getStoredEquipmentSlot(character.loadout, slot);
   const current = character.loadout[storedSlot];
-  if (!current?.itemId) throw new Error('해당 슬롯에 장착 중인 장비가 없습니다.');
-  const item = getItemDefinition(current.itemId);
+  if (!current || typeof current !== 'object') {
+    throw new Error('해당 슬롯에 장착 중인 장비가 없습니다.');
+  }
+  const item = resolveEquippedItemDefinition(current, slot);
   if (!item) throw new Error('현재 장비 정보를 찾을 수 없습니다.');
-  addInventoryItem(character, item.id, 1, current.instanceData || { stats: current.stats });
+  addInventoryItem(character, item.id, 1, buildEquippedInstanceData(current));
   character.loadout[storedSlot] = null;
   if (storedSlot !== slot) character.loadout[slot] = null;
   markInventoryModified(character);

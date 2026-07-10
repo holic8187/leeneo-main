@@ -1299,7 +1299,7 @@ function getCombatTargetElement() {
   ) || null;
 }
 
-async function playWorldMotion(motion, kind, runId) {
+async function playWorldMotion(motion, kind, runId, activityLabel = '') {
   if (!isRunActive(kind, runId)) return;
   const character = $('fieldCharacter');
   const monster = getCombatTargetElement();
@@ -1322,7 +1322,7 @@ async function playWorldMotion(motion, kind, runId) {
     jump: '장애물 점프',
     climb: '밧줄·사다리 이동'
   };
-  setWorldActivity(labels[motion] || '행동 중');
+  setWorldActivity(activityLabel || labels[motion] || '행동 중');
 
   const weaponAttackMotions = [
     'slash', 'one-hand-swing', 'two-hand-swing', 'axe-swing', 'blunt-swing',
@@ -1632,7 +1632,11 @@ async function runAutoCombat(runId) {
         continue;
       }
     }
-    if (typeof isBasicAttackAutoEnabled === 'function' && !isBasicAttackAutoEnabled()) {
+    const basicAttackAllowed = typeof isBeginnerBasicAttackEligible === 'function'
+      && isBeginnerBasicAttackEligible();
+    const basicAttackEnabled = typeof isBasicAttackAutoEnabled === 'function'
+      && isBasicAttackAutoEnabled();
+    if (!basicAttackAllowed || !basicAttackEnabled) {
       setWorldActivity('스킬 대기 중 · 기본공격 사용 안 함');
       await sleep(350);
       continue;

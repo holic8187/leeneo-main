@@ -7,6 +7,22 @@ const {
   getElementMultiplier,
   rollMonsterDrops
 } = require('../../src/v2/world/monsterCatalog');
+const { WORLD_MAPS } = require('../../src/v2/world/mapDefinitions');
+
+test('every configured map monster resolves to one canonical displayed level', () => {
+  const byId = new Map(MONSTER_CATALOG.map((monster) => [monster.id, monster]));
+  assert.equal(byId.size, MONSTER_CATALOG.length);
+  for (const monster of MONSTER_CATALOG) {
+    assert.equal(Number.isInteger(monster.level), true, monster.id);
+    assert.ok(monster.level >= 1 && monster.level <= 140, monster.id);
+  }
+  for (const map of WORLD_MAPS) {
+    for (const monsterId of map.monsterIds || []) {
+      assert.ok(byId.has(monsterId), `${map.id}: ${monsterId}`);
+    }
+  }
+  assert.equal(byId.get('sales_fox').level, 62);
+});
 
 test('monster EXP-to-HP ratios vary without extreme adjacent spikes', () => {
   const ratios = MONSTER_CATALOG.map((monster) => monster.expReward / monster.maxHp);
