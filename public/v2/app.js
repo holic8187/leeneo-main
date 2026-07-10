@@ -732,6 +732,16 @@ function getCharacterX() {
   return Math.max(0, Math.min(94, Number(renderedPercent) || 0));
 }
 
+function getPortalFloor(portal) {
+  return portal?.side === 'upper' ? 1 : 0;
+}
+
+function isCharacterTouchingPortal(portal) {
+  if (!portal) return false;
+  return getCharacterFloor() === getPortalFloor(portal)
+    && Math.abs(getCharacterX() - Number(portal.characterX)) <= 1.6;
+}
+
 function loadStoredRallyPoint() {
   try {
     const parsed = JSON.parse(localStorage.getItem(RALLY_POINT_STORAGE_KEY) || 'null');
@@ -1162,7 +1172,7 @@ async function moveCharacter(left, duration, runId) {
     character.style.left = `${left}%`;
     await sleep(Math.min(160, remainingDuration));
   }
-  if (isRunActive('move', runId)) {
+  if (isRunActive('move', runId) && Math.abs(left - getCharacterX()) <= 1.1) {
     character.style.transitionDuration = '0ms';
     character.style.left = `${left}%`;
   }
@@ -1378,6 +1388,27 @@ function movementSelectionBody() {
   </div>`;
 }
 
+async function ensureCharacterTouchesPortal(portal, runId) {
+  if (isCharacterTouchingPortal(portal)) return true;
+  const point = {
+    mapId: state.currentMapId,
+    x: Number(portal.characterX),
+    floor: getPortalFloor(portal)
+  };
+  if (!await walkToFieldPoint(point, runId)) return false;
+  await sleep(80);
+  return isCharacterTouchingPortal(portal);
+}
+
+function finishMoveCommand(runId, message = '') {
+  if (runId !== state.moveRunId) return;
+  state.moving = false;
+  state.activeMoveTargetX = null;
+  setCharacterMotion(null);
+  if (message) setWorldActivity(message);
+  updateFieldControls();
+}
+
 async function enterWorldPortal(connection, runId) {
   if (!connection || !isRunActive('move', runId)) return false;
   const sourceMapId = state.currentMapId;
@@ -1422,21 +1453,26 @@ async function commandMove(targetMapId) {
     const ladderX = getLadderCharacterX();
     const currentX = Number.parseFloat(character.style.left) || 38;
     character.classList.toggle('facing-left', ladderX < currentX);
-    if (!await moveCharacter(ladderX, 1050, runId)) return;
-    if (!await climbToUpperPlatform(runId)) return;
+    if (!await moveCharacter(ladderX, 1050, runId)) { finishMoveCommand(runId); return; }
+    if (!await climbToUpperPlatform(runId)) { finishMoveCommand(runId); return; }
     character.classList.toggle('facing-left', portal.characterX < ladderX);
-    if (!await moveCharacter(portal.characterX, 650, runId)) return;
+    if (!await moveCharacter(portal.characterX, 650, runId)) { finishMoveCommand(runId); return; }
   } else {
     const currentX = Number.parseFloat(character.style.left) || 38;
     character.classList.toggle('facing-left', portal.characterX < currentX);
-    if (!await moveCharacter(portal.characterX, 1700, runId)) return;
+    if (!await moveCharacter(portal.characterX, 1700, runId)) { finishMoveCommand(runId); return; }
   }
-  await enterWorldPortal(connection, runId);
+  if (!await ensureCharacterTouchesPortal(portal, runId)) {
+    finishMoveCommand(runId, 'Portal contact failed. Move canceled.');
+    return;
+  }
+  if (!await enterWorldPortal(connection, runId)) {
+    finishMoveCommand(runId);
+    return;
+  }
 
   if (runId !== state.moveRunId) return;
-  state.moving = false;
-  setCharacterMotion(null);
-  updateFieldControls();
+  finishMoveCommand(runId);
   if (state.autoCombat) {
     startAutoCombat();
   } else {
@@ -1550,6 +1586,11 @@ async function runAutoCombat(runId) {
         await sleep(300);
         continue;
       }
+    }
+    if (typeof isBasicAttackAutoEnabled === 'function' && !isBasicAttackAutoEnabled()) {
+      setWorldActivity('스킬 대기 중 · 기본공격 사용 안 함');
+      await sleep(350);
+      continue;
     }
     const motion = getCombatPresentation().motion;
     await playWorldMotion(motion, 'combat', runId);
@@ -3915,6 +3956,116 @@ function worldMapBody() {
   </div>`;
 }
 
+function buildIllustratedWorldMapPositions(maps) {
+  const anchors = [
+    { x: 168, y: 315, rx: 104, ry: 78 },
+    { x: 292, y: 190, rx: 104, ry: 72 },
+    { x: 436, y: 300, rx: 112, ry: 82 },
+    { x: 582, y: 188, rx: 104, ry: 72 },
+    { x: 696, y: 328, rx: 94, ry: 72 },
+    { x: 504, y: 420, rx: 118, ry: 60 }
+  ];
+  const regionNames = [...new Set(maps.map((map) => map.region || 'ETC'))];
+  const grouped = maps.reduce((acc, map) => {
+    const region = map.region || 'ETC';
+    if (!acc[region]) acc[region] = [];
+    acc[region].push(map);
+    return acc;
+  }, {});
+  const positions = new Map();
+  regionNames.forEach((region, regionIndex) => {
+    const anchor = anchors[regionIndex % anchors.length];
+    const regionMaps = grouped[region] || [];
+    regionMaps.forEach((map, index) => {
+      if (map.safeZone) {
+        positions.set(map.id, { x: anchor.x, y: anchor.y, regionIndex, index });
+        return;
+      }
+      const angle = (Math.PI * 2 * index / Math.max(1, regionMaps.length)) - Math.PI / 2;
+      const radiusScale = regionMaps.length <= 4 ? .75 : 1;
+      positions.set(map.id, {
+        x: anchor.x + Math.cos(angle) * anchor.rx * radiusScale,
+        y: anchor.y + Math.sin(angle) * anchor.ry * radiusScale,
+        regionIndex,
+        index
+      });
+    });
+  });
+  return { positions, grouped, regionNames };
+}
+
+function worldMapBodyIllustrated() {
+  const maps = (state.maps || []).filter((map) => !map.hidden);
+  if (!maps.length) return worldMapBody();
+  const visibleIds = new Set(maps.map((map) => map.id));
+  const byId = new Map(maps.map((map) => [map.id, map]));
+  const { positions, grouped, regionNames } = buildIllustratedWorldMapPositions(maps);
+  const paths = [];
+  maps.forEach((map) => {
+    const from = positions.get(map.id);
+    if (!from) return;
+    (map.connections || []).forEach((connection) => {
+      if (!visibleIds.has(connection.targetId) || map.id > connection.targetId) return;
+      const to = positions.get(connection.targetId);
+      if (!to) return;
+      paths.push(`<path class="world-map-route" d="M ${from.x} ${from.y} C ${(from.x + to.x) / 2} ${from.y - 34}, ${(from.x + to.x) / 2} ${to.y + 34}, ${to.x} ${to.y}" />`);
+    });
+  });
+  const nodes = maps.map((map) => {
+    const position = positions.get(map.id);
+    const isCurrent = map.id === state.currentMapId;
+    const isSafe = Boolean(map.safeZone);
+    const label = (isSafe || isCurrent)
+      ? `<text x="${position.x}" y="${position.y - 18}" text-anchor="middle">${escapeHtml(map.name)}</text>`
+      : '';
+    return `<g class="world-map-node ${isSafe ? 'is-safe' : 'is-field'} ${isCurrent ? 'is-current' : ''}">
+      <circle cx="${position.x}" cy="${position.y}" r="${isSafe ? 13 : 7}" />
+      ${label}
+      <title>${escapeHtml(map.name)}</title>
+    </g>`;
+  }).join('');
+  const regionLabels = regionNames.map((region) => {
+    const safeMap = (grouped[region] || []).find((map) => map.safeZone) || grouped[region]?.[0];
+    const position = safeMap ? positions.get(safeMap.id) : null;
+    if (!position) return '';
+    return `<text class="world-map-region-label" x="${position.x}" y="${position.y + 34}" text-anchor="middle">${escapeHtml(region)}</text>`;
+  }).join('');
+  const regionCards = Object.entries(grouped).map(([region, regionMaps]) => `<section class="world-map-region">
+    <h3>${escapeHtml(region)}</h3>
+    <div class="world-map-grid">
+      ${regionMaps.map((map) => {
+        const links = (map.connections || [])
+          .filter((connection) => visibleIds.has(connection.targetId))
+          .map((connection) => byId.get(connection.targetId)?.name || connection.targetId);
+        return `<article class="world-map-card ${map.safeZone ? 'is-safe' : ''} ${map.id === state.currentMapId ? 'is-current' : ''}">
+          <span>${map.safeZone ? 'SAFE ZONE' : 'FIELD'}</span>
+          <strong>${escapeHtml(map.name)}</strong>
+          <small>${links.length ? escapeHtml(links.join(' · ')) : 'No public route'}</small>
+        </article>`;
+      }).join('')}
+    </div>
+  </section>`).join('');
+  return `<div class="world-map-sheet">
+    <div class="world-map-illustration" role="img" aria-label="World map">
+      <svg viewBox="0 0 860 540" preserveAspectRatio="xMidYMid meet">
+        <rect class="world-map-sea" width="860" height="540" rx="22" />
+        <path class="world-map-cloud cloud-a" d="M0 70 C50 18 100 42 132 22 C178 -8 230 12 252 50 C312 36 350 58 370 94 L0 112 Z" />
+        <path class="world-map-cloud cloud-b" d="M860 455 C812 510 762 482 724 512 C674 548 610 520 594 478 C546 488 502 466 488 430 L860 414 Z" />
+        <path class="world-map-island island-shadow" d="M92 308 C62 212 138 116 246 96 C358 74 454 116 528 88 C646 44 780 122 796 244 C810 352 726 444 594 444 C494 444 424 488 312 456 C206 426 124 406 92 308 Z" />
+        <path class="world-map-island" d="M82 296 C54 210 132 126 242 104 C356 80 454 124 532 96 C638 58 762 126 780 244 C798 346 712 428 592 426 C492 424 424 474 318 442 C216 412 112 390 82 296 Z" />
+        <path class="world-map-river" d="M274 112 C298 180 274 236 322 294 C374 358 338 406 286 446" />
+        <path class="world-map-river" d="M560 100 C532 160 578 216 548 282 C516 354 574 392 646 426" />
+        ${paths.join('')}
+        ${nodes}
+        ${regionLabels}
+      </svg>
+      <div class="world-map-legend"><span><i class="safe"></i>Safe Zone</span><span><i class="field"></i>Field</span><span><i class="current"></i>Current</span></div>
+    </div>
+    <p class="notice-line">Hidden streets and field boss maps are not shown on the public map.</p>
+    ${regionCards}
+  </div>`;
+}
+
 function featureBody(feature) {
   if (feature === 'stats') return statBody();
   if (feature === 'quest') return questBody();
@@ -3932,7 +4083,7 @@ function featureBody(feature) {
   if (feature === 'ranking') return rankingBody();
   if (feature === 'event') return eventBody();
   if (feature === 'marketplace') return marketplaceBody();
-  if (feature === 'world-map') return worldMapBody();
+  if (feature === 'world-map') return worldMapBodyIllustrated();
   if (feature === 'patch-notes') return patchNotesArchiveBody(state.patchNotesHistory);
   if (feature === 'trade-invite') return tradeInviteBody();
   const messages = {

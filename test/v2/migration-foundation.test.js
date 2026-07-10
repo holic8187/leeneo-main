@@ -71,6 +71,29 @@ test('migration preview resets V2 money and stocks while preserving source count
   assert.equal(preview.preserved.companyData, true);
 });
 
+test('legacy exchange preview includes S cards and numeric consumable balances', () => {
+  const preview = buildMigrationPreview(createLegacyUser({
+    gameState: {
+      level: 1900,
+      exp: 123,
+      money: 987654321,
+      stamina: 8,
+      maxStamina: 12,
+      businessCards: 450,
+      bacchus: 250
+    },
+    cards: [{ cardId: 'legacy-s-card', cardGrade: 'S rank', quantity: 3 }],
+    enhancedCards: [],
+    lockedCards: []
+  }));
+  assert.deepEqual(preview.preserved.legacyExchange, {
+    sCardCount: 3,
+    businessCardCount: 450,
+    bacchusCount: 250,
+    couponCount: 7
+  });
+});
+
 test('V2 character response supplies provisional resources, EXP target, and empty equipment slots', () => {
   const response = buildCharacterResponse({
     _id: 'character-id',

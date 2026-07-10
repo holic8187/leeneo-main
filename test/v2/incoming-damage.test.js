@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   getStandardPdd,
+  splitDamageWithMpGuard,
   calculateIncomingPhysicalDamage,
   calculateIncomingMagicDamage
 } = require('../../src/v2/combat/incomingDamage');
@@ -50,6 +51,21 @@ test('physical damage becomes harsher below the level PDD requirement', () => {
   const below = calculateIncomingPhysicalDamage({ ...common, physicalDefense: 20 });
   const met = calculateIncomingPhysicalDamage({ ...common, physicalDefense: 106 });
   assert.ok(below.damage > met.damage);
+});
+
+test('MP damage guard routes guarded damage into MP first', () => {
+  assert.deepEqual(
+    splitDamageWithMpGuard(100, { currentMp: 100, guardPercent: 80 }),
+    { hpDamage: 20, mpDamage: 80, totalDamage: 100 }
+  );
+  assert.deepEqual(
+    splitDamageWithMpGuard(100, { currentMp: 30, guardPercent: 80 }),
+    { hpDamage: 70, mpDamage: 30, totalDamage: 100 }
+  );
+  assert.deepEqual(
+    splitDamageWithMpGuard(100, { currentMp: 100, guardPercent: 0 }),
+    { hpDamage: 100, mpDamage: 0, totalDamage: 100 }
+  );
 });
 
 test('magic incoming damage applies the larger mage defense coefficient', () => {

@@ -58,7 +58,8 @@ const PERCENT_KEYS = new Set([
   'damagePerComboPercent', 'doubleChargeChance', 'stanceChance',
   'enemyDamageReductionPercent',
   'elementDamageIncreasePercent', 'preserveElementChance',
-  'experienceBonusPercent', 'mpAbsorbChance', 'mpAbsorbPercent'
+  'experienceBonusPercent', 'mpAbsorbChance', 'mpAbsorbPercent',
+  'mpDamageGuardPercent'
 ]);
 
 const SKILL_ROLE_DESCRIPTIONS = Object.freeze({
@@ -346,6 +347,7 @@ function getActiveSkillEffects(character, now = Date.now()) {
     shieldDefensePercent: 0,
     attackSpeedStage: 0,
     damageReductionPercent: 0,
+    mpDamageGuardPercent: 0,
     blockChance: 0,
     stanceChance: 0,
     contactReflectPercent: 0,

@@ -78,6 +78,32 @@ test('all mage teleport variants use the shared teleport runtime effect', () => 
   }
 });
 
+test('magic guard exposes MP damage guard as an active buff effect', () => {
+  const magicGuard = SKILL_DEFINITIONS.extended_51dd415210;
+  assert.equal(magicGuard.effect, 'buff');
+  assert.equal(resolveSkillValues(magicGuard, 1).mpDamageGuardPercent, 4);
+  assert.equal(resolveSkillValues(magicGuard, magicGuard.maxLevel).mpDamageGuardPercent, 80);
+
+  const character = makeCharacter({
+    job: { departmentId: 'development', advancementTier: 1 },
+    skills: {
+      levels: { [magicGuard.id]: magicGuard.maxLevel },
+      activePreset: [],
+      unlockedQuestSkills: [],
+      activeBuffs: [{
+        skillId: magicGuard.id,
+        effects: { mpDamageGuardPercent: 80 },
+        createdAt: new Date(Date.now() - 1_000),
+        expiresAt: new Date(Date.now() + 600_000)
+      }],
+      cooldowns: {},
+      summon: null,
+      comboCount: 0
+    }
+  });
+  assert.equal(getActiveSkillEffects(character).mpDamageGuardPercent, 80);
+});
+
 test('archer core passive exposes its full critical chance and weapon range bonus', () => {
   const critical = findSkillByName('핵심 포착');
   const range = findSkillByName('멀리 보는 안목');

@@ -45,6 +45,40 @@ function buildSkillBody() {
   </div>`;
 }
 
+function isBeginnerBasicAttackEligible() {
+  const character = state.character || {};
+  const level = Math.max(1, Math.floor(Number(character.progression?.level) || 1));
+  const job = character.job || {};
+  const advancementTier = Math.max(0, Math.floor(Number(job.advancementTier) || 0));
+  const departmentId = String(job.departmentId || 'unassigned');
+  return level < 10 && advancementTier <= 0 && departmentId === 'unassigned';
+}
+
+function getBasicAttackAutoStorageKey() {
+  const owner = String(state.character?.id || state.displayName || 'default');
+  return `v2BasicAttackAuto:${owner}`;
+}
+
+function isBasicAttackAutoEnabled() {
+  if (!isBeginnerBasicAttackEligible()) return false;
+  try {
+    return localStorage.getItem(getBasicAttackAutoStorageKey()) !== 'false';
+  } catch (_) {
+    return true;
+  }
+}
+
+function toggleBasicAttackAuto() {
+  if (!isBeginnerBasicAttackEligible()) return;
+  const nextEnabled = !isBasicAttackAutoEnabled();
+  try {
+    localStorage.setItem(getBasicAttackAutoStorageKey(), nextEnabled ? 'true' : 'false');
+  } catch (_) {
+    // Local storage may be unavailable, but server-side eligibility still protects basic attacks.
+  }
+  renderSkillQuickbar();
+}
+
 function renderSkillQuickbar() {
   const quickbar = $('skillQuickbar');
   if (!quickbar) return;
@@ -56,7 +90,7 @@ function renderSkillQuickbar() {
   const removedIds = [...state.autoSkillIds].filter((skillId) => !validIds.has(skillId));
   removedIds.forEach((skillId) => state.autoSkillIds.delete(skillId));
   if (removedIds.length) saveAutoSkillPreferences();
-  quickbar.innerHTML = Array.from({ length: 10 }, (_, index) => {
+  const skillSlots = Array.from({ length: 10 }, (_, index) => {
     const skill = definitions.get(preset[index]);
     const autoEnabled = Boolean(skill && state.autoSkillIds.has(skill.id));
     return `<div class="skill-quick-slot ${autoEnabled ? 'is-auto' : ''}">
@@ -71,6 +105,15 @@ function renderSkillQuickbar() {
       </button>
     </div>`;
   }).join('') + '<button class="skill-preset-edit" type="button" data-open-skill-preset>스킬 등록/해제</button>';
+  const basicAttackEnabled = isBasicAttackAutoEnabled();
+  const basicAttackToggle = isBeginnerBasicAttackEligible()
+    ? `<button class="skill-basic-attack-toggle" type="button" data-basic-attack-toggle aria-pressed="${basicAttackEnabled}">
+        <span>기본공격</span><strong>${basicAttackEnabled ? 'ON' : 'OFF'}</strong><small>Lv.10 전용</small>
+      </button>`
+    : '';
+  quickbar.innerHTML = basicAttackToggle
+    ? skillSlots.replace('<button class="skill-preset-edit"', `${basicAttackToggle}<button class="skill-preset-edit"`)
+    : skillSlots;
   quickbar.querySelectorAll('[data-use-skill]').forEach((button) => {
     button.addEventListener('click', () => useActiveSkill(button.dataset.useSkill));
   });
@@ -80,6 +123,7 @@ function renderSkillQuickbar() {
   quickbar.querySelectorAll('[data-auto-skill]').forEach((button) => {
     button.addEventListener('click', () => toggleAutoSkill(button.dataset.autoSkill));
   });
+  quickbar.querySelector('[data-basic-attack-toggle]')?.addEventListener('click', () => toggleBasicAttackAuto());
   quickbar.querySelector('[data-open-skill-preset]')?.addEventListener('click', () => openSkillPresetEditor());
 }
 
@@ -132,23 +176,30 @@ function toggleAutoSkill(skillId) {
   renderSkillQuickbar();
 }
 
+const AUTO_BUFF_RECAST_WINDOW_MS = 4_000;
+
+function shouldHoldAutoBuffUntilLater(expiresAt) {
+  if (!expiresAt) return true;
+  return Number(expiresAt) - Date.now() > AUTO_BUFF_RECAST_WINDOW_MS;
+}
+
 function hasActiveAutoSkillEffect(skill) {
   const tree = state.character?.skillTree || {};
   const now = Date.now();
   if (['element_fire', 'element_ice'].includes(skill.id)) {
     return (tree.activeBuffs || []).some(
       (buff) => ['element_fire', 'element_ice'].includes(buff.skillId)
-        && (!buff.expiresAt || Number(buff.expiresAt) > now)
+        && (!buff.expiresAt || (Number(buff.expiresAt) > now && shouldHoldAutoBuffUntilLater(buff.expiresAt)))
     );
   }
   if (
     skill.effect === 'summon'
     && tree.summon?.skillId === skill.id
     && Number(tree.summon.expiresAt) > now
-  ) return true;
+  ) return shouldHoldAutoBuffUntilLater(tree.summon.expiresAt);
   return (tree.activeBuffs || []).some(
     (buff) => buff.skillId === skill.id
-      && (!buff.expiresAt || Number(buff.expiresAt) > now)
+      && (!buff.expiresAt || (Number(buff.expiresAt) > now && shouldHoldAutoBuffUntilLater(buff.expiresAt)))
   );
 }
 

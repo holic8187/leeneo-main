@@ -110,6 +110,30 @@ function applyIncomingModifiers(rawDamage, {
   );
 }
 
+function splitDamageWithMpGuard(damage, {
+  currentMp = 0,
+  guardPercent = 0
+} = {}) {
+  const totalDamage = Math.max(0, Math.floor(nonNegative(damage)));
+  const availableMp = Math.max(0, Math.floor(nonNegative(currentMp)));
+  const percent = clamp(guardPercent, 0, 100);
+
+  if (totalDamage <= 0 || availableMp <= 0 || percent <= 0) {
+    return { hpDamage: totalDamage, mpDamage: 0, totalDamage };
+  }
+
+  const intendedMpDamage = Math.min(
+    totalDamage,
+    Math.max(1, Math.floor(totalDamage * percent / 100))
+  );
+  const mpDamage = Math.min(availableMp, intendedMpDamage);
+  return {
+    hpDamage: Math.max(0, totalDamage - mpDamage),
+    mpDamage,
+    totalDamage
+  };
+}
+
 function calculateIncomingPhysicalDamage({
   monsterAttack,
   monsterLevel,
@@ -217,6 +241,7 @@ module.exports = {
   normalizeDefenseArchetype,
   getStandardPdd,
   getPhysicalDefenseBase,
+  splitDamageWithMpGuard,
   calculateIncomingPhysicalDamage,
   calculateIncomingMagicDamage
 };

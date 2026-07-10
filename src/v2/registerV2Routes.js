@@ -17,6 +17,7 @@ const {
   applyAdvancement,
   getJobName
 } = require('./jobs/advancementRules');
+const { canUseBasicAttack } = require('./combat/basicAttackPolicy');
 const {
   claimWorldControl,
   hasWorldControl,
@@ -851,6 +852,7 @@ function registerV2Routes({
       stanceChance: response.skillEffects?.stanceChance,
       contactReflectPercent: response.skillEffects?.contactReflectPercent,
       contactReflectCapPercent: response.skillEffects?.contactReflectCapPercent,
+      mpDamageGuardPercent: response.skillEffects?.mpDamageGuardPercent,
       periodicHealPercent: recoverySkill?.values?.healPercent,
       periodicHealAmount: Number(response.skillEffects?.periodicHpRestore) || 0,
       periodicHealIntervalMs: Number(
@@ -1311,7 +1313,8 @@ function registerV2Routes({
         'reflectPercent', 'targetMaxHpCapPercent', 'maxResourcePercent',
         'maxCombo', 'damagePerComboPercent', 'damageIncreasePercent',
         'noAmmoConsumption', 'movementSpeedIncrease', 'criticalChance',
-        'criticalDamagePercent', 'damageReductionPercent', 'experienceBonusPercent'
+        'criticalDamagePercent', 'damageReductionPercent', 'experienceBonusPercent',
+        'mpDamageGuardPercent'
       ]) {
         if (Number.isFinite(Number(values[key]))) effects[key] = Number(values[key]);
       }
@@ -1364,7 +1367,13 @@ function registerV2Routes({
     );
     if (selfContact) {
       const beforeHp = Math.max(0, Number(character.resources.currentHp) || 0);
-      character.resources.currentHp = Math.max(0, beforeHp - Number(selfContact.damage || 0));
+      const beforeMp = Math.max(0, Number(character.resources.currentMp) || 0);
+      character.resources.currentHp = Number.isFinite(Number(selfContact.currentHp))
+        ? Math.max(0, Number(selfContact.currentHp))
+        : Math.max(0, beforeHp - Number(selfContact.damage || 0));
+      character.resources.currentMp = Number.isFinite(Number(selfContact.currentMp))
+        ? Math.max(0, Number(selfContact.currentMp))
+        : beforeMp;
       character.worldState.x = Math.max(0, Math.min(94, Number(selfContact.x) || 8));
       character.worldState.floor = Number(selfContact.floor) === 1 ? 1 : 0;
       if (beforeHp > 0 && character.resources.currentHp <= 0) {
@@ -1467,6 +1476,8 @@ function registerV2Routes({
       updatePlayerResources(userId, character.resources);
       return { acted: true, usedSkill: true };
     }
+
+    if (!canUseBasicAttack(character)) return { idle: true };
 
     response = buildCharacterResponse(character);
     const activeElements = getActiveWeaponElements(response.skillTree);
@@ -1728,8 +1739,14 @@ function registerV2Routes({
           const migration = await ensureV2MigrationForUser(sourceUser);
           character = migration.character;
         } else {
-          await ensureV2CharacterFoundation(character);
-          await ensureV2SkillPointGrant(character);
+          const sourceUser = await User.findById(v2Account.sourceUserId);
+          if (sourceUser) {
+            const migration = await ensureV2MigrationForUser(sourceUser);
+            character = migration.character;
+          } else {
+            await ensureV2CharacterFoundation(character);
+            await ensureV2SkillPointGrant(character);
+          }
         }
         const token = jwt.sign({ id: v2Account.sourceUserId, v2: true }, jwtSecret, { expiresIn: '1d' });
         return res.json({
@@ -2406,7 +2423,8 @@ function registerV2Routes({
             'reflectPercent', 'targetMaxHpCapPercent', 'maxResourcePercent',
             'maxCombo', 'damagePerComboPercent', 'damageIncreasePercent',
             'noAmmoConsumption', 'movementSpeedIncrease', 'criticalChance',
-            'criticalDamagePercent', 'damageReductionPercent', 'experienceBonusPercent'
+            'criticalDamagePercent', 'damageReductionPercent', 'experienceBonusPercent',
+            'mpDamageGuardPercent'
           ]) {
             if (Number.isFinite(Number(values[key]))) {
               const soloPerformanceSupport = definition.name === '성과 지원'
@@ -3771,6 +3789,7 @@ function registerV2Routes({
         stanceChance: profile.skillEffects?.stanceChance,
         contactReflectPercent: profile.skillEffects?.contactReflectPercent,
         contactReflectCapPercent: profile.skillEffects?.contactReflectCapPercent,
+        mpDamageGuardPercent: profile.skillEffects?.mpDamageGuardPercent,
         periodicHealPercent: recoverySkill?.values?.healPercent,
         periodicHealAmount: Number(profile.skillEffects?.periodicHpRestore) || 0,
         periodicHealIntervalMs: Number(
@@ -3797,13 +3816,22 @@ function registerV2Routes({
             const character = await V2Character.findOne({ userId: event.userId });
             if (!character) return;
             const currentHp = Math.max(0, Number(character.resources.currentHp) || 0);
-            character.resources.currentHp = Math.max(0, currentHp - event.damage);
-            event.currentHp = character.resources.currentHp;
+            const currentMp = Math.max(0, Number(character.resources.currentMp) || 0);
+            const nextHp = Number.isFinite(Number(event.currentHp))
+              ? Math.max(0, Number(event.currentHp))
+              : Math.max(0, currentHp - Number(event.damage || 0));
+            const nextMp = Number.isFinite(Number(event.currentMp))
+              ? Math.max(0, Number(event.currentMp))
+              : currentMp;
+            character.resources.currentHp = nextHp;
+            character.resources.currentMp = nextMp;
+            event.currentHp = nextHp;
+            event.currentMp = nextMp;
             event.expLost = 0;
             character.worldState.mapId = state.mapId;
             character.worldState.x = Math.max(0, Math.min(94, Number(event.x) || 8));
             character.worldState.floor = Number(event.floor) === 1 ? 1 : 0;
-            if (currentHp > 0 && character.resources.currentHp <= 0) {
+            if (currentHp > 0 && nextHp <= 0) {
               const requiredExp = getRequiredExpV2(character.progression?.level);
               const currentExp = Math.max(0, Number(character.progression?.exp) || 0);
               event.expLost = Math.min(currentExp, Math.floor(requiredExp * 0.1));
@@ -3816,7 +3844,10 @@ function registerV2Routes({
         )));
         for (const event of state.contactEvents) {
           const player = state.players.find((entry) => entry.userId === event.userId);
-          if (player) player.currentHp = event.currentHp;
+          if (player) {
+            player.currentHp = event.currentHp;
+            player.currentMp = event.currentMp;
+          }
         }
       }
       if (state.recoveryEvents.length) {
@@ -3920,6 +3951,11 @@ function registerV2Routes({
     try {
       const profile = await getWorldProfile(auth.id);
       if (!profile) return res.status(404).json({ msg: 'V2 캐릭터를 찾을 수 없습니다.' });
+      if (!canUseBasicAttack(profile)) {
+        return res.status(400).json({
+          msg: '기본공격은 전직하지 않은 10레벨 미만 신입사원만 사용할 수 있습니다.'
+        });
+      }
       if (!profile.huntingTime?.enabled || Number(profile.huntingTime?.remainingSeconds) <= 0) {
         return res.status(400).json({ msg: '자동사냥 시간이 활성화되어 있지 않습니다.' });
       }

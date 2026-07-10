@@ -14,7 +14,10 @@ const {
   rollEquipmentInstanceData
 } = require('../items/equipmentCatalog');
 const { EQUIPMENT_SCROLLS } = require('../items/scrollCatalog');
-const { calculateIncomingPhysicalDamage } = require('../combat/incomingDamage');
+const {
+  calculateIncomingPhysicalDamage,
+  splitDamageWithMpGuard
+} = require('../combat/incomingDamage');
 const {
   calculateRequiredAccuracy,
   calculateHitChance,
@@ -599,10 +602,15 @@ function applyContactDamage(runtime, now) {
     const blocked = !dodged
       && Math.random() * 100 < Number(player.combatProfile.blockChance || 0);
     const reduction = Math.max(0, Math.min(95, Number(player.combatProfile.damageReductionPercent) || 0));
-    const damage = blocked || dodged
+    const incomingDamage = blocked || dodged
       ? 0
       : Math.max(1, Math.floor(calculation.damage * (1 - reduction / 100)));
-    player.currentHp = Math.max(0, player.currentHp - damage);
+    const damageSplit = splitDamageWithMpGuard(incomingDamage, {
+      currentMp: player.currentMp,
+      guardPercent: player.combatProfile.mpDamageGuardPercent
+    });
+    player.currentMp = Math.max(0, Number(player.currentMp) - damageSplit.mpDamage);
+    player.currentHp = Math.max(0, Number(player.currentHp) - damageSplit.hpDamage);
     player.lastContactAt = now;
     player.invulnerableUntil = now + (blocked || dodged ? 1_000 : CONTACT_INVULNERABILITY_MS);
     const resistedKnockback = Math.random() * 100 < Number(player.combatProfile.stanceChance || 0);
@@ -613,7 +621,7 @@ function applyContactDamage(runtime, now) {
     const reflectedDamage = blocked || dodged
       ? 0
       : Math.max(0, Math.floor(Math.min(
-        damage * Number(player.combatProfile.contactReflectPercent || 0) / 100,
+        damageSplit.hpDamage * Number(player.combatProfile.contactReflectPercent || 0) / 100,
         reflectCap
       )));
     if (reflectedDamage > 0) {
@@ -637,7 +645,9 @@ function applyContactDamage(runtime, now) {
     }
     damagedPlayers.push({
       userId: player.userId,
-      damage,
+      damage: damageSplit.hpDamage,
+      totalDamage: damageSplit.totalDamage,
+      mpDamage: damageSplit.mpDamage,
       blocked,
       dodged,
       resistedKnockback,
@@ -651,6 +661,7 @@ function applyContactDamage(runtime, now) {
         defenseFactor: calculation.defenseFactor
       },
       currentHp: player.currentHp,
+      currentMp: player.currentMp,
       maxHp: player.maxHp,
       x: player.x,
       floor: player.floor,
@@ -680,11 +691,18 @@ function applyFieldBossMechanics(runtime, now) {
       const target = pickRandom(targets);
       if (target) {
         const damage = Math.max(1, Math.floor(Number(definition.rangedDamage) || 1));
-        target.currentHp = Math.max(0, Number(target.currentHp) - damage);
+        const damageSplit = splitDamageWithMpGuard(damage, {
+          currentMp: target.currentMp,
+          guardPercent: target.combatProfile?.mpDamageGuardPercent
+        });
+        target.currentMp = Math.max(0, Number(target.currentMp) - damageSplit.mpDamage);
+        target.currentHp = Math.max(0, Number(target.currentHp) - damageSplit.hpDamage);
         target.invulnerableUntil = now + CONTACT_INVULNERABILITY_MS;
         events.push({
           userId: target.userId,
-          damage,
+          damage: damageSplit.hpDamage,
+          totalDamage: damageSplit.totalDamage,
+          mpDamage: damageSplit.mpDamage,
           blocked: false,
           dodged: false,
           resistedKnockback: true,
@@ -692,6 +710,7 @@ function applyFieldBossMechanics(runtime, now) {
           monsterId: boss.id,
           source: 'field-boss-ranged',
           currentHp: target.currentHp,
+          currentMp: target.currentMp,
           maxHp: target.maxHp,
           x: target.x,
           floor: target.floor,
@@ -702,7 +721,9 @@ function applyFieldBossMechanics(runtime, now) {
           bossId: boss.id,
           bossName: boss.name,
           targetUserId: target.userId,
-          damage,
+          damage: damageSplit.hpDamage,
+          totalDamage: damageSplit.totalDamage,
+          mpDamage: damageSplit.mpDamage,
           createdAt: now
         });
       }
@@ -897,6 +918,7 @@ function updatePresence({
   stanceChance,
   contactReflectPercent,
   contactReflectCapPercent,
+  mpDamageGuardPercent,
   periodicHealPercent,
   periodicHealAmount,
   periodicHealIntervalMs,
@@ -1002,6 +1024,13 @@ function updatePresence({
       contactReflectCapPercent: Math.max(
         0,
         Number(contactReflectCapPercent ?? previous?.combatProfile?.contactReflectCapPercent) || 10
+      ),
+      mpDamageGuardPercent: Math.max(
+        0,
+        Math.min(
+          100,
+          Number(mpDamageGuardPercent ?? previous?.combatProfile?.mpDamageGuardPercent) || 0
+        )
       )
     },
     lastSeenAt: offline

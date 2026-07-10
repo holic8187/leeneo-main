@@ -194,9 +194,78 @@ function countLegacyItems(plain = {}, matcher) {
   ), 0);
 }
 
+function normalizeLegacyFieldKey(key) {
+  return String(key || '').toLowerCase().replace(/[\s._-]+/g, '');
+}
+
+function sumLegacyNumericFields(value, matcher, depth = 0) {
+  if (!value || depth > 7 || typeof value !== 'object') return 0;
+  return Object.entries(value).reduce((sum, [key, entry]) => {
+    const normalizedKey = normalizeLegacyFieldKey(key);
+    if (typeof entry === 'number' && matcher(normalizedKey, key)) {
+      return sum + Math.max(0, Math.floor(entry));
+    }
+    if (entry && typeof entry === 'object') {
+      return sum + sumLegacyNumericFields(entry, matcher, depth + 1);
+    }
+    return sum;
+  }, 0);
+}
+
+function looksLikeLegacyBusinessCardField(key, rawKey = '') {
+  const text = `${key} ${rawKey}`.toLowerCase();
+  return text.includes('businesscard')
+    || text.includes('businesscards')
+    || text.includes('namecard')
+    || text.includes('namecards')
+    || text.includes('cardpack')
+    || text.includes('cardpacks')
+    || text.includes('명함');
+}
+
+function looksLikeLegacyBacchusField(key, rawKey = '') {
+  const text = `${key} ${rawKey}`.toLowerCase();
+  return text.includes('bacchus')
+    || text.includes('bakus')
+    || text.includes('bakas')
+    || text.includes('박카스');
+}
+
+function countLegacySCardsRobust(plain = {}) {
+  const entries = [
+    ...flattenLegacyEntries(plain.cards),
+    ...flattenLegacyEntries(plain.enhancedCards),
+    ...flattenLegacyEntries(plain.lockedCards)
+  ];
+  return entries.reduce((sum, entry) => {
+    const grade = String(
+      entry.grade
+      || entry.tier
+      || entry.rank
+      || entry.rarity
+      || entry.cardGrade
+      || entry.cardTier
+      || entry.gradeName
+      || ''
+    ).trim();
+    const normalizedGrade = normalizeLegacyFieldKey(grade);
+    const text = `${legacyText(entry)} ${grade.toLowerCase()}`;
+    const isSGrade = normalizedGrade === 's'
+      || normalizedGrade === 'sgrade'
+      || normalizedGrade === 'srank'
+      || normalizedGrade === 'sclass'
+      || normalizedGrade === 's급'
+      || normalizedGrade === 's등급'
+      || /\bs\s*(grade|rank|class)\b/.test(text)
+      || text.includes('s급')
+      || text.includes('s등급');
+    return sum + (isSGrade ? getLegacyQuantity(entry) : 0);
+  }, 0);
+}
+
 function calculateLegacyExchangeCoupons(user) {
   const plain = toPlainObject(user);
-  const sCardCount = countLegacySCards(plain);
+  const sCardCount = Math.max(countLegacySCards(plain), countLegacySCardsRobust(plain));
   const businessCardCount = countLegacyItems(plain, (entry, text) => (
     text.includes('business_card')
     || text.includes('namecard')
@@ -208,13 +277,17 @@ function calculateLegacyExchangeCoupons(user) {
     || text.includes('bakas')
     || text.includes('박카스')
   ));
+  const totalBusinessCardCount = businessCardCount
+    + sumLegacyNumericFields(plain, looksLikeLegacyBusinessCardField);
+  const totalBacchusCount = bacchusCount
+    + sumLegacyNumericFields(plain, looksLikeLegacyBacchusField);
   const couponCount = sCardCount
-    + Math.floor(businessCardCount / 200)
-    + Math.floor(bacchusCount / 100);
+    + Math.floor(totalBusinessCardCount / 200)
+    + Math.floor(totalBacchusCount / 100);
   return {
     sCardCount,
-    businessCardCount,
-    bacchusCount,
+    businessCardCount: totalBusinessCardCount,
+    bacchusCount: totalBacchusCount,
     couponCount: Math.max(0, couponCount)
   };
 }

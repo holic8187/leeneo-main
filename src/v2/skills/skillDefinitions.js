@@ -21,6 +21,7 @@ const TELEPORT_SKILL_IDS = new Set([
   'extended_85efaaf08e',
   'extended_83750dd151'
 ]);
+const MP_DAMAGE_GUARD_SKILL_ID = 'extended_51dd415210';
 
 function defineSkill(id, options) {
   return Object.freeze({
@@ -38,6 +39,16 @@ function defineSkill(id, options) {
 
 const SKILL_DEFINITIONS = Object.freeze({
   ...Object.fromEntries(Object.entries(EXTENDED_SKILL_DEFINITIONS).map(([id, definition]) => {
+    if (id === MP_DAMAGE_GUARD_SKILL_ID) {
+      return [id, {
+        ...definition,
+        effect: 'buff',
+        values: {
+          ...(definition.values || {}),
+          mpDamageGuardPercent: definition.values?.primaryPercent || [4, 80]
+        }
+      }];
+    }
     if (!TELEPORT_SKILL_IDS.has(id)) return [id, definition];
     return [id, {
       ...definition,
