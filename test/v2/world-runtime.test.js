@@ -633,7 +633,7 @@ test('only the most recently claimed client controls one character', () => {
   assert.equal(releaseWorldControl('user-a', 'mobile'), true);
 });
 
-test('contact damage knocks the player backward and grants 1.5 seconds of invulnerability', () => {
+test('contact damage uses the reduced knockback and grants 2 seconds of invulnerability', () => {
   resetWorldRuntime();
   const initial = updatePresence({
     userId: 'contact-user',
@@ -666,7 +666,8 @@ test('contact damage knocks the player backward and grants 1.5 seconds of invuln
   assert.equal(firstHit.contactEvents[0].damageCalculation.type, 'physical-contact');
   assert.ok(firstHit.contactEvents[0].damageCalculation.standardPdd > 0);
   assert.ok(firstHit.contactEvents[0].x < firstMonster.x);
-  assert.equal(firstHit.contactEvents[0].invulnerableUntil, 2_600);
+  assert.equal(firstHit.contactEvents[0].x, Math.max(0, firstMonster.x - 2.56));
+  assert.equal(firstHit.contactEvents[0].invulnerableUntil, 3_100);
 
   const duringInvulnerability = updatePresence({
     userId: 'contact-user',
@@ -693,7 +694,7 @@ test('contact damage knocks the player backward and grants 1.5 seconds of invuln
     facingLeft: false,
     currentHp: 120,
     maxHp: 120,
-    now: 2_601
+    now: 3_101
   });
   if (!afterInvulnerability.contactEvents.length) {
     const latestMonster = afterInvulnerability.monsters.find(
@@ -709,7 +710,7 @@ test('contact damage knocks the player backward and grants 1.5 seconds of invuln
       facingLeft: false,
       currentHp: 120,
       maxHp: 120,
-      now: 2_601
+      now: 3_101
     });
   }
   assert.equal(afterInvulnerability.contactEvents.length, 1);

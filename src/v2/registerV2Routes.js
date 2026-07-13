@@ -92,6 +92,10 @@ const {
   serializeHuntingTime
 } = require('./services/huntingTimeService');
 const {
+  applyOfflinePassiveMpRecovery,
+  restoreCharacterMp
+} = require('./services/offlinePassiveRecoveryService');
+const {
   getPartyState,
   getPartyMemberIds,
   invitePlayer,
@@ -1169,10 +1173,7 @@ function registerV2Routes({
         consumeInventoryItem(character, ammunition.itemId, ammunitionCount);
       }
       if (Number(combat.mpAbsorbed) > 0) {
-        character.resources.currentMp = Math.min(
-          Math.max(0, Number(character.resources.maxMp) || 0),
-          Math.max(0, Number(character.resources.currentMp) || 0) + Number(combat.mpAbsorbed)
-        );
+        restoreCharacterMp(character, combat.mpAbsorbed);
       }
       if (definition.effect === 'consume-combo-damage') skillState.comboCount = 0;
       if (definition.effect === 'damage-stun' && Number(values.consumeCombo)) {
@@ -1371,7 +1372,8 @@ function registerV2Routes({
     return { skillId, name: definition.name, combat };
   }
 
-  async function processOfflineHunterAction({ character, userId, now }) {
+  async function processOfflineHunterAction({ character, userId, now, passiveBaselineAt }) {
+    applyOfflinePassiveMpRecovery(character, { now, baselineAt: passiveBaselineAt });
     let response = buildCharacterResponse(character);
     let state = buildWorldPresenceFromResponse(response, { userId, offline: true, now });
     const selfContact = state.contactEvents.find(
@@ -1407,11 +1409,6 @@ function registerV2Routes({
         Math.max(1, Number(character.resources.maxHp) || 1),
         Math.max(0, Number(character.resources.currentHp) || 0)
           + Math.max(0, Number(selfRecovery.hpAmount) || 0)
-      );
-      character.resources.currentMp = Math.min(
-        Math.max(0, Number(character.resources.maxMp) || 0),
-        Math.max(0, Number(character.resources.currentMp) || 0)
-          + Math.max(0, Number(selfRecovery.mpAmount) || 0)
       );
       updatePlayerResources(userId, character.resources);
     }
@@ -1562,7 +1559,12 @@ function registerV2Routes({
       for (let index = 0; index < actionCount; index += 1) {
         if (!character.huntingTime.enabled || Number(character.resources?.currentHp) <= 0) break;
         const actionNow = now - Math.max(0, actionCount - index - 1) * OFFLINE_HUNTING_ACTION_INTERVAL_MS;
-        const result = await processOfflineHunterAction({ character, userId, now: actionNow });
+        const result = await processOfflineHunterAction({
+          character,
+          userId,
+          now: actionNow,
+          passiveBaselineAt: lastTickAt
+        });
         if (result?.stopped) break;
       }
 

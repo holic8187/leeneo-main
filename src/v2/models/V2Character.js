@@ -115,6 +115,7 @@ const v2CharacterSchema = new mongoose.Schema({
     remainingSeconds: { type: Number, default: 0, min: 0, max: 24000 },
     enabled: { type: Boolean, default: false },
     lastTickAt: { type: Date, default: null },
+    offlinePassiveRecoveryAt: { type: Date, default: null },
     lastDailyGrantDate: { type: String, default: '' },
     offlineSummary: { type: mongoose.Schema.Types.Mixed, default: null }
   },
@@ -147,6 +148,7 @@ const v2CharacterSchema = new mongoose.Schema({
     legacyInventoryQuantity: { type: Number, default: 0 },
     legacyCompanyPreserved: { type: Boolean, default: false },
     legacyExchangeCouponCount: { type: Number, default: 0 },
+    legacyExchangeFormulaVersion: { type: Number, default: 0 },
     cardsConversionStatus: { type: String, default: 'pending' },
     equipmentConversionStatus: { type: String, default: 'pending' },
     companyConversionStatus: { type: String, default: 'pending' },

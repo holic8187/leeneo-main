@@ -26,7 +26,8 @@ const {
 
 const PLAYER_TIMEOUT_MS = 12_000;
 const CONTACT_COOLDOWN_MS = 1_200;
-const CONTACT_INVULNERABILITY_MS = 1_500;
+const CONTACT_INVULNERABILITY_MS = 2_000;
+const PLAYER_CONTACT_KNOCKBACK_DISTANCE = 2.56;
 const MONSTER_SPAWN_INTERVAL_MS = 8_000;
 const MONSTER_MAX_PER_MAP = 10;
 const MONSTER_SPAWN_PER_WAVE = 4;
@@ -621,7 +622,11 @@ function applyContactDamage(runtime, now) {
     player.invulnerableUntil = now + (blocked || dodged ? 1_000 : CONTACT_INVULNERABILITY_MS);
     const resistedKnockback = Math.random() * 100 < Number(player.combatProfile.stanceChance || 0);
     if (!blocked && !dodged && !resistedKnockback) {
-      player.x = clamp(player.x + (player.facingLeft ? 1 : -1) * 3.2, 0, 94);
+      player.x = clamp(
+        player.x + (player.facingLeft ? 1 : -1) * PLAYER_CONTACT_KNOCKBACK_DISTANCE,
+        0,
+        94
+      );
     }
     const reflectCap = collider.maxHp * Number(player.combatProfile.contactReflectCapPercent || 10) / 100;
     const reflectedDamage = blocked || dodged
@@ -1669,6 +1674,7 @@ module.exports = {
   PLAYER_TIMEOUT_MS,
   CONTACT_COOLDOWN_MS,
   CONTACT_INVULNERABILITY_MS,
+  PLAYER_CONTACT_KNOCKBACK_DISTANCE,
   MONSTER_SPAWN_INTERVAL_MS,
   MONSTER_MAX_PER_MAP,
   MONSTER_SPAWN_PER_WAVE,

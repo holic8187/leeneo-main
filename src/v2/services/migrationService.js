@@ -33,6 +33,7 @@ const { reconcileMpGrowthSkillBonus } = require('./mpGrowthBonusService');
 const { reconcileMaxResourceBuff } = require('./maxResourceBuffService');
 
 const MIGRATION_VERSION = 1;
+const LEGACY_EXCHANGE_FORMULA_VERSION = 2;
 const SKILL_POINT_GRANT_VERSION = 2;
 const TEMPORARY_RESOURCE_DEFAULTS = Object.freeze({
   maxHp: 50,
@@ -282,8 +283,8 @@ function calculateLegacyExchangeCoupons(user) {
   const totalBacchusCount = bacchusCount
     + sumLegacyNumericFields(plain, looksLikeLegacyBacchusField);
   const couponCount = sCardCount
-    + Math.floor(totalBusinessCardCount / 200)
-    + Math.floor(totalBacchusCount / 100);
+    + Math.floor(totalBusinessCardCount / 50)
+    + Math.floor(totalBacchusCount / 50);
   return {
     sCardCount,
     businessCardCount: totalBusinessCardCount,
@@ -438,6 +439,7 @@ async function ensureV2MigrationForUser(user) {
           legacyInventoryQuantity: preview.preserved.inventoryQuantity,
           legacyCompanyPreserved: preview.preserved.companyData,
           legacyExchangeCouponCount: 0,
+          legacyExchangeFormulaVersion: 0,
           cardsConversionStatus: 'pending',
           equipmentConversionStatus: 'pending',
           companyConversionStatus: 'pending',
@@ -462,11 +464,20 @@ async function ensureLegacyExchangeCoupons(character, conversion = {}) {
     Math.floor(Number(character.migration?.legacyExchangeCouponCount) || 0)
   );
   const grantCount = Math.max(0, target - alreadyGranted);
+  const formulaVersion = Math.max(
+    0,
+    Math.floor(Number(character.migration?.legacyExchangeFormulaVersion) || 0)
+  );
   if (grantCount > 0) {
     addInventoryItem(character, LEGACY_EXCHANGE_COUPON_ID, grantCount);
   }
-  if (grantCount > 0 || alreadyGranted !== target) {
+  if (
+    grantCount > 0
+    || alreadyGranted !== target
+    || formulaVersion !== LEGACY_EXCHANGE_FORMULA_VERSION
+  ) {
     character.migration.legacyExchangeCouponCount = target;
+    character.migration.legacyExchangeFormulaVersion = LEGACY_EXCHANGE_FORMULA_VERSION;
     if (typeof character.markModified === 'function') character.markModified('migration');
     await character.save();
   }
@@ -737,6 +748,7 @@ function buildCharacterResponse(character) {
 
 module.exports = {
   MIGRATION_VERSION,
+  LEGACY_EXCHANGE_FORMULA_VERSION,
   SNAPSHOT_FIELDS,
   buildLegacyPayload,
   buildV2AccountSeed,
@@ -745,6 +757,7 @@ module.exports = {
   repairV2CharacterStatBaselinesByUserId,
   ensureV2SkillPointGrant,
   ensureV2CharacterFoundation,
+  ensureLegacyExchangeCoupons,
   buildResourceResponse,
   buildEquipmentLoadout,
   buildCharacterResponse

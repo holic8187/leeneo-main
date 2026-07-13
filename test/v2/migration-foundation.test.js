@@ -90,7 +90,7 @@ test('legacy exchange preview includes S cards and numeric consumable balances',
     sCardCount: 3,
     businessCardCount: 450,
     bacchusCount: 250,
-    couponCount: 7
+    couponCount: 17
   });
 });
 

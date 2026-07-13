@@ -3,7 +3,11 @@
 const V2Account = require('../models/V2Account');
 const V2Character = require('../models/V2Character');
 const LegacyUserSnapshot = require('../models/LegacyUserSnapshot');
-const { MIGRATION_VERSION, ensureV2MigrationForUser } = require('./migrationService');
+const {
+  MIGRATION_VERSION,
+  LEGACY_EXCHANGE_FORMULA_VERSION,
+  ensureV2MigrationForUser
+} = require('./migrationService');
 
 let activeRun = null;
 
@@ -30,6 +34,7 @@ async function findIncompleteUsers(users) {
     V2Character.find({
       userId: { $in: userIds },
       'migration.migrationVersion': MIGRATION_VERSION,
+      'migration.legacyExchangeFormulaVersion': LEGACY_EXCHANGE_FORMULA_VERSION,
       'progression.skillPointGrantVersion': 2
     }).select('userId').lean()
   ]);

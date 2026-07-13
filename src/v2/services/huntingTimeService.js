@@ -52,6 +52,7 @@ function setHuntingEnabled(character, enabled, now = Date.now()) {
   const state = ensureHuntingState(character);
   state.enabled = Boolean(enabled) && state.remainingSeconds > 0;
   state.lastTickAt = state.enabled ? new Date(now) : null;
+  state.offlinePassiveRecoveryAt = null;
   if (typeof character.markModified === 'function') character.markModified('huntingTime');
   return serializeHuntingTime(character);
 }

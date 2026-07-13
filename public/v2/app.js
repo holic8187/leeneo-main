@@ -16,6 +16,7 @@ const state = {
   huntingSyncBusy: false,
   moving: false,
   activeMoveTargetX: null,
+  activeMoveDeadlineAt: 0,
   moveRunId: 0,
   combatRunId: 0,
   combatAttackCount: 0,
@@ -1161,11 +1162,11 @@ async function moveCharacter(left, duration, runId) {
   if (!isRunActive('move', runId)) return false;
   const character = $('fieldCharacter');
   const resolvedDuration = getScaledMovementDuration(duration);
-  const deadline = Date.now() + resolvedDuration * 2 + 1_000;
+  state.activeMoveDeadlineAt = Date.now() + resolvedDuration * 2 + 1_000;
   state.activeMoveTargetX = left;
   setWorldActivity('목적지로 걷는 중');
   setCharacterMotion('walking');
-  while (isRunActive('move', runId) && Date.now() < deadline) {
+  while (isRunActive('move', runId) && Date.now() < state.activeMoveDeadlineAt) {
     if (Math.abs(left - getCharacterX()) <= 0.35) break;
     const remainingDuration = getScaledMovementDuration(getFieldMoveDuration(left));
     character.style.transitionDuration = `${remainingDuration}ms`;
@@ -1176,7 +1177,10 @@ async function moveCharacter(left, duration, runId) {
     character.style.transitionDuration = '0ms';
     character.style.left = `${left}%`;
   }
-  if (state.activeMoveTargetX === left) state.activeMoveTargetX = null;
+  if (state.activeMoveTargetX === left) {
+    state.activeMoveTargetX = null;
+    state.activeMoveDeadlineAt = 0;
+  }
   setCharacterMotion(null);
   return isRunActive('move', runId);
 }
@@ -1404,6 +1408,7 @@ function finishMoveCommand(runId, message = '') {
   if (runId !== state.moveRunId) return;
   state.moving = false;
   state.activeMoveTargetX = null;
+  state.activeMoveDeadlineAt = 0;
   setCharacterMotion(null);
   if (message) setWorldActivity(message);
   updateFieldControls();
@@ -2093,6 +2098,15 @@ function renderWorldEntities(data = {}) {
       ? `${getUpperPlatformBottom()}px`
       : '42px';
     void character.offsetWidth;
+    if (state.moving && state.activeMoveTargetX != null) {
+      const recoveryDuration = getScaledMovementDuration(
+        getFieldMoveDuration(state.activeMoveTargetX)
+      );
+      state.activeMoveDeadlineAt = Math.max(
+        state.activeMoveDeadlineAt,
+        Date.now() + recoveryDuration * 2 + 1_000
+      );
+    }
     character.classList.add('damage-flash');
     setTimeout(() => character.classList.remove('damage-flash'), 260);
     const damageKey = `${ownContact.monsterId}:${ownContact.invulnerableUntil}:${ownContact.damage}`;
@@ -2109,7 +2123,7 @@ function renderWorldEntities(data = {}) {
       setWorldActivity(
         ownContact.dodged
           ? '패시브 회피 성공 · 1초 무적'
-          : `몸박 피해 -${formatNumber(ownContact.damage)} · 1.5초 무적`
+          : `몸박 피해 -${formatNumber(ownContact.damage)} · 2초 무적`
       );
     }
   }
