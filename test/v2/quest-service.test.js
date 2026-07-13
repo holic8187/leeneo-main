@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const { NPC_CATALOG } = require('../../src/v2/quests/questCatalog');
 const {
   acceptQuest,
+  buildNpcView,
   buildQuestJournal,
   getQuestPeriodKey,
   recordMapVisit,
@@ -63,6 +64,23 @@ test('kill, visit, collect, and boss quests persist and complete independently',
   acceptQuest(character, 'winter_hwang');
   recordBossKill(character, 'mad_hwang_manager');
   assert.equal(buildQuestJournal(character).active[0].status, 'ready');
+});
+
+test('quest rewards stay hidden until the objective is complete', () => {
+  const character = characterFixture();
+  const available = buildNpcView(character, 'training_simsim').quests.find((quest) => quest.id === 'simsim_dust');
+  assert.equal(available.status, 'available');
+  assert.equal(available.rewards, undefined);
+
+  acceptQuest(character, 'simsim_dust');
+  const active = buildQuestJournal(character).active[0];
+  assert.equal(active.status, 'active');
+  assert.equal(active.rewards, undefined);
+
+  recordMonsterKills(character, Array(40).fill('paper_dust'));
+  const ready = buildQuestJournal(character).active[0];
+  assert.equal(ready.status, 'ready');
+  assert.ok(ready.rewards);
 });
 
 test('random quest rewards resolve exactly one item from the configured pool', () => {

@@ -19,6 +19,7 @@ const state = {
   moving: false,
   activeMoveTargetX: null,
   activeMoveDeadlineAt: 0,
+  activeMoveRunId: 0,
   moveRunId: 0,
   combatRunId: 0,
   combatAttackCount: 0,
@@ -846,8 +847,9 @@ function getWorldActivityType() {
 
 function setCharacterMotion(motion) {
   const character = $('fieldCharacter');
+  const resolvedMotion = !motion && state.moving && !state.dead ? 'walking' : motion;
   CHARACTER_MOTION_CLASSES.forEach((className) => character.classList.remove(className));
-  if (motion) character.classList.add(`is-${motion}`);
+  if (resolvedMotion) character.classList.add(`is-${resolvedMotion}`);
 }
 
 function getMovementSpeedPercent() {
@@ -1192,6 +1194,7 @@ async function moveCharacter(left, duration, runId) {
   const resolvedDuration = getScaledMovementDuration(duration);
   state.activeMoveDeadlineAt = Date.now() + resolvedDuration * 2 + 1_000;
   state.activeMoveTargetX = left;
+  state.activeMoveRunId = runId;
   setWorldActivity('목적지로 걷는 중');
   setCharacterMotion('walking');
   while (isRunActive('move', runId) && Date.now() < state.activeMoveDeadlineAt) {
@@ -1205,11 +1208,12 @@ async function moveCharacter(left, duration, runId) {
     character.style.transitionDuration = '0ms';
     character.style.left = `${left}%`;
   }
-  if (state.activeMoveTargetX === left) {
+  if (state.activeMoveRunId === runId) {
     state.activeMoveTargetX = null;
     state.activeMoveDeadlineAt = 0;
+    state.activeMoveRunId = 0;
   }
-  setCharacterMotion(null);
+  if (isRunActive('move', runId)) setCharacterMotion(null);
   return isRunActive('move', runId);
 }
 
@@ -1250,7 +1254,7 @@ async function climbToUpperPlatform(runId) {
   character.style.transitionDuration = `${duration}ms`;
   character.style.bottom = `${getUpperPlatformBottom()}px`;
   await sleep(duration + 20);
-  setCharacterMotion(null);
+  if (isRunActive('move', runId)) setCharacterMotion(null);
   return isRunActive('move', runId);
 }
 
@@ -1264,7 +1268,7 @@ async function climbToLowerPlatform(runId) {
   character.style.transitionDuration = `${duration}ms`;
   character.style.bottom = '42px';
   await sleep(duration + 20);
-  setCharacterMotion(null);
+  if (isRunActive('move', runId)) setCharacterMotion(null);
   return isRunActive('move', runId);
 }
 
@@ -1395,7 +1399,7 @@ async function playWorldMotion(motion, kind, runId, activityLabel = '') {
   monster?.classList.remove('is-hit');
   projectile.className = 'attack-projectile';
   character.classList.remove('damage-flash');
-  setCharacterMotion(null);
+  if (isRunActive(kind, runId)) setCharacterMotion(null);
 }
 
 function canEnterMap(target) {
@@ -1437,6 +1441,7 @@ function finishMoveCommand(runId, message = '') {
   state.moving = false;
   state.activeMoveTargetX = null;
   state.activeMoveDeadlineAt = 0;
+  state.activeMoveRunId = 0;
   setCharacterMotion(null);
   if (message) setWorldActivity(message);
   updateFieldControls();
@@ -1583,7 +1588,7 @@ async function approachMonsterForCombat(runId) {
     character.style.transitionDuration = `${climbDuration}ms`;
     character.style.bottom = '42px';
     await sleep(climbDuration + 20);
-    setCharacterMotion(null);
+    if (isRunActive('combat', runId)) setCharacterMotion(null);
   }
 
   if (!isRunActive('combat', runId)) return false;
@@ -1620,7 +1625,7 @@ async function approachMonsterForCombat(runId) {
   character.style.transitionDuration = `${duration}ms`;
   character.style.left = `${targetPercent}%`;
   await sleep(duration);
-  setCharacterMotion(null);
+  if (isRunActive('combat', runId)) setCharacterMotion(null);
   return isRunActive('combat', runId);
 }
 
@@ -4227,6 +4232,9 @@ function questRewardText(rewards = {}) {
 
 function questCardBody(quest, { showDialogue = false } = {}) {
   const progress = Math.min(Number(quest.required) || 1, Number(quest.progress) || 0);
+  const rewardDetails = (quest.status === 'ready' || quest.status === 'completed') && quest.rewards
+    ? `<small>완료 보상 · ${escapeHtml(questRewardText(quest.rewards))}</small>`
+    : '';
   const repeatLabel = quest.repeat === 'daily'
     ? '매일 자정 초기화'
     : (quest.repeat === 'weekly' ? '매주 월요일 초기화' : '계정당 1회');
@@ -4240,7 +4248,7 @@ function questCardBody(quest, { showDialogue = false } = {}) {
     ${showDialogue ? `<p class="npc-dialogue-text">“${escapeHtml(quest.dialogue)}”</p>` : ''}
     <p>${escapeHtml(quest.targetName)} · ${formatNumber(progress)} / ${formatNumber(quest.required)}</p>
     <div class="quest-progress-track"><i style="width:${Math.min(100, progress / Math.max(1, Number(quest.required)) * 100)}%"></i></div>
-    <small>완료 보상 · ${escapeHtml(questRewardText(quest.rewards))}</small>${action}
+    ${rewardDetails}${action}
   </article>`;
 }
 

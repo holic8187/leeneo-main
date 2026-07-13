@@ -74,11 +74,13 @@ function serializeQuest(character, definition, now = new Date()) {
   const progress = entry ? getQuestProgress(character, definition, entry) : 0;
   const repeatCompleted = definition.repeat !== 'once'
     && state.repeatCompletions[definition.id] === getQuestPeriodKey(definition, now);
+  const status = state.completedIds.includes(definition.id) || repeatCompleted
+    ? 'completed'
+    : (entry ? (progress >= definition.required ? 'ready' : 'active') : 'available');
   return {
     ...definition,
-    status: state.completedIds.includes(definition.id) || repeatCompleted
-      ? 'completed'
-      : (entry ? (progress >= definition.required ? 'ready' : 'active') : 'available'),
+    rewards: status === 'ready' || status === 'completed' ? definition.rewards : undefined,
+    status,
     progress: Math.min(definition.required, progress),
     acceptedAt: entry?.acceptedAt || null
   };
