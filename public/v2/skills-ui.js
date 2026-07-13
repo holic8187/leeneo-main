@@ -275,6 +275,7 @@ function combatBuffIconBody(buff) {
   const timed = Number(buff.expiresAt) > 0;
   const stack = Number(buff.stack ?? buff.count);
   return `<article class="combat-buff-icon" tabindex="0"
+    data-buff-skill-id="${escapeHtml(buff.skillId || '')}"
     data-buff-created-at="${Number(buff.createdAt) || 0}"
     data-buff-expires-at="${Number(buff.expiresAt) || 0}"
     data-buff-duration="${Number(buff.durationMs) || 0}"
@@ -312,6 +313,11 @@ function updateCombatBuffTimers() {
     if (tooltipTime) tooltipTime.textContent = `남은 시간 ${label}`;
     if (remaining <= 0) icon.remove();
   });
+  const stealthActive = Boolean(
+    tray.querySelector('[data-buff-skill-id="extended_47fcdc0ba0"]')
+  );
+  $('fieldCharacter')?.classList.toggle('is-stealthed', stealthActive);
+  tray.classList.toggle('is-empty', tray.childElementCount === 0);
 }
 
 function bindCombatBuffInspection() {
@@ -372,6 +378,10 @@ function renderCombatBuffTray() {
   }
   tray.innerHTML = buffs.map(combatBuffIconBody).join('');
   tray.classList.toggle('is-empty', buffs.length === 0);
+  $('fieldCharacter')?.classList.toggle(
+    'is-stealthed',
+    buffs.some((buff) => buff.skillId === 'extended_47fcdc0ba0')
+  );
   bindCombatBuffInspection();
   updateCombatBuffTimers();
   if (!combatBuffTrayTimerId) {

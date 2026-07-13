@@ -1415,6 +1415,11 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   animation: character-teleport-blink .24s ease-in-out;
   filter: drop-shadow(0 0 16px rgba(98, 207, 255, .95)) drop-shadow(0 0 32px rgba(142, 101, 255, .45));
 }
+.field-character.is-stealthed,
+.remote-player.is-stealthed {
+  opacity: .28;
+  filter: saturate(.35) drop-shadow(0 0 8px rgba(145, 205, 255, .7));
+}
 .field-character.is-climb .arm-left,
 .field-character.is-climb .leg-right { animation: climb-a .32s linear infinite alternate; }
 .field-character.is-climb .arm-right,

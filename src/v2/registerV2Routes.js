@@ -27,6 +27,7 @@ const {
   useSkillOnMonsters,
   isPlayerSilenced,
   updatePlayerResources,
+  setPlayerStealth,
   recordSkillUse,
   listActivePlayers,
   listAllActivePlayers,
@@ -2576,6 +2577,13 @@ function registerV2Routes({
           String(req.body?.mapId || character.worldState?.mapId || ''),
           definition.name
         );
+        if (skillId === STEALTH_SKILL_ID) {
+          setPlayerStealth(
+            auth.id,
+            String(req.body?.mapId || character.worldState?.mapId || ''),
+            true
+          );
+        }
         if (partyBuffToShare) {
           combat = {
             ...(combat || { success: true }),
@@ -4187,8 +4195,18 @@ function registerV2Routes({
         character = await V2Character.findOne({ userId: auth.id });
         if (character) inventory = buildInventoryView(character);
       }
-      if (result.expReward > 0 || result.mpAbsorbed > 0 || skillEffects.comboEnabled) {
+      const attackedWhileStealthed = Number(skillEffects.stealth) > 0;
+      if (
+        result.expReward > 0
+        || result.mpAbsorbed > 0
+        || skillEffects.comboEnabled
+        || attackedWhileStealthed
+      ) {
         character = character || await V2Character.findOne({ userId: auth.id });
+        if (attackedWhileStealthed) {
+          const skills = ensureSkillState(character);
+          if (clearStealthBuff(skills)) character.markModified('skills');
+        }
         if (result.mpAbsorbed > 0) {
           character.resources.currentMp = Math.min(
             Math.max(0, Number(character.resources.maxMp) || 0),

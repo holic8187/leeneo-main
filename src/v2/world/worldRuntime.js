@@ -408,6 +408,7 @@ function serializePlayer(player) {
     maxMp: player.maxMp,
     invulnerableUntil: player.invulnerableUntil,
     silencedUntil: Number(player.silencedUntil) || 0,
+    stealth: Number(player.combatProfile?.stealth) > 0,
     online: now - Number(player.lastSeenAt || 0) <= PLAYER_TIMEOUT_MS,
     autoHunting: Boolean(player.autoHunting),
     recentSkill: player.recentSkill?.expiresAt > now ? { ...player.recentSkill } : null,
@@ -1633,6 +1634,20 @@ function updatePlayerResources(userId, resources = {}) {
   }
 }
 
+function setPlayerStealth(userId, mapId, stealth) {
+  const runtime = activeMaps.get(String(mapId || ''));
+  const player = runtime?.players.get(String(userId));
+  if (!player) return false;
+  player.combatProfile = player.combatProfile || {};
+  player.combatProfile.stealth = stealth ? 1 : 0;
+  if (stealth) {
+    for (const monster of runtime.monsters) {
+      if (monster.aggroTargetId === String(userId)) monster.aggroTargetId = '';
+    }
+  }
+  return true;
+}
+
 function leaveWorld(userId) {
   removePlayerFromOtherMaps(String(userId), '');
   cleanupInactiveMaps(Date.now());
@@ -1695,6 +1710,7 @@ module.exports = {
   useSkillOnMonsters,
   isPlayerSilenced,
   updatePlayerResources,
+  setPlayerStealth,
   recordSkillUse,
   listActivePlayers,
   listAllActivePlayers,

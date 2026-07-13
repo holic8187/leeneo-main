@@ -12,6 +12,7 @@ const {
   attackMonster,
   useSkillOnMonsters,
   updatePlayerResources,
+  setPlayerStealth,
   leaveWorld,
   resetWorldRuntime
 } = require('../../src/v2/world/worldRuntime');
@@ -766,10 +767,11 @@ test('stealth prevents contact damage and is removed when the player attacks', (
     activity: 'idle',
     currentHp: 120,
     maxHp: 120,
-    stealth: 1,
+    stealth: 0,
     now: 1_000
   });
   const monster = initial.monsters.find((entry) => entry.floor === 0);
+  assert.equal(setPlayerStealth('stealth-user', 'newcomer_training', true), true);
   const hidden = updatePresence({
     userId: 'stealth-user',
     nickname: '잠복사원',
@@ -779,10 +781,10 @@ test('stealth prevents contact damage and is removed when the player attacks', (
     activity: 'idle',
     currentHp: 120,
     maxHp: 120,
-    stealth: 1,
     now: 1_100
   });
   assert.equal(hidden.contactEvents.length, 0);
+  assert.equal(hidden.players.find((player) => player.userId === 'stealth-user')?.stealth, true);
   const result = attackMonster({
     userId: 'stealth-user',
     mapId: 'newcomer_training',
@@ -793,6 +795,7 @@ test('stealth prevents contact damage and is removed when the player attacks', (
     now: 1_200
   });
   assert.equal(result.success, true);
+  assert.equal(result.players.find((player) => player.userId === 'stealth-user')?.stealth, false);
 
   const revealed = updatePresence({
     userId: 'stealth-user',

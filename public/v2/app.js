@@ -737,6 +737,22 @@ function getCharacterX() {
   return Math.max(0, Math.min(94, Number(renderedPercent) || 0));
 }
 
+function stopCharacterMovementAtCurrentPosition() {
+  const character = $('fieldCharacter');
+  const currentX = getCharacterX();
+  state.moveRunId += 1;
+  state.moving = false;
+  state.activeMoveTargetX = null;
+  state.activeMoveDeadlineAt = 0;
+  state.activeMoveRunId = 0;
+  character.style.transitionDuration = '0ms';
+  character.style.left = `${currentX}%`;
+  void character.offsetWidth;
+  character.style.transitionDuration = '';
+  setCharacterMotion(null);
+  updateFieldControls();
+}
+
 function getPortalFloor(portal) {
   return portal?.side === 'upper' ? 1 : 0;
 }
@@ -1468,7 +1484,11 @@ function findMapTravelRoute(startMapId, targetMapId) {
   if (startMapId === targetMapId) return [startMapId];
   const visibleMaps = (state.maps || []).filter((map) => !map.hidden);
   const visibleIds = new Set(visibleMaps.map((map) => map.id));
-  if (!visibleIds.has(startMapId) || !visibleIds.has(targetMapId)) return [];
+  // Hidden Streets stay off the public map, but may be entered or exited when
+  // they are the explicit route endpoint.
+  visibleIds.add(startMapId);
+  visibleIds.add(targetMapId);
+  if (!getMap(startMapId) || !getMap(targetMapId)) return [];
   const queue = [startMapId];
   const previous = new Map([[startMapId, null]]);
   while (queue.length) {
@@ -1857,6 +1877,7 @@ function renderRemotePlayers(players = []) {
     element.classList.toggle('is-walking', player.activity === 'moving');
     element.classList.toggle('is-combat', player.activity === 'combat');
     element.classList.toggle('is-dead', Boolean(player.isDead));
+    element.classList.toggle('is-stealthed', Boolean(player.stealth));
     element.classList.toggle(
       'is-invulnerable',
       Number(player.invulnerableUntil) > state.worldServerTime
@@ -4476,10 +4497,7 @@ $('rallyPoint')?.addEventListener('click', (event) => {
   event.stopPropagation();
   clearRallyPoint();
   if (state.moving) {
-    state.moveRunId += 1;
-    state.moving = false;
-    setCharacterMotion(null);
-    updateFieldControls();
+    stopCharacterMovementAtCurrentPosition();
     if (state.autoCombat) startAutoCombat();
   }
   setWorldActivity('이동 기준점을 해제했습니다.');
