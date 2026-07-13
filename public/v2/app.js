@@ -8,6 +8,8 @@ const state = {
   preview: null,
   character: null,
   maps: [],
+  questJournal: { active: [], completedCount: 0 },
+  currentNpc: null,
   startMapId: 'main_lobby',
   currentMapId: localStorage.getItem('v2CurrentMapId') || '',
   autoCombat: localStorage.getItem('v2AutoCombat') === 'true',
@@ -1060,6 +1062,22 @@ function renderPortals(map) {
   }).join('');
 }
 
+function renderMapNpcs(map) {
+  const layer = $('npcLayer');
+  if (!layer) return;
+  layer.innerHTML = (map.npcs || []).map((npc) => (
+    `<button class="field-quest-npc" type="button" data-npc-id="${escapeHtml(npc.id)}" style="left:${Math.max(5, Math.min(90, Number(npc.x) || 50))}%">
+      <span>${escapeHtml(npc.icon || '🧑‍💼')}</span><strong>${escapeHtml(npc.name)}</strong><small>대화</small>
+    </button>`
+  )).join('');
+  layer.querySelectorAll('[data-npc-id]').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      openNpcDialogue(button.dataset.npcId);
+    });
+  });
+}
+
 function renderPartyPortals(portals = []) {
   const layer = $('portalLayer');
   if (!layer) return;
@@ -1135,7 +1153,16 @@ function renderWorldMap(mapId, arrivalPortalIndex = 0) {
     !needsUpperRoute && !map.features.some((feature) => feature === 'rope' || feature === 'ladder')
   );
   renderPortals(map);
+  renderMapNpcs(map);
   renderRallyPoint();
+  if (state.token && !state.isAdmin) {
+    request('/api/v2/quests/visit', {
+      method: 'POST',
+      body: JSON.stringify({ mapId: map.id })
+    }).then((data) => {
+      state.questJournal = data.journal || state.questJournal;
+    }).catch(() => {});
+  }
   $('lootLayer').replaceChildren();
 
   const character = $('fieldCharacter');
@@ -3270,6 +3297,8 @@ const featureMeta = {
   marketplace: { code: '13 / MARKETPLACE', title: '사내 거래소' },
   'world-map': { code: '14 / MAP', title: '사내 지도' },
   'patch-notes': { code: '15 / PATCH NOTES', title: '패치노트' },
+  'general-quests': { code: '16 / QUESTS', title: '진행 중인 퀘스트' },
+  'npc-dialog': { code: 'NPC / DIALOG', title: 'NPC 대화' },
   'trade-invite': { code: 'TRADE / INVITE', title: '교환 요청' },
   quest: { code: 'QUEST / HR', title: '전직 퀘스트' },
   move: { code: 'MAP / MOVE', title: '이동 목적지' },
@@ -4176,6 +4205,125 @@ function worldMapOfficeBody() {
   </div>`;
 }
 
+function questStatusLabel(status) {
+  return { available: '수락 가능', active: '진행 중', ready: '완료 가능', completed: '완료' }[status]
+    || status;
+}
+
+function questRewardText(rewards = {}) {
+  const parts = [`경험치 ${formatNumber(rewards.exp || 0)}`];
+  if (Number(rewards.money) > 0) parts.push(`${formatNumber(rewards.money)}원`);
+  for (const item of rewards.items || []) {
+    parts.push(`${item.name || item.itemId} ${formatNumber(item.quantity || 1)}개`);
+  }
+  for (const pool of rewards.randomItems || []) {
+    parts.push(pool.name || '무작위 아이템 1개');
+  }
+  if (Number(rewards.huntingMinutes) > 0) {
+    parts.push(`자동사냥시간 ${formatNumber(rewards.huntingMinutes)}분`);
+  }
+  return parts.join(' · ');
+}
+
+function questCardBody(quest, { showDialogue = false } = {}) {
+  const progress = Math.min(Number(quest.required) || 1, Number(quest.progress) || 0);
+  const repeatLabel = quest.repeat === 'daily'
+    ? '매일 자정 초기화'
+    : (quest.repeat === 'weekly' ? '매주 월요일 초기화' : '계정당 1회');
+  const action = quest.status === 'available'
+    ? `<button type="button" data-accept-general-quest="${escapeHtml(quest.id)}">수락하기</button>`
+    : (quest.status === 'ready'
+      ? `<button type="button" data-claim-general-quest="${escapeHtml(quest.id)}">완료 보상 받기</button>`
+      : '');
+  return `<article class="general-quest-card is-${escapeHtml(quest.status)}">
+    <header><span>${escapeHtml(questStatusLabel(quest.status))}</span><strong>${escapeHtml(quest.title)}</strong><small>${escapeHtml(repeatLabel)}</small></header>
+    ${showDialogue ? `<p class="npc-dialogue-text">“${escapeHtml(quest.dialogue)}”</p>` : ''}
+    <p>${escapeHtml(quest.targetName)} · ${formatNumber(progress)} / ${formatNumber(quest.required)}</p>
+    <div class="quest-progress-track"><i style="width:${Math.min(100, progress / Math.max(1, Number(quest.required)) * 100)}%"></i></div>
+    <small>완료 보상 · ${escapeHtml(questRewardText(quest.rewards))}</small>${action}
+  </article>`;
+}
+
+function generalQuestBody() {
+  const journal = state.questJournal || { active: [], completedCount: 0 };
+  return `<div class="general-quest-journal">
+    <header><div><span>QUEST LOG</span><h3>수락한 업무 목록</h3></div><b>완료 ${formatNumber(journal.completedCount)}건</b></header>
+    <div class="general-quest-list">${journal.active.length
+      ? journal.active.map((quest) => questCardBody(quest)).join('')
+      : '<div class="empty-ledger"><b>수락한 퀘스트가 없습니다.</b><p>필드와 마을의 NPC를 눌러 새로운 업무를 받아보세요.</p></div>'}</div>
+  </div>`;
+}
+
+function npcDialogueBody() {
+  const npc = state.currentNpc;
+  if (!npc) return '<div class="empty-ledger"><b>NPC 정보를 불러오는 중입니다.</b></div>';
+  return `<div class="npc-dialog-sheet">
+    <aside><span>${escapeHtml(npc.icon || '🧑‍💼')}</span><strong>${escapeHtml(npc.name)}</strong><small>QUEST NPC</small></aside>
+    <section><h3>${escapeHtml(npc.name)}의 업무 요청</h3>
+      <div class="general-quest-list">${npc.quests.map((quest) => questCardBody(quest, { showDialogue: true })).join('')}</div>
+      <button class="npc-dialog-close" type="button" data-close-npc-dialog>대화 그만하기</button>
+    </section>
+  </div>`;
+}
+
+async function refreshGeneralQuests(openAfter = false) {
+  try {
+    const data = await request('/api/v2/quests');
+    state.questJournal = data.journal || { active: [], completedCount: 0 };
+    if (openAfter) openFeature('general-quests');
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+async function openNpcDialogue(npcId) {
+  try {
+    const data = await request(`/api/v2/npcs/${encodeURIComponent(npcId)}`);
+    state.currentNpc = data.npc;
+    openFeature('npc-dialog');
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+async function acceptGeneralQuest(questId) {
+  try {
+    const data = await request('/api/v2/quests/accept', {
+      method: 'POST', body: JSON.stringify({ questId })
+    });
+    state.questJournal = data.journal;
+    if (state.currentNpc) await openNpcDialogue(state.currentNpc.id);
+    else openFeature('general-quests');
+    setWorldActivity('새 퀘스트를 수락했습니다.');
+  } catch (err) { setWorldActivity(err.message); }
+}
+
+async function claimGeneralQuest(questId) {
+  try {
+    const data = await request('/api/v2/quests/claim', {
+      method: 'POST', body: JSON.stringify({ questId })
+    });
+    state.questJournal = data.journal;
+    if (data.character) {
+      state.character = data.character;
+      renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
+    }
+    if (state.currentNpc) await openNpcDialogue(state.currentNpc.id);
+    else openFeature('general-quests');
+    setWorldActivity(`퀘스트 완료 · ${questRewardText(data.rewards)}`);
+  } catch (err) { setWorldActivity(err.message); }
+}
+
+function bindGeneralQuestControls() {
+  document.querySelectorAll('[data-accept-general-quest]').forEach((button) => {
+    button.addEventListener('click', () => acceptGeneralQuest(button.dataset.acceptGeneralQuest));
+  });
+  document.querySelectorAll('[data-claim-general-quest]').forEach((button) => {
+    button.addEventListener('click', () => claimGeneralQuest(button.dataset.claimGeneralQuest));
+  });
+  document.querySelector('[data-close-npc-dialog]')?.addEventListener('click', closeFeature);
+}
+
 function featureBody(feature) {
   if (feature === 'stats') return statBody();
   if (feature === 'quest') return questBody();
@@ -4195,6 +4343,8 @@ function featureBody(feature) {
   if (feature === 'marketplace') return marketplaceBody();
   if (feature === 'world-map') return worldMapOfficeBody();
   if (feature === 'patch-notes') return patchNotesArchiveBody(state.patchNotesHistory);
+  if (feature === 'general-quests') return generalQuestBody();
+  if (feature === 'npc-dialog') return npcDialogueBody();
   if (feature === 'trade-invite') return tradeInviteBody();
   const messages = {
     shop: '물약, 탄환, 장비 보급품을 구매하는 사내 보급소입니다.',
@@ -4242,6 +4392,7 @@ function openFeature(feature) {
       button.addEventListener('click', () => commandTravelTo(button.dataset.mapTravel));
     });
   }
+  if (feature === 'general-quests' || feature === 'npc-dialog') bindGeneralQuestControls();
   $('featureModal').classList.remove('hidden');
   document.body.classList.add('modal-open');
   document.querySelector('.modal-close')?.focus();
@@ -4341,6 +4492,8 @@ document.querySelectorAll('.desk-action').forEach((button) => {
         ? refreshMarketplace(true)
       : button.dataset.feature === 'patch-notes'
         ? refreshPatchNotes(true)
+      : button.dataset.feature === 'general-quests'
+        ? refreshGeneralQuests(true)
       : openFeature(button.dataset.feature)
   ));
 });

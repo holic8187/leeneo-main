@@ -623,7 +623,10 @@ function buildSkillTree(character) {
     }
     : null;
   return {
-    tierSpent: Object.fromEntries([1, 2, 3, 4].map((tier) => [tier, getTierSpent(character, tier)])),
+    tierSpent: Object.fromEntries([0, 1, 2, 3, 4].map((tier) => [tier, getTierSpent(character, tier)])),
+    tierEarned: Object.fromEntries([0, 1, 2, 3, 4].map((tier) => [
+      tier, getEarnedSkillPointsForTier(character, tier)
+    ])),
     tierRequirements: TIER_SP_REQUIREMENTS,
     activePreset: [...skills.activePreset],
     autoPreset: [...skills.autoPreset],

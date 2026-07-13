@@ -1364,6 +1364,7 @@ function attackMonster({
   return {
     success: true,
     targetId: monster.id,
+    speciesId: monster.speciesId,
     damage: finalDamage,
     closeRangeTriggered,
     executed,
@@ -1585,6 +1586,7 @@ function useSkillOnMonsters({
     }
     outcomes.push({
       monsterId: monster.id,
+      speciesId: monster.speciesId,
       damage: totalDamage,
       missed: false,
       hitChance,

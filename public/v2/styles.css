@@ -1234,6 +1234,60 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   transform: translateX(-50%);
 }
 .portal-upper { bottom: 176px; transform: scale(.72); }
+.npc-layer { position: absolute; inset: 0; z-index: 6; pointer-events: none; }
+.field-quest-npc {
+  position: absolute;
+  bottom: 43px;
+  display: grid;
+  justify-items: center;
+  min-width: 76px;
+  padding: 0;
+  color: #fff4bc;
+  border: 0;
+  background: transparent;
+  transform: translateX(-50%);
+  pointer-events: auto;
+  cursor: pointer;
+  filter: drop-shadow(0 3px 3px rgba(0,0,0,.55));
+}
+.field-quest-npc > span { font-size: 36px; line-height: 1; transition: transform .18s ease; }
+.field-quest-npc > strong { margin-top: 4px; font-size: 11px; white-space: nowrap; }
+.field-quest-npc > small { margin-top: 3px; padding: 2px 7px; color: #153b2d; background: #f7d768; font-size: 9px; font-weight: 900; }
+.field-quest-npc:hover > span { transform: translateY(-4px) scale(1.08); }
+
+.npc-dialog-sheet { display: grid; grid-template-columns: 190px minmax(0,1fr); min-height: 420px; border: 2px solid #87958d; background: #f7f7ef; box-shadow: inset 0 0 0 5px #dce2dd; }
+.npc-dialog-sheet > aside { display: grid; align-content: center; justify-items: center; padding: 28px 18px; color: #fff; background: linear-gradient(155deg,#173f31,#0e241d); }
+.npc-dialog-sheet > aside span { font-size: 82px; filter: drop-shadow(0 8px 8px rgba(0,0,0,.4)); }
+.npc-dialog-sheet > aside strong { margin-top: 20px; text-align: center; font-size: 18px; }
+.npc-dialog-sheet > aside small { margin-top: 8px; color: #a7cab8; letter-spacing: .12em; }
+.npc-dialog-sheet > section { padding: 28px; }
+.npc-dialog-sheet > section > h3 { margin: 0 0 18px; font-size: 22px; }
+.npc-dialogue-text { min-height: 52px; color: #26352e; font-size: 14px; line-height: 1.65; }
+.general-quest-journal > header { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; padding-bottom:14px; border-bottom:2px solid #1b684c; }
+.general-quest-journal > header span { color:#1b684c; font-weight:900; letter-spacing:.12em; }
+.general-quest-journal > header h3 { margin:4px 0 0; font-size:22px; }
+.general-quest-list { display:grid; gap:12px; }
+.general-quest-card { padding:16px; border:1px solid #b8c2bc; background:#fff; }
+.general-quest-card.is-ready { border-color:#d19021; box-shadow:inset 4px 0 #f0b13e; }
+.general-quest-card.is-completed { opacity:.6; }
+.general-quest-card header { display:flex; gap:10px; align-items:center; }
+.general-quest-card header span { padding:3px 7px; color:#fff; background:#1b684c; font-size:10px; font-weight:900; }
+.general-quest-card header strong { font-size:16px; }
+.general-quest-card header small { margin-left:auto; color:#6b756f; font-size:11px; font-weight:800; }
+.general-quest-card > p { margin:10px 0 7px; }
+.general-quest-card > small { display:block; margin-top:8px; color:#6b756f; }
+.general-quest-card > button, .npc-dialog-close { margin-top:12px; padding:9px 14px; border:1px solid #15573f; color:#fff; background:#176849; font-weight:900; }
+.quest-progress-track { height:8px; overflow:hidden; background:#dfe4e0; }
+.quest-progress-track i { display:block; height:100%; background:linear-gradient(90deg,#55b57f,#d7d75c); transition:width .3s ease; }
+
+@media (max-width: 700px) {
+  .npc-dialog-sheet { grid-template-columns: 1fr; }
+  .npc-dialog-sheet > aside { min-height: 145px; padding: 18px; }
+  .npc-dialog-sheet > aside span { font-size: 54px; }
+  .npc-dialog-sheet > aside strong { margin-top: 8px; }
+  .npc-dialog-sheet > section { padding: 18px; }
+  .field-quest-npc > span { font-size: 30px; }
+}
 .field-character {
   position: absolute;
   z-index: 7;
@@ -2809,6 +2863,11 @@ body.floating-actions-minimized .mail-callout.has-alert {
 .skill-window { display: grid; gap: 18px; }
 .skill-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .skill-summary > div { padding: 13px; display: flex; justify-content: space-between; border: 1px solid var(--line); background: #edf1e9; }
+.skill-category-tabs { display: flex; gap: 6px; border-bottom: 2px solid var(--green); }
+.skill-category-tabs button { min-width: 150px; padding: 11px 16px; border: 1px solid var(--line); border-bottom: 0; background: #f3f1e9; color: var(--ink); font-weight: 900; }
+.skill-category-tabs button small { margin-left: 5px; color: var(--orange); }
+.skill-category-tabs button.is-active { background: var(--green); color: #fff; }
+.skill-category-tabs button.is-active small { color: #ffe5ac; }
 .skill-tier { display: grid; gap: 9px; }
 .skill-tier > header { padding-bottom: 7px; display: flex; justify-content: space-between; gap: 10px; border-bottom: 2px solid var(--green); }
 .skill-tier > header div { display: flex; gap: 9px; }

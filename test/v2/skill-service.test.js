@@ -396,6 +396,8 @@ test('HR and quality trees expose beginner plus four advancement tiers', () => {
   assert.equal(character.progression.unspentSkillPoints, 7);
   const tree = buildSkillTree(character);
   assert.deepEqual([...new Set(tree.skills.map((skill) => skill.tier))], [0, 1, 2, 3, 4]);
+  assert.equal(tree.tierSpent[0], 0);
+  assert.equal(tree.tierEarned[0], 9);
   assert.ok(tree.skills.some((skill) => skill.name === '작은 동반자'));
 });
 

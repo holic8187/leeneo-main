@@ -1,12 +1,14 @@
 'use strict';
 
+let selectedSkillPanelTab = 'beginner';
+
 function buildSkillBody() {
   const tree = state.character?.skillTree;
   if (!tree?.skills?.length) {
     return '<div class="empty-ledger"><b>현재 부서에서 배울 수 있는 스킬이 없습니다.</b><p>전직 후 다시 확인해 주세요.</p></div>';
   }
   const preset = new Set(tree.activePreset || []);
-  const tiers = [1, 2, 3, 4].map((tier) => {
+  const buildTier = (tier) => {
     const skills = tree.skills.filter((skill) => skill.tier === tier);
     if (!skills.length) return '';
     const requirement = tree.tierRequirements?.[tier];
@@ -29,18 +31,36 @@ function buildSkillBody() {
     }).join('');
     return `<section class="skill-tier">
       <header>
-        <div><span>TIER ${tier}</span><strong>${tier}차 스킬</strong></div>
-        <small>${tier === 1 ? '공용 기초 과정' : `이전 차수 ${formatNumber(requirement)} SP 필요`} · 투자 ${formatNumber(tree.tierSpent?.[tier])} SP</small>
+        <div><span>${tier === 0 ? 'NEWCOMER' : `TIER ${tier}`}</span><strong>${tier === 0 ? '신입사원 스킬' : `${tier}차 스킬`}</strong></div>
+        <small>${tier === 0
+          ? `레벨 2~10 획득분 · 투자 ${formatNumber(tree.tierSpent?.[0])} / ${formatNumber(tree.tierEarned?.[0] ?? 9)} SP`
+          : `${tier === 1 ? '1차 보직 과정' : `이전 차수 ${formatNumber(requirement)} SP 필요`} · 투자 ${formatNumber(tree.tierSpent?.[tier])} SP`}</small>
       </header>
       <div class="skill-card-list">${cards}</div>
     </section>`;
-  }).join('');
+  };
+  const hasAdvanced = Number(state.character?.job?.advancementTier) > 0;
+  if (!hasAdvanced) selectedSkillPanelTab = 'beginner';
+  if (!['beginner', 'job'].includes(selectedSkillPanelTab)) selectedSkillPanelTab = 'beginner';
+  const beginnerSpent = Number(tree.tierSpent?.[0]) || 0;
+  const beginnerEarned = Number(tree.tierEarned?.[0]) || 0;
+  const beginnerRemaining = Math.max(0, beginnerEarned - beginnerSpent);
+  const tabs = hasAdvanced
+    ? `<nav class="skill-category-tabs" aria-label="스킬 과정 선택">
+        <button type="button" data-skill-panel-tab="beginner" class="${selectedSkillPanelTab === 'beginner' ? 'is-active' : ''}">신입사원 스킬 <small>${formatNumber(beginnerRemaining)} SP</small></button>
+        <button type="button" data-skill-panel-tab="job" class="${selectedSkillPanelTab === 'job' ? 'is-active' : ''}">전직 스킬</button>
+      </nav>`
+    : '<nav class="skill-category-tabs"><button type="button" class="is-active">신입사원 스킬</button></nav>';
+  const tiers = selectedSkillPanelTab === 'beginner'
+    ? buildTier(0)
+    : [1, 2, 3, 4].map(buildTier).join('');
   return `<div class="skill-window">
     <div class="skill-summary">
       <div><span>보유 스킬 포인트</span><strong>${formatNumber(state.character?.progression?.unspentSkillPoints)} SP</strong></div>
-      <div><span>액티브 프리셋</span><strong>${formatNumber(tree.activePreset?.length)} / 10</strong></div>
+      <div><span>신입사원 과정 미투자</span><strong>${formatNumber(beginnerRemaining)} SP</strong></div>
     </div>
-    <p class="notice-line">상위 차수는 이전 차수의 필수 SP를 모두 투자해야 배울 수 있습니다. P 스킬은 자동 적용되며 퀵슬롯에 등록할 수 없습니다.</p>
+    ${tabs}
+    <p class="notice-line">신입사원 스킬은 레벨 2~10에서 획득한 9포인트만 투자할 수 있습니다. P 스킬은 자동 적용되며 퀵슬롯에 등록할 수 없습니다.</p>
     ${tiers}
   </div>`;
 }
@@ -590,6 +610,13 @@ async function useActiveSkill(skillId, options = {}) {
 }
 
 function bindSkillControls() {
+  document.querySelectorAll('[data-skill-panel-tab]').forEach((button) => {
+    button.addEventListener('click', () => {
+      selectedSkillPanelTab = button.dataset.skillPanelTab;
+      $('featureBody').innerHTML = buildSkillBody();
+      bindSkillControls();
+    });
+  });
   document.querySelectorAll('[data-skill-invest]').forEach((button) => {
     button.addEventListener('click', () => {
       const input = document.querySelector(`[data-skill-amount="${button.dataset.skillInvest}"]`);

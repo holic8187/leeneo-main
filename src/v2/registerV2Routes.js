@@ -84,6 +84,16 @@ const {
 const { changeDepartment } = require('./services/jobChangeService');
 const { applyLevelUpCoupon } = require('./services/levelUpCouponService');
 const {
+  buildNpcView,
+  buildQuestJournal,
+  acceptQuest,
+  recordMapVisit,
+  recordMonsterKills,
+  recordBossKill,
+  claimQuest,
+  getPublicNpcsForMap
+} = require('./services/questService');
+const {
   ensureDailyHuntingMail,
   getKoreaDateKey,
   setHuntingEnabled,
@@ -656,6 +666,14 @@ function registerV2Routes({
     return drops;
   }
 
+  function recordCombatQuestProgress(character, combat = {}) {
+    if (!character) return false;
+    const defeatedMonsterIds = Array.isArray(combat.outcomes)
+      ? combat.outcomes.filter((outcome) => outcome.defeated).map((outcome) => outcome.speciesId)
+      : (combat.defeated ? [combat.speciesId] : []);
+    return recordMonsterKills(character, defeatedMonsterIds);
+  }
+
   function ensureOfflineHuntingSummary(character, now = Date.now()) {
     if (!character.huntingTime || typeof character.huntingTime !== 'object') {
       character.huntingTime = {};
@@ -742,6 +760,7 @@ function registerV2Routes({
           items.push({ ...item, stored: false });
         }
       }
+      recordBossKill(character, rewardEvent.bossId);
       if (save) await character.save();
       worldProfileCache.delete(String(character.userId));
       updatePlayerResources(character.userId, character.resources);
@@ -1204,6 +1223,7 @@ function registerV2Routes({
           combat.drops
         );
       }
+      recordCombatQuestProgress(character, combat);
       if (
         definition.effect === 'element-explosion'
         && Math.random() * 100 >= Number(preUseEffects.elementPreserveChance || 0)
@@ -1522,6 +1542,7 @@ function registerV2Routes({
       result.drops = applyCombatDrops(character, result.drops);
       result.drops = applySettlementEventDrops(character, [result.monsterLevel], result.drops);
     }
+    recordCombatQuestProgress(character, result);
     recordOfflineHuntingSummary(character, {
       exp: result.experience?.gained,
       kills: result.defeated ? 1 : 0,
@@ -1839,8 +1860,80 @@ function registerV2Routes({
     if (!auth) return;
     return res.json({
       startMapId: START_MAP_ID,
-      maps: WORLD_MAPS
+      maps: WORLD_MAPS.map((map) => ({
+        ...map,
+        npcs: getPublicNpcsForMap(map.id)
+      }))
     });
+  });
+
+  app.get('/api/v2/quests', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    const character = await V2Character.findOne({ userId: auth.id });
+    if (!character) return res.status(404).json({ msg: '캐릭터를 찾을 수 없습니다.' });
+    return res.json({ journal: buildQuestJournal(character) });
+  });
+
+  app.get('/api/v2/npcs/:npcId', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    const character = await V2Character.findOne({ userId: auth.id });
+    if (!character) return res.status(404).json({ msg: '캐릭터를 찾을 수 없습니다.' });
+    const npc = buildNpcView(character, req.params.npcId);
+    if (!npc) return res.status(404).json({ msg: 'NPC를 찾을 수 없습니다.' });
+    return res.json({ npc });
+  });
+
+  app.post('/api/v2/quests/accept', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const character = await V2Character.findOne({ userId: auth.id });
+      const quest = acceptQuest(character, String(req.body?.questId || ''));
+      await character.save();
+      return res.json({ quest, journal: buildQuestJournal(character) });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message });
+    }
+  });
+
+  app.post('/api/v2/quests/visit', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    const mapId = String(req.body?.mapId || '');
+    if (!getWorldMap(mapId)) return res.status(400).json({ msg: '존재하지 않는 맵입니다.' });
+    const character = await V2Character.findOne({ userId: auth.id });
+    const changed = recordMapVisit(character, mapId);
+    if (changed) await character.save();
+    return res.json({ journal: buildQuestJournal(character) });
+  });
+
+  app.post('/api/v2/quests/claim', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const character = await V2Character.findOne({ userId: auth.id });
+      const rewards = claimQuest(character, String(req.body?.questId || ''));
+      const experience = grantV2Experience(character, rewards.exp);
+      if (!character.economy || typeof character.economy !== 'object') character.economy = {};
+      character.economy.money = Math.max(0, Number(character.economy?.money) || 0)
+        + Math.max(0, Number(rewards.money) || 0);
+      for (const item of rewards.items || []) addInventoryItem(character, item.itemId, item.quantity);
+      if (Number(rewards.huntingMinutes) > 0) {
+        addHuntingMinutes(character, rewards.huntingMinutes);
+      }
+      await character.save();
+      worldProfileCache.delete(String(auth.id));
+      return res.json({
+        rewards,
+        experience,
+        character: buildCharacterResponse(character),
+        journal: buildQuestJournal(character)
+      });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message });
+    }
   });
 
   app.get('/api/v2/patch-notes', async (req, res) => {
@@ -2241,6 +2334,7 @@ function registerV2Routes({
               .map((outcome) => outcome.monsterLevel),
             combat.drops
           );
+          recordCombatQuestProgress(character, combat);
           if (
             definition.effect === 'element-explosion'
             && Math.random() * 100 >= Number(activeEffects.elementPreserveChance || 0)
@@ -4033,6 +4127,12 @@ function registerV2Routes({
           },
           { $inc: { 'inventory.items.$.quantity': -1 } }
         );
+        if (ammunition.itemId === 'basic_arrow') {
+          await V2Character.updateOne(
+            { userId: auth.id },
+            { $pull: { 'inventory.items': { itemId: ammunition.itemId, quantity: { $lte: 0 } } } }
+          );
+        }
         worldProfileCache.delete(String(auth.id));
       }
       if (
@@ -4111,6 +4211,7 @@ function registerV2Routes({
             result.drops
           );
         }
+        recordCombatQuestProgress(character, result);
         if (skillEffects.comboEnabled && !result.missed && result.damage > 0) {
           const skills = ensureSkillState(character);
           const charge = Math.random() * 100 < Number(skillEffects.comboDoubleChargeChance || 0) ? 2 : 1;

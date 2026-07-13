@@ -130,6 +130,11 @@ const v2CharacterSchema = new mongoose.Schema({
       purchases: { type: mongoose.Schema.Types.Mixed, default: {} }
     }
   },
+  quests: {
+    active: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    completedIds: { type: [String], default: [] },
+    repeatCompletions: { type: mongoose.Schema.Types.Mixed, default: {} }
+  },
   ui: {
     patchNotesSeenVersion: { type: String, default: '' }
   },
