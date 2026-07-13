@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+  PLAYER_CONTACT_KNOCKBACK_DISTANCE,
   buildMonsterStats,
   claimWorldControl,
   hasWorldControl,
@@ -665,8 +666,8 @@ test('contact damage uses the reduced knockback and grants 2 seconds of invulner
   assert.equal(firstHit.contactEvents.length, 1);
   assert.equal(firstHit.contactEvents[0].damageCalculation.type, 'physical-contact');
   assert.ok(firstHit.contactEvents[0].damageCalculation.standardPdd > 0);
-  assert.ok(firstHit.contactEvents[0].x < firstMonster.x);
-  assert.equal(firstHit.contactEvents[0].x, Math.max(0, firstMonster.x - 2.56));
+  assert.ok(firstHit.contactEvents[0].x > firstMonster.x);
+  assert.equal(firstHit.contactEvents[0].x, Math.min(94, firstMonster.x + 2.56));
   assert.equal(firstHit.contactEvents[0].invulnerableUntil, 3_100);
 
   const duringInvulnerability = updatePresence({
@@ -714,6 +715,45 @@ test('contact damage uses the reduced knockback and grants 2 seconds of invulner
     });
   }
   assert.equal(afterInvulnerability.contactEvents.length, 1);
+});
+
+test('contact knockback always pushes the player away from the monster', () => {
+  resetWorldRuntime();
+  const initial = updatePresence({
+    userId: 'rear-contact-user',
+    nickname: 'rear-contact-user',
+    mapId: 'newcomer_training',
+    x: 0,
+    floor: 0,
+    activity: 'moving',
+    facingLeft: false,
+    currentHp: 120,
+    maxHp: 120,
+    now: 5_000
+  });
+  const monster = initial.monsters.find(
+    (entry) => entry.floor === 0 && entry.x >= 3 && entry.x <= 90
+  );
+  assert.ok(monster);
+
+  const playerX = monster.x + 0.5;
+  const hitFromBehind = updatePresence({
+    userId: 'rear-contact-user',
+    nickname: 'rear-contact-user',
+    mapId: 'newcomer_training',
+    x: playerX,
+    floor: 0,
+    activity: 'moving',
+    facingLeft: false,
+    currentHp: 120,
+    maxHp: 120,
+    now: 5_100
+  });
+  assert.equal(hitFromBehind.contactEvents.length, 1);
+  assert.equal(
+    hitFromBehind.contactEvents[0].x,
+    Math.min(94, playerX + PLAYER_CONTACT_KNOCKBACK_DISTANCE)
+  );
 });
 
 test('stealth prevents contact damage and is removed when the player attacks', () => {

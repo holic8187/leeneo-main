@@ -696,7 +696,8 @@ const PORTAL_POSITIONS = [
   { left: '4%', side: 'left', characterX: 8 },
   { left: '82%', side: 'right', characterX: 78 },
   { left: '61%', side: 'upper', characterX: 61 },
-  { left: '32%', side: 'left', characterX: 34 }
+  { left: '32%', side: 'left', characterX: 34 },
+  { left: '46%', side: 'upper', characterX: 46 }
 ];
 
 function getMap(mapId) {
@@ -1050,7 +1051,7 @@ function updateFieldControls() {
 }
 
 function renderPortals(map) {
-  $('portalLayer').innerHTML = map.connections.slice(0, 4).map((connection, index) => {
+  $('portalLayer').innerHTML = map.connections.map((connection, index) => {
     const target = getMap(connection.targetId);
     const position = PORTAL_POSITIONS[index] || PORTAL_POSITIONS[1];
     return `<div class="world-portal portal-${position.side}" style="left:${position.left}">
@@ -1418,7 +1419,7 @@ async function enterWorldPortal(connection, runId) {
   if (!connection || !isRunActive('move', runId)) return false;
   const sourceMapId = state.currentMapId;
   const target = getMap(connection.targetId);
-  const arrivalPortalIndex = Math.max(0, target?.connections.slice(0, 4).findIndex(
+  const arrivalPortalIndex = Math.max(0, target?.connections.findIndex(
     (entry) => entry.targetId === sourceMapId
   ) ?? 0);
   setWorldActivity(`${connection.portalName} 진입 · ${target?.name || connection.targetId} 이동 중`);
@@ -1465,7 +1466,7 @@ async function performMapMoveStep(targetMapId, runId) {
   const target = getMap(targetMapId);
   if (!connection || !canEnterMap(target) || !isRunActive('move', runId)) return false;
 
-  const portalIndex = Math.max(0, map.connections.slice(0, 4).findIndex(
+  const portalIndex = Math.max(0, map.connections.findIndex(
     (entry) => entry.targetId === targetMapId
   ));
   const portal = PORTAL_POSITIONS[portalIndex] || PORTAL_POSITIONS[1];

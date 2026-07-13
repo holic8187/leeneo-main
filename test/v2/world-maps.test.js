@@ -20,6 +20,11 @@ test('world contains forty visible company maps and one hidden field-boss map', 
   assert.equal(new Set(WORLD_MAPS.map((map) => map.name)).size, 41);
   assert.equal(getWorldMap(START_MAP_ID).name, '호이상사 중앙로비');
   assert.equal(getWorldMap(START_MAP_ID).safeZone, true);
+  assert.ok(
+    getWorldMap('overtime_depths').connections.some(
+      (connection) => connection.targetId === 'hidden_hwang_overtime'
+    )
+  );
 });
 
 test('the nearest safe zone can be found through the map graph', () => {

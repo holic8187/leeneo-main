@@ -622,8 +622,13 @@ function applyContactDamage(runtime, now) {
     player.invulnerableUntil = now + (blocked || dodged ? 1_000 : CONTACT_INVULNERABILITY_MS);
     const resistedKnockback = Math.random() * 100 < Number(player.combatProfile.stanceChance || 0);
     if (!blocked && !dodged && !resistedKnockback) {
+      const playerCenterX = player.x + playerWidthPercent / 2;
+      const relativeContactX = playerCenterX - collider.x;
+      const knockbackDirection = Math.abs(relativeContactX) > 0.01
+        ? Math.sign(relativeContactX)
+        : (player.facingLeft ? 1 : -1);
       player.x = clamp(
-        player.x + (player.facingLeft ? 1 : -1) * PLAYER_CONTACT_KNOCKBACK_DISTANCE,
+        player.x + knockbackDirection * PLAYER_CONTACT_KNOCKBACK_DISTANCE,
         0,
         94
       );

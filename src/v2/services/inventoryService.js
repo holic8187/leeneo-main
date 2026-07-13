@@ -347,7 +347,10 @@ function consumeInventoryItem(character, itemId, quantity = 1) {
     const consumed = Math.min(Math.floor(Number(stack.quantity) || 0), remaining);
     stack.quantity -= consumed;
     remaining -= consumed;
-    if (stack.quantity <= 0 && getItemDefinition(stack.itemId)?.itemType !== 'ammunition') {
+    const definition = getItemDefinition(stack.itemId);
+    const preservesEmptyStack = definition?.itemType === 'ammunition'
+      && definition?.ammunitionType === 'throwing-star';
+    if (stack.quantity <= 0 && !preservesEmptyStack) {
       inventory.items.splice(index, 1);
     }
     else index += 1;
@@ -368,7 +371,10 @@ function consumeInventoryStack(character, stackId, quantity = 1) {
   const consumed = Math.min(requested, Math.floor(Number(stack.quantity) || 0));
   stack.quantity -= consumed;
   const data = stack.data && typeof stack.data === 'object' ? { ...stack.data } : null;
-  if (stack.quantity <= 0 && getItemDefinition(stack.itemId)?.itemType !== 'ammunition') {
+  const definition = getItemDefinition(stack.itemId);
+  const preservesEmptyStack = definition?.itemType === 'ammunition'
+    && definition?.ammunitionType === 'throwing-star';
+  if (stack.quantity <= 0 && !preservesEmptyStack) {
     inventory.items.splice(index, 1);
   }
   markInventoryModified(character);

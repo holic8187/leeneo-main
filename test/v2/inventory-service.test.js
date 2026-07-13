@@ -15,6 +15,7 @@ const {
   getPendingMail,
   claimMail,
   getMaxStackSize,
+  consumeInventoryItem,
   consumeInventoryStack,
   equipInventoryEquipment,
   unequipInventoryEquipment,
@@ -200,6 +201,16 @@ test('an empty throwing-star stack remains in inventory and refills for a flat 4
   assert.equal(recharge.quantity, empty.maxStack);
   assert.equal(recharge.rechargeCost, 4_000);
   assert.equal(recharge.money, 6_000);
+});
+
+test('an empty arrow stack is removed from inventory', () => {
+  const character = characterFixture();
+  addInventoryItem(character, 'basic_arrow', 1);
+  assert.equal(consumeInventoryItem(character, 'basic_arrow', 1), true);
+  const arrows = buildInventoryView(character).categories.consumable.items.filter(
+    (item) => item.id === 'basic_arrow'
+  );
+  assert.equal(arrows.length, 0);
 });
 
 test('cash items are marked non-tradeable in inventory responses', () => {
