@@ -1,0 +1,109 @@
+'use strict';
+
+const { createAdminMail } = require('./inventoryService');
+
+const MAX_HUNTING_SECONDS = 400 * 60;
+const DAILY_HUNTING_MINUTES = 360;
+const DAILY_HUNTING_ITEM_ID = 'hunting_time_360m';
+
+function getKoreaDateKey(now = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(now);
+}
+
+function ensureHuntingState(character) {
+  if (!character.huntingTime || typeof character.huntingTime !== 'object') {
+    character.huntingTime = {};
+  }
+  character.huntingTime.remainingSeconds = Math.max(
+    0,
+    Math.min(MAX_HUNTING_SECONDS, Math.floor(Number(character.huntingTime.remainingSeconds) || 0))
+  );
+  character.huntingTime.enabled = Boolean(character.huntingTime.enabled);
+  character.huntingTime.lastDailyGrantDate = String(character.huntingTime.lastDailyGrantDate || '');
+  return character.huntingTime;
+}
+
+function ensureDailyHuntingMail(character, now = new Date()) {
+  const state = ensureHuntingState(character);
+  const dateKey = getKoreaDateKey(now);
+  if (state.lastDailyGrantDate === dateKey) return false;
+  const mail = createAdminMail({
+    itemId: DAILY_HUNTING_ITEM_ID,
+    quantity: 1,
+    message: '오늘의 무료 자동사냥 시간 360분입니다. 우편은 24시간 뒤 사라집니다.'
+  });
+  mail.sender = '호이상사 운영실';
+  mail.title = '일일 자동사냥 시간 지급';
+  character.mailbox.push(mail);
+  state.lastDailyGrantDate = dateKey;
+  if (typeof character.markModified === 'function') {
+    character.markModified('huntingTime');
+    character.markModified('mailbox');
+  }
+  return true;
+}
+
+function setHuntingEnabled(character, enabled, now = Date.now()) {
+  const state = ensureHuntingState(character);
+  state.enabled = Boolean(enabled) && state.remainingSeconds > 0;
+  state.lastTickAt = state.enabled ? new Date(now) : null;
+  if (typeof character.markModified === 'function') character.markModified('huntingTime');
+  return serializeHuntingTime(character);
+}
+
+function tickHuntingTime(character, active, now = Date.now()) {
+  const state = ensureHuntingState(character);
+  const last = state.lastTickAt ? new Date(state.lastTickAt).getTime() : now;
+  if (state.enabled && active && state.remainingSeconds > 0) {
+    state.remainingSeconds = Math.max(
+      0,
+      state.remainingSeconds - Math.max(0, Math.floor((now - last) / 1000))
+    );
+  }
+  if (state.remainingSeconds <= 0) state.enabled = false;
+  state.lastTickAt = state.enabled ? new Date(now) : null;
+  if (typeof character.markModified === 'function') character.markModified('huntingTime');
+  return serializeHuntingTime(character);
+}
+
+function addHuntingMinutes(character, minutes) {
+  const state = ensureHuntingState(character);
+  const before = state.remainingSeconds;
+  state.remainingSeconds = Math.min(
+    MAX_HUNTING_SECONDS,
+    before + Math.max(0, Math.floor(Number(minutes) || 0) * 60)
+  );
+  if (typeof character.markModified === 'function') character.markModified('huntingTime');
+  return {
+    addedSeconds: state.remainingSeconds - before,
+    ...serializeHuntingTime(character)
+  };
+}
+
+function serializeHuntingTime(character) {
+  const state = ensureHuntingState(character);
+  return {
+    remainingSeconds: state.remainingSeconds,
+    maximumSeconds: MAX_HUNTING_SECONDS,
+    enabled: state.enabled,
+    offlineSummary: state.offlineSummary || null
+  };
+}
+
+module.exports = {
+  MAX_HUNTING_SECONDS,
+  DAILY_HUNTING_MINUTES,
+  DAILY_HUNTING_ITEM_ID,
+  getKoreaDateKey,
+  ensureHuntingState,
+  ensureDailyHuntingMail,
+  setHuntingEnabled,
+  tickHuntingTime,
+  addHuntingMinutes,
+  serializeHuntingTime
+};
