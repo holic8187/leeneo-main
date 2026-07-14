@@ -7,6 +7,7 @@ const {
   EQUIPMENT_SCROLLS,
   getDefaultUpgradeSlots
 } = require('./scrollCatalog');
+const { MASTERY_BOOK_ITEMS } = require('./masteryBookCatalog');
 
 const INVENTORY_CATEGORIES = Object.freeze({
   equipment: Object.freeze({ key: 'equipment', label: '장비', icon: '🛡️' }),
@@ -524,6 +525,10 @@ for (const item of EQUIPMENT_ITEMS) {
 
 for (const scroll of EQUIPMENT_SCROLLS) {
   BASE_ITEMS[scroll.id] = { ...scroll };
+}
+
+for (const masteryBook of MASTERY_BOOK_ITEMS) {
+  BASE_ITEMS[masteryBook.id] = { ...masteryBook };
 }
 
 for (const monster of MONSTER_CATALOG) {

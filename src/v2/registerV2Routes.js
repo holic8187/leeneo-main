@@ -3,6 +3,7 @@
 const V2Account = require('./models/V2Account');
 const V2Character = require('./models/V2Character');
 const LegacyUserSnapshot = require('./models/LegacyUserSnapshot');
+const V2DeletedAccount = require('./models/V2DeletedAccount');
 const V2Setting = require('./models/V2Setting');
 const V2MarketListing = require('./models/V2MarketListing');
 const { MAX_LEVEL, getRequiredExpV2 } = require('./constants/experienceTable');
@@ -12,6 +13,7 @@ const {
   getWorldMap,
   findNearestSafeMap
 } = require('./world/mapDefinitions');
+const { MONSTER_CATALOG } = require('./world/monsterCatalog');
 const {
   DEPARTMENTS,
   applyAdvancement,
@@ -47,6 +49,10 @@ const {
   ensureV2CharacterFoundation,
   buildCharacterResponse
 } = require('./services/migrationService');
+const {
+  isV2AccountDeletedError,
+  markV2AccountDeleted
+} = require('./services/accountDeletionService');
 const {
   calculateReferenceResources,
   applyReferenceResources,
@@ -85,10 +91,16 @@ const {
 const { changeDepartment } = require('./services/jobChangeService');
 const { applyLevelUpCoupon } = require('./services/levelUpCouponService');
 const {
+  validateMasteryBookUse,
+  resolveMasteryBookUse
+} = require('./services/masteryBookService');
+const {
   buildNpcView,
   buildQuestJournal,
   acceptQuest,
+  recordQuestEvent,
   recordMapVisit,
+  recordNpcVisit,
   recordMonsterKills,
   recordBossKill,
   claimQuest,
@@ -150,6 +162,9 @@ const {
 const { calculateMagicDamageRange } = require('./combat/combatFormulas');
 
 const STEALTH_SKILL_ID = 'extended_47fcdc0ba0';
+const MONSTER_QUEST_LOOKUP = new Map(
+  MONSTER_CATALOG.map((monster) => [String(monster.id), monster])
+);
 
 function clearStealthBuff(skillState) {
   const activeBuffs = Array.isArray(skillState?.activeBuffs) ? skillState.activeBuffs : [];
@@ -689,12 +704,158 @@ function registerV2Routes({
     return drops;
   }
 
-  function recordCombatQuestProgress(character, combat = {}) {
+  function getQuestPartySize(character, mapId) {
+    if (!character) return 1;
+    return Math.max(1, getActivePartyPlayers(String(character.userId), mapId).length);
+  }
+
+  function recordCombatQuestProgress(character, combat = {}, context = {}) {
     if (!character) return false;
-    const defeatedMonsterIds = Array.isArray(combat.outcomes)
-      ? combat.outcomes.filter((outcome) => outcome.defeated).map((outcome) => outcome.speciesId)
-      : (combat.defeated ? [combat.speciesId] : []);
-    return recordMonsterKills(character, defeatedMonsterIds);
+    const outcomes = Array.isArray(combat.outcomes)
+      ? combat.outcomes
+      : (combat.success === false ? [] : [combat]);
+    const targetCount = Math.max(
+      1,
+      Number(context.targetCount)
+        || outcomes.filter((outcome) => !outcome.missed).length
+        || 1
+    );
+    const mapId = String(context.mapId || character.worldState?.mapId || '');
+    const maxHp = Math.max(1, Number(character.resources?.maxHp) || 1);
+    const sharedContext = {
+      mapId,
+      targetCount,
+      partySize: Math.max(
+        1,
+        Number(context.partySize) || getQuestPartySize(character, mapId)
+      ),
+      hpPercent: Number.isFinite(Number(context.hpPercent))
+        ? Number(context.hpPercent)
+        : Math.max(0, Number(character.resources?.currentHp) || 0) / maxHp * 100,
+      stealth: Boolean(context.stealth),
+      element: context.element,
+      elements: context.elements
+    };
+    let changed = false;
+    for (const outcome of outcomes) {
+      const targetId = String(outcome.speciesId || context.targetId || '');
+      if (!targetId) continue;
+      const monster = MONSTER_QUEST_LOOKUP.get(targetId);
+      const eventContext = {
+        ...sharedContext,
+        undead: Boolean(monster?.undead)
+      };
+      if (outcome.defeated) {
+        changed = recordMonsterKills(character, [targetId], eventContext) || changed;
+      }
+      if (outcome.knockedBack) {
+        changed = recordQuestEvent(character, {
+          ...eventContext,
+          type: 'knockback',
+          targetId,
+          amount: 1
+        }) || changed;
+      }
+    }
+    return changed;
+  }
+
+  function recordSkillQuestProgress(character, {
+    skillId,
+    combat = {},
+    mapId = '',
+    comboBefore = 0,
+    comboAfter = 0,
+    supportTargetIds = []
+  } = {}) {
+    if (!character || !skillId) return false;
+    const partySize = getQuestPartySize(character, mapId);
+    let changed = recordQuestEvent(character, {
+      type: 'skill-use',
+      targetId: String(skillId),
+      mapId: String(mapId || ''),
+      partySize,
+      amount: 1
+    });
+    const comboGained = Math.max(0, Number(comboAfter) - Number(comboBefore));
+    if (comboGained > 0) {
+      changed = recordQuestEvent(character, {
+        type: 'combo-gain',
+        mapId: String(mapId || ''),
+        amount: comboGained
+      }) || changed;
+    }
+    const supported = [...new Set(
+      (supportTargetIds || [])
+        .map(String)
+        .filter((userId) => userId && userId !== String(character.userId))
+    )];
+    if (supported.length) {
+      changed = recordQuestEvent(character, {
+        type: 'party-support',
+        mapId: String(mapId || ''),
+        partySize,
+        amount: supported.length
+      }) || changed;
+    }
+    const comboSpent = Math.max(0, Number(comboBefore) - Number(comboAfter));
+    for (const rewardEvent of combat.fieldBossRewards || []) {
+      changed = recordQuestEvent(character, {
+        type: 'boss-combo',
+        targetId: String(rewardEvent.bossId || ''),
+        mapId: String(mapId || ''),
+        partySize,
+        comboSpent,
+        amount: 1
+      }) || changed;
+    }
+    if (combat.fieldBossReward) {
+      changed = recordQuestEvent(character, {
+        type: 'boss-combo',
+        targetId: String(combat.fieldBossReward.bossId || ''),
+        mapId: String(mapId || ''),
+        partySize,
+        comboSpent,
+        amount: 1
+      }) || changed;
+    }
+    return changed;
+  }
+
+  function recordCompanionQuestTicks(character, now = Date.now()) {
+    const skills = ensureSkillState(character);
+    const summon = skills.summon;
+    if (!summon) return false;
+    const createdAt = new Date(summon.createdAt || now).getTime();
+    const expiresAt = summon.expiresAt ? new Date(summon.expiresAt).getTime() : now;
+    const effectiveNow = Math.min(now, Number.isFinite(expiresAt) ? expiresAt : now);
+    if (!Number.isFinite(createdAt) || effectiveNow <= createdAt) return false;
+    let changed = false;
+    let timestampChanged = false;
+    for (const [skillId, eventType, timestampKey] of [
+      ['companion_heal', 'companion-heal', 'questHealAt'],
+      ['companion_buff', 'companion-buff', 'questBuffAt']
+    ]) {
+      const definition = SKILL_DEFINITIONS[skillId];
+      const level = getSkillLevel(character, skillId);
+      if (!definition || level <= 0) continue;
+      const values = resolveSkillValues(definition, level);
+      const intervalMs = Math.max(1, Number(values.intervalSeconds) || 1) * 1000;
+      const storedAt = new Date(summon[timestampKey] || createdAt).getTime();
+      const previousAt = Math.max(
+        createdAt,
+        Number.isFinite(storedAt) ? storedAt : createdAt
+      );
+      const ticks = Math.max(0, Math.floor((effectiveNow - previousAt) / intervalMs));
+      if (!ticks) continue;
+      summon[timestampKey] = new Date(previousAt + ticks * intervalMs);
+      timestampChanged = true;
+      changed = recordQuestEvent(character, { type: eventType, amount: ticks }) || changed;
+    }
+    if (timestampChanged && typeof character.markModified === 'function') {
+      character.markModified('skills');
+    }
+    return changed || timestampChanged;
   }
 
   function ensureOfflineHuntingSummary(character, now = Date.now()) {
@@ -1104,6 +1265,8 @@ function registerV2Routes({
     const targetId = String(target?.id || '');
     let combat = null;
     let partyBuffToShare = null;
+    let supportTargetIds = [];
+    const comboBefore = Math.max(0, Number(skillState.comboCount) || 0);
 
     if (OFFLINE_AUTO_SKILL_DAMAGE_EFFECTS.has(definition.effect)) {
       const upgradedAudit = definition.name === '4중 감사'
@@ -1246,7 +1409,11 @@ function registerV2Routes({
           combat.drops
         );
       }
-      recordCombatQuestProgress(character, combat);
+      recordCombatQuestProgress(character, combat, {
+        mapId,
+        elements: activeElements.length ? activeElements : [definition.element],
+        stealth: Number(preUseEffects.stealth) > 0
+      });
       if (
         definition.effect === 'element-explosion'
         && Math.random() * 100 >= Number(preUseEffects.elementPreserveChance || 0)
@@ -1266,12 +1433,15 @@ function registerV2Routes({
             / 100
         )
       );
-      await healActivePartyMembers({
+      const healedTargets = await healActivePartyMembers({
         caster: character,
         mapId,
         rangePx: Number(values.range ?? definition.range) || 400,
         amount: healingAmount
       });
+      supportTargetIds = healedTargets
+        .filter((entry) => Number(entry.healed) > 0)
+        .map((entry) => String(entry.userId));
       const welfareDamage = definition.name === '복지 지원'
         ? calculateWelfareSupportDamage({
           workKnowledge: profile.derivedStats?.effectiveStats?.workKnowledge,
@@ -1303,6 +1473,14 @@ function registerV2Routes({
         combat.experience = expGrant.self;
         combat.partyExperience = expGrant.party;
         combat.drops = applyCombatDrops(character, combat.drops);
+      }
+      if (combat.success) {
+        recordCombatQuestProgress(character, combat, {
+          mapId,
+          element: 'holy',
+          elements: ['holy'],
+          stealth: Number(preUseEffects.stealth) > 0
+        });
       }
     } else if (definition.effect === 'debuff-self-buff') {
       combat = useSkillOnMonsters({
@@ -1370,6 +1548,7 @@ function registerV2Routes({
         'maxCombo', 'damagePerComboPercent', 'damageIncreasePercent',
         'noAmmoConsumption', 'movementSpeedIncrease', 'criticalChance',
         'criticalDamagePercent', 'damageReductionPercent', 'experienceBonusPercent',
+        'allStatsPercent',
         'moneyDropIncreasePercent',
         'mpDamageGuardPercent', 'stealth'
       ]) {
@@ -1404,20 +1583,31 @@ function registerV2Routes({
     character.markModified('skills');
     recordSkillUse(String(character.userId), mapId, definition.name, now);
     if (partyBuffToShare) {
+      const buffedPartyMemberIds = await applyBuffToActivePartyMembers(
+        String(character.userId),
+        mapId,
+        partyBuffToShare
+      );
+      supportTargetIds.push(...buffedPartyMemberIds);
       combat = {
         ...(combat || { success: true }),
-        buffedPartyMemberIds: await applyBuffToActivePartyMembers(
-          String(character.userId),
-          mapId,
-          partyBuffToShare
-        )
+        buffedPartyMemberIds
       };
     }
+    recordSkillQuestProgress(character, {
+      skillId,
+      combat,
+      mapId,
+      comboBefore,
+      comboAfter: Number(skillState.comboCount) || 0,
+      supportTargetIds
+    });
     return { skillId, name: definition.name, combat };
   }
 
   async function processOfflineHunterAction({ character, userId, now, passiveBaselineAt }) {
     applyOfflinePassiveMpRecovery(character, { now, baselineAt: passiveBaselineAt });
+    recordCompanionQuestTicks(character, now);
     let response = buildCharacterResponse(character);
     let state = buildWorldPresenceFromResponse(response, { userId, offline: true, now });
     const selfContact = state.contactEvents.find(
@@ -1435,6 +1625,7 @@ function registerV2Routes({
       character.worldState.x = Math.max(0, Math.min(94, Number(selfContact.x) || 8));
       character.worldState.floor = Number(selfContact.floor) === 1 ? 1 : 0;
       if (beforeHp > 0 && character.resources.currentHp <= 0) {
+        recordQuestEvent(character, { type: 'death' });
         const requiredExp = getRequiredExpV2(character.progression?.level);
         const currentExp = Math.max(0, Number(character.progression?.exp) || 0);
         character.progression.exp = currentExp - Math.min(
@@ -1442,6 +1633,19 @@ function registerV2Routes({
           Math.floor(requiredExp * 0.1)
         );
         character.huntingTime.enabled = false;
+      } else if (
+        beforeHp > 0
+        && character.resources.currentHp > 0
+        && Number(selfContact.damage) > 0
+      ) {
+        recordQuestEvent(character, {
+          type: 'hit-survive',
+          mapId: String(character.worldState?.mapId || ''),
+          hpPercent: character.resources.currentHp
+            / Math.max(1, Number(character.resources.maxHp) || 1)
+            * 100,
+          amount: 1
+        });
       }
       updatePlayerResources(userId, character.resources);
     }
@@ -1566,7 +1770,24 @@ function registerV2Routes({
       result.drops = applyCombatDrops(character, result.drops);
       result.drops = applySettlementEventDrops(character, [result.monsterLevel], result.drops);
     }
-    recordCombatQuestProgress(character, result);
+    recordCombatQuestProgress(character, result, {
+      mapId: String(response.worldState.mapId || ''),
+      elements: activeElements,
+      stealth: Number(response.skillEffects?.stealth) > 0
+    });
+    if (response.skillEffects?.comboEnabled && !result.missed && result.damage > 0) {
+      const skills = ensureSkillState(character);
+      const previousCombo = Math.max(0, Number(skills.comboCount) || 0);
+      const charge = Math.random() * 100
+        < Number(response.skillEffects.comboDoubleChargeChance || 0) ? 2 : 1;
+      skills.comboCount = Math.min(
+        Number(response.skillEffects.comboMaximum) || 5,
+        previousCombo + charge
+      );
+      const gained = Math.max(0, skills.comboCount - previousCombo);
+      if (gained > 0) recordQuestEvent(character, { type: 'combo-gain', amount: gained });
+      character.markModified('skills');
+    }
     recordOfflineHuntingSummary(character, {
       exp: result.experience?.gained,
       kills: result.defeated ? 1 : 0,
@@ -1833,6 +2054,9 @@ function registerV2Routes({
         migrationAutomatic: true
       });
     } catch (err) {
+      if (isV2AccountDeletedError(err)) {
+        return res.status(410).json({ msg: err.message });
+      }
       console.error('V2 login error:', err);
       return res.status(500).json({ msg: 'V2 로그인 중 서버 오류가 발생했습니다.' });
     }
@@ -1874,6 +2098,9 @@ function registerV2Routes({
         message: 'V1 원본 스냅샷과 V2 캐릭터 준비가 완료되었습니다. V1 데이터는 변경되지 않았습니다.'
       });
     } catch (err) {
+      if (isV2AccountDeletedError(err)) {
+        return res.status(410).json({ msg: err.message });
+      }
       console.error('V2 migration prepare error:', err);
       return res.status(500).json({ msg: 'V2 이관 데이터를 준비하지 못했습니다.' });
     }
@@ -1904,6 +2131,8 @@ function registerV2Routes({
     if (!auth) return;
     const character = await V2Character.findOne({ userId: auth.id });
     if (!character) return res.status(404).json({ msg: '캐릭터를 찾을 수 없습니다.' });
+    const questChanged = recordNpcVisit(character, String(req.params.npcId || ''));
+    if (questChanged) await character.save();
     const npc = buildNpcView(character, req.params.npcId);
     if (!npc) return res.status(404).json({ msg: 'NPC를 찾을 수 없습니다.' });
     return res.json({ npc });
@@ -2147,6 +2376,7 @@ function registerV2Routes({
         const definition = SKILL_DEFINITIONS[skillId];
         const level = getSkillLevel(character, skillId);
         const skillState = ensureSkillState(character);
+        const comboBefore = Math.max(0, Number(skillState.comboCount) || 0);
         if (!definition || definition.passive || level <= 0) {
           throw new Error('사용할 수 없는 스킬입니다.');
         }
@@ -2205,6 +2435,7 @@ function registerV2Routes({
 
         let combat = null;
         let partyBuffToShare = null;
+        let supportTargetIds = [];
         const damageEffects = new Set([
           'damage', 'multi-damage', 'ignore-defense-damage', 'damage-stun',
           'damage-lock', 'charge', 'consume-combo-damage', 'pull',
@@ -2363,7 +2594,11 @@ function registerV2Routes({
               .map((outcome) => outcome.monsterLevel),
             combat.drops
           );
-          recordCombatQuestProgress(character, combat);
+          recordCombatQuestProgress(character, combat, {
+            mapId: String(req.body?.mapId || character.worldState?.mapId || ''),
+            elements: activeElements.length ? activeElements : [definition.element],
+            stealth: Number(activeEffects.stealth) > 0
+          });
           if (
             definition.effect === 'element-explosion'
             && Math.random() * 100 >= Number(activeEffects.elementPreserveChance || 0)
@@ -2388,6 +2623,9 @@ function registerV2Routes({
             rangePx: Number(values.range ?? definition.range) || 400,
             amount: healingAmount
           });
+          supportTargetIds = targets
+            .filter((entry) => Number(entry.healed) > 0)
+            .map((entry) => String(entry.userId));
           const welfareDamage = definition.name === '복지 지원'
             ? calculateWelfareSupportDamage({
               workKnowledge: response.derivedStats?.effectiveStats?.workKnowledge,
@@ -2440,6 +2678,14 @@ function registerV2Routes({
             drops: undeadCombat.success ? undeadCombat.drops : [],
             expReward: undeadCombat.success ? undeadCombat.expReward : 0
           };
+          if (undeadCombat.success) {
+            recordCombatQuestProgress(character, undeadCombat, {
+              mapId: String(req.body?.mapId || character.worldState?.mapId || ''),
+              element: 'holy',
+              elements: ['holy'],
+              stealth: Number(preUseEffects.stealth) > 0
+            });
+          }
         } else if (definition.effect === 'party-portal') {
           const sourceMapId = String(req.body?.mapId || character.worldState?.mapId || '');
           const safeMap = findNearestSafeMap(sourceMapId);
@@ -2562,6 +2808,7 @@ function registerV2Routes({
             'maxCombo', 'damagePerComboPercent', 'damageIncreasePercent',
             'noAmmoConsumption', 'movementSpeedIncrease', 'criticalChance',
             'criticalDamagePercent', 'damageReductionPercent', 'experienceBonusPercent',
+            'allStatsPercent',
             'moneyDropIncreasePercent',
             'mpDamageGuardPercent', 'stealth'
           ]) {
@@ -2595,6 +2842,21 @@ function registerV2Routes({
           skillState.activeBuffs.push(activeBuff);
           if (definition.target === 'party') partyBuffToShare = activeBuff;
         }
+        if (partyBuffToShare) {
+          supportTargetIds.push(...getActivePartyPlayers(
+            auth.id,
+            String(req.body?.mapId || character.worldState?.mapId || '')
+          ).map((player) => String(player.userId)));
+        }
+        recordCompanionQuestTicks(character, now);
+        recordSkillQuestProgress(character, {
+          skillId,
+          combat,
+          mapId: String(req.body?.mapId || character.worldState?.mapId || ''),
+          comboBefore,
+          comboAfter: Number(skillState.comboCount) || 0,
+          supportTargetIds
+        });
         if (Number(values.cooldownSeconds) > 0) {
           skillState.cooldowns[skillId] = now + Number(values.cooldownSeconds) * 1000;
         }
@@ -3279,7 +3541,7 @@ function registerV2Routes({
         const character = await V2Character.findOne({ userId: auth.id });
         if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
         const item = getItemDefinition(req.body?.itemId);
-        if (!item || !['return-scroll', 'experience-buff', 'hunting-time', 'level-up', 'skill-reset'].includes(item.itemType)) {
+        if (!item || !['return-scroll', 'experience-buff', 'hunting-time', 'level-up', 'skill-reset', 'mastery-book'].includes(item.itemType)) {
           throw new Error('사용할 수 없는 아이템입니다.');
         }
         if (item.itemType === 'level-up' && Number(character.progression?.level) >= MAX_LEVEL) {
@@ -3291,12 +3553,16 @@ function registerV2Routes({
         ) {
           throw new Error('자동사냥 시간이 이미 최대 400분입니다.');
         }
+        const masteryValidation = item.itemType === 'mastery-book'
+          ? validateMasteryBookUse(character, item)
+          : null;
         if (!consumeInventoryItem(character, item.id, 1)) {
           throw new Error('해당 아이템이 부족합니다.');
         }
 
         let map = null;
         let message = '';
+        let masteryResult = null;
         if (item.itemType === 'return-scroll') {
           map = findNearestSafeMap(character.worldState?.mapId);
           character.worldState.mapId = map.id;
@@ -3353,6 +3619,9 @@ function registerV2Routes({
           character.markModified('progression');
           character.markModified('resources');
           message = '투자한 스킬포인트를 모두 회수했습니다.';
+        } else if (item.itemType === 'mastery-book') {
+          masteryResult = resolveMasteryBookUse(character, masteryValidation);
+          message = masteryResult.message;
         } else {
           const levelUp = applyLevelUpCoupon(character);
           message = `레벨업 쿠폰을 사용하여 Lv.${levelUp.level}이 되었습니다. 경험치는 0%로 초기화되었습니다.`;
@@ -3361,6 +3630,7 @@ function registerV2Routes({
         worldProfileCache.delete(String(auth.id));
         return {
           message,
+          masteryResult,
           map,
           character: buildCharacterResponse(character),
           inventory: buildInventoryView(character)
@@ -3957,6 +4227,14 @@ function registerV2Routes({
         autoHunting: !requestedMap.safeZone && Boolean(profile.huntingTime?.enabled),
         autoHuntRemainingSeconds: Number(profile.huntingTime?.remainingSeconds) || 0
       });
+      if (profile.skillTree?.summon) {
+        await withCharacterMutation(auth.id, async () => {
+          const character = await V2Character.findOne({ userId: auth.id });
+          if (character && recordCompanionQuestTicks(character, Date.now())) {
+            await character.save();
+          }
+        });
+      }
       if (state.contactEvents.length) {
         await Promise.all(state.contactEvents.map((event) => (
           withCharacterMutation(event.userId, async () => {
@@ -3979,10 +4257,18 @@ function registerV2Routes({
             character.worldState.x = Math.max(0, Math.min(94, Number(event.x) || 8));
             character.worldState.floor = Number(event.floor) === 1 ? 1 : 0;
             if (currentHp > 0 && nextHp <= 0) {
+              recordQuestEvent(character, { type: 'death' });
               const requiredExp = getRequiredExpV2(character.progression?.level);
               const currentExp = Math.max(0, Number(character.progression?.exp) || 0);
               event.expLost = Math.min(currentExp, Math.floor(requiredExp * 0.1));
               character.progression.exp = currentExp - event.expLost;
+            } else if (currentHp > 0 && nextHp > 0 && Number(event.damage) > 0) {
+              recordQuestEvent(character, {
+                type: 'hit-survive',
+                mapId: String(state.mapId || ''),
+                hpPercent: nextHp / Math.max(1, Number(character.resources.maxHp) || 1) * 100,
+                amount: 1
+              });
             }
             await character.save();
             updatePlayerResources(event.userId, character.resources);
@@ -4230,6 +4516,7 @@ function registerV2Routes({
         || result.mpAbsorbed > 0
         || skillEffects.comboEnabled
         || attackedWhileStealthed
+        || result.knockedBack
       ) {
         character = character || await V2Character.findOne({ userId: auth.id });
         if (attackedWhileStealthed) {
@@ -4258,14 +4545,21 @@ function registerV2Routes({
             result.drops
           );
         }
-        recordCombatQuestProgress(character, result);
+        recordCombatQuestProgress(character, result, {
+          mapId: String(req.body?.mapId || profile.worldState?.mapId || ''),
+          elements: activeElements,
+          stealth: attackedWhileStealthed
+        });
         if (skillEffects.comboEnabled && !result.missed && result.damage > 0) {
           const skills = ensureSkillState(character);
+          const previousCombo = Math.max(0, Number(skills.comboCount) || 0);
           const charge = Math.random() * 100 < Number(skillEffects.comboDoubleChargeChance || 0) ? 2 : 1;
           skills.comboCount = Math.min(
             Number(skillEffects.comboMaximum) || 5,
-            Math.max(0, Number(skills.comboCount) || 0) + charge
+            previousCombo + charge
           );
+          const gained = Math.max(0, skills.comboCount - previousCombo);
+          if (gained > 0) recordQuestEvent(character, { type: 'combo-gain', amount: gained });
           character.markModified('skills');
         }
         await character.save();
@@ -4420,6 +4714,9 @@ function registerV2Routes({
         mail
       });
     } catch (err) {
+      if (isV2AccountDeletedError(err)) {
+        return res.status(410).json({ msg: err.message });
+      }
       console.error('V2 admin mail send error:', err);
       return res.status(500).json({ msg: err.message || '운영자 선물을 보내지 못했습니다.' });
     }
@@ -4452,22 +4749,38 @@ function registerV2Routes({
         return res.status(404).json({ msg: '삭제할 V2 계정을 찾을 수 없습니다.' });
       }
       if (sourceUserId) {
+        await markV2AccountDeleted({
+          sourceUserId,
+          username: legacyUser?.username || v2Account?.username || '',
+          nickname: legacyUser?.nickname || v2Account?.nickname || v2Character?.displayName || '',
+          reason: 'admin-delete',
+          deletedBy: adminUsername
+        });
         leaveWorld(sourceUserId);
         worldProfileCache.delete(String(sourceUserId));
       }
-      const [accountResult, characterResult] = await Promise.all([
+      const [accountResult, characterResult, snapshotResult] = await Promise.all([
         sourceUserId
           ? V2Account.deleteMany({ sourceUserId })
           : V2Account.deleteMany({ _id: v2Account?._id }),
         sourceUserId
           ? V2Character.deleteMany({ userId: sourceUserId })
-          : V2Character.deleteMany({ _id: v2Character?._id })
+          : V2Character.deleteMany({ _id: v2Character?._id }),
+        sourceUserId
+          ? LegacyUserSnapshot.deleteMany({ sourceUserId })
+          : Promise.resolve({ deletedCount: 0 })
       ]);
       return res.json({
         success: true,
         target,
+        permanentlyExcluded: Boolean(sourceUserId),
+        deleted: {
+          displayName: legacyUser?.nickname || v2Account?.nickname || v2Character?.displayName || target,
+          username: legacyUser?.username || v2Account?.username || ''
+        },
         deletedAccounts: accountResult.deletedCount || 0,
-        deletedCharacters: characterResult.deletedCount || 0
+        deletedCharacters: characterResult.deletedCount || 0,
+        deletedSnapshots: snapshotResult.deletedCount || 0
       });
     } catch (err) {
       console.error('V2 admin account delete error:', err);
@@ -4524,11 +4837,19 @@ function registerV2Routes({
         }))
         .sort((a, b) => b.sourceLevel - a.sourceLevel);
       const middle = sourceLevels.length ? sourceLevels[Math.floor(sourceLevels.length / 2)] : 0;
+      const [deletedAccountCount, accountCount, snapshotCount, characterCount] = await Promise.all([
+        V2DeletedAccount.countDocuments({}),
+        V2Account.countDocuments({ migrationVersion: MIGRATION_VERSION }),
+        LegacyUserSnapshot.countDocuments({ migrationVersion: MIGRATION_VERSION }),
+        V2Character.countDocuments({})
+      ]);
       return res.json({
         totalUsers: users.length,
-        accountCount: await V2Account.countDocuments({ migrationVersion: MIGRATION_VERSION }),
-        snapshotCount: await LegacyUserSnapshot.countDocuments({ migrationVersion: MIGRATION_VERSION }),
-        characterCount: await V2Character.countDocuments({}),
+        eligibleUserCount: Math.max(0, users.length - deletedAccountCount),
+        deletedAccountCount,
+        accountCount,
+        snapshotCount,
+        characterCount,
         sourceLevelStats: {
           min: sourceLevels[0] || 0,
           median: middle,
@@ -4550,18 +4871,26 @@ function registerV2Routes({
       const query = afterId ? { _id: { $gt: afterId } } : {};
       const users = await User.find(query).sort({ _id: 1 }).limit(limit);
       const results = [];
+      let skippedDeleted = 0;
       for (const user of users) {
-        const result = await ensureV2MigrationForUser(user);
-        results.push({
-          userId: String(user._id),
-          name: user.nickname || user.username,
-          sourceLevel: result.preview.sourceLevel,
-          mappedLevel: result.preview.mappedLevel
-        });
+        try {
+          const result = await ensureV2MigrationForUser(user);
+          results.push({
+            userId: String(user._id),
+            name: user.nickname || user.username,
+            sourceLevel: result.preview.sourceLevel,
+            mappedLevel: result.preview.mappedLevel
+          });
+        } catch (err) {
+          if (!isV2AccountDeletedError(err)) throw err;
+          skippedDeleted += 1;
+        }
       }
       return res.json({
         success: true,
-        processed: results.length,
+        processed: users.length,
+        migrated: results.length,
+        skippedDeleted,
         results,
         nextAfterId: users.length === limit ? String(users[users.length - 1]._id) : '',
         complete: users.length < limit

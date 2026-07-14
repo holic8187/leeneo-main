@@ -14,6 +14,8 @@ const {
   resolveQuestRewards,
   claimQuest
 } = require('../../src/v2/services/questService');
+const { getSkillInvestmentCap } = require('../../src/v2/skills/skillService');
+const { SKILL_DEFINITIONS } = require('../../src/v2/skills/skillDefinitions');
 const { addInventoryItem, getItemQuantity } = require('../../src/v2/services/inventoryService');
 
 function characterFixture() {
@@ -120,4 +122,28 @@ test('daily quests reset at Korea midnight while weekly quests reset on Monday',
     NPC_CATALOG.flatMap((npc) => npc.quests).find((quest) => quest.id === 'jjor_chameleon'),
     nextMonday
   ), 'week:2026-07-20');
+});
+
+test('skill unlock quests track every objective and expand the investment cap', () => {
+  const character = characterFixture();
+  character.job = { departmentId: 'hr', advancementTier: 4 };
+  character.skills = {
+    levels: {}, activePreset: [], autoPreset: [], unlockedQuestSkills: [],
+    unlockProgress: {}, unlockMigrationVersion: 0, activeBuffs: [], cooldowns: {},
+    summon: null, comboCount: 0
+  };
+
+  acceptQuest(character, 'skill_hr_firm_will_10');
+  recordMapVisit(character, 'executive_strategy');
+  recordMonsterKills(character, Array(199).fill('overtime_bat'));
+  let quest = buildQuestJournal(character).active[0];
+  assert.equal(quest.status, 'active');
+  assert.deepEqual(quest.objectives.map((entry) => entry.progress), [1, 199]);
+
+  recordMonsterKills(character, ['overtime_reaper']);
+  quest = buildQuestJournal(character).active[0];
+  assert.equal(quest.status, 'ready');
+  const rewards = claimQuest(character, 'skill_hr_firm_will_10');
+  assert.equal(rewards.skillUnlocks[0].cap, 10);
+  assert.equal(getSkillInvestmentCap(character, SKILL_DEFINITIONS.firm_will_hr), 10);
 });

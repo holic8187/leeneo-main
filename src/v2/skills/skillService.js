@@ -4,8 +4,10 @@ const {
   TIER_SP_REQUIREMENTS,
   SKILL_DEFINITIONS
 } = require('./skillDefinitions');
+const { getMasteryBookRule } = require('./masteryBookConfig');
 
 const MAX_ACTIVE_PRESET_SIZE = 10;
+const SKILL_UNLOCK_MIGRATION_VERSION = 1;
 
 const VALUE_LABELS = Object.freeze({
   healPercent: '회복량',
@@ -133,12 +135,172 @@ function ensureSkillState(character) {
   if (!Array.isArray(skills.activePreset)) skills.activePreset = [];
   if (!Array.isArray(skills.autoPreset)) skills.autoPreset = [];
   if (!Array.isArray(skills.unlockedQuestSkills)) skills.unlockedQuestSkills = [];
+  if (!skills.unlockProgress || typeof skills.unlockProgress !== 'object') {
+    skills.unlockProgress = {};
+  }
+  skills.unlockMigrationVersion = Math.max(
+    0,
+    Math.floor(Number(skills.unlockMigrationVersion) || 0)
+  );
   if (!Array.isArray(skills.activeBuffs)) skills.activeBuffs = [];
   if (!skills.cooldowns || typeof skills.cooldowns !== 'object') skills.cooldowns = {};
   if (!skills.summon || typeof skills.summon !== 'object') skills.summon = null;
   skills.comboCount = Math.max(0, Math.min(10, Math.floor(Number(skills.comboCount) || 0)));
   if (typeof character.markModified === 'function') character.markModified('skills');
   return skills;
+}
+
+function getSkillStageForLevel(level, maxLevel) {
+  const safeLevel = Math.max(0, Math.floor(Number(level) || 0));
+  const safeMaximum = Math.max(1, Math.floor(Number(maxLevel) || 1));
+  if (safeLevel <= 0) return 0;
+  if (safeLevel <= 10) return Math.min(10, safeMaximum);
+  if (safeLevel <= 20) return Math.min(20, safeMaximum);
+  return safeMaximum;
+}
+
+function getSkillUnlockRule(definition, departmentId) {
+  if (!definition) return null;
+  const masteryRule = getMasteryBookRule(definition.id, departmentId);
+  if (!definition.quest && !masteryRule) return null;
+  return {
+    mode: masteryRule ? 'mastery' : 'quest',
+    masteryRule,
+    initialCap: definition.quest ? 0 : Math.min(10, definition.maxLevel)
+  };
+}
+
+function getDepartmentUnlockProgress(skills, departmentId, create = false) {
+  const key = String(departmentId || 'unassigned');
+  if (!skills.unlockProgress[key] || typeof skills.unlockProgress[key] !== 'object') {
+    if (!create) return null;
+    skills.unlockProgress[key] = {};
+  }
+  return skills.unlockProgress[key];
+}
+
+function migrateSkillUnlockProgress(character) {
+  const skills = ensureSkillState(character);
+  if (skills.unlockMigrationVersion >= SKILL_UNLOCK_MIGRATION_VERSION) return false;
+  let changed = false;
+  const legacyUnlocked = new Set(skills.unlockedQuestSkills.map(String));
+  for (const definition of Object.values(SKILL_DEFINITIONS)) {
+    const currentLevel = Math.max(0, Math.floor(Number(skills.levels[definition.id]) || 0));
+    for (const departmentId of definition.departments || []) {
+      const rule = getSkillUnlockRule(definition, departmentId);
+      if (!rule) continue;
+      const department = getDepartmentUnlockProgress(skills, departmentId, true);
+      const existing = department[definition.id] && typeof department[definition.id] === 'object'
+        ? department[definition.id]
+        : {};
+      let cap = Math.max(0, Math.floor(Number(existing.cap) || 0));
+      if (!definition.quest) cap = Math.max(cap, rule.initialCap);
+      if (definition.quest && legacyUnlocked.has(definition.id)) {
+        cap = Math.max(cap, Math.min(10, definition.maxLevel));
+      }
+      cap = Math.max(cap, getSkillStageForLevel(currentLevel, definition.maxLevel));
+      if (cap > 0 || Object.keys(existing).length) {
+        department[definition.id] = {
+          ...existing,
+          cap: Math.min(definition.maxLevel, cap),
+          failures: existing.failures && typeof existing.failures === 'object'
+            ? existing.failures
+            : {}
+        };
+      }
+      changed = true;
+    }
+  }
+  skills.unlockMigrationVersion = SKILL_UNLOCK_MIGRATION_VERSION;
+  if (changed && typeof character.markModified === 'function') character.markModified('skills');
+  return changed;
+}
+
+function getSkillUnlockEntry(character, skillId, departmentId, create = false) {
+  const skills = ensureSkillState(character);
+  migrateSkillUnlockProgress(character);
+  const department = getDepartmentUnlockProgress(skills, departmentId, create);
+  if (!department) return null;
+  if (!department[skillId] || typeof department[skillId] !== 'object') {
+    if (!create) return null;
+    department[skillId] = { cap: 0, failures: {} };
+  }
+  if (!department[skillId].failures || typeof department[skillId].failures !== 'object') {
+    department[skillId].failures = {};
+  }
+  return department[skillId];
+}
+
+function getSkillInvestmentCap(character, definition, departmentId = character.job?.departmentId) {
+  if (!definition) return 0;
+  const rule = getSkillUnlockRule(definition, departmentId);
+  if (!rule) return definition.maxLevel;
+  const entry = getSkillUnlockEntry(character, definition.id, departmentId, false);
+  const currentStage = getSkillStageForLevel(
+    Math.max(0, Math.floor(Number(ensureSkillState(character).levels[definition.id]) || 0)),
+    definition.maxLevel
+  );
+  return Math.min(
+    definition.maxLevel,
+    Math.max(rule.initialCap, currentStage, Math.floor(Number(entry?.cap) || 0))
+  );
+}
+
+function getNextSkillUnlockStage(character, definition, departmentId = character.job?.departmentId) {
+  const cap = getSkillInvestmentCap(character, definition, departmentId);
+  if (cap >= definition.maxLevel) return null;
+  if (cap < 10) return Math.min(10, definition.maxLevel);
+  if (cap < 20) return Math.min(20, definition.maxLevel);
+  return definition.maxLevel;
+}
+
+function unlockSkillCap(
+  character,
+  skillId,
+  requestedCap,
+  departmentId = character.job?.departmentId,
+  now = new Date()
+) {
+  const definition = SKILL_DEFINITIONS[String(skillId || '')];
+  if (!definition || !definition.departments.includes(departmentId)) {
+    throw new Error('현재 부서에서 해금할 수 없는 스킬입니다.');
+  }
+  const rule = getSkillUnlockRule(definition, departmentId);
+  if (!rule) throw new Error('별도 해금 단계가 없는 스킬입니다.');
+  const cap = Math.min(
+    definition.maxLevel,
+    Math.max(0, Math.floor(Number(requestedCap) || 0))
+  );
+  const entry = getSkillUnlockEntry(character, definition.id, departmentId, true);
+  const previousCap = getSkillInvestmentCap(character, definition, departmentId);
+  entry.cap = Math.max(previousCap, cap);
+  entry.unlockedAt = entry.unlockedAt || new Date(now).toISOString();
+  if (definition.quest && entry.cap > 0) {
+    const skills = ensureSkillState(character);
+    if (!skills.unlockedQuestSkills.includes(definition.id)) {
+      skills.unlockedQuestSkills.push(definition.id);
+    }
+  }
+  if (typeof character.markModified === 'function') character.markModified('skills');
+  return { skillId: definition.id, departmentId, previousCap, cap: entry.cap };
+}
+
+function getMasteryFailureCount(character, skillId, stage, departmentId = character.job?.departmentId) {
+  const entry = getSkillUnlockEntry(character, String(skillId || ''), departmentId, true);
+  return Math.max(0, Math.floor(Number(entry.failures?.[stage]) || 0));
+}
+
+function setMasteryFailureCount(
+  character,
+  skillId,
+  stage,
+  count,
+  departmentId = character.job?.departmentId
+) {
+  const entry = getSkillUnlockEntry(character, String(skillId || ''), departmentId, true);
+  entry.failures[String(stage)] = Math.max(0, Math.floor(Number(count) || 0));
+  if (typeof character.markModified === 'function') character.markModified('skills');
+  return entry.failures[String(stage)];
 }
 
 function getSkillLevel(character, skillId) {
@@ -208,7 +370,8 @@ function getInvestmentBlockReason(character, definition) {
   if (getTierSpent(character, definition.tier) >= getEarnedSkillPointsForTier(character, definition.tier)) {
     return `${definition.tier}차 스킬 포인트를 모두 사용했습니다.`;
   }
-  if (definition.quest && !ensureSkillState(character).unlockedQuestSkills.includes(definition.id)) {
+  const investmentCap = getSkillInvestmentCap(character, definition);
+  if (definition.quest && investmentCap <= 0) {
     return '퀘스트를 완료해야 해금됩니다.';
   }
   const tierRequirement = TIER_SP_REQUIREMENTS[definition.tier];
@@ -238,7 +401,14 @@ function getInvestmentBlockReason(character, definition) {
       )).join(' 또는 ') + '이 필요합니다.';
     }
   }
-  if (getSkillLevel(character, definition.id) >= definition.maxLevel) return '이미 마스터했습니다.';
+  const currentLevel = getSkillLevel(character, definition.id);
+  if (currentLevel >= definition.maxLevel) return '이미 마스터했습니다.';
+  if (currentLevel >= investmentCap) {
+    const nextStage = getNextSkillUnlockStage(character, definition);
+    return getMasteryBookRule(definition.id, character.job?.departmentId)
+      ? `마스터리북 ${nextStage}이(가) 필요합니다.`
+      : '연계 해금 퀘스트를 완료해야 합니다.';
+  }
   if (Number(character.progression?.unspentSkillPoints) <= 0) return '사용 가능한 스킬 포인트가 없습니다.';
   return '';
 }
@@ -251,7 +421,7 @@ function investSkill(character, skillId, amount = 1) {
   const requested = Math.max(1, Math.floor(Number(amount) || 1));
   const investment = Math.min(
     requested,
-    definition.maxLevel - current,
+    getSkillInvestmentCap(character, definition) - current,
     getEarnedSkillPointsForTier(character, definition.tier)
       - getTierSpent(character, definition.tier),
     Math.max(0, Math.floor(Number(character.progression?.unspentSkillPoints) || 0))
@@ -366,6 +536,7 @@ function getActiveSkillEffects(character, now = Date.now()) {
     elementExplosionDamagePercent: 250,
     elementPreserveChance: 0,
     experienceBonusPercent: 0,
+    allStatsPercent: 0,
     moneyDropIncreasePercent: 0,
     noAmmoConsumption: 0,
     movementSpeedIncrease: 0,
@@ -644,6 +815,9 @@ function buildSkillTree(character) {
         tier: definition.tier,
         level,
         maxLevel: definition.maxLevel,
+        investmentCap: getSkillInvestmentCap(character, definition),
+        nextUnlockStage: getNextSkillUnlockStage(character, definition),
+        unlockMethod: getSkillUnlockRule(definition, character.job?.departmentId)?.mode || 'level',
         passive: definition.passive,
         quest: definition.quest,
         target: definition.target,
@@ -667,15 +841,25 @@ function buildSkillTree(character) {
 function unlockQuestSkill(character, skillId) {
   const definition = SKILL_DEFINITIONS[skillId];
   if (!definition?.quest) throw new Error('퀘스트 해금 스킬이 아닙니다.');
-  const skills = ensureSkillState(character);
-  if (!skills.unlockedQuestSkills.includes(skillId)) skills.unlockedQuestSkills.push(skillId);
-  if (typeof character.markModified === 'function') character.markModified('skills');
+  return unlockSkillCap(
+    character,
+    skillId,
+    Math.min(10, definition.maxLevel),
+    character.job?.departmentId
+  );
 }
 
 module.exports = {
   MAX_ACTIVE_PRESET_SIZE,
+  SKILL_UNLOCK_MIGRATION_VERSION,
   ensureSkillState,
+  migrateSkillUnlockProgress,
   getSkillLevel,
+  getSkillInvestmentCap,
+  getNextSkillUnlockStage,
+  unlockSkillCap,
+  getMasteryFailureCount,
+  setMasteryFailureCount,
   resolveSkillValues,
   getTierSpent,
   getEarnedSkillPointsForTier,

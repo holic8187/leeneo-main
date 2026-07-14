@@ -163,3 +163,28 @@ test('equipment main stats and resource bonuses are included in derived stats', 
   assert.ok(result.accuracy > 7);
   assert.ok(result.evasion > 4);
 });
+
+test('all-stat percentage buffs multiply base stats before equipment bonuses', () => {
+  const result = buildDerivedStats({
+    progression: { level: 30 },
+    stats: { grit: 100, processingSpeed: 80, workKnowledge: 60, awareness: 40 },
+    job: { departmentId: 'hr', advancementTier: 2 },
+    loadout: {
+      helmet: { stats: { grit: 5, processingSpeed: 3 } }
+    },
+    skillEffects: { allStatsPercent: 10 }
+  });
+
+  assert.deepEqual(result.effectiveStats, {
+    grit: 115,
+    processingSpeed: 91,
+    workKnowledge: 66,
+    awareness: 44
+  });
+  assert.deepEqual(result.equipmentStatBonuses, {
+    grit: 5,
+    processingSpeed: 3,
+    workKnowledge: 0,
+    awareness: 0
+  });
+});

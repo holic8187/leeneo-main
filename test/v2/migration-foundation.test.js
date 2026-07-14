@@ -11,7 +11,10 @@ const {
   ensureV2SkillPointGrant
 } = require('../../src/v2/services/migrationService');
 const { registerV2Routes, validateSignupPayload } = require('../../src/v2/registerV2Routes');
-const { getIncompleteMigrationIds } = require('../../src/v2/services/automaticMigrationService');
+const {
+  getIncompleteMigrationIds,
+  getOrphanedDeletedIds
+} = require('../../src/v2/services/automaticMigrationService');
 
 function createLegacyUser(overrides = {}) {
   return {
@@ -283,4 +286,25 @@ test('automatic migration only selects users with incomplete V2 records', () => 
     ['user-a', 'user-b', 'user-c']
   );
   assert.deepEqual(incomplete, ['user-b', 'user-c']);
+});
+
+test('automatic migration permanently excludes admin-deleted users', () => {
+  const incomplete = getIncompleteMigrationIds(
+    ['user-a', 'user-b', 'user-c'],
+    ['user-a'],
+    ['user-a', 'user-b'],
+    ['user-a'],
+    ['user-b']
+  );
+  assert.deepEqual(incomplete, ['user-c']);
+});
+
+test('a leftover snapshot without an account and character is recognized as a pre-patch deletion', () => {
+  const orphaned = getOrphanedDeletedIds(
+    ['user-a', 'user-b', 'user-c'],
+    ['user-a'],
+    ['user-a', 'user-b', 'user-c'],
+    ['user-a', 'user-c']
+  );
+  assert.deepEqual(orphaned, ['user-b']);
 });

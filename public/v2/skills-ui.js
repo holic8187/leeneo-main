@@ -17,7 +17,7 @@ function buildSkillBody() {
       return `<article class="skill-card ${skill.passive ? 'is-passive' : ''} ${skill.quest ? 'is-quest' : ''}">
         <div class="skill-card-heading">
           <span>${skill.passive ? 'P' : (skill.quest ? 'Q' : 'A')}</span>
-          <div><strong>${escapeHtml(skill.name)}</strong><small>Lv.${formatNumber(skill.level)} / ${formatNumber(skill.maxLevel)}</small></div>
+          <div><strong>${escapeHtml(skill.name)}</strong><small>Lv.${formatNumber(skill.level)} / ${formatNumber(skill.maxLevel)} · 현재 투자 상한 ${formatNumber(skill.investmentCap ?? skill.maxLevel)}</small></div>
         </div>
         <p>${escapeHtml(skill.description || '고정 효과')}</p>
         ${skill.range ? `<small>사거리 ${formatNumber(skill.range)}</small>` : ''}
@@ -243,14 +243,42 @@ function getNextAutoSkillForCombat() {
 }
 
 const COMBAT_BUFF_ICONS = Object.freeze({
+  experience_coupon_2x_15m: '📈',
+  event_experience_coupon_2x_15m: '📈',
+  extended_2d39c91d21: '🎯',
+  extended_47fcdc0ba0: '🥷',
+  extended_51dd415210: '🔷',
+  extended_0850825cc5: '🛡️',
+  extended_95cc04b09a: '🥤',
+  extended_f95d36e0d6: '☕',
+  extended_e76286335c: '🏢',
+  extended_b067160f36: '🧠',
+  extended_ccb060a442: '👁️',
+  extended_2dc9886c3e: '💡',
+  extended_51403b1515: '💰',
+  extended_47cf15f1d3: '📢',
+  extended_8bf14061cf: '⚠️',
+  extended_1f2faa809b: '🔥',
+  extended_0dcef657e3: '♾️',
+  extended_44a91b0310: '⚡',
+  extended_69705b66e7: '🔋',
+  extended_63286735de: '🤝',
+  extended_80b1bfaa83: '🎓',
+  extended_4d105c3f1f: '💳',
+  extended_7fbad835e4: '💚',
   iron_body: '🛡️',
   booster_hr: '⏩',
+  booster_field: '⏩',
   booster_quality: '⏩',
   rage: '🔥',
   combo_attack: '⚔️',
   firm_will_hr: '🧱',
   firm_will_quality: '🧱',
   true_rage: '💢',
+  element_fire: '🔥',
+  element_ice: '❄️',
+  element_lightning: '⚡',
+  element_holy: '✨',
   iron_wall: '🏰',
   quality_inspection: '❤️',
   bleeding_endurance: '🩸',
@@ -260,8 +288,22 @@ const COMBAT_BUFF_ICONS = Object.freeze({
 let combatBuffTrayTimerId = 0;
 const combatBuffHoldTimers = new WeakMap();
 
-function getCombatBuffIcon(skillId) {
-  return COMBAT_BUFF_ICONS[skillId] || '✦';
+function getCombatBuffIcon(skillId, name = '', effects = {}) {
+  if (COMBAT_BUFF_ICONS[skillId]) return COMBAT_BUFF_ICONS[skillId];
+  const label = String(name || '');
+  if (/불사조|불 속성|가열|출혈|분노/.test(label)) return '🔥';
+  if (/얼음|동결|냉각|극저온/.test(label)) return '❄️';
+  if (/번개|전력|동력|에너지|출력|가속|신속|부스터/.test(label)) return '⚡';
+  if (/성 속성|축복|성과 지원/.test(label)) return '✨';
+  if (/방패|보호|방어|철벽|차단|봉쇄|굳건|연막|대피/.test(label)) return '🛡️';
+  if (/회복|복지|지원|고충/.test(label)) return '💚';
+  if (/드론|수호체|마스코트|동반자|실험체|장부/.test(label)) return '🤖';
+  if (/은신|잠복|매복/.test(label) || Number(effects.stealth) > 0) return '🥷';
+  if (/집중|인사이트|감사|검산|포착/.test(label)) return '👁️';
+  if (/예산|성과급|계약|입찰|명함/.test(label)) return '💰';
+  if (/경험|역량|교육/.test(label) || Number(effects.experienceBonusPercent) > 0) return '📈';
+  if (/공격|파동|폭발|캠페인|분노/.test(label)) return '⚔️';
+  return '🔹';
 }
 
 function formatBuffRemaining(milliseconds) {
@@ -281,7 +323,7 @@ function combatBuffIconBody(buff) {
     data-buff-duration="${Number(buff.durationMs) || 0}"
     style="--buff-expired-progress:0">
     <div class="combat-buff-face">
-      <span aria-hidden="true">${escapeHtml(buff.icon || getCombatBuffIcon(buff.skillId))}</span>
+      <span aria-hidden="true">${escapeHtml(buff.icon || getCombatBuffIcon(buff.skillId, buff.name, buff.effects))}</span>
       ${Number.isFinite(stack) ? `<b>${formatNumber(stack)}</b>` : ''}
       ${timed ? '<i class="combat-buff-mask"></i>' : ''}
     </div>
@@ -353,7 +395,7 @@ function renderCombatBuffTray() {
   const tree = state.character?.skillTree || {};
   const buffs = [...(tree.activeBuffs || [])].map((buff) => ({
     ...buff,
-    icon: getCombatBuffIcon(buff.skillId)
+    icon: getCombatBuffIcon(buff.skillId, buff.name, buff.effects)
   }));
   if (tree.summon) {
     buffs.push({
@@ -376,7 +418,16 @@ function renderCombatBuffTray() {
       durationMs: 0
     });
   }
-  const visibleBuffs = buffs.slice(0, 15);
+  // Keep time-limited reward buffs visible even when the character has more than 15 effects.
+  const visibleBuffs = buffs
+    .map((buff, index) => ({
+      buff,
+      index,
+      priority: Number(buff.effects?.experienceBonusPercent) > 0 ? 1 : 0
+    }))
+    .sort((left, right) => right.priority - left.priority || left.index - right.index)
+    .slice(0, 15)
+    .map(({ buff }) => buff);
   tray.innerHTML = visibleBuffs.map(combatBuffIconBody).join('');
   tray.classList.toggle('is-empty', visibleBuffs.length === 0);
   $('fieldCharacter')?.classList.toggle(

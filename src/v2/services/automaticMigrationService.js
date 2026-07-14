@@ -3,6 +3,8 @@
 const V2Account = require('../models/V2Account');
 const V2Character = require('../models/V2Character');
 const LegacyUserSnapshot = require('../models/LegacyUserSnapshot');
+const V2DeletedAccount = require('../models/V2DeletedAccount');
+const { markV2AccountsDeleted } = require('./accountDeletionService');
 const {
   MIGRATION_VERSION,
   LEGACY_EXCHANGE_FORMULA_VERSION,
@@ -11,40 +13,96 @@ const {
 
 let activeRun = null;
 
-function getIncompleteMigrationIds(userIds, accountIds, snapshotIds, characterIds) {
+function getIncompleteMigrationIds(userIds, accountIds, snapshotIds, characterIds, deletedIds = []) {
   const accountSet = new Set(accountIds.map(String));
   const snapshotSet = new Set(snapshotIds.map(String));
   const characterSet = new Set(characterIds.map(String));
+  const deletedSet = new Set(deletedIds.map(String));
   return userIds
     .map(String)
+    .filter((id) => !deletedSet.has(id))
     .filter((id) => !accountSet.has(id) || !snapshotSet.has(id) || !characterSet.has(id));
+}
+
+function getOrphanedDeletedIds(userIds, accountIds, snapshotIds, characterIds, deletedIds = []) {
+  const accountSet = new Set(accountIds.map(String));
+  const snapshotSet = new Set(snapshotIds.map(String));
+  const characterSet = new Set(characterIds.map(String));
+  const deletedSet = new Set(deletedIds.map(String));
+  return userIds
+    .map(String)
+    .filter((id) => !deletedSet.has(id))
+    .filter((id) => snapshotSet.has(id) && !accountSet.has(id) && !characterSet.has(id));
 }
 
 async function findIncompleteUsers(users) {
   const userIds = users.map((user) => user._id);
-  const [accounts, snapshots, characters] = await Promise.all([
+  const [accounts, snapshots, characters, deletedAccounts] = await Promise.all([
     V2Account.find({
-      sourceUserId: { $in: userIds },
-      migrationVersion: MIGRATION_VERSION
-    }).select('sourceUserId').lean(),
+      sourceUserId: { $in: userIds }
+    }).select('sourceUserId migrationVersion').lean(),
     LegacyUserSnapshot.find({
-      sourceUserId: { $in: userIds },
-      migrationVersion: MIGRATION_VERSION
-    }).select('sourceUserId').lean(),
+      sourceUserId: { $in: userIds }
+    }).select('sourceUserId migrationVersion').lean(),
     V2Character.find({
-      userId: { $in: userIds },
-      'migration.migrationVersion': MIGRATION_VERSION,
-      'migration.legacyExchangeFormulaVersion': LEGACY_EXCHANGE_FORMULA_VERSION,
-      'progression.skillPointGrantVersion': 2
-    }).select('userId').lean()
+      userId: { $in: userIds }
+    }).select(
+      'userId migration.migrationVersion migration.legacyExchangeFormulaVersion progression.skillPointGrantVersion'
+    ).lean(),
+    V2DeletedAccount.find({ sourceUserId: { $in: userIds } }).select('sourceUserId').lean()
   ]);
+
+  const allAccountIds = accounts.map((entry) => entry.sourceUserId);
+  const allSnapshotIds = snapshots.map((entry) => entry.sourceUserId);
+  const allCharacterIds = characters.map((entry) => entry.userId);
+  const deletedIds = deletedAccounts.map((entry) => entry.sourceUserId);
+  const orphanedIds = getOrphanedDeletedIds(
+    userIds,
+    allAccountIds,
+    allSnapshotIds,
+    allCharacterIds,
+    deletedIds
+  );
+  if (orphanedIds.length) {
+    const orphanedSet = new Set(orphanedIds);
+    await markV2AccountsDeleted(
+      users
+        .filter((user) => orphanedSet.has(String(user._id)))
+        .map((user) => ({
+          sourceUserId: user._id,
+          username: user.username,
+          nickname: user.nickname
+        })),
+      { reason: 'legacy-admin-delete-backfill', deletedBy: 'system' }
+    );
+    deletedIds.push(...orphanedIds);
+  }
+
+  const completeAccountIds = accounts
+    .filter((entry) => Number(entry.migrationVersion) === MIGRATION_VERSION)
+    .map((entry) => entry.sourceUserId);
+  const completeSnapshotIds = snapshots
+    .filter((entry) => Number(entry.migrationVersion) === MIGRATION_VERSION)
+    .map((entry) => entry.sourceUserId);
+  const completeCharacterIds = characters
+    .filter((entry) => (
+      Number(entry.migration?.migrationVersion) === MIGRATION_VERSION
+      && Number(entry.migration?.legacyExchangeFormulaVersion) === LEGACY_EXCHANGE_FORMULA_VERSION
+      && Number(entry.progression?.skillPointGrantVersion) === 2
+    ))
+    .map((entry) => entry.userId);
   const incompleteIds = new Set(getIncompleteMigrationIds(
     userIds,
-    accounts.map((entry) => entry.sourceUserId),
-    snapshots.map((entry) => entry.sourceUserId),
-    characters.map((entry) => entry.userId)
+    completeAccountIds,
+    completeSnapshotIds,
+    completeCharacterIds,
+    deletedIds
   ));
-  return users.filter((user) => incompleteIds.has(String(user._id)));
+  const deletedSet = new Set(deletedIds.map(String));
+  return {
+    users: users.filter((user) => incompleteIds.has(String(user._id))),
+    deletedExcluded: users.filter((user) => deletedSet.has(String(user._id))).length
+  };
 }
 
 async function executeAutomaticMigration({
@@ -72,6 +130,7 @@ async function executeAutomaticMigration({
   const summary = {
     scanned: 0,
     alreadyPrepared: 0,
+    deletedExcluded: 0,
     migrated: 0,
     failed: 0,
     errors: []
@@ -83,8 +142,10 @@ async function executeAutomaticMigration({
     if (!users.length) break;
 
     summary.scanned += users.length;
-    const incompleteUsers = await findIncompleteUsers(users);
-    summary.alreadyPrepared += users.length - incompleteUsers.length;
+    const selection = await findIncompleteUsers(users);
+    const incompleteUsers = selection.users;
+    summary.deletedExcluded += selection.deletedExcluded;
+    summary.alreadyPrepared += users.length - incompleteUsers.length - selection.deletedExcluded;
 
     for (let index = 0; index < incompleteUsers.length; index += concurrency) {
       const slice = incompleteUsers.slice(index, index + concurrency);
@@ -138,5 +199,6 @@ function runAutomaticV2Migration({
 
 module.exports = {
   getIncompleteMigrationIds,
+  getOrphanedDeletedIds,
   runAutomaticV2Migration
 };

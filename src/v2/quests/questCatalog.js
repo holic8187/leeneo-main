@@ -1,6 +1,7 @@
 'use strict';
 
 const { EQUIPMENT_SCROLLS } = require('../items/scrollCatalog');
+const { SKILL_UNLOCK_QUESTS_BY_NPC } = require('./skillUnlockQuestCatalog');
 
 function item(itemId, name, quantity) {
   return Object.freeze({ itemId, name, quantity });
@@ -53,7 +54,7 @@ function npc(id, name, mapId, icon, x, quests) {
   return Object.freeze({ id, name, mapId, icon, x, quests: Object.freeze(quests) });
 }
 
-const NPC_CATALOG = Object.freeze([
+const BASE_NPC_CATALOG = Object.freeze([
   npc('lobby_peach', '출근 도장을 잃어버린 피치', 'main_lobby', '🍑', 24, [quest('peach_orientation', '첫 출근의 자세', 'visit', 'newcomer_training', '신입사원 연수원', 1, '신입사원 연수원에 다녀와 주세요. 회사에서 길을 잃지 않는 것도 중요한 능력이랍니다.', 30, 0, { items: [item('bacchus', '박카스', 50)] })]),
   npc('training_simsim', '훈련을 빼먹은 심심쓰', 'newcomer_training', '🐣', 72, [quest('simsim_dust', '서류 먼지 소탕', 'kill', 'paper_dust', '서류 먼지 뭉치', 40, '연수원 바닥에 서류 먼지가 너무 많아요. 마흔 뭉치만 정리해 주실래요?', 70, 3000, { items: [item('hard_candy', '알사탕', 50)] })]),
   npc('corridor_bishop', '월급루팡중인 비숍이', 'document_corridor', '🕊️', 38, [quest('bishop_memo', '사라진 결재 메모', 'collect', 'monster_loot_paper_dust', '구겨진 메모지', 50, '결재 메모가 바람에 날아갔어요. 구겨진 메모지 쉰 장이면 복원할 수 있을 거예요.', 90, 0, { items: [item('safe_zone_return_scroll', '안전지대 귀환서', 3)] })]),
@@ -84,6 +85,20 @@ const NPC_CATALOG = Object.freeze([
   npc('logistics_jjor', '송장을 접어 날리는 몬드', 'logistics_warehouse', '📦', 76, [quest('jjor_boar', '파손 배송 추적', 'kill', 'warehouse_boar', '물류창고 멧돼지', 400, '멧돼지가 송장을 등에 붙이고 달아났어요. 배송 완료 처리 전에 찾아주세요.', 6500, 8000, { items: [item('experience_coupon_2x_15m', '경험치 2배 쿠폰 (15분)', 6)] })]),
   npc('overtime_winter', '퇴근을 봉인한 겨부장', 'overtime_depths', '🌙', 18, [quest('winter_hwang', '야근실의 주인', 'boss', 'mad_hwang_manager', '야근하다 미쳐버린 황과장', 1, '히든 야근실의 황과장을 막아야 모두 퇴근할 수 있다. 살아서 돌아오게.', 12000, 20000, { items: [item('scroll_gloves_공격력_60', '장갑 공격력 주문서 60%', 1)] })])
 ]);
+
+const NPC_NAME_OVERRIDES = Object.freeze({
+  quality_neo: '불량표를 붙이는 이대리',
+  research_simmi: '시약 냄새를 맡는 심심이 연구원'
+});
+
+const NPC_CATALOG = Object.freeze(BASE_NPC_CATALOG.map((entry) => Object.freeze({
+  ...entry,
+  name: NPC_NAME_OVERRIDES[entry.id] || entry.name,
+  quests: Object.freeze([
+    ...entry.quests,
+    ...(SKILL_UNLOCK_QUESTS_BY_NPC[entry.id] || [])
+  ])
+})));
 
 const NPC_BY_ID = new Map(NPC_CATALOG.map((entry) => [entry.id, entry]));
 const QUEST_BY_ID = new Map(NPC_CATALOG.flatMap((entry) => (

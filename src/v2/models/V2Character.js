@@ -53,6 +53,8 @@ const v2CharacterSchema = new mongoose.Schema({
     activePreset: { type: [String], default: [] },
     autoPreset: { type: [String], default: [] },
     unlockedQuestSkills: { type: [String], default: [] },
+    unlockProgress: { type: mongoose.Schema.Types.Mixed, default: {} },
+    unlockMigrationVersion: { type: Number, default: 0 },
     activeBuffs: { type: [mongoose.Schema.Types.Mixed], default: [] },
     cooldowns: { type: mongoose.Schema.Types.Mixed, default: {} },
     summon: { type: mongoose.Schema.Types.Mixed, default: null },

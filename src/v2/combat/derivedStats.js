@@ -37,15 +37,17 @@ function sumLoadoutStat(loadout, ...keys) {
   );
 }
 
-function buildEffectiveStats(stats = {}, loadout = {}) {
+function buildEffectiveStats(stats = {}, loadout = {}, allStatsPercent = 0) {
+  const multiplier = 1 + Math.max(0, finite(allStatsPercent)) / 100;
+  const boostedBase = (value) => Math.floor(Math.max(0, finite(value)) * multiplier);
   return {
-    grit: finite(stats.grit ?? stats.strength)
+    grit: boostedBase(stats.grit ?? stats.strength)
       + sumLoadoutStat(loadout, 'grit', 'strength'),
-    processingSpeed: finite(stats.processingSpeed ?? stats.dexterity)
+    processingSpeed: boostedBase(stats.processingSpeed ?? stats.dexterity)
       + sumLoadoutStat(loadout, 'processingSpeed', 'dexterity'),
-    workKnowledge: finite(stats.workKnowledge ?? stats.intelligence)
+    workKnowledge: boostedBase(stats.workKnowledge ?? stats.intelligence)
       + sumLoadoutStat(loadout, 'workKnowledge', 'intelligence'),
-    awareness: finite(stats.awareness ?? stats.luck)
+    awareness: boostedBase(stats.awareness ?? stats.luck)
       + sumLoadoutStat(loadout, 'awareness', 'luck')
   };
 }
@@ -90,14 +92,12 @@ function buildDerivedStats({
   const archetype = department?.archetype || 'beginner';
   const weapon = loadout.weapon || null;
   const weaponType = weapon?.weaponType || null;
-  const effectiveStats = buildEffectiveStats(stats, loadout);
+  const effectiveStats = buildEffectiveStats(stats, loadout, skillEffects.allStatsPercent);
   const equipmentStatBonuses = {
-    grit: effectiveStats.grit - finite(stats.grit ?? stats.strength),
-    processingSpeed: effectiveStats.processingSpeed
-      - finite(stats.processingSpeed ?? stats.dexterity),
-    workKnowledge: effectiveStats.workKnowledge
-      - finite(stats.workKnowledge ?? stats.intelligence),
-    awareness: effectiveStats.awareness - finite(stats.awareness ?? stats.luck)
+    grit: sumLoadoutStat(loadout, 'grit', 'strength'),
+    processingSpeed: sumLoadoutStat(loadout, 'processingSpeed', 'dexterity'),
+    workKnowledge: sumLoadoutStat(loadout, 'workKnowledge', 'intelligence'),
+    awareness: sumLoadoutStat(loadout, 'awareness', 'luck')
   };
   const totalAttack = sumLoadoutStat(loadout, 'attack', 'weaponAttack')
     + finite(skillEffects.attackIncrease);

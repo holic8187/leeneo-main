@@ -24,6 +24,7 @@ const TELEPORT_SKILL_IDS = new Set([
 const MP_DAMAGE_GUARD_SKILL_ID = 'extended_51dd415210';
 const STEALTH_SKILL_ID = 'extended_47fcdc0ba0';
 const MONEY_DROP_BUFF_SKILL_ID = 'extended_51403b1515';
+const EMPLOYEE_EMPOWERMENT_SKILL_ID = 'extended_e76286335c';
 
 function defineSkill(id, options) {
   return Object.freeze({
@@ -41,6 +42,18 @@ function defineSkill(id, options) {
 
 const SKILL_DEFINITIONS = Object.freeze({
   ...Object.fromEntries(Object.entries(EXTENDED_SKILL_DEFINITIONS).map(([id, definition]) => {
+    if (id === EMPLOYEE_EMPOWERMENT_SKILL_ID) {
+      return [id, {
+        ...definition,
+        maxLevel: 20,
+        values: {
+          ...(definition.values || {}),
+          durationSeconds: [30, 600],
+          primaryPercent: [1, 10],
+          allStatsPercent: [1, 10]
+        }
+      }];
+    }
     if (id === STEALTH_SKILL_ID) {
       return [id, {
         ...definition,

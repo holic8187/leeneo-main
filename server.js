@@ -3046,7 +3046,8 @@ mongoose.connect(MONGO_URI)
           .then((summary) => {
             console.log(
               `V2 automatic migration complete: scanned=${summary.scanned}, migrated=${summary.migrated}, `
-              + `alreadyPrepared=${summary.alreadyPrepared}, failed=${summary.failed}`
+              + `alreadyPrepared=${summary.alreadyPrepared}, deletedExcluded=${summary.deletedExcluded}, `
+              + `failed=${summary.failed}`
             );
             if (summary.errors.length) console.error('V2 automatic migration failures:', summary.errors);
           })

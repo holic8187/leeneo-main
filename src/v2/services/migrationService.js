@@ -31,6 +31,7 @@ const { buildEnhancementView } = require('./equipmentEnhancementService');
 const { reconcileHpGrowthSkillBonus } = require('./hpGrowthBonusService');
 const { reconcileMpGrowthSkillBonus } = require('./mpGrowthBonusService');
 const { reconcileMaxResourceBuff } = require('./maxResourceBuffService');
+const { assertV2MigrationAllowed } = require('./accountDeletionService');
 
 const MIGRATION_VERSION = 1;
 const LEGACY_EXCHANGE_FORMULA_VERSION = 2;
@@ -327,6 +328,7 @@ function buildMigrationPreview(user) {
 }
 
 async function ensureV2MigrationForUser(user) {
+  await assertV2MigrationAllowed(user);
   const payload = buildLegacyPayload(user);
   const preview = buildMigrationPreview(user);
   const checksum = stableChecksum(payload);

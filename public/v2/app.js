@@ -461,7 +461,7 @@ async function deleteAdminAccount(event) {
   event.preventDefault();
   const target = $('adminDeleteAccountTarget')?.value?.trim() || '';
   if (!target) return;
-  if (!window.confirm(`${target} V2 계정과 캐릭터를 삭제할까요? V1 원본 계정은 유지됩니다.`)) return;
+  if (!window.confirm(`${target} V2 계정과 캐릭터를 영구 삭제할까요? V1 원본은 보존되지만 이후 자동 이관에서 영구 제외됩니다.`)) return;
   const button = event.currentTarget.querySelector('button[type="submit"]');
   button.disabled = true;
   $('adminDeleteAccountStatus').textContent = 'V2 계정 삭제 처리 중입니다.';
@@ -471,7 +471,7 @@ async function deleteAdminAccount(event) {
       body: JSON.stringify({ target })
     });
     $('adminDeleteAccountTarget').value = '';
-    $('adminDeleteAccountStatus').textContent = `${data.deleted?.displayName || target} 계정을 삭제했습니다.`;
+    $('adminDeleteAccountStatus').textContent = `${data.deleted?.displayName || target} 계정을 영구 삭제하고 자동 이관에서 제외했습니다.`;
     await loadAdminSummary();
   } catch (err) {
     $('adminDeleteAccountStatus').textContent = err.message;
@@ -484,6 +484,7 @@ async function loadAdminSummary() {
   const data = await request('/api/v2/admin/migration-summary');
   $('adminSummary').innerHTML = [
     `전체 유저 ${formatNumber(data.totalUsers)}명`,
+    `영구 삭제 제외 ${formatNumber(data.deletedAccountCount || 0)}명`,
     `V2 계정 ${formatNumber(data.accountCount)}명`,
     `스냅샷 ${formatNumber(data.snapshotCount)}명`,
     `V2 캐릭터 ${formatNumber(data.characterCount)}명`,
@@ -2625,7 +2626,7 @@ function inventorySlotBody(item, slotNumber, locked = false) {
   }
   let usable = '';
   const directlyUsableItem = (
-    ['return-scroll', 'experience-buff', 'hunting-time', 'level-up', 'skill-reset'].includes(item.itemType)
+    ['return-scroll', 'experience-buff', 'hunting-time', 'level-up', 'skill-reset', 'mastery-book'].includes(item.itemType)
     || item.id === 'level_up_coupon'
   );
   if (item.itemType === 'inventory-expansion') {
@@ -2865,9 +2866,7 @@ async function useInventoryItem(itemId) {
       body: JSON.stringify({ itemId })
     });
     state.character = data.character;
-    if (itemId === 'level_up_coupon') {
-      renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
-    }
+    renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
     if (data.character?.huntingTime) {
       state.huntingTime = data.character.huntingTime;
       renderHuntingTime();
@@ -2883,9 +2882,30 @@ async function useInventoryItem(itemId) {
     }
     rerenderInventory();
     setWorldActivity(data.message);
+    if (data.masteryResult) showMasteryBookResult(data.masteryResult);
   } catch (err) {
     setWorldActivity(err.message);
   }
+}
+
+function showMasteryBookResult(result = {}) {
+  const success = Boolean(result.success);
+  const skillName = result.skillName || '스킬';
+  const stage = Math.max(0, Number(result.stage) || 0);
+  const nextRate = Math.max(0, Math.min(100, Number(result.nextSuccessRate) || 0));
+  $('featureCode').textContent = success ? 'MASTERY / SUCCESS' : 'MASTERY / FAILED';
+  $('featureTitle').textContent = success ? '마스터리북 적용 성공' : '마스터리북 적용 실패';
+  $('featureBody').innerHTML = `<section class="mastery-book-result ${success ? 'is-success' : 'is-failed'}">
+    <span class="mastery-book-result-icon" aria-hidden="true">${success ? '📖' : '📕'}</span>
+    <strong>${escapeHtml(skillName)}</strong>
+    <p>${success
+      ? `스킬 투자 상한이 ${formatNumber(stage)}레벨로 확장되었습니다.`
+      : `상한 확장에 실패했습니다. 다음 성공 확률은 ${formatNumber(nextRate)}%입니다.`}</p>
+    <small>사용한 마스터리북은 결과와 관계없이 소모됩니다.</small>
+  </section>`;
+  $('featureModal').classList.remove('hidden');
+  document.body.classList.add('modal-open');
+  document.querySelector('.modal-close')?.focus();
 }
 
 async function useJobChangeTicket() {
@@ -4400,6 +4420,9 @@ function questRewardText(rewards = {}) {
   if (Number(rewards.huntingMinutes) > 0) {
     parts.push(`자동사냥시간 ${formatNumber(rewards.huntingMinutes)}분`);
   }
+  for (const unlock of rewards.skillUnlocks || []) {
+    parts.push(`${unlock.skillName || unlock.skillId} 투자 상한 ${formatNumber(unlock.cap)}레벨 해금`);
+  }
   return parts.join(' · ');
 }
 
@@ -4416,11 +4439,27 @@ function questCardBody(quest, { showDialogue = false } = {}) {
     : (quest.status === 'ready'
       ? `<button type="button" data-claim-general-quest="${escapeHtml(quest.id)}">완료 보상 받기</button>`
       : '');
+  const objectives = Array.isArray(quest.objectives) && quest.objectives.length
+    ? quest.objectives
+    : [{ targetName: quest.targetName, progress, required: quest.required }];
+  const objectiveRows = objectives.map((objective) => {
+    const objectiveProgress = Math.min(
+      Number(objective.required) || 1,
+      Number(objective.progress) || 0
+    );
+    const objectivePercent = Math.min(
+      100,
+      objectiveProgress / Math.max(1, Number(objective.required) || 1) * 100
+    );
+    return `<li>
+      <span><b>${escapeHtml(objective.targetName || '업무 목표')}</b><small>${formatNumber(objectiveProgress)} / ${formatNumber(objective.required)}</small></span>
+      <div class="quest-progress-track"><i style="width:${objectivePercent}%"></i></div>
+    </li>`;
+  }).join('');
   return `<article class="general-quest-card is-${escapeHtml(quest.status)}">
     <header><span>${escapeHtml(questStatusLabel(quest.status))}</span><strong>${escapeHtml(quest.title)}</strong><small>${escapeHtml(repeatLabel)}</small></header>
     ${showDialogue ? `<p class="npc-dialogue-text">“${escapeHtml(quest.dialogue)}”</p>` : ''}
-    <p>${escapeHtml(quest.targetName)} · ${formatNumber(progress)} / ${formatNumber(quest.required)}</p>
-    <div class="quest-progress-track"><i style="width:${Math.min(100, progress / Math.max(1, Number(quest.required)) * 100)}%"></i></div>
+    <ul class="quest-objective-list">${objectiveRows}</ul>
     ${rewardDetails}${action}
   </article>`;
 }
