@@ -133,3 +133,23 @@ test('event experience coupons are limited to one purchase per day', () => {
     /오늘 구매 가능한/
   );
 });
+
+test('one hundred marshmallows cost one hundred event coins', () => {
+  const character = makeCharacter();
+  character.inventory.items.push({
+    stackId: 'coins',
+    itemId: 'settlement_event_coin',
+    quantity: 100,
+    expiresAt: null,
+    data: null
+  });
+
+  const purchase = purchaseSettlementEventItem(character, 'marshmallow-bundle', eventDate);
+  const marshmallows = character.inventory.items
+    .filter((entry) => entry.itemId === 'marshmallow')
+    .reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
+
+  assert.equal(purchase.quantity, 100);
+  assert.equal(marshmallows, 100);
+  assert.equal(getSettlementEventView(character, eventDate).coins, 0);
+});

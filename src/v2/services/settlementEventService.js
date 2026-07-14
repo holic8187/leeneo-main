@@ -69,6 +69,15 @@ const EVENT_SHOP_ITEMS = Object.freeze([
     coinPrice: 100,
     dailyLimit: 0,
     description: '투자한 스킬포인트를 모두 돌려받습니다. 2026년 7월 31일 이후 사라집니다.'
+  }),
+  Object.freeze({
+    key: 'marshmallow-bundle',
+    itemId: 'marshmallow',
+    name: '마시멜로 100개',
+    quantity: 100,
+    coinPrice: 100,
+    dailyLimit: 0,
+    description: '1개 사용 시 체력 1,500과 정신력 500을 동시에 회복합니다.'
   })
 ]);
 

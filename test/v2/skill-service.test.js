@@ -43,6 +43,7 @@ test('generated support skills retain fixed durations and specialized effects', 
   const consumerInsight = findSkillByName('소비자 인사이트');
   const workSupport = findSkillByName('업무 지원');
   const welfareSupport = findSkillByName('복지 지원');
+  const bonusNegotiation = findSkillByName('성과급 협상');
 
   assert.equal(resolveSkillValues(holySymbol, 30).durationSeconds, 120);
   assert.equal(resolveSkillValues(holySymbol, 30).experienceBonusPercent, 50);
@@ -54,6 +55,7 @@ test('generated support skills retain fixed durations and specialized effects', 
   assert.equal(resolveSkillValues(workSupport, 20).magicDefenseIncrease, 20);
   assert.equal(welfareSupport.effect, 'heal');
   assert.equal(resolveSkillValues(welfareSupport, 30).healPercent, 300);
+  assert.equal(resolveSkillValues(bonusNegotiation, 20).moneyDropIncreasePercent, 50);
 });
 
 test('marketing mascot summon uses MP only and treats the stated HP as summon HP', () => {
@@ -513,6 +515,33 @@ test('active buffs expose duration and tooltip data for the combat buff tray', (
   assert.equal(tree.activeBuffs[0].name, '강철몸');
   assert.match(tree.activeBuffs[0].description, /방어력/);
   assert.ok(tree.activeBuffs[0].durationMs >= 10_000);
+});
+
+test('active buff effects and skill tree are not capped by buff count', () => {
+  const character = makeCharacter({
+    job: { departmentId: 'sales', advancementTier: 4 }
+  });
+  const expiresAt = new Date(Date.now() + 60_000);
+  character.skills.activeBuffs = Array.from({ length: 18 }, (_, index) => ({
+    skillId: `test_buff_${index}`,
+    name: `테스트 버프 ${index + 1}`,
+    effects: { defenseIncrease: 1 },
+    createdAt: new Date(),
+    expiresAt
+  }));
+  character.skills.activeBuffs.push({
+    skillId: 'extended_51403b1515',
+    name: '성과급 협상',
+    effects: { moneyDropIncreasePercent: 50 },
+    createdAt: new Date(),
+    expiresAt
+  });
+
+  const effects = getActiveSkillEffects(character);
+  const tree = buildSkillTree(character);
+  assert.equal(effects.defenseIncrease, 18);
+  assert.equal(effects.moneyDropIncreasePercent, 50);
+  assert.equal(tree.activeBuffs.length, 19);
 });
 
 test('the reviewed draft exposes complete four-tier trees for every ranged and magic department', () => {

@@ -461,7 +461,10 @@ function assignPotionQuickSlot(character, slot, itemId) {
   if (!expectedResource) throw new Error('올바르지 않은 포션 슬롯입니다.');
   const item = getItemDefinition(itemId);
   if (!item || item.itemType !== 'potion') throw new Error('포션을 찾을 수 없습니다.');
-  if (item.resource !== expectedResource) {
+  const supportedResources = item.resource === 'both'
+    ? ['hp', 'mp']
+    : [item.resource];
+  if (!supportedResources.includes(expectedResource)) {
     throw new Error(expectedResource === 'hp'
       ? '체력 포션만 왼쪽 슬롯에 설정할 수 있습니다.'
       : '정신력 포션만 오른쪽 슬롯에 설정할 수 있습니다.');
@@ -489,41 +492,64 @@ function useQuickSlotPotion(character, slot, effectPercent = 100, maximumOverrid
   const inventory = ensureInventory(character);
   const itemId = String(inventory.quickSlots[slot] || '');
   const item = getItemDefinition(itemId);
-  if (!item || item.itemType !== 'potion' || item.resource !== resource) {
+  const supportedResources = item?.resource === 'both'
+    ? ['hp', 'mp']
+    : [item?.resource];
+  if (!item || item.itemType !== 'potion' || !supportedResources.includes(resource)) {
     throw new Error('이 슬롯에 포션이 설정되어 있지 않습니다.');
   }
   const stack = getItemStack(character, item.id);
   if (!stack || Number(stack.quantity) <= 0) throw new Error(`${item.name}이 부족합니다.`);
 
-  const currentKey = resource === 'hp' ? 'currentHp' : 'currentMp';
-  const maxKey = resource === 'hp' ? 'maxHp' : 'maxMp';
-  const current = Math.max(0, Number(character.resources?.[currentKey]) || 0);
-  const maximum = Math.max(
-    1,
-    maximumOverride !== null
-      && maximumOverride !== undefined
-      && Number.isFinite(Number(maximumOverride))
-      ? Number(maximumOverride)
-      : (Number(character.resources?.[maxKey]) || 1)
-  );
-  if (current >= maximum) {
-    throw new Error(resource === 'hp' ? '체력이 이미 가득 찼습니다.' : '정신력이 이미 가득 찼습니다.');
+  const restorationResources = item.resource === 'both' ? ['hp', 'mp'] : [resource];
+  const resourceState = Object.fromEntries(restorationResources.map((entry) => {
+    const currentKey = entry === 'hp' ? 'currentHp' : 'currentMp';
+    const maxKey = entry === 'hp' ? 'maxHp' : 'maxMp';
+    const override = maximumOverride && typeof maximumOverride === 'object'
+      ? maximumOverride[entry]
+      : (entry === resource ? maximumOverride : null);
+    const current = Math.max(0, Number(character.resources?.[currentKey]) || 0);
+    const maximum = Math.max(
+      1,
+      override !== null && override !== undefined && Number.isFinite(Number(override))
+        ? Number(override)
+        : (Number(character.resources?.[maxKey]) || 1)
+    );
+    return [entry, { currentKey, current, maximum }];
+  }));
+  if (restorationResources.every((entry) => resourceState[entry].current >= resourceState[entry].maximum)) {
+    throw new Error(item.resource === 'both'
+      ? '체력과 정신력이 이미 가득 찼습니다.'
+      : (resource === 'hp' ? '체력이 이미 가득 찼습니다.' : '정신력이 이미 가득 찼습니다.'));
   }
 
   consumeInventoryItem(character, item.id, 1);
-  const boostedRestoreAmount = Math.max(
-    0,
-    Math.floor(Number(item.restoreAmount || 0) * Math.max(0, Number(effectPercent) || 100) / 100)
-  );
-  const nextValue = Math.min(maximum, current + boostedRestoreAmount);
-  character.resources[currentKey] = nextValue;
+  const effectMultiplier = Math.max(0, Number(effectPercent) || 100) / 100;
+  const restoredByResource = {};
+  const currentByResource = {};
+  const maximumByResource = {};
+  for (const entry of restorationResources) {
+    const state = resourceState[entry];
+    const baseRestoreAmount = item.resource === 'both'
+      ? Number(item.restoreAmounts?.[entry] || 0)
+      : Number(item.restoreAmount || 0);
+    const boostedRestoreAmount = Math.max(0, Math.floor(baseRestoreAmount * effectMultiplier));
+    const nextValue = Math.min(state.maximum, state.current + boostedRestoreAmount);
+    character.resources[state.currentKey] = nextValue;
+    restoredByResource[entry] = nextValue - state.current;
+    currentByResource[entry] = nextValue;
+    maximumByResource[entry] = state.maximum;
+  }
   markInventoryModified(character);
   return {
     slot,
     item: { ...item },
-    restored: nextValue - current,
-    current: nextValue,
-    maximum,
+    restored: restoredByResource[resource] || 0,
+    restoredByResource,
+    current: currentByResource[resource],
+    currentByResource,
+    maximum: maximumByResource[resource],
+    maximumByResource,
     remaining: getItemQuantity(character, item.id)
   };
 }

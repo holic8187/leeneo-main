@@ -82,6 +82,21 @@ const BASE_ITEMS = {
     adminGrantOnly: true,
     shopTags: ['headquarters', 'personnel_annex', 'sales_outpost']
   },
+  marshmallow: {
+    id: 'marshmallow',
+    name: '마시멜로',
+    category: 'consumable',
+    itemType: 'potion',
+    icon: '🍡',
+    resource: 'both',
+    restoreAmounts: { hp: 1_500, mp: 500 },
+    maxStack: 100,
+    buyPrice: 0,
+    sellPrice: 0,
+    tradeable: false,
+    description: '사용 즉시 체력을 1,500, 정신력을 500 회복합니다. HP·MP 포션 슬롯에 모두 등록할 수 있습니다.',
+    eventItem: true
+  },
   red_potion: {
     id: 'red_potion', name: '빨간 포션', category: 'consumable', itemType: 'potion',
     icon: '🧪', resource: 'hp', restoreAmount: 50, maxStack: 100,

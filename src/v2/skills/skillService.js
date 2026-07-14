@@ -366,6 +366,7 @@ function getActiveSkillEffects(character, now = Date.now()) {
     elementExplosionDamagePercent: 250,
     elementPreserveChance: 0,
     experienceBonusPercent: 0,
+    moneyDropIncreasePercent: 0,
     noAmmoConsumption: 0,
     movementSpeedIncrease: 0,
     criticalChance: 0,

@@ -1300,7 +1300,11 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   transition-duration: 0ms;
   transition-timing-function: linear;
   scale: .5;
+  translate: 0 var(--physics-y, 0px);
   filter: drop-shadow(0 4px 2px rgba(0,0,0,.35));
+}
+.field-character.is-physics-airborne {
+  filter: drop-shadow(0 9px 4px rgba(0,0,0,.28));
 }
 .character-tag {
   position: absolute;
@@ -2054,7 +2058,7 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 120px;
   gap: 8px;
 }
-.potion-quick, .potion-config-button {
+.potion-quick, .potion-config-button, .jump-control {
   min-height: 52px;
   padding: 7px 10px;
   display: grid;
@@ -2069,6 +2073,26 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .potion-quick.mp-potion { border-color: #24599b; color: #17477d; background: #eef6ff; }
 .potion-quick:disabled { opacity: .55; cursor: not-allowed; }
 .potion-config-button { grid-template-columns: 1fr; color: var(--green); background: #edf4ed; }
+.jump-control {
+  grid-column: 1 / -1;
+  min-height: 38px;
+  padding: 6px 12px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  color: #f8f2c8;
+  border: 1px solid #9d7b2d;
+  background: linear-gradient(90deg, #26372f, #17694a 48%, #26372f);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
+  text-align: left;
+}
+.jump-control span { color: #f2ca67; font: 900 10px ui-monospace, monospace; letter-spacing: .12em; }
+.jump-control strong { font-size: 13px; }
+.jump-control small { color: #dce8df; font-size: 9px; }
+.jump-control:active { translate: 0 1px; filter: brightness(1.18); }
+.jump-control:disabled { opacity: .45; cursor: not-allowed; }
+.potion-slot-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
 
 .bar.is-restored { position: relative; box-shadow: 0 0 10px rgba(183, 228, 155, .75); }
 .bar.is-restored::after {
@@ -2731,19 +2755,20 @@ body.floating-actions-minimized .mail-callout.has-alert {
 .combat-buff-tray {
   position: absolute;
   right: 10px;
-  bottom: 10px;
+  top: 10px;
   z-index: 45;
   max-width: 52%;
   display: flex;
-  flex-wrap: wrap-reverse;
+  flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 6px;
+  gap: 4px;
   pointer-events: auto;
 }
 .combat-buff-tray.is-empty { display: none; }
+.world-stage:has(.field-boss-top-bar:not(.hidden)) .combat-buff-tray { top: 68px; }
 .combat-buff-icon {
   position: relative;
-  width: 44px;
+  width: 30px;
   display: grid;
   justify-items: center;
   gap: 2px;
@@ -2755,30 +2780,30 @@ body.floating-actions-minimized .mail-callout.has-alert {
 }
 .combat-buff-face {
   position: relative;
-  width: 40px;
-  height: 40px;
+  width: 27px;
+  height: 27px;
   overflow: hidden;
   display: grid;
   place-items: center;
   border: 1px solid #d8c472;
-  border-radius: 7px;
+  border-radius: 5px;
   background: linear-gradient(145deg, #1b4c3c, #0d2820);
   box-shadow: 0 2px 8px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.12);
 }
 .combat-buff-face > span {
   position: relative;
   z-index: 2;
-  font-size: 22px;
+  font-size: 15px;
   filter: drop-shadow(0 1px 2px rgba(0,0,0,.7));
 }
 .combat-buff-face > b {
   position: absolute;
-  right: 3px;
+  right: 1px;
   bottom: 1px;
   z-index: 4;
-  min-width: 14px;
+  min-width: 10px;
   color: #fff;
-  font: 900 11px ui-monospace, monospace;
+  font: 900 8px ui-monospace, monospace;
   text-align: center;
   text-shadow: 0 1px 2px #000, 0 0 3px #000;
 }
@@ -2794,19 +2819,20 @@ body.floating-actions-minimized .mail-callout.has-alert {
   pointer-events: none;
 }
 .combat-buff-time {
-  min-width: 40px;
+  min-width: 28px;
   padding: 1px 3px;
   color: #f3f3ee;
   border-radius: 2px;
   background: rgba(11, 18, 15, .78);
-  font: 800 8px ui-monospace, monospace;
+  font: 800 6px ui-monospace, monospace;
   text-align: center;
   white-space: nowrap;
 }
 .combat-buff-tooltip {
   position: absolute;
   right: 0;
-  bottom: calc(100% + 8px);
+  top: calc(100% + 7px);
+  bottom: auto;
   z-index: 60;
   width: min(230px, 62vw);
   padding: 10px;
@@ -2913,15 +2939,16 @@ body.floating-actions-minimized .mail-callout.has-alert {
 @keyframes companion-float { to { translate: 0 -6px; } }
 @keyframes monster-knockback {
   0% { translate: 0 0; }
-  45% { translate: 10px -3px; }
+  45% { translate: 10px -12px; }
   100% { translate: 0 0; }
 }
 @media (max-width: 620px) {
-  .combat-buff-tray { right: 6px; bottom: 6px; max-width: 68%; gap: 4px; }
-  .combat-buff-icon { width: 38px; }
-  .combat-buff-face { width: 35px; height: 35px; }
-  .combat-buff-face > span { font-size: 19px; }
-  .combat-buff-time { min-width: 35px; font-size: 7px; }
+  .combat-buff-tray { top: 6px; right: 6px; max-width: 76%; gap: 3px; }
+  .world-stage:has(.field-boss-top-bar:not(.hidden)) .combat-buff-tray { top: 64px; }
+  .combat-buff-icon { width: 30px; }
+  .combat-buff-face { width: 27px; height: 27px; }
+  .combat-buff-face > span { font-size: 15px; }
+  .combat-buff-time { min-width: 28px; font-size: 6px; }
   .skill-quickbar { grid-template-columns: repeat(5, minmax(0, 1fr)); }
   .skill-quick { padding-left: 18px; }
   .skill-card-list, .skill-summary { grid-template-columns: 1fr; }

@@ -66,6 +66,18 @@ const state = {
   mailPollTimer: null,
   adminGrantItems: [],
   autoPotionBusy: { hp: false, mp: false },
+  potionUseBusy: false,
+  manualSkillPriority: false,
+  manualSkillQueue: [],
+  manualSkillQueueRunning: false,
+  characterPhysics: {
+    airborne: false,
+    offsetY: 0,
+    velocityY: 0,
+    lastFrameAt: 0,
+    frameId: 0,
+    airJumpsUsed: 0
+  },
   skillUseBusy: false,
   autoSkillOwnerKey: '',
   autoSkillIds: new Set(),
@@ -675,6 +687,9 @@ async function snapshotAllUsers() {
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 const CHARACTER_MOVEMENT_TIME_SCALE = 3;
 const CHARACTER_BASE_MOVEMENT_PX_PER_SECOND = 115 / CHARACTER_MOVEMENT_TIME_SCALE;
+const CHARACTER_GRAVITY_PX_PER_SECOND_SQUARED = 1_180;
+const CHARACTER_JUMP_VELOCITY_PX_PER_SECOND = 430;
+const CHARACTER_KNOCKBACK_LIFT_PX_PER_SECOND = 235;
 const RALLY_POINT_STORAGE_KEY = 'v2RallyPoint';
 const CHARACTER_MOTION_CLASSES = [
   'is-walking',
@@ -721,6 +736,100 @@ function getCombatPresentation() {
 
 function setWorldActivity(message) {
   $('worldActivity').textContent = message;
+}
+
+function setCharacterPhysicsOffset(offsetY) {
+  const character = $('fieldCharacter');
+  if (!character) return;
+  character.style.setProperty('--physics-y', `${-Math.max(0, Number(offsetY) || 0).toFixed(2)}px`);
+}
+
+function resetCharacterPhysics() {
+  const physics = state.characterPhysics;
+  if (physics.frameId) cancelAnimationFrame(physics.frameId);
+  physics.airborne = false;
+  physics.offsetY = 0;
+  physics.velocityY = 0;
+  physics.lastFrameAt = 0;
+  physics.frameId = 0;
+  physics.airJumpsUsed = 0;
+  $('fieldCharacter')?.classList.remove('is-physics-airborne');
+  setCharacterPhysicsOffset(0);
+}
+
+function getAvailableFlashJumps() {
+  return Math.max(
+    0,
+    Math.floor(Number(
+      state.character?.derivedStats?.flashJumpCount
+      ?? state.character?.skillEffects?.flashJumpCount
+      ?? 0
+    ) || 0)
+  );
+}
+
+function runCharacterPhysicsFrame(timestamp) {
+  const physics = state.characterPhysics;
+  if (!physics.airborne || state.dead) {
+    resetCharacterPhysics();
+    return;
+  }
+  const elapsedSeconds = physics.lastFrameAt
+    ? Math.min(0.04, Math.max(0, (timestamp - physics.lastFrameAt) / 1_000))
+    : 0;
+  physics.lastFrameAt = timestamp;
+  physics.velocityY -= CHARACTER_GRAVITY_PX_PER_SECOND_SQUARED * elapsedSeconds;
+  physics.offsetY += physics.velocityY * elapsedSeconds;
+  if (physics.offsetY <= 0 && physics.velocityY <= 0) {
+    resetCharacterPhysics();
+    return;
+  }
+  setCharacterPhysicsOffset(physics.offsetY);
+  physics.frameId = requestAnimationFrame(runCharacterPhysicsFrame);
+}
+
+function triggerCharacterJump({ knockback = false } = {}) {
+  if (state.dead || !$('fieldCharacter')) return false;
+  const physics = state.characterPhysics;
+  if (physics.airborne && !knockback) {
+    if (physics.airJumpsUsed >= getAvailableFlashJumps()) return false;
+    physics.airJumpsUsed += 1;
+  } else if (!physics.airborne) {
+    physics.airJumpsUsed = 0;
+  }
+  physics.airborne = true;
+  physics.velocityY = knockback
+    ? Math.max(physics.velocityY, CHARACTER_KNOCKBACK_LIFT_PX_PER_SECOND)
+    : CHARACTER_JUMP_VELOCITY_PX_PER_SECOND;
+  physics.lastFrameAt = 0;
+  $('fieldCharacter').classList.add('is-physics-airborne');
+  if (!physics.frameId) physics.frameId = requestAnimationFrame(runCharacterPhysicsFrame);
+  if (!knockback) setWorldActivity('점프');
+  return true;
+}
+
+function freezeHorizontalMovementForManualSkill() {
+  const character = $('fieldCharacter');
+  if (!character) return;
+  const currentX = getCharacterX();
+  character.style.transitionDuration = '0ms';
+  character.style.left = `${currentX}%`;
+  void character.offsetWidth;
+}
+
+function beginManualSkillPriority() {
+  if (state.manualSkillPriority) return;
+  state.manualSkillPriority = true;
+  freezeHorizontalMovementForManualSkill();
+  state.combatRunId += 1;
+}
+
+function endManualSkillPriority() {
+  state.manualSkillPriority = false;
+  const character = $('fieldCharacter');
+  if (character) character.style.transitionDuration = '';
+  if (state.moving) setCharacterMotion('walking');
+  if (state.autoCombat && !state.moving && !state.dead) startAutoCombat();
 }
 
 function getCharacterFloor() {
@@ -1064,6 +1173,7 @@ function updateFieldControls() {
   $('hpPotionButton').disabled = state.dead;
   $('mpPotionButton').disabled = state.dead;
   $('potionConfigButton').disabled = state.dead;
+  if ($('jumpButton')) $('jumpButton').disabled = state.dead;
   document.querySelectorAll('.desk-action, #questButton, #mailButton, #eventButton').forEach((control) => {
     control.disabled = state.dead;
   });
@@ -1184,6 +1294,7 @@ function renderWorldMap(mapId, arrivalPortalIndex = 0) {
   $('lootLayer').replaceChildren();
 
   const character = $('fieldCharacter');
+  resetCharacterPhysics();
   const arrival = PORTAL_POSITIONS[arrivalPortalIndex] || PORTAL_POSITIONS[0];
   character.style.transitionDuration = '0ms';
   character.style.left = `${arrival.characterX}%`;
@@ -1199,6 +1310,7 @@ function renderWorldMap(mapId, arrivalPortalIndex = 0) {
 
 function isRunActive(kind, runId) {
   if (state.dead) return false;
+  if (kind === 'manual') return state.manualSkillPriority;
   return kind === 'move'
     ? runId === state.moveRunId
     : runId === state.combatRunId && state.autoCombat && !state.moving;
@@ -1214,6 +1326,13 @@ async function moveCharacter(left, duration, runId) {
   setWorldActivity('목적지로 걷는 중');
   setCharacterMotion('walking');
   while (isRunActive('move', runId) && Date.now() < state.activeMoveDeadlineAt) {
+    if (state.manualSkillPriority) {
+      const pausedAt = Date.now();
+      freezeHorizontalMovementForManualSkill();
+      await sleep(50);
+      state.activeMoveDeadlineAt += Date.now() - pausedAt;
+      continue;
+    }
     if (Math.abs(left - getCharacterX()) <= 0.35) break;
     const remainingDuration = getScaledMovementDuration(getFieldMoveDuration(left));
     character.style.transitionDuration = `${remainingDuration}ms`;
@@ -1353,6 +1472,13 @@ function getCombatTargetElement() {
 
 async function playWorldMotion(motion, kind, runId, activityLabel = '') {
   if (!isRunActive(kind, runId)) return;
+  if (motion === 'jump') {
+    setWorldActivity(activityLabel || '장애물 점프');
+    triggerCharacterJump();
+    // Let horizontal movement resume while the gravity loop completes the arc.
+    await sleep(90);
+    return;
+  }
   const character = $('fieldCharacter');
   const monster = getCombatTargetElement();
   const projectile = $('attackProjectile');
@@ -1662,6 +1788,10 @@ function getAttackSpeedMultiplier() {
 
 async function runAutoCombat(runId) {
   while (isRunActive('combat', runId) && state.token && !state.isAdmin && !state.dead) {
+    if (state.manualSkillPriority) {
+      await sleep(50);
+      continue;
+    }
     const target = getCombatTarget();
     if (!target) {
       if (
@@ -2015,6 +2145,7 @@ function showDeathState(expLost = 0) {
     state.moving = false;
     state.moveRunId += 1;
     state.combatRunId += 1;
+    resetCharacterPhysics();
     setCharacterMotion('dead');
     closeFeature();
     setWorldActivity('행동 불능 · 안전지대 부활 대기');
@@ -2152,6 +2283,9 @@ function renderWorldEntities(data = {}) {
       ? `${getUpperPlatformBottom()}px`
       : '42px';
     void character.offsetWidth;
+    if (!ownContact.dodged && !ownContact.blocked && Number(ownContact.damage) > 0) {
+      triggerCharacterJump({ knockback: true });
+    }
     if (state.moving && state.activeMoveTargetX != null) {
       const recoveryDuration = getScaledMovementDuration(
         getFieldMoveDuration(state.activeMoveTargetX)
@@ -2353,7 +2487,7 @@ function renderPotionQuickbar() {
     const potion = state.inventory.quickSlots[slot];
     button.querySelector('strong').textContent = potion?.name || '미설정';
     button.querySelector('small').textContent = potion
-      ? `${formatNumber(potion.quantity)}개 · +${formatNumber(potion.restoreAmount)}`
+      ? `${formatNumber(potion.quantity)}개 · ${formatPotionRestoreAmounts(potion)}`
       : (slot === 'hp' ? '체력 포션' : '정신력 포션');
     button.disabled = !potion || potion.quantity <= 0;
   }
@@ -2369,7 +2503,8 @@ function animateResourceRestore(resource) {
 }
 
 async function useQuickPotion(slot, automatic = false) {
-  if (state.dead || state.autoPotionBusy[slot]) return;
+  if (state.dead || state.autoPotionBusy[slot] || state.potionUseBusy) return;
+  state.potionUseBusy = true;
   state.autoPotionBusy[slot] = true;
   try {
     const data = await request('/api/v2/inventory/use-potion', {
@@ -2383,12 +2518,19 @@ async function useQuickPotion(slot, automatic = false) {
       character: data.character,
       displayName: state.displayName
     });
-    animateResourceRestore(slot);
-    setWorldActivity(`${data.used.item.name} 사용 · ${slot === 'hp' ? '체력' : '정신력'} +${formatNumber(data.used.restored)}`);
+    const restored = data.used.restoredByResource || { [slot]: data.used.restored };
+    const restorationLabels = [];
+    for (const resource of ['hp', 'mp']) {
+      if (Number(restored[resource]) <= 0) continue;
+      animateResourceRestore(resource);
+      restorationLabels.push(`${resource === 'hp' ? '체력' : '정신력'} +${formatNumber(restored[resource])}`);
+    }
+    setWorldActivity(`${data.used.item.name} 사용 · ${restorationLabels.join(' · ') || '회복량 없음'}`);
   } catch (err) {
     if (!automatic) setWorldActivity(err.message);
   } finally {
     state.autoPotionBusy[slot] = false;
+    state.potionUseBusy = false;
   }
 }
 
@@ -2830,11 +2972,14 @@ function potionConfigurationBody() {
       <p>0%는 자동 사용 안 함입니다. 설정값 이하가 되면 지정한 포션을 1개 사용합니다.</p>
       ${autoControls}
     </section>
-    <p class="notice-line">왼쪽에는 체력 포션, 오른쪽에는 정신력 포션만 설정할 수 있습니다.</p>
+    <p class="notice-line">체력·정신력 전용 포션은 각 슬롯에, 두 자원을 함께 회복하는 포션은 양쪽 슬롯 어디에나 설정할 수 있습니다.</p>
     <div class="potion-config-list">
       ${potions.length ? potions.map((item) => `<article>
         <div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.description)} · ${formatNumber(item.quantity)}개 보유</small></div>
-        <button type="button" data-assign-potion="${escapeHtml(item.id)}" data-potion-slot="${item.resource}">${item.resource === 'hp' ? 'HP' : 'MP'} 슬롯 설정</button>
+        <div class="potion-slot-actions">
+          ${['hp', 'both'].includes(item.resource) ? `<button type="button" data-assign-potion="${escapeHtml(item.id)}" data-potion-slot="hp">HP 슬롯 설정</button>` : ''}
+          ${['mp', 'both'].includes(item.resource) ? `<button type="button" data-assign-potion="${escapeHtml(item.id)}" data-potion-slot="mp">MP 슬롯 설정</button>` : ''}
+        </div>
       </article>`).join('') : '<div class="empty-ledger"><b>설정할 포션이 없습니다.</b></div>'}
     </div>
   </div>`;
@@ -4231,6 +4376,13 @@ function worldMapOfficeBody() {
   </div>`;
 }
 
+function formatPotionRestoreAmounts(item) {
+  if (item?.resource === 'both') {
+    return `HP +${formatNumber(item.restoreAmounts?.hp)} · MP +${formatNumber(item.restoreAmounts?.mp)}`;
+  }
+  return `${item?.resource === 'mp' ? 'MP' : 'HP'} +${formatNumber(item?.restoreAmount)}`;
+}
+
 function questStatusLabel(status) {
   return { available: '수락 가능', active: '진행 중', ready: '완료 가능', completed: '완료' }[status]
     || status;
@@ -4487,6 +4639,7 @@ $('logoutButton').addEventListener('click', logout);
 $('questButton').addEventListener('click', () => openFeature('quest'));
 $('moveMapButton').addEventListener('click', () => openFeature('move'));
 $('autoCombatButton').addEventListener('click', toggleAutoCombat);
+$('jumpButton')?.addEventListener('click', () => triggerCharacterJump());
 $('hpPotionButton').addEventListener('click', () => useQuickPotion('hp'));
 $('mpPotionButton').addEventListener('click', () => useQuickPotion('mp'));
 $('potionConfigButton').addEventListener('click', () => openFeature('potion-config'));

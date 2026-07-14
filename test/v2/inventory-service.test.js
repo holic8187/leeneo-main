@@ -117,6 +117,21 @@ test('quick slots reject potions for the wrong resource', () => {
   assert.throws(() => assignPotionQuickSlot(character, 'hp', 'bacchus'));
 });
 
+test('marshmallows can occupy either quick slot and restore HP and MP together', () => {
+  const character = characterFixture();
+  addInventoryItem(character, 'marshmallow', 2);
+  assignPotionQuickSlot(character, 'hp', 'marshmallow');
+  assignPotionQuickSlot(character, 'mp', 'marshmallow');
+
+  const used = useQuickSlotPotion(character, 'hp', 100, { hp: 2_000, mp: 1_000 });
+
+  assert.deepEqual(used.restoredByResource, { hp: 1_500, mp: 500 });
+  assert.equal(character.resources.currentHp, 1_520);
+  assert.equal(character.resources.currentMp, 500);
+  assert.equal(used.remaining, 1);
+  assert.equal(buildInventoryView(character).quickSlots.mp.id, 'marshmallow');
+});
+
 test('an expansion ticket adds four slots to the chosen tab and stops at sixty-four', () => {
   const character = characterFixture();
   addInventoryItem(character, 'inventory_expansion_ticket', 12);

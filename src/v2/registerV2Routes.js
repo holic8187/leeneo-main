@@ -459,6 +459,12 @@ function calculateWelfareSupportDamage({
   return Math.max(1, Math.floor(rolled * Math.max(0, Number(healPercent) || 0) / 100));
 }
 
+function calculateMoneyDropAmount(baseAmount, increasePercent = 0) {
+  const base = Math.max(0, Math.floor(Number(baseAmount) || 0));
+  const multiplier = 1 + Math.max(0, Number(increasePercent) || 0) / 100;
+  return Math.max(0, Math.floor(base * multiplier));
+}
+
 function registerV2Routes({
   app,
   User,
@@ -484,13 +490,18 @@ function registerV2Routes({
     }
   }
 
-  async function withTwoCharacterMutations(leftId, rightId, operation) {
-    const [firstId, secondId] = [String(leftId), String(rightId)].sort();
-    return withCharacterMutation(firstId, () => (
-      firstId === secondId
+  async function withCharacterMutations(userIds, operation) {
+    const keys = [...new Set((userIds || []).map(String).filter(Boolean))].sort();
+    const acquire = (index) => (
+      index >= keys.length
         ? operation()
-        : withCharacterMutation(secondId, operation)
-    ));
+        : withCharacterMutation(keys[index], () => acquire(index + 1))
+    );
+    return acquire(0);
+  }
+
+  async function withTwoCharacterMutations(leftId, rightId, operation) {
+    return withCharacterMutations([leftId, rightId], operation);
   }
 
   function getActivePartyPlayers(userId, mapId) {
@@ -638,11 +649,22 @@ function registerV2Routes({
 
   function applyCombatDrops(character, drops = []) {
     if (!character.economy || typeof character.economy !== 'object') character.economy = {};
+    const moneyDropIncreasePercent = Math.max(
+      0,
+      Number(getActiveSkillEffects(character).moneyDropIncreasePercent) || 0
+    );
     return drops.map((drop) => {
       if (drop.kind === 'money') {
+        const baseAmount = Math.max(0, Math.floor(Number(drop.amount) || 0));
+        const amount = calculateMoneyDropAmount(baseAmount, moneyDropIncreasePercent);
         character.economy.money = Math.max(0, Number(character.economy.money) || 0)
-          + Math.max(0, Math.floor(Number(drop.amount) || 0));
-        return { ...drop, stored: true };
+          + amount;
+        return {
+          ...drop,
+          amount,
+          ...(amount !== baseAmount ? { baseAmount } : {}),
+          stored: true
+        };
       }
       try {
         addInventoryItem(character, drop.itemId, drop.quantity, drop.instanceData);
@@ -1348,6 +1370,7 @@ function registerV2Routes({
         'maxCombo', 'damagePerComboPercent', 'damageIncreasePercent',
         'noAmmoConsumption', 'movementSpeedIncrease', 'criticalChance',
         'criticalDamagePercent', 'damageReductionPercent', 'experienceBonusPercent',
+        'moneyDropIncreasePercent',
         'mpDamageGuardPercent', 'stealth'
       ]) {
         if (Number.isFinite(Number(values[key]))) effects[key] = Number(values[key]);
@@ -2112,7 +2135,12 @@ function registerV2Routes({
     if (!auth) return;
     if (!requireWorldControl(req, res, auth)) return;
     try {
-      const result = await withCharacterMutation(auth.id, async () => {
+      const requestedSkillId = String(req.body?.skillId || '');
+      const requestedDefinition = SKILL_DEFINITIONS[requestedSkillId];
+      const mutationUserIds = requestedDefinition?.target === 'party'
+        ? getPartyMemberIds(auth.id)
+        : [auth.id];
+      const result = await withCharacterMutations(mutationUserIds, async () => {
         const character = await V2Character.findOne({ userId: auth.id });
         if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
         const skillId = String(req.body?.skillId || '');
@@ -2534,6 +2562,7 @@ function registerV2Routes({
             'maxCombo', 'damagePerComboPercent', 'damageIncreasePercent',
             'noAmmoConsumption', 'movementSpeedIncrease', 'criticalChance',
             'criticalDamagePercent', 'damageReductionPercent', 'experienceBonusPercent',
+            'moneyDropIncreasePercent',
             'mpDamageGuardPercent', 'stealth'
           ]) {
             if (Number.isFinite(Number(values[key]))) {
@@ -2693,7 +2722,7 @@ function registerV2Routes({
           character,
           req.body?.slot,
           skillEffects.consumableEffectPercent,
-          req.body?.slot === 'hp' ? resourceCaps.maxHp : resourceCaps.maxMp
+          { hp: resourceCaps.maxHp, mp: resourceCaps.maxMp }
         );
         await character.save();
         worldProfileCache.delete(String(auth.id));
@@ -4560,5 +4589,6 @@ module.exports = {
   validateSignupPayload,
   calculatePartyExperienceShares,
   calculateWelfareSupportDamage,
+  calculateMoneyDropAmount,
   serializeMarketplaceListing
 };

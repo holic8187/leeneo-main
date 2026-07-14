@@ -23,6 +23,7 @@ const TELEPORT_SKILL_IDS = new Set([
 ]);
 const MP_DAMAGE_GUARD_SKILL_ID = 'extended_51dd415210';
 const STEALTH_SKILL_ID = 'extended_47fcdc0ba0';
+const MONEY_DROP_BUFF_SKILL_ID = 'extended_51403b1515';
 
 function defineSkill(id, options) {
   return Object.freeze({
@@ -57,6 +58,15 @@ const SKILL_DEFINITIONS = Object.freeze({
         values: {
           ...(definition.values || {}),
           mpDamageGuardPercent: definition.values?.primaryPercent || [4, 80]
+        }
+      }];
+    }
+    if (id === MONEY_DROP_BUFF_SKILL_ID) {
+      return [id, {
+        ...definition,
+        values: {
+          ...(definition.values || {}),
+          moneyDropIncreasePercent: definition.values?.primaryPercent || [5, 50]
         }
       }];
     }

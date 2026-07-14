@@ -135,7 +135,7 @@ function renderSkillQuickbar() {
     ? skillSlots.replace('<button class="skill-preset-edit"', `${basicAttackToggle}<button class="skill-preset-edit"`)
     : skillSlots;
   quickbar.querySelectorAll('[data-use-skill]').forEach((button) => {
-    button.addEventListener('click', () => useActiveSkill(button.dataset.useSkill));
+    button.addEventListener('click', () => queueManualSkillUse(button.dataset.useSkill));
   });
   quickbar.querySelectorAll('[data-empty-skill-slot]').forEach((button) => {
     button.addEventListener('click', () => openSkillPresetEditor(Number(button.dataset.emptySkillSlot)));
@@ -376,8 +376,9 @@ function renderCombatBuffTray() {
       durationMs: 0
     });
   }
-  tray.innerHTML = buffs.map(combatBuffIconBody).join('');
-  tray.classList.toggle('is-empty', buffs.length === 0);
+  const visibleBuffs = buffs.slice(0, 15);
+  tray.innerHTML = visibleBuffs.map(combatBuffIconBody).join('');
+  tray.classList.toggle('is-empty', visibleBuffs.length === 0);
   $('fieldCharacter')?.classList.toggle(
     'is-stealthed',
     buffs.some((buff) => buff.skillId === 'extended_47fcdc0ba0')
@@ -548,8 +549,35 @@ function applySkillCombat(combat = {}) {
   }
 }
 
+async function queueManualSkillUse(skillId) {
+  if (!skillId || state.dead) return false;
+  state.manualSkillQueue.push(String(skillId));
+  beginManualSkillPriority();
+  if (state.manualSkillQueueRunning) return true;
+  state.manualSkillQueueRunning = true;
+  try {
+    while (state.manualSkillQueue.length && !state.dead) {
+      while (state.skillUseBusy && !state.dead) await new Promise((resolve) => setTimeout(resolve, 25));
+      const nextSkillId = state.manualSkillQueue.shift();
+      if (!nextSkillId || state.dead) continue;
+      await useActiveSkill(nextSkillId, { manual: true });
+    }
+  } finally {
+    state.manualSkillQueue.length = 0;
+    state.manualSkillQueueRunning = false;
+    endManualSkillPriority();
+  }
+  return true;
+}
+
 async function useActiveSkill(skillId, options = {}) {
-  if (!skillId || state.skillUseBusy || state.dead || state.moving) return false;
+  const manual = options.manual === true;
+  if (
+    !skillId
+    || state.skillUseBusy
+    || state.dead
+    || (!manual && (state.moving || state.manualSkillPriority))
+  ) return false;
   const skill = state.character?.skillTree?.skills?.find((entry) => entry.id === skillId);
   if (!skill) return false;
   state.skillUseBusy = true;
@@ -557,8 +585,8 @@ async function useActiveSkill(skillId, options = {}) {
     const offensive = ['enemy', 'enemies'].includes(skill.target);
     await playWorldMotion(
       offensive ? (getCombatPresentation().motion || 'slash') : 'buff',
-      'combat',
-      state.combatRunId,
+      manual ? 'manual' : 'combat',
+      manual ? 0 : state.combatRunId,
       `${skill.name} 시전`
     );
     const data = await request('/api/v2/skills/use', {
