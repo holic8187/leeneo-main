@@ -423,7 +423,7 @@ function renderCombatBuffTray() {
       ...tree.summon,
       skillId: tree.summon.skillId || 'small_companion',
       name: tree.summon.name || '작은 동반자',
-      icon: '🐾'
+      icon: tree.summon.icon || '🐾'
     });
   }
   const comboBuffActive = buffs.some((buff) => buff.skillId === 'combo_attack');
@@ -538,9 +538,12 @@ function renderCompanion() {
     companion = document.createElement('div');
     companion.id = 'fieldCompanion';
     companion.className = 'field-companion';
-    companion.innerHTML = '<span>작은 동반자</span><b>◖•ᴗ•◗</b>';
+    companion.innerHTML = '<span></span><b></b>';
     stage.appendChild(companion);
   }
+  companion.querySelector('span').textContent = summon.name || '소환수';
+  companion.querySelector('b').textContent = summon.icon || '🐾';
+  companion.dataset.summonRole = summon.role || 'support';
   const character = $('fieldCharacter');
   companion.style.left = `calc(${character.style.left || '8%'} + 22px)`;
   companion.style.bottom = `calc(${character.style.bottom || '42px'} + 8px)`;
@@ -647,13 +650,13 @@ async function useActiveSkill(skillId, options = {}) {
   state.skillUseBusy = true;
   try {
     const offensive = ['enemy', 'enemies'].includes(skill.target);
-    await playWorldMotion(
-      offensive ? (getCombatPresentation().motion || 'slash') : 'buff',
-      manual ? 'manual' : 'combat',
-      manual ? 0 : state.combatRunId,
-      `${skill.name} 시전`
+    const motionKind = manual ? 'manual' : 'combat';
+    const motionRunId = manual ? 0 : state.combatRunId;
+    const channelDurationSeconds = Math.max(
+      0,
+      Number(skill.values?.channelDurationSeconds) || 0
     );
-    const data = await request('/api/v2/skills/use', {
+    const requestSkillUse = () => request('/api/v2/skills/use', {
       method: 'POST',
       body: JSON.stringify({
         clientId: state.worldClientId,
@@ -666,6 +669,35 @@ async function useActiveSkill(skillId, options = {}) {
         skillId
       })
     });
+    let data;
+    if (channelDurationSeconds > 0 && typeof playChanneledSkillMotion === 'function') {
+      const requestPromise = requestSkillUse();
+      const settled = await Promise.allSettled([
+        requestPromise,
+        playChanneledSkillMotion(
+          {
+            durationMs: Math.round(channelDurationSeconds * 1000),
+            intervalMs: Math.max(1, Math.round(
+              Number(skill.values?.channelIntervalSeconds || 0.18) * 1000
+            )),
+            hitCount: Math.max(1, Number(skill.values?.hits) || 1)
+          },
+          motionKind,
+          motionRunId,
+          `${skill.name} 연사 중`
+        )
+      ]);
+      if (settled[0].status === 'rejected') throw settled[0].reason;
+      data = settled[0].value;
+    } else {
+      await playWorldMotion(
+        offensive ? (getCombatPresentation().motion || 'slash') : 'buff',
+        motionKind,
+        motionRunId,
+        `${skill.name} 시전`
+      );
+      data = await requestSkillUse();
+    }
     if (data.combat) {
       if (data.combat.teleport) {
         const character = $('fieldCharacter');
@@ -693,7 +725,7 @@ async function useActiveSkill(skillId, options = {}) {
         ));
       }
     }
-    if (typeof playSkillVisualEffect === 'function') {
+    if (channelDurationSeconds <= 0 && typeof playSkillVisualEffect === 'function') {
       playSkillVisualEffect(data.skill, data.combat);
     }
     const inventory = data.inventory || data.character?.inventory;

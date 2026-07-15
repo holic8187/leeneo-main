@@ -154,6 +154,7 @@ const {
   ensureSkillState,
   getSkillLevel,
   resolveSkillValues,
+  resolveSkillCastProfile,
   investSkill,
   setActivePreset,
   setAutoPreset,
@@ -161,6 +162,7 @@ const {
   upsertActiveBuff,
   getActiveSkillEffects
 } = require('./skills/skillService');
+const { buildSummonState } = require('./skills/summonService');
 const { calculateMagicDamageRange } = require('./combat/combatFormulas');
 
 const STEALTH_SKILL_ID = 'extended_47fcdc0ba0';
@@ -767,6 +769,7 @@ function registerV2Routes({
     supportTargetIds = []
   } = {}) {
     if (!character || !skillId) return false;
+    const combatResult = combat && typeof combat === 'object' ? combat : {};
     const partySize = getQuestPartySize(character, mapId);
     const normalizedSkillIds = [...new Set([
       skillId,
@@ -802,7 +805,7 @@ function registerV2Routes({
       }) || changed;
     }
     const comboSpent = Math.max(0, Number(comboBefore) - Number(comboAfter));
-    for (const rewardEvent of combat.fieldBossRewards || []) {
+    for (const rewardEvent of combatResult.fieldBossRewards || []) {
       changed = recordQuestEvent(character, {
         type: 'boss-combo',
         targetId: String(rewardEvent.bossId || ''),
@@ -812,10 +815,10 @@ function registerV2Routes({
         amount: 1
       }) || changed;
     }
-    if (combat.fieldBossReward) {
+    if (combatResult.fieldBossReward) {
       changed = recordQuestEvent(character, {
         type: 'boss-combo',
-        targetId: String(combat.fieldBossReward.bossId || ''),
+        targetId: String(combatResult.fieldBossReward.bossId || ''),
         mapId: String(mapId || ''),
         partySize,
         comboSpent,
@@ -1236,6 +1239,7 @@ function registerV2Routes({
         continue;
       }
       const values = resolveSkillValues(definition, level);
+      const castProfile = resolveSkillCastProfile(values);
       if (values.minimumHpPercent && currentHp / maxHp * 100 < values.minimumHpPercent) continue;
       const hpCost = Math.max(
         0,
@@ -1251,10 +1255,13 @@ function registerV2Routes({
               ? Number(preUseEffects.magicMpCostIncreasePercent) || 0
               : 0
           ) / 100
-        )
+        ) * castProfile.mpCostMultiplier
       ));
       if (currentHp <= hpCost || currentMp < mpCost) continue;
-      return { skillId, definition, level, values, hpCost, mpCost, preUseEffects, archetype };
+      return {
+        skillId, definition, level, values, castProfile,
+        hpCost, mpCost, preUseEffects, archetype
+      };
     }
     return null;
   }
@@ -1262,7 +1269,10 @@ function registerV2Routes({
   async function applyOfflineAutoSkill({ character, profile, target, now }) {
     const selected = getOfflineAutoSkill(character, profile, target, now);
     if (!selected) return null;
-    const { skillId, definition, values, hpCost, mpCost, preUseEffects, archetype } = selected;
+    const {
+      skillId, definition, values, castProfile,
+      hpCost, mpCost, preUseEffects, archetype
+    } = selected;
     const skillState = ensureSkillState(character);
     const mapId = String(profile.worldState?.mapId || character.worldState?.mapId || '');
     const targetId = String(target?.id || '');
@@ -1281,7 +1291,7 @@ function registerV2Routes({
         1,
         upgradedAudit
           ? Number(preUseEffects.upgradedAuditHits)
-          : Number(values.hits) || 1
+          : castProfile.hitCount
       );
       if (
         ammunition
@@ -1348,7 +1358,7 @@ function registerV2Routes({
         maxTargets: Number(values.targetCount ?? definition.maxTargets) || 1,
         hits: upgradedAudit
           ? Number(preUseEffects.upgradedAuditHits)
-          : Number(values.hits) || 1,
+          : castProfile.hitCount,
         bonusAttackPercent: doubleStrike
           ? Number(preUseEffects.doubleStrikeDamagePercent || 0)
           : 0,
@@ -1374,6 +1384,13 @@ function registerV2Routes({
       });
       if (!combat.success) return null;
       combat.critical = critical;
+      if (castProfile.channelDurationSeconds > 0) {
+        combat.channel = {
+          durationMs: Math.round(castProfile.channelDurationSeconds * 1000),
+          intervalMs: Math.round(castProfile.channelIntervalSeconds * 1000),
+          hitCount: castProfile.hitCount
+        };
+      }
       clearStealthBuff(skillState);
       character.resources.currentHp = Math.max(0, Number(character.resources.currentHp) - hpCost);
       character.resources.currentMp = Math.max(0, Number(character.resources.currentMp) - mpCost);
@@ -1519,15 +1536,8 @@ function registerV2Routes({
     } else if (definition.effect === 'summon') {
       character.resources.currentHp = Math.max(0, Number(character.resources.currentHp) - hpCost);
       character.resources.currentMp = Math.max(0, Number(character.resources.currentMp) - mpCost);
-      skillState.summon = {
-        skillId,
-        name: definition.name,
-        masteryIncrease: Number(values.masteryIncrease) || 0,
-        summonHp: Number(values.summonHp) || 0,
-        createdAt: new Date(now),
-        expiresAt: new Date(now + Number(values.durationSeconds || 0) * 1000)
-      };
-      combat = { success: true };
+      skillState.summon = buildSummonState(definition, values, now);
+      combat = { success: true, summon: skillState.summon };
     } else {
       character.resources.currentHp = Math.max(0, Number(character.resources.currentHp) - hpCost);
       character.resources.currentMp = Math.max(0, Number(character.resources.currentMp) - mpCost);
@@ -1569,8 +1579,8 @@ function registerV2Routes({
       combat = { success: true, appliedBuff: activeBuff };
     }
 
-    if (Number(values.cooldownSeconds) > 0) {
-      skillState.cooldowns[skillId] = now + Number(values.cooldownSeconds) * 1000;
+    if (castProfile.lockSeconds > 0) {
+      skillState.cooldowns[skillId] = now + castProfile.lockSeconds * 1000;
     }
     reconcileMaxResourceBuff(character);
     character.markModified('skills');
@@ -2411,6 +2421,7 @@ function registerV2Routes({
           throw new Error('현재 장착한 무기로는 이 스킬을 사용할 수 없습니다.');
         }
         const values = resolveSkillValues(definition, level);
+        const castProfile = resolveSkillCastProfile(values);
         const now = Date.now();
         const cooldownUntil = Number(skillState.cooldowns?.[skillId]) || 0;
         if (cooldownUntil > now) {
@@ -2445,7 +2456,7 @@ function registerV2Routes({
                 ? Number(preUseEffects.magicMpCostIncreasePercent) || 0
                 : 0
             ) / 100
-          )
+          ) * castProfile.mpCostMultiplier
         ));
         if (currentHp <= hpCost) throw new Error('체력이 부족합니다.');
         if (currentMp < mpCost) throw new Error('정신력이 부족합니다.');
@@ -2515,7 +2526,7 @@ function registerV2Routes({
             1,
             upgradedAudit
               ? Number(activeEffects.upgradedAuditHits)
-              : Number(values.hits) || 1
+              : castProfile.hitCount
           );
           if (
             ammunition
@@ -2581,7 +2592,7 @@ function registerV2Routes({
             maxTargets: Number(values.targetCount ?? definition.maxTargets) || 1,
             hits: upgradedAudit
               ? Number(activeEffects.upgradedAuditHits)
-              : Number(values.hits) || 1,
+              : castProfile.hitCount,
             bonusAttackPercent: doubleStrike
               ? Number(activeEffects.doubleStrikeDamagePercent || 0)
               : 0,
@@ -2606,6 +2617,13 @@ function registerV2Routes({
           });
           if (!combat.success) throw new Error('사거리 안에 공격할 대상이 없습니다.');
           combat.critical = critical;
+          if (castProfile.channelDurationSeconds > 0) {
+            combat.channel = {
+              durationMs: Math.round(castProfile.channelDurationSeconds * 1000),
+              intervalMs: Math.round(castProfile.channelIntervalSeconds * 1000),
+              hitCount: castProfile.hitCount
+            };
+          }
           clearStealthBuff(skillState);
           if (Array.isArray(combat.fieldBossRewards) && combat.fieldBossRewards.length) {
             combat.fieldBossRewardResults = [];
@@ -2819,14 +2837,8 @@ function registerV2Routes({
           });
           combat = { ...combat, appliedBuff: activeBuff };
         } else if (definition.effect === 'summon') {
-          skillState.summon = {
-            skillId,
-            name: definition.name,
-            masteryIncrease: Number(values.masteryIncrease) || 0,
-            summonHp: Number(values.summonHp) || 0,
-            createdAt: new Date(),
-            expiresAt: new Date(Date.now() + Number(values.durationSeconds || 0) * 1000)
-          };
+          skillState.summon = buildSummonState(definition, values, now);
+          combat = { success: true, summon: skillState.summon };
         } else if (definition.effect === 'toggle-amplifier') {
           const activeIndex = skillState.activeBuffs.findIndex((buff) => buff.skillId === skillId);
           if (activeIndex >= 0) {
@@ -2907,8 +2919,8 @@ function registerV2Routes({
           comboAfter: Number(skillState.comboCount) || 0,
           supportTargetIds
         });
-        if (Number(values.cooldownSeconds) > 0) {
-          skillState.cooldowns[skillId] = now + Number(values.cooldownSeconds) * 1000;
+        if (castProfile.lockSeconds > 0) {
+          skillState.cooldowns[skillId] = now + castProfile.lockSeconds * 1000;
         }
         reconcileMaxResourceBuff(character);
         character.markModified('skills');

@@ -1034,7 +1034,9 @@
         15,
         60
       ]
-    }
+    },
+    "summonRole": "decoy",
+    "summonIcon": "📒"
   },
   "extended_32e5d4071d": {
     "id": "extended_32e5d4071d",
@@ -1122,8 +1124,20 @@
       "primaryPercent": [
         30,
         99
-      ]
-    }
+      ],
+      "attackPower": [
+        30,
+        100
+      ],
+      "attackIntervalSeconds": 3,
+      "stunChance": [
+        30,
+        99
+      ],
+      "stunSeconds": 2
+    },
+    "summonRole": "attacker",
+    "summonIcon": "🦅"
   },
   "extended_429a99546b": {
     "id": "extended_429a99546b",
@@ -1314,8 +1328,8 @@
         "level": 15
       }
     ],
-    "element": "neutral",
-    "target": "enemies",
+    "element": "ice",
+    "target": "self",
     "maxTargets": 4,
     "range": 460,
     "effect": "summon",
@@ -1327,8 +1341,16 @@
       "durationSeconds": [
         30,
         200
-      ]
-    }
+      ],
+      "attackPower": [
+        120,
+        500
+      ],
+      "attackIntervalSeconds": 3,
+      "freezeSeconds": 4
+    },
+    "summonRole": "attacker",
+    "summonIcon": "❄️"
   },
   "extended_cd94045605": {
     "id": "extended_cd94045605",
@@ -1736,7 +1758,9 @@
         15,
         60
       ]
-    }
+    },
+    "summonRole": "decoy",
+    "summonIcon": "🧸"
   },
   "extended_350a5492c9": {
     "id": "extended_350a5492c9",
@@ -1830,8 +1854,20 @@
       "primaryPercent": [
         30,
         99
-      ]
-    }
+      ],
+      "attackPower": [
+        30,
+        100
+      ],
+      "attackIntervalSeconds": 3,
+      "stunChance": [
+        30,
+        99
+      ],
+      "stunSeconds": 2
+    },
+    "summonRole": "attacker",
+    "summonIcon": "🦅"
   },
   "extended_b9c8b1a7cd": {
     "id": "extended_b9c8b1a7cd",
@@ -1992,7 +2028,7 @@
       }
     ],
     "element": "fire",
-    "target": "enemies",
+    "target": "self",
     "maxTargets": 4,
     "range": 450,
     "effect": "summon",
@@ -2004,13 +2040,20 @@
       "durationSeconds": [
         30,
         200
-      ]
-    }
+      ],
+      "attackPower": [
+        130,
+        550
+      ],
+      "attackIntervalSeconds": 2.5
+    },
+    "summonRole": "attacker",
+    "summonIcon": "🔥"
   },
   "extended_fc89f3cfc2": {
     "id": "extended_fc89f3cfc2",
     "name": "실시간 광고 송출",
-    "description": "발당 MP 3 → 9, 키다운 중 단일 적에게 60% → 100% 피해의 화살을 0.18초마다 발사. 공격속도 영향 없음",
+    "description": "발당 MP 3 → 9, 1회 시전 시 3초간 단일 적에게 60% → 100% 피해의 화살을 0.18초마다 연사. 공격속도 영향 없음",
     "tier": 4,
     "maxLevel": 30,
     "departments": [
@@ -2029,10 +2072,15 @@
         3,
         9
       ],
+      "durationSeconds": 3,
       "damagePercent": [
         60,
         100
-      ]
+      ],
+      "channelDurationSeconds": 3,
+      "channelIntervalSeconds": 0.18,
+      "hits": 17,
+      "mpCostPerHit": 1
     }
   },
   "extended_e7c08ae117": {
@@ -2418,10 +2466,10 @@
     "quest": false,
     "prerequisites": [],
     "element": "neutral",
-    "target": "enemy",
+    "target": "self",
     "maxTargets": 1,
     "range": 100,
-    "effect": "damage",
+    "effect": "summon",
     "values": {
       "mpCost": [
         20,
@@ -2434,8 +2482,19 @@
       "damagePercent": [
         20,
         80
-      ]
-    }
+      ],
+      "basicFollowUpPercent": [
+        20,
+        80
+      ],
+      "skillFollowUpPercent": [
+        15,
+        50
+      ],
+      "attackIntervalSeconds": 0
+    },
+    "summonRole": "follow-up",
+    "summonIcon": "👥"
   },
   "extended_afeb5592b7": {
     "id": "extended_afeb5592b7",
@@ -4055,7 +4114,7 @@
       }
     ],
     "element": "ice",
-    "target": "enemies",
+    "target": "self",
     "maxTargets": 3,
     "range": 460,
     "effect": "summon",
@@ -4067,8 +4126,16 @@
       "durationSeconds": [
         15,
         160
-      ]
-    }
+      ],
+      "attackPower": [
+        183,
+        270
+      ],
+      "attackIntervalSeconds": 3,
+      "freezeSeconds": 4
+    },
+    "summonRole": "attacker",
+    "summonIcon": "🧚"
   },
   "extended_7eb89cdb07": {
     "id": "extended_7eb89cdb07",
@@ -4702,7 +4769,7 @@
       }
     ],
     "element": "fire",
-    "target": "enemies",
+    "target": "self",
     "maxTargets": 3,
     "range": 460,
     "effect": "summon",
@@ -4714,8 +4781,15 @@
       "durationSeconds": [
         15,
         160
-      ]
-    }
+      ],
+      "attackPower": [
+        183,
+        300
+      ],
+      "attackIntervalSeconds": 3
+    },
+    "summonRole": "attacker",
+    "summonIcon": "🧯"
   },
   "extended_4561b07dd3": {
     "id": "extended_4561b07dd3",
@@ -5215,8 +5289,15 @@
       "durationSeconds": [
         20,
         140
-      ]
-    }
+      ],
+      "attackPower": [
+        30,
+        150
+      ],
+      "attackIntervalSeconds": 3
+    },
+    "summonRole": "attacker",
+    "summonIcon": "🐉"
   },
   "extended_72b5477b43": {
     "id": "extended_72b5477b43",
@@ -5296,7 +5377,7 @@
       }
     ],
     "element": "holy",
-    "target": "enemies",
+    "target": "self",
     "maxTargets": 3,
     "range": 470,
     "effect": "summon",
@@ -5308,8 +5389,15 @@
       "durationSeconds": [
         15,
         160
-      ]
-    }
+      ],
+      "attackPower": [
+        113,
+        230
+      ],
+      "attackIntervalSeconds": 3
+    },
+    "summonRole": "attacker",
+    "summonIcon": "🐲"
   },
   "extended_4d105c3f1f": {
     "id": "extended_4d105c3f1f",

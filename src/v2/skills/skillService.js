@@ -5,6 +5,7 @@ const {
   SKILL_DEFINITIONS
 } = require('./skillDefinitions');
 const { getMasteryBookRule } = require('./masteryBookConfig');
+const { describeSummon, isCompanionSummon } = require('./summonService');
 
 const MAX_ACTIVE_PRESET_SIZE = 10;
 const SKILL_UNLOCK_MIGRATION_VERSION = 1;
@@ -63,6 +64,9 @@ const VALUE_LABELS = Object.freeze({
   freezeSeconds: '빙결 시간',
   cooldownSeconds: '재사용 대기시간'
   ,
+  channelDurationSeconds: '연사 지속시간',
+  channelIntervalSeconds: '발사 간격',
+  attackPower: '소환수 공격력',
   experienceBonusPercent: '경험치 증가',
   mpAbsorbChance: '정신력 흡수 확률',
   mpAbsorbPercent: '정신력 흡수량',
@@ -351,6 +355,28 @@ function resolveSkillValues(definition, level) {
     key,
     resolveValue(value, level, definition.maxLevel)
   ]));
+}
+
+function resolveSkillCastProfile(values = {}) {
+  const channelDurationSeconds = Math.max(0, Number(values.channelDurationSeconds) || 0);
+  const channelIntervalSeconds = Math.max(0, Number(values.channelIntervalSeconds) || 0);
+  const calculatedHits = channelDurationSeconds > 0 && channelIntervalSeconds > 0
+    ? Math.ceil(channelDurationSeconds / channelIntervalSeconds)
+    : 1;
+  const hitCount = Math.max(
+    1,
+    Math.floor(Number(values.hits) || calculatedHits)
+  );
+  return {
+    hitCount,
+    mpCostMultiplier: Number(values.mpCostPerHit) > 0 ? hitCount : 1,
+    channelDurationSeconds,
+    channelIntervalSeconds,
+    lockSeconds: Math.max(
+      Math.max(0, Number(values.cooldownSeconds) || 0),
+      channelDurationSeconds
+    )
+  };
 }
 
 function getDepartmentSkillDefinitions(departmentId) {
@@ -799,6 +825,8 @@ function getActiveSkillEffects(character, now = Date.now()) {
   }
   if (skills.summon) {
     effects.weaponMastery += Number(skills.summon.masteryIncrease) || 0;
+  }
+  if (isCompanionSummon(skills.summon)) {
     const summonCreatedAt = new Date(skills.summon.createdAt || Date.now()).getTime();
     const summonAgeSeconds = Math.max(0, (Date.now() - summonCreatedAt) / 1000);
     for (const definition of getDepartmentSkillDefinitions(character.job?.departmentId)) {
@@ -860,7 +888,7 @@ function buildSkillTree(character) {
   const summon = skills.summon
     ? {
       ...skills.summon,
-      description: '작은 동반자가 소환되어 무기 숙련도를 높이고 관련 패시브를 발동합니다.',
+      description: describeSummon(skills.summon),
       createdAt: summonCreatedAt,
       expiresAt: summonExpiresAt,
       durationMs: summonExpiresAt > summonCreatedAt ? summonExpiresAt - summonCreatedAt : 0
@@ -940,6 +968,7 @@ module.exports = {
   setActivePreset,
   setAutoPreset,
   pruneExpiredSkillState,
+  resolveSkillCastProfile,
   buildActiveBuffEffects,
   upsertActiveBuff,
   getActiveSkillEffects,

@@ -1642,6 +1642,59 @@ async function playWorldMotion(motion, kind, runId, activityLabel = '') {
   if (isRunActive(kind, runId)) setCharacterMotion(null);
 }
 
+function launchChannelProjectile() {
+  const stage = $('worldStage');
+  const character = $('fieldCharacter');
+  const monster = getCombatTargetElement();
+  if (!stage || !character) return;
+  const stageRect = stage.getBoundingClientRect();
+  const characterRect = character.getBoundingClientRect();
+  const monsterRect = monster?.getBoundingClientRect();
+  const startX = characterRect.left + characterRect.width * .55 - stageRect.left;
+  const startY = characterRect.top + characterRect.height * .42 - stageRect.top;
+  const targetX = monsterRect
+    ? monsterRect.left + monsterRect.width * .5 - stageRect.left
+    : startX + (character.classList.contains('facing-left') ? -260 : 260);
+  const targetY = monsterRect
+    ? monsterRect.top + monsterRect.height * .72 - stageRect.top
+    : startY;
+  const projectile = document.createElement('span');
+  projectile.className = 'attack-projectile is-channel-shot';
+  projectile.style.left = `${startX}px`;
+  projectile.style.top = `${startY}px`;
+  projectile.style.bottom = 'auto';
+  projectile.style.setProperty('--projectile-x', `${targetX - startX}px`);
+  projectile.style.setProperty('--projectile-y', `${targetY - startY}px`);
+  stage.appendChild(projectile);
+  monster?.classList.add('is-hit');
+  setTimeout(() => monster?.classList.remove('is-hit'), 110);
+  projectile.addEventListener('animationend', () => projectile.remove(), { once: true });
+  setTimeout(() => projectile.remove(), 500);
+}
+
+async function playChanneledSkillMotion(channel = {}, kind, runId, activityLabel = '') {
+  if (!isRunActive(kind, runId)) return;
+  const character = $('fieldCharacter');
+  if (!character) return;
+  const durationMs = Math.max(1, Number(channel.durationMs) || 3000);
+  const intervalMs = Math.max(1, Number(channel.intervalMs) || 180);
+  const hitCount = Math.max(1, Math.floor(Number(channel.hitCount) || 1));
+  const startedAt = performance.now();
+  setWorldActivity(activityLabel || '연속 공격 중');
+  for (let hit = 0; hit < hitCount; hit += 1) {
+    if (!isRunActive(kind, runId)) break;
+    setCharacterMotion(null);
+    void character.offsetWidth;
+    setCharacterMotion('shoot');
+    launchChannelProjectile();
+    const nextAt = startedAt + Math.min(durationMs, (hit + 1) * intervalMs);
+    await sleep(Math.max(0, nextAt - performance.now()));
+  }
+  const remainingMs = durationMs - (performance.now() - startedAt);
+  if (remainingMs > 0) await sleep(remainingMs);
+  if (isRunActive(kind, runId)) setCharacterMotion(null);
+}
+
 function canEnterMap(target) {
   return Boolean(target);
 }

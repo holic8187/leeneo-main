@@ -213,6 +213,15 @@ const SUMMON_OVERRIDES = Object.freeze({
   }
 });
 
+const ACTIVE_VALUE_OVERRIDES = Object.freeze({
+  '실시간 광고 송출': {
+    channelDurationSeconds: 3,
+    channelIntervalSeconds: 0.18,
+    hits: 17,
+    mpCostPerHit: 1
+  }
+});
+
 function clean(value) {
   return String(value || '')
     .replaceAll('`', '')
@@ -412,6 +421,7 @@ function inferDefinition({ marker, name, tier, maxLevel, effectText, rangeText, 
           : undefined;
   const passiveOverride = PASSIVE_OVERRIDES[name] || null;
   const summonOverride = SUMMON_OVERRIDES[name] || null;
+  const activeValueOverride = ACTIVE_VALUE_OVERRIDES[name] || null;
   if (summonOverride) effect = 'summon';
   return {
     id: makeId(name, departments, tier),
@@ -428,9 +438,12 @@ function inferDefinition({ marker, name, tier, maxLevel, effectText, rangeText, 
     maxTargets: summonOverride?.maxTargets || maxTargets,
     range,
     effect: passiveOverride?.effect || effect,
-    values: passiveOverride
-      ? { ...values, ...passiveOverride.values }
-      : { ...values, ...(summonOverride?.values || {}) },
+    values: {
+      ...values,
+      ...(passiveOverride?.values || {}),
+      ...(summonOverride?.values || {}),
+      ...(activeValueOverride || {})
+    },
     ...(summonOverride ? {
       summonRole: summonOverride.summonRole,
       summonIcon: summonOverride.summonIcon

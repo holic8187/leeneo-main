@@ -6,6 +6,7 @@ const { SKILL_DEFINITIONS } = require('../../src/v2/skills/skillDefinitions');
 const {
   ensureSkillState,
   resolveSkillValues,
+  resolveSkillCastProfile,
   getEarnedSkillPointsForTier,
   getInvestmentBlockReason,
   investSkill,
@@ -16,6 +17,7 @@ const {
   upsertActiveBuff,
   buildSkillTree
 } = require('../../src/v2/skills/skillService');
+const { buildSummonState } = require('../../src/v2/skills/summonService');
 const {
   reconcileMaxResourceBuff
 } = require('../../src/v2/services/maxResourceBuffService');
@@ -68,6 +70,30 @@ test('marketing mascot summon uses MP only and treats the stated HP as summon HP
   assert.equal(values.mpCost, 32);
   assert.equal(values.hpCost, undefined);
   assert.equal(values.summonHp, 6000);
+});
+
+test('phoenix summon keeps its attacker metadata and dedicated presentation', () => {
+  const phoenix = findSkillByName('불사조 캠페인');
+  const values = resolveSkillValues(phoenix, phoenix.maxLevel);
+  const summon = buildSummonState(phoenix, values, Date.UTC(2026, 6, 15));
+  assert.equal(phoenix.effect, 'summon');
+  assert.equal(summon.role, 'attacker');
+  assert.equal(summon.icon, '🔥');
+  assert.equal(summon.attackPower, 550);
+  assert.equal(summon.attackIntervalMs, 2500);
+  assert.equal(summon.maxTargets, 4);
+});
+
+test('storm channel resolves one three-second cast into seventeen paid hits', () => {
+  const storm = findSkillByName('실시간 광고 송출');
+  const values = resolveSkillValues(storm, storm.maxLevel);
+  const cast = resolveSkillCastProfile(values);
+  assert.equal(values.mpCost, 9);
+  assert.equal(cast.channelDurationSeconds, 3);
+  assert.equal(cast.channelIntervalSeconds, 0.18);
+  assert.equal(cast.hitCount, 17);
+  assert.equal(cast.mpCostMultiplier, 17);
+  assert.equal(cast.lockSeconds, 3);
 });
 
 test('all mage teleport variants use the shared teleport runtime effect', () => {

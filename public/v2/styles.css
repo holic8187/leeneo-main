@@ -1753,6 +1753,9 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   box-shadow: 0 0 12px #fff09b;
 }
 .attack-projectile.is-shoot { animation: projectile-shot .65s linear; }
+.attack-projectile.is-channel-shot {
+  animation: projectile-channel .2s linear forwards;
+}
 .attack-projectile.is-cast {
   width: 17px;
   height: 17px;
@@ -2021,6 +2024,14 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   0% { opacity: 1; transform: translate(0, 0); }
   90% { opacity: 1; }
   100% { opacity: 0; transform: translate(var(--projectile-x, 260px), var(--projectile-y, 0)); }
+}
+@keyframes projectile-channel {
+  0% { opacity: 1; transform: translate(0, 0) scale(.82); }
+  82% { opacity: 1; }
+  100% {
+    opacity: 0;
+    transform: translate(var(--projectile-x, 260px), var(--projectile-y, 0)) scale(1.08);
+  }
 }
 @keyframes ghost-float-own { from { translate: 0 -2px; } to { translate: 0 -17px; } }
 @keyframes ghost-float-remote { from { translate: -50% -2px; } to { translate: -50% -17px; } }
