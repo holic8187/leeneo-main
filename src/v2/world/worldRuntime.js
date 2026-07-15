@@ -391,8 +391,7 @@ function serializeMonster(monster) {
   };
 }
 
-function serializePlayer(player) {
-  const now = Date.now();
+function serializePlayer(player, now = Date.now()) {
   return {
     userId: player.userId,
     nickname: player.nickname,
@@ -412,6 +411,7 @@ function serializePlayer(player) {
     online: now - Number(player.lastSeenAt || 0) <= PLAYER_TIMEOUT_MS,
     autoHunting: Boolean(player.autoHunting),
     recentSkill: player.recentSkill?.expiresAt > now ? { ...player.recentSkill } : null,
+    jumpEvent: player.jumpEvent?.expiresAt > now ? { ...player.jumpEvent } : null,
     isDead: player.currentHp <= 0
   };
 }
@@ -922,6 +922,7 @@ function updatePresence({
   activity,
   motion,
   facingLeft,
+  jumpEvent,
   currentHp,
   maxHp,
   currentMp,
@@ -962,6 +963,21 @@ function updatePresence({
     activeMaps.set(mapId, runtime);
   }
   const previous = runtime.players.get(userKey);
+  const incomingJumpSequence = Math.max(0, Math.floor(Number(jumpEvent?.sequence) || 0));
+  const incomingJumpStartedAt = Number(jumpEvent?.startedAt) || 0;
+  const incomingJumpKind = jumpEvent?.kind === 'flash-jump' ? 'flash-jump' : 'jump';
+  const jumpIsRecent = incomingJumpStartedAt > 0
+    && Math.abs(now - incomingJumpStartedAt) <= 5_000;
+  const resolvedJumpEvent = incomingJumpSequence > 0
+    && jumpIsRecent
+    && incomingJumpSequence !== Number(previous?.jumpEvent?.sequence)
+    ? {
+      sequence: incomingJumpSequence,
+      kind: incomingJumpKind,
+      createdAt: now,
+      expiresAt: now + 1_800
+    }
+    : (previous?.jumpEvent || null);
   const resolvedHp = Math.max(0, Number(previous?.currentHp ?? currentHp) || 0);
   const resolvedMaxHp = Math.max(1, Number(previous?.maxHp ?? maxHp) || 120);
   const resolvedMp = Math.max(0, Number(previous?.currentMp ?? currentMp) || 0);
@@ -1004,6 +1020,7 @@ function updatePresence({
       ? now + Math.max(0, Number(autoHuntRemainingSeconds) || 0) * 1000
       : 0,
     recentSkill: previous?.recentSkill || null,
+    jumpEvent: resolvedJumpEvent,
     lastContactAt: previous?.lastContactAt || 0,
     invulnerableUntil: previous?.invulnerableUntil || 0,
     silencedUntil: previous?.silencedUntil || 0,
@@ -1069,7 +1086,7 @@ function updatePresence({
     : [];
   return {
     mapId,
-    players: Array.from(runtime.players.values()).map(serializePlayer),
+    players: Array.from(runtime.players.values()).map((player) => serializePlayer(player, now)),
     monsters: runtime.monsters.filter((monster) => monster.hp > 0).map(serializeMonster),
     contactEvents,
     recoveryEvents,
@@ -1381,7 +1398,7 @@ function attackMonster({
     mpAbsorbed,
     drops: drops.map(serializeLoot),
     monster: defeated ? null : serializeMonster(monster),
-    players: Array.from(runtime.players.values()).map(serializePlayer),
+    players: Array.from(runtime.players.values()).map((player) => serializePlayer(player, now)),
     monsters: runtime.monsters.filter((entry) => entry.hp > 0).map(serializeMonster)
   };
 }
@@ -1669,14 +1686,14 @@ function listActivePlayers(mapId, now = Date.now()) {
   cleanupInactiveMaps(now);
   const runtime = activeMaps.get(String(mapId || ''));
   if (!runtime) return [];
-  return Array.from(runtime.players.values()).map(serializePlayer);
+  return Array.from(runtime.players.values()).map((player) => serializePlayer(player, now));
 }
 
 function listAllActivePlayers(now = Date.now()) {
   cleanupInactiveMaps(now);
   const players = [];
   for (const runtime of activeMaps.values()) {
-    players.push(...Array.from(runtime.players.values()).map(serializePlayer));
+    players.push(...Array.from(runtime.players.values()).map((player) => serializePlayer(player, now)));
   }
   return players;
 }

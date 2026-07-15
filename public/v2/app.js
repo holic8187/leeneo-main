@@ -32,6 +32,7 @@ const state = {
   signupCodeTimer: null,
   worldPresenceRunId: 0,
   worldHeartbeatBusy: false,
+  worldHeartbeatQueued: false,
   worldClientId: sessionStorage.getItem('v2WorldClientId')
     || globalThis.crypto?.randomUUID?.()
     || `world-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -77,7 +78,10 @@ const state = {
     lastFrameAt: 0,
     frameId: 0,
     airJumpsUsed: 0,
-    flashJumpPending: false
+    flashJumpPending: false,
+    jumpSequence: 0,
+    lastJumpKind: '',
+    lastJumpStartedAt: 0
   },
   skillUseBusy: false,
   autoSkillOwnerKey: '',
@@ -761,6 +765,14 @@ function resetCharacterPhysics() {
   setCharacterPhysicsOffset(0);
 }
 
+function registerLocalJumpEvent(kind = 'jump') {
+  const physics = state.characterPhysics;
+  physics.jumpSequence = Math.max(physics.jumpSequence + 1, Date.now());
+  physics.lastJumpKind = kind === 'flash-jump' ? 'flash-jump' : 'jump';
+  physics.lastJumpStartedAt = Date.now();
+  queueWorldHeartbeat();
+}
+
 function getAvailableFlashJumps() {
   const learnedFlashJump = state.character?.skillTree?.skills?.find(
     (skill) => skill.effect === 'flash-jump' && Number(skill.level) > 0
@@ -804,6 +816,7 @@ async function triggerCharacterFlashJump() {
   character.classList.add('is-flash-jumping');
   character.style.transitionDuration = '120ms';
   character.style.left = `${nextX}%`;
+  registerLocalJumpEvent('flash-jump');
   setTimeout(() => {
     character.style.transitionDuration = '';
     character.classList.remove('is-flash-jumping');
@@ -832,6 +845,7 @@ async function triggerCharacterFlashJump() {
       renderSkillQuickbar();
       renderCombatBuffTray();
     }
+    if (data.questJournal) state.questJournal = data.questJournal;
     const serverJump = data.combat?.flashJump;
     if (serverJump && character) {
       character.style.left = `${Math.max(0, Math.min(94, Number(serverJump.x) || nextX))}%`;
@@ -882,6 +896,7 @@ function triggerCharacterJump({ knockback = false } = {}) {
     : CHARACTER_JUMP_VELOCITY_PX_PER_SECOND;
   physics.lastFrameAt = 0;
   $('fieldCharacter').classList.add('is-physics-airborne');
+  registerLocalJumpEvent('jump');
   if (!physics.frameId) physics.frameId = requestAnimationFrame(runCharacterPhysicsFrame);
   if (!knockback) setWorldActivity('점프');
   return true;
@@ -1039,7 +1054,11 @@ function isAtRallyPoint(point = state.rallyPoint) {
 
 function getCurrentCharacterMotion() {
   const character = $('fieldCharacter');
-  return CHARACTER_MOTION_CLASSES.find((name) => character.classList.contains(name)) || '';
+  if (state.characterPhysics.airborne) {
+    return character.classList.contains('is-flash-jumping') ? 'flash-jump' : 'jump';
+  }
+  const className = CHARACTER_MOTION_CLASSES.find((name) => character.classList.contains(name));
+  return className ? className.replace(/^is-/, '') : '';
 }
 
 function getWorldActivityType() {
@@ -2065,6 +2084,19 @@ function ensureRemotePlayerElement(player) {
   return element;
 }
 
+function playRemoteJumpEvent(element, jumpEvent) {
+  const sequence = Math.max(0, Math.floor(Number(jumpEvent?.sequence) || 0));
+  if (!sequence || element.dataset.jumpSequence === String(sequence)) return;
+  element.dataset.jumpSequence = String(sequence);
+  const className = jumpEvent.kind === 'flash-jump' ? 'is-flash-jumping' : 'is-jump';
+  element.classList.remove('is-jump', 'is-flash-jumping');
+  void element.offsetWidth;
+  element.classList.add(className);
+  setTimeout(() => {
+    if (element.dataset.jumpSequence === String(sequence)) element.classList.remove(className);
+  }, className === 'is-flash-jumping' ? 420 : 560);
+}
+
 function renderRemotePlayers(players = []) {
   const visibleIds = new Set();
   players.filter((player) => player.userId !== state.selfUserId).forEach((player) => {
@@ -2091,6 +2123,7 @@ function renderRemotePlayers(players = []) {
       'is-invulnerable',
       Number(player.invulnerableUntil) > state.worldServerTime
     );
+    playRemoteJumpEvent(element, player.jumpEvent);
   });
   Array.from($('remotePlayerLayer').children).forEach((element) => {
     if (!visibleIds.has(element.dataset.userId)) element.remove();
@@ -2429,6 +2462,15 @@ function disconnectSupersededWorld() {
   $('loginStatus').textContent = '다른 기기에서 같은 계정으로 접속해 이 기기의 연결이 종료되었습니다.';
 }
 
+function queueWorldHeartbeat() {
+  if (!state.worldControlActive || !state.token || state.isAdmin || !state.currentMapId) return;
+  if (state.worldHeartbeatBusy) {
+    state.worldHeartbeatQueued = true;
+    return;
+  }
+  sendWorldHeartbeat();
+}
+
 async function sendWorldHeartbeat() {
   if (
     state.worldHeartbeatBusy
@@ -2443,6 +2485,15 @@ async function sendWorldHeartbeat() {
   state.worldHeartbeatBusy = true;
   try {
     const character = $('fieldCharacter');
+    const physics = state.characterPhysics;
+    const jumpEvent = physics.jumpSequence > 0
+      && Date.now() - physics.lastJumpStartedAt <= 3_000
+      ? {
+        sequence: physics.jumpSequence,
+        kind: physics.lastJumpKind,
+        startedAt: physics.lastJumpStartedAt
+      }
+      : null;
     const data = await request('/api/v2/world/heartbeat', {
       method: 'POST',
       body: JSON.stringify({
@@ -2452,7 +2503,8 @@ async function sendWorldHeartbeat() {
         floor: getCharacterFloor(),
         activity: getWorldActivityType(),
         motion: getCurrentCharacterMotion(),
-        facingLeft: character.classList.contains('facing-left')
+        facingLeft: character.classList.contains('facing-left'),
+        jumpEvent
       })
     });
     if (requestEpoch === state.worldStateEpoch && !state.dead && !state.reviving) {
@@ -2466,6 +2518,10 @@ async function sendWorldHeartbeat() {
     console.error('V2 world heartbeat error:', err);
   } finally {
     state.worldHeartbeatBusy = false;
+    if (state.worldHeartbeatQueued) {
+      state.worldHeartbeatQueued = false;
+      queueMicrotask(() => sendWorldHeartbeat());
+    }
   }
 }
 
@@ -4517,6 +4573,9 @@ function questCardBody(quest, { showDialogue = false } = {}) {
     : (quest.status === 'ready'
       ? `<button type="button" data-claim-general-quest="${escapeHtml(quest.id)}">완료 보상 받기</button>`
       : '');
+  const skillUnlockDetails = quest.skillUnlock
+    ? `<p class="quest-skill-unlock"><span>해금 스킬</span><b>${escapeHtml(quest.skillUnlock.skillName)}</b><small>투자 상한 Lv.${formatNumber(quest.skillUnlock.cap)}</small></p>`
+    : '';
   const objectives = Array.isArray(quest.objectives) && quest.objectives.length
     ? quest.objectives
     : [{ targetName: quest.targetName, progress, required: quest.required }];
@@ -4537,6 +4596,7 @@ function questCardBody(quest, { showDialogue = false } = {}) {
   return `<article class="general-quest-card is-${escapeHtml(quest.status)}">
     <header><span>${escapeHtml(questStatusLabel(quest.status))}</span><strong>${escapeHtml(quest.title)}</strong><small>${escapeHtml(repeatLabel)}</small></header>
     ${showDialogue ? `<p class="npc-dialogue-text">“${escapeHtml(quest.dialogue)}”</p>` : ''}
+    ${skillUnlockDetails}
     <ul class="quest-objective-list">${objectiveRows}</ul>
     ${rewardDetails}${action}
   </article>`;

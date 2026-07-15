@@ -77,6 +77,34 @@ test('players in the same map see one another and an empty map is discarded', ()
   assert.equal(fresh.players.length, 1);
 });
 
+test('jump and flash-jump events are serialized once for remote players', () => {
+  let state = updatePresence({
+    userId: 'jump-user',
+    nickname: '점프 사원',
+    mapId: 'main_lobby',
+    x: 10,
+    currentHp: 120,
+    maxHp: 120,
+    jumpEvent: { sequence: 1, kind: 'jump', startedAt: 1_000 },
+    now: 1_000
+  });
+  assert.equal(state.players[0].jumpEvent.sequence, 1);
+  assert.equal(state.players[0].jumpEvent.kind, 'jump');
+
+  state = updatePresence({
+    userId: 'jump-user',
+    nickname: '점프 사원',
+    mapId: 'main_lobby',
+    x: 30,
+    currentHp: 120,
+    maxHp: 120,
+    jumpEvent: { sequence: 2, kind: 'flash-jump', startedAt: 1_200 },
+    now: 1_200
+  });
+  assert.equal(state.players[0].jumpEvent.sequence, 2);
+  assert.equal(state.players[0].jumpEvent.kind, 'flash-jump');
+});
+
 test('a hit gives the monster aggro and applies defense before defeat reward', () => {
   const state = updatePresence({
     userId: 'user-a',

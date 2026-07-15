@@ -11,6 +11,7 @@ const {
   recordMapVisit,
   recordMonsterKills,
   recordBossKill,
+  recordQuestEvent,
   resolveQuestRewards,
   claimQuest
 } = require('../../src/v2/services/questService');
@@ -166,4 +167,40 @@ test('skill unlock quests track every objective and expand the investment cap', 
   const rewards = claimQuest(character, 'skill_hr_firm_will_10');
   assert.equal(rewards.skillUnlocks[0].cap, 10);
   assert.equal(getSkillInvestmentCap(character, SKILL_DEFINITIONS.firm_will_hr), 10);
+});
+
+test('skill-use quests count every use and identify the unlocked skill in advance', () => {
+  const character = characterFixture();
+  character.job = { departmentId: 'field_operations', advancementTier: 4 };
+  character.skills = {
+    levels: { firm_will_hr: 10 }, activePreset: [], autoPreset: [],
+    unlockedQuestSkills: [], unlockProgress: {}, unlockMigrationVersion: 0,
+    activeBuffs: [], cooldowns: {}, summon: null, comboCount: 0
+  };
+  character.quests.completedIds.push('skill_field_firm_will_10');
+
+  acceptQuest(character, 'skill_field_firm_will_20');
+  let quest = buildQuestJournal(character).active[0];
+  assert.match(quest.title, /^\[굳건한의지 Lv\.20 해금\]/);
+  assert.deepEqual(quest.skillUnlock, {
+    skillId: 'firm_will_hr',
+    departmentId: 'field_operations',
+    cap: 20,
+    skillName: '굳건한의지'
+  });
+  assert.equal(quest.rewards, undefined);
+
+  recordQuestEvent(character, {
+    type: 'skill-use', targetId: 'firm_will_hr', amount: 99
+  });
+  quest = buildQuestJournal(character).active[0];
+  assert.equal(quest.objectives[0].progress, 99);
+  assert.equal(quest.status, 'active');
+
+  recordQuestEvent(character, {
+    type: 'skill-use', targetId: 'firm_will_hr', amount: 1
+  });
+  quest = buildQuestJournal(character).active[0];
+  assert.equal(quest.objectives[0].progress, 100);
+  assert.equal(quest.status, 'ready');
 });

@@ -2933,7 +2933,8 @@ function registerV2Routes({
           skill: { id: definition.id, name: definition.name, values },
           combat,
           character: buildCharacterResponse(character),
-          inventory: buildInventoryView(character)
+          inventory: buildInventoryView(character),
+          questJournal: buildQuestJournal(character)
         };
       });
       return res.json({ success: true, ...result });
@@ -4228,6 +4229,7 @@ function registerV2Routes({
         activity: req.body?.activity,
         motion: req.body?.motion,
         facingLeft: req.body?.facingLeft,
+        jumpEvent: req.body?.jumpEvent,
         currentHp: profile.resources.currentHp,
         maxHp: profile.resources.maxHp,
         currentMp: profile.resources.currentMp,

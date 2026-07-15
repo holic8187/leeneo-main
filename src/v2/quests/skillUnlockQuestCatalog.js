@@ -34,16 +34,29 @@ function addQuest({
   if (skillId && (!definition || !definition.departments.includes(departmentId))) {
     throw new Error(`스킬 해금 퀘스트 설정 오류: ${departmentId}/${skillId}`);
   }
+  const resolvedCap = definition
+    ? Math.min(definition.maxLevel, Math.max(0, Math.floor(Number(cap) || 0)))
+    : 0;
+  const skillUnlock = definition && resolvedCap > 0 ? Object.freeze({
+    skillId,
+    departmentId,
+    cap: resolvedCap,
+    skillName: definition.name
+  }) : null;
+  const displayTitle = skillUnlock
+    ? `[${skillUnlock.skillName} Lv.${skillUnlock.cap} 해금] ${title}`
+    : title;
   const quest = Object.freeze({
     id,
-    title,
+    title: displayTitle,
     category: 'skill',
+    skillUnlock,
     type: objectives[0].type,
     targetId: objectives[0].targetIds[0] || objectives[0].mapIds[0] || '',
     targetName: objectives.map((entry) => entry.targetName).join(' · '),
     required: objectives.reduce((sum, entry) => sum + entry.required, 0),
     objectives: Object.freeze(objectives),
-    dialogue: dialogue || `${title} 업무를 마치면 새로운 스킬 단계가 승인됩니다.`,
+    dialogue: dialogue || `${title} 업무를 마치면 ${skillUnlock?.skillName || '새로운 스킬'} Lv.${skillUnlock?.cap || 1} 단계가 승인됩니다.`,
     repeat: 'once',
     departments: Object.freeze([departmentId]),
     minimumAdvancementTier,
@@ -54,12 +67,7 @@ function addQuest({
       items: Object.freeze([]),
       randomItems: Object.freeze([]),
       huntingMinutes: 0,
-      skillUnlocks: Object.freeze(skillId && cap > 0 ? [Object.freeze({
-        skillId,
-        departmentId,
-        cap: Math.min(definition.maxLevel, cap),
-        skillName: definition.name
-      })] : [])
+      skillUnlocks: Object.freeze(skillUnlock ? [skillUnlock] : [])
     })
   });
   if (!questsByNpc.has(npcId)) questsByNpc.set(npcId, []);

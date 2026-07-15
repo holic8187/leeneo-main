@@ -1291,6 +1291,19 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .general-quest-card header small { margin-left:auto; color:#6b756f; font-size:11px; font-weight:800; }
 .general-quest-card > p { margin:10px 0 7px; }
 .general-quest-card > small { display:block; margin-top:8px; color:#6b756f; }
+.general-quest-card .quest-skill-unlock {
+  display:flex;
+  gap:8px;
+  align-items:center;
+  margin:10px 0;
+  padding:8px 10px;
+  border-left:4px solid #d69a24;
+  color:#27362f;
+  background:#fff6d9;
+}
+.quest-skill-unlock span { color:#8a5c00; font-size:10px; font-weight:900; letter-spacing:.08em; }
+.quest-skill-unlock b { font-size:13px; }
+.quest-skill-unlock small { margin-left:auto; color:#6f570e; font-size:11px; font-weight:900; }
 .general-quest-card > button, .npc-dialog-close { margin-top:12px; padding:9px 14px; border:1px solid #15573f; color:#fff; background:#176849; font-weight:900; }
 .quest-progress-track { height:8px; overflow:hidden; background:#dfe4e0; }
 .quest-progress-track i { display:block; height:100%; background:linear-gradient(90deg,#55b57f,#d7d75c); transition:width .3s ease; }
@@ -1682,6 +1695,24 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .remote-player.is-walking .remote-arm-right { animation: remote-arm-right .42s ease-in-out infinite alternate; }
 .remote-player.is-walking .remote-leg-right { animation: remote-step-a .42s ease-in-out infinite alternate; }
 .remote-player.is-walking .remote-leg-left { animation: remote-step-b .42s ease-in-out infinite alternate; }
+.remote-player.is-jump { animation: remote-character-jump .54s ease-in-out; }
+.remote-player.is-flash-jumping {
+  animation: remote-character-flash-jump .4s ease-out;
+  filter: drop-shadow(0 0 12px rgba(110, 221, 255, .9));
+}
+.remote-player.is-flash-jumping::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  right: 16px;
+  top: 20px;
+  width: 64px;
+  height: 20px;
+  border-radius: 50%;
+  background: linear-gradient(90deg, transparent, rgba(110, 221, 255, .72));
+  filter: blur(3px);
+  animation: character-flash-jump-trail .4s ease-out forwards;
+}
 .remote-player.is-combat { color: #ff9d73; filter: drop-shadow(0 0 8px rgba(255, 126, 82, .65)); }
 .field-character.is-dead,
 .remote-player.is-dead {
@@ -1939,6 +1970,15 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 @keyframes arm-left { from { transform: rotate(68deg); } to { transform: rotate(108deg); } }
 @keyframes arm-right { from { transform: rotate(-68deg); } to { transform: rotate(-108deg); } }
 @keyframes character-jump { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-62px); } }
+@keyframes remote-character-jump {
+  0%, 100% { translate: -50% 0; }
+  50% { translate: -50% -31px; }
+}
+@keyframes remote-character-flash-jump {
+  0% { translate: -50% 0; }
+  42% { translate: -50% -20px; }
+  100% { translate: -50% 0; }
+}
 @keyframes sword-swing { from { transform: rotate(-120deg); } to { transform: rotate(75deg); } }
 @keyframes slash-arc { from { opacity: 0; transform: rotate(-65deg) scale(.5); } 40% { opacity: 1; } to { opacity: 0; transform: rotate(35deg) scale(1.2); } }
 @keyframes recoil { 50% { transform: rotate(-82deg) translateX(-4px); } }
