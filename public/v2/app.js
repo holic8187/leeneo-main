@@ -845,7 +845,7 @@ async function triggerCharacterFlashJump() {
       renderSkillQuickbar();
       renderCombatBuffTray();
     }
-    if (data.questJournal) state.questJournal = data.questJournal;
+    if (data.questJournal) applyQuestJournalUpdate(data.questJournal);
     const serverJump = data.combat?.flashJump;
     if (serverJump && character) {
       character.style.left = `${Math.max(0, Math.min(94, Number(serverJump.x) || nextX))}%`;
@@ -4626,10 +4626,31 @@ function npcDialogueBody() {
   </div>`;
 }
 
+function applyQuestJournalUpdate(journal) {
+  if (!journal) return;
+  state.questJournal = journal;
+  const activeById = new Map((journal.active || []).map((quest) => [quest.id, quest]));
+  if (state.currentNpc?.quests) {
+    state.currentNpc.quests = state.currentNpc.quests.map(
+      (quest) => activeById.get(quest.id) || quest
+    );
+  }
+  const modal = $('featureModal');
+  if (!modal || modal.classList.contains('hidden')) return;
+  const title = $('featureTitle')?.textContent;
+  if (title === featureMeta['general-quests']?.title) {
+    $('featureBody').innerHTML = generalQuestBody();
+    bindGeneralQuestControls();
+  } else if (title === featureMeta['npc-dialog']?.title && state.currentNpc) {
+    $('featureBody').innerHTML = npcDialogueBody();
+    bindGeneralQuestControls();
+  }
+}
+
 async function refreshGeneralQuests(openAfter = false) {
   try {
     const data = await request('/api/v2/quests');
-    state.questJournal = data.journal || { active: [], completedCount: 0 };
+    applyQuestJournalUpdate(data.journal || { active: [], completedCount: 0 });
     if (openAfter) openFeature('general-quests');
   } catch (err) {
     setWorldActivity(err.message);

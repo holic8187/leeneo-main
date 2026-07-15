@@ -482,6 +482,47 @@ function calculateMoneyDropAmount(baseAmount, increasePercent = 0) {
   return Math.max(0, Math.floor(base * multiplier));
 }
 
+function createV2RouteTimer(res, routeName) {
+  const startedAt = process.hrtime.bigint();
+  let lastMarkAt = startedAt;
+  let finished = false;
+  const phases = [];
+  const elapsedMs = (from, to) => Number(to - from) / 1_000_000;
+  return {
+    mark(name) {
+      if (finished) return;
+      const now = process.hrtime.bigint();
+      phases.push([String(name), elapsedMs(lastMarkAt, now)]);
+      lastMarkAt = now;
+    },
+    finish(status = 'ok') {
+      if (finished) return;
+      finished = true;
+      const endedAt = process.hrtime.bigint();
+      const totalMs = elapsedMs(startedAt, endedAt);
+      if (!res.headersSent) {
+        const values = [
+          ...phases.map(([name, duration]) => `${name};dur=${duration.toFixed(1)}`),
+          `total;dur=${totalMs.toFixed(1)}`
+        ];
+        res.setHeader('Server-Timing', values.join(', '));
+      }
+      const thresholdMs = Math.max(
+        500,
+        Number(process.env.V2_PHASE_LOG_THRESHOLD_MS) || 1_500
+      );
+      if (totalMs >= thresholdMs) {
+        const detail = phases
+          .map(([name, duration]) => `${name}=${Math.round(duration)}ms`)
+          .join(' ');
+        console.info(
+          `[v2-perf] ${routeName} ${status} total=${Math.round(totalMs)}ms${detail ? ` ${detail}` : ''}`
+        );
+      }
+    }
+  };
+}
+
 function registerV2Routes({
   app,
   User,
@@ -759,6 +800,7 @@ function registerV2Routes({
 
   function recordSkillQuestProgress(character, {
     skillId,
+    skillIds = [],
     combat = {},
     mapId = '',
     comboBefore = 0,
@@ -767,9 +809,14 @@ function registerV2Routes({
   } = {}) {
     if (!character || !skillId) return false;
     const partySize = getQuestPartySize(character, mapId);
+    const normalizedSkillIds = [...new Set([
+      skillId,
+      ...(Array.isArray(skillIds) ? skillIds : [])
+    ].map(String).filter(Boolean))];
     let changed = recordQuestEvent(character, {
       type: 'skill-use',
       targetId: String(skillId),
+      targetIds: normalizedSkillIds,
       mapId: String(mapId || ''),
       partySize,
       amount: 1
@@ -1000,6 +1047,11 @@ function registerV2Routes({
       updatePlayerResources(userId, character.resources);
     }
     const response = buildCharacterResponse(character);
+    return cacheWorldProfileResponse(userId, response, now);
+  }
+
+  function cacheWorldProfileResponse(userId, response, now = Date.now()) {
+    if (!response) return null;
     const skillExpirations = [
       ...(response.skillTree?.activeBuffs || []).map((buff) => Number(buff.expiresAt) || 0),
       Number(response.skillTree?.summon?.expiresAt) || 0
@@ -1007,6 +1059,7 @@ function registerV2Routes({
     const profile = {
       loadedAt: now,
       nextSkillExpiryAt: skillExpirations.length ? Math.min(...skillExpirations) : 0,
+      nextCompanionQuestTickAt: getNextCompanionQuestTickAt(response),
       displayName: response.displayName,
       progression: response.progression,
       stats: response.stats,
@@ -1021,8 +1074,31 @@ function registerV2Routes({
       inventory: response.inventory,
       equipmentLoadout: response.equipmentLoadout
     };
-    worldProfileCache.set(key, profile);
+    worldProfileCache.set(String(userId), profile);
     return profile;
+  }
+
+  function getNextCompanionQuestTickAt(response) {
+    const summon = response?.skillTree?.summon;
+    if (!summon) return 0;
+    const createdAt = new Date(summon.createdAt || Date.now()).getTime();
+    const expiresAt = new Date(summon.expiresAt || 0).getTime();
+    if (!Number.isFinite(createdAt) || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+      return 0;
+    }
+    const nextTicks = [
+      ['companion_heal', 'questHealAt'],
+      ['companion_buff', 'questBuffAt']
+    ].flatMap(([skillId, timestampKey]) => {
+      const skill = response.skillTree?.skills?.find((entry) => entry.id === skillId);
+      if (!skill || Number(skill.level) <= 0) return [];
+      const intervalMs = Math.max(1, Number(skill.values?.intervalSeconds) || 1) * 1_000;
+      const previousAt = new Date(summon[timestampKey] || createdAt).getTime();
+      const nextAt = Math.max(createdAt, Number.isFinite(previousAt) ? previousAt : createdAt)
+        + intervalMs;
+      return nextAt <= expiresAt ? [nextAt] : [];
+    });
+    return nextTicks.length ? Math.min(...nextTicks) : 0;
   }
 
   function buildWorldPresenceFromResponse(response, {
@@ -1583,6 +1659,7 @@ function registerV2Routes({
     }
     recordSkillQuestProgress(character, {
       skillId,
+      skillIds: [definition.id],
       combat,
       mapId,
       comboBefore,
@@ -2375,6 +2452,7 @@ function registerV2Routes({
     const auth = requireV2User(req, res);
     if (!auth) return;
     if (!requireWorldControl(req, res, auth)) return;
+    const timer = createV2RouteTimer(res, 'POST /api/v2/skills/use');
     try {
       const requestedSkillId = String(req.body?.skillId || '');
       const requestedDefinition = SKILL_DEFINITIONS[requestedSkillId];
@@ -2382,7 +2460,9 @@ function registerV2Routes({
         ? getPartyMemberIds(auth.id)
         : [auth.id];
       const result = await withCharacterMutations(mutationUserIds, async () => {
+        timer.mark('queue');
         const character = await V2Character.findOne({ userId: auth.id });
+        timer.mark('load');
         if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
         const skillId = String(req.body?.skillId || '');
         const definition = SKILL_DEFINITIONS[skillId];
@@ -2891,8 +2971,9 @@ function registerV2Routes({
           ).map((player) => String(player.userId)));
         }
         recordCompanionQuestTicks(character, now);
-        recordSkillQuestProgress(character, {
+        const questProgressed = recordSkillQuestProgress(character, {
           skillId,
+          skillIds: [definition.id],
           combat,
           mapId: String(req.body?.mapId || character.worldState?.mapId || ''),
           comboBefore,
@@ -2904,7 +2985,9 @@ function registerV2Routes({
         }
         reconcileMaxResourceBuff(character);
         character.markModified('skills');
+        timer.mark('compute');
         await character.save();
+        timer.mark('save');
         recordSkillUse(
           auth.id,
           String(req.body?.mapId || character.worldState?.mapId || ''),
@@ -2927,18 +3010,22 @@ function registerV2Routes({
             )
           };
         }
-        worldProfileCache.delete(String(auth.id));
         updatePlayerResources(auth.id, character.resources);
+        const characterResponse = buildCharacterResponse(character);
+        cacheWorldProfileResponse(auth.id, characterResponse);
+        timer.mark('serialize');
         return {
           skill: { id: definition.id, name: definition.name, values },
           combat,
-          character: buildCharacterResponse(character),
-          inventory: buildInventoryView(character),
+          character: characterResponse,
+          questProgressed,
           questJournal: buildQuestJournal(character)
         };
       });
+      timer.finish();
       return res.json({ success: true, ...result });
     } catch (err) {
+      timer.finish('error');
       return res.status(400).json({ msg: err.message || '스킬을 사용하지 못했습니다.' });
     }
   });
@@ -4162,8 +4249,10 @@ function registerV2Routes({
     const auth = requireV2User(req, res);
     if (!auth) return;
     if (!requireWorldControl(req, res, auth)) return;
+    const timer = createV2RouteTimer(res, 'POST /api/v2/world/heartbeat');
     try {
       const profile = await getWorldProfile(auth.id);
+      timer.mark('profile');
       if (!profile) return res.status(404).json({ msg: 'V2 캐릭터를 찾을 수 없습니다.' });
       if (String(profile.huntingTime?.lastDailyGrantDate || '') !== getKoreaDateKey()) {
         await withCharacterMutation(auth.id, async () => {
@@ -4267,11 +4356,17 @@ function registerV2Routes({
         autoHunting: !requestedMap.safeZone && Boolean(profile.huntingTime?.enabled),
         autoHuntRemainingSeconds: Number(profile.huntingTime?.remainingSeconds) || 0
       });
-      if (profile.skillTree?.summon) {
+      timer.mark('world');
+      if (
+        profile.skillTree?.summon
+        && Number(profile.nextCompanionQuestTickAt) > 0
+        && Date.now() >= Number(profile.nextCompanionQuestTickAt)
+      ) {
         await withCharacterMutation(auth.id, async () => {
           const character = await V2Character.findOne({ userId: auth.id });
           if (character && recordCompanionQuestTicks(character, Date.now())) {
             await character.save();
+            cacheWorldProfileResponse(auth.id, buildCharacterResponse(character));
           }
         });
       }
@@ -4366,6 +4461,8 @@ function registerV2Routes({
       for (const rewardEvent of state.fieldBossRewards || []) {
         fieldBossRewards.push(await applyFieldBossRewards(rewardEvent));
       }
+      timer.mark('events');
+      timer.finish();
       return res.json({
         mapId: state.mapId,
         players: state.players,
@@ -4382,6 +4479,7 @@ function registerV2Routes({
         serverTime: Date.now()
       });
     } catch (err) {
+      timer.finish('error');
       console.error('V2 world heartbeat error:', err);
       return res.status(400).json({ msg: err.message || '필드 상태를 동기화하지 못했습니다.' });
     }

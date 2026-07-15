@@ -219,8 +219,11 @@ function eventMatchesObjective(objective, event) {
   if (objective.type !== event.type) return false;
   if (objective.mapIds?.length && !objective.mapIds.includes(String(event.mapId || ''))) return false;
   if (objective.targetIds?.length) {
-    const targetId = String(event.targetId || '');
-    if (!objective.targetIds.includes(targetId)) return false;
+    const eventTargetIds = new Set([
+      event.targetId,
+      ...(Array.isArray(event.targetIds) ? event.targetIds : [])
+    ].map(String).filter(Boolean));
+    if (!objective.targetIds.some((targetId) => eventTargetIds.has(String(targetId)))) return false;
   }
   if (objective.element && objective.element !== event.element) return false;
   if (objective.undeadOnly && !event.undead) return false;
@@ -282,7 +285,10 @@ function recordQuestEvent(character, event = {}, now = new Date()) {
       });
     }
   }
-  if (changed && typeof character.markModified === 'function') character.markModified('quests');
+  if (changed && typeof character.markModified === 'function') {
+    character.markModified('quests.active');
+    character.markModified('quests');
+  }
   return changed;
 }
 

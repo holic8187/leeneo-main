@@ -204,3 +204,25 @@ test('skill-use quests count every use and identify the unlocked skill in advanc
   assert.equal(quest.objectives[0].progress, 100);
   assert.equal(quest.status, 'ready');
 });
+
+test('skill-use quests accept canonical and requested skill ids as one use', () => {
+  const character = characterFixture();
+  character.job = { departmentId: 'field_operations', advancementTier: 4 };
+  character.skills = {
+    levels: { firm_will_hr: 10 }, activePreset: [], autoPreset: [],
+    unlockedQuestSkills: [], unlockProgress: {}, unlockMigrationVersion: 0,
+    activeBuffs: [], cooldowns: {}, summon: null, comboCount: 0
+  };
+  character.quests.completedIds.push('skill_field_firm_will_10');
+  acceptQuest(character, 'skill_field_firm_will_20');
+
+  recordQuestEvent(character, {
+    type: 'skill-use',
+    targetId: 'legacy_firm_will_alias',
+    targetIds: ['legacy_firm_will_alias', 'firm_will_hr'],
+    amount: 1
+  });
+
+  const quest = buildQuestJournal(character).active[0];
+  assert.equal(quest.objectives[0].progress, 1);
+});

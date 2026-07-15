@@ -696,8 +696,9 @@ async function useActiveSkill(skillId, options = {}) {
     if (typeof playSkillVisualEffect === 'function') {
       playSkillVisualEffect(data.skill, data.combat);
     }
-    if (data.inventory) setInventoryData(data.inventory);
-    if (data.questJournal) state.questJournal = data.questJournal;
+    const inventory = data.inventory || data.character?.inventory;
+    if (inventory) setInventoryData(inventory);
+    if (data.questJournal) applyQuestJournalUpdate(data.questJournal);
     mergeAppliedBuffIntoCharacter(data.character, data.combat?.appliedBuff);
     state.character = data.character;
     renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
