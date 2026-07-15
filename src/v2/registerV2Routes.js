@@ -157,6 +157,8 @@ const {
   investSkill,
   setActivePreset,
   setAutoPreset,
+  buildActiveBuffEffects,
+  upsertActiveBuff,
   getActiveSkillEffects
 } = require('./skills/skillService');
 const { calculateMagicDamageRange } = require('./combat/combatFormulas');
@@ -588,17 +590,12 @@ function registerV2Routes({
     for (const player of targets) {
       const teammate = await V2Character.findOne({ userId: player.userId });
       if (!teammate) continue;
-      const teammateSkills = ensureSkillState(teammate);
-      teammateSkills.activeBuffs = teammateSkills.activeBuffs.filter(
-        (entry) => entry.skillId !== buff.skillId
-      );
-      teammateSkills.activeBuffs.push({
+      upsertActiveBuff(teammate, {
         ...buff,
         effects: { ...(buff.effects || {}) },
         createdAt: new Date(buff.createdAt),
         expiresAt: new Date(buff.expiresAt)
       });
-      teammate.markModified('skills');
       await teammate.save();
       worldProfileCache.delete(String(player.userId));
     }
@@ -1502,8 +1499,7 @@ function registerV2Routes({
       if (!combat.success) return null;
       character.resources.currentHp = Math.max(0, Number(character.resources.currentHp) - hpCost);
       character.resources.currentMp = Math.max(0, Number(character.resources.currentMp) - mpCost);
-      skillState.activeBuffs = skillState.activeBuffs.filter((buff) => buff.skillId !== skillId);
-      skillState.activeBuffs.push({
+      const activeBuff = upsertActiveBuff(character, {
         skillId,
         name: definition.name,
         effects: {
@@ -1511,8 +1507,9 @@ function registerV2Routes({
           accuracyIncrease: Number(values.accuracyIncrease) || 0
         },
         createdAt: new Date(now),
-        expiresAt: new Date(now + Number(values.durationSeconds || 1) * 1000)
+        durationSeconds: Math.max(1, Number(values.durationSeconds) || 1)
       });
+      combat = { ...combat, appliedBuff: activeBuff };
     } else if (definition.effect === 'summon') {
       character.resources.currentHp = Math.max(0, Number(character.resources.currentHp) - hpCost);
       character.resources.currentMp = Math.max(0, Number(character.resources.currentMp) - mpCost);
@@ -1529,7 +1526,7 @@ function registerV2Routes({
       character.resources.currentHp = Math.max(0, Number(character.resources.currentHp) - hpCost);
       character.resources.currentMp = Math.max(0, Number(character.resources.currentMp) - mpCost);
       if (definition.effect === 'combo-buff') skillState.comboCount = 0;
-      const effects = {};
+      const effects = buildActiveBuffEffects(values);
       if (definition.effect === 'element-buff') {
         const conflicting = skillId === 'element_fire'
           ? new Set(['element_fire', 'element_ice'])
@@ -1540,19 +1537,11 @@ function registerV2Routes({
           (buff) => !conflicting.has(buff.skillId)
         );
       }
-      for (const key of [
-        'attackIncrease', 'defenseIncrease', 'magicDefenseIncrease',
-        'accuracyIncrease', 'evasionIncrease',
-        'attackSpeedStage', 'shieldDefensePercent', 'stanceChance',
-        'reflectPercent', 'targetMaxHpCapPercent', 'maxResourcePercent',
-        'maxCombo', 'damagePerComboPercent', 'damageIncreasePercent',
-        'noAmmoConsumption', 'movementSpeedIncrease', 'criticalChance',
-        'criticalDamagePercent', 'damageReductionPercent', 'experienceBonusPercent',
-        'allStatsPercent',
-        'moneyDropIncreasePercent',
-        'mpDamageGuardPercent', 'stealth'
-      ]) {
-        if (Number.isFinite(Number(values[key]))) effects[key] = Number(values[key]);
+      if (Number.isFinite(Number(values.reflectPercent))) {
+        effects.reflectPercent = Number(values.reflectPercent);
+      }
+      if (Number.isFinite(Number(values.targetMaxHpCapPercent))) {
+        effects.targetMaxHpCapPercent = Number(values.targetMaxHpCapPercent);
       }
       if (effects.reflectPercent) effects.contactReflectPercent = effects.reflectPercent;
       if (effects.targetMaxHpCapPercent) {
@@ -1563,17 +1552,15 @@ function registerV2Routes({
         effects.comboMaximum = Number(values.maxCombo) || 5;
         effects.comboDamagePerCount = Number(values.damagePerComboPercent) || 0;
       }
-      skillState.activeBuffs = skillState.activeBuffs.filter((buff) => buff.skillId !== skillId);
-      const activeBuff = {
+      const activeBuff = upsertActiveBuff(character, {
         skillId,
         name: definition.name,
         effects,
         createdAt: new Date(now),
-        expiresAt: new Date(now + Number(values.durationSeconds || 1) * 1000)
-      };
-      skillState.activeBuffs.push(activeBuff);
+        durationSeconds: Math.max(1, Number(values.durationSeconds) || 1)
+      });
       if (definition.target === 'party') partyBuffToShare = activeBuff;
-      combat = { success: true };
+      combat = { success: true, appliedBuff: activeBuff };
     }
 
     if (Number(values.cooldownSeconds) > 0) {
@@ -2380,7 +2367,7 @@ function registerV2Routes({
         if (!definition || definition.passive || level <= 0) {
           throw new Error('사용할 수 없는 스킬입니다.');
         }
-        if (!skillState.activePreset.includes(skillId)) {
+        if (definition.effect !== 'flash-jump' && !skillState.activePreset.includes(skillId)) {
           throw new Error('전투 프리셋에 등록된 스킬만 사용할 수 있습니다.');
         }
         const equippedWeaponType = String(character.loadout?.weapon?.weaponType || '');
@@ -2403,7 +2390,7 @@ function registerV2Routes({
         const sourceMapId = String(req.body?.mapId || character.worldState?.mapId || '');
         if (
           isPlayerSilenced(auth.id, sourceMapId, now)
-          && !['heal', 'buff', 'party-portal', 'teleport'].includes(definition.effect)
+          && !['heal', 'buff', 'party-portal', 'teleport', 'flash-jump'].includes(definition.effect)
         ) {
           throw new Error('침묵 상태에서는 공격 스킬을 사용할 수 없습니다.');
         }
@@ -2441,7 +2428,46 @@ function registerV2Routes({
           'damage-lock', 'charge', 'consume-combo-damage', 'pull',
           'element-explosion', 'nonlethal-damage', 'fixed-damage'
         ]);
-        if (damageEffects.has(definition.effect)) {
+        if (definition.effect === 'flash-jump') {
+          if (!req.body?.airborne) throw new Error('플래시 점프는 공중에서만 사용할 수 있습니다.');
+          const activeMapId = String(
+            req.body?.mapId || character.worldState?.mapId || START_MAP_ID
+          );
+          const distancePx = Math.max(
+            1,
+            Math.min(320, Number(values.distance ?? definition.range) || 320)
+          );
+          const direction = String(req.body?.direction || '').toLowerCase() === 'left'
+            || Boolean(req.body?.facingLeft)
+            ? -1
+            : 1;
+          const currentX = Math.max(
+            0,
+            Math.min(94, Number(req.body?.x ?? character.worldState?.x) || 8)
+          );
+          const nextX = Math.max(
+            0,
+            Math.min(94, currentX + direction * distancePx / 760 * 100)
+          );
+          const nextFloor = Number(req.body?.floor ?? character.worldState?.floor) === 1 ? 1 : 0;
+          if (!character.worldState || typeof character.worldState !== 'object') {
+            character.worldState = {};
+          }
+          character.worldState.mapId = activeMapId;
+          character.worldState.x = nextX;
+          character.worldState.floor = nextFloor;
+          character.markModified('worldState');
+          combat = {
+            success: true,
+            flashJump: {
+              mapId: activeMapId,
+              x: nextX,
+              floor: nextFloor,
+              direction,
+              distancePx
+            }
+          };
+        } else if (damageEffects.has(definition.effect)) {
           if (definition.effect === 'consume-combo-damage' && skillState.comboCount <= 0) {
             throw new Error('콤보 카운터가 필요합니다.');
           }
@@ -2749,8 +2775,7 @@ function registerV2Routes({
             debuffDurationSeconds: Number(values.durationSeconds) || 0
           });
           if (!combat.success) throw new Error('사거리 안에 약화시킬 대상이 없습니다.');
-          skillState.activeBuffs = skillState.activeBuffs.filter((buff) => buff.skillId !== skillId);
-          skillState.activeBuffs.push({
+          const activeBuff = upsertActiveBuff(character, {
             skillId,
             name: definition.name,
             effects: {
@@ -2758,8 +2783,9 @@ function registerV2Routes({
               accuracyIncrease: Number(values.accuracyIncrease) || 0
             },
             createdAt: new Date(now),
-            expiresAt: new Date(now + Number(values.durationSeconds || 1) * 1000)
+            durationSeconds: Math.max(1, Number(values.durationSeconds) || 1)
           });
+          combat = { ...combat, appliedBuff: activeBuff };
         } else if (definition.effect === 'summon') {
           skillState.summon = {
             skillId,
@@ -2775,7 +2801,7 @@ function registerV2Routes({
             skillState.activeBuffs.splice(activeIndex, 1);
             combat = { success: true, toggled: false };
           } else {
-            skillState.activeBuffs.push({
+            const activeBuff = upsertActiveBuff(character, {
               skillId,
               name: definition.name,
               effects: {
@@ -2785,11 +2811,11 @@ function registerV2Routes({
               createdAt: new Date(now),
               expiresAt: null
             });
-            combat = { success: true, toggled: true };
+            combat = { success: true, toggled: true, appliedBuff: activeBuff };
           }
         } else {
           if (definition.effect === 'combo-buff') skillState.comboCount = 0;
-          const effects = {};
+          const effects = buildActiveBuffEffects(values);
           if (definition.effect === 'element-buff') {
             const conflicting = skillId === 'element_fire'
               ? new Set(['element_fire', 'element_ice'])
@@ -2800,28 +2826,20 @@ function registerV2Routes({
               (buff) => !conflicting.has(buff.skillId)
             );
           }
-          for (const key of [
-            'attackIncrease', 'defenseIncrease', 'magicDefenseIncrease',
-            'accuracyIncrease', 'evasionIncrease',
-            'attackSpeedStage', 'shieldDefensePercent', 'stanceChance',
-            'reflectPercent', 'targetMaxHpCapPercent', 'maxResourcePercent',
-            'maxCombo', 'damagePerComboPercent', 'damageIncreasePercent',
-            'noAmmoConsumption', 'movementSpeedIncrease', 'criticalChance',
-            'criticalDamagePercent', 'damageReductionPercent', 'experienceBonusPercent',
-            'allStatsPercent',
-            'moneyDropIncreasePercent',
-            'mpDamageGuardPercent', 'stealth'
-          ]) {
-            if (Number.isFinite(Number(values[key]))) {
-              const soloPerformanceSupport = definition.name === '성과 지원'
-                && key === 'experienceBonusPercent'
-                && getActivePartyPlayers(
-                  auth.id,
-                  String(req.body?.mapId || character.worldState?.mapId || '')
-                ).length < 2;
-              effects[key] = soloPerformanceSupport ? 10 : Number(values[key]);
-            }
+          if (Number.isFinite(Number(values.reflectPercent))) {
+            effects.reflectPercent = Number(values.reflectPercent);
           }
+          if (Number.isFinite(Number(values.targetMaxHpCapPercent))) {
+            effects.targetMaxHpCapPercent = Number(values.targetMaxHpCapPercent);
+          }
+          if (
+            definition.name === '성과 지원'
+            && Number.isFinite(Number(values.experienceBonusPercent))
+            && getActivePartyPlayers(
+              auth.id,
+              String(req.body?.mapId || character.worldState?.mapId || '')
+            ).length < 2
+          ) effects.experienceBonusPercent = 10;
           if (effects.reflectPercent) effects.contactReflectPercent = effects.reflectPercent;
           if (effects.targetMaxHpCapPercent) {
             effects.contactReflectCapPercent = effects.targetMaxHpCapPercent;
@@ -2831,16 +2849,15 @@ function registerV2Routes({
             effects.comboMaximum = Number(values.maxCombo) || 5;
             effects.comboDamagePerCount = Number(values.damagePerComboPercent) || 0;
           }
-          skillState.activeBuffs = skillState.activeBuffs.filter((buff) => buff.skillId !== skillId);
-          const activeBuff = {
+          const activeBuff = upsertActiveBuff(character, {
             skillId,
             name: definition.name,
             effects,
             createdAt: new Date(now),
-            expiresAt: new Date(now + Number(values.durationSeconds || 1) * 1000)
-          };
-          skillState.activeBuffs.push(activeBuff);
+            durationSeconds: Math.max(1, Number(values.durationSeconds) || 1)
+          });
           if (definition.target === 'party') partyBuffToShare = activeBuff;
+          combat = { ...(combat || { success: true }), appliedBuff: activeBuff };
         }
         if (partyBuffToShare) {
           supportTargetIds.push(...getActivePartyPlayers(
@@ -3579,17 +3596,13 @@ function registerV2Routes({
             ? existingExpiry
             : now;
           const durationMs = Math.max(1, Number(item.durationSeconds) || 900) * 1000;
-          skillState.activeBuffs = skillState.activeBuffs.filter(
-            (buff) => buff.skillId !== item.id
-          );
-          skillState.activeBuffs.push({
+          upsertActiveBuff(character, {
             skillId: item.id,
             name: item.name,
             effects: { experienceBonusPercent: Number(item.experienceBonusPercent) || 100 },
             createdAt: new Date(now),
             expiresAt: new Date(baseTime + durationMs)
           });
-          character.markModified('skills');
           message = `${item.name} 효과 시간이 누적되었습니다.`;
         } else if (item.itemType === 'hunting-time') {
           const huntingTime = addHuntingMinutes(character, item.huntingMinutes);

@@ -25,7 +25,8 @@ function buildSkillBody() {
         <div class="skill-card-actions">
           <input data-skill-amount="${escapeHtml(skill.id)}" type="number" min="1" max="${Math.max(1, skill.maxLevel - skill.level)}" value="1" ${skill.canInvest ? '' : 'disabled'}>
           <button data-skill-invest="${escapeHtml(skill.id)}" type="button" ${skill.canInvest ? '' : 'disabled'}>SP 투자</button>
-          ${skill.passive || skill.level <= 0 ? '' : `<button class="secondary-action" data-skill-preset="${escapeHtml(skill.id)}" type="button">${registered ? '퀵슬롯 해제' : '퀵슬롯 등록'}</button>`}
+          ${skill.passive || skill.level <= 0 || skill.effect === 'flash-jump' ? '' : `<button class="secondary-action" data-skill-preset="${escapeHtml(skill.id)}" type="button">${registered ? '퀵슬롯 해제' : '퀵슬롯 등록'}</button>`}
+          ${skill.effect === 'flash-jump' && skill.level > 0 ? '<small>공중에서 점프 버튼을 다시 누르면 자동으로 발동합니다.</small>' : ''}
         </div>
       </article>`;
     }).join('');
@@ -223,6 +224,26 @@ function hasActiveAutoSkillEffect(skill) {
   );
 }
 
+function mergeAppliedBuffIntoCharacter(character, appliedBuff) {
+  if (!character?.skillTree || !appliedBuff?.skillId) return;
+  const buffs = Array.isArray(character.skillTree.activeBuffs)
+    ? character.skillTree.activeBuffs
+    : [];
+  const createdAt = new Date(appliedBuff.createdAt || Date.now()).getTime();
+  const expiresAt = appliedBuff.expiresAt
+    ? new Date(appliedBuff.expiresAt).getTime()
+    : 0;
+  character.skillTree.activeBuffs = [
+    ...buffs.filter((buff) => buff.skillId !== appliedBuff.skillId),
+    {
+      ...appliedBuff,
+      createdAt,
+      expiresAt,
+      durationMs: expiresAt > createdAt ? expiresAt - createdAt : 0
+    }
+  ];
+}
+
 function getNextAutoSkillForCombat() {
   ensureAutoSkillPreferences();
   const tree = state.character?.skillTree;
@@ -418,18 +439,8 @@ function renderCombatBuffTray() {
       durationMs: 0
     });
   }
-  // Keep time-limited reward buffs visible even when the character has more than 15 effects.
-  const visibleBuffs = buffs
-    .map((buff, index) => ({
-      buff,
-      index,
-      priority: Number(buff.effects?.experienceBonusPercent) > 0 ? 1 : 0
-    }))
-    .sort((left, right) => right.priority - left.priority || left.index - right.index)
-    .slice(0, 15)
-    .map(({ buff }) => buff);
-  tray.innerHTML = visibleBuffs.map(combatBuffIconBody).join('');
-  tray.classList.toggle('is-empty', visibleBuffs.length === 0);
+  tray.innerHTML = buffs.map(combatBuffIconBody).join('');
+  tray.classList.toggle('is-empty', buffs.length === 0);
   $('fieldCharacter')?.classList.toggle(
     'is-stealthed',
     buffs.some((buff) => buff.skillId === 'extended_47fcdc0ba0')
@@ -444,7 +455,9 @@ function renderCombatBuffTray() {
 function buildSkillPresetEditor(preferredSlot = null) {
   const tree = state.character?.skillTree;
   const preset = tree?.activePreset || [];
-  const activeSkills = (tree?.skills || []).filter((skill) => !skill.passive && skill.level > 0);
+  const activeSkills = (tree?.skills || []).filter(
+    (skill) => !skill.passive && skill.effect !== 'flash-jump' && skill.level > 0
+  );
   const guide = Number.isInteger(preferredSlot)
     ? `${preferredSlot + 1}번 빈 슬롯에 등록할 스킬을 선택하세요.`
     : '배운 액티브 스킬을 최대 10개까지 등록하거나 해제할 수 있습니다.';
@@ -684,6 +697,7 @@ async function useActiveSkill(skillId, options = {}) {
       playSkillVisualEffect(data.skill, data.combat);
     }
     if (data.inventory) setInventoryData(data.inventory);
+    mergeAppliedBuffIntoCharacter(data.character, data.combat?.appliedBuff);
     state.character = data.character;
     renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
     showSkillUseLabel($('fieldCharacter'), data.skill.name);

@@ -8,6 +8,24 @@ const { getMasteryBookRule } = require('./masteryBookConfig');
 
 const MAX_ACTIVE_PRESET_SIZE = 10;
 const SKILL_UNLOCK_MIGRATION_VERSION = 1;
+const NON_PRESET_EFFECTS = new Set(['flash-jump']);
+const ACTIVE_BUFF_EFFECT_KEYS = Object.freeze([
+  'attackIncrease', 'defenseIncrease', 'magicDefenseIncrease',
+  'accuracyIncrease', 'evasionIncrease', 'weaponMastery',
+  'shieldDefensePercent', 'attackSpeedStage', 'damageReductionPercent',
+  'mpDamageGuardPercent', 'blockChance', 'stanceChance',
+  'contactReflectPercent', 'contactReflectCapPercent',
+  'doubleStrikeChance', 'doubleStrikeDamagePercent',
+  'comboEnabled', 'comboMaximum', 'comboDamagePerCount',
+  'comboDoubleChargeChance', 'lowHpThresholdPercent',
+  'lowHpDamageIncreasePercent', 'maxResourcePercent',
+  'damageIncreasePercent', 'elementDamageIncreasePercent',
+  'experienceBonusPercent', 'allStatsPercent',
+  'moneyDropIncreasePercent', 'noAmmoConsumption',
+  'movementSpeedIncrease', 'criticalChance', 'criticalDamagePercent',
+  'attackRangeIncrease', 'dodgeChance', 'consumableEffectPercent',
+  'magicMpCostIncreasePercent', 'stealth'
+]);
 
 const VALUE_LABELS = Object.freeze({
   healPercent: '회복량',
@@ -134,6 +152,11 @@ function ensureSkillState(character) {
   if (!skills.levels || typeof skills.levels !== 'object') skills.levels = {};
   if (!Array.isArray(skills.activePreset)) skills.activePreset = [];
   if (!Array.isArray(skills.autoPreset)) skills.autoPreset = [];
+  skills.activePreset = skills.activePreset.filter(
+    (skillId) => !NON_PRESET_EFFECTS.has(SKILL_DEFINITIONS[String(skillId)]?.effect)
+  );
+  const activePresetSet = new Set(skills.activePreset.map(String));
+  skills.autoPreset = skills.autoPreset.filter((skillId) => activePresetSet.has(String(skillId)));
   if (!Array.isArray(skills.unlockedQuestSkills)) skills.unlockedQuestSkills = [];
   if (!skills.unlockProgress || typeof skills.unlockProgress !== 'object') {
     skills.unlockProgress = {};
@@ -439,7 +462,12 @@ function setActivePreset(character, skillIds = []) {
     .filter(Boolean))].slice(0, MAX_ACTIVE_PRESET_SIZE);
   for (const skillId of normalized) {
     const definition = SKILL_DEFINITIONS[skillId];
-    if (!definition || definition.passive || getSkillLevel(character, skillId) <= 0) {
+    if (
+      !definition
+      || definition.passive
+      || NON_PRESET_EFFECTS.has(definition.effect)
+      || getSkillLevel(character, skillId) <= 0
+    ) {
       throw new Error('배운 액티브 스킬만 프리셋에 등록할 수 있습니다.');
     }
   }
@@ -459,7 +487,12 @@ function setAutoPreset(character, skillIds = []) {
     .filter((skillId) => activeSet.has(skillId)))].slice(0, MAX_ACTIVE_PRESET_SIZE);
   for (const skillId of normalized) {
     const definition = SKILL_DEFINITIONS[skillId];
-    if (!definition || definition.passive || getSkillLevel(character, skillId) <= 0) {
+    if (
+      !definition
+      || definition.passive
+      || NON_PRESET_EFFECTS.has(definition.effect)
+      || getSkillLevel(character, skillId) <= 0
+    ) {
       throw new Error('자동 사용은 전투 프리셋에 등록된 액티브 스킬만 설정할 수 있습니다.');
     }
   }
@@ -503,6 +536,45 @@ function pruneExpiredSkillState(character, now = Date.now()) {
     character.markModified('skills');
   }
   return skills;
+}
+
+function buildActiveBuffEffects(values = {}, extraEffects = {}) {
+  const effects = {};
+  for (const key of ACTIVE_BUFF_EFFECT_KEYS) {
+    if (Number.isFinite(Number(values[key]))) effects[key] = Number(values[key]);
+  }
+  for (const [key, value] of Object.entries(extraEffects || {})) {
+    if (Number.isFinite(Number(value))) effects[key] = Number(value);
+  }
+  return effects;
+}
+
+function upsertActiveBuff(character, buff = {}, now = Date.now()) {
+  const skillId = String(buff.skillId || '');
+  if (!skillId) throw new Error('버프 스킬 정보가 올바르지 않습니다.');
+  const skills = ensureSkillState(character);
+  const createdAtMs = Number.isFinite(new Date(buff.createdAt).getTime())
+    ? new Date(buff.createdAt).getTime()
+    : now;
+  const durationSeconds = Math.max(0, Number(buff.durationSeconds) || 0);
+  const explicitExpiryMs = buff.expiresAt == null ? 0 : new Date(buff.expiresAt).getTime();
+  const expiresAtMs = Number.isFinite(explicitExpiryMs) && explicitExpiryMs > 0
+    ? explicitExpiryMs
+    : (durationSeconds > 0 ? createdAtMs + durationSeconds * 1000 : 0);
+  const normalized = {
+    skillId,
+    name: String(buff.name || SKILL_DEFINITIONS[skillId]?.name || '버프'),
+    effects: { ...(buff.effects || {}) },
+    createdAt: new Date(createdAtMs),
+    expiresAt: expiresAtMs > 0 ? new Date(expiresAtMs) : null
+  };
+  skills.activeBuffs = skills.activeBuffs.filter((entry) => String(entry.skillId) !== skillId);
+  skills.activeBuffs.push(normalized);
+  if (typeof character.markModified === 'function') {
+    character.markModified('skills');
+    character.markModified('skills.activeBuffs');
+  }
+  return normalized;
 }
 
 function getActiveSkillEffects(character, now = Date.now()) {
@@ -868,6 +940,8 @@ module.exports = {
   setActivePreset,
   setAutoPreset,
   pruneExpiredSkillState,
+  buildActiveBuffEffects,
+  upsertActiveBuff,
   getActiveSkillEffects,
   buildSkillTree,
   unlockQuestSkill

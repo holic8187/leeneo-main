@@ -10,7 +10,10 @@ const {
   getInvestmentBlockReason,
   investSkill,
   setActivePreset,
+  setAutoPreset,
   getActiveSkillEffects,
+  buildActiveBuffEffects,
+  upsertActiveBuff,
   buildSkillTree
 } = require('../../src/v2/skills/skillService');
 const {
@@ -388,6 +391,27 @@ test('passive skills cannot enter the ten-slot active preset', () => {
   assert.throws(() => setActivePreset(character, ['recovery_improvement']), /액티브/);
 });
 
+test('flash jump is an airborne jump action and cannot enter combat presets', () => {
+  const flashJump = findSkillByName('고객 선점');
+  const character = makeCharacter({
+    job: { departmentId: 'sales', advancementTier: 4 }
+  });
+  character.skills.levels[flashJump.id] = flashJump.maxLevel;
+
+  assert.equal(flashJump.effect, 'flash-jump');
+  assert.equal(resolveSkillValues(flashJump, flashJump.maxLevel).distance, 320);
+  assert.equal(resolveSkillValues(flashJump, flashJump.maxLevel).flashJumpCount, 1);
+  assert.match(flashJump.description, /공중에서 점프/);
+  assert.throws(() => setActivePreset(character, [flashJump.id]), /액티브/);
+
+  character.skills.activePreset = [flashJump.id];
+  character.skills.autoPreset = [flashJump.id];
+  ensureSkillState(character);
+  assert.deepEqual(character.skills.activePreset, []);
+  assert.deepEqual(character.skills.autoPreset, []);
+  assert.deepEqual(setAutoPreset(character, [flashJump.id]), []);
+});
+
 test('HR and quality trees expose beginner plus four advancement tiers', () => {
   const character = makeCharacter({
     job: { departmentId: 'quality', advancementTier: 4 },
@@ -542,6 +566,48 @@ test('active buff effects and skill tree are not capped by buff count', () => {
   assert.equal(effects.defenseIncrease, 18);
   assert.equal(effects.moneyDropIncreasePercent, 50);
   assert.equal(tree.activeBuffs.length, 19);
+});
+
+test('active buff upsert has no count cap and only refreshes the same skill', () => {
+  const character = makeCharacter();
+  const now = Date.now();
+  character.skills.activeBuffs = Array.from({ length: 18 }, (_, index) => ({
+    skillId: `existing_buff_${index}`,
+    name: `기존 버프 ${index + 1}`,
+    effects: { defenseIncrease: 1 },
+    createdAt: new Date(now),
+    expiresAt: new Date(now + 60_000)
+  }));
+
+  upsertActiveBuff(character, {
+    skillId: 'new_buff',
+    name: '새 버프',
+    durationSeconds: 120,
+    effects: buildActiveBuffEffects({
+      attackIncrease: 12,
+      criticalChance: 15,
+      mpCost: 999,
+      durationSeconds: 120
+    })
+  }, now);
+  assert.equal(character.skills.activeBuffs.length, 19);
+  assert.deepEqual(
+    character.skills.activeBuffs.find((buff) => buff.skillId === 'new_buff').effects,
+    { attackIncrease: 12, criticalChance: 15 }
+  );
+
+  upsertActiveBuff(character, {
+    skillId: 'new_buff',
+    name: '갱신된 버프',
+    durationSeconds: 180,
+    effects: { attackIncrease: 20 }
+  }, now + 1_000);
+  const refreshed = character.skills.activeBuffs.filter((buff) => buff.skillId === 'new_buff');
+  assert.equal(character.skills.activeBuffs.length, 19);
+  assert.equal(refreshed.length, 1);
+  assert.equal(refreshed[0].name, '갱신된 버프');
+  assert.equal(refreshed[0].effects.attackIncrease, 20);
+  assert.equal(new Date(refreshed[0].expiresAt).getTime(), now + 181_000);
 });
 
 test('the reviewed draft exposes complete four-tier trees for every ranged and magic department', () => {

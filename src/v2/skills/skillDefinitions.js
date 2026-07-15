@@ -21,6 +21,7 @@ const TELEPORT_SKILL_IDS = new Set([
   'extended_85efaaf08e',
   'extended_83750dd151'
 ]);
+const FLASH_JUMP_SKILL_ID = 'extended_729f1a7cf5';
 const MP_DAMAGE_GUARD_SKILL_ID = 'extended_51dd415210';
 const STEALTH_SKILL_ID = 'extended_47fcdc0ba0';
 const MONEY_DROP_BUFF_SKILL_ID = 'extended_51403b1515';
@@ -80,6 +81,21 @@ const SKILL_DEFINITIONS = Object.freeze({
         values: {
           ...(definition.values || {}),
           moneyDropIncreasePercent: definition.values?.primaryPercent || [5, 50]
+        }
+      }];
+    }
+    if (id === FLASH_JUMP_SKILL_ID) {
+      return [id, {
+        ...definition,
+        description: '공중에서 점프를 한 번 더 누르면 MP를 소모해 바라보는 방향으로 빠르게 도약합니다.',
+        effect: 'flash-jump',
+        target: 'self',
+        range: 320,
+        values: {
+          ...(definition.values || {}),
+          mpCost: [25, 13],
+          distance: [120, 320],
+          flashJumpCount: 1
         }
       }];
     }

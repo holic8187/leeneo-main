@@ -76,7 +76,8 @@ const state = {
     velocityY: 0,
     lastFrameAt: 0,
     frameId: 0,
-    airJumpsUsed: 0
+    airJumpsUsed: 0,
+    flashJumpPending: false
   },
   skillUseBusy: false,
   autoSkillOwnerKey: '',
@@ -689,7 +690,8 @@ const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, mil
 const CHARACTER_MOVEMENT_TIME_SCALE = 3;
 const CHARACTER_BASE_MOVEMENT_PX_PER_SECOND = 115 / CHARACTER_MOVEMENT_TIME_SCALE;
 const CHARACTER_GRAVITY_PX_PER_SECOND_SQUARED = 1_180;
-const CHARACTER_JUMP_VELOCITY_PX_PER_SECOND = 430;
+// 304px/s keeps the same gravity while reducing the apex to half of the former jump.
+const CHARACTER_JUMP_VELOCITY_PX_PER_SECOND = 304;
 const CHARACTER_KNOCKBACK_LIFT_PX_PER_SECOND = 235;
 const RALLY_POINT_STORAGE_KEY = 'v2RallyPoint';
 const CHARACTER_MOTION_CLASSES = [
@@ -759,14 +761,88 @@ function resetCharacterPhysics() {
 }
 
 function getAvailableFlashJumps() {
+  const learnedFlashJump = state.character?.skillTree?.skills?.find(
+    (skill) => skill.effect === 'flash-jump' && Number(skill.level) > 0
+  );
   return Math.max(
     0,
     Math.floor(Number(
-      state.character?.derivedStats?.flashJumpCount
+      learnedFlashJump?.values?.flashJumpCount
+      ?? state.character?.derivedStats?.flashJumpCount
       ?? state.character?.skillEffects?.flashJumpCount
       ?? 0
     ) || 0)
   );
+}
+
+function getLearnedFlashJumpSkill() {
+  return state.character?.skillTree?.skills?.find(
+    (skill) => skill.effect === 'flash-jump' && Number(skill.level) > 0
+  ) || null;
+}
+
+async function triggerCharacterFlashJump() {
+  const physics = state.characterPhysics;
+  const skill = getLearnedFlashJumpSkill();
+  const character = $('fieldCharacter');
+  if (!skill || !character || physics.flashJumpPending) return false;
+  const mpCost = Math.max(0, Number(skill.values?.mpCost) || 0);
+  if (Number(state.character?.resources?.currentMp) < mpCost) {
+    setWorldActivity('플래시 점프를 사용할 정신력이 부족합니다.');
+    return false;
+  }
+  const distancePx = Math.max(1, Math.min(320, Number(skill.values?.distance) || skill.range || 320));
+  const facingLeft = character.classList.contains('facing-left');
+  const direction = facingLeft ? -1 : 1;
+  const currentX = getCharacterX();
+  const nextX = Math.max(0, Math.min(94, currentX + direction * distancePx / 760 * 100));
+
+  physics.flashJumpPending = true;
+  physics.airJumpsUsed += 1;
+  physics.velocityY = Math.max(physics.velocityY, 72);
+  character.classList.add('is-flash-jumping');
+  character.style.transitionDuration = '120ms';
+  character.style.left = `${nextX}%`;
+  setTimeout(() => {
+    character.style.transitionDuration = '';
+    character.classList.remove('is-flash-jumping');
+  }, 260);
+  setWorldActivity(`${skill.name} 사용`);
+
+  try {
+    const data = await request('/api/v2/skills/use', {
+      method: 'POST',
+      body: JSON.stringify({
+        clientId: state.worldClientId,
+        mapId: state.currentMapId,
+        x: currentX,
+        floor: getCharacterFloor(),
+        facingLeft,
+        direction: facingLeft ? 'left' : 'right',
+        airborne: true,
+        skillId: skill.id
+      })
+    });
+    if (data.character) {
+      state.character = data.character;
+      const resources = data.character.resources || {};
+      setResource('hp', resources.currentHp, resources.maxHp);
+      setResource('mp', resources.currentMp, resources.maxMp);
+      renderSkillQuickbar();
+      renderCombatBuffTray();
+    }
+    const serverJump = data.combat?.flashJump;
+    if (serverJump && character) {
+      character.style.left = `${Math.max(0, Math.min(94, Number(serverJump.x) || nextX))}%`;
+    }
+    return true;
+  } catch (err) {
+    if (physics.airborne) physics.airJumpsUsed = Math.max(0, physics.airJumpsUsed - 1);
+    setWorldActivity(err.message);
+    return false;
+  } finally {
+    physics.flashJumpPending = false;
+  }
 }
 
 function runCharacterPhysicsFrame(timestamp) {
@@ -794,7 +870,8 @@ function triggerCharacterJump({ knockback = false } = {}) {
   const physics = state.characterPhysics;
   if (physics.airborne && !knockback) {
     if (physics.airJumpsUsed >= getAvailableFlashJumps()) return false;
-    physics.airJumpsUsed += 1;
+    triggerCharacterFlashJump();
+    return true;
   } else if (!physics.airborne) {
     physics.airJumpsUsed = 0;
   }
