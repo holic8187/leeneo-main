@@ -112,6 +112,106 @@ const PASSIVE_OVERRIDES = Object.freeze({
     }
   }
 });
+const SUMMON_OVERRIDES = Object.freeze({
+  '대체 장부': {
+    summonRole: 'decoy',
+    summonIcon: '📒'
+  },
+  '감사 드론': {
+    summonRole: 'attacker',
+    summonIcon: '🦅',
+    values: {
+      attackPower: [30, 100],
+      attackIntervalSeconds: 3,
+      stunChance: [30, 99],
+      stunSeconds: 2
+    }
+  },
+  '동결감사 드론': {
+    summonRole: 'attacker',
+    summonIcon: '❄️',
+    element: 'ice',
+    maxTargets: 4,
+    values: {
+      attackPower: [120, 500],
+      attackIntervalSeconds: 3,
+      freezeSeconds: 4
+    }
+  },
+  '마스코트 배치': {
+    summonRole: 'decoy',
+    summonIcon: '🧸'
+  },
+  '홍보 드론': {
+    summonRole: 'attacker',
+    summonIcon: '🦅',
+    values: {
+      attackPower: [30, 100],
+      attackIntervalSeconds: 3,
+      stunChance: [30, 99],
+      stunSeconds: 2
+    }
+  },
+  '불사조 캠페인': {
+    summonRole: 'attacker',
+    summonIcon: '🔥',
+    element: 'fire',
+    maxTargets: 4,
+    values: {
+      attackPower: [130, 550],
+      attackIntervalSeconds: 2.5
+    }
+  },
+  '영업 대리인': {
+    summonRole: 'follow-up',
+    summonIcon: '👥',
+    values: {
+      basicFollowUpPercent: [20, 80],
+      skillFollowUpPercent: [15, 50],
+      attackIntervalSeconds: 0
+    }
+  },
+  '냉각 서버': {
+    summonRole: 'attacker',
+    summonIcon: '🧚',
+    element: 'ice',
+    maxTargets: 3,
+    values: {
+      attackPower: [183, 270],
+      attackIntervalSeconds: 3,
+      freezeSeconds: 4
+    }
+  },
+  '가열 실험체': {
+    summonRole: 'attacker',
+    summonIcon: '🧯',
+    element: 'fire',
+    maxTargets: 3,
+    values: {
+      attackPower: [183, 300],
+      attackIntervalSeconds: 3
+    }
+  },
+  '지원 드론': {
+    summonRole: 'attacker',
+    summonIcon: '🐉',
+    element: 'holy',
+    values: {
+      attackPower: [30, 150],
+      attackIntervalSeconds: 3
+    }
+  },
+  '지원 수호체': {
+    summonRole: 'attacker',
+    summonIcon: '🐲',
+    element: 'holy',
+    maxTargets: 3,
+    values: {
+      attackPower: [113, 230],
+      attackIntervalSeconds: 3
+    }
+  }
+});
 
 function clean(value) {
   return String(value || '')
@@ -311,6 +411,8 @@ function inferDefinition({ marker, name, tier, maxLevel, effectText, rangeText, 
         : /단검 숙련도/.test(description) ? ['dagger']
           : undefined;
   const passiveOverride = PASSIVE_OVERRIDES[name] || null;
+  const summonOverride = SUMMON_OVERRIDES[name] || null;
+  if (summonOverride) effect = 'summon';
   return {
     id: makeId(name, departments, tier),
     name,
@@ -321,12 +423,18 @@ function inferDefinition({ marker, name, tier, maxLevel, effectText, rangeText, 
     passive: passiveOverride?.passive ?? passive,
     quest,
     prerequisites: [],
-    element,
-    target: passive ? 'self' : (isParty ? 'party' : (isArea ? 'enemies' : (isDamage ? 'enemy' : 'self'))),
-    maxTargets,
+    element: summonOverride?.element || element,
+    target: passive ? 'self' : (summonOverride ? 'self' : (isParty ? 'party' : (isArea ? 'enemies' : (isDamage ? 'enemy' : 'self')))),
+    maxTargets: summonOverride?.maxTargets || maxTargets,
     range,
     effect: passiveOverride?.effect || effect,
-    values: passiveOverride ? { ...values, ...passiveOverride.values } : values,
+    values: passiveOverride
+      ? { ...values, ...passiveOverride.values }
+      : { ...values, ...(summonOverride?.values || {}) },
+    ...(summonOverride ? {
+      summonRole: summonOverride.summonRole,
+      summonIcon: summonOverride.summonIcon
+    } : {}),
     ...((passiveOverride?.weaponTypes || weaponTypes)
       ? { weaponTypes: passiveOverride?.weaponTypes || weaponTypes }
       : {})
