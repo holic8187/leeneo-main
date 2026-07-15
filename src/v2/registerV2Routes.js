@@ -2116,25 +2116,36 @@ function registerV2Routes({
   app.get('/api/v2/npcs/:npcId', async (req, res) => {
     const auth = requireV2User(req, res);
     if (!auth) return;
-    const character = await V2Character.findOne({ userId: auth.id });
-    if (!character) return res.status(404).json({ msg: '캐릭터를 찾을 수 없습니다.' });
-    const questChanged = recordNpcVisit(character, String(req.params.npcId || ''));
-    if (questChanged) await character.save();
-    const npc = buildNpcView(character, req.params.npcId);
-    if (!npc) return res.status(404).json({ msg: 'NPC를 찾을 수 없습니다.' });
-    return res.json({ npc });
+    try {
+      const npc = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('캐릭터를 찾을 수 없습니다.');
+        const questChanged = recordNpcVisit(character, String(req.params.npcId || ''));
+        if (questChanged) await character.save();
+        return buildNpcView(character, req.params.npcId);
+      });
+      if (!npc) return res.status(404).json({ msg: 'NPC를 찾을 수 없습니다.' });
+      return res.json({ npc });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || 'NPC 정보를 불러오지 못했습니다.' });
+    }
   });
 
   app.post('/api/v2/quests/accept', async (req, res) => {
     const auth = requireV2User(req, res);
     if (!auth) return;
     try {
-      const character = await V2Character.findOne({ userId: auth.id });
-      const quest = acceptQuest(character, String(req.body?.questId || ''));
-      await character.save();
-      return res.json({ quest, journal: buildQuestJournal(character) });
+      const result = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('캐릭터를 찾을 수 없습니다.');
+        const quest = acceptQuest(character, String(req.body?.questId || ''));
+        await character.save();
+        worldProfileCache.delete(String(auth.id));
+        return { quest, journal: buildQuestJournal(character) };
+      });
+      return res.json(result);
     } catch (err) {
-      return res.status(400).json({ msg: err.message });
+      return res.status(400).json({ msg: err.message || '퀘스트를 수락하지 못했습니다.' });
     }
   });
 
@@ -2143,36 +2154,50 @@ function registerV2Routes({
     if (!auth) return;
     const mapId = String(req.body?.mapId || '');
     if (!getWorldMap(mapId)) return res.status(400).json({ msg: '존재하지 않는 맵입니다.' });
-    const character = await V2Character.findOne({ userId: auth.id });
-    const changed = recordMapVisit(character, mapId);
-    if (changed) await character.save();
-    return res.json({ journal: buildQuestJournal(character) });
+    try {
+      const journal = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('캐릭터를 찾을 수 없습니다.');
+        const changed = recordMapVisit(character, mapId);
+        if (changed) await character.save();
+        return buildQuestJournal(character);
+      });
+      return res.json({ journal });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '퀘스트 진행도를 갱신하지 못했습니다.' });
+    }
   });
 
   app.post('/api/v2/quests/claim', async (req, res) => {
     const auth = requireV2User(req, res);
     if (!auth) return;
     try {
-      const character = await V2Character.findOne({ userId: auth.id });
-      const rewards = claimQuest(character, String(req.body?.questId || ''));
-      const experience = grantV2Experience(character, rewards.exp);
-      if (!character.economy || typeof character.economy !== 'object') character.economy = {};
-      character.economy.money = Math.max(0, Number(character.economy?.money) || 0)
-        + Math.max(0, Number(rewards.money) || 0);
-      for (const item of rewards.items || []) addInventoryItem(character, item.itemId, item.quantity);
-      if (Number(rewards.huntingMinutes) > 0) {
-        addHuntingMinutes(character, rewards.huntingMinutes);
-      }
-      await character.save();
-      worldProfileCache.delete(String(auth.id));
-      return res.json({
-        rewards,
-        experience,
-        character: buildCharacterResponse(character),
-        journal: buildQuestJournal(character)
+      const result = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('캐릭터를 찾을 수 없습니다.');
+        const rewards = claimQuest(character, String(req.body?.questId || ''));
+        const experience = grantV2Experience(character, rewards.exp);
+        if (!character.economy || typeof character.economy !== 'object') character.economy = {};
+        character.economy.money = Math.max(0, Number(character.economy?.money) || 0)
+          + Math.max(0, Number(rewards.money) || 0);
+        for (const item of rewards.items || []) {
+          addInventoryItem(character, item.itemId, item.quantity);
+        }
+        if (Number(rewards.huntingMinutes) > 0) {
+          addHuntingMinutes(character, rewards.huntingMinutes);
+        }
+        await character.save();
+        worldProfileCache.delete(String(auth.id));
+        return {
+          rewards,
+          experience,
+          character: buildCharacterResponse(character),
+          journal: buildQuestJournal(character)
+        };
       });
+      return res.json(result);
     } catch (err) {
-      return res.status(400).json({ msg: err.message });
+      return res.status(400).json({ msg: err.message || '퀘스트 보상을 받지 못했습니다.' });
     }
   });
 

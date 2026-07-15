@@ -95,6 +95,7 @@ const state = {
   marketplace: { listings: [], mine: [], rules: {}, search: '' },
   pendingPatchNotes: null,
   patchNotesHistory: [],
+  generalQuestActionBusy: false,
   offlineSummaryKey: '',
   offlineSummaryRetryTimer: null
 };
@@ -4545,6 +4546,7 @@ function generalQuestBody() {
   const journal = state.questJournal || { active: [], completedCount: 0 };
   return `<div class="general-quest-journal">
     <header><div><span>QUEST LOG</span><h3>수락한 업무 목록</h3></div><b>완료 ${formatNumber(journal.completedCount)}건</b></header>
+    <p class="quest-action-status hidden" data-general-quest-status role="status"></p>
     <div class="general-quest-list">${journal.active.length
       ? journal.active.map((quest) => questCardBody(quest)).join('')
       : '<div class="empty-ledger"><b>수락한 퀘스트가 없습니다.</b><p>필드와 마을의 NPC를 눌러 새로운 업무를 받아보세요.</p></div>'}</div>
@@ -4557,6 +4559,7 @@ function npcDialogueBody() {
   return `<div class="npc-dialog-sheet">
     <aside><span>${escapeHtml(npc.icon || '🧑‍💼')}</span><strong>${escapeHtml(npc.name)}</strong><small>QUEST NPC</small></aside>
     <section><h3>${escapeHtml(npc.name)}의 업무 요청</h3>
+      <p class="quest-action-status hidden" data-general-quest-status role="status"></p>
       <div class="general-quest-list">${npc.quests.map((quest) => questCardBody(quest, { showDialogue: true })).join('')}</div>
       <button class="npc-dialog-close" type="button" data-close-npc-dialog>대화 그만하기</button>
     </section>
@@ -4584,6 +4587,8 @@ async function openNpcDialogue(npcId) {
 }
 
 async function acceptGeneralQuest(questId) {
+  if (state.generalQuestActionBusy) return;
+  state.generalQuestActionBusy = true;
   try {
     const data = await request('/api/v2/quests/accept', {
       method: 'POST', body: JSON.stringify({ questId })
@@ -4591,11 +4596,19 @@ async function acceptGeneralQuest(questId) {
     state.questJournal = data.journal;
     if (state.currentNpc) await openNpcDialogue(state.currentNpc.id);
     else openFeature('general-quests');
+    setGeneralQuestActionStatus('퀘스트를 수락했습니다.');
     setWorldActivity('새 퀘스트를 수락했습니다.');
-  } catch (err) { setWorldActivity(err.message); }
+  } catch (err) {
+    setGeneralQuestActionStatus(err.message, true);
+    setWorldActivity(err.message);
+  } finally {
+    state.generalQuestActionBusy = false;
+  }
 }
 
 async function claimGeneralQuest(questId) {
+  if (state.generalQuestActionBusy) return;
+  state.generalQuestActionBusy = true;
   try {
     const data = await request('/api/v2/quests/claim', {
       method: 'POST', body: JSON.stringify({ questId })
@@ -4607,16 +4620,51 @@ async function claimGeneralQuest(questId) {
     }
     if (state.currentNpc) await openNpcDialogue(state.currentNpc.id);
     else openFeature('general-quests');
-    setWorldActivity(`퀘스트 완료 · ${questRewardText(data.rewards)}`);
-  } catch (err) { setWorldActivity(err.message); }
+    const message = `퀘스트 완료 · ${questRewardText(data.rewards)}`;
+    setGeneralQuestActionStatus(message);
+    setWorldActivity(message);
+  } catch (err) {
+    setGeneralQuestActionStatus(err.message, true);
+    setWorldActivity(err.message);
+  } finally {
+    state.generalQuestActionBusy = false;
+  }
+}
+
+function setGeneralQuestActionStatus(message, isError = false) {
+  const status = document.querySelector('[data-general-quest-status]');
+  if (!status) return;
+  status.textContent = String(message || '');
+  status.classList.toggle('hidden', !message);
+  status.classList.toggle('is-error', Boolean(isError));
 }
 
 function bindGeneralQuestControls() {
   document.querySelectorAll('[data-accept-general-quest]').forEach((button) => {
-    button.addEventListener('click', () => acceptGeneralQuest(button.dataset.acceptGeneralQuest));
+    button.addEventListener('click', async () => {
+      if (state.generalQuestActionBusy) return;
+      button.disabled = true;
+      const label = button.textContent;
+      button.textContent = '수락 처리 중...';
+      await acceptGeneralQuest(button.dataset.acceptGeneralQuest);
+      if (button.isConnected) {
+        button.disabled = false;
+        button.textContent = label;
+      }
+    });
   });
   document.querySelectorAll('[data-claim-general-quest]').forEach((button) => {
-    button.addEventListener('click', () => claimGeneralQuest(button.dataset.claimGeneralQuest));
+    button.addEventListener('click', async () => {
+      if (state.generalQuestActionBusy) return;
+      button.disabled = true;
+      const label = button.textContent;
+      button.textContent = '보상 수령 중...';
+      await claimGeneralQuest(button.dataset.claimGeneralQuest);
+      if (button.isConnected) {
+        button.disabled = false;
+        button.textContent = label;
+      }
+    });
   });
   document.querySelector('[data-close-npc-dialog]')?.addEventListener('click', closeFeature);
 }

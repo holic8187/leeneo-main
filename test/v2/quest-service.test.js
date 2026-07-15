@@ -99,6 +99,26 @@ test('random quest rewards resolve exactly one item from the configured pool', (
   assert.deepEqual(rewards.items, [{ itemId: 'second', name: '둘째', quantity: 1 }]);
 });
 
+test('special contract quest consumes fifty contracts and grants its selected glove scroll', () => {
+  const character = characterFixture();
+  acceptQuest(character, 'neo_contract');
+  addInventoryItem(character, 'monster_loot_sales_fox', 50);
+
+  const ready = buildQuestJournal(character).active.find(
+    (quest) => quest.id === 'neo_contract'
+  );
+  assert.equal(ready.status, 'ready');
+
+  const rewards = claimQuest(character, 'neo_contract', () => 0);
+  for (const item of rewards.items) {
+    addInventoryItem(character, item.itemId, item.quantity);
+  }
+  assert.equal(getItemQuantity(character, 'monster_loot_sales_fox'), 0);
+  assert.equal(getItemQuantity(character, 'scroll_gloves_공격력_10'), 1);
+  assert.equal(buildQuestJournal(character).active.length, 0);
+  assert.ok(character.quests.completedIds.includes('neo_contract'));
+});
+
 test('daily quests reset at Korea midnight while weekly quests reset on Monday', () => {
   const character = characterFixture();
   const monday = new Date('2026-07-13T01:00:00.000Z');

@@ -120,6 +120,21 @@ form button { color: #fff; border-color: var(--green); background: var(--green);
 .login-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 form button.secondary-action { color: var(--green); background: #edf4ef; }
 
+.quest-action-status {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid #8fb5a4;
+  background: #edf7f1;
+  color: #145f46;
+  font-weight: 800;
+  line-height: 1.45;
+}
+.quest-action-status.is-error {
+  border-color: #da8c76;
+  background: #fff0ea;
+  color: #a33b24;
+}
+
 .ghost-button { min-width: 110px; background: transparent; }
 .status { margin: 4px 0 0; min-height: 22px; color: var(--orange); font-weight: 700; }
 .hidden { display: none !important; }
