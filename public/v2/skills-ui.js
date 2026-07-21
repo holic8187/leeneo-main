@@ -616,6 +616,33 @@ function applySkillCombat(combat = {}) {
   }
 }
 
+function applyChannelSkillHit(hit = {}) {
+  const element = Array.from($('monsterLayer').children).find(
+    (node) => node.dataset.monsterId === hit.monsterId
+  );
+  showFloatingDamage(
+    element,
+    hit.missed ? 'MISS' : hit.damage,
+    !hit.missed && hit.critical ? 'critical' : 'outgoing'
+  );
+  if (hit.defeated || Number(hit.remainingHp) <= 0) {
+    state.worldMonsters = state.worldMonsters.filter(
+      (monster) => monster.id !== hit.monsterId
+    );
+    element?.remove();
+    return;
+  }
+  state.worldMonsters = state.worldMonsters.map((monster) => (
+    monster.id === hit.monsterId
+      ? { ...monster, hp: Number(hit.remainingHp), maxHp: Number(hit.maxHp) || monster.maxHp }
+      : monster
+  ));
+  const hpBar = element?.querySelector('.monster-hp i');
+  if (hpBar) hpBar.style.width = `${ratio(hit.remainingHp, hit.maxHp)}%`;
+}
+
+window.applyChannelSkillHit = applyChannelSkillHit;
+
 async function queueManualSkillUse(skillId) {
   if (!skillId || state.dead) return false;
   state.manualSkillQueue.push(String(skillId));
@@ -671,24 +698,20 @@ async function useActiveSkill(skillId, options = {}) {
     });
     let data;
     if (channelDurationSeconds > 0 && typeof playChanneledSkillMotion === 'function') {
-      const requestPromise = requestSkillUse();
-      const settled = await Promise.allSettled([
-        requestPromise,
-        playChanneledSkillMotion(
-          {
-            durationMs: Math.round(channelDurationSeconds * 1000),
-            intervalMs: Math.max(1, Math.round(
-              Number(skill.values?.channelIntervalSeconds || 0.18) * 1000
-            )),
-            hitCount: Math.max(1, Number(skill.values?.hits) || 1)
-          },
-          motionKind,
-          motionRunId,
-          `${skill.name} 연사 중`
-        )
-      ]);
-      if (settled[0].status === 'rejected') throw settled[0].reason;
-      data = settled[0].value;
+      data = await requestSkillUse();
+      await playChanneledSkillMotion(
+        data.combat?.channel || {
+          durationMs: Math.round(channelDurationSeconds * 1000),
+          intervalMs: Math.max(1, Math.round(
+            Number(skill.values?.channelIntervalSeconds || 0.18) * 1000
+          )),
+          hitCount: Math.max(1, Number(skill.values?.hits) || 1),
+          hitResults: []
+        },
+        motionKind,
+        motionRunId,
+        `${skill.name} 연사 중`
+      );
     } else {
       await playWorldMotion(
         offensive ? (getCombatPresentation().motion || 'slash') : 'buff',
@@ -717,7 +740,7 @@ async function useActiveSkill(skillId, options = {}) {
           }, 240);
         }
       }
-      applySkillCombat(data.combat);
+      if (!data.combat.channel) applySkillCombat(data.combat);
       showGroundLoot(data.combat.drops || []);
       if (typeof handleFieldBossEvents === 'function' && Array.isArray(data.combat.fieldBossRewardResults)) {
         data.combat.fieldBossRewardResults.forEach((rewardResult) => (
@@ -734,6 +757,7 @@ async function useActiveSkill(skillId, options = {}) {
     mergeAppliedBuffIntoCharacter(data.character, data.combat?.appliedBuff);
     state.character = data.character;
     renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
+    window.refreshOpenStatsFeature?.();
     showSkillUseLabel($('fieldCharacter'), data.skill.name);
     setWorldActivity(`${data.skill.name} 사용`);
     if (!options.automatic) await sleep(300);

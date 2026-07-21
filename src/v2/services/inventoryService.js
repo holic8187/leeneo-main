@@ -771,8 +771,61 @@ function claimAllMail(character) {
   return pending.length;
 }
 
-function sortInventory(character) {
+function mergeNonExpiringConsumableStacks(character) {
   const inventory = ensureInventory(character);
+  const groups = new Map();
+  const isMergeable = (entry) => {
+    const item = getItemDefinition(entry.itemId);
+    const hasInstanceData = entry.data && Object.keys(entry.data).length > 0;
+    return item?.category === 'consumable'
+      && !entry.expiresAt
+      && !hasInstanceData
+      && Number(entry.quantity) > 0;
+  };
+  for (const entry of inventory.items) {
+    if (!isMergeable(entry)) continue;
+    const key = String(entry.itemId);
+    const group = groups.get(key) || { total: 0, stackIds: [] };
+    group.total += Math.max(0, Math.floor(Number(entry.quantity) || 0));
+    group.stackIds.push(String(entry.stackId || ''));
+    groups.set(key, group);
+  }
+
+  const emitted = new Set();
+  const merged = [];
+  for (const entry of inventory.items) {
+    if (!isMergeable(entry)) {
+      merged.push(entry);
+      continue;
+    }
+    const key = String(entry.itemId);
+    const group = groups.get(key);
+    if (!group) {
+      merged.push(entry);
+      continue;
+    }
+    if (emitted.has(key)) continue;
+    emitted.add(key);
+    const item = getItemDefinition(key);
+    const maxStack = getMaxStackSize(item);
+    let remaining = group.total;
+    let stackIndex = 0;
+    while (remaining > 0) {
+      const quantity = Math.min(maxStack, remaining);
+      const stack = createStack(key, quantity);
+      if (group.stackIds[stackIndex]) stack.stackId = group.stackIds[stackIndex];
+      merged.push(stack);
+      remaining -= quantity;
+      stackIndex += 1;
+    }
+  }
+  inventory.items = merged;
+  markInventoryModified(character);
+  return inventory;
+}
+
+function sortInventory(character) {
+  const inventory = mergeNonExpiringConsumableStacks(character);
   const categoryRank = {
     equipment: 0,
     consumable: 1,
@@ -844,5 +897,6 @@ module.exports = {
   getPendingMail,
   claimMail,
   claimAllMail,
+  mergeNonExpiringConsumableStacks,
   sortInventory
 };

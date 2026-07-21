@@ -99,6 +99,17 @@ function buildDerivedStats({
     workKnowledge: sumLoadoutStat(loadout, 'workKnowledge', 'intelligence'),
     awareness: sumLoadoutStat(loadout, 'awareness', 'luck')
   };
+  const activeBuffStatBonuses = Object.fromEntries(
+    Object.keys(equipmentStatBonuses).map((key) => [
+      key,
+      Math.max(
+        0,
+        Number(effectiveStats[key])
+          - Math.max(0, finite(stats[key]))
+          - Number(equipmentStatBonuses[key] || 0)
+      )
+    ])
+  );
   const totalAttack = sumLoadoutStat(loadout, 'attack', 'weaponAttack')
     + finite(skillEffects.attackIncrease);
   const mastery = Math.max(
@@ -190,6 +201,7 @@ function buildDerivedStats({
     archetype,
     effectiveStats,
     equipmentStatBonuses,
+    activeBuffStatBonuses,
     maxHpBonus: roundStat(sumLoadoutStat(loadout, 'maxHp')),
     maxMpBonus: roundStat(sumLoadoutStat(loadout, 'maxMp')),
     provisionalRange: true

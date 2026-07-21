@@ -17,7 +17,10 @@ const {
   upsertActiveBuff,
   buildSkillTree
 } = require('../../src/v2/skills/skillService');
-const { buildSummonState } = require('../../src/v2/skills/summonService');
+const {
+  buildSummonState,
+  isSummonAttackDue
+} = require('../../src/v2/skills/summonService');
 const {
   reconcileMaxResourceBuff
 } = require('../../src/v2/services/maxResourceBuffService');
@@ -81,7 +84,29 @@ test('phoenix summon keeps its attacker metadata and dedicated presentation', ()
   assert.equal(summon.icon, '🔥');
   assert.equal(summon.attackPower, 550);
   assert.equal(summon.attackIntervalMs, 2500);
+  assert.equal(summon.range, 450);
   assert.equal(summon.maxTargets, 4);
+  assert.equal(isSummonAttackDue(summon, Date.UTC(2026, 6, 15) + 2_499), false);
+  assert.equal(isSummonAttackDue(summon, Date.UTC(2026, 6, 15) + 2_500), true);
+  summon.lastAttackAt = new Date(Date.UTC(2026, 6, 15) + 2_500);
+  assert.equal(isSummonAttackDue(summon, Date.UTC(2026, 6, 15) + 4_999), false);
+  assert.equal(isSummonAttackDue(summon, Date.UTC(2026, 6, 15) + 5_000), true);
+});
+
+test('warriors receive both common fourth-job skills and support utility overrides work', () => {
+  for (const skillId of ['extended_e76286335c', 'extended_b067160f36']) {
+    assert.ok(SKILL_DEFINITIONS[skillId].departments.includes('hr'));
+    assert.ok(SKILL_DEFINITIONS[skillId].departments.includes('quality'));
+    assert.ok(SKILL_DEFINITIONS[skillId].departments.includes('field_operations'));
+  }
+  const reduction = SKILL_DEFINITIONS.extended_245ea8ab5c;
+  assert.equal(reduction.effect, 'monster-transform');
+  assert.equal(resolveSkillValues(reduction, reduction.maxLevel).successChance, 90);
+  assert.equal(resolveSkillValues(reduction, reduction.maxLevel).enemyDamageReductionPercent, 50);
+
+  const genesis = SKILL_DEFINITIONS.extended_aef3d1db17;
+  assert.equal(genesis.range, 720);
+  assert.equal(genesis.verticalFloorRange, 1);
 });
 
 test('storm channel resolves one three-second cast into seventeen paid hits', () => {

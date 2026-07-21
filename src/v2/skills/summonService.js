@@ -22,18 +22,22 @@ function buildSummonState(definition = {}, values = {}, now = Date.now()) {
   const durationSeconds = Math.max(1, Number(values.durationSeconds) || 1);
   const summonHp = Math.max(0, Math.floor(Number(values.summonHp) || 0));
   const attackIntervalSeconds = Math.max(0, Number(values.attackIntervalSeconds) || 0);
+  const role = getSummonRole(definition, values);
   return {
     skillId: String(definition.id || ''),
     name: String(definition.name || '소환수'),
     icon: String(definition.summonIcon || '🐾'),
-    role: getSummonRole(definition, values),
+    role,
     masteryIncrease: Math.max(0, Number(values.masteryIncrease) || 0),
     summonHp,
     maxSummonHp: summonHp,
     attackPower: Math.max(0, Number(values.attackPower) || 0),
     attackIntervalMs: Math.round(attackIntervalSeconds * 1000),
     maxTargets: Math.max(1, Math.floor(Number(values.targetCount ?? definition.maxTargets) || 1)),
-    range: Math.max(1, Number(values.range ?? definition.range) || 100),
+    range: Math.max(
+      1,
+      Number(values.range ?? definition.range) || (role === 'attacker' ? 650 : 100)
+    ),
     element: String(definition.element || 'neutral'),
     stunChance: Math.max(0, Number(values.stunChance) || 0),
     stunSeconds: Math.max(0, Number(values.stunSeconds) || 0),
@@ -57,6 +61,13 @@ function isAttackingSummon(summon, now = Date.now()) {
     && summon.role === 'attacker'
     && Number(summon.attackPower) > 0
     && Number(summon.attackIntervalMs) > 0;
+}
+
+function isSummonAttackDue(summon, now = Date.now()) {
+  if (!isAttackingSummon(summon, now)) return false;
+  const baseline = new Date(summon.lastAttackAt || summon.createdAt || 0).getTime();
+  if (!Number.isFinite(baseline)) return false;
+  return now - baseline >= Math.max(1, Number(summon.attackIntervalMs) || 1);
 }
 
 function isDecoySummon(summon, now = Date.now()) {
@@ -89,6 +100,7 @@ module.exports = {
   getSummonRole,
   isSummonActive,
   isAttackingSummon,
+  isSummonAttackDue,
   isDecoySummon,
   isCompanionSummon
 };

@@ -984,6 +984,106 @@ test('multi-target skills use the same forty-percent knockback threshold', () =>
   assert.ok(result.outcomes.some((outcome) => outcome.knockedBack));
 });
 
+test('channeled skills return one mastery and critical result per visible hit', () => {
+  const state = updatePresence({
+    userId: 'channel-user',
+    nickname: 'channel-user',
+    mapId: 'newcomer_training',
+    x: 50,
+    floor: 0,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_000
+  });
+  const monster = state.monsters.find((entry) => entry.floor === 0);
+  updatePresence({
+    userId: 'channel-user',
+    nickname: 'channel-user',
+    mapId: 'newcomer_training',
+    x: monster.x,
+    floor: 0,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_050
+  });
+  const result = useSkillOnMonsters({
+    userId: 'channel-user',
+    mapId: 'newcomer_training',
+    targetId: monster.id,
+    baseDamage: 1,
+    damageRange: { minimum: 2, maximum: 4 },
+    skillPercent: 100,
+    rangePx: 1_000,
+    hits: 3,
+    leaveAtOneHp: true,
+    criticalChance: 100,
+    criticalDamagePercent: 200,
+    rollCriticalPerHit: true,
+    now: 1_100
+  });
+  assert.equal(result.success, true);
+  assert.equal(result.outcomes[0].hitResults.length, 3);
+  assert.ok(result.outcomes[0].hitResults.every((hit) => hit.critical));
+  assert.ok(result.outcomes[0].hitResults.every((hit) => hit.damage > 0));
+});
+
+test('vertical floor range allows a genesis-style skill to hit one floor above', () => {
+  const state = updatePresence({
+    userId: 'vertical-user',
+    nickname: 'vertical-user',
+    mapId: 'newcomer_training',
+    x: 50,
+    floor: 0,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_000
+  });
+  const upper = state.monsters.find((entry) => entry.floor === 1);
+  assert.ok(upper);
+  const result = useSkillOnMonsters({
+    userId: 'vertical-user',
+    mapId: 'newcomer_training',
+    targetId: upper.id,
+    baseDamage: 10,
+    rangePx: 10_000,
+    maxTargets: 15,
+    verticalFloorRange: 1,
+    now: 1_100
+  });
+  assert.equal(result.success, true);
+  assert.ok(result.outcomes.some((outcome) => outcome.monsterId === upper.id));
+});
+
+test('work reduction applies its outgoing damage debuff to normal monsters', () => {
+  const state = updatePresence({
+    userId: 'work-reduction-user',
+    nickname: 'work-reduction-user',
+    mapId: 'newcomer_training',
+    x: 50,
+    floor: 0,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_000
+  });
+  const monster = state.monsters.find((entry) => entry.floor === 0);
+  assert.ok(monster);
+  const result = useSkillOnMonsters({
+    userId: 'work-reduction-user',
+    mapId: 'newcomer_training',
+    targetId: monster.id,
+    baseDamage: 0,
+    rangePx: 10_000,
+    dealDamage: false,
+    outgoingDamageReductionPercent: 50,
+    debuffChance: 100,
+    debuffDurationSeconds: 20,
+    now: 1_100
+  });
+  assert.equal(result.success, true);
+  assert.equal(result.outcomes[0].debuffApplied, true);
+  assert.equal(result.outcomes[0].monster.outgoingDamageReductionPercent, 50);
+});
+
 
 test('an external potion heal updates the active field player immediately', () => {
   updatePresence({

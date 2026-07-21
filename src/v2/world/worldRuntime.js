@@ -380,6 +380,11 @@ function serializeMonster(monster) {
     expReward: monster.expReward,
     monsterAccuracy: monster.monsterAccuracy,
     monsterEvasion: monster.monsterEvasion,
+    outgoingDamageReductionPercent: Math.max(
+      0,
+      Number(monster.outgoingDamageReductionPercent) || 0
+    ),
+    outgoingDamageDebuffUntil: Math.max(0, Number(monster.outgoingDamageDebuffUntil) || 0),
     elementalMultipliers: { ...(monster.elementalMultipliers || {}) },
     undead: Boolean(monster.undead),
     x: monster.x,
@@ -1452,6 +1457,11 @@ function useSkillOnMonsters({
   poisonDurationSeconds = 0,
   poisonMaxStacks = 0,
   undeadOnly = false,
+  excludeFieldBoss = false,
+  verticalFloorRange = 0,
+  criticalChance = 0,
+  criticalDamagePercent = 200,
+  rollCriticalPerHit = false,
   now = Date.now()
 }) {
   cleanupInactiveMaps(now);
@@ -1467,7 +1477,9 @@ function useSkillOnMonsters({
     .filter((monster) => (
       monster.hp > 0
       && (!undeadOnly || monster.undead)
-      && monster.floor === player.floor
+      && (!excludeFieldBoss || !monster.fieldBoss)
+      && Math.abs(Number(monster.floor) - Number(player.floor))
+        <= Math.max(0, Math.floor(Number(verticalFloorRange) || 0))
       && Math.abs(monster.x - player.x) <= rangePercent + 4.5
     ));
   const requestedMonster = inRange.find((monster) => monster.id === targetId);
@@ -1502,6 +1514,16 @@ function useSkillOnMonsters({
     if (Math.random() > hitChance) {
       monster.aggroTargetId = userKey;
       monster.state = 'chase';
+      const missedHits = Array.from({ length: hitCount }, (_, hitIndex) => ({
+        monsterId: monster.id,
+        hitIndex,
+        damage: 0,
+        critical: false,
+        missed: true,
+        remainingHp: monster.hp,
+        maxHp: monster.maxHp,
+        defeated: false
+      }));
       outcomes.push({
         monsterId: monster.id,
         damage: 0,
@@ -1510,19 +1532,26 @@ function useSkillOnMonsters({
         knockedBack: false,
         defeated: false,
         expReward: 0,
+        hitResults: missedHits,
         monster: serializeMonster(monster)
       });
       continue;
     }
     let totalDamage = 0;
+    const hitResults = [];
     for (let hit = 0; dealDamage && hit < hitCount && monster.hp > 0; hit += 1) {
       const defense = damageType === 'magic' ? monster.magicDefense : monster.physicalDefense;
       const multiplier = Math.max(
         ...activeElements.map((activeElement) => getElementMultiplier(monster, activeElement))
       );
+      const critical = rollCriticalPerHit
+        && Math.random() * 100 < Math.max(0, Number(criticalChance) || 0);
+      const criticalMultiplier = critical
+        ? Math.max(1, Number(criticalDamagePercent) || 200) / 100
+        : 1;
       const damage = resolveOutgoingDamage({
-        damage: baseDamage,
-        damageRange,
+        damage: Number(baseDamage) * (damageRange ? 1 : criticalMultiplier),
+        damageRange: damageRange ? scaleDamageRange(damageRange, criticalMultiplier) : null,
         damageType,
         skillPercent,
         defense,
@@ -1534,6 +1563,16 @@ function useSkillOnMonsters({
       recordMonsterContribution(monster, userKey, damage);
       monster.hp = Math.max(leaveAtOneHp ? 1 : 0, monster.hp - damage);
       totalDamage += damage;
+      hitResults.push({
+        monsterId: monster.id,
+        hitIndex: hit,
+        damage,
+        critical,
+        missed: false,
+        remainingHp: monster.hp,
+        maxHp: monster.maxHp,
+        defeated: monster.hp <= 0
+      });
     }
     const mpAbsorbed = damageType === 'magic' && totalDamage > 0
       ? absorbMonsterMp(monster, mpAbsorbChance, mpAbsorbPercent)
@@ -1567,10 +1606,23 @@ function useSkillOnMonsters({
       recordMonsterContribution(monster, userKey, damage);
       monster.hp = Math.max(leaveAtOneHp ? 1 : 0, monster.hp - damage);
       totalDamage += damage;
+      hitResults.push({
+        monsterId: monster.id,
+        hitIndex: hitResults.length,
+        damage,
+        critical: false,
+        missed: false,
+        remainingHp: monster.hp,
+        maxHp: monster.maxHp,
+        defeated: monster.hp <= 0,
+        bonusAttack: true
+      });
     }
     monster.aggroTargetId = userKey;
+    let debuffApplied = false;
     if (
       Number(outgoingDamageReductionPercent) > 0
+      && !monster.fieldBoss
       && Math.random() * 100 < Number(debuffChance || 0)
     ) {
       monster.outgoingDamageReductionPercent = Math.max(
@@ -1581,6 +1633,7 @@ function useSkillOnMonsters({
         Number(monster.outgoingDamageDebuffUntil) || 0,
         now + Math.max(0, Number(debuffDurationSeconds) || 0) * 1000
       );
+      debuffApplied = true;
     }
     let knockedBack = false;
     if (Math.random() * 100 < Number(stunChance || 0)) {
@@ -1615,6 +1668,8 @@ function useSkillOnMonsters({
       expReward: defeated && !monster.fieldBoss ? monster.expReward : 0,
       mpAbsorbed,
       poisoned,
+      debuffApplied,
+      hitResults,
       monster: defeated ? null : serializeMonster(monster)
     });
   }
@@ -1704,6 +1759,14 @@ function isPlayerSilenced(userId, mapId, now = Date.now()) {
   return Boolean(player && Number(player.silencedUntil || 0) > now);
 }
 
+function clearPlayerNegativeStatus(userId, mapId) {
+  const runtime = activeMaps.get(String(mapId || ''));
+  const player = runtime?.players.get(String(userId || ''));
+  if (!player) return false;
+  player.silencedUntil = 0;
+  return true;
+}
+
 function resetWorldRuntime() {
   activeMaps.clear();
   worldControllers.clear();
@@ -1726,6 +1789,7 @@ module.exports = {
   attackMonster,
   useSkillOnMonsters,
   isPlayerSilenced,
+  clearPlayerNegativeStatus,
   updatePlayerResources,
   setPlayerStealth,
   recordSkillUse,

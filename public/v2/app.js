@@ -1679,6 +1679,7 @@ async function playChanneledSkillMotion(channel = {}, kind, runId, activityLabel
   const durationMs = Math.max(1, Number(channel.durationMs) || 3000);
   const intervalMs = Math.max(1, Number(channel.intervalMs) || 180);
   const hitCount = Math.max(1, Math.floor(Number(channel.hitCount) || 1));
+  const hitResults = Array.isArray(channel.hitResults) ? channel.hitResults : [];
   const startedAt = performance.now();
   setWorldActivity(activityLabel || '연속 공격 중');
   for (let hit = 0; hit < hitCount; hit += 1) {
@@ -1687,6 +1688,7 @@ async function playChanneledSkillMotion(channel = {}, kind, runId, activityLabel
     void character.offsetWidth;
     setCharacterMotion('shoot');
     launchChannelProjectile();
+    if (hitResults[hit]) window.applyChannelSkillHit?.(hitResults[hit]);
     const nextAt = startedAt + Math.min(durationMs, (hit + 1) * intervalMs);
     await sleep(Math.max(0, nextAt - performance.now()));
   }
@@ -2560,8 +2562,17 @@ async function sendWorldHeartbeat() {
         jumpEvent
       })
     });
-    if (requestEpoch === state.worldStateEpoch && !state.dead && !state.reviving) {
+    if (
+      requestEpoch === state.worldStateEpoch
+      && !state.dead
+      && !state.reviving
+      && !state.skillUseBusy
+    ) {
       renderWorldEntities(data);
+      if (data.summonCombat?.success) {
+        applySkillCombat(data.summonCombat);
+        showGroundLoot(data.summonCombat.drops || []);
+      }
     }
   } catch (err) {
     if (err.code === 'WORLD_CONTROL_LOST') {
@@ -2773,6 +2784,22 @@ const ITEM_SLOT_LABELS = Object.freeze({
   ring: '반지',
   earrings: '귀걸이'
 });
+const ITEM_WEAPON_TYPE_LABELS = Object.freeze({
+  oneHandedSword: '한손검',
+  twoHandedSword: '두손검',
+  oneHandedAxe: '한손도끼',
+  twoHandedAxe: '두손도끼',
+  oneHandedBlunt: '한손둔기',
+  twoHandedBlunt: '두손둔기',
+  spear: '창',
+  polearm: '폴암',
+  bow: '활',
+  crossbow: '석궁',
+  claw: '아대',
+  dagger: '단검',
+  wand: '완드',
+  staff: '스태프'
+});
 
 function equipmentTooltipHtml(item) {
   if (item.category !== 'equipment') return '';
@@ -2797,6 +2824,7 @@ function equipmentTooltipHtml(item) {
   return `<div class="equipment-tooltip-spec">
     <span><b>장비명</b>${escapeHtml(displayName)}</span>
     <span><b>장착 부위</b>${escapeHtml(ITEM_SLOT_LABELS[item.equipmentSlot] || item.equipmentSlot || '미지정')}</span>
+    ${item.weaponType ? `<span><b>무기 종류</b>${escapeHtml(ITEM_WEAPON_TYPE_LABELS[item.weaponType] || item.weaponType)}</span>` : ''}
     <span><b>착용가능 직업</b>${escapeHtml(availableJobs)}</span>
     <span><b>착용에 필요한 스탯</b>${escapeHtml(`레벨 ${requiredLevel}${requiredStats ? ` · ${requiredStats}` : ' · 추가 요구 없음'}`)}</span>
     <span><b>장비 스탯</b>${escapeHtml(stats || '없음')}</span>
@@ -2813,7 +2841,7 @@ function inventorySlotBody(item, slotNumber, locked = false) {
   }
   let usable = '';
   const directlyUsableItem = (
-    ['return-scroll', 'experience-buff', 'hunting-time', 'level-up', 'skill-reset', 'mastery-book'].includes(item.itemType)
+    ['return-scroll', 'experience-buff', 'hunting-time', 'level-up', 'skill-reset', 'mastery-book', 'action-point'].includes(item.itemType)
     || item.id === 'level_up_coupon'
   );
   if (item.itemType === 'inventory-expansion') {
@@ -3676,6 +3704,7 @@ const featureMeta = {
   'world-map': { code: '14 / MAP', title: '사내 지도' },
   'patch-notes': { code: '15 / PATCH NOTES', title: '패치노트' },
   'general-quests': { code: '16 / QUESTS', title: '진행 중인 퀘스트' },
+  'special-actions': { code: '17 / SPECIAL ACTIONS', title: '특수행동' },
   'npc-dialog': { code: 'NPC / DIALOG', title: 'NPC 대화' },
   'trade-invite': { code: 'TRADE / INVITE', title: '교환 요청' },
   quest: { code: 'QUEST / HR', title: '전직 퀘스트' },
@@ -3971,9 +4000,10 @@ function statBody() {
   const derived = character.derivedStats || {};
   const effectiveStats = derived.effectiveStats || stats;
   const equipmentBonuses = derived.equipmentStatBonuses || {};
+  const buffBonuses = derived.activeBuffStatBonuses || {};
   const statValue = (key) => (
-    `${formatNumber(effectiveStats[key])}${Number(equipmentBonuses[key]) > 0
-      ? ` <small>(기본 ${formatNumber(stats[key])} + 장비 ${formatNumber(equipmentBonuses[key])})</small>`
+    `${formatNumber(effectiveStats[key])}${Number(equipmentBonuses[key]) > 0 || Number(buffBonuses[key]) > 0
+      ? ` <small>(기본 ${formatNumber(stats[key])}${Number(equipmentBonuses[key]) > 0 ? ` + 장비 ${formatNumber(equipmentBonuses[key])}` : ''}${Number(buffBonuses[key]) > 0 ? ` + 버프 ${formatNumber(buffBonuses[key])}` : ''})</small>`
       : ''}`
   );
   const abilities = [
@@ -4679,6 +4709,17 @@ function npcDialogueBody() {
   </div>`;
 }
 
+function refreshOpenStatsFeature() {
+  if (
+    $('featureModal')?.classList.contains('hidden')
+    || $('featureTitle')?.textContent !== featureMeta.stats.title
+  ) return;
+  $('featureBody').innerHTML = statBody();
+  bindStatControls();
+}
+
+window.refreshOpenStatsFeature = refreshOpenStatsFeature;
+
 function applyQuestJournalUpdate(journal) {
   if (!journal) return;
   state.questJournal = journal;
@@ -4803,6 +4844,61 @@ function bindGeneralQuestControls() {
   document.querySelector('[data-close-npc-dialog]')?.addEventListener('click', closeFeature);
 }
 
+function specialActionsBody() {
+  const actionPoints = state.character?.actionPoints || {};
+  const current = Math.max(0, Number(actionPoints.current) || 0);
+  const maximum = Math.max(1, Number(actionPoints.max) || 10);
+  const salaryLupinBuff = (state.character?.skillTree?.activeBuffs || []).find(
+    (buff) => buff.skillId === 'special_action_salary_lupin'
+      && (!buff.expiresAt || Number(buff.expiresAt) > Date.now())
+  );
+  const remainingSeconds = salaryLupinBuff
+    ? Math.max(0, Math.ceil((Number(salaryLupinBuff.expiresAt) - Date.now()) / 1000))
+    : 0;
+  return `<div class="special-action-sheet">
+    <header>
+      <div><span>ACTION POINT</span><strong>행동력 ${formatNumber(current)} / ${formatNumber(maximum)}</strong></div>
+      <small>행동력은 한국 시간 기준 매일 자정에 최대치로 충전됩니다.</small>
+    </header>
+    <div class="special-action-list">
+      <article class="${salaryLupinBuff ? 'is-active' : ''}">
+        <div class="special-action-icon">🕶️</div>
+        <div><strong>월급루팡</strong><p>행동력 6을 소모해 40분 동안 획득 경험치를 10% 추가로 얻습니다. 경험치 2배 쿠폰과 곱연산으로 중첩됩니다.</p>
+          <small>${salaryLupinBuff ? `적용 중 · ${formatDuration(remainingSeconds)} 남음` : '2배 쿠폰과 함께 사용 시 총 2.2배'}</small></div>
+        <button type="button" data-special-action="salary-lupin" ${salaryLupinBuff || current < 6 ? 'disabled' : ''}>
+          ${salaryLupinBuff ? '적용 중' : '행동력 6 사용'}
+        </button>
+      </article>
+      <article class="is-locked">
+        <div class="special-action-icon">🧰</div>
+        <div><strong>부업</strong><p>잡템과 기타 아이템을 재료로 확률적인 아이템 제작을 진행하는 기능입니다.</p><small>행동력 4 · 추후 공개</small></div>
+        <button type="button" disabled>준비 중</button>
+      </article>
+    </div>
+  </div>`;
+}
+
+function bindSpecialActionControls() {
+  document.querySelector('[data-special-action="salary-lupin"]')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      const data = await request('/api/v2/special-actions/salary-lupin', {
+        method: 'POST',
+        body: '{}'
+      });
+      state.character = data.character;
+      renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
+      $('featureBody').innerHTML = specialActionsBody();
+      bindSpecialActionControls();
+      setWorldActivity(data.message);
+    } catch (err) {
+      setWorldActivity(err.message);
+      button.disabled = false;
+    }
+  });
+}
+
 function featureBody(feature) {
   if (feature === 'stats') return statBody();
   if (feature === 'quest') return questBody();
@@ -4825,6 +4921,7 @@ function featureBody(feature) {
   if (feature === 'general-quests') return generalQuestBody();
   if (feature === 'npc-dialog') return npcDialogueBody();
   if (feature === 'trade-invite') return tradeInviteBody();
+  if (feature === 'special-actions') return specialActionsBody();
   const messages = {
     shop: '물약, 탄환, 장비 보급품을 구매하는 사내 보급소입니다.',
     cash: 'V2 전용 상품 구성 후 개장합니다.',
@@ -4872,6 +4969,7 @@ function openFeature(feature) {
     });
   }
   if (feature === 'general-quests' || feature === 'npc-dialog') bindGeneralQuestControls();
+  if (feature === 'special-actions') bindSpecialActionControls();
   $('featureModal').classList.remove('hidden');
   document.body.classList.add('modal-open');
   document.querySelector('.modal-close')?.focus();

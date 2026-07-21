@@ -21,7 +21,7 @@ const ACTIVE_BUFF_EFFECT_KEYS = Object.freeze([
   'comboDoubleChargeChance', 'lowHpThresholdPercent',
   'lowHpDamageIncreasePercent', 'maxResourcePercent',
   'damageIncreasePercent', 'elementDamageIncreasePercent',
-  'experienceBonusPercent', 'allStatsPercent',
+  'experienceBonusPercent', 'experienceMultiplierPercent', 'allStatsPercent',
   'moneyDropIncreasePercent', 'noAmmoConsumption',
   'movementSpeedIncrease', 'criticalChance', 'criticalDamagePercent',
   'attackRangeIncrease', 'dodgeChance', 'consumableEffectPercent',
@@ -172,6 +172,10 @@ function ensureSkillState(character) {
   if (!Array.isArray(skills.activeBuffs)) skills.activeBuffs = [];
   if (!skills.cooldowns || typeof skills.cooldowns !== 'object') skills.cooldowns = {};
   if (!skills.summon || typeof skills.summon !== 'object') skills.summon = null;
+  skills.offlineAutoRotationCursor = Math.max(
+    0,
+    Math.floor(Number(skills.offlineAutoRotationCursor) || 0)
+  );
   skills.comboCount = Math.max(0, Math.min(10, Math.floor(Number(skills.comboCount) || 0)));
   if (typeof character.markModified === 'function') character.markModified('skills');
   return skills;
@@ -498,6 +502,7 @@ function setActivePreset(character, skillIds = []) {
     }
   }
   ensureSkillState(character).activePreset = normalized;
+  ensureSkillState(character).offlineAutoRotationCursor = 0;
   const activeSet = new Set(normalized);
   ensureSkillState(character).autoPreset = ensureSkillState(character).autoPreset
     .filter((skillId) => activeSet.has(String(skillId)));
@@ -523,6 +528,7 @@ function setAutoPreset(character, skillIds = []) {
     }
   }
   skills.autoPreset = normalized;
+  skills.offlineAutoRotationCursor = 0;
   if (typeof character.markModified === 'function') character.markModified('skills');
   return normalized;
 }
@@ -634,6 +640,7 @@ function getActiveSkillEffects(character, now = Date.now()) {
     elementExplosionDamagePercent: 250,
     elementPreserveChance: 0,
     experienceBonusPercent: 0,
+    experienceMultiplierPercent: 0,
     allStatsPercent: 0,
     moneyDropIncreasePercent: 0,
     noAmmoConsumption: 0,

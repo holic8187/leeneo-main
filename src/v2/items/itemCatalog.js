@@ -212,6 +212,20 @@ const BASE_ITEMS = {
     description: '사용 후 15분 동안 획득 경험치가 2배가 됩니다.',
     adminGrantOnly: true
   },
+  hot_six: {
+    id: 'hot_six',
+    name: '핫식스',
+    category: 'cash',
+    itemType: 'action-point',
+    icon: '⚡',
+    actionPoints: 1,
+    maxStack: 100,
+    sellPrice: 0,
+    tradeable: false,
+    marketable: false,
+    description: '사용 즉시 행동력을 1 회복합니다. 행동력이 가득 차 있으면 사용되지 않습니다.',
+    adminGrantOnly: true
+  },
   inventory_expansion_ticket: {
     id: 'inventory_expansion_ticket',
     name: '인벤토리 확장권',

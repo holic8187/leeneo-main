@@ -3195,6 +3195,45 @@ body.floating-actions-minimized .mail-callout.has-alert {
 .ranking-profile small:first-of-type { font-size: 0.82rem; color: var(--green-dark); font-weight: 800; }
 .ranking-profile small:last-of-type { font-size: 0.76rem; }
 
+.special-action-sheet { display: grid; gap: 18px; }
+.special-action-sheet > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: end;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  background: #eef4ed;
+}
+.special-action-sheet > header div { display: grid; gap: 4px; }
+.special-action-sheet > header span { color: var(--green); font-size: .78rem; font-weight: 900; letter-spacing: .12em; }
+.special-action-sheet > header strong { font-size: 1.15rem; }
+.special-action-sheet > header small { color: var(--muted); text-align: right; }
+.special-action-list { display: grid; gap: 10px; }
+.special-action-list article {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 15px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+.special-action-list article.is-active { border-color: var(--green); box-shadow: inset 4px 0 var(--green); }
+.special-action-list article.is-locked { opacity: .72; background: #f1f1ec; }
+.special-action-icon { display: grid; place-items: center; width: 54px; height: 54px; background: #e5ece3; font-size: 1.8rem; }
+.special-action-list article > div:nth-child(2) { display: grid; gap: 5px; }
+.special-action-list p { margin: 0; line-height: 1.55; }
+.special-action-list small { color: var(--green-dark); font-weight: 800; }
+
+@media (max-width: 680px) {
+  .special-action-sheet > header { align-items: start; flex-direction: column; }
+  .special-action-sheet > header small { text-align: left; }
+  .special-action-list article { grid-template-columns: 48px minmax(0, 1fr); }
+  .special-action-list article > button { grid-column: 1 / -1; }
+  .special-action-icon { width: 44px; height: 44px; }
+}
+
 @media (max-width: 680px) {
   .trade-columns { grid-template-columns: 1fr; }
 }

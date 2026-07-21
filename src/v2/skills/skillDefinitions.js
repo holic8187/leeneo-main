@@ -26,6 +26,9 @@ const MP_DAMAGE_GUARD_SKILL_ID = 'extended_51dd415210';
 const STEALTH_SKILL_ID = 'extended_47fcdc0ba0';
 const MONEY_DROP_BUFF_SKILL_ID = 'extended_51403b1515';
 const EMPLOYEE_EMPOWERMENT_SKILL_ID = 'extended_e76286335c';
+const WAKE_UP_SKILL_ID = 'extended_b067160f36';
+const WORK_REDUCTION_SKILL_ID = 'extended_245ea8ab5c';
+const GENESIS_SKILL_ID = 'extended_aef3d1db17';
 
 function defineSkill(id, options) {
   return Object.freeze({
@@ -46,6 +49,7 @@ const SKILL_DEFINITIONS = Object.freeze({
     if (id === EMPLOYEE_EMPOWERMENT_SKILL_ID) {
       return [id, {
         ...definition,
+        departments: ALL_DEPARTMENTS,
         maxLevel: 20,
         values: {
           ...(definition.values || {}),
@@ -81,6 +85,37 @@ const SKILL_DEFINITIONS = Object.freeze({
         values: {
           ...(definition.values || {}),
           moneyDropIncreasePercent: definition.values?.primaryPercent || [5, 50]
+        }
+      }];
+    }
+    if (id === WAKE_UP_SKILL_ID) {
+      return [id, {
+        ...definition,
+        departments: ALL_DEPARTMENTS,
+        effect: 'cleanse-self'
+      }];
+    }
+    if (id === WORK_REDUCTION_SKILL_ID) {
+      return [id, {
+        ...definition,
+        effect: 'monster-transform',
+        target: 'enemies',
+        values: {
+          ...(definition.values || {}),
+          successChance: definition.values?.primaryPercent || [20, 90],
+          enemyDamageReductionPercent: 50
+        }
+      }];
+    }
+    if (id === GENESIS_SKILL_ID) {
+      return [id, {
+        ...definition,
+        range: Math.round(Number(definition.range || 1200) * 0.6),
+        verticalFloorRange: 1,
+        values: {
+          ...(definition.values || {}),
+          range: Math.round(Number(definition.range || 1200) * 0.6),
+          verticalFloorRange: 1
         }
       }];
     }

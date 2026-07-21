@@ -28,6 +28,7 @@ const {
   attackMonster,
   useSkillOnMonsters,
   isPlayerSilenced,
+  clearPlayerNegativeStatus,
   updatePlayerResources,
   setPlayerStealth,
   recordSkillUse,
@@ -115,6 +116,11 @@ const {
   serializeHuntingTime
 } = require('./services/huntingTimeService');
 const {
+  ensureDailyActionPoints,
+  spendActionPoints,
+  restoreActionPoints
+} = require('./services/actionPointService');
+const {
   applyOfflinePassiveMpRecovery,
   restoreCharacterMp
 } = require('./services/offlinePassiveRecoveryService');
@@ -162,7 +168,12 @@ const {
   upsertActiveBuff,
   getActiveSkillEffects
 } = require('./skills/skillService');
-const { buildSummonState } = require('./skills/summonService');
+const {
+  buildSummonState,
+  isAttackingSummon,
+  isSummonAttackDue,
+  isCompanionSummon
+} = require('./skills/summonService');
 const { calculateMagicDamageRange } = require('./combat/combatFormulas');
 
 const STEALTH_SKILL_ID = 'extended_47fcdc0ba0';
@@ -192,7 +203,6 @@ const V2_REMOVED_FEATURES = Object.freeze([
   '분당 월급 및 자동 급여',
   '스트레스',
   '열일 클릭 및 뉴스 타이핑',
-  '특수 행동',
   '가방 탭',
   '기존 카드 턴제 전투',
   '개인면담',
@@ -248,6 +258,18 @@ const V2_PATCH_NOTE_HISTORY = Object.freeze([
       '오프라인 사냥 중 자동 스킬 사용, MP 소모, 경험치와 드랍 기록이 처리되도록 보강했습니다.',
       '재접속 시 오프라인 사냥 정산 창이 뜨고 획득 결과를 확인할 수 있게 했습니다.'
     ])
+  }),
+  Object.freeze({
+    version: '2026-07-21-special-actions-1',
+    title: '특수행동과 전투 안정화',
+    publishedAt: '2026-07-21',
+    lines: Object.freeze([
+      '행동력 6을 사용하는 월급루팡을 추가했습니다. 40분 동안 경험치가 10% 증가하며 경험치 쿠폰과 곱연산으로 중첩됩니다.',
+      '행동력을 1 회복하는 캐시 소비 아이템 핫식스를 추가하고, 부업은 추후 공개 항목으로 특수행동 화면에 배치했습니다.',
+      '실시간 광고 송출의 연타마다 숙련도와 크리티컬을 따로 판정하고 애니메이션 타이밍에 맞춰 피해가 표시되도록 개선했습니다.',
+      '공격형 소환수, 업무 축소, 오프라인 자동 스킬 순환을 보강하고 불필요한 소환수 하트비트 조회를 줄였습니다.',
+      '영구 소비 아이템 자동 합치기, 실시간 버프 스탯, 공용 귀걸이 착용과 장비 무기 종류 표시를 정비했습니다.'
+    ])
   })
 ]);
 const V2_CURRENT_PATCH_NOTES = V2_PATCH_NOTE_HISTORY[V2_PATCH_NOTE_HISTORY.length - 1];
@@ -299,8 +321,12 @@ const V2_PLANNED_FEATURES = Object.freeze([
 
 function grantV2Experience(character, amount) {
   if (!character) return { gained: 0, levels: 0 };
-  const experienceMultiplier = 1
-    + Math.max(0, Number(getActiveSkillEffects(character).experienceBonusPercent) || 0) / 100;
+  const activeEffects = getActiveSkillEffects(character);
+  const experienceMultiplier = (
+    1 + Math.max(0, Number(activeEffects.experienceBonusPercent) || 0) / 100
+  ) * (
+    1 + Math.max(0, Number(activeEffects.experienceMultiplierPercent) || 0) / 100
+  );
   const gained = Math.max(0, Math.floor((Number(amount) || 0) * experienceMultiplier));
   let levels = 0;
   const previousLevel = Math.max(1, Number(character.progression?.level) || 1);
@@ -864,6 +890,29 @@ function registerV2Routes({
     return changed || timestampChanged;
   }
 
+  function isCompanionQuestTickDue(profile, now = Date.now()) {
+    const summon = profile?.skillTree?.summon;
+    if (!isCompanionSummon(summon, now)) return false;
+    const createdAt = new Date(summon.createdAt || now).getTime();
+    const expiresAt = new Date(summon.expiresAt || now).getTime();
+    const effectiveNow = Math.min(now, Number.isFinite(expiresAt) ? expiresAt : now);
+    if (!Number.isFinite(createdAt) || effectiveNow <= createdAt) return false;
+    const skills = new Map(
+      (profile.skillTree?.skills || []).map((skill) => [String(skill.id), skill])
+    );
+    return [
+      ['companion_heal', 'questHealAt'],
+      ['companion_buff', 'questBuffAt']
+    ].some(([skillId, timestampKey]) => {
+      const skill = skills.get(skillId);
+      if (!skill || Number(skill.level) <= 0) return false;
+      const intervalMs = Math.max(1, Number(skill.values?.intervalSeconds) || 1) * 1000;
+      const storedAt = new Date(summon[timestampKey] || createdAt).getTime();
+      const baseline = Math.max(createdAt, Number.isFinite(storedAt) ? storedAt : createdAt);
+      return effectiveNow - baseline >= intervalMs;
+    });
+  }
+
   function ensureOfflineHuntingSummary(character, now = Date.now()) {
     if (!character.huntingTime || typeof character.huntingTime !== 'object') {
       character.huntingTime = {};
@@ -1186,22 +1235,26 @@ function registerV2Routes({
   ]);
 
   function hasActiveOfflineSkillEffect(skillState, skillId, definition, now) {
+    const refreshBeforeMs = 3_000;
     if (['element_fire', 'element_ice'].includes(skillId)) {
       return (skillState.activeBuffs || []).some((buff) => (
         ['element_fire', 'element_ice'].includes(buff.skillId)
-        && (!buff.expiresAt || new Date(buff.expiresAt).getTime() > now)
+        && (!buff.expiresAt || new Date(buff.expiresAt).getTime() > now + refreshBeforeMs)
       ));
     }
     if (
       definition.effect === 'summon'
       && skillState.summon?.skillId === skillId
-      && (!skillState.summon.expiresAt || new Date(skillState.summon.expiresAt).getTime() > now)
+      && (
+        !skillState.summon.expiresAt
+        || new Date(skillState.summon.expiresAt).getTime() > now + refreshBeforeMs
+      )
     ) {
       return true;
     }
     return (skillState.activeBuffs || []).some((buff) => (
       buff.skillId === skillId
-      && (!buff.expiresAt || new Date(buff.expiresAt).getTime() > now)
+      && (!buff.expiresAt || new Date(buff.expiresAt).getTime() > now + refreshBeforeMs)
     ));
   }
 
@@ -1217,13 +1270,24 @@ function registerV2Routes({
     const maxHp = Math.max(1, Number(character.resources?.maxHp) || 1);
     const preUseEffects = getActiveSkillEffects(character, now);
     const archetype = DEPARTMENTS[character.job?.departmentId]?.archetype || 'beginner';
-    for (const skillId of activePreset) {
+    const startIndex = skillState.offlineAutoRotationCursor % activePreset.length;
+    for (let offset = 0; offset < activePreset.length; offset += 1) {
+      const presetIndex = (startIndex + offset) % activePreset.length;
+      const skillId = activePreset[presetIndex];
       if (!autoSet.has(skillId)) continue;
       const definition = SKILL_DEFINITIONS[skillId];
       const level = getSkillLevel(character, skillId);
       if (!definition || definition.passive || level <= 0) continue;
       if (definition.effect === 'party-portal') continue;
       if (definition.effect === 'teleport') continue;
+      if (
+        definition.effect === 'cleanse-self'
+        && !isPlayerSilenced(
+          String(character.userId),
+          String(profile.worldState?.mapId || character.worldState?.mapId || ''),
+          now
+        )
+      ) continue;
       if (Number(skillState.cooldowns?.[skillId]) > now) continue;
       if (hasActiveOfflineSkillEffect(skillState, skillId, definition, now)) continue;
       if (
@@ -1258,6 +1322,7 @@ function registerV2Routes({
         ) * castProfile.mpCostMultiplier
       ));
       if (currentHp <= hpCost || currentMp < mpCost) continue;
+      skillState.offlineAutoRotationCursor = (presetIndex + 1) % activePreset.length;
       return {
         skillId, definition, level, values, castProfile,
         hpCost, mpCost, preUseEffects, archetype
@@ -1319,7 +1384,9 @@ function registerV2Routes({
         baseDamage += Number(ammunition?.attackBonus) || 0;
       }
       const activeElements = getActiveWeaponElements(skillState, now);
-      const critical = definition.effect !== 'fixed-damage'
+      const rollCriticalPerHit = castProfile.channelDurationSeconds > 0
+        && definition.effect !== 'fixed-damage';
+      const critical = !rollCriticalPerHit && definition.effect !== 'fixed-damage'
         && Math.random() * 100 < Number(profile.derivedStats.criticalChance || 0);
       let damageMultiplier = 1;
       if (critical) {
@@ -1380,15 +1447,22 @@ function registerV2Routes({
         dealDamage: definition.effect !== 'pull',
         leaveAtOneHp: definition.effect === 'nonlethal-damage',
         piercing: Boolean(definition.piercing),
+        verticalFloorRange: Number(values.verticalFloorRange ?? definition.verticalFloorRange) || 0,
+        criticalChance: Number(profile.derivedStats.criticalChance) || 0,
+        criticalDamagePercent: Number(profile.derivedStats.criticalDamagePercent) || 200,
+        rollCriticalPerHit,
         now
       });
       if (!combat.success) return null;
-      combat.critical = critical;
+      combat.critical = rollCriticalPerHit
+        ? combat.outcomes.some((outcome) => outcome.hitResults?.some((hit) => hit.critical))
+        : critical;
       if (castProfile.channelDurationSeconds > 0) {
         combat.channel = {
           durationMs: Math.round(castProfile.channelDurationSeconds * 1000),
           intervalMs: Math.round(castProfile.channelIntervalSeconds * 1000),
-          hitCount: castProfile.hitCount
+          hitCount: castProfile.hitCount,
+          hitResults: combat.outcomes.flatMap((outcome) => outcome.hitResults || [])
         };
       }
       clearStealthBuff(skillState);
@@ -1502,6 +1576,32 @@ function registerV2Routes({
           stealth: Number(preUseEffects.stealth) > 0
         });
       }
+    } else if (definition.effect === 'monster-transform') {
+      combat = useSkillOnMonsters({
+        userId: String(character.userId),
+        mapId,
+        targetId,
+        baseDamage: 1,
+        skillPercent: 0,
+        rangePx: Number(values.range ?? definition.range) || 350,
+        maxTargets: Number(values.targetCount ?? definition.maxTargets) || 6,
+        accuracy: profile.derivedStats.accuracy,
+        playerLevel: profile.progression?.level,
+        dealDamage: false,
+        excludeFieldBoss: true,
+        outgoingDamageReductionPercent: Number(values.enemyDamageReductionPercent) || 50,
+        debuffChance: Number(values.successChance) || 0,
+        debuffDurationSeconds: Number(values.durationSeconds) || 20,
+        now
+      });
+      if (!combat.success) return null;
+      character.resources.currentHp = Math.max(0, Number(character.resources.currentHp) - hpCost);
+      character.resources.currentMp = Math.max(0, Number(character.resources.currentMp) - mpCost);
+    } else if (definition.effect === 'cleanse-self') {
+      character.resources.currentHp = Math.max(0, Number(character.resources.currentHp) - hpCost);
+      character.resources.currentMp = Math.max(0, Number(character.resources.currentMp) - mpCost);
+      const cleansed = clearPlayerNegativeStatus(String(character.userId), mapId);
+      combat = { success: true, cleansed };
     } else if (definition.effect === 'debuff-self-buff') {
       combat = useSkillOnMonsters({
         userId: String(character.userId),
@@ -1609,6 +1709,92 @@ function registerV2Routes({
     return { skillId, name: definition.name, combat };
   }
 
+  async function processAttackingSummon({ character, profile, now = Date.now() }) {
+    const skillState = ensureSkillState(character);
+    const summon = skillState.summon;
+    if (!isAttackingSummon(summon, now) || !isSummonAttackDue(summon, now)) return null;
+
+    // Advance the summon clock even when no target is in range so a heartbeat cannot
+    // repeatedly retry the same attack and overload the combat queue.
+    summon.lastAttackAt = new Date(now);
+    if (typeof character.markModified === 'function') character.markModified('skills');
+
+    const mapId = String(profile.worldState?.mapId || character.worldState?.mapId || '');
+    const archetype = DEPARTMENTS[character.job?.departmentId]?.archetype || 'beginner';
+    const activeEffects = profile.skillEffects || getActiveSkillEffects(character);
+    const critical = Math.random() * 100
+      < Math.max(0, Number(profile.derivedStats?.criticalChance) || 0);
+    let multiplier = 1 + Math.max(0, Number(activeEffects.damageIncreasePercent) || 0) / 100;
+    if (critical) {
+      multiplier *= Math.max(100, Number(profile.derivedStats?.criticalDamagePercent) || 200) / 100;
+    }
+    let damageRange = null;
+    let baseDamage = Math.max(1, Number(profile.derivedStats?.attackMaximum) || 4);
+    let skillPercent = Math.max(1, Number(summon.attackPower) || 1);
+    if (archetype === 'mage') {
+      damageRange = scaleDamageRange(
+        buildProfileMagicDamageRange(profile, skillPercent),
+        multiplier
+      );
+      baseDamage = 1;
+      skillPercent = 100;
+    } else {
+      baseDamage *= multiplier;
+    }
+
+    const combat = useSkillOnMonsters({
+      userId: String(character.userId),
+      mapId,
+      targetId: '',
+      baseDamage,
+      damageRange,
+      skillPercent,
+      rangePx: Math.max(1, Number(summon.range) || 100),
+      maxTargets: Math.max(1, Number(summon.maxTargets) || 1),
+      damageType: archetype === 'mage' ? 'magic' : 'physical',
+      element: String(summon.element || 'neutral'),
+      accuracy: profile.derivedStats?.accuracy,
+      playerLevel: profile.progression?.level,
+      stunChance: Number(summon.stunChance) || 0,
+      stunSeconds: Number(summon.stunSeconds) || 0,
+      now
+    });
+    if (!combat.success) return { ...combat, summonAttack: true, critical };
+
+    combat.summonAttack = true;
+    combat.summon = {
+      skillId: summon.skillId,
+      name: summon.name,
+      icon: summon.icon
+    };
+    combat.critical = critical;
+    if (Array.isArray(combat.fieldBossRewards) && combat.fieldBossRewards.length) {
+      combat.fieldBossRewardResults = [];
+      for (const rewardEvent of combat.fieldBossRewards) {
+        combat.fieldBossRewardResults.push(await applyFieldBossRewards(rewardEvent, character));
+      }
+    }
+    if (Number(combat.expReward) > 0) {
+      const expGrant = await grantCombatExperience(character, combat.expReward, mapId);
+      combat.experience = expGrant.self;
+      combat.partyExperience = expGrant.party;
+      combat.drops = applyCombatDrops(character, combat.drops);
+      combat.drops = applySettlementEventDrops(
+        character,
+        (combat.outcomes || [])
+          .filter((outcome) => outcome.defeated)
+          .map((outcome) => outcome.monsterLevel),
+        combat.drops
+      );
+    }
+    recordCombatQuestProgress(character, combat, {
+      mapId,
+      elements: [String(summon.element || 'neutral')],
+      stealth: Number(activeEffects.stealth) > 0
+    });
+    return combat;
+  }
+
   async function processOfflineHunterAction({ character, userId, now, passiveBaselineAt }) {
     applyOfflinePassiveMpRecovery(character, { now, baselineAt: passiveBaselineAt });
     recordCompanionQuestTicks(character, now);
@@ -1689,6 +1875,18 @@ function registerV2Routes({
       - Math.abs(Number(right.x) - Number(self?.x))
     ))[0];
     if (!target) return { idle: true };
+
+    const summonCombat = await processAttackingSummon({ character, profile: response, now });
+    if (summonCombat?.success) {
+      const summonKills = (summonCombat.outcomes || [])
+        .filter((outcome) => outcome.defeated).length;
+      recordOfflineHuntingSummary(character, {
+        exp: summonCombat.experience?.gained,
+        kills: summonKills,
+        drops: summonCombat.drops || []
+      }, now);
+      response = buildCharacterResponse(character);
+    }
 
     const rangePx = Number(response.combatPresentation?.rangePx)
       || Number(response.derivedStats?.attackRange)
@@ -2433,7 +2631,9 @@ function registerV2Routes({
         const sourceMapId = String(req.body?.mapId || character.worldState?.mapId || '');
         if (
           isPlayerSilenced(auth.id, sourceMapId, now)
-          && !['heal', 'buff', 'party-portal', 'teleport', 'flash-jump'].includes(definition.effect)
+          && ![
+            'heal', 'buff', 'cleanse-self', 'party-portal', 'teleport', 'flash-jump'
+          ].includes(definition.effect)
         ) {
           throw new Error('침묵 상태에서는 공격 스킬을 사용할 수 없습니다.');
         }
@@ -2555,7 +2755,9 @@ function registerV2Routes({
           } else {
             baseDamage += Number(ammunition?.attackBonus) || 0;
           }
-          const critical = definition.effect !== 'fixed-damage'
+          const rollCriticalPerHit = castProfile.channelDurationSeconds > 0
+            && definition.effect !== 'fixed-damage';
+          const critical = !rollCriticalPerHit && definition.effect !== 'fixed-damage'
             && Math.random() * 100 < Number(response.derivedStats.criticalChance || 0);
           let damageMultiplier = 1;
           if (critical) {
@@ -2613,15 +2815,24 @@ function registerV2Routes({
             pull: ['charge', 'pull'].includes(definition.effect),
             dealDamage: definition.effect !== 'pull',
             leaveAtOneHp: definition.effect === 'nonlethal-damage',
-            piercing: Boolean(definition.piercing)
+            piercing: Boolean(definition.piercing),
+            verticalFloorRange: Number(
+              values.verticalFloorRange ?? definition.verticalFloorRange
+            ) || 0,
+            criticalChance: Number(response.derivedStats.criticalChance) || 0,
+            criticalDamagePercent: Number(response.derivedStats.criticalDamagePercent) || 200,
+            rollCriticalPerHit
           });
           if (!combat.success) throw new Error('사거리 안에 공격할 대상이 없습니다.');
-          combat.critical = critical;
+          combat.critical = rollCriticalPerHit
+            ? combat.outcomes.some((outcome) => outcome.hitResults?.some((hit) => hit.critical))
+            : critical;
           if (castProfile.channelDurationSeconds > 0) {
             combat.channel = {
               durationMs: Math.round(castProfile.channelDurationSeconds * 1000),
               intervalMs: Math.round(castProfile.channelIntervalSeconds * 1000),
-              hitCount: castProfile.hitCount
+              hitCount: castProfile.hitCount,
+              hitResults: combat.outcomes.flatMap((outcome) => outcome.hitResults || [])
             };
           }
           clearStealthBuff(skillState);
@@ -2806,6 +3017,34 @@ function registerV2Routes({
               direction,
               distancePx
             }
+          };
+        } else if (definition.effect === 'monster-transform') {
+          const response = buildCharacterResponse(character);
+          combat = useSkillOnMonsters({
+            userId: String(auth.id),
+            mapId: String(req.body?.mapId || character.worldState?.mapId || ''),
+            targetId: String(req.body?.targetId || ''),
+            baseDamage: 1,
+            skillPercent: 0,
+            rangePx: Number(values.range ?? definition.range) || 350,
+            maxTargets: Number(values.targetCount ?? definition.maxTargets) || 6,
+            accuracy: response.derivedStats.accuracy,
+            playerLevel: response.progression?.level,
+            dealDamage: false,
+            excludeFieldBoss: true,
+            outgoingDamageReductionPercent: Number(values.enemyDamageReductionPercent) || 50,
+            debuffChance: Number(values.successChance) || 0,
+            debuffDurationSeconds: Number(values.durationSeconds) || 20,
+            now
+          });
+          if (!combat.success) throw new Error('사거리 안에 축소할 일반 몬스터가 없습니다.');
+        } else if (definition.effect === 'cleanse-self') {
+          combat = {
+            success: true,
+            cleansed: clearPlayerNegativeStatus(
+              String(auth.id),
+              String(req.body?.mapId || character.worldState?.mapId || '')
+            )
           };
         } else if (definition.effect === 'debuff-self-buff') {
           const response = buildCharacterResponse(character);
@@ -3597,6 +3836,43 @@ function registerV2Routes({
     }
   });
 
+  app.post('/api/v2/special-actions/salary-lupin', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const result = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        const now = Date.now();
+        ensureDailyActionPoints(character, now);
+        const skillState = ensureSkillState(character);
+        const active = skillState.activeBuffs.some((buff) => (
+          buff.skillId === 'special_action_salary_lupin'
+          && (!buff.expiresAt || new Date(buff.expiresAt).getTime() > now)
+        ));
+        if (active) throw new Error('월급루팡 효과가 이미 적용 중입니다.');
+        spendActionPoints(character, 6, now);
+        const appliedBuff = upsertActiveBuff(character, {
+          skillId: 'special_action_salary_lupin',
+          name: '월급루팡',
+          effects: { experienceMultiplierPercent: 10 },
+          createdAt: new Date(now),
+          durationSeconds: 40 * 60
+        }, now);
+        await character.save();
+        worldProfileCache.delete(String(auth.id));
+        return {
+          message: '40분 동안 획득 경험치가 10% 추가됩니다.',
+          appliedBuff,
+          character: buildCharacterResponse(character)
+        };
+      });
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '특수행동을 실행하지 못했습니다.' });
+    }
+  });
+
   app.post('/api/v2/inventory/use-item', async (req, res) => {
     const auth = requireV2User(req, res);
     if (!auth) return;
@@ -3605,7 +3881,7 @@ function registerV2Routes({
         const character = await V2Character.findOne({ userId: auth.id });
         if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
         const item = getItemDefinition(req.body?.itemId);
-        if (!item || !['return-scroll', 'experience-buff', 'hunting-time', 'level-up', 'skill-reset', 'mastery-book'].includes(item.itemType)) {
+        if (!item || !['return-scroll', 'experience-buff', 'hunting-time', 'level-up', 'skill-reset', 'mastery-book', 'action-point'].includes(item.itemType)) {
           throw new Error('사용할 수 없는 아이템입니다.');
         }
         if (item.itemType === 'level-up' && Number(character.progression?.level) >= MAX_LEVEL) {
@@ -3620,6 +3896,12 @@ function registerV2Routes({
         const masteryValidation = item.itemType === 'mastery-book'
           ? validateMasteryBookUse(character, item)
           : null;
+        if (item.itemType === 'action-point') {
+          ensureDailyActionPoints(character);
+          if (Number(character.actionPoints?.current) >= Number(character.actionPoints?.max)) {
+            throw new Error('행동력이 이미 최대치입니다.');
+          }
+        }
         if (!consumeInventoryItem(character, item.id, 1)) {
           throw new Error('해당 아이템이 부족합니다.');
         }
@@ -3656,6 +3938,9 @@ function registerV2Routes({
           message = huntingTime.addedSeconds > 0
             ? `자동사냥 시간이 ${Math.floor(huntingTime.addedSeconds / 60)}분 충전되었습니다.`
             : '자동사냥 시간이 이미 최대 400분입니다.';
+        } else if (item.itemType === 'action-point') {
+          const restored = restoreActionPoints(character, item.actionPoints || 1);
+          message = `행동력을 ${restored.restored} 회복했습니다.`;
         } else if (item.itemType === 'skill-reset') {
           const skillState = ensureSkillState(character);
           const skillDefinitionIds = new Set(Object.keys(SKILL_DEFINITIONS));
@@ -4288,11 +4573,25 @@ function registerV2Routes({
         autoHunting: !requestedMap.safeZone && Boolean(profile.huntingTime?.enabled),
         autoHuntRemainingSeconds: Number(profile.huntingTime?.remainingSeconds) || 0
       });
-      if (profile.skillTree?.summon) {
+      let summonCombat = null;
+      const summonSnapshot = profile.skillTree?.summon;
+      const summonNow = Date.now();
+      const shouldProcessSummon = isSummonAttackDue(summonSnapshot, summonNow)
+        || isCompanionQuestTickDue(profile, summonNow);
+      if (shouldProcessSummon) {
         await withCharacterMutation(auth.id, async () => {
           const character = await V2Character.findOne({ userId: auth.id });
-          if (character && recordCompanionQuestTicks(character, Date.now())) {
+          if (!character) return;
+          const companionProgressed = recordCompanionQuestTicks(character, summonNow);
+          const freshProfile = buildCharacterResponse(character);
+          summonCombat = await processAttackingSummon({
+            character,
+            profile: freshProfile,
+            now: summonNow
+          });
+          if (companionProgressed || summonCombat) {
             await character.save();
+            worldProfileCache.delete(String(auth.id));
           }
         });
       }
@@ -4394,6 +4693,7 @@ function registerV2Routes({
         self,
         contactEvents: state.contactEvents,
         recoveryEvents: state.recoveryEvents,
+        summonCombat,
         fieldBossStatusEvents: state.fieldBossStatusEvents,
         fieldBossRewards,
         lootCollections: state.lootCollections,

@@ -240,6 +240,7 @@ test('V2 router exposes the current migration, world, inventory, and shop endpoi
     'POST /api/v2/shop/buy',
     'POST /api/v2/shop/sell',
     'POST /api/v2/shop/recharge-throwing-star',
+    'POST /api/v2/special-actions/salary-lupin',
     'POST /api/v2/inventory/use-item',
     'GET /api/v2/mail',
     'GET /api/v2/mail/status',

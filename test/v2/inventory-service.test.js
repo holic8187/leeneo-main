@@ -20,7 +20,8 @@ const {
   equipInventoryEquipment,
   unequipInventoryEquipment,
   equipInventoryWeapon,
-  unequipInventoryWeapon
+  unequipInventoryWeapon,
+  sortInventory
 } = require('../../src/v2/services/inventoryService');
 const {
   buyShopItem,
@@ -109,6 +110,44 @@ test('potions and cash use items split into stacks of one hundred', () => {
   assert.deepEqual(view.categories.consumable.items.map((item) => item.quantity), [100, 100, 50]);
   assert.deepEqual(view.categories.cash.items.map((item) => item.quantity), [100, 100, 5]);
   assert.equal(getMaxStackSize({ category: 'equipment' }), 1);
+});
+
+test('inventory sorting merges matching permanent consumables from the top-left', () => {
+  const character = characterFixture();
+  character.inventory.items = [
+    { stackId: 'first', itemId: 'hard_candy', quantity: 68 },
+    { stackId: 'other', itemId: 'bacchus', quantity: 2 },
+    { stackId: 'second', itemId: 'hard_candy', quantity: 59 },
+    { stackId: 'full', itemId: 'hard_candy', quantity: 100 }
+  ];
+
+  sortInventory(character);
+
+  const candy = buildInventoryView(character).categories.consumable.items
+    .filter((item) => item.id === 'hard_candy');
+  assert.deepEqual(candy.map((item) => item.quantity), [100, 100, 27]);
+  assert.equal(candy[0].stackId, 'first');
+});
+
+test('inventory sorting never merges timed consumables into permanent stacks', () => {
+  const character = characterFixture();
+  character.inventory.items = [
+    { stackId: 'permanent', itemId: 'hard_candy', quantity: 70 },
+    {
+      stackId: 'timed',
+      itemId: 'hard_candy',
+      quantity: 40,
+      expiresAt: new Date('2026-08-01T00:00:00.000Z')
+    }
+  ];
+
+  sortInventory(character);
+
+  const coupons = buildInventoryView(character).categories.consumable.items
+    .filter((item) => item.id === 'hard_candy');
+  assert.deepEqual(coupons.map((item) => item.quantity), [40, 70]);
+  assert.ok(coupons[0].expiresAt);
+  assert.equal(coupons[1].expiresAt, null);
 });
 
 test('quick slots reject potions for the wrong resource', () => {

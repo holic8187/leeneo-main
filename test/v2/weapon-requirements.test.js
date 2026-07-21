@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const {
   buildWeaponRequirements,
   getWeaponEquipFailureReason,
+  getEquipmentEquipFailureReason,
   canEquipWeapon
 } = require('../../src/v2/items/weaponRequirements');
 
@@ -75,4 +76,23 @@ test('future shared weapons can declare more than one allowed archetype', () => 
     job: { departmentId: 'accounting' },
     stats: {}
   }, sharedWeapon), false);
+});
+
+test('earrings and capes are common equipment even when old data contains job requirements', () => {
+  const character = {
+    progression: { level: 130 },
+    job: { departmentId: 'accounting' },
+    stats: { grit: 4, processingSpeed: 4, workKnowledge: 4, awareness: 4 }
+  };
+  const legacyEarrings = {
+    itemType: 'armor',
+    equipmentSlot: 'earrings',
+    requiredLevel: 100,
+    requirements: {
+      level: 100,
+      allowedArchetypes: ['warrior'],
+      stats: { grit: 999 }
+    }
+  };
+  assert.equal(getEquipmentEquipFailureReason(character, legacyEarrings), '');
 });

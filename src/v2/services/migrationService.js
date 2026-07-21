@@ -32,6 +32,10 @@ const { reconcileHpGrowthSkillBonus } = require('./hpGrowthBonusService');
 const { reconcileMpGrowthSkillBonus } = require('./mpGrowthBonusService');
 const { reconcileMaxResourceBuff } = require('./maxResourceBuffService');
 const { assertV2MigrationAllowed } = require('./accountDeletionService');
+const {
+  ensureDailyActionPoints,
+  serializeActionPoints
+} = require('./actionPointService');
 
 const MIGRATION_VERSION = 1;
 const LEGACY_EXCHANGE_FORMULA_VERSION = 2;
@@ -572,6 +576,7 @@ async function ensureV2CharacterFoundation(character) {
   if (mpGrowth.delta !== 0) changed = true;
   const resourceBuff = reconcileMaxResourceBuff(character);
   if (resourceBuff.changed) changed = true;
+  if (ensureDailyActionPoints(character)) changed = true;
 
   if (changed) await character.save();
   return character;
@@ -734,7 +739,7 @@ function buildCharacterResponse(character) {
       lastDailyGrantDate: String(plain.huntingTime?.lastDailyGrantDate || ''),
       offlineSummary: buildOfflineSummaryView(plain.huntingTime?.offlineSummary)
     },
-    actionPoints: plain.actionPoints,
+    actionPoints: serializeActionPoints(plain),
     economy: plain.economy,
     combatPresentation,
     derivedStats,

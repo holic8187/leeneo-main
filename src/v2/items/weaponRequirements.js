@@ -97,9 +97,14 @@ function canEquipWeapon(character = {}, item = {}) {
 function getEquipmentEquipFailureReason(character = {}, item = {}) {
   if (item.itemType === 'weapon') return getWeaponEquipFailureReason(character, item);
   const requirements = item.requirements || {};
+  const commonEquipmentSlot = ['earrings', 'cape'].includes(String(item.equipmentSlot || ''));
   const allowedArchetypes = getAllowedWeaponArchetypes(requirements);
   const characterArchetype = getCharacterArchetype(character);
-  if (allowedArchetypes.length && !allowedArchetypes.includes(characterArchetype)) {
+  if (
+    !commonEquipmentSlot
+    && allowedArchetypes.length
+    && !allowedArchetypes.includes(characterArchetype)
+  ) {
     const allowed = allowedArchetypes
       .map((archetype) => ARCHETYPE_LABELS[archetype] || archetype)
       .join(', ');
@@ -111,7 +116,7 @@ function getEquipmentEquipFailureReason(character = {}, item = {}) {
   );
   const level = Math.max(1, Math.floor(Number(character.progression?.level) || 1));
   if (level < requiredLevel) return `레벨 ${requiredLevel} 이상부터 장착할 수 있습니다.`;
-  const missingStat = Object.entries(requirements.stats || {}).find(
+  const missingStat = !commonEquipmentSlot && Object.entries(requirements.stats || {}).find(
     ([stat, required]) => Number(character.stats?.[stat] || 0) < Number(required)
   );
   if (missingStat) {
