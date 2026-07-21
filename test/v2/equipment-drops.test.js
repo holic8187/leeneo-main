@@ -44,10 +44,26 @@ test('undead monsters are distributed from level 25 through 140 and are weak to 
   assert.ok(undead.every((monster) => monster.elementalMultipliers.holy > 1));
 });
 
-test('ordinary monsters mix equipment from at least two job archetypes', () => {
+test('every ordinary monster drops a weapon for every archetype and at least three armors', () => {
+  const expectedArchetypes = ['archer', 'mage', 'thief', 'warrior'];
   for (const monster of MONSTER_CATALOG) {
-    const archetypes = new Set(monster.dropTable.equipment.map((drop) => drop.archetype));
-    assert.ok(archetypes.size >= 2, `${monster.name} only drops ${[...archetypes].join(', ')}`);
+    const weapons = monster.dropTable.equipment.filter(
+      (drop) => drop.equipmentSlot === 'weapon'
+    );
+    const weaponArchetypes = [...new Set(weapons.map((drop) => drop.archetype))].sort();
+    assert.deepEqual(
+      weaponArchetypes,
+      expectedArchetypes,
+      `${monster.name} weapon pool is missing an archetype`
+    );
+
+    const armors = monster.dropTable.equipment.filter(
+      (drop) => drop.equipmentSlot !== 'weapon'
+    );
+    assert.ok(armors.length >= 3, `${monster.name} only drops ${armors.length} armors`);
+    const armorArchetypes = new Set(armors.map((drop) => drop.archetype));
+    assert.ok(armorArchetypes.has('warrior'), `${monster.name} has no warrior armor`);
+    assert.ok(armorArchetypes.has('thief'), `${monster.name} has no thief armor`);
   }
 });
 
@@ -73,6 +89,9 @@ test('necklaces are absent and capes and earrings are common equipment', () => {
     );
     assert.equal(item.requirements.archetype, '');
   }
+  assert.ok(MONSTER_CATALOG.some((monster) => (
+    monster.dropTable.equipment.some((drop) => drop.archetype === '')
+  )));
 });
 
 test('regular equipment names do not expose class or level placeholders', () => {

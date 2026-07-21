@@ -1028,16 +1028,23 @@ test('channeled skills return one mastery and critical result per visible hit', 
 });
 
 test('vertical floor range allows a genesis-style skill to hit one floor above', () => {
-  const state = updatePresence({
-    userId: 'vertical-user',
-    nickname: 'vertical-user',
-    mapId: 'newcomer_training',
-    x: 50,
-    floor: 0,
-    currentHp: 120,
-    maxHp: 120,
-    now: 1_000
-  });
+  const originalRandom = Math.random;
+  let state;
+  try {
+    Math.random = () => 0;
+    state = updatePresence({
+      userId: 'vertical-user',
+      nickname: 'vertical-user',
+      mapId: 'newcomer_training',
+      x: 50,
+      floor: 0,
+      currentHp: 120,
+      maxHp: 120,
+      now: 1_000
+    });
+  } finally {
+    Math.random = originalRandom;
+  }
   const upper = state.monsters.find((entry) => entry.floor === 1);
   assert.ok(upper);
   const result = useSkillOnMonsters({

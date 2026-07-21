@@ -40,10 +40,22 @@ const ARMOR_SLOTS = Object.freeze([
 ]);
 
 const ARMOR_TIER_THEMES = Object.freeze({
-  warrior: ['첫 출근', '안전제일', '강철근무', '불굴현장', '철야방호', '본부직속', '무결점공정'],
-  archer: ['초급정산', '오차없는', '정밀분석', '월말결산', '감사대응', '수석회계', '완벽결산'],
-  thief: ['첫 계약', '은밀협상', '현장잠입', '실적추적', '비밀계약', '수석영업', '전설계약'],
-  mage: ['초급개발', '서비스안정', '고급연구', '서버수호', '혁신기술', '수석연구', '무중단배포']
+  warrior: [
+    '수습방호', '첫 출근', '현장적응', '안전제일', '강철훈련', '강철근무', '불굴작업',
+    '불굴현장', '철야대비', '철야방호', '본부예비', '본부직속', '품질완성', '무결점공정'
+  ],
+  archer: [
+    '정산입문', '초급정산', '수치검토', '오차없는', '정밀훈련', '정밀분석', '분기마감',
+    '월말결산', '감사준비', '감사대응', '회계책임', '수석회계', '결산완성', '완벽결산'
+  ],
+  thief: [
+    '계약수습', '첫 계약', '협상연습', '은밀협상', '잠입준비', '현장잠입', '실적정리',
+    '실적추적', '기밀준비', '비밀계약', '영업책임', '수석영업', '계약완성', '전설계약'
+  ],
+  mage: [
+    '개발입문', '초급개발', '장애대응', '서비스안정', '연구실습', '고급연구', '서버점검',
+    '서버수호', '기술검증', '혁신기술', '연구책임', '수석연구', '배포완성', '무중단배포'
+  ]
 });
 
 const ARMOR_SLOT_NAMES = Object.freeze({
@@ -202,10 +214,13 @@ function createArmor(archetype, slotRow, level) {
     [mainStat]: Math.max(1, Math.floor(level / 18))
   };
   if (archetype === 'mage') stats.magicDefense = Math.max(1, Math.round(level * defenseRatio * 0.5));
-  const themeIndex = Math.max(0, Math.min(
-    ARMOR_TIER_THEMES[archetype].length - 1,
-    Math.floor(level / 20) - 1
-  ));
+  const equipmentTierIndex = EQUIPMENT_LEVELS.indexOf(level);
+  const themeIndex = level < 10
+    ? 1
+    : Math.max(0, Math.min(
+      ARMOR_TIER_THEMES[archetype].length - 1,
+      equipmentTierIndex >= 0 ? equipmentTierIndex : Math.floor((level - 1) / 10)
+    ));
   return {
     id,
     name: `${ARMOR_TIER_THEMES[archetype][themeIndex]} ${ARMOR_SLOT_NAMES[slot] || label}`,
@@ -336,7 +351,7 @@ const EQUIPMENT_ITEMS = Object.freeze([
   ...STARTER_DROP_ITEMS,
   ...WEAPON_LINES.flatMap((line) => EQUIPMENT_LEVELS.map((level, index) => createWeapon(line, level, index))),
   ...Object.keys(ARMOR_TIER_THEMES).flatMap((archetype) => (
-    EQUIPMENT_LEVELS.filter((level) => level % 20 === 0).flatMap((level) => (
+    EQUIPMENT_LEVELS.flatMap((level) => (
       ARMOR_SLOTS.map((slot) => createArmor(archetype, slot, level))
     ))
   )),
@@ -362,32 +377,55 @@ function getEquipmentDropsForMonsterLevel(monsterLevel) {
       || String(left.id).localeCompare(String(right.id))
     ));
   const archetypes = ['warrior', 'archer', 'thief', 'mage'];
-  const groups = Object.fromEntries(archetypes.map((archetype) => [
+  const weaponGroups = Object.fromEntries(archetypes.map((archetype) => [
     archetype,
     eligible.filter((item) => (
-      item.requirements?.archetype === archetype
-      || item.requirements?.allowedArchetypes?.includes(archetype)
+      item.equipmentSlot === 'weapon'
+      && item.requirements?.archetype === archetype
     ))
   ]));
+  const armorGroups = Object.fromEntries(archetypes.map((archetype) => [
+    archetype,
+    eligible.filter((item) => (
+      item.equipmentSlot !== 'weapon'
+      && item.requirements?.archetype === archetype
+    ))
+  ]));
+  const commonEquipment = eligible.filter((item) => (
+    item.equipmentSlot !== 'weapon'
+    && !item.requirements?.archetype
+  ));
   const selected = [];
   const selectedIds = new Set();
-  for (let round = 0; selected.length < 12; round += 1) {
+  const addCandidate = (candidate) => {
+    if (!candidate || selectedIds.has(candidate.id)) return false;
+    selected.push(candidate);
+    selectedIds.add(candidate.id);
+    return true;
+  };
+  const rotatedArchetypes = archetypes.map((_, index) => (
+    archetypes[(index + level) % archetypes.length]
+  ));
+
+  // Every monster offers at least one weapon and one class armor piece per archetype.
+  for (const archetype of rotatedArchetypes) addCandidate(weaponGroups[archetype][0]);
+  for (const archetype of rotatedArchetypes) addCandidate(armorGroups[archetype][0]);
+  for (const candidate of commonEquipment.slice(0, 2)) addCandidate(candidate);
+
+  const targetDropCount = 16;
+  for (let round = 1; selected.length < targetDropCount; round += 1) {
     let added = false;
-    for (let offset = 0; offset < archetypes.length && selected.length < 12; offset += 1) {
-      const archetype = archetypes[(offset + level) % archetypes.length];
-      const candidate = groups[archetype][round];
-      if (!candidate || selectedIds.has(candidate.id)) continue;
-      selected.push(candidate);
-      selectedIds.add(candidate.id);
-      added = true;
+    for (const archetype of rotatedArchetypes) {
+      if (selected.length >= targetDropCount) break;
+      added = addCandidate(weaponGroups[archetype][round]) || added;
+      if (selected.length >= targetDropCount) break;
+      added = addCandidate(armorGroups[archetype][round]) || added;
     }
     if (!added) break;
   }
   for (const candidate of eligible) {
-    if (selected.length >= 12) break;
-    if (selectedIds.has(candidate.id)) continue;
-    selected.push(candidate);
-    selectedIds.add(candidate.id);
+    if (selected.length >= targetDropCount) break;
+    addCandidate(candidate);
   }
   return selected
     .map((item) => ({
