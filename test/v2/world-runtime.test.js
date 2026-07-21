@@ -7,6 +7,7 @@ const {
   buildMonsterStats,
   claimWorldControl,
   hasWorldControl,
+  hasRecentWorldControl,
   releaseWorldControl,
   updatePresence,
   attackMonster,
@@ -663,6 +664,12 @@ test('only the most recently claimed client controls one character', () => {
   assert.equal(releaseWorldControl('user-a', 'mobile'), true);
 });
 
+test('a recently claimed world client temporarily excludes its character from offline work', () => {
+  claimWorldControl('online-user', 'browser', 1_000);
+  assert.equal(hasRecentWorldControl('online-user', 13_000), true);
+  assert.equal(hasRecentWorldControl('online-user', 13_001), false);
+});
+
 test('contact damage uses the reduced knockback and grants 2 seconds of invulnerability', () => {
   resetWorldRuntime();
   const initial = updatePresence({
@@ -1025,6 +1032,66 @@ test('channeled skills return one mastery and critical result per visible hit', 
   assert.equal(result.outcomes[0].hitResults.length, 3);
   assert.ok(result.outcomes[0].hitResults.every((hit) => hit.critical));
   assert.ok(result.outcomes[0].hitResults.every((hit) => hit.damage > 0));
+});
+
+test('channeled projectiles retarget the next front monster after a kill', () => {
+  const originalRandom = Math.random;
+  let state;
+  try {
+    Math.random = () => 0.9;
+    state = updatePresence({
+      userId: 'channel-retarget-user',
+      nickname: 'channel-retarget-user',
+      mapId: 'newcomer_training',
+      x: 50,
+      floor: 0,
+      currentHp: 120,
+      maxHp: 120,
+      now: 1_000
+    });
+  } finally {
+    Math.random = originalRandom;
+  }
+  const firstTarget = state.monsters[0];
+  assert.equal(firstTarget.maxHp, 30);
+
+  const result = useSkillOnMonsters({
+    userId: 'channel-retarget-user',
+    mapId: 'newcomer_training',
+    targetId: firstTarget.id,
+    baseDamage: 8,
+    skillPercent: 100,
+    rangePx: 10_000,
+    hits: 10,
+    ignoreDefense: true,
+    retargetEachHit: true,
+    now: 1_100
+  });
+  const hitResults = result.outcomes.flatMap((outcome) => outcome.hitResults || []);
+  const firstMonsterId = hitResults[0].monsterId;
+  const secondMonsterId = hitResults[4].monsterId;
+
+  assert.equal(result.success, true);
+  assert.equal(hitResults.length, 10);
+  assert.deepEqual(hitResults.map((hit) => hit.projectileIndex), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  assert.deepEqual(hitResults.slice(0, 4).map((hit) => hit.monsterId), [
+    firstMonsterId,
+    firstMonsterId,
+    firstMonsterId,
+    firstMonsterId
+  ]);
+  assert.notEqual(secondMonsterId, firstMonsterId);
+  assert.deepEqual(hitResults.slice(4).map((hit) => hit.monsterId), [
+    secondMonsterId,
+    secondMonsterId,
+    secondMonsterId,
+    secondMonsterId,
+    secondMonsterId,
+    secondMonsterId
+  ]);
+  assert.equal(hitResults[3].defeated, true);
+  assert.equal(hitResults[4].remainingHp, hitResults[4].maxHp - 8);
+  assert.equal(hitResults[9].remainingHp, hitResults[9].maxHp - 48);
 });
 
 test('vertical floor range allows a genesis-style skill to hit one floor above', () => {

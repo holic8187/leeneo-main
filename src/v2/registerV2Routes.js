@@ -23,6 +23,7 @@ const { canUseBasicAttack } = require('./combat/basicAttackPolicy');
 const {
   claimWorldControl,
   hasWorldControl,
+  hasRecentWorldControl,
   releaseWorldControl,
   updatePresence,
   attackMonster,
@@ -113,7 +114,9 @@ const {
   setHuntingEnabled,
   tickHuntingTime,
   addHuntingMinutes,
-  serializeHuntingTime
+  serializeHuntingTime,
+  getOfflineHuntingSummaryId,
+  createOfflineHuntingSummary
 } = require('./services/huntingTimeService');
 const {
   ensureDailyActionPoints,
@@ -932,16 +935,11 @@ function registerV2Routes({
       !character.huntingTime.offlineSummary
       || typeof character.huntingTime.offlineSummary !== 'object'
     ) {
-      character.huntingTime.offlineSummary = {
-        startedAt: new Date(now).toISOString(),
-        updatedAt: new Date(now).toISOString(),
-        elapsedSeconds: 0,
-        kills: 0,
-        skillUses: 0,
-        exp: 0,
-        money: 0,
-        items: []
-      };
+      character.huntingTime.offlineSummary = createOfflineHuntingSummary(now);
+    } else if (!character.huntingTime.offlineSummary.id) {
+      character.huntingTime.offlineSummary.id = getOfflineHuntingSummaryId(
+        character.huntingTime.offlineSummary
+      ) || createOfflineHuntingSummary(now).id;
     }
     return character.huntingTime.offlineSummary;
   }
@@ -1462,6 +1460,7 @@ function registerV2Routes({
         criticalChance: Number(profile.derivedStats.criticalChance) || 0,
         criticalDamagePercent: Number(profile.derivedStats.criticalDamagePercent) || 200,
         rollCriticalPerHit,
+        retargetEachHit: castProfile.channelDurationSeconds > 0,
         now
       });
       if (!combat.success) return null;
@@ -2011,7 +2010,9 @@ function registerV2Routes({
   }
 
   async function processOfflineHunter(userId, now = Date.now()) {
+    if (hasRecentWorldControl(userId, now)) return;
     return withCharacterMutation(userId, async () => {
+      if (hasRecentWorldControl(userId)) return;
       const character = await V2Character.findOne({ userId });
       if (!character?.huntingTime?.enabled) return;
       const lastTickAt = character.huntingTime?.lastTickAt
@@ -2832,7 +2833,8 @@ function registerV2Routes({
             ) || 0,
             criticalChance: Number(response.derivedStats.criticalChance) || 0,
             criticalDamagePercent: Number(response.derivedStats.criticalDamagePercent) || 200,
-            rollCriticalPerHit
+            rollCriticalPerHit,
+            retargetEachHit: castProfile.channelDurationSeconds > 0
           });
           if (!combat.success) throw new Error('사거리 안에 공격할 대상이 없습니다.');
           combat.critical = rollCriticalPerHit
@@ -4189,18 +4191,30 @@ function registerV2Routes({
     const auth = requireV2User(req, res);
     if (!auth) return;
     try {
-      const huntingTime = await withCharacterMutation(auth.id, async () => {
+      const result = await withCharacterMutation(auth.id, async () => {
         const character = await V2Character.findOne({ userId: auth.id });
         if (!character) throw new Error('V2 character not found.');
         if (!character.huntingTime || typeof character.huntingTime !== 'object') {
           character.huntingTime = {};
         }
-        character.huntingTime.offlineSummary = null;
-        character.markModified('huntingTime');
-        await character.save();
-        return serializeHuntingTime(character);
+        const requestedId = String(req.body?.summaryId || '').trim();
+        const currentId = getOfflineHuntingSummaryId(character.huntingTime.offlineSummary);
+        const acknowledged = !character.huntingTime.offlineSummary
+          || !requestedId
+          || !currentId
+          || requestedId === currentId;
+        if (acknowledged && character.huntingTime.offlineSummary) {
+          character.huntingTime.offlineSummary = null;
+          character.markModified('huntingTime');
+          await character.save();
+        }
+        return {
+          acknowledged,
+          huntingTime: serializeHuntingTime(character)
+        };
       });
-      return res.json({ success: true, huntingTime });
+      worldProfileCache.delete(String(auth.id));
+      return res.json({ success: true, ...result });
     } catch (err) {
       return res.status(400).json({ msg: err.message || '오프라인 사냥 정산 확인 처리에 실패했습니다.' });
     }

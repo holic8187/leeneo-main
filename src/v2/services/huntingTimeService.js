@@ -1,10 +1,32 @@
 'use strict';
 
+const { randomUUID } = require('node:crypto');
 const { createAdminMail } = require('./inventoryService');
 
 const MAX_HUNTING_SECONDS = 400 * 60;
 const DAILY_HUNTING_MINUTES = 360;
 const DAILY_HUNTING_ITEM_ID = 'hunting_time_360m';
+
+function getOfflineHuntingSummaryId(summary = null) {
+  if (!summary || typeof summary !== 'object') return '';
+  return String(summary.id || summary.startedAt || summary.updatedAt || '').trim();
+}
+
+function createOfflineHuntingSummary(now = Date.now(), idFactory = randomUUID) {
+  const timestamp = new Date(now).toISOString();
+  const generatedId = typeof idFactory === 'function' ? String(idFactory() || '').trim() : '';
+  return {
+    id: generatedId || timestamp,
+    startedAt: timestamp,
+    updatedAt: timestamp,
+    elapsedSeconds: 0,
+    kills: 0,
+    skillUses: 0,
+    exp: 0,
+    money: 0,
+    items: []
+  };
+}
 
 function getKoreaDateKey(now = new Date()) {
   return new Intl.DateTimeFormat('en-CA', {
@@ -106,5 +128,7 @@ module.exports = {
   setHuntingEnabled,
   tickHuntingTime,
   addHuntingMinutes,
-  serializeHuntingTime
+  serializeHuntingTime,
+  getOfflineHuntingSummaryId,
+  createOfflineHuntingSummary
 };

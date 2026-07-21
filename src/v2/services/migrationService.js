@@ -36,6 +36,7 @@ const {
   ensureDailyActionPoints,
   serializeActionPoints
 } = require('./actionPointService');
+const { getOfflineHuntingSummaryId } = require('./huntingTimeService');
 
 const MIGRATION_VERSION = 1;
 const LEGACY_EXCHANGE_FORMULA_VERSION = 2;
@@ -643,6 +644,7 @@ function buildOfflineSummaryView(summary = null) {
     })
     .filter((entry) => entry.itemId && entry.quantity > 0);
   return {
+    id: getOfflineHuntingSummaryId(summary),
     startedAt: summary.startedAt || null,
     updatedAt: summary.updatedAt || null,
     elapsedSeconds: Math.max(0, Math.floor(Number(summary.elapsedSeconds) || 0)),

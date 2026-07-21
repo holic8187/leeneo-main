@@ -8,7 +8,9 @@ const {
   ensureDailyHuntingMail,
   setHuntingEnabled,
   tickHuntingTime,
-  addHuntingMinutes
+  addHuntingMinutes,
+  getOfflineHuntingSummaryId,
+  createOfflineHuntingSummary
 } = require('../../src/v2/services/huntingTimeService');
 
 function createCharacter() {
@@ -35,4 +37,23 @@ test('hunting time drains only while enabled and caps at four hundred minutes', 
   assert.equal(character.huntingTime.remainingSeconds, MAX_HUNTING_SECONDS - 10);
   tickHuntingTime(character, false, 21_000);
   assert.equal(character.huntingTime.remainingSeconds, MAX_HUNTING_SECONDS - 10);
+});
+
+test('one offline hunting settlement keeps a stable identifier while its totals change', () => {
+  const summary = createOfflineHuntingSummary(
+    new Date('2026-07-21T00:00:00.000Z'),
+    () => 'offline-session-1'
+  );
+  assert.equal(getOfflineHuntingSummaryId(summary), 'offline-session-1');
+  summary.updatedAt = '2026-07-21T00:10:00.000Z';
+  summary.kills = 25;
+  summary.exp = 12345;
+  assert.equal(getOfflineHuntingSummaryId(summary), 'offline-session-1');
+});
+
+test('legacy offline hunting settlements use their start time as a stable identifier', () => {
+  assert.equal(getOfflineHuntingSummaryId({
+    startedAt: '2026-07-20T23:00:00.000Z',
+    updatedAt: '2026-07-21T00:00:00.000Z'
+  }), '2026-07-20T23:00:00.000Z');
 });

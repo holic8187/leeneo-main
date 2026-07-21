@@ -25,6 +25,7 @@ const {
 } = require('../combat/combatFormulas');
 
 const PLAYER_TIMEOUT_MS = 12_000;
+const WORLD_CONTROL_ACTIVE_MS = PLAYER_TIMEOUT_MS;
 const CONTACT_COOLDOWN_MS = 1_200;
 const CONTACT_INVULNERABILITY_MS = 2_000;
 const PLAYER_CONTACT_KNOCKBACK_DISTANCE = 2.56;
@@ -827,14 +828,23 @@ function claimWorldControl(userId, clientId, now = Date.now()) {
   const key = String(userId);
   const sessionId = String(clientId || '').trim();
   if (!sessionId) throw new Error('월드 접속 식별자가 필요합니다.');
-  worldControllers.set(key, { clientId: sessionId, claimedAt: now });
+  worldControllers.set(key, { clientId: sessionId, claimedAt: now, lastSeenAt: now });
   removePlayerFromOtherMaps(key, '');
   return { clientId: sessionId, claimedAt: now };
 }
 
 function hasWorldControl(userId, clientId) {
   const owner = worldControllers.get(String(userId));
-  return Boolean(owner && owner.clientId === String(clientId || ''));
+  const matches = Boolean(owner && owner.clientId === String(clientId || ''));
+  if (matches) owner.lastSeenAt = Date.now();
+  return matches;
+}
+
+function hasRecentWorldControl(userId, now = Date.now()) {
+  const owner = worldControllers.get(String(userId));
+  if (!owner) return false;
+  const lastSeenAt = Number(owner.lastSeenAt ?? owner.claimedAt) || 0;
+  return Math.max(0, Number(now) || 0) - lastSeenAt <= WORLD_CONTROL_ACTIVE_MS;
 }
 
 function releaseWorldControl(userId, clientId) {
@@ -1424,7 +1434,8 @@ function queueMonsterDrops(runtime, monster, userId, now) {
   return drops;
 }
 
-function useSkillOnMonsters({
+function useSkillOnMonsters(options = {}) {
+  const {
   userId,
   mapId,
   targetId,
@@ -1462,8 +1473,9 @@ function useSkillOnMonsters({
   criticalChance = 0,
   criticalDamagePercent = 200,
   rollCriticalPerHit = false,
+  retargetEachHit = false,
   now = Date.now()
-}) {
+  } = options;
   cleanupInactiveMaps(now);
   const userKey = String(userId);
   const runtime = activeMaps.get(mapId);
@@ -1502,6 +1514,78 @@ function useSkillOnMonsters({
   const activeElements = [...new Set(
     (Array.isArray(elements) && elements.length ? elements : [element]).filter(Boolean)
   )];
+  if (retargetEachHit && targetLimit === 1 && hitCount > 1) {
+    const initialTarget = candidates[0];
+    const initialOffset = Number(initialTarget.x) - Number(player.x);
+    const firingDirection = initialOffset === 0
+      ? (player.facingLeft ? -1 : 1)
+      : Math.sign(initialOffset);
+    const retargetedOutcomes = [];
+    const retargetedDrops = [];
+    const retargetedFieldBossRewards = [];
+    let resolvedShots = 0;
+
+    for (let projectileIndex = 0; projectileIndex < hitCount; projectileIndex += 1) {
+      const nextTarget = runtime.monsters
+        .filter((monster) => {
+          if (
+            monster.hp <= 0
+            || (undeadOnly && !monster.undead)
+            || (excludeFieldBoss && monster.fieldBoss)
+            || Math.abs(Number(monster.floor) - Number(player.floor))
+              > Math.max(0, Math.floor(Number(verticalFloorRange) || 0))
+            || Math.abs(Number(monster.x) - Number(player.x)) > rangePercent + 4.5
+          ) return false;
+          const offset = Number(monster.x) - Number(player.x);
+          return offset === 0 || Math.sign(offset) === firingDirection;
+        })
+        .sort((left, right) => (
+          Math.abs(Number(left.x) - Number(player.x))
+          - Math.abs(Number(right.x) - Number(player.x))
+        ))[0];
+      if (!nextTarget) break;
+
+      const shot = useSkillOnMonsters({
+        ...options,
+        targetId: nextTarget.id,
+        maxTargets: 1,
+        hits: 1,
+        retargetEachHit: false,
+        now
+      });
+      if (!shot.success) break;
+      resolvedShots += 1;
+      for (const outcome of shot.outcomes || []) {
+        retargetedOutcomes.push({
+          ...outcome,
+          hitResults: (outcome.hitResults || []).map((hit, subHitIndex) => ({
+            ...hit,
+            hitIndex: projectileIndex,
+            projectileIndex,
+            subHitIndex
+          }))
+        });
+      }
+      retargetedDrops.push(...(shot.drops || []));
+      retargetedFieldBossRewards.push(...(shot.fieldBossRewards || []));
+    }
+
+    if (!resolvedShots) return { success: false, reason: 'out-of-range' };
+    return {
+      success: true,
+      outcomes: retargetedOutcomes,
+      drops: retargetedDrops,
+      expReward: retargetedOutcomes.reduce(
+        (sum, outcome) => sum + Number(outcome.expReward || 0),
+        0
+      ),
+      mpAbsorbed: retargetedOutcomes.reduce(
+        (sum, outcome) => sum + Number(outcome.mpAbsorbed || 0),
+        0
+      ),
+      fieldBossRewards: retargetedFieldBossRewards
+    };
+  }
   for (const monster of candidates) {
     const requiredAccuracy = calculateRequiredAccuracy({
       characterLevel: playerLevel,
@@ -1774,6 +1858,7 @@ function resetWorldRuntime() {
 
 module.exports = {
   PLAYER_TIMEOUT_MS,
+  WORLD_CONTROL_ACTIVE_MS,
   CONTACT_COOLDOWN_MS,
   CONTACT_INVULNERABILITY_MS,
   PLAYER_CONTACT_KNOCKBACK_DISTANCE,
@@ -1784,6 +1869,7 @@ module.exports = {
   buildMonsterStats,
   claimWorldControl,
   hasWorldControl,
+  hasRecentWorldControl,
   releaseWorldControl,
   updatePresence,
   attackMonster,

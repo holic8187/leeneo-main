@@ -101,7 +101,8 @@ const state = {
   patchNotesHistory: [],
   generalQuestActionBusy: false,
   offlineSummaryKey: '',
-  offlineSummaryRetryTimer: null
+  offlineSummaryRetryTimer: null,
+  offlineSummaryAcknowledging: false
 };
 sessionStorage.setItem('v2WorldClientId', state.worldClientId);
 
@@ -239,12 +240,12 @@ async function loadUserWorkspace() {
   state.startMapId = world.startMapId || 'main_lobby';
   setInventoryData(inventoryData.inventory);
   setMailboxData(mailData);
-  renderGame(data);
   await request('/api/v2/world/claim-control', {
     method: 'POST',
     body: JSON.stringify({ clientId: state.worldClientId })
   });
   state.worldControlActive = true;
+  renderGame(data);
   startWorldSimulation();
   startMailPolling();
   maybeShowPatchNotes();
@@ -300,6 +301,8 @@ function openPatchNotes(notes = {}) {
 }
 
 function offlineSummaryKey(summary = {}) {
+  const stableId = String(summary.id || summary.startedAt || '').trim();
+  if (stableId) return stableId;
   const itemKey = (summary.items || [])
     .map((item) => `${item.itemId}:${item.quantity}`)
     .join(',');
@@ -355,20 +358,41 @@ function maybeShowOfflineHuntingSummary(summary) {
     state.offlineSummaryRetryTimer = setTimeout(() => maybeShowOfflineHuntingSummary(summary), 600);
     return;
   }
+  if (state.offlineSummaryRetryTimer) {
+    clearTimeout(state.offlineSummaryRetryTimer);
+    state.offlineSummaryRetryTimer = null;
+  }
   state.offlineSummaryKey = key;
   $('featureCode').textContent = 'AUTO HUNTING / OFFLINE';
   $('featureTitle').textContent = '오프라인 사냥 정산';
   $('featureBody').innerHTML = offlineSummaryBody(summary);
-  document.querySelector('[data-offline-summary-seen]')?.addEventListener('click', async () => {
+  document.querySelector('[data-offline-summary-seen]')?.addEventListener('click', async (event) => {
+    if (state.offlineSummaryAcknowledging) return;
+    const button = event.currentTarget;
+    state.offlineSummaryAcknowledging = true;
+    button.disabled = true;
+    button.textContent = '확인 중...';
     try {
-      const data = await request('/api/v2/hunting-time/offline-summary/seen', { method: 'POST' });
+      const data = await request('/api/v2/hunting-time/offline-summary/seen', {
+        method: 'POST',
+        body: JSON.stringify({ summaryId: key })
+      });
       state.huntingTime = data.huntingTime || { ...state.huntingTime, offlineSummary: null };
-      if (state.character?.huntingTime) state.character.huntingTime.offlineSummary = null;
+      if (state.character?.huntingTime) {
+        state.character.huntingTime.offlineSummary = state.huntingTime.offlineSummary || null;
+      }
+      closeFeature();
+      if (!data.acknowledged && state.huntingTime.offlineSummary) {
+        setTimeout(() => maybeShowOfflineHuntingSummary(state.huntingTime.offlineSummary), 100);
+      }
     } catch (err) {
       setWorldActivity(err.message);
+      button.disabled = false;
+      button.textContent = '확인';
       return;
+    } finally {
+      state.offlineSummaryAcknowledging = false;
     }
-    closeFeature();
   });
   $('featureModal').classList.remove('hidden');
   document.body.classList.add('modal-open');
@@ -1086,7 +1110,7 @@ function getScaledMovementDuration(baseDuration) {
   );
 }
 
-function showFloatingDamage(targetElement, amount, kind = 'outgoing') {
+function showFloatingDamage(targetElement, amount, kind = 'outgoing', sequence = null) {
   const stage = $('worldStage');
   if (!stage || !targetElement || !targetElement.isConnected) return;
   const label = typeof amount === 'string' ? amount : '';
@@ -1098,8 +1122,12 @@ function showFloatingDamage(targetElement, amount, kind = 'outgoing') {
   const element = document.createElement('span');
   element.className = `floating-damage is-${kind}`;
   element.textContent = label || formatNumber(value);
-  element.style.left = `${targetRect.left - stageRect.left + targetRect.width / 2}px`;
-  element.style.top = `${Math.max(18, targetRect.top - stageRect.top + 4)}px`;
+  const hasSequence = sequence !== null && sequence !== undefined;
+  const lane = hasSequence ? Math.max(0, Math.floor(Number(sequence) || 0)) % 3 : 1;
+  const xOffset = hasSequence ? (lane - 1) * 9 : 0;
+  const yOffset = hasSequence ? lane * 5 : 0;
+  element.style.left = `${targetRect.left - stageRect.left + targetRect.width / 2 + xOffset}px`;
+  element.style.top = `${Math.max(18, targetRect.top - stageRect.top + 4 - yOffset)}px`;
   stage.appendChild(element);
   element.addEventListener('animationend', () => element.remove(), { once: true });
   setTimeout(() => element.remove(), 650);
@@ -1642,10 +1670,14 @@ async function playWorldMotion(motion, kind, runId, activityLabel = '') {
   if (isRunActive(kind, runId)) setCharacterMotion(null);
 }
 
-function launchChannelProjectile() {
+function launchChannelProjectile(targetId = '') {
   const stage = $('worldStage');
   const character = $('fieldCharacter');
-  const monster = getCombatTargetElement();
+  const monster = targetId
+    ? Array.from($('monsterLayer')?.children || []).find(
+      (node) => node.dataset.monsterId === String(targetId)
+    )
+    : getCombatTargetElement();
   if (!stage || !character) return;
   const stageRect = stage.getBoundingClientRect();
   const characterRect = character.getBoundingClientRect();
@@ -1687,8 +1719,9 @@ async function playChanneledSkillMotion(channel = {}, kind, runId, activityLabel
     setCharacterMotion(null);
     void character.offsetWidth;
     setCharacterMotion('shoot');
-    launchChannelProjectile();
-    if (hitResults[hit]) window.applyChannelSkillHit?.(hitResults[hit]);
+    const hitResult = hitResults[hit];
+    launchChannelProjectile(hitResult?.monsterId);
+    if (hitResult) window.applyChannelSkillHit?.(hitResult);
     const nextAt = startedAt + Math.min(durationMs, (hit + 1) * intervalMs);
     await sleep(Math.max(0, nextAt - performance.now()));
   }

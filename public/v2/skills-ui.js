@@ -623,7 +623,8 @@ function applyChannelSkillHit(hit = {}) {
   showFloatingDamage(
     element,
     hit.missed ? 'MISS' : hit.damage,
-    !hit.missed && hit.critical ? 'critical' : 'outgoing'
+    !hit.missed && hit.critical ? 'critical' : 'outgoing',
+    hit.projectileIndex ?? hit.hitIndex
   );
   if (hit.defeated || Number(hit.remainingHp) <= 0) {
     state.worldMonsters = state.worldMonsters.filter(
