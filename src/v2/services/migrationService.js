@@ -433,6 +433,7 @@ async function ensureV2MigrationForUser(user) {
         },
         economy: {
           money: 0,
+          cashPoints: 0,
           stockPortfolio: []
         },
         migration: {
@@ -578,6 +579,13 @@ async function ensureV2CharacterFoundation(character) {
   const resourceBuff = reconcileMaxResourceBuff(character);
   if (resourceBuff.changed) changed = true;
   if (ensureDailyActionPoints(character)) changed = true;
+  if (!character.economy || typeof character.economy !== 'object') {
+    character.economy = { money: 0, cashPoints: 0, stockPortfolio: [] };
+    changed = true;
+  } else if (!Number.isFinite(Number(character.economy.cashPoints))) {
+    character.economy.cashPoints = 0;
+    changed = true;
+  }
 
   if (changed) await character.save();
   return character;
@@ -736,7 +744,10 @@ function buildCharacterResponse(character) {
     },
     huntingTime: {
       remainingSeconds: Math.max(0, Number(plain.huntingTime?.remainingSeconds) || 0),
-      maximumSeconds: 24000,
+      maximumSeconds: Math.max(
+        24000,
+        Math.min(48000, Number(plain.huntingTime?.maximumSeconds) || 24000)
+      ),
       enabled: Boolean(plain.huntingTime?.enabled),
       lastDailyGrantDate: String(plain.huntingTime?.lastDailyGrantDate || ''),
       offlineSummary: buildOfflineSummaryView(plain.huntingTime?.offlineSummary)

@@ -114,10 +114,16 @@ const {
   setHuntingEnabled,
   tickHuntingTime,
   addHuntingMinutes,
+  addHuntingCapacityMinutes,
   serializeHuntingTime,
   getOfflineHuntingSummaryId,
   createOfflineHuntingSummary
 } = require('./services/huntingTimeService');
+const {
+  getCashShopView,
+  grantCashPoints,
+  purchaseCashProduct
+} = require('./services/cashShopService');
 const {
   ensureDailyActionPoints,
   spendActionPoints,
@@ -3886,6 +3892,40 @@ function registerV2Routes({
     }
   });
 
+  app.get('/api/v2/cash-shop', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const character = await V2Character.findOne({ userId: auth.id });
+      if (!character) return res.status(404).json({ msg: 'V2 캐릭터를 찾을 수 없습니다.' });
+      await ensureV2CharacterFoundation(character);
+      return res.json(getCashShopView(character));
+    } catch (err) {
+      return res.status(500).json({ msg: '캐시상점을 불러오지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/cash-shop/buy', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const result = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        await ensureV2CharacterFoundation(character);
+        const purchase = purchaseCashProduct(character, req.body?.productId);
+        await character.save();
+        return {
+          ...purchase,
+          character: buildCharacterResponse(character)
+        };
+      });
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '캐시 상품을 구매하지 못했습니다.' });
+    }
+  });
+
   app.post('/api/v2/inventory/use-item', async (req, res) => {
     const auth = requireV2User(req, res);
     if (!auth) return;
@@ -3894,7 +3934,7 @@ function registerV2Routes({
         const character = await V2Character.findOne({ userId: auth.id });
         if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
         const item = getItemDefinition(req.body?.itemId);
-        if (!item || !['return-scroll', 'experience-buff', 'hunting-time', 'level-up', 'skill-reset', 'mastery-book', 'action-point'].includes(item.itemType)) {
+        if (!item || !['return-scroll', 'experience-buff', 'hunting-time', 'hunting-capacity', 'level-up', 'skill-reset', 'mastery-book', 'action-point', 'cash-point'].includes(item.itemType)) {
           throw new Error('사용할 수 없는 아이템입니다.');
         }
         if (item.itemType === 'level-up' && Number(character.progression?.level) >= MAX_LEVEL) {
@@ -3902,10 +3942,17 @@ function registerV2Routes({
         }
         if (
           item.itemType === 'hunting-time'
-          && Number(character.huntingTime?.remainingSeconds) >= 24000
+          && Number(character.huntingTime?.remainingSeconds) >= Math.max(
+            24000,
+            Number(character.huntingTime?.maximumSeconds) || 24000
+          )
         ) {
-          throw new Error('자동사냥 시간이 이미 최대 400분입니다.');
+          throw new Error('자동사냥 시간이 이미 현재 최대치입니다.');
         }
+        if (
+          item.itemType === 'hunting-capacity'
+          && Number(character.huntingTime?.maximumSeconds || 24000) >= 48000
+        ) throw new Error('자동사냥 시간 최대치가 이미 800분입니다.');
         const masteryValidation = item.itemType === 'mastery-book'
           ? validateMasteryBookUse(character, item)
           : null;
@@ -3950,7 +3997,15 @@ function registerV2Routes({
           const huntingTime = addHuntingMinutes(character, item.huntingMinutes);
           message = huntingTime.addedSeconds > 0
             ? `자동사냥 시간이 ${Math.floor(huntingTime.addedSeconds / 60)}분 충전되었습니다.`
-            : '자동사냥 시간이 이미 최대 400분입니다.';
+            : '자동사냥 시간이 이미 현재 최대치입니다.';
+        } else if (item.itemType === 'hunting-capacity') {
+          const capacity = addHuntingCapacityMinutes(character, item.huntingCapacityMinutes);
+          message = capacity.addedSeconds > 0
+            ? `자동사냥 시간 최대치가 ${Math.floor(capacity.maximumSeconds / 60)}분으로 증가했습니다.`
+            : '자동사냥 시간 최대치가 이미 800분입니다.';
+        } else if (item.itemType === 'cash-point') {
+          const cash = grantCashPoints(character, item.cashPoints || 100);
+          message = `캐시 ${cash.granted}P가 충전되었습니다. 현재 잔액은 ${cash.cashPoints}P입니다.`;
         } else if (item.itemType === 'action-point') {
           const restored = restoreActionPoints(character, item.actionPoints || 1);
           message = `행동력을 ${restored.restored} 회복했습니다.`;
@@ -5039,6 +5094,35 @@ function registerV2Routes({
   app.get('/api/v2/admin/grant-items', (req, res) => {
     if (!requireAdmin(req, res)) return;
     return res.json({ items: listAdminGrantItems() });
+  });
+
+  app.post('/api/v2/admin/cash/grant', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const target = String(req.body?.target || '').trim();
+      const points = Math.floor(Number(req.body?.points) || 0);
+      const allowedPoints = new Set([450, 800, 1700, 5200]);
+      if (!target) return res.status(400).json({ msg: '대상 아이디 또는 닉네임을 입력해주세요.' });
+      if (!allowedPoints.has(points)) return res.status(400).json({ msg: '지급 가능한 캐시 단위를 선택해주세요.' });
+      const user = await User.findOne({ $or: [{ username: target }, { nickname: target }] });
+      if (!user) return res.status(404).json({ msg: '대상 유저를 찾을 수 없습니다.' });
+      await ensureV2MigrationForUser(user);
+      const result = await withCharacterMutation(user._id, async () => {
+        const character = await V2Character.findOne({ userId: user._id });
+        await ensureV2CharacterFoundation(character);
+        const granted = grantCashPoints(character, points);
+        await character.save();
+        return granted;
+      });
+      return res.json({
+        success: true,
+        recipient: user.nickname || user.username,
+        ...result
+      });
+    } catch (err) {
+      if (isV2AccountDeletedError(err)) return res.status(410).json({ msg: err.message });
+      return res.status(500).json({ msg: err.message || '캐시를 지급하지 못했습니다.' });
+    }
   });
 
   app.post('/api/v2/admin/mail/send', async (req, res) => {

@@ -4,6 +4,7 @@ const { randomUUID } = require('node:crypto');
 const { createAdminMail } = require('./inventoryService');
 
 const MAX_HUNTING_SECONDS = 400 * 60;
+const ABSOLUTE_MAX_HUNTING_SECONDS = 800 * 60;
 const DAILY_HUNTING_MINUTES = 360;
 const DAILY_HUNTING_ITEM_ID = 'hunting_time_360m';
 
@@ -41,9 +42,19 @@ function ensureHuntingState(character) {
   if (!character.huntingTime || typeof character.huntingTime !== 'object') {
     character.huntingTime = {};
   }
+  character.huntingTime.maximumSeconds = Math.max(
+    MAX_HUNTING_SECONDS,
+    Math.min(
+      ABSOLUTE_MAX_HUNTING_SECONDS,
+      Math.floor(Number(character.huntingTime.maximumSeconds) || MAX_HUNTING_SECONDS)
+    )
+  );
   character.huntingTime.remainingSeconds = Math.max(
     0,
-    Math.min(MAX_HUNTING_SECONDS, Math.floor(Number(character.huntingTime.remainingSeconds) || 0))
+    Math.min(
+      character.huntingTime.maximumSeconds,
+      Math.floor(Number(character.huntingTime.remainingSeconds) || 0)
+    )
   );
   character.huntingTime.enabled = Boolean(character.huntingTime.enabled);
   character.huntingTime.lastDailyGrantDate = String(character.huntingTime.lastDailyGrantDate || '');
@@ -98,7 +109,7 @@ function addHuntingMinutes(character, minutes) {
   const state = ensureHuntingState(character);
   const before = state.remainingSeconds;
   state.remainingSeconds = Math.min(
-    MAX_HUNTING_SECONDS,
+    state.maximumSeconds,
     before + Math.max(0, Math.floor(Number(minutes) || 0) * 60)
   );
   if (typeof character.markModified === 'function') character.markModified('huntingTime');
@@ -108,11 +119,25 @@ function addHuntingMinutes(character, minutes) {
   };
 }
 
+function addHuntingCapacityMinutes(character, minutes) {
+  const state = ensureHuntingState(character);
+  const before = state.maximumSeconds;
+  state.maximumSeconds = Math.min(
+    ABSOLUTE_MAX_HUNTING_SECONDS,
+    before + Math.max(0, Math.floor(Number(minutes) || 0) * 60)
+  );
+  if (typeof character.markModified === 'function') character.markModified('huntingTime');
+  return {
+    addedSeconds: state.maximumSeconds - before,
+    ...serializeHuntingTime(character)
+  };
+}
+
 function serializeHuntingTime(character) {
   const state = ensureHuntingState(character);
   return {
     remainingSeconds: state.remainingSeconds,
-    maximumSeconds: MAX_HUNTING_SECONDS,
+    maximumSeconds: state.maximumSeconds,
     enabled: state.enabled,
     offlineSummary: state.offlineSummary || null
   };
@@ -120,6 +145,7 @@ function serializeHuntingTime(character) {
 
 module.exports = {
   MAX_HUNTING_SECONDS,
+  ABSOLUTE_MAX_HUNTING_SECONDS,
   DAILY_HUNTING_MINUTES,
   DAILY_HUNTING_ITEM_ID,
   getKoreaDateKey,
@@ -128,6 +154,7 @@ module.exports = {
   setHuntingEnabled,
   tickHuntingTime,
   addHuntingMinutes,
+  addHuntingCapacityMinutes,
   serializeHuntingTime,
   getOfflineHuntingSummaryId,
   createOfflineHuntingSummary

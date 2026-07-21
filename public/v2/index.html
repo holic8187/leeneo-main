@@ -257,6 +257,24 @@
         </section>
         <section class="admin-setting-card">
           <div>
+            <p class="section-number">CASH GRANT</p>
+            <h3>캐시 직접 충전</h3>
+            <p>입금 확인이 끝난 유저에게 결제 상품에 맞는 캐시를 즉시 충전합니다.</p>
+          </div>
+          <form id="adminCashGrantForm" class="admin-cash-grant-form">
+            <label>대상<input id="adminCashTarget" maxlength="24" placeholder="아이디 또는 닉네임" required></label>
+            <label>충전 캐시<select id="adminCashPoints" required>
+              <option value="450">450 P (3,000원)</option>
+              <option value="800">800 P (5,000원)</option>
+              <option value="1700">1,700 P (10,000원)</option>
+              <option value="5200">5,200 P (30,000원)</option>
+            </select></label>
+            <button type="submit">캐시 충전</button>
+          </form>
+          <p id="adminCashGrantStatus" class="status"></p>
+        </section>
+        <section class="admin-setting-card">
+          <div>
             <p class="section-number">ACCOUNT DELETE</p>
             <h3>V2 계정 영구 삭제</h3>
             <p>V2 계정·캐릭터·이관 스냅샷을 삭제하고 자동 이관에서 영구 제외합니다. V1 원본 자체는 보존됩니다.</p>

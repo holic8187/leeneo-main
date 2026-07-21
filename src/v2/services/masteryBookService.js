@@ -15,8 +15,14 @@ function validateMasteryBookUse(character, item) {
     throw new Error('사용할 수 있는 마스터리북이 아닙니다.');
   }
   const departmentId = String(character.job?.departmentId || '');
-  const skillId = String(item.masterySkillId || '');
   const stage = Math.floor(Number(item.masteryStage) || 0);
+  const candidateSkillIds = Array.isArray(item.masterySkillIds) && item.masterySkillIds.length
+    ? item.masterySkillIds
+    : [item.masterySkillId];
+  const skillId = candidateSkillIds.find((candidate) => (
+    SKILL_DEFINITIONS[String(candidate || '')]
+    && getMasteryBookRule(String(candidate || ''), departmentId)?.stages.includes(stage)
+  ));
   const definition = SKILL_DEFINITIONS[skillId];
   const rule = getMasteryBookRule(skillId, departmentId);
   if (!definition || !rule || !rule.stages.includes(stage)) {

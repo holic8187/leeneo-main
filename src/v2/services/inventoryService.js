@@ -14,7 +14,8 @@ const INVENTORY_EXPANSION_SIZE = 4;
 const INVENTORY_EXPANSION_TICKET_ID = 'inventory_expansion_ticket';
 const DEFAULT_STACK_SIZE = 100;
 const MAIL_TTL_MS = 24 * 60 * 60 * 1000;
-const MAX_HUNTING_SECONDS = 400 * 60;
+const DEFAULT_MAX_HUNTING_SECONDS = 400 * 60;
+const ABSOLUTE_MAX_HUNTING_SECONDS = 800 * 60;
 
 const QUICK_SLOT_RESOURCES = Object.freeze({
   hp: 'hp',
@@ -736,9 +737,17 @@ function applyMailAttachment(character, attachment) {
     character.huntingTime = {};
   }
   const before = Math.max(0, Math.floor(Number(character.huntingTime.remainingSeconds) || 0));
+  const maximumSeconds = Math.max(
+    DEFAULT_MAX_HUNTING_SECONDS,
+    Math.min(
+      ABSOLUTE_MAX_HUNTING_SECONDS,
+      Math.floor(Number(character.huntingTime.maximumSeconds) || DEFAULT_MAX_HUNTING_SECONDS)
+    )
+  );
+  character.huntingTime.maximumSeconds = maximumSeconds;
   const requestedSeconds = Math.max(0, Number(item.huntingMinutes) || 0) * 60 * quantity;
   character.huntingTime.remainingSeconds = Math.min(
-    MAX_HUNTING_SECONDS,
+    maximumSeconds,
     before + requestedSeconds
   );
   if (typeof character.markModified === 'function') character.markModified('huntingTime');

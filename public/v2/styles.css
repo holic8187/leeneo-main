@@ -2428,6 +2428,55 @@ body.floating-actions-minimized .mail-callout.has-alert {
   min-height: 18px;
   margin: 0;
 }
+.admin-cash-grant-form { display:grid; grid-template-columns:1fr 1fr auto; gap:10px; align-items:end; }
+.admin-cash-grant-form label { min-width:0; }
+.admin-cash-grant-form select { width:100%; min-height:42px; padding:8px; border:1px solid var(--line); background:#fff; }
+
+.cash-shop-window { position:relative; display:grid; gap:16px; }
+.cash-shop-sticky {
+  position:sticky;
+  top:85px;
+  z-index:3;
+  display:grid;
+  grid-template-columns:auto minmax(0, 1fr) auto;
+  align-items:center;
+  gap:14px;
+  padding:14px 16px;
+  color:#eef8f2;
+  border:1px solid #315e4b;
+  background:rgba(20, 55, 43, .97);
+  box-shadow:0 8px 18px rgba(14, 35, 27, .18);
+  backdrop-filter:blur(8px);
+}
+.cash-balance { display:grid; gap:2px; padding-right:14px; border-right:1px solid rgba(255,255,255,.22); }
+.cash-balance span { font:900 9px ui-monospace, monospace; letter-spacing:.14em; opacity:.7; }
+.cash-balance strong { color:#ffe69a; font-size:23px; white-space:nowrap; }
+.cash-bank { min-width:0; display:grid; gap:3px; }
+.cash-bank span { overflow:hidden; font-weight:900; text-overflow:ellipsis; white-space:nowrap; }
+.cash-bank small { color:#bed7ca; }
+.cash-shop-sticky > button { color:#173b2d; border-color:#f4d477; background:#f4d477; white-space:nowrap; }
+.cash-product-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px; }
+.cash-product-card { min-width:0; padding:15px; display:grid; grid-template-columns:44px minmax(0, 1fr); gap:10px; border:1px solid var(--line); background:#f8f7f0; }
+.cash-product-icon { display:grid; place-items:center; width:44px; height:44px; font-size:27px; border:1px solid #b8c9bd; background:#eaf1ea; }
+.cash-product-card > div { min-width:0; }
+.cash-product-card strong { display:block; font-size:16px; }
+.cash-product-card p { min-height:42px; margin:5px 0; color:var(--muted); font-size:11px; line-height:1.55; }
+.cash-product-card small { color:var(--green); font-weight:900; }
+.cash-product-card > button { grid-column:1 / -1; color:#fff; background:var(--green); }
+.cash-product-card > button:disabled { color:#8a918c; border-color:#cfd3cf; background:#e2e4e0; }
+.cash-shop-loading { min-height:180px; display:grid; place-items:center; border:1px dashed var(--line); color:var(--muted); }
+.cash-charge-layer { position:fixed; inset:0; z-index:30; display:grid; place-items:center; padding:18px; }
+.cash-charge-scrim { position:absolute; inset:0; width:100%; height:100%; padding:0; border:0; background:rgba(7, 18, 14, .72); }
+.cash-charge-dialog { position:relative; width:min(460px, 100%); padding:22px; display:grid; gap:16px; border:1px solid var(--ink); background:var(--paper-bright); box-shadow:12px 12px 0 rgba(0,0,0,.24); }
+.cash-charge-dialog header { display:flex; justify-content:space-between; gap:12px; }
+.cash-charge-dialog header span { color:var(--green); font:900 9px ui-monospace, monospace; letter-spacing:.14em; }
+.cash-charge-dialog h3 { margin:4px 0 0; font-size:24px; }
+.cash-charge-dialog header button { width:40px; min-width:40px; padding:0; font-size:24px; background:transparent; }
+.cash-charge-dialog p { margin:0; padding:13px; border:1px solid #c9d5cc; background:#eef4ee; line-height:1.65; }
+.cash-charge-options { display:grid; grid-template-columns:repeat(2, 1fr); gap:8px; }
+.cash-charge-options div { padding:11px; display:flex; justify-content:space-between; gap:10px; border:1px solid var(--line-soft); background:#fff; }
+.cash-charge-options strong { color:var(--green); }
+.cash-charge-dialog > small { color:var(--muted); }
 
 .death-modal { z-index: 40; }
 .death-sheet {
@@ -2769,6 +2818,11 @@ body.floating-actions-minimized .mail-callout.has-alert {
 }
 
 @media (max-width: 720px) {
+  .cash-shop-sticky { top:77px; grid-template-columns:1fr auto; }
+  .cash-balance { border-right:0; }
+  .cash-bank { grid-column:1 / -1; grid-row:2; }
+  .cash-product-grid { grid-template-columns:1fr; }
+  .admin-cash-grant-form { grid-template-columns:1fr; }
   .field-shop-columns { grid-template-columns: 1fr; }
   .shop-item-list article { grid-template-columns: 34px minmax(0, 1fr) 58px auto; }
   .field-shop-npc { right: 2%; }

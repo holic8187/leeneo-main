@@ -14,6 +14,7 @@ const {
   rollEquipmentInstanceData
 } = require('../items/equipmentCatalog');
 const { EQUIPMENT_SCROLLS } = require('../items/scrollCatalog');
+const { getMasteryBookByOriginalSkill } = require('../items/masteryBookCatalog');
 const {
   calculateIncomingPhysicalDamage,
   splitDamageWithMpGuard
@@ -96,6 +97,19 @@ function findScrollDrop(predicate, chance) {
   };
 }
 
+function findMasteryBookDrop(originalSkillId, stage, chance) {
+  const book = getMasteryBookByOriginalSkill(originalSkillId, stage);
+  if (!book) return null;
+  return {
+    kind: 'item',
+    itemId: book.id,
+    quantity: 1,
+    icon: book.icon,
+    name: book.name,
+    chance
+  };
+}
+
 function getHwangFieldBossDrops() {
   return [
     findScrollDrop((scroll) => (
@@ -132,7 +146,11 @@ function getHwangFieldBossDrops() {
       scroll.applicableSlot === 'shoes'
       && Number(scroll.successRate) === 10
       && Number(scroll.scrollStats?.movementSpeed) === 3
-    ), 0.002)
+    ), 0.002),
+    findMasteryBookDrop('blast', 30, 0.03),
+    findMasteryBookDrop('dragon_pulse', 30, 0.03),
+    findMasteryBookDrop('blizzard', 30, 0.03),
+    findMasteryBookDrop('maple_warrior', 20, 0.01)
   ].filter(Boolean);
 }
 
@@ -1865,6 +1883,7 @@ module.exports = {
   MONSTER_SPAWN_INTERVAL_MS,
   MONSTER_MAX_PER_MAP,
   MONSTER_SPAWN_PER_WAVE,
+  getHwangFieldBossDrops,
   MONSTER_CATALOG,
   buildMonsterStats,
   claimWorldControl,

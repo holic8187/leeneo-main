@@ -3,6 +3,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { MASTERY_BOOK_ITEMS } = require('../../src/v2/items/masteryBookCatalog');
+const { MONSTER_CATALOG } = require('../../src/v2/world/monsterCatalog');
+const { getHwangFieldBossDrops } = require('../../src/v2/world/worldRuntime');
 const {
   validateMasteryBookUse,
   resolveMasteryBookUse
@@ -68,3 +70,55 @@ test('mastery book 30 requires both cap twenty and skill level fifteen', () => {
   character.skills.levels.firm_will_hr = 15;
   assert.equal(validateMasteryBookUse(character, item30).successRate, 70);
 });
+
+test('one common original-skill book unlocks the matching renamed department skill', () => {
+  const character = characterFixture();
+  character.job.departmentId = 'quality';
+  character.skills.levels = { firm_will_quality: 5 };
+  const commonBook = MASTERY_BOOK_ITEMS.find((item) => (
+    item.dropEligible
+    && item.masteryOriginalSkillId === 'stance'
+    && item.masteryStage === 20
+  ));
+  const validation = validateMasteryBookUse(character, commonBook);
+  assert.equal(validation.skillId, 'firm_will_quality');
+  resolveMasteryBookUse(character, validation, () => 0);
+  assert.equal(
+    getSkillInvestmentCap(character, SKILL_DEFINITIONS.firm_will_quality, 'quality'),
+    20
+  );
+});
+
+test('level 110+ monsters split normal books at 0.002 percent and exclude boss-only stages', () => {
+  const eligibleMonsters = MONSTER_CATALOG.filter((monster) => monster.level >= 110);
+  assert.ok(eligibleMonsters.length > 0);
+  const drops = eligibleMonsters.flatMap((monster) => monster.dropTable.masteryBooks || []);
+  assert.ok(drops.length > 0);
+  assert.ok(drops.every((drop) => drop.chance === 0.00002));
+  const droppedIds = new Set(drops.map((drop) => drop.itemId));
+  assert.ok(MASTERY_BOOK_ITEMS
+    .filter((item) => item.dropEligible && !item.bossOnly)
+    .every((item) => droppedIds.has(item.id)));
+  assert.ok(MASTERY_BOOK_ITEMS
+    .filter((item) => item.dropEligible && item.bossOnly)
+    .every((item) => !droppedIds.has(item.id)));
+});
+
+test('Hwang manager has the four requested boss-only mastery-book chances', () => {
+  const books = getHwangFieldBossDrops()
+    .filter((drop) => getItemDefinitionForTest(drop.itemId)?.itemType === 'mastery-book')
+    .map((drop) => {
+      const item = getItemDefinitionForTest(drop.itemId);
+      return [item.masteryOriginalSkillId, item.masteryStage, drop.chance];
+    });
+  assert.deepEqual(books, [
+    ['blast', 30, 0.03],
+    ['dragon_pulse', 30, 0.03],
+    ['blizzard', 30, 0.03],
+    ['maple_warrior', 20, 0.01]
+  ]);
+});
+
+function getItemDefinitionForTest(itemId) {
+  return MASTERY_BOOK_ITEMS.find((item) => item.id === itemId);
+}

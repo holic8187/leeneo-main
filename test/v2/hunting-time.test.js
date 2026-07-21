@@ -9,6 +9,7 @@ const {
   setHuntingEnabled,
   tickHuntingTime,
   addHuntingMinutes,
+  addHuntingCapacityMinutes,
   getOfflineHuntingSummaryId,
   createOfflineHuntingSummary
 } = require('../../src/v2/services/huntingTimeService');
@@ -37,6 +38,14 @@ test('hunting time drains only while enabled and caps at four hundred minutes', 
   assert.equal(character.huntingTime.remainingSeconds, MAX_HUNTING_SECONDS - 10);
   tickHuntingTime(character, false, 21_000);
   assert.equal(character.huntingTime.remainingSeconds, MAX_HUNTING_SECONDS - 10);
+});
+
+test('capacity tickets raise the personal hunting cap by forty minutes up to eight hundred', () => {
+  const character = createCharacter();
+  const first = addHuntingCapacityMinutes(character, 40);
+  assert.equal(first.maximumSeconds, 440 * 60);
+  for (let index = 0; index < 20; index += 1) addHuntingCapacityMinutes(character, 40);
+  assert.equal(character.huntingTime.maximumSeconds, 800 * 60);
 });
 
 test('one offline hunting settlement keeps a stable identifier while its totals change', () => {

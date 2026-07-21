@@ -41,6 +41,7 @@ const state = {
   reviving: false,
   selfUserId: '',
   worldMonsters: [],
+  recentlyCollectedLootIds: new Map(),
   combatTargetId: '',
   rallyPoint: null,
   worldServerTime: 0,
@@ -66,6 +67,14 @@ const state = {
   floatingButtonsMinimized: localStorage.getItem('v2FloatingButtonsMinimized') === 'true',
   mailPollTimer: null,
   adminGrantItems: [],
+  cashShop: {
+    cashPoints: 0,
+    products: [],
+    chargeOptions: [],
+    chargeOpen: false,
+    loaded: false
+  },
+  activeFeature: '',
   autoPotionBusy: { hp: false, mp: false },
   potionUseBusy: false,
   manualSkillPriority: false,
@@ -789,6 +798,28 @@ function resetCharacterPhysics() {
   setCharacterPhysicsOffset(0);
 }
 
+async function grantAdminCash(event) {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector('button[type="submit"]');
+  button.disabled = true;
+  $('adminCashGrantStatus').textContent = '캐시를 충전하는 중입니다.';
+  try {
+    const data = await request('/api/v2/admin/cash/grant', {
+      method: 'POST',
+      body: JSON.stringify({
+        target: $('adminCashTarget').value.trim(),
+        points: Number($('adminCashPoints').value)
+      })
+    });
+    $('adminCashGrantStatus').textContent = `${data.recipient}에게 ${formatNumber(data.granted)}P를 충전했습니다. 현재 잔액 ${formatNumber(data.cashPoints)}P`;
+    $('adminCashTarget').value = '';
+  } catch (err) {
+    $('adminCashGrantStatus').textContent = err.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function registerLocalJumpEvent(kind = 'jump') {
   const physics = state.characterPhysics;
   physics.jumpSequence = Math.max(physics.jumpSequence + 1, Date.now());
@@ -1226,9 +1257,24 @@ function getLootBottom(floor) {
   return Number(floor) === 1 ? `${getUpperPlatformBottom() + 3}px` : '44px';
 }
 
+function pruneCollectedLootIds(now = Date.now()) {
+  for (const [lootId, expiresAt] of state.recentlyCollectedLootIds) {
+    if (Number(expiresAt) <= now) state.recentlyCollectedLootIds.delete(lootId);
+  }
+}
+
+function getLootElements(layer, lootId) {
+  if (!layer || !lootId) return [];
+  return [...layer.querySelectorAll(
+    `[data-loot-id="${CSS.escape(String(lootId))}"]`
+  )];
+}
+
 function showGroundLoot(drops = []) {
   const layer = $('lootLayer');
   if (!layer) return;
+  const now = Date.now();
+  pruneCollectedLootIds(now);
   layer.querySelectorAll('[data-loot-id="undefined"], [data-loot-id=""]').forEach(
     (element) => element.remove()
   );
@@ -1238,10 +1284,15 @@ function showGroundLoot(drops = []) {
     && drop.id
     && Number.isFinite(Number(drop.x))
   )).forEach((drop) => {
-    if (layer.querySelector(`[data-loot-id="${CSS.escape(String(drop.id))}"]`)) return;
+    const lootId = String(drop.id);
+    if (Number(state.recentlyCollectedLootIds.get(lootId)) > now) {
+      getLootElements(layer, lootId).forEach((element) => element.remove());
+      return;
+    }
+    if (getLootElements(layer, lootId).length) return;
     const element = document.createElement('div');
     element.className = `field-loot is-${drop.kind}`;
-    element.dataset.lootId = String(drop.id);
+    element.dataset.lootId = lootId;
     element.style.left = `${drop.x}%`;
     element.style.bottom = getLootBottom(drop.floor);
     element.innerHTML = `<span>${escapeHtml(drop.icon || '📦')}</span><small>${escapeHtml(drop.name || '')}</small>`;
@@ -1260,21 +1311,29 @@ function collectGroundLoot(collections = []) {
   const characterRect = character.getBoundingClientRect();
   const destinationX = characterRect.left - stageRect.left + characterRect.width / 2;
   const destinationY = stageRect.bottom - characterRect.top;
+  const now = Date.now();
+  pruneCollectedLootIds(now);
   collections.forEach((loot) => {
-    let element = layer.querySelector(`[data-loot-id="${CSS.escape(String(loot.id))}"]`);
-    if (!element) {
-      element = document.createElement('div');
+    const lootId = String(loot.id || '');
+    if (!lootId) return;
+    state.recentlyCollectedLootIds.set(lootId, now + 30_000);
+    let elements = getLootElements(layer, lootId);
+    if (!elements.length) {
+      const element = document.createElement('div');
       element.className = `field-loot is-${loot.kind}`;
-      element.dataset.lootId = String(loot.id);
+      element.dataset.lootId = lootId;
       element.style.left = `${Math.max(5, Math.min(88, Number(loot.x) || 8))}%`;
       element.style.bottom = getLootBottom(loot.floor);
       element.innerHTML = `<span>${escapeHtml(loot.icon || '📦')}</span>`;
       layer.appendChild(element);
+      elements = [element];
     }
-    element.style.setProperty('--loot-target-x', `${destinationX - element.offsetLeft}px`);
-    element.style.setProperty('--loot-target-y', `${-(destinationY - element.offsetHeight)}px`);
-    element.classList.add('is-collecting');
-    setTimeout(() => element.remove(), 520);
+    elements.forEach((element) => {
+      element.style.setProperty('--loot-target-x', `${destinationX - element.offsetLeft}px`);
+      element.style.setProperty('--loot-target-y', `${-(destinationY - element.offsetHeight)}px`);
+      element.classList.add('is-collecting');
+      setTimeout(() => element.remove(), 520);
+    });
   });
   if (collections.length) {
     const money = collections
@@ -2874,7 +2933,7 @@ function inventorySlotBody(item, slotNumber, locked = false) {
   }
   let usable = '';
   const directlyUsableItem = (
-    ['return-scroll', 'experience-buff', 'hunting-time', 'level-up', 'skill-reset', 'mastery-book', 'action-point'].includes(item.itemType)
+    ['return-scroll', 'experience-buff', 'hunting-time', 'hunting-capacity', 'level-up', 'skill-reset', 'mastery-book', 'action-point', 'cash-point'].includes(item.itemType)
     || item.id === 'level_up_coupon'
   );
   if (item.itemType === 'inventory-expansion') {
@@ -4932,6 +4991,106 @@ function bindSpecialActionControls() {
   });
 }
 
+function cashShopBody() {
+  const shop = state.cashShop;
+  const balance = Number(shop.cashPoints ?? state.character?.economy?.cashPoints) || 0;
+  const products = Array.isArray(shop.products) ? shop.products : [];
+  const chargeOptions = Array.isArray(shop.chargeOptions) ? shop.chargeOptions : [];
+  return `<div class="cash-shop-window">
+    <section class="cash-shop-sticky">
+      <div class="cash-balance"><span>MY CASH</span><strong>${formatNumber(balance)} P</strong></div>
+      <div class="cash-bank">
+        <span>토스뱅크 ㅊㅅㅇ 1000-4112-0011</span>
+        <small>입급자명을 닉네임으로 변경하고 입금해주세요</small>
+      </div>
+      <button type="button" data-open-cash-charge>캐시 충전</button>
+    </section>
+    ${shop.loaded ? `<section class="cash-product-grid">
+      ${products.map((product) => `<article class="cash-product-card">
+        <span class="cash-product-icon" aria-hidden="true">${escapeHtml(product.icon || '🎟️')}</span>
+        <div><strong>${escapeHtml(product.name)}</strong><p>${escapeHtml(product.description)}</p><small>${formatNumber(product.quantity)}개 지급</small></div>
+        <button type="button" data-buy-cash-product="${escapeHtml(product.id)}" ${balance < Number(product.price) ? 'disabled' : ''}>
+          ${formatNumber(product.price)} P
+        </button>
+      </article>`).join('')}
+    </section>` : '<div class="cash-shop-loading">캐시 상품을 불러오는 중입니다.</div>'}
+    ${state.cashShop.chargeOpen ? `<div class="cash-charge-layer" role="dialog" aria-modal="true" aria-label="캐시 충전 안내">
+      <button class="cash-charge-scrim" type="button" data-close-cash-charge aria-label="닫기"></button>
+      <section class="cash-charge-dialog">
+        <header><div><span>CASH CHARGE</span><h3>캐시 충전 안내</h3></div><button type="button" data-close-cash-charge aria-label="닫기">×</button></header>
+        <p><b>토스뱅크 ㅊㅅㅇ 1000-4112-0011</b><br>입급자명을 닉네임으로 변경하고 입금해주세요.</p>
+        <div class="cash-charge-options">
+          ${chargeOptions.map((option) => `<div><span>${formatNumber(option.paymentWon)}원</span><strong>${formatNumber(option.cashPoints)} P</strong></div>`).join('')}
+        </div>
+        <small>입금 확인 후 운영자가 해당 캐시를 충전합니다.</small>
+        <button type="button" data-close-cash-charge>확인</button>
+      </section>
+    </div>` : ''}
+  </div>`;
+}
+
+function rerenderCashShop() {
+  if (state.activeFeature !== 'cash' || $('featureModal')?.classList.contains('hidden')) return;
+  $('featureBody').innerHTML = cashShopBody();
+  bindCashShopControls();
+}
+
+async function loadCashShop() {
+  try {
+    const data = await request('/api/v2/cash-shop');
+    state.cashShop = {
+      ...state.cashShop,
+      cashPoints: Number(data.cashPoints) || 0,
+      products: data.products || [],
+      chargeOptions: data.chargeOptions || [],
+      loaded: true
+    };
+    if (state.character?.economy) state.character.economy.cashPoints = state.cashShop.cashPoints;
+    rerenderCashShop();
+  } catch (err) {
+    if (state.activeFeature === 'cash') {
+      $('featureBody').innerHTML = `<div class="empty-ledger"><b>캐시상점 로딩 실패</b><p>${escapeHtml(err.message)}</p><button type="button" data-reload-cash-shop>다시 불러오기</button></div>`;
+      document.querySelector('[data-reload-cash-shop]')?.addEventListener('click', loadCashShop);
+    }
+  }
+}
+
+async function buyCashProduct(productId) {
+  const button = document.querySelector(`[data-buy-cash-product="${CSS.escape(String(productId || ''))}"]`);
+  if (button) button.disabled = true;
+  try {
+    const data = await request('/api/v2/cash-shop/buy', {
+      method: 'POST',
+      body: JSON.stringify({ productId })
+    });
+    state.character = data.character;
+    state.cashShop.cashPoints = Number(data.cashPoints) || 0;
+    setInventoryData(data.inventory);
+    renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
+    rerenderCashShop();
+    setWorldActivity(`${data.product.name}을(를) 구매했습니다.`);
+  } catch (err) {
+    setWorldActivity(err.message);
+    if (button) button.disabled = false;
+  }
+}
+
+function bindCashShopControls() {
+  document.querySelector('[data-open-cash-charge]')?.addEventListener('click', () => {
+    state.cashShop.chargeOpen = true;
+    rerenderCashShop();
+  });
+  document.querySelectorAll('[data-close-cash-charge]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.cashShop.chargeOpen = false;
+      rerenderCashShop();
+    });
+  });
+  document.querySelectorAll('[data-buy-cash-product]').forEach((button) => {
+    button.addEventListener('click', () => buyCashProduct(button.dataset.buyCashProduct));
+  });
+}
+
 function featureBody(feature) {
   if (feature === 'stats') return statBody();
   if (feature === 'quest') return questBody();
@@ -4955,6 +5114,7 @@ function featureBody(feature) {
   if (feature === 'npc-dialog') return npcDialogueBody();
   if (feature === 'trade-invite') return tradeInviteBody();
   if (feature === 'special-actions') return specialActionsBody();
+  if (feature === 'cash') return cashShopBody();
   const messages = {
     shop: '물약, 탄환, 장비 보급품을 구매하는 사내 보급소입니다.',
     cash: 'V2 전용 상품 구성 후 개장합니다.',
@@ -4974,6 +5134,7 @@ function openFeature(feature) {
   }
   const meta = featureMeta[feature];
   if (!meta) return;
+  state.activeFeature = feature;
   $('featureCode').textContent = meta.code;
   $('featureTitle').textContent = meta.title;
   $('featureBody').innerHTML = featureBody(feature);
@@ -5003,6 +5164,10 @@ function openFeature(feature) {
   }
   if (feature === 'general-quests' || feature === 'npc-dialog') bindGeneralQuestControls();
   if (feature === 'special-actions') bindSpecialActionControls();
+  if (feature === 'cash') {
+    bindCashShopControls();
+    loadCashShop();
+  }
   $('featureModal').classList.remove('hidden');
   document.body.classList.add('modal-open');
   document.querySelector('.modal-close')?.focus();
@@ -5011,6 +5176,8 @@ function openFeature(feature) {
 function closeFeature() {
   $('featureModal').classList.add('hidden');
   document.body.classList.remove('modal-open');
+  state.activeFeature = '';
+  state.cashShop.chargeOpen = false;
 }
 
 function logout() {
@@ -5043,6 +5210,7 @@ $('openSignupButton').addEventListener('click', openSignup);
 $('signupForm').addEventListener('submit', signup);
 $('signupCodeForm').addEventListener('submit', saveAdminSignupCode);
 $('adminGiftForm').addEventListener('submit', sendAdminGift);
+$('adminCashGrantForm')?.addEventListener('submit', grantAdminCash);
 $('adminDeleteAccountForm')?.addEventListener('submit', deleteAdminAccount);
 $('adminGiftAll').addEventListener('change', () => {
   const sendAll = $('adminGiftAll').checked;

@@ -116,7 +116,8 @@ const v2CharacterSchema = new mongoose.Schema({
     controlSessionId: { type: String, default: '' }
   },
   huntingTime: {
-    remainingSeconds: { type: Number, default: 0, min: 0, max: 24000 },
+    remainingSeconds: { type: Number, default: 0, min: 0, max: 48000 },
+    maximumSeconds: { type: Number, default: 24000, min: 24000, max: 48000 },
     enabled: { type: Boolean, default: false },
     lastTickAt: { type: Date, default: null },
     offlinePassiveRecoveryAt: { type: Date, default: null },
@@ -125,6 +126,7 @@ const v2CharacterSchema = new mongoose.Schema({
   },
   economy: {
     money: { type: Number, default: 0 },
+    cashPoints: { type: Number, default: 0, min: 0 },
     stockPortfolio: { type: [mongoose.Schema.Types.Mixed], default: [] }
   },
   events: {

@@ -285,12 +285,13 @@ const BASE_ITEMS = {
     id: 'legacy_exchange_coupon',
     name: '특수 교환권',
     category: 'cash',
-    itemType: 'legacy-exchange-coupon',
+    itemType: 'cash-point',
     icon: '🎟️',
     maxStack: 999999,
     sellPrice: 0,
     tradeable: false,
-    description: '이전 게임 재화 반영용 교환권입니다. 현재는 사용할 수 없고 추후 교환 상점에서 사용됩니다.'
+    cashPoints: 100,
+    description: '사용 시 캐시 100P를 즉시 충전합니다. 1회 사용 아이템입니다.'
   },
   hwang_manager_mark: {
     id: 'hwang_manager_mark',
@@ -442,8 +443,20 @@ const BASE_ITEMS = {
     icon: '⏱️',
     maxStack: 100,
     huntingMinutes: 180,
-    description: '사용 시 자동사냥 시간을 180분 충전합니다. 보유 시간은 최대 400분입니다.',
+    description: '사용 시 자동사냥 시간을 180분 충전합니다. 현재 캐릭터의 자동사냥 최대치까지만 충전됩니다.',
     adminGrantOnly: true
+  },
+  hunting_capacity_40m: {
+    id: 'hunting_capacity_40m',
+    name: '자동사냥 최대치 40분 증가권',
+    category: 'cash',
+    itemType: 'hunting-capacity',
+    icon: '📈',
+    maxStack: 100,
+    huntingCapacityMinutes: 40,
+    sellPrice: 0,
+    tradeable: false,
+    description: '사용 시 자동사냥 시간 최대치가 40분 증가합니다. 최대치는 800분입니다.'
   },
   hunting_time_360m: {
     id: 'hunting_time_360m',
@@ -453,7 +466,7 @@ const BASE_ITEMS = {
     icon: '⏱️',
     maxStack: 100,
     huntingMinutes: 360,
-    description: '사용 시 자동사냥 시간을 360분 충전합니다. 보유 시간은 최대 400분입니다.',
+    description: '사용 시 자동사냥 시간을 360분 충전합니다. 현재 캐릭터의 자동사냥 최대치까지만 충전됩니다.',
     adminGrantOnly: true
   },
   event_two_handed_sword: createEventWeapon({

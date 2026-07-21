@@ -5,6 +5,7 @@ const {
   rollEquipmentInstanceData
 } = require('../items/equipmentCatalog');
 const { getScrollsForMonster } = require('../items/scrollCatalog');
+const { listNormalMonsterMasteryBooks } = require('../items/masteryBookCatalog');
 
 const ELEMENTS = Object.freeze(['neutral', 'fire', 'lightning', 'ice', 'holy']);
 const MONSTER_EXP_MULTIPLIER = 1.2;
@@ -38,6 +39,26 @@ const MONSTER_ROWS = [
   ['deadline_dragon', '마감기한 드래곤', 140, 320_000, 15_000, '타버린 결재 문서', '🐉', { fire: 0.5, lightning: 0.75, ice: 1.5 }]
 ];
 
+const HIGH_LEVEL_MASTERY_MONSTER_IDS = Object.freeze(
+  MONSTER_ROWS.filter((row) => Number(row[2]) >= 110).map((row) => row[0])
+);
+const NORMAL_MONSTER_MASTERY_BOOKS = Object.freeze(listNormalMonsterMasteryBooks());
+
+function getMasteryBookDropsForMonster(monsterId, level) {
+  if (Number(level) < 110) return [];
+  const monsterIndex = HIGH_LEVEL_MASTERY_MONSTER_IDS.indexOf(String(monsterId || ''));
+  if (monsterIndex < 0 || !HIGH_LEVEL_MASTERY_MONSTER_IDS.length) return [];
+  return NORMAL_MONSTER_MASTERY_BOOKS
+    .filter((item, index) => index % HIGH_LEVEL_MASTERY_MONSTER_IDS.length === monsterIndex)
+    .map((item) => Object.freeze({
+      itemId: item.id,
+      name: item.name,
+      icon: item.icon,
+      quantity: 1,
+      chance: 0.00002
+    }));
+}
+
 const MONSTER_CATALOG = Object.freeze(MONSTER_ROWS.map((
   [id, name, level, maxHp, expReward, lootName, icon, elementalMultipliers = {}, undead = false]
 ) => {
@@ -64,6 +85,7 @@ const MONSTER_CATALOG = Object.freeze(MONSTER_ROWS.map((
       scrolls: Object.freeze(
         getScrollsForMonster(id).map((entry) => Object.freeze(entry))
       ),
+      masteryBooks: Object.freeze(getMasteryBookDropsForMonster(id, level)),
       potions: Object.freeze([])
     })
   });
@@ -135,7 +157,7 @@ function rollMonsterDrops(monster, random = Math.random) {
     icon: getMoneyIcon(money),
     name: `${money.toLocaleString('ko-KR')}원`
   }];
-  for (const category of ['misc', 'equipment', 'scrolls', 'potions']) {
+  for (const category of ['misc', 'equipment', 'scrolls', 'masteryBooks', 'potions']) {
     for (const entry of monster.dropTable?.[category] || []) {
       if (random() >= Number(entry.chance || 0)) continue;
       drops.push({
@@ -163,5 +185,6 @@ module.exports = {
   getMonsterSpeciesForMap,
   getMoneyDrop,
   getMoneyIcon,
+  getMasteryBookDropsForMonster,
   rollMonsterDrops
 };
