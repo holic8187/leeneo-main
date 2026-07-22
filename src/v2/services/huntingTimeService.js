@@ -29,6 +29,24 @@ function createOfflineHuntingSummary(now = Date.now(), idFactory = randomUUID) {
   };
 }
 
+function acknowledgeOfflineHuntingSummary(character, requestedId) {
+  const state = ensureHuntingState(character);
+  const summary = state.offlineSummary;
+  if (!summary || typeof summary !== 'object') {
+    return { acknowledged: true, cleared: false };
+  }
+
+  const expectedId = String(requestedId || '').trim();
+  const currentId = getOfflineHuntingSummaryId(summary);
+  if (!expectedId || !currentId || expectedId !== currentId) {
+    return { acknowledged: false, cleared: false };
+  }
+
+  state.offlineSummary = null;
+  if (typeof character.markModified === 'function') character.markModified('huntingTime');
+  return { acknowledged: true, cleared: true };
+}
+
 function getKoreaDateKey(now = new Date()) {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Seoul',
@@ -157,5 +175,6 @@ module.exports = {
   addHuntingCapacityMinutes,
   serializeHuntingTime,
   getOfflineHuntingSummaryId,
-  createOfflineHuntingSummary
+  createOfflineHuntingSummary,
+  acknowledgeOfflineHuntingSummary
 };

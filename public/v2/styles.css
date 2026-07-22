@@ -1574,7 +1574,7 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   translate: -50% 0;
   scale: var(--monster-scale, .5);
   transform-origin: 50% 100%;
-  transition: left 1s linear, bottom .55s ease-in;
+  transition: left var(--world-snapshot-transition, 1s) linear, bottom .55s ease-in;
   filter: drop-shadow(0 3px 2px rgba(0,0,0,.5));
 }
 .field-monster.facing-left { transform: scaleX(-1); }
@@ -1666,7 +1666,7 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   translate: -50% 0;
   scale: .5;
   transform-origin: 50% 100%;
-  transition: left 1s linear, bottom .55s linear;
+  transition: left var(--world-snapshot-transition, 1s) linear, bottom .55s linear;
   filter: drop-shadow(0 3px 2px rgba(0,0,0,.35));
 }
 .remote-player.facing-left { transform: scaleX(-1); }

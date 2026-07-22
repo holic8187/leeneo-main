@@ -555,6 +555,48 @@ function useQuickSlotPotion(character, slot, effectPercent = 100, maximumOverrid
   };
 }
 
+function useConfiguredAutoPotions(
+  character,
+  effectPercent = 100,
+  maximumOverride = null
+) {
+  if (Number(character.resources?.currentHp) <= 0) return [];
+  const inventory = ensureInventory(character);
+  const used = [];
+  for (const slot of Object.keys(QUICK_SLOT_RESOURCES)) {
+    const resource = QUICK_SLOT_RESOURCES[slot];
+    const currentKey = resource === 'hp' ? 'currentHp' : 'currentMp';
+    const maximumKey = resource === 'hp' ? 'maxHp' : 'maxMp';
+    const thresholdKey = resource === 'hp' ? 'autoHpPercent' : 'autoMpPercent';
+    const threshold = Math.max(
+      0,
+      Math.min(100, Number(inventory.quickSlots[thresholdKey]) || 0)
+    );
+    const current = Math.max(0, Number(character.resources?.[currentKey]) || 0);
+    const override = maximumOverride && typeof maximumOverride === 'object'
+      ? maximumOverride[resource]
+      : maximumOverride;
+    const maximum = Math.max(
+      1,
+      Number.isFinite(Number(override))
+        ? Number(override)
+        : (Number(character.resources?.[maximumKey]) || 1)
+    );
+    if (
+      threshold <= 0
+      || current <= 0
+      || current >= maximum
+      || current / maximum * 100 > threshold
+    ) continue;
+    try {
+      used.push(useQuickSlotPotion(character, slot, effectPercent, maximumOverride));
+    } catch (_) {
+      // Empty and outdated quick slots wait for the player to configure them again.
+    }
+  }
+  return used;
+}
+
 function useInventoryExpansionTicket(character, categoryKey) {
   const category = getInventoryCategory(categoryKey);
   if (!category) throw new Error('확장할 인벤토리 탭을 선택해주세요.');
@@ -898,6 +940,7 @@ module.exports = {
   assignPotionQuickSlot,
   setPotionAutoThreshold,
   useQuickSlotPotion,
+  useConfiguredAutoPotions,
   useInventoryExpansionTicket,
   buildInventoryView,
   createAdminMail,

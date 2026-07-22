@@ -70,6 +70,7 @@ const {
   assignPotionQuickSlot,
   setPotionAutoThreshold,
   useQuickSlotPotion,
+  useConfiguredAutoPotions,
   useInventoryExpansionTicket,
   equipInventoryEquipment,
   unequipInventoryEquipment,
@@ -117,7 +118,8 @@ const {
   addHuntingCapacityMinutes,
   serializeHuntingTime,
   getOfflineHuntingSummaryId,
-  createOfflineHuntingSummary
+  createOfflineHuntingSummary,
+  acknowledgeOfflineHuntingSummary
 } = require('./services/huntingTimeService');
 const {
   getCashShopView,
@@ -542,6 +544,25 @@ function registerV2Routes({
 }) {
   const worldProfileCache = new Map();
   const characterMutationQueues = new Map();
+  const pendingAutoPotionUpdates = new Map();
+
+  function queueAutoPotionUpdate(userId, character, uses = []) {
+    if (!uses.length) return;
+    const key = String(userId);
+    const pending = pendingAutoPotionUpdates.get(key);
+    const inventory = buildInventoryView(character);
+    pendingAutoPotionUpdates.set(key, {
+      uses: [...(pending?.uses || []), ...uses].slice(-4),
+      quickSlots: inventory.quickSlots
+    });
+  }
+
+  function takeAutoPotionUpdate(userId) {
+    const key = String(userId);
+    const update = pendingAutoPotionUpdates.get(key) || null;
+    pendingAutoPotionUpdates.delete(key);
+    return update;
+  }
 
   async function withCharacterMutation(userId, operation) {
     const key = String(userId);
@@ -1211,36 +1232,17 @@ function registerV2Routes({
     return { damage, damageRange: null, critical, ammunition };
   }
 
-  function applyOfflineAutoPotions(character) {
-    if (Number(character.resources?.currentHp) <= 0) return [];
-    const used = [];
+  function applyConfiguredAutoPotions(character) {
     const consumableMultiplier = Math.max(
       100,
       Number(getActiveSkillEffects(character).consumableEffectPercent) || 100
     );
-    for (const slot of ['hp', 'mp']) {
-      const current = Number(character.resources?.[slot === 'hp' ? 'currentHp' : 'currentMp']) || 0;
-      const maximum = Math.max(
-        1,
-        Number(character.resources?.[slot === 'hp' ? 'maxHp' : 'maxMp']) || 1
-      );
-      const threshold = Number(character.inventory?.quickSlots?.[
-        slot === 'hp' ? 'autoHpPercent' : 'autoMpPercent'
-      ]) || 0;
-      if (threshold <= 0 || current / maximum * 100 > threshold) continue;
-      try {
-        const response = buildCharacterResponse(character);
-        used.push(useQuickSlotPotion(
-          character,
-          slot,
-          consumableMultiplier,
-          slot === 'hp' ? response.resources.maxHp : response.resources.maxMp
-        ));
-      } catch (_) {
-        // Empty or unassigned slots simply wait for the next user configuration.
-      }
-    }
-    return used;
+    const resourceCaps = buildCharacterResponse(character).resources;
+    return useConfiguredAutoPotions(
+      character,
+      consumableMultiplier,
+      { hp: resourceCaps.maxHp, mp: resourceCaps.maxMp }
+    );
   }
 
   const OFFLINE_AUTO_SKILL_DAMAGE_EFFECTS = new Set([
@@ -1866,7 +1868,7 @@ function registerV2Routes({
       );
       updatePlayerResources(userId, character.resources);
     }
-    applyOfflineAutoPotions(character);
+    applyConfiguredAutoPotions(character);
     response = buildCharacterResponse(character);
     updatePlayerResources(userId, response.resources);
     if (!character.huntingTime.enabled || Number(character.resources.currentHp) <= 0) {
@@ -3181,6 +3183,7 @@ function registerV2Routes({
           skillState.cooldowns[skillId] = now + castProfile.lockSeconds * 1000;
         }
         reconcileMaxResourceBuff(character);
+        const autoPotionUses = applyConfiguredAutoPotions(character);
         character.markModified('skills');
         await character.save();
         recordSkillUse(
@@ -3212,6 +3215,7 @@ function registerV2Routes({
           combat,
           character: buildCharacterResponse(character),
           inventory: buildInventoryView(character),
+          autoPotionUses,
           questProgressed,
           questJournal: buildQuestJournal(character)
         };
@@ -3261,6 +3265,7 @@ function registerV2Routes({
         if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
         assignPotionQuickSlot(character, req.body?.slot, req.body?.itemId);
         await character.save();
+        worldProfileCache.delete(String(auth.id));
         return buildInventoryView(character);
       });
       return res.json({ success: true, inventory: result });
@@ -3282,6 +3287,7 @@ function registerV2Routes({
           req.body?.percent
         );
         await character.save();
+        worldProfileCache.delete(String(auth.id));
         return { percent, inventory: buildInventoryView(character) };
       });
       return res.json({ success: true, ...result });
@@ -3969,6 +3975,7 @@ function registerV2Routes({
         let map = null;
         let message = '';
         let masteryResult = null;
+        let appliedBuff = null;
         if (item.itemType === 'return-scroll') {
           map = findNearestSafeMap(character.worldState?.mapId);
           character.worldState.mapId = map.id;
@@ -3985,7 +3992,7 @@ function registerV2Routes({
             ? existingExpiry
             : now;
           const durationMs = Math.max(1, Number(item.durationSeconds) || 900) * 1000;
-          upsertActiveBuff(character, {
+          appliedBuff = upsertActiveBuff(character, {
             skillId: item.id,
             name: item.name,
             effects: { experienceBonusPercent: Number(item.experienceBonusPercent) || 100 },
@@ -4044,6 +4051,7 @@ function registerV2Routes({
         return {
           message,
           masteryResult,
+          appliedBuff,
           map,
           character: buildCharacterResponse(character),
           inventory: buildInventoryView(character)
@@ -4136,13 +4144,26 @@ function registerV2Routes({
     if (!auth) return;
     try {
       const clientId = String(req.body?.clientId || '').trim();
-      const control = claimWorldControl(auth.id, clientId);
-      await V2Character.updateOne(
-        { userId: auth.id },
-        { $set: { 'worldState.controlSessionId': clientId } }
-      );
+      const now = Date.now();
+
+      // Finish the last offline interval before marking this session online.
+      // This makes the settlement available in the reconnect response itself.
+      await processOfflineHunter(auth.id, now);
+      const control = claimWorldControl(auth.id, clientId, now);
+      const character = await withCharacterMutation(auth.id, async () => {
+        const current = await V2Character.findOne({ userId: auth.id });
+        if (!current) throw new Error('V2 character not found.');
+        current.worldState.controlSessionId = clientId;
+        await current.save();
+        return current;
+      });
       worldProfileCache.delete(String(auth.id));
-      return res.json({ success: true, control });
+      return res.json({
+        success: true,
+        control,
+        character: buildCharacterResponse(character),
+        huntingTime: serializeHuntingTime(character)
+      });
     } catch (err) {
       return res.status(400).json({ msg: err.message || '월드 조작권을 연결하지 못했습니다.' });
     }
@@ -4252,19 +4273,13 @@ function registerV2Routes({
         if (!character.huntingTime || typeof character.huntingTime !== 'object') {
           character.huntingTime = {};
         }
-        const requestedId = String(req.body?.summaryId || '').trim();
-        const currentId = getOfflineHuntingSummaryId(character.huntingTime.offlineSummary);
-        const acknowledged = !character.huntingTime.offlineSummary
-          || !requestedId
-          || !currentId
-          || requestedId === currentId;
-        if (acknowledged && character.huntingTime.offlineSummary) {
-          character.huntingTime.offlineSummary = null;
-          character.markModified('huntingTime');
-          await character.save();
-        }
+        const acknowledgement = acknowledgeOfflineHuntingSummary(
+          character,
+          req.body?.summaryId
+        );
+        if (acknowledgement.cleared) await character.save();
         return {
-          acknowledged,
+          acknowledged: acknowledgement.acknowledged,
           huntingTime: serializeHuntingTime(character)
         };
       });
@@ -4710,7 +4725,11 @@ function registerV2Routes({
                 amount: 1
               });
             }
+            const autoPotionUses = applyConfiguredAutoPotions(character);
+            event.currentHp = Math.max(0, Number(character.resources.currentHp) || 0);
+            event.currentMp = Math.max(0, Number(character.resources.currentMp) || 0);
             await character.save();
+            queueAutoPotionUpdate(event.userId, character, autoPotionUses);
             updatePlayerResources(event.userId, character.resources);
             worldProfileCache.delete(String(event.userId));
           })
@@ -4780,6 +4799,7 @@ function registerV2Routes({
         partyState: getPartyState(auth.id),
         tradeState: getTradeState(auth.id),
         partyPortals: listVisiblePartyPortals(auth.id, state.mapId),
+        autoPotionUpdate: takeAutoPotionUpdate(auth.id),
         serverTime: Date.now()
       });
     } catch (err) {
@@ -5076,9 +5096,7 @@ function registerV2Routes({
             $set: {
               'worldState.mapId': mapId,
               'worldState.x': Math.max(0, Math.min(94, Number(req.body?.x) || 8)),
-              'worldState.floor': Number(req.body?.floor) === 1 ? 1 : 0,
-              'huntingTime.enabled': false,
-              'huntingTime.lastTickAt': null
+              'worldState.floor': Number(req.body?.floor) === 1 ? 1 : 0
             }
           }
         );

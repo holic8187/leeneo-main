@@ -1,6 +1,7 @@
 'use strict';
 
 const HUNTING_TIME_CACHE_KEY = 'v2HuntingTime';
+const WORLD_HEARTBEAT_INTERVAL_MS = 1000;
 const DEFAULT_HUNTING_TIME = Object.freeze({
   remainingSeconds: 0,
   maximumSeconds: 24000,
@@ -79,6 +80,7 @@ const state = {
   reviving: false,
   selfUserId: '',
   worldMonsters: [],
+  lastWorldSnapshotReceivedAt: 0,
   recentlyCollectedLootIds: new Map(),
   combatTargetId: '',
   rallyPoint: null,
@@ -115,6 +117,7 @@ const state = {
   activeFeature: '',
   autoPotionBusy: { hp: false, mp: false },
   potionUseBusy: false,
+  autoPotionCheckRunning: false,
   manualSkillPriority: false,
   manualSkillQueue: [],
   manualSkillQueueRunning: false,
@@ -301,10 +304,15 @@ async function loadUserWorkspace() {
   state.startMapId = world.startMapId || 'main_lobby';
   setInventoryData(inventoryData.inventory);
   setMailboxData(mailData);
-  await request('/api/v2/world/claim-control', {
+  const controlData = await request('/api/v2/world/claim-control', {
     method: 'POST',
     body: JSON.stringify({ clientId: state.worldClientId })
   });
+  if (controlData.character) {
+    data.character = controlData.character;
+  } else if (controlData.huntingTime && data.character) {
+    data.character.huntingTime = controlData.huntingTime;
+  }
   state.worldControlActive = true;
   renderGame(data);
   startWorldSimulation();
@@ -464,11 +472,6 @@ function maybeShowOfflineHuntingSummary(summary) {
   if (!hasResult) return;
   const key = offlineSummaryKey(summary);
   if (!key || state.offlineSummaryKey === key) return;
-  if (wasPopupShownThisSession('offline-summary', key)) {
-    state.offlineSummaryKey = key;
-    void acknowledgeOfflineHuntingSummary(key);
-    return;
-  }
   if (!$('featureModal')?.classList.contains('hidden')) {
     if (state.offlineSummaryRetryTimer) clearTimeout(state.offlineSummaryRetryTimer);
     state.offlineSummaryRetryTimer = setTimeout(() => maybeShowOfflineHuntingSummary(summary), 600);
@@ -479,17 +482,19 @@ function maybeShowOfflineHuntingSummary(summary) {
     state.offlineSummaryRetryTimer = null;
   }
   state.offlineSummaryKey = key;
-  markPopupShownThisSession('offline-summary', key);
+  state.activeFeature = 'offline-summary';
   $('featureCode').textContent = 'AUTO HUNTING / OFFLINE';
   $('featureTitle').textContent = '오프라인 사냥 정산';
   $('featureBody').innerHTML = offlineSummaryBody(summary);
-  document.querySelector('[data-offline-summary-seen]')?.addEventListener('click', () => {
-    void acknowledgeOfflineHuntingSummary(key);
-    closeFeature();
+  const confirmButton = document.querySelector('[data-offline-summary-seen]');
+  confirmButton?.addEventListener('click', async () => {
+    confirmButton.disabled = true;
+    const acknowledged = await acknowledgeOfflineHuntingSummary(key);
+    if (acknowledged) closeFeature();
+    else confirmButton.disabled = false;
   });
   $('featureModal').classList.remove('hidden');
   document.body.classList.add('modal-open');
-  void acknowledgeOfflineHuntingSummary(key);
 }
 
 async function acknowledgeOfflineHuntingSummary(key) {
@@ -497,7 +502,7 @@ async function acknowledgeOfflineHuntingSummary(key) {
     !key
     || state.offlineSummaryAcknowledgedKey === key
     || state.offlineSummaryAcknowledging
-  ) return;
+  ) return state.offlineSummaryAcknowledgedKey === key;
   state.offlineSummaryAcknowledging = true;
   try {
     const data = await request('/api/v2/hunting-time/offline-summary/seen', {
@@ -509,8 +514,10 @@ async function acknowledgeOfflineHuntingSummary(key) {
     if (state.character?.huntingTime) {
       state.character.huntingTime.offlineSummary = state.huntingTime.offlineSummary || null;
     }
+    return Boolean(data.acknowledged);
   } catch (err) {
     console.warn('V2 offline summary acknowledgement failed:', err);
+    return false;
   } finally {
     state.offlineSummaryAcknowledging = false;
   }
@@ -1595,6 +1602,8 @@ function renderPartyPortals(portals = []) {
 function renderWorldMap(mapId, arrivalPortalIndex = 0) {
   const map = getMap(mapId) || getMap(state.startMapId) || state.maps[0];
   if (!map) return;
+  state.lastWorldSnapshotReceivedAt = 0;
+  $('worldStage')?.style.removeProperty('--world-snapshot-transition');
   state.currentMapId = map.id;
   localStorage.setItem('v2CurrentMapId', map.id);
   if (map.safeZone && (state.autoCombat || state.huntingTime.enabled)) {
@@ -2636,7 +2645,53 @@ async function revivePlayer() {
   }
 }
 
+function syncWorldSelfResources(data = {}, skipAutoPotionCheck = false) {
+  if (!data.self || !state.character?.resources) return;
+  state.character.resources.currentHp = data.self.currentHp;
+  state.character.resources.maxHp = data.self.maxHp;
+  state.character.resources.currentMp = data.self.currentMp;
+  state.character.resources.maxMp = data.self.maxMp;
+  setResource('hp', data.self.currentHp, data.self.maxHp);
+  setResource('mp', data.self.currentMp, data.self.maxMp);
+  syncInvulnerabilityVisual(data.self.invulnerableUntil, state.worldServerTime);
+  if (data.self.isDead || Number(data.self.currentHp) <= 0) {
+    const ownDeath = (data.contactEvents || []).find(
+      (event) => event.userId === state.selfUserId && Number(event.currentHp) <= 0
+    );
+    showDeathState(ownDeath?.expLost || 0);
+  } else if (!skipAutoPotionCheck) {
+    maybeUseAutoPotions();
+  }
+}
+
+function applyServerAutoPotionUpdate(update = null) {
+  if (!update || typeof update !== 'object') return false;
+  if (update.quickSlots && typeof update.quickSlots === 'object') {
+    state.inventory.quickSlots = {
+      hp: update.quickSlots.hp || null,
+      mp: update.quickSlots.mp || null
+    };
+  }
+  renderPotionQuickbar();
+  const uses = Array.isArray(update.uses) ? update.uses : [];
+  for (const use of uses) {
+    for (const resource of ['hp', 'mp']) {
+      if (Number(use.restoredByResource?.[resource]) > 0) animateResourceRestore(resource);
+    }
+  }
+  return uses.length > 0;
+}
+
 function renderWorldEntities(data = {}) {
+  const receivedAt = Date.now();
+  if (state.lastWorldSnapshotReceivedAt > 0) {
+    const transitionMs = Math.max(
+      250,
+      Math.min(2500, receivedAt - state.lastWorldSnapshotReceivedAt)
+    );
+    $('worldStage')?.style.setProperty('--world-snapshot-transition', `${transitionMs}ms`);
+  }
+  state.lastWorldSnapshotReceivedAt = receivedAt;
   if (data.partyState) {
     state.partyState = { ...state.partyState, ...data.partyState };
     const invitation = data.partyState.invitation;
@@ -2673,21 +2728,6 @@ function renderWorldEntities(data = {}) {
   renderRemotePlayers(data.players || []);
   renderMonsters(data.monsters || []);
   renderPartyPortals(data.partyPortals || []);
-  if (data.self && state.character?.resources) {
-    state.character.resources.currentHp = data.self.currentHp;
-    state.character.resources.maxHp = data.self.maxHp;
-    state.character.resources.currentMp = data.self.currentMp;
-    state.character.resources.maxMp = data.self.maxMp;
-    setResource('hp', data.self.currentHp, data.self.maxHp);
-    setResource('mp', data.self.currentMp, data.self.maxMp);
-    syncInvulnerabilityVisual(data.self.invulnerableUntil, state.worldServerTime);
-    if (data.self.isDead || Number(data.self.currentHp) <= 0) {
-      const ownDeath = (data.contactEvents || []).find(
-        (event) => event.userId === state.selfUserId && Number(event.currentHp) <= 0
-      );
-      showDeathState(ownDeath?.expLost || 0);
-    }
-  }
   const ownContact = (data.contactEvents || []).find((event) => event.userId === state.selfUserId);
   if (ownContact) {
     const character = $('fieldCharacter');
@@ -2745,7 +2785,6 @@ function renderWorldEntities(data = {}) {
   }
   handleFieldBossEvents(data);
   collectGroundLoot(data.lootCollections || []);
-  maybeUseAutoPotions();
 }
 
 function disconnectSupersededWorld() {
@@ -2814,8 +2853,14 @@ async function sendWorldHeartbeat() {
         ? data.lootCollections
         : [];
       if (lootCollections.length) collectGroundLoot(lootCollections);
+      state.worldServerTime = Number(data.serverTime) || Date.now();
+      if (data.self?.userId) state.selfUserId = data.self.userId;
+      const serverAutoPotionUsed = applyServerAutoPotionUpdate(data.autoPotionUpdate);
+      syncWorldSelfResources(data, serverAutoPotionUsed);
 
-      if (!state.dead && !state.reviving && !state.skillUseBusy) {
+      // Skill animations must not pause authoritative world snapshots. Dropping
+      // these responses made remote players and monsters freeze, then jump.
+      if (!state.dead && !state.reviving) {
         renderWorldEntities(lootCollections.length
           ? { ...data, lootCollections: [] }
           : data);
@@ -2842,8 +2887,10 @@ async function sendWorldHeartbeat() {
 
 async function runWorldPresence(runId) {
   while (runId === state.worldPresenceRunId && state.token && !state.isAdmin) {
+    const startedAt = Date.now();
     await sendWorldHeartbeat();
-    await sleep(1000);
+    const elapsed = Date.now() - startedAt;
+    await sleep(Math.max(100, WORLD_HEARTBEAT_INTERVAL_MS - elapsed));
   }
 }
 
@@ -2984,17 +3031,22 @@ async function useQuickPotion(slot, automatic = false) {
   }
 }
 
-function maybeUseAutoPotions() {
-  if (state.dead || !state.character?.resources) return;
-  for (const slot of ['hp', 'mp']) {
-    const threshold = Number(state.inventory.autoUsePercent?.[slot]) || 0;
-    const potion = state.inventory.quickSlots?.[slot];
-    if (!threshold || !potion || potion.quantity <= 0 || state.autoPotionBusy[slot]) continue;
-    const current = Number(state.character.resources[slot === 'hp' ? 'currentHp' : 'currentMp']) || 0;
-    const maximum = Math.max(1, Number(state.character.resources[slot === 'hp' ? 'maxHp' : 'maxMp']) || 1);
-    if (current > 0 && current / maximum * 100 <= threshold && current < maximum) {
-      useQuickPotion(slot, true);
+async function maybeUseAutoPotions() {
+  if (state.dead || !state.character?.resources || state.autoPotionCheckRunning) return;
+  state.autoPotionCheckRunning = true;
+  try {
+    for (const slot of ['hp', 'mp']) {
+      const threshold = Number(state.inventory.autoUsePercent?.[slot]) || 0;
+      const potion = state.inventory.quickSlots?.[slot];
+      if (!threshold || !potion || potion.quantity <= 0) continue;
+      const current = Number(state.character.resources[slot === 'hp' ? 'currentHp' : 'currentMp']) || 0;
+      const maximum = Math.max(1, Number(state.character.resources[slot === 'hp' ? 'maxHp' : 'maxMp']) || 1);
+      if (current > 0 && current / maximum * 100 <= threshold && current < maximum) {
+        await useQuickPotion(slot, true);
+      }
     }
+  } finally {
+    state.autoPotionCheckRunning = false;
   }
 }
 
@@ -3331,6 +3383,9 @@ async function useInventoryItem(itemId) {
       method: 'POST',
       body: JSON.stringify({ itemId })
     });
+    if (typeof mergeAppliedBuffIntoCharacter === 'function') {
+      mergeAppliedBuffIntoCharacter(data.character, data.appliedBuff);
+    }
     state.character = data.character;
     renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
     if (data.character?.huntingTime) {
@@ -5138,6 +5193,9 @@ function bindSpecialActionControls() {
         method: 'POST',
         body: '{}'
       });
+      if (typeof mergeAppliedBuffIntoCharacter === 'function') {
+        mergeAppliedBuffIntoCharacter(data.character, data.appliedBuff);
+      }
       state.character = data.character;
       renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
       $('featureBody').innerHTML = specialActionsBody();

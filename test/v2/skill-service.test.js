@@ -45,6 +45,36 @@ function findSkillByName(name) {
   return Object.values(SKILL_DEFINITIONS).find((definition) => definition.name === name);
 }
 
+test('salary lupin and the double experience coupon coexist at 2.2x experience', () => {
+  const now = Date.now();
+  const character = makeCharacter();
+  upsertActiveBuff(character, {
+    skillId: 'special_action_salary_lupin',
+    name: '월급루팡',
+    effects: { experienceMultiplierPercent: 10 },
+    durationSeconds: 40 * 60
+  }, now);
+  upsertActiveBuff(character, {
+    skillId: 'experience_coupon_2x_15m',
+    name: '경험치 2배 쿠폰 (15분)',
+    effects: { experienceBonusPercent: 100 },
+    durationSeconds: 15 * 60
+  }, now);
+
+  const effects = getActiveSkillEffects(character, now + 1);
+  const experienceMultiplier = (1 + effects.experienceBonusPercent / 100)
+    * (1 + effects.experienceMultiplierPercent / 100);
+  const visibleBuffIds = buildSkillTree(character).activeBuffs.map((buff) => buff.skillId);
+
+  assert.equal(effects.experienceBonusPercent, 100);
+  assert.equal(effects.experienceMultiplierPercent, 10);
+  assert.equal(experienceMultiplier, 2.2);
+  assert.deepEqual(visibleBuffIds, [
+    'special_action_salary_lupin',
+    'experience_coupon_2x_15m'
+  ]);
+});
+
 test('generated support skills retain fixed durations and specialized effects', () => {
   const holySymbol = findSkillByName('성과 지원');
   const focus = findSkillByName('업무 집중');

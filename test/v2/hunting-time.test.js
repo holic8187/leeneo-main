@@ -11,7 +11,8 @@ const {
   addHuntingMinutes,
   addHuntingCapacityMinutes,
   getOfflineHuntingSummaryId,
-  createOfflineHuntingSummary
+  createOfflineHuntingSummary,
+  acknowledgeOfflineHuntingSummary
 } = require('../../src/v2/services/huntingTimeService');
 
 function createCharacter() {
@@ -65,4 +66,28 @@ test('legacy offline hunting settlements use their start time as a stable identi
     startedAt: '2026-07-20T23:00:00.000Z',
     updatedAt: '2026-07-21T00:00:00.000Z'
   }), '2026-07-20T23:00:00.000Z');
+});
+
+test('offline hunting settlement is cleared only after its exact identifier is acknowledged', () => {
+  const character = createCharacter();
+  character.huntingTime.offlineSummary = createOfflineHuntingSummary(
+    new Date('2026-07-22T00:00:00.000Z'),
+    () => 'offline-session-confirm'
+  );
+
+  assert.deepEqual(acknowledgeOfflineHuntingSummary(character, ''), {
+    acknowledged: false,
+    cleared: false
+  });
+  assert.ok(character.huntingTime.offlineSummary);
+  assert.deepEqual(acknowledgeOfflineHuntingSummary(character, 'another-session'), {
+    acknowledged: false,
+    cleared: false
+  });
+  assert.ok(character.huntingTime.offlineSummary);
+  assert.deepEqual(acknowledgeOfflineHuntingSummary(character, 'offline-session-confirm'), {
+    acknowledged: true,
+    cleared: true
+  });
+  assert.equal(character.huntingTime.offlineSummary, null);
 });

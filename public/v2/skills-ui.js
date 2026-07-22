@@ -266,6 +266,7 @@ function getNextAutoSkillForCombat() {
 const COMBAT_BUFF_ICONS = Object.freeze({
   experience_coupon_2x_15m: '📈',
   event_experience_coupon_2x_15m: '📈',
+  special_action_salary_lupin: '🕶️',
   extended_2d39c91d21: '🎯',
   extended_47fcdc0ba0: '🥷',
   extended_51dd415210: '🔷',
@@ -322,7 +323,11 @@ function getCombatBuffIcon(skillId, name = '', effects = {}) {
   if (/은신|잠복|매복/.test(label) || Number(effects.stealth) > 0) return '🥷';
   if (/집중|인사이트|감사|검산|포착/.test(label)) return '👁️';
   if (/예산|성과급|계약|입찰|명함/.test(label)) return '💰';
-  if (/경험|역량|교육/.test(label) || Number(effects.experienceBonusPercent) > 0) return '📈';
+  if (
+    /경험|역량|교육|월급루팡/.test(label)
+    || Number(effects.experienceBonusPercent) > 0
+    || Number(effects.experienceMultiplierPercent) > 0
+  ) return '📈';
   if (/공격|파동|폭발|캠페인|분노/.test(label)) return '⚔️';
   return '🔹';
 }

@@ -7,6 +7,7 @@ const {
   assignPotionQuickSlot,
   setPotionAutoThreshold,
   useQuickSlotPotion,
+  useConfiguredAutoPotions,
   useInventoryExpansionTicket,
   purgeExpiredEquippedItems,
   buildInventoryView,
@@ -100,6 +101,30 @@ test('automatic potion thresholds are stored by resource slot', () => {
   setPotionAutoThreshold(character, 'hp', 35);
   setPotionAutoThreshold(character, 'mp', 60);
   assert.deepEqual(buildInventoryView(character).autoUsePercent, { hp: 35, mp: 60 });
+});
+
+test('configured auto potions use buffed resource caps and handle both slots', () => {
+  const character = characterFixture();
+  character.resources.currentHp = 80;
+  character.resources.currentMp = 30;
+  addInventoryItem(character, 'hard_candy', 1);
+  addInventoryItem(character, 'bacchus', 1);
+  assignPotionQuickSlot(character, 'hp', 'hard_candy');
+  assignPotionQuickSlot(character, 'mp', 'bacchus');
+  setPotionAutoThreshold(character, 'hp', 50);
+  setPotionAutoThreshold(character, 'mp', 50);
+
+  const uses = useConfiguredAutoPotions(
+    character,
+    100,
+    { hp: 200, mp: 100 }
+  );
+
+  assert.deepEqual(uses.map((use) => use.slot), ['hp', 'mp']);
+  assert.equal(character.resources.currentHp, 130);
+  assert.equal(character.resources.currentMp, 100);
+  assert.equal(buildInventoryView(character).quickSlots.hp.quantity, 0);
+  assert.equal(buildInventoryView(character).quickSlots.mp.quantity, 0);
 });
 
 test('potions and cash use items split into stacks of one hundred', () => {
