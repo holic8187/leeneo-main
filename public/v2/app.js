@@ -1,5 +1,42 @@
 'use strict';
 
+const HUNTING_TIME_CACHE_KEY = 'v2HuntingTime';
+const DEFAULT_HUNTING_TIME = Object.freeze({
+  remainingSeconds: 0,
+  maximumSeconds: 24000,
+  enabled: false,
+  offlineSummary: null
+});
+
+function normalizeHuntingTime(value = {}, fallback = DEFAULT_HUNTING_TIME) {
+  const source = value && typeof value === 'object' ? value : {};
+  const base = fallback && typeof fallback === 'object' ? fallback : DEFAULT_HUNTING_TIME;
+  const has = (key) => Object.prototype.hasOwnProperty.call(source, key);
+  const remaining = Number(source.remainingSeconds);
+  const maximum = Number(source.maximumSeconds);
+  return {
+    remainingSeconds: has('remainingSeconds') && Number.isFinite(remaining)
+      ? Math.max(0, remaining)
+      : Math.max(0, Number(base.remainingSeconds) || 0),
+    maximumSeconds: has('maximumSeconds') && Number.isFinite(maximum)
+      ? Math.max(1, maximum)
+      : Math.max(1, Number(base.maximumSeconds) || DEFAULT_HUNTING_TIME.maximumSeconds),
+    enabled: has('enabled') ? Boolean(source.enabled) : Boolean(base.enabled),
+    offlineSummary: has('offlineSummary')
+      ? (source.offlineSummary || null)
+      : (base.offlineSummary || null)
+  };
+}
+
+function readCachedHuntingTime() {
+  try {
+    const cached = JSON.parse(localStorage.getItem(HUNTING_TIME_CACHE_KEY) || 'null');
+    return normalizeHuntingTime(cached);
+  } catch (_) {
+    return { ...DEFAULT_HUNTING_TIME };
+  }
+}
+
 const state = {
   token: localStorage.getItem('v2Token') || '',
   meta: null,
@@ -13,7 +50,8 @@ const state = {
   startMapId: 'main_lobby',
   currentMapId: localStorage.getItem('v2CurrentMapId') || '',
   autoCombat: localStorage.getItem('v2AutoCombat') === 'true',
-  huntingTime: { remainingSeconds: 0, maximumSeconds: 24000, enabled: false },
+  huntingTime: readCachedHuntingTime(),
+  huntingTimeLoaded: false,
   huntingTickCounter: 0,
   huntingSyncBusy: false,
   moving: false,
@@ -108,12 +146,29 @@ const state = {
   marketplace: { listings: [], mine: [], rules: {}, search: '' },
   pendingPatchNotes: null,
   patchNotesHistory: [],
+  patchNotesShownKeys: new Set(),
+  patchNotesAcknowledgingKeys: new Set(),
+  patchNotesRetryTimer: null,
   generalQuestActionBusy: false,
   offlineSummaryKey: '',
+  offlineSummaryAcknowledgedKey: '',
   offlineSummaryRetryTimer: null,
   offlineSummaryAcknowledging: false
 };
 sessionStorage.setItem('v2WorldClientId', state.worldClientId);
+
+function applyHuntingTime(value, { persist = true } = {}) {
+  state.huntingTime = normalizeHuntingTime(value, state.huntingTime);
+  state.huntingTimeLoaded = true;
+  if (persist) {
+    localStorage.setItem(HUNTING_TIME_CACHE_KEY, JSON.stringify({
+      remainingSeconds: state.huntingTime.remainingSeconds,
+      maximumSeconds: state.huntingTime.maximumSeconds,
+      enabled: state.huntingTime.enabled
+    }));
+  }
+  return state.huntingTime;
+}
 
 const $ = (id) => document.getElementById(id);
 const formatNumber = (value) => Number(value || 0).toLocaleString('ko-KR');
@@ -184,12 +239,9 @@ function renderGame(data) {
   const actionPoints = character.actionPoints || {};
   const job = character.job || {};
   const migration = character.migration || {};
-  state.huntingTime = {
-    remainingSeconds: Math.max(0, Number(character.huntingTime?.remainingSeconds) || 0),
-    maximumSeconds: Math.max(1, Number(character.huntingTime?.maximumSeconds) || 24000),
-    enabled: Boolean(character.huntingTime?.enabled),
-    offlineSummary: character.huntingTime?.offlineSummary || null
-  };
+  if (character.huntingTime && typeof character.huntingTime === 'object') {
+    applyHuntingTime(character.huntingTime);
+  }
   state.autoCombat = state.huntingTime.enabled && state.huntingTime.remainingSeconds > 0;
   localStorage.setItem('v2AutoCombat', String(state.autoCombat));
   renderHuntingTime();
@@ -260,6 +312,50 @@ async function loadUserWorkspace() {
   maybeShowPatchNotes();
 }
 
+function popupOwnerKey() {
+  return String(state.character?.id || state.displayName || 'anonymous');
+}
+
+function popupDisplayKey(type, id) {
+  return `${type}:${popupOwnerKey()}:${String(id || '')}`;
+}
+
+function popupSessionStorageKey(type, id) {
+  return `v2PopupShown:${encodeURIComponent(popupDisplayKey(type, id))}`;
+}
+
+function wasPopupShownThisSession(type, id) {
+  if (!id) return false;
+  try {
+    return sessionStorage.getItem(popupSessionStorageKey(type, id)) === 'true';
+  } catch (_) {
+    return false;
+  }
+}
+
+function markPopupShownThisSession(type, id) {
+  if (!id) return;
+  try {
+    sessionStorage.setItem(popupSessionStorageKey(type, id), 'true');
+  } catch (_) {}
+}
+
+function patchNoteDisplayId(notes = {}) {
+  return String(notes.version || notes.publishedAt || notes.title || '').trim();
+}
+
+async function acknowledgePatchNotes(displayKey) {
+  if (!displayKey || state.patchNotesAcknowledgingKeys.has(displayKey)) return;
+  state.patchNotesAcknowledgingKeys.add(displayKey);
+  try {
+    await request('/api/v2/patch-notes/seen', { method: 'POST' });
+  } catch (err) {
+    console.warn('V2 patch note acknowledgement failed:', err);
+  } finally {
+    state.patchNotesAcknowledgingKeys.delete(displayKey);
+  }
+}
+
 function patchNotesBody(notes = {}) {
   const lines = Array.isArray(notes.lines) ? notes.lines : [];
   return `<div class="patch-note-sheet">
@@ -291,22 +387,28 @@ function patchNotesArchiveBody(notesList = []) {
 }
 
 function openPatchNotes(notes = {}) {
+  const noteId = patchNoteDisplayId(notes);
+  const displayKey = popupDisplayKey('patch-notes', noteId);
+  if (
+    !noteId
+    || state.patchNotesShownKeys.has(displayKey)
+    || wasPopupShownThisSession('patch-notes', noteId)
+  ) return false;
+  state.patchNotesShownKeys.add(displayKey);
+  markPopupShownThisSession('patch-notes', noteId);
   state.pendingPatchNotes = notes;
   $('featureCode').textContent = `PATCH / ${escapeHtml(notes.version || 'NOTES')}`;
   $('featureTitle').textContent = notes.title || '패치노트';
   $('featureBody').innerHTML = patchNotesBody(notes);
-  document.querySelector('[data-patch-notes-seen]')?.addEventListener('click', async () => {
-    try {
-      await request('/api/v2/patch-notes/seen', { method: 'POST' });
-    } catch (err) {
-      setWorldActivity(err.message);
-      return;
-    }
+  document.querySelector('[data-patch-notes-seen]')?.addEventListener('click', () => {
+    void acknowledgePatchNotes(displayKey);
     state.pendingPatchNotes = null;
     closeFeature();
   });
   $('featureModal').classList.remove('hidden');
   document.body.classList.add('modal-open');
+  void acknowledgePatchNotes(displayKey);
+  return true;
 }
 
 function offlineSummaryKey(summary = {}) {
@@ -362,6 +464,11 @@ function maybeShowOfflineHuntingSummary(summary) {
   if (!hasResult) return;
   const key = offlineSummaryKey(summary);
   if (!key || state.offlineSummaryKey === key) return;
+  if (wasPopupShownThisSession('offline-summary', key)) {
+    state.offlineSummaryKey = key;
+    void acknowledgeOfflineHuntingSummary(key);
+    return;
+  }
   if (!$('featureModal')?.classList.contains('hidden')) {
     if (state.offlineSummaryRetryTimer) clearTimeout(state.offlineSummaryRetryTimer);
     state.offlineSummaryRetryTimer = setTimeout(() => maybeShowOfflineHuntingSummary(summary), 600);
@@ -372,39 +479,41 @@ function maybeShowOfflineHuntingSummary(summary) {
     state.offlineSummaryRetryTimer = null;
   }
   state.offlineSummaryKey = key;
+  markPopupShownThisSession('offline-summary', key);
   $('featureCode').textContent = 'AUTO HUNTING / OFFLINE';
   $('featureTitle').textContent = '오프라인 사냥 정산';
   $('featureBody').innerHTML = offlineSummaryBody(summary);
-  document.querySelector('[data-offline-summary-seen]')?.addEventListener('click', async (event) => {
-    if (state.offlineSummaryAcknowledging) return;
-    const button = event.currentTarget;
-    state.offlineSummaryAcknowledging = true;
-    button.disabled = true;
-    button.textContent = '확인 중...';
-    try {
-      const data = await request('/api/v2/hunting-time/offline-summary/seen', {
-        method: 'POST',
-        body: JSON.stringify({ summaryId: key })
-      });
-      state.huntingTime = data.huntingTime || { ...state.huntingTime, offlineSummary: null };
-      if (state.character?.huntingTime) {
-        state.character.huntingTime.offlineSummary = state.huntingTime.offlineSummary || null;
-      }
-      closeFeature();
-      if (!data.acknowledged && state.huntingTime.offlineSummary) {
-        setTimeout(() => maybeShowOfflineHuntingSummary(state.huntingTime.offlineSummary), 100);
-      }
-    } catch (err) {
-      setWorldActivity(err.message);
-      button.disabled = false;
-      button.textContent = '확인';
-      return;
-    } finally {
-      state.offlineSummaryAcknowledging = false;
-    }
+  document.querySelector('[data-offline-summary-seen]')?.addEventListener('click', () => {
+    void acknowledgeOfflineHuntingSummary(key);
+    closeFeature();
   });
   $('featureModal').classList.remove('hidden');
   document.body.classList.add('modal-open');
+  void acknowledgeOfflineHuntingSummary(key);
+}
+
+async function acknowledgeOfflineHuntingSummary(key) {
+  if (
+    !key
+    || state.offlineSummaryAcknowledgedKey === key
+    || state.offlineSummaryAcknowledging
+  ) return;
+  state.offlineSummaryAcknowledging = true;
+  try {
+    const data = await request('/api/v2/hunting-time/offline-summary/seen', {
+      method: 'POST',
+      body: JSON.stringify({ summaryId: key })
+    });
+    applyHuntingTime(data.huntingTime || { offlineSummary: null });
+    if (data.acknowledged) state.offlineSummaryAcknowledgedKey = key;
+    if (state.character?.huntingTime) {
+      state.character.huntingTime.offlineSummary = state.huntingTime.offlineSummary || null;
+    }
+  } catch (err) {
+    console.warn('V2 offline summary acknowledgement failed:', err);
+  } finally {
+    state.offlineSummaryAcknowledging = false;
+  }
 }
 
 async function maybeShowPatchNotes() {
@@ -412,8 +521,22 @@ async function maybeShowPatchNotes() {
     const data = await request('/api/v2/patch-notes');
     state.patchNotesHistory = data.patchNotesHistory || (data.patchNotes ? [data.patchNotes] : []);
     if (data.patchNotes && !data.seen) {
+      const noteId = patchNoteDisplayId(data.patchNotes);
+      const displayKey = popupDisplayKey('patch-notes', noteId);
+      if (
+        state.patchNotesShownKeys.has(displayKey)
+        || wasPopupShownThisSession('patch-notes', noteId)
+      ) {
+        void acknowledgePatchNotes(displayKey);
+        return;
+      }
       if (!$('featureModal')?.classList.contains('hidden')) {
-        setTimeout(maybeShowPatchNotes, 700);
+        if (!state.patchNotesRetryTimer) {
+          state.patchNotesRetryTimer = setTimeout(() => {
+            state.patchNotesRetryTimer = null;
+            maybeShowPatchNotes();
+          }, 700);
+        }
         return;
       }
       openPatchNotes(data.patchNotes);
@@ -545,6 +668,7 @@ function clearLoginState() {
   localStorage.removeItem('v2Token');
   localStorage.removeItem('v2IsAdmin');
   localStorage.removeItem('v2DisplayName');
+  localStorage.removeItem(HUNTING_TIME_CACHE_KEY);
 }
 
 async function enterWorkspace() {
@@ -1270,6 +1394,31 @@ function getLootElements(layer, lootId) {
   )];
 }
 
+function getGroundLootExpiresAt(drop = {}, now = Date.now()) {
+  const collectAt = Number(drop.collectAt);
+  return Number.isFinite(collectAt) && collectAt > 0
+    ? Math.max(now + 750, collectAt + 2_000)
+    : now + 12_000;
+}
+
+function scheduleGroundLootExpiry(element, expiresAt) {
+  if (!element) return;
+  element.dataset.lootExpiresAt = String(expiresAt);
+  const expireWhenDue = () => {
+    if (!element.isConnected) return;
+    const remaining = Number(element.dataset.lootExpiresAt) - Date.now();
+    if (remaining <= 0) {
+      element.remove();
+      return;
+    }
+    setTimeout(expireWhenDue, Math.min(remaining, 15_000));
+  };
+  setTimeout(
+    expireWhenDue,
+    Math.max(250, Math.min(expiresAt - Date.now(), 15_000))
+  );
+}
+
 function showGroundLoot(drops = []) {
   const layer = $('lootLayer');
   if (!layer) return;
@@ -1297,26 +1446,38 @@ function showGroundLoot(drops = []) {
     element.style.bottom = getLootBottom(drop.floor);
     element.innerHTML = `<span>${escapeHtml(drop.icon || '📦')}</span><small>${escapeHtml(drop.name || '')}</small>`;
     layer.appendChild(element);
+    scheduleGroundLootExpiry(element, getGroundLootExpiresAt(drop, now));
   });
 }
 
 function collectGroundLoot(collections = []) {
-  const layer = $('lootLayer');
-  const character = $('fieldCharacter');
-  if (!layer || !character) return;
-  layer.querySelectorAll('[data-loot-id="undefined"], [data-loot-id=""]').forEach(
-    (element) => element.remove()
-  );
-  const stageRect = $('worldStage').getBoundingClientRect();
-  const characterRect = character.getBoundingClientRect();
-  const destinationX = characterRect.left - stageRect.left + characterRect.width / 2;
-  const destinationY = stageRect.bottom - characterRect.top;
   const now = Date.now();
   pruneCollectedLootIds(now);
   collections.forEach((loot) => {
     const lootId = String(loot.id || '');
+    if (lootId) state.recentlyCollectedLootIds.set(lootId, now + 120_000);
+  });
+
+  const layer = $('lootLayer');
+  const character = $('fieldCharacter');
+  const stage = $('worldStage');
+  if (!layer) return;
+  layer.querySelectorAll('[data-loot-id="undefined"], [data-loot-id=""]').forEach(
+    (element) => element.remove()
+  );
+  if (!character || !stage) {
+    collections.forEach((loot) => {
+      getLootElements(layer, String(loot.id || '')).forEach((element) => element.remove());
+    });
+    return;
+  }
+  const stageRect = stage.getBoundingClientRect();
+  const characterRect = character.getBoundingClientRect();
+  const destinationX = characterRect.left - stageRect.left + characterRect.width / 2;
+  const destinationY = stageRect.bottom - characterRect.top;
+  collections.forEach((loot) => {
+    const lootId = String(loot.id || '');
     if (!lootId) return;
-    state.recentlyCollectedLootIds.set(lootId, now + 30_000);
     let elements = getLootElements(layer, lootId);
     if (!elements.length) {
       const element = document.createElement('div');
@@ -1446,7 +1607,7 @@ function renderWorldMap(mapId, arrivalPortalIndex = 0) {
         method: 'POST',
         body: JSON.stringify({ enabled: false })
       }).then((data) => {
-        state.huntingTime = data.huntingTime;
+        applyHuntingTime(data.huntingTime);
         renderHuntingTime();
       }).catch((err) => console.error('V2 safe-zone auto combat stop error:', err));
     }
@@ -2144,17 +2305,11 @@ async function syncHuntingTime(active = state.autoCombat) {
   if (state.huntingSyncBusy) return;
   state.huntingSyncBusy = true;
   try {
-    const previousRemaining = Math.max(0, Number(state.huntingTime.remainingSeconds) || 0);
     const data = await request('/api/v2/hunting-time/tick', {
       method: 'POST',
       body: JSON.stringify({ active })
     });
-    state.huntingTime = {
-      ...data.huntingTime,
-      remainingSeconds: state.autoCombat
-        ? Math.min(previousRemaining, Number(data.huntingTime?.remainingSeconds) || 0)
-        : Number(data.huntingTime?.remainingSeconds) || 0
-    };
+    applyHuntingTime(data.huntingTime);
     if (!state.huntingTime.enabled || state.huntingTime.remainingSeconds <= 0) {
       state.autoCombat = false;
       localStorage.setItem('v2AutoCombat', 'false');
@@ -2189,7 +2344,7 @@ async function toggleAutoCombat() {
       method: 'POST',
       body: JSON.stringify({ enabled: requested })
     });
-    state.huntingTime = data.huntingTime;
+    applyHuntingTime(data.huntingTime);
     state.autoCombat = state.huntingTime.enabled;
   } catch (err) {
     setWorldActivity(err.message);
@@ -2654,16 +2809,20 @@ async function sendWorldHeartbeat() {
         jumpEvent
       })
     });
-    if (
-      requestEpoch === state.worldStateEpoch
-      && !state.dead
-      && !state.reviving
-      && !state.skillUseBusy
-    ) {
-      renderWorldEntities(data);
-      if (data.summonCombat?.success) {
-        applySkillCombat(data.summonCombat);
-        showGroundLoot(data.summonCombat.drops || []);
+    if (requestEpoch === state.worldStateEpoch) {
+      const lootCollections = Array.isArray(data.lootCollections)
+        ? data.lootCollections
+        : [];
+      if (lootCollections.length) collectGroundLoot(lootCollections);
+
+      if (!state.dead && !state.reviving && !state.skillUseBusy) {
+        renderWorldEntities(lootCollections.length
+          ? { ...data, lootCollections: [] }
+          : data);
+        if (data.summonCombat?.success) {
+          applySkillCombat(data.summonCombat);
+          showGroundLoot(data.summonCombat.drops || []);
+        }
       }
     }
   } catch (err) {
@@ -3175,7 +3334,7 @@ async function useInventoryItem(itemId) {
     state.character = data.character;
     renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
     if (data.character?.huntingTime) {
-      state.huntingTime = data.character.huntingTime;
+      applyHuntingTime(data.character.huntingTime);
       renderHuntingTime();
     }
     setInventoryData(data.inventory);
@@ -3392,7 +3551,7 @@ async function claimMailItem(mailId) {
     });
     setInventoryData(data.inventory);
     if (data.huntingTime) {
-      state.huntingTime = data.huntingTime;
+      applyHuntingTime(data.huntingTime);
       renderHuntingTime();
     }
     setMailboxData(data);
@@ -3411,7 +3570,7 @@ async function claimAllMailItems() {
     });
     setInventoryData(data.inventory);
     if (data.huntingTime) {
-      state.huntingTime = data.huntingTime;
+      applyHuntingTime(data.huntingTime);
       renderHuntingTime();
     }
     setMailboxData(data);

@@ -34,14 +34,15 @@ test('action points refill once when the Korean calendar date changes', () => {
 });
 
 test('special actions spend points and Hot Six restoration stops at the cap', () => {
+  const now = Date.parse('2026-07-21T01:00:00.000Z');
   const character = {
     actionPoints: { current: 10, max: 10, lastResetDate: '2026-07-21' }
   };
-  spendActionPoints(character, 6, Date.parse('2026-07-21T01:00:00.000Z'));
+  spendActionPoints(character, 6, now);
   assert.equal(character.actionPoints.current, 4);
-  assert.equal(restoreActionPoints(character, 1).restored, 1);
+  assert.equal(restoreActionPoints(character, 1, now).restored, 1);
   assert.equal(character.actionPoints.current, 5);
-  assert.throws(() => spendActionPoints(character, 6), /행동력이 6 필요/);
-  assert.equal(restoreActionPoints(character, 100).restored, 5);
+  assert.throws(() => spendActionPoints(character, 6, now), /행동력이 6 필요/);
+  assert.equal(restoreActionPoints(character, 100, now).restored, 5);
   assert.equal(character.actionPoints.current, 10);
 });

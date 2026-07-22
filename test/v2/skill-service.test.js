@@ -60,6 +60,9 @@ test('generated support skills retain fixed durations and specialized effects', 
   assert.equal(resolveSkillValues(consumerInsight, 30).criticalChance, 15);
   assert.equal(resolveSkillValues(consumerInsight, 30).criticalDamagePercent, 40);
   assert.equal(resolveSkillValues(workSupport, 20).durationSeconds, 200);
+  assert.equal(resolveSkillValues(workSupport, 20).defenseIncrease, 20);
+  assert.equal(resolveSkillValues(workSupport, 20).accuracyIncrease, 20);
+  assert.equal(resolveSkillValues(workSupport, 20).evasionIncrease, 20);
   assert.equal(resolveSkillValues(workSupport, 20).magicDefenseIncrease, 20);
   assert.equal(welfareSupport.effect, 'heal');
   assert.equal(resolveSkillValues(welfareSupport, 30).healPercent, 300);

@@ -138,7 +138,9 @@ function buildDerivedStats({
   });
   const magicAccuracy = Math.floor(Math.max(0, finite(effectiveStats.workKnowledge)) / 10)
     + Math.floor(Math.max(0, finite(effectiveStats.awareness)) / 10)
-    + 1;
+    + sumLoadoutStat(loadout, 'accuracy')
+    + finite(skillEffects.accuracyIncrease)
+    + 21;
   const accuracy = archetype === 'mage' ? magicAccuracy : physicalAccuracy;
   const evasion = 1 + calculateEvasion({
     group: getEvasionGroup(archetype),

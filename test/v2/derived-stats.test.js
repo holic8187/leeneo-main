@@ -188,3 +188,32 @@ test('all-stat percentage buffs multiply base stats before equipment bonuses', (
     awareness: 0
   });
 });
+
+test('mage accuracy includes its flat correction and active party-buff accuracy', () => {
+  const base = buildDerivedStats({
+    progression: { level: 30 },
+    stats: { grit: 4, processingSpeed: 4, workKnowledge: 80, awareness: 30 },
+    job: { departmentId: 'management_support', advancementTier: 2 },
+    loadout: {}
+  });
+  const blessed = buildDerivedStats({
+    progression: { level: 30 },
+    stats: { grit: 4, processingSpeed: 4, workKnowledge: 80, awareness: 30 },
+    job: { departmentId: 'management_support', advancementTier: 2 },
+    loadout: {},
+    skillEffects: {
+      defenseIncrease: 20,
+      magicDefenseIncrease: 20,
+      accuracyIncrease: 20,
+      evasionIncrease: 20
+    }
+  });
+
+  assert.equal(base.magicAccuracy, 32);
+  assert.equal(base.accuracy, 32);
+  assert.equal(blessed.magicAccuracy, 52);
+  assert.equal(blessed.accuracy, 52);
+  assert.equal(blessed.defense - base.defense, 20);
+  assert.equal(blessed.magicDefense - base.magicDefense, 20);
+  assert.equal(blessed.evasion - base.evasion, 20);
+});
