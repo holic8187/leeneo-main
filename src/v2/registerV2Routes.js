@@ -1285,7 +1285,8 @@ function registerV2Routes({
   const OFFLINE_AUTO_SKILL_DAMAGE_EFFECTS = new Set([
     'damage', 'multi-damage', 'ignore-defense-damage', 'damage-stun',
     'damage-lock', 'charge', 'consume-combo-damage', 'pull',
-    'element-explosion', 'nonlethal-damage', 'fixed-damage'
+    'element-explosion', 'nonlethal-damage', 'fixed-damage',
+    'progressive-piercing-damage'
   ]);
 
   function hasActiveOfflineSkillEffect(skillState, skillId, definition, now) {
@@ -1504,6 +1505,9 @@ function registerV2Routes({
         dealDamage: definition.effect !== 'pull',
         leaveAtOneHp: definition.effect === 'nonlethal-damage',
         piercing: Boolean(definition.piercing),
+        progressivePiercing: definition.effect === 'progressive-piercing-damage',
+        progressiveStartPercent: Number(values.piercingStartPercent) || 0,
+        progressiveEndPercent: Number(values.piercingEndPercent) || 0,
         verticalFloorRange: Number(values.verticalFloorRange ?? definition.verticalFloorRange) || 0,
         criticalChance: Number(profile.derivedStats.criticalChance) || 0,
         criticalDamagePercent: Number(profile.derivedStats.criticalDamagePercent) || 200,
@@ -1746,8 +1750,10 @@ function registerV2Routes({
       combat = { success: true, appliedBuff: activeBuff };
     }
 
-    if (castProfile.lockSeconds > 0) {
-      skillState.cooldowns[skillId] = now + castProfile.lockSeconds * 1000;
+    const offlineCycleSeconds = castProfile.preCastDelaySeconds + castProfile.lockSeconds;
+    if (offlineCycleSeconds > 0) {
+      skillState.cooldowns[skillId] = now
+        + offlineCycleSeconds * 1000;
     }
     reconcileMaxResourceBuff(character);
     character.markModified('skills');
@@ -2740,7 +2746,8 @@ function registerV2Routes({
         const damageEffects = new Set([
           'damage', 'multi-damage', 'ignore-defense-damage', 'damage-stun',
           'damage-lock', 'charge', 'consume-combo-damage', 'pull',
-          'element-explosion', 'nonlethal-damage', 'fixed-damage'
+          'element-explosion', 'nonlethal-damage', 'fixed-damage',
+          'progressive-piercing-damage'
         ]);
         if (definition.effect === 'flash-jump') {
           if (!req.body?.airborne) throw new Error('플래시 점프는 공중에서만 사용할 수 있습니다.');
@@ -2888,6 +2895,9 @@ function registerV2Routes({
             dealDamage: definition.effect !== 'pull',
             leaveAtOneHp: definition.effect === 'nonlethal-damage',
             piercing: Boolean(definition.piercing),
+            progressivePiercing: definition.effect === 'progressive-piercing-damage',
+            progressiveStartPercent: Number(values.piercingStartPercent) || 0,
+            progressiveEndPercent: Number(values.piercingEndPercent) || 0,
             verticalFloorRange: Number(
               values.verticalFloorRange ?? definition.verticalFloorRange
             ) || 0,
@@ -3282,7 +3292,16 @@ function registerV2Routes({
         worldProfileCache.delete(String(auth.id));
         updatePlayerResources(auth.id, character.resources);
         return {
-          skill: { id: definition.id, name: definition.name, values },
+          skill: {
+            id: definition.id,
+            name: definition.name,
+            description: definition.description,
+            effect: definition.effect,
+            element: definition.element,
+            target: definition.target,
+            piercing: Boolean(definition.piercing),
+            values
+          },
           combat,
           character: buildCharacterResponse(character),
           inventory: buildInventoryView(character),

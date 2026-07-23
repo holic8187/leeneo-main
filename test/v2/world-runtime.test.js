@@ -1076,6 +1076,61 @@ test('multi-target skills use the same forty-percent knockback threshold', () =>
   assert.ok(result.outcomes.some((outcome) => outcome.knockedBack));
 });
 
+test('progressive piercing attacks travel forward and increase damage for every target', () => {
+  const originalRandom = Math.random;
+  let state;
+  try {
+    Math.random = () => 0.9;
+    state = updatePresence({
+      userId: 'piercing-user',
+      nickname: '회계 사원',
+      mapId: 'newcomer_training',
+      x: 2,
+      floor: 0,
+      facingLeft: false,
+      currentHp: 120,
+      maxHp: 120,
+      now: 1_000
+    });
+  } finally {
+    Math.random = originalRandom;
+  }
+  const target = [...state.monsters].sort((left, right) => left.x - right.x)[0];
+  const result = useSkillOnMonsters({
+    userId: 'piercing-user',
+    mapId: 'newcomer_training',
+    targetId: target.id,
+    baseDamage: 10,
+    skillPercent: 250,
+    rangePx: 10_000,
+    maxTargets: 6,
+    ignoreDefense: true,
+    piercing: true,
+    progressivePiercing: true,
+    progressiveStartPercent: 250,
+    progressiveEndPercent: 850,
+    verticalFloorRange: 1,
+    leaveAtOneHp: true,
+    now: 1_100
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.progressivePiercing, true);
+  assert.ok(result.outcomes.length >= 3);
+  assert.deepEqual(
+    result.outcomes.map((outcome) => outcome.piercingDamagePercent),
+    [250, 370, 490, 610].slice(0, result.outcomes.length)
+  );
+  assert.deepEqual(
+    result.outcomes.map((outcome) => outcome.piercingIndex),
+    result.outcomes.map((_, index) => index)
+  );
+  assert.ok(result.outcomes.every((outcome, index, outcomes) => (
+    index === 0 || outcome.damage > outcomes[index - 1].damage
+  )));
+  assert.ok(result.outcomes.every((outcome) => Number.isFinite(outcome.targetX)));
+});
+
 test('decoy summons pull normal monster aggro and receive contact damage first', () => {
   const initial = updatePresence({
     userId: 'decoy-owner',

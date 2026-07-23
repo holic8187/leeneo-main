@@ -1747,6 +1747,9 @@ function useSkillOnMonsters(options = {}) {
   debuffChance = 100,
   debuffDurationSeconds = 0,
   piercing = false,
+  progressivePiercing = false,
+  progressiveStartPercent = 0,
+  progressiveEndPercent = 0,
   mpAbsorbChance = 0,
   mpAbsorbPercent = 0,
   poisonChance = 0,
@@ -1782,20 +1785,41 @@ function useSkillOnMonsters(options = {}) {
     ));
   const requestedMonster = inRange.find((monster) => monster.id === targetId);
   const targetLimit = Math.max(1, Math.floor(Number(maxTargets) || 1));
-  const candidates = targetLimit === 1 && requestedMonster && !piercing
-    ? [selectFrontMonster(
-      runtime,
-      player,
-      requestedMonster,
-      rangePercent,
-      verticalFloorRange
-    )].filter(Boolean)
-    : inRange.sort((left, right) => {
-      if (left.id === targetId) return -1;
-      if (right.id === targetId) return 1;
-      return Math.abs(left.x - player.x) - Math.abs(right.x - player.x);
-    })
+  let candidates;
+  if (progressivePiercing) {
+    const requestedOffset = requestedMonster
+      ? Number(requestedMonster.x) - Number(player.x)
+      : 0;
+    const firingDirection = requestedOffset === 0
+      ? (player.facingLeft ? -1 : 1)
+      : Math.sign(requestedOffset);
+    player.facingLeft = firingDirection < 0;
+    candidates = inRange
+      .filter((monster) => {
+        const offset = Number(monster.x) - Number(player.x);
+        return offset === 0 || Math.sign(offset) === firingDirection;
+      })
+      .sort((left, right) => (
+        Math.abs(Number(left.x) - Number(player.x))
+        - Math.abs(Number(right.x) - Number(player.x))
+      ))
       .slice(0, targetLimit);
+  } else {
+    candidates = targetLimit === 1 && requestedMonster && !piercing
+      ? [selectFrontMonster(
+        runtime,
+        player,
+        requestedMonster,
+        rangePercent,
+        verticalFloorRange
+      )].filter(Boolean)
+      : inRange.sort((left, right) => {
+        if (left.id === targetId) return -1;
+        if (right.id === targetId) return 1;
+        return Math.abs(left.x - player.x) - Math.abs(right.x - player.x);
+      })
+        .slice(0, targetLimit);
+  }
   if (!candidates.length) return { success: false, reason: 'out-of-range' };
   if (dealDamage) player.combatProfile.stealth = 0;
 
@@ -1907,7 +1931,25 @@ function useSkillOnMonsters(options = {}) {
       fieldBossRewards: retargetedFieldBossRewards
     };
   }
-  for (const monster of candidates) {
+  for (const [targetIndex, monster] of candidates.entries()) {
+    const piercingDamagePercent = progressivePiercing
+      ? Math.round(
+        Math.max(0, Number(progressiveStartPercent) || Number(skillPercent) || 100)
+        + (
+          Math.max(0, Number(progressiveEndPercent) || Number(skillPercent) || 100)
+          - Math.max(0, Number(progressiveStartPercent) || Number(skillPercent) || 100)
+        ) * targetIndex / Math.max(1, targetLimit - 1)
+      )
+      : Number(skillPercent) || 100;
+    const targetDamageRange = progressivePiercing && damageRange
+      ? scaleDamageRange(
+        damageRange,
+        piercingDamagePercent
+          / Math.max(1, Number(progressiveStartPercent) || Number(skillPercent) || 100)
+      )
+      : damageRange;
+    const targetX = Number(monster.x);
+    const targetFloor = Number(monster.floor) || 0;
     const requiredAccuracy = calculateRequiredAccuracy({
       characterLevel: playerLevel,
       monsterLevel: monster.level,
@@ -1927,7 +1969,9 @@ function useSkillOnMonsters(options = {}) {
         missed: true,
         remainingHp: monster.hp,
         maxHp: monster.maxHp,
-        defeated: false
+        defeated: false,
+        piercingIndex: progressivePiercing ? targetIndex : undefined,
+        piercingDamagePercent: progressivePiercing ? piercingDamagePercent : undefined
       }));
       outcomes.push({
         monsterId: monster.id,
@@ -1938,6 +1982,10 @@ function useSkillOnMonsters(options = {}) {
         defeated: false,
         expReward: 0,
         hitResults: missedHits,
+        targetX,
+        targetFloor,
+        piercingIndex: progressivePiercing ? targetIndex : undefined,
+        piercingDamagePercent: progressivePiercing ? piercingDamagePercent : undefined,
         monster: serializeMonster(monster)
       });
       continue;
@@ -1956,9 +2004,11 @@ function useSkillOnMonsters(options = {}) {
         : 1;
       const damage = resolveOutgoingDamage({
         damage: Number(baseDamage) * (damageRange ? 1 : criticalMultiplier),
-        damageRange: damageRange ? scaleDamageRange(damageRange, criticalMultiplier) : null,
+        damageRange: targetDamageRange
+          ? scaleDamageRange(targetDamageRange, criticalMultiplier)
+          : null,
         damageType,
-        skillPercent,
+        skillPercent: piercingDamagePercent,
         defense,
         ignoreDefense,
         playerLevel,
@@ -1976,7 +2026,9 @@ function useSkillOnMonsters(options = {}) {
         missed: false,
         remainingHp: monster.hp,
         maxHp: monster.maxHp,
-        defeated: monster.hp <= 0
+        defeated: monster.hp <= 0,
+        piercingIndex: progressivePiercing ? targetIndex : undefined,
+        piercingDamagePercent: progressivePiercing ? piercingDamagePercent : undefined
       });
     }
     const mpAbsorbed = damageType === 'magic' && totalDamage > 0
@@ -1997,11 +2049,13 @@ function useSkillOnMonsters(options = {}) {
       );
       const damage = resolveOutgoingDamage({
         damage: baseDamage,
-        damageRange: damageRange
-          ? scaleDamageRange(damageRange, Number(bonusAttackPercent) / 100)
+        damageRange: targetDamageRange
+          ? scaleDamageRange(targetDamageRange, Number(bonusAttackPercent) / 100)
           : null,
         damageType,
-        skillPercent: damageRange ? 100 : Number(skillPercent || 100) * Number(bonusAttackPercent) / 100,
+        skillPercent: targetDamageRange
+          ? 100
+          : piercingDamagePercent * Number(bonusAttackPercent) / 100,
         defense,
         ignoreDefense,
         playerLevel,
@@ -2020,7 +2074,9 @@ function useSkillOnMonsters(options = {}) {
         remainingHp: monster.hp,
         maxHp: monster.maxHp,
         defeated: monster.hp <= 0,
-        bonusAttack: true
+        bonusAttack: true,
+        piercingIndex: progressivePiercing ? targetIndex : undefined,
+        piercingDamagePercent: progressivePiercing ? piercingDamagePercent : undefined
       });
     }
     monster.aggroTargetId = userKey;
@@ -2075,6 +2131,10 @@ function useSkillOnMonsters(options = {}) {
       poisoned,
       debuffApplied,
       hitResults,
+      targetX,
+      targetFloor,
+      piercingIndex: progressivePiercing ? targetIndex : undefined,
+      piercingDamagePercent: progressivePiercing ? piercingDamagePercent : undefined,
       monster: defeated ? null : serializeMonster(monster)
     });
   }
@@ -2085,7 +2145,8 @@ function useSkillOnMonsters(options = {}) {
     expReward: outcomes.reduce((sum, outcome) => sum + outcome.expReward, 0),
     mpAbsorbed: outcomes.reduce((sum, outcome) => sum + (outcome.mpAbsorbed || 0), 0),
     fieldBossRewards,
-    casterMovement
+    casterMovement,
+    progressivePiercing: Boolean(progressivePiercing)
   };
 }
 

@@ -29,6 +29,7 @@ const EMPLOYEE_EMPOWERMENT_SKILL_ID = 'extended_e76286335c';
 const WAKE_UP_SKILL_ID = 'extended_b067160f36';
 const WORK_REDUCTION_SKILL_ID = 'extended_245ea8ab5c';
 const GENESIS_SKILL_ID = 'extended_aef3d1db17';
+const ACCUMULATED_PIERCING_SKILL_ID = 'extended_cd94045605';
 
 function defineSkill(id, options) {
   return Object.freeze({
@@ -116,6 +117,26 @@ const SKILL_DEFINITIONS = Object.freeze({
           ...(definition.values || {}),
           range: Math.round(Number(definition.range || 1200) * 0.6),
           verticalFloorRange: 1
+        }
+      }];
+    }
+    if (id === ACCUMULATED_PIERCING_SKILL_ID) {
+      return [id, {
+        ...definition,
+        description: 'MP 18 → 33, 1.5초 충전 후 직선상의 최대 6명을 관통합니다. 첫 대상 250%, 관통마다 증가하여 마지막 대상 최대 850% 피해를 입힙니다.',
+        effect: 'progressive-piercing-damage',
+        target: 'enemies',
+        maxTargets: 6,
+        range: 650,
+        piercing: true,
+        values: {
+          mpCost: [18, 33],
+          damagePercent: 250,
+          piercingStartPercent: 250,
+          piercingEndPercent: 850,
+          preCastDelaySeconds: 1.5,
+          range: 650,
+          targetCount: 6
         }
       }];
     }

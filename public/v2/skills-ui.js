@@ -653,7 +653,8 @@ function applySkillCombat(combat = {}) {
     showFloatingDamage(
       element,
       outcome.missed ? 'MISS' : outcome.damage,
-      !outcome.missed && combat.critical ? 'critical' : 'outgoing'
+      !outcome.missed && combat.critical ? 'critical' : 'outgoing',
+      outcome.piercingIndex
     );
     if (outcome.knockedBack) {
       element?.classList.add('is-knockback');
@@ -742,6 +743,10 @@ async function useActiveSkill(skillId, options = {}) {
       0,
       Number(skill.values?.channelDurationSeconds) || 0
     );
+    const preCastDelayMs = Math.max(
+      0,
+      Math.round(Number(skill.values?.preCastDelaySeconds) * 1000) || 0
+    );
     const postCastDelayMs = Math.max(
       0,
       Math.min(300, Math.round(Number(skill.values?.postCastDelaySeconds ?? 0.3) * 1000))
@@ -781,6 +786,19 @@ async function useActiveSkill(skillId, options = {}) {
         motionRunId,
         `${skill.name} 연사 중`
       );
+    } else if (preCastDelayMs > 0) {
+      setWorldActivity(`${skill.name} 충전 중 · ${(preCastDelayMs / 1000).toFixed(1)}초`);
+      setCharacterMotion('cast');
+      if (typeof playSkillChargeEffect === 'function') {
+        playSkillChargeEffect(skill, preCastDelayMs);
+      }
+      await sleep(preCastDelayMs);
+      if (manual ? state.dead : !isRunActive(motionKind, motionRunId)) return false;
+      setCharacterMotion(offensive ? (getCombatPresentation().motion || 'slash') : 'buff');
+      data = await requestSkillUse();
+      setTimeout(() => {
+        if (!state.dead && !state.moving) setCharacterMotion(null);
+      }, 140);
     } else {
       await playWorldMotion(
         offensive ? (getCombatPresentation().motion || 'slash') : 'buff',
@@ -809,6 +827,9 @@ async function useActiveSkill(skillId, options = {}) {
           }, 240);
         }
       }
+      if (!data.combat.channel && typeof playSkillVisualEffect === 'function') {
+        playSkillVisualEffect(data.skill, data.combat);
+      }
       if (!data.combat.channel) applySkillCombat(data.combat);
       showGroundLoot(data.combat.drops || []);
       if (typeof handleFieldBossEvents === 'function' && Array.isArray(data.combat.fieldBossRewardResults)) {
@@ -817,7 +838,11 @@ async function useActiveSkill(skillId, options = {}) {
         ));
       }
     }
-    if (channelDurationSeconds <= 0 && typeof playSkillVisualEffect === 'function') {
+    if (
+      channelDurationSeconds <= 0
+      && !data.combat
+      && typeof playSkillVisualEffect === 'function'
+    ) {
       playSkillVisualEffect(data.skill, data.combat);
     }
     const inventory = data.inventory || data.character?.inventory;

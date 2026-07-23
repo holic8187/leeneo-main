@@ -1942,6 +1942,83 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   box-shadow: 0 0 24px rgba(107,184,255,.58), inset 0 0 24px rgba(107,184,255,.28);
   animation-name: skill-teleport-ring;
 }
+.piercing-charge-effect,
+.piercing-projectile-effect,
+.piercing-impact-effect {
+  position: absolute;
+  z-index: 23;
+  pointer-events: none;
+}
+.piercing-charge-effect {
+  width: 58px;
+  height: 58px;
+  border: 3px solid rgba(133, 255, 238, .9);
+  border-radius: 50%;
+  background:
+    conic-gradient(from 0deg, transparent 0 16%, #fff4a5 18% 27%, transparent 29% 48%, #71ffe3 50% 63%, transparent 65%),
+    radial-gradient(circle, #fff 0 8%, rgba(114, 255, 228, .65) 12% 31%, transparent 64%);
+  box-shadow: 0 0 18px #65ffe1, inset 0 0 18px rgba(255, 244, 165, .75);
+  transform: translate(-50%, -50%);
+  animation: piercing-charge var(--piercing-charge-duration, 240ms) ease-out forwards;
+}
+.piercing-charge-effect.is-sustained {
+  animation-name: piercing-charge-sustain;
+  animation-timing-function: cubic-bezier(.2,.65,.18,1);
+}
+.piercing-projectile-effect {
+  --piercing-travel-x: 0px;
+  --piercing-travel-y: 0px;
+  --piercing-angle: 0rad;
+  width: 38px;
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(99,255,226,.05), #71ffe3 36%, #fff9be 72%, #fff);
+  box-shadow: 0 0 8px #71ffe3, 0 0 18px rgba(255, 246, 165, .9);
+  transform-origin: center;
+  animation: piercing-projectile-flight var(--piercing-flight-duration, 600ms) linear both;
+}
+.piercing-projectile-effect::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  right: 24px;
+  width: 92px;
+  height: 6px;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent, rgba(91, 255, 225, .68));
+  filter: blur(1px);
+}
+.piercing-projectile-effect::after {
+  content: "➤";
+  position: absolute;
+  right: -7px;
+  top: -9px;
+  color: #fff8ad;
+  font: 1000 24px/1 ui-monospace, monospace;
+  text-shadow: 0 0 9px #fff, 0 0 16px #5affe0;
+}
+.piercing-impact-effect {
+  width: 48px;
+  height: 48px;
+  border: 3px solid rgba(255, 246, 159, .95);
+  border-radius: 50%;
+  background:
+    linear-gradient(45deg, transparent 43%, rgba(255,255,255,.96) 46% 54%, transparent 57%),
+    linear-gradient(-45deg, transparent 43%, rgba(99,255,225,.9) 46% 54%, transparent 57%);
+  box-shadow: 0 0 16px #64ffe1, inset 0 0 12px rgba(255, 245, 155, .85);
+  transform: translate(-50%, -50%);
+  animation: piercing-impact .54s cubic-bezier(.12,.8,.2,1) forwards;
+}
+.piercing-impact-effect::after {
+  content: attr(data-piercing-step);
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #fff8aa;
+  font: 1000 13px/1 ui-monospace, monospace;
+  text-shadow: 0 1px 3px #06483e;
+}
 @keyframes skill-use-label {
   0% { opacity: 0; translate: -50% -75%; scale: .86; }
   18% { opacity: 1; translate: -50% -110%; scale: 1.06; }
@@ -1952,6 +2029,38 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   0% { opacity: 0; scale: .18; rotate: -28deg; }
   18% { opacity: 1; }
   100% { opacity: 0; scale: 1.08; rotate: 32deg; }
+}
+@keyframes piercing-charge {
+  0% { opacity: 0; scale: .2; rotate: -90deg; }
+  55% { opacity: 1; scale: 1.12; }
+  100% { opacity: 0; scale: .72; rotate: 40deg; }
+}
+@keyframes piercing-charge-sustain {
+  0% { opacity: 0; scale: .18; rotate: -110deg; filter: brightness(.8); }
+  14% { opacity: .9; scale: .62; }
+  62% { opacity: 1; scale: 1.05; rotate: 90deg; filter: brightness(1.35); }
+  88% { opacity: 1; scale: 1.28; rotate: 180deg; filter: brightness(1.75); }
+  100% { opacity: 0; scale: .74; rotate: 220deg; filter: brightness(2.2); }
+}
+@keyframes piercing-projectile-flight {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(var(--piercing-angle)) scaleX(.45);
+  }
+  8% { opacity: 1; }
+  88% { opacity: 1; }
+  100% {
+    opacity: 0;
+    transform: translate(
+      calc(-50% + var(--piercing-travel-x)),
+      calc(-50% + var(--piercing-travel-y))
+    ) rotate(var(--piercing-angle)) scaleX(1.18);
+  }
+}
+@keyframes piercing-impact {
+  0% { opacity: 0; scale: .2; rotate: -40deg; }
+  28% { opacity: 1; }
+  100% { opacity: 0; scale: var(--piercing-impact-scale, 1.35); rotate: 38deg; }
 }
 @keyframes skill-buff-flare {
   0% { opacity: 0; scale: .4; translate: -50% -35%; }

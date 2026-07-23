@@ -46,6 +46,30 @@ function findSkillByName(name) {
   return Object.values(SKILL_DEFINITIONS).find((definition) => definition.name === name);
 }
 
+test('accumulated piercing settlement is an escalating six-target attack', () => {
+  const skill = SKILL_DEFINITIONS.extended_cd94045605;
+  const values = resolveSkillValues(skill, skill.maxLevel);
+
+  assert.equal(skill.effect, 'progressive-piercing-damage');
+  assert.equal(skill.target, 'enemies');
+  assert.equal(skill.piercing, true);
+  assert.equal(skill.maxTargets, 6);
+  assert.equal(values.damagePercent, 250);
+  assert.equal(values.piercingStartPercent, 250);
+  assert.equal(values.piercingEndPercent, 850);
+  assert.equal(values.targetCount, 6);
+  assert.equal(values.preCastDelaySeconds, 1.5);
+  assert.equal(values.cooldownSeconds, undefined);
+  assert.deepEqual(resolveSkillCastProfile(values), {
+    hitCount: 1,
+    mpCostMultiplier: 1,
+    preCastDelaySeconds: 1.5,
+    channelDurationSeconds: 0,
+    channelIntervalSeconds: 0,
+    lockSeconds: 0
+  });
+});
+
 test('salary lupin and the double experience coupon coexist at 2.2x experience', () => {
   const now = Date.now();
   const character = makeCharacter();

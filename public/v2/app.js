@@ -1395,6 +1395,9 @@ function classifySkillVisual(skill = {}) {
   const element = String(skill.element || '').toLowerCase();
   const target = String(skill.target || '').toLowerCase();
   const text = `${id} ${effect} ${element} ${target} ${skill.name || ''} ${skill.description || ''}`.toLowerCase();
+  if (id === 'extended_cd94045605' || effect === 'progressive-piercing-damage') {
+    return 'progressive-piercing';
+  }
   if (effect.includes('heal') || id.includes('heal') || text.includes('복지 지원')) return 'heal';
   if (effect.includes('summon') || id.includes('companion') || id.includes('mascot')) return 'summon';
   if (effect.includes('teleport') || id.includes('teleport') || text.includes('텔레포트')) return 'teleport';
@@ -1419,11 +1422,124 @@ function getSkillEffectAnchor(combat = {}) {
   return $('fieldCharacter');
 }
 
+function playSkillChargeEffect(skill = {}, durationMs = 1500) {
+  if (
+    String(skill.id || '') !== 'extended_cd94045605'
+    && String(skill.effect || '') !== 'progressive-piercing-damage'
+  ) return;
+  const stage = $('worldStage');
+  const caster = $('fieldCharacter');
+  if (!stage || !caster) return;
+  const stageRect = stage.getBoundingClientRect();
+  const casterRect = caster.getBoundingClientRect();
+  const charge = document.createElement('span');
+  charge.className = 'piercing-charge-effect is-sustained';
+  charge.style.left = `${casterRect.left - stageRect.left + casterRect.width / 2}px`;
+  charge.style.top = `${casterRect.top - stageRect.top + casterRect.height * .46}px`;
+  charge.style.setProperty('--piercing-charge-duration', `${Math.max(1, durationMs)}ms`);
+  stage.appendChild(charge);
+  charge.addEventListener('animationend', () => charge.remove(), { once: true });
+  setTimeout(() => charge.remove(), Math.max(1, durationMs) + 250);
+}
+
+function playProgressivePiercingVisual(skill = {}, combat = {}) {
+  const stage = $('worldStage');
+  const caster = $('fieldCharacter');
+  if (!stage || !caster) return;
+  const stageRect = stage.getBoundingClientRect();
+  const casterRect = caster.getBoundingClientRect();
+  const sourceX = casterRect.left - stageRect.left + casterRect.width / 2;
+  const sourceY = casterRect.top - stageRect.top + casterRect.height * .46;
+  const targets = [...(combat.outcomes || [])]
+    .sort((left, right) => (
+      Number(left.piercingIndex ?? 0) - Number(right.piercingIndex ?? 0)
+    ))
+    .map((outcome) => {
+      const target = Array.from($('monsterLayer')?.children || []).find(
+        (element) => element.dataset.monsterId === String(outcome.monsterId)
+      );
+      if (target?.isConnected) {
+        const rect = target.getBoundingClientRect();
+        return {
+          outcome,
+          x: rect.left - stageRect.left + rect.width / 2,
+          y: rect.top - stageRect.top + rect.height * .48
+        };
+      }
+      return {
+        outcome,
+        x: stageRect.width * Math.max(0, Math.min(100, Number(outcome.targetX) || 0)) / 100,
+        y: Number(outcome.targetFloor) === 1
+          ? Math.max(24, stageRect.height - getUpperPlatformBottom())
+          : Math.max(24, stageRect.height - 48)
+      };
+    });
+  if (!targets.length) return;
+
+  const attackSpeed = Math.max(.5, getAttackSpeedMultiplier());
+  const alreadyCharged = Number(skill.values?.preCastDelaySeconds) > 0;
+  const chargeDuration = alreadyCharged ? 0 : Math.max(120, Math.round(260 / attackSpeed));
+  const flightDuration = Math.max(260, Math.round(620 / attackSpeed));
+  const endpoint = targets.at(-1);
+  const travelX = endpoint.x - sourceX;
+  const travelY = endpoint.y - sourceY;
+  const angle = Math.atan2(travelY, travelX);
+
+  let charge = null;
+  if (!alreadyCharged) {
+    charge = document.createElement('span');
+    charge.className = 'piercing-charge-effect';
+    charge.style.left = `${sourceX}px`;
+    charge.style.top = `${sourceY}px`;
+    charge.style.setProperty('--piercing-charge-duration', `${chargeDuration}ms`);
+    stage.appendChild(charge);
+  }
+
+  const projectile = document.createElement('span');
+  projectile.className = 'piercing-projectile-effect';
+  projectile.style.left = `${sourceX}px`;
+  projectile.style.top = `${sourceY}px`;
+  projectile.style.setProperty('--piercing-travel-x', `${travelX}px`);
+  projectile.style.setProperty('--piercing-travel-y', `${travelY}px`);
+  projectile.style.setProperty('--piercing-angle', `${angle}rad`);
+  projectile.style.setProperty('--piercing-flight-duration', `${flightDuration}ms`);
+  projectile.style.animationDelay = `${chargeDuration}ms`;
+  stage.appendChild(projectile);
+
+  targets.forEach(({ x, y, outcome }, index) => {
+    const totalDistance = Math.max(1, Math.hypot(travelX, travelY));
+    const targetDistance = Math.hypot(x - sourceX, y - sourceY);
+    const impactDelay = chargeDuration
+      + Math.round(flightDuration * Math.min(1, targetDistance / totalDistance));
+    setTimeout(() => {
+      if (!stage.isConnected) return;
+      const impact = document.createElement('span');
+      impact.className = 'piercing-impact-effect';
+      impact.style.left = `${x}px`;
+      impact.style.top = `${y}px`;
+      impact.style.setProperty('--piercing-impact-scale', String(1.25 + index * .12));
+      impact.dataset.piercingStep = String(index + 1);
+      impact.title = `${skill.name || '누적 관통결산'} ${Number(outcome.piercingDamagePercent) || 0}%`;
+      stage.appendChild(impact);
+      impact.addEventListener('animationend', () => impact.remove(), { once: true });
+      setTimeout(() => impact.remove(), 700);
+    }, impactDelay);
+  });
+
+  const cleanupDelay = chargeDuration + flightDuration + 500;
+  setTimeout(() => charge?.remove(), cleanupDelay);
+  setTimeout(() => projectile.remove(), cleanupDelay);
+}
+
 function playSkillVisualEffect(skill = {}, combat = {}) {
   const stage = $('worldStage');
   const caster = $('fieldCharacter');
   if (!stage || !caster || !skill) return;
   const kind = classifySkillVisual(skill);
+  if (kind === 'progressive-piercing') {
+    playProgressivePiercingVisual(skill, combat);
+    return;
+  }
   const anchor = ['heal', 'buff', 'summon', 'teleport'].includes(kind)
     ? caster
     : getSkillEffectAnchor(combat);
