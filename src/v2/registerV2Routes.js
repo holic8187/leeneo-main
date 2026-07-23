@@ -35,6 +35,7 @@ const {
   recordSkillUse,
   listActivePlayers,
   listAllActivePlayers,
+  publishGlobalShout,
   leaveWorld
 } = require('./world/worldRuntime');
 const {
@@ -181,6 +182,7 @@ const {
 } = require('./skills/skillService');
 const {
   buildSummonState,
+  getSummonAttackVisual,
   isAttackingSummon,
   isSummonAttackDue,
   isCompanionSummon
@@ -188,6 +190,8 @@ const {
 const { calculateMagicDamageRange } = require('./combat/combatFormulas');
 
 const STEALTH_SKILL_ID = 'extended_47fcdc0ba0';
+const SHOUT_PASS_BUFF_ID = 'shout_unlimited_pass_7d';
+const SHOUT_COOLDOWN_MS = 3 * 60 * 1000;
 const MONSTER_QUEST_LOOKUP = new Map(
   MONSTER_CATALOG.map((monster) => [String(monster.id), monster])
 );
@@ -291,6 +295,17 @@ const V2_PATCH_NOTE_HISTORY = Object.freeze([
       '모든 몬스터의 드랍 풀에 무기 외 직업 방어구를 최소 3종 이상 포함하고 전사와 도적 방어구 누락을 수정했습니다.',
       '방어구를 10레벨 간격으로 추가해 저레벨부터 고레벨까지 몬스터 레벨에 맞는 방어구가 고르게 등장합니다.',
       '기존 공용 망토와 귀걸이 드랍도 유지하면서 몬스터별 전체 장비 후보를 최대 16종으로 확대했습니다.'
+    ])
+  }),
+  Object.freeze({
+    version: '2026-07-23-summon-shout-1',
+    title: '소환수 전투와 전체 외치기',
+    publishedAt: '2026-07-23',
+    lines: Object.freeze([
+      '궁수 계열 퍼펫이 일반 몬스터와 필드보스의 공격 대상을 대신 맡도록 어그로 기능을 보강했습니다.',
+      '공격 가능한 모든 소환수에 속성과 콘셉트에 맞는 공격 동작과 투사체 연출을 추가했습니다.',
+      '특수행동에 3분마다 사용할 수 있는 전체 외치기를 추가했습니다. 메시지는 모든 전투 화면 중앙에 10초간 표시됩니다.',
+      '7일 동안 전체 외치기 재사용 대기시간을 없애는 외치기 자유이용권을 운영자 지급 목록에 추가했습니다.'
     ])
   })
 ]);
@@ -1145,6 +1160,7 @@ function registerV2Routes({
       floor,
       activity,
       motion,
+      summon: response.skillTree?.summon,
       currentHp: response.resources.currentHp,
       maxHp: response.resources.maxHp,
       currentMp: response.resources.currentMp,
@@ -1790,7 +1806,9 @@ function registerV2Routes({
     combat.summon = {
       skillId: summon.skillId,
       name: summon.name,
-      icon: summon.icon
+      icon: summon.icon,
+      element: summon.element,
+      attackVisual: summon.attackVisual || getSummonAttackVisual(summon)
     };
     combat.critical = critical;
     if (Array.isArray(combat.fieldBossRewards) && combat.fieldBossRewards.length) {
@@ -3922,6 +3940,52 @@ function registerV2Routes({
     }
   });
 
+  app.post('/api/v2/special-actions/shout', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    const message = String(req.body?.message || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    if (!message) return res.status(400).json({ msg: '외칠 메시지를 입력해주세요.' });
+    try {
+      const result = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        const now = Date.now();
+        const skillState = ensureSkillState(character);
+        const cooldownFree = skillState.activeBuffs.some((buff) => (
+          buff.skillId === SHOUT_PASS_BUFF_ID
+          && (!buff.expiresAt || new Date(buff.expiresAt).getTime() > now)
+        ));
+        const lastUsedAt = new Date(character.specialActions?.shoutLastUsedAt || 0).getTime();
+        const remainingMs = Number.isFinite(lastUsedAt)
+          ? Math.max(0, lastUsedAt + SHOUT_COOLDOWN_MS - now)
+          : 0;
+        if (!cooldownFree && remainingMs > 0) {
+          throw new Error(`전체 외치기는 ${Math.ceil(remainingMs / 1000)}초 뒤 다시 사용할 수 있습니다.`);
+        }
+        if (!character.specialActions) character.specialActions = {};
+        character.specialActions.shoutLastUsedAt = new Date(now);
+        await character.save();
+        worldProfileCache.delete(String(auth.id));
+        const globalShout = publishGlobalShout({
+          userId: auth.id,
+          nickname: character.displayName,
+          message,
+          now
+        });
+        return {
+          message: '전체 사원에게 메시지를 외쳤습니다.',
+          globalShout,
+          cooldownFree,
+          nextAvailableAt: cooldownFree ? now : now + SHOUT_COOLDOWN_MS,
+          character: buildCharacterResponse(character)
+        };
+      });
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '전체 외치기를 사용하지 못했습니다.' });
+    }
+  });
+
   app.get('/api/v2/cash-shop', async (req, res) => {
     const auth = requireV2User(req, res);
     if (!auth) return;
@@ -3964,7 +4028,7 @@ function registerV2Routes({
         const character = await V2Character.findOne({ userId: auth.id });
         if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
         const item = getItemDefinition(req.body?.itemId);
-        if (!item || !['return-scroll', 'experience-buff', 'hunting-time', 'hunting-capacity', 'level-up', 'skill-reset', 'mastery-book', 'action-point', 'cash-point'].includes(item.itemType)) {
+        if (!item || !['return-scroll', 'experience-buff', 'hunting-time', 'hunting-capacity', 'level-up', 'skill-reset', 'mastery-book', 'action-point', 'cash-point', 'shout-pass'].includes(item.itemType)) {
           throw new Error('사용할 수 없는 아이템입니다.');
         }
         if (item.itemType === 'level-up' && Number(character.progression?.level) >= MAX_LEVEL) {
@@ -4040,6 +4104,26 @@ function registerV2Routes({
         } else if (item.itemType === 'action-point') {
           const restored = restoreActionPoints(character, item.actionPoints || 1);
           message = `행동력을 ${restored.restored} 회복했습니다.`;
+        } else if (item.itemType === 'shout-pass') {
+          const skillState = ensureSkillState(character);
+          const now = Date.now();
+          const existing = skillState.activeBuffs.find(
+            (buff) => buff.skillId === SHOUT_PASS_BUFF_ID
+          );
+          const existingExpiry = existing?.expiresAt ? new Date(existing.expiresAt).getTime() : 0;
+          const baseTime = Number.isFinite(existingExpiry) && existingExpiry > now
+            ? existingExpiry
+            : now;
+          appliedBuff = upsertActiveBuff(character, {
+            skillId: SHOUT_PASS_BUFF_ID,
+            name: '외치기 자유이용권',
+            effects: { shoutCooldownFree: 1 },
+            createdAt: new Date(now),
+            expiresAt: new Date(
+              baseTime + Math.max(1, Number(item.durationSeconds) || 604800) * 1000
+            )
+          });
+          message = '7일 동안 전체 외치기를 재사용 대기시간 없이 이용할 수 있습니다.';
         } else if (item.itemType === 'skill-reset') {
           const skillState = ensureSkillState(character);
           const skillDefinitionIds = new Set(Object.keys(SKILL_DEFINITIONS));
@@ -4655,6 +4739,7 @@ function registerV2Routes({
         motion: req.body?.motion,
         facingLeft: req.body?.facingLeft,
         jumpEvent: req.body?.jumpEvent,
+        summon: profile.skillTree?.summon,
         currentHp: profile.resources.currentHp,
         maxHp: profile.resources.maxHp,
         currentMp: profile.resources.currentMp,
@@ -4809,6 +4894,39 @@ function registerV2Routes({
       for (const rewardEvent of state.fieldBossRewards || []) {
         fieldBossRewards.push(await applyFieldBossRewards(rewardEvent));
       }
+      if (state.summonEvents.length) {
+        const latestSummonEvents = new Map();
+        for (const event of state.summonEvents) {
+          const key = String(event.userId);
+          const previousEvent = latestSummonEvents.get(key);
+          if (!previousEvent || Number(event.createdAt) >= Number(previousEvent.createdAt)) {
+            latestSummonEvents.set(key, event);
+          }
+        }
+        await Promise.all(Array.from(latestSummonEvents.values()).map((event) => (
+          withCharacterMutation(event.userId, async () => {
+            const character = await V2Character.findOne({ userId: event.userId });
+            const summon = character?.skills?.summon;
+            if (!character || !summon) return;
+            const summonCreatedAt = new Date(summon.createdAt || 0).getTime();
+            if (
+              String(summon.skillId) !== String(event.skillId)
+              || summonCreatedAt !== Number(event.summonCreatedAt)
+            ) return;
+            if (event.destroyed || Number(event.summonHp) <= 0) {
+              character.skills.summon = null;
+            } else {
+              character.skills.summon.summonHp = Math.max(
+                0,
+                Math.floor(Number(event.summonHp) || 0)
+              );
+            }
+            character.markModified('skills');
+            await character.save();
+            worldProfileCache.delete(String(event.userId));
+          })
+        )));
+      }
       return res.json({
         mapId: state.mapId,
         players: state.players,
@@ -4817,6 +4935,7 @@ function registerV2Routes({
         contactEvents: state.contactEvents,
         recoveryEvents: state.recoveryEvents,
         summonCombat,
+        summonEvents: state.summonEvents,
         fieldBossStatusEvents: state.fieldBossStatusEvents,
         fieldBossRewards,
         lootCollections: state.lootCollections,
@@ -4824,6 +4943,7 @@ function registerV2Routes({
         tradeState: getTradeState(auth.id),
         partyPortals: listVisiblePartyPortals(auth.id, state.mapId),
         autoPotionUpdate: takeAutoPotionUpdate(auth.id),
+        globalShout: state.globalShout,
         serverTime: Date.now()
       });
     } catch (err) {

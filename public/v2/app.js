@@ -88,6 +88,8 @@ const state = {
   invulnerableUntil: 0,
   invulnerabilityTimer: null,
   lastContactDamageKey: '',
+  lastGlobalShoutId: '',
+  globalShoutTimer: null,
   dead: false,
   deathExpLost: 0,
   inventory: {
@@ -1309,6 +1311,80 @@ function showSkillUseLabel(targetElement, skillName) {
   stage.appendChild(element);
   element.addEventListener('animationend', () => element.remove(), { once: true });
   setTimeout(() => element.remove(), 1_700);
+}
+
+function showGlobalShout(shout = null) {
+  const banner = $('globalShoutBanner');
+  if (!banner) return;
+  const expiresAt = Number(shout?.expiresAt) || 0;
+  const remainingMs = expiresAt - Date.now();
+  if (!shout?.id || remainingMs <= 0) {
+    if (expiresAt && state.lastGlobalShoutId === String(shout?.id || '')) {
+      banner.classList.add('hidden');
+    }
+    return;
+  }
+  if (
+    state.lastGlobalShoutId === String(shout.id)
+    && !banner.classList.contains('hidden')
+  ) return;
+  state.lastGlobalShoutId = String(shout.id);
+  $('globalShoutMessage').textContent = String(shout.message || '');
+  $('globalShoutSender').textContent = `FROM. ${String(shout.nickname || '사원')}`;
+  banner.classList.remove('hidden', 'is-entering');
+  void banner.offsetWidth;
+  banner.classList.add('is-entering');
+  clearTimeout(state.globalShoutTimer);
+  state.globalShoutTimer = setTimeout(() => {
+    if (state.lastGlobalShoutId === String(shout.id)) banner.classList.add('hidden');
+  }, Math.max(100, remainingMs));
+}
+
+function playSummonAttackMotion(combat = {}) {
+  const companion = $('fieldCompanion');
+  const stage = $('worldStage');
+  if (!companion || !stage || !combat.summon) return;
+  const visual = combat.summon.attackVisual || {};
+  const style = String(visual.style || 'energy-bolt');
+  const projectileText = String(visual.projectile || '◆');
+  const color = String(visual.color || '#ffcf67');
+  companion.classList.remove('is-attacking');
+  void companion.offsetWidth;
+  companion.classList.add('is-attacking');
+  setTimeout(() => companion.classList.remove('is-attacking'), 520);
+
+  const targets = (combat.outcomes || [])
+    .map((outcome, index) => ({
+      outcome,
+      index,
+      element: Array.from($('monsterLayer')?.children || []).find(
+        (node) => node.dataset.monsterId === String(outcome.monsterId)
+      )
+    }))
+    .filter((entry) => entry.element);
+  targets.forEach(({ element, index }) => {
+    setTimeout(() => {
+      if (!companion.isConnected || !element.isConnected) return;
+      const stageRect = stage.getBoundingClientRect();
+      const sourceRect = companion.getBoundingClientRect();
+      const targetRect = element.getBoundingClientRect();
+      const sourceX = sourceRect.left - stageRect.left + sourceRect.width / 2;
+      const sourceY = sourceRect.top - stageRect.top + sourceRect.height / 2;
+      const targetX = targetRect.left - stageRect.left + targetRect.width / 2;
+      const targetY = targetRect.top - stageRect.top + targetRect.height / 2;
+      const projectile = document.createElement('span');
+      projectile.className = `summon-projectile is-${style}`;
+      projectile.textContent = projectileText;
+      projectile.style.left = `${sourceX}px`;
+      projectile.style.top = `${sourceY}px`;
+      projectile.style.color = color;
+      projectile.style.setProperty('--summon-travel-x', `${targetX - sourceX}px`);
+      projectile.style.setProperty('--summon-travel-y', `${targetY - sourceY}px`);
+      stage.appendChild(projectile);
+      projectile.addEventListener('animationend', () => projectile.remove(), { once: true });
+      setTimeout(() => projectile.remove(), 850);
+    }, index * 70);
+  });
 }
 
 function classifySkillVisual(skill = {}) {
@@ -2737,6 +2813,11 @@ function renderWorldEntities(data = {}) {
   }
   state.worldServerTime = Number(data.serverTime) || Date.now();
   if (data.self?.userId) state.selfUserId = data.self.userId;
+  if (data.self && state.character?.skillTree) {
+    state.character.skillTree.summon = data.self.summon || null;
+    renderCompanion();
+  }
+  showGlobalShout(data.globalShout);
   renderRemotePlayers(data.players || []);
   renderMonsters(data.monsters || []);
   renderPartyPortals(data.partyPortals || []);
@@ -2794,6 +2875,27 @@ function renderWorldEntities(data = {}) {
       recoveryLabels.push(`정신력 +${formatNumber(ownRecovery.restoredMp)}`);
     }
     setWorldActivity(`패시브 회복 · ${recoveryLabels.join(' · ')}`);
+  }
+  const ownSummonHit = (data.summonEvents || []).find(
+    (event) => event.userId === state.selfUserId
+  );
+  if (ownSummonHit) {
+    const companion = $('fieldCompanion');
+    if (companion) {
+      showFloatingDamage(companion, ownSummonHit.damage, 'incoming');
+      companion.classList.add('damage-flash');
+      setTimeout(() => companion.classList.remove('damage-flash'), 260);
+    }
+    if (ownSummonHit.destroyed && state.character?.skillTree) {
+      state.character.skillTree.summon = null;
+      renderCompanion();
+      setWorldActivity(`${ownSummonHit.summonName || '퍼펫'}이(가) 파괴되었습니다.`);
+    } else {
+      setWorldActivity(
+        `${ownSummonHit.summonName || '퍼펫'}이(가) 공격을 대신 받았습니다.`
+        + ` · HP ${formatNumber(ownSummonHit.summonHp)}`
+      );
+    }
   }
   handleFieldBossEvents(data);
   collectGroundLoot(data.lootCollections || []);
@@ -2877,6 +2979,7 @@ async function sendWorldHeartbeat() {
           ? { ...data, lootCollections: [] }
           : data);
         if (data.summonCombat?.success) {
+          playSummonAttackMotion(data.summonCombat);
           applySkillCombat(data.summonCombat);
           showGroundLoot(data.summonCombat.drops || []);
         }
@@ -3167,7 +3270,7 @@ function inventorySlotBody(item, slotNumber, locked = false) {
   }
   let usable = '';
   const directlyUsableItem = (
-    ['return-scroll', 'experience-buff', 'hunting-time', 'hunting-capacity', 'level-up', 'skill-reset', 'mastery-book', 'action-point', 'cash-point'].includes(item.itemType)
+    ['return-scroll', 'experience-buff', 'hunting-time', 'hunting-capacity', 'level-up', 'skill-reset', 'mastery-book', 'action-point', 'cash-point', 'shout-pass'].includes(item.itemType)
     || item.id === 'level_up_coupon'
   );
   if (item.itemType === 'inventory-expansion') {
@@ -5201,6 +5304,7 @@ function bindGeneralQuestControls() {
 }
 
 function specialActionsBody() {
+  const now = Date.now();
   const actionPoints = state.character?.actionPoints || {};
   const current = Math.max(0, Number(actionPoints.current) || 0);
   const maximum = Math.max(1, Number(actionPoints.max) || 10);
@@ -5209,8 +5313,16 @@ function specialActionsBody() {
       && (!buff.expiresAt || Number(buff.expiresAt) > Date.now())
   );
   const remainingSeconds = salaryLupinBuff
-    ? Math.max(0, Math.ceil((Number(salaryLupinBuff.expiresAt) - Date.now()) / 1000))
+    ? Math.max(0, Math.ceil((Number(salaryLupinBuff.expiresAt) - now) / 1000))
     : 0;
+  const shoutPass = (state.character?.skillTree?.activeBuffs || []).find(
+    (buff) => buff.skillId === 'shout_unlimited_pass_7d'
+      && (!buff.expiresAt || Number(buff.expiresAt) > now)
+  );
+  const shoutLastUsedAt = Number(state.character?.specialActions?.shoutLastUsedAt) || 0;
+  const shoutRemainingSeconds = shoutPass
+    ? 0
+    : Math.max(0, Math.ceil((shoutLastUsedAt + 3 * 60 * 1000 - now) / 1000));
   return `<div class="special-action-sheet">
     <header>
       <div><span>ACTION POINT</span><strong>행동력 ${formatNumber(current)} / ${formatNumber(maximum)}</strong></div>
@@ -5223,6 +5335,22 @@ function specialActionsBody() {
           <small>${salaryLupinBuff ? `적용 중 · ${formatDuration(remainingSeconds)} 남음` : '2배 쿠폰과 함께 사용 시 총 2.2배'}</small></div>
         <button type="button" data-special-action="salary-lupin" ${salaryLupinBuff || current < 6 ? 'disabled' : ''}>
           ${salaryLupinBuff ? '적용 중' : '행동력 6 사용'}
+        </button>
+      </article>
+      <article class="special-action-shout ${shoutPass ? 'is-active' : ''}">
+        <div class="special-action-icon">📣</div>
+        <div><strong>전체 외치기</strong>
+          <p>모든 전투 화면 중앙에 10초 동안 강조된 메시지를 송출합니다.</p>
+          <input type="text" maxlength="80" data-shout-message
+            placeholder="전 사원에게 알릴 메시지를 입력하세요">
+          <small>${shoutPass
+            ? `자유이용권 적용 중 · ${formatDuration(Math.max(0, Math.ceil((Number(shoutPass.expiresAt) - now) / 1000)))} 남음`
+            : (shoutRemainingSeconds > 0
+              ? `재사용까지 ${formatDuration(shoutRemainingSeconds)}`
+              : '사원당 3분에 1회 · 최대 80자')}</small>
+        </div>
+        <button type="button" data-special-action="shout" ${shoutRemainingSeconds > 0 ? 'disabled' : ''}>
+          ${shoutRemainingSeconds > 0 ? '대기 중' : '전체 외치기'}
         </button>
       </article>
       <article class="is-locked">
@@ -5255,6 +5383,39 @@ function bindSpecialActionControls() {
       setWorldActivity(err.message);
       button.disabled = false;
     }
+  });
+  const shoutInput = document.querySelector('[data-shout-message]');
+  const shoutButton = document.querySelector('[data-special-action="shout"]');
+  const submitShout = async () => {
+    if (!shoutInput || !shoutButton || shoutButton.disabled) return;
+    const message = shoutInput.value.trim();
+    if (!message) {
+      shoutInput.focus();
+      setWorldActivity('외칠 메시지를 입력해주세요.');
+      return;
+    }
+    shoutButton.disabled = true;
+    try {
+      const data = await request('/api/v2/special-actions/shout', {
+        method: 'POST',
+        body: JSON.stringify({ message })
+      });
+      state.character = data.character;
+      showGlobalShout(data.globalShout);
+      renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
+      $('featureBody').innerHTML = specialActionsBody();
+      bindSpecialActionControls();
+      setWorldActivity(data.message);
+    } catch (err) {
+      setWorldActivity(err.message);
+      shoutButton.disabled = false;
+    }
+  };
+  shoutButton?.addEventListener('click', submitShout);
+  shoutInput?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' || event.isComposing) return;
+    event.preventDefault();
+    submitShout();
   });
 }
 

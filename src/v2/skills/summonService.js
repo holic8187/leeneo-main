@@ -17,6 +17,28 @@ function getSummonRole(definition = {}, values = {}) {
   return 'support';
 }
 
+function getSummonAttackVisual(summon = {}) {
+  const skillId = String(summon.skillId || summon.id || '').toLowerCase();
+  const name = String(summon.name || '');
+  const element = String(summon.element || 'neutral').toLowerCase();
+  const icon = String(summon.icon || summon.summonIcon || '');
+  const text = `${skillId} ${name} ${icon}`.toLowerCase();
+
+  if (element === 'fire' || text.includes('불사조') || text.includes('가열')) {
+    return { style: 'fireball', projectile: '🔥', color: '#ff7043' };
+  }
+  if (element === 'ice' || text.includes('동결') || text.includes('냉각')) {
+    return { style: 'ice-shard', projectile: '❄️', color: '#75d9ff' };
+  }
+  if (element === 'holy' || text.includes('수호') || text.includes('지원')) {
+    return { style: 'holy-ray', projectile: '✦', color: '#ffe07a' };
+  }
+  if (text.includes('드론') || text.includes('서버')) {
+    return { style: 'laser', projectile: '━', color: '#73ffce' };
+  }
+  return { style: 'energy-bolt', projectile: '◆', color: '#ffcf67' };
+}
+
 function buildSummonState(definition = {}, values = {}, now = Date.now()) {
   const createdAt = Math.max(0, Number(now) || Date.now());
   const durationSeconds = Math.max(1, Number(values.durationSeconds) || 1);
@@ -39,6 +61,12 @@ function buildSummonState(definition = {}, values = {}, now = Date.now()) {
       Number(values.range ?? definition.range) || (role === 'attacker' ? 650 : 100)
     ),
     element: String(definition.element || 'neutral'),
+    attackVisual: getSummonAttackVisual({
+      skillId: definition.id,
+      name: definition.name,
+      icon: definition.summonIcon,
+      element: definition.element
+    }),
     stunChance: Math.max(0, Number(values.stunChance) || 0),
     stunSeconds: Math.max(0, Number(values.stunSeconds) || 0),
     freezeSeconds: Math.max(0, Number(values.freezeSeconds) || 0),
@@ -97,6 +125,7 @@ function describeSummon(summon = {}) {
 module.exports = {
   buildSummonState,
   describeSummon,
+  getSummonAttackVisual,
   getSummonRole,
   isSummonActive,
   isAttackingSummon,

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>호이상사 V2</title>
-  <link rel="stylesheet" href="/v2/styles.css?v=28">
+  <link rel="stylesheet" href="/v2/styles.css?v=29">
 </head>
 <body>
   <div class="blueprint-grid" aria-hidden="true"></div>
@@ -57,6 +57,11 @@
             </div>
 
             <div id="worldStage" class="world-stage" data-theme="lobby" aria-label="캐릭터 이동 및 자동 전투 화면">
+              <div id="globalShoutBanner" class="global-shout-banner hidden" aria-live="assertive">
+                <span>📣 ALL COMPANY</span>
+                <strong id="globalShoutMessage"></strong>
+                <small id="globalShoutSender"></small>
+              </div>
               <div id="fieldBossTopBar" class="field-boss-top-bar hidden" aria-live="polite">
                 <div class="field-boss-top-meta">
                   <strong id="fieldBossTopName">FIELD BOSS</strong>
@@ -344,7 +349,7 @@
     </section>
   </div>
 
-  <script src="/v2/skills-ui.js?v=30"></script>
-  <script src="/v2/app.js?v=40"></script>
+  <script src="/v2/skills-ui.js?v=31"></script>
+  <script src="/v2/app.js?v=41"></script>
 </body>
 </html>

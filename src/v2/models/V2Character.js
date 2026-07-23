@@ -109,6 +109,9 @@ const v2CharacterSchema = new mongoose.Schema({
     max: { type: Number, default: 10 },
     lastResetDate: { type: String, default: '' }
   },
+  specialActions: {
+    shoutLastUsedAt: { type: Date, default: null }
+  },
   worldState: {
     mapId: { type: String, default: 'main_lobby' },
     x: { type: Number, default: 8, min: 0, max: 94 },

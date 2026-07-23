@@ -755,6 +755,11 @@ function buildCharacterResponse(character) {
       offlineSummary: buildOfflineSummaryView(plain.huntingTime?.offlineSummary)
     },
     actionPoints: serializeActionPoints(plain),
+    specialActions: {
+      shoutLastUsedAt: plain.specialActions?.shoutLastUsedAt
+        ? new Date(plain.specialActions.shoutLastUsedAt).getTime()
+        : 0
+    },
     economy: plain.economy,
     combatPresentation,
     derivedStats,

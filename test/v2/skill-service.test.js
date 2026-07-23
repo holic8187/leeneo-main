@@ -19,6 +19,7 @@ const {
 } = require('../../src/v2/skills/skillService');
 const {
   buildSummonState,
+  getSummonAttackVisual,
   isSummonAttackDue
 } = require('../../src/v2/skills/summonService');
 const {
@@ -119,11 +120,35 @@ test('phoenix summon keeps its attacker metadata and dedicated presentation', ()
   assert.equal(summon.attackIntervalMs, 2500);
   assert.equal(summon.range, 450);
   assert.equal(summon.maxTargets, 4);
+  assert.equal(summon.attackVisual.style, 'fireball');
+  assert.equal(summon.attackVisual.projectile, '🔥');
   assert.equal(isSummonAttackDue(summon, Date.UTC(2026, 6, 15) + 2_499), false);
   assert.equal(isSummonAttackDue(summon, Date.UTC(2026, 6, 15) + 2_500), true);
   summon.lastAttackAt = new Date(Date.UTC(2026, 6, 15) + 2_500);
   assert.equal(isSummonAttackDue(summon, Date.UTC(2026, 6, 15) + 4_999), false);
   assert.equal(isSummonAttackDue(summon, Date.UTC(2026, 6, 15) + 5_000), true);
+});
+
+test('every attacking summon receives a visible concept-matched attack presentation', () => {
+  const attackingSummons = Object.values(SKILL_DEFINITIONS)
+    .filter((definition) => definition.effect === 'summon')
+    .map((definition) => ({
+      definition,
+      values: resolveSkillValues(definition, definition.maxLevel)
+    }))
+    .filter(({ definition, values }) => (
+      definition.summonRole === 'attacker' || Number(values.attackPower) > 0
+    ));
+
+  assert.ok(attackingSummons.length > 0);
+  for (const { definition, values } of attackingSummons) {
+    const summon = buildSummonState(definition, values, Date.UTC(2026, 6, 15));
+    const visual = getSummonAttackVisual(summon);
+    assert.equal(summon.role, 'attacker', definition.name);
+    assert.ok(visual.style, definition.name);
+    assert.ok(visual.projectile, definition.name);
+    assert.match(visual.color, /^#[0-9a-f]{6}$/i, definition.name);
+  }
 });
 
 test('warriors receive both common fourth-job skills and support utility overrides work', () => {

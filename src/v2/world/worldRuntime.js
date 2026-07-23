@@ -36,10 +36,13 @@ const MONSTER_SPAWN_PER_WAVE = 4;
 const ASSUMED_STAGE_WIDTH_PX = 760;
 const PLAYER_VISUAL_WIDTH_PX = 19;
 const MONSTER_VISUAL_WIDTH_PX = 36;
+const DECOY_VISUAL_WIDTH_PX = 22;
+const GLOBAL_SHOUT_DURATION_MS = 10_000;
 
 const activeMaps = new Map();
 const worldControllers = new Map();
 const fieldBossRespawns = new Map();
+let latestGlobalShout = null;
 
 const FIELD_BOSS_RESPAWN_MIN_MS = 90 * 60 * 1000;
 const FIELD_BOSS_RESPAWN_MAX_MS = 180 * 60 * 1000;
@@ -78,6 +81,29 @@ function randomBetween(minimum, maximum) {
 function pickRandom(array, random = Math.random) {
   if (!Array.isArray(array) || !array.length) return null;
   return array[Math.floor(random() * array.length)] || array[0];
+}
+
+function publishGlobalShout({ userId, nickname, message, now = Date.now() } = {}) {
+  const normalizedMessage = String(message || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  if (!normalizedMessage) throw new Error('외칠 메시지를 입력해주세요.');
+  const createdAt = Math.max(0, Number(now) || Date.now());
+  latestGlobalShout = {
+    id: crypto.randomUUID(),
+    userId: String(userId || ''),
+    nickname: String(nickname || '사원').trim().slice(0, 16) || '사원',
+    message: normalizedMessage,
+    createdAt,
+    expiresAt: createdAt + GLOBAL_SHOUT_DURATION_MS
+  };
+  return { ...latestGlobalShout };
+}
+
+function getGlobalShout(now = Date.now()) {
+  if (!latestGlobalShout || Number(latestGlobalShout.expiresAt) <= Number(now)) {
+    latestGlobalShout = null;
+    return null;
+  }
+  return { ...latestGlobalShout };
 }
 
 function getFieldBossDefinition(fieldBossId) {
@@ -412,6 +438,7 @@ function createMapRuntime(mapId, now) {
     groundLoot: [],
     fieldBossRewards: [],
     fieldBossStatusEvents: [],
+    summonEvents: [],
     lastTickAt: now,
     nextSpawnAt: now,
     spawnSequence: 0
@@ -455,6 +482,13 @@ function serializeMonster(monster) {
 }
 
 function serializePlayer(player, now = Date.now()) {
+  const summon = player.summon && Number(player.summon.expiresAt) > now
+    ? {
+      ...player.summon,
+      summonHp: Math.max(0, Number(player.summon.summonHp) || 0),
+      maxSummonHp: Math.max(0, Number(player.summon.maxSummonHp) || 0)
+    }
+    : null;
   return {
     userId: player.userId,
     nickname: player.nickname,
@@ -475,6 +509,7 @@ function serializePlayer(player, now = Date.now()) {
     autoHunting: Boolean(player.autoHunting),
     recentSkill: player.recentSkill?.expiresAt > now ? { ...player.recentSkill } : null,
     jumpEvent: player.jumpEvent?.expiresAt > now ? { ...player.jumpEvent } : null,
+    summon,
     isDead: player.currentHp <= 0
   };
 }
@@ -570,6 +605,89 @@ function chooseWanderAction(monster, map, now) {
   if (monster.floor === 1 && !mapHasUpperFloor(map)) monster.floor = 0;
 }
 
+function normalizeWorldSummon(summon, previousSummon, {
+  x,
+  floor,
+  facingLeft
+} = {}, now = Date.now()) {
+  if (!summon?.skillId) return null;
+  const expiresAt = new Date(summon.expiresAt || 0).getTime();
+  if (!Number.isFinite(expiresAt) || expiresAt <= now) return null;
+  const createdAt = new Date(summon.createdAt || 0).getTime();
+  const sameSummon = previousSummon
+    && String(previousSummon.skillId) === String(summon.skillId)
+    && Number(previousSummon.createdAt) === createdAt;
+  const incomingHp = Math.max(0, Math.floor(Number(summon.summonHp) || 0));
+  const summonHp = sameSummon
+    ? Math.max(0, Math.floor(Number(previousSummon.summonHp) || 0))
+    : incomingHp;
+  return {
+    skillId: String(summon.skillId),
+    name: String(summon.name || '소환수').slice(0, 40),
+    icon: String(summon.icon || '🐾').slice(0, 8),
+    role: String(summon.role || 'support'),
+    summonHp,
+    maxSummonHp: Math.max(
+      summonHp,
+      Math.floor(Number(summon.maxSummonHp) || incomingHp)
+    ),
+    createdAt,
+    expiresAt,
+    x: clamp(Number(x) + (facingLeft ? -2.8 : 2.8), 1, 93),
+    floor: Number(floor) === 1 ? 1 : 0
+  };
+}
+
+function getActiveDecoys(runtime, now = Date.now()) {
+  return Array.from(runtime.players.values())
+    .filter((player) => (
+      player.currentHp > 0
+      && player.summon?.role === 'decoy'
+      && Number(player.summon.summonHp) > 0
+      && Number(player.summon.expiresAt) > now
+    ))
+    .map((player) => ({
+      player,
+      summon: player.summon,
+      x: Number(player.summon.x),
+      floor: Number(player.summon.floor)
+    }));
+}
+
+function findNearestDecoy(runtime, monster, now = Date.now()) {
+  return getActiveDecoys(runtime, now)
+    .filter((entry) => entry.floor === monster.floor)
+    .sort((left, right) => (
+      Math.abs(left.x - monster.x) - Math.abs(right.x - monster.x)
+    ))[0] || null;
+}
+
+function damageDecoy(runtime, decoy, monster, damage, source, now) {
+  if (!decoy?.summon || Number(decoy.summon.summonHp) <= 0) return null;
+  const appliedDamage = Math.max(
+    1,
+    Math.min(Number(decoy.summon.summonHp), Math.floor(Number(damage) || 1))
+  );
+  decoy.summon.summonHp = Math.max(0, Number(decoy.summon.summonHp) - appliedDamage);
+  const event = {
+    userId: decoy.player.userId,
+    skillId: decoy.summon.skillId,
+    summonName: decoy.summon.name,
+    summonIcon: decoy.summon.icon,
+    summonCreatedAt: decoy.summon.createdAt,
+    damage: appliedDamage,
+    summonHp: decoy.summon.summonHp,
+    maxSummonHp: decoy.summon.maxSummonHp,
+    destroyed: decoy.summon.summonHp <= 0,
+    monsterId: monster.id,
+    source,
+    createdAt: now
+  };
+  if (!Array.isArray(runtime.summonEvents)) runtime.summonEvents = [];
+  runtime.summonEvents.push(event);
+  return event;
+}
+
 function advanceMonster(monster, runtime, map, deltaSeconds, now) {
   if (monster.hp <= 0) return;
   if (now < Number(monster.stunnedUntil || 0)) {
@@ -577,8 +695,14 @@ function advanceMonster(monster, runtime, map, deltaSeconds, now) {
     return;
   }
 
+  const decoy = findNearestDecoy(runtime, monster, now);
   const aggroTarget = monster.aggroTargetId && runtime.players.get(monster.aggroTargetId);
-  const target = Number(aggroTarget?.combatProfile?.stealth) > 0 ? null : aggroTarget;
+  const playerTarget = Number(aggroTarget?.combatProfile?.stealth) > 0 ? null : aggroTarget;
+  const target = decoy
+    ? { x: decoy.x, floor: decoy.floor, decoy }
+    : playerTarget;
+  monster.aggroTargetType = decoy ? 'decoy' : (target ? 'player' : '');
+  if (decoy) monster.aggroTargetId = decoy.player.userId;
   if (aggroTarget && !target) monster.aggroTargetId = '';
   if (target && target.floor === monster.floor) {
     const difference = target.x - monster.x;
@@ -625,6 +749,34 @@ function advanceMonster(monster, runtime, map, deltaSeconds, now) {
 
 function applyContactDamage(runtime, now) {
   const damagedPlayers = [];
+  const monstersBlockedByDecoys = new Set();
+  const monsterHalfWidthPercent = MONSTER_VISUAL_WIDTH_PX / 2 / ASSUMED_STAGE_WIDTH_PX * 100;
+  const decoyHalfWidthPercent = DECOY_VISUAL_WIDTH_PX / 2 / ASSUMED_STAGE_WIDTH_PX * 100;
+  for (const monster of runtime.monsters) {
+    if (monster.hp <= 0) continue;
+    const decoy = findNearestDecoy(runtime, monster, now);
+    if (!decoy || decoy.floor !== monster.floor) continue;
+    monstersBlockedByDecoys.add(monster.id);
+    monster.aggroTargetId = decoy.player.userId;
+    monster.aggroTargetType = 'decoy';
+    if (Math.abs(decoy.x - monster.x) > monsterHalfWidthPercent + decoyHalfWidthPercent) continue;
+    monster.state = 'idle';
+    if (monster.lastSummonContactAt && now - monster.lastSummonContactAt < CONTACT_COOLDOWN_MS) {
+      continue;
+    }
+    const outgoingReduction = now < Number(monster.outgoingDamageDebuffUntil || 0)
+      ? Math.max(0, Math.min(95, Number(monster.outgoingDamageReductionPercent) || 0))
+      : 0;
+    damageDecoy(
+      runtime,
+      decoy,
+      monster,
+      Number(monster.contactDamage) * (1 - outgoingReduction / 100),
+      monster.fieldBoss ? 'field-boss-contact' : 'monster-contact',
+      now
+    );
+    monster.lastSummonContactAt = now;
+  }
   for (const player of runtime.players.values()) {
     const movementStartX = Number.isFinite(Number(player.collisionOriginX))
       ? Number(player.collisionOriginX)
@@ -641,7 +793,6 @@ function applyContactDamage(runtime, now) {
     ) continue;
     if (player.lastContactAt && now - player.lastContactAt < CONTACT_COOLDOWN_MS) continue;
     const playerWidthPercent = PLAYER_VISUAL_WIDTH_PX / ASSUMED_STAGE_WIDTH_PX * 100;
-    const monsterHalfWidthPercent = MONSTER_VISUAL_WIDTH_PX / 2 / ASSUMED_STAGE_WIDTH_PX * 100;
     const playerLeft = player.x;
     const playerRight = player.x + playerWidthPercent;
     const canSweepMovement = player.activity === 'moving' && movementStartFloor === player.floor;
@@ -652,7 +803,11 @@ function applyContactDamage(runtime, now) {
       ? Math.max(movementStartX + playerWidthPercent, playerRight)
       : playerRight;
     const collider = runtime.monsters.find((monster) => {
-      if (monster.hp <= 0 || monster.floor !== player.floor) return false;
+      if (
+        monster.hp <= 0
+        || monster.floor !== player.floor
+        || monstersBlockedByDecoys.has(monster.id)
+      ) return false;
       const monsterLeft = monster.x - monsterHalfWidthPercent;
       const monsterRight = monster.x + monsterHalfWidthPercent;
       return sweptPlayerRight >= monsterLeft && sweptPlayerLeft <= monsterRight;
@@ -765,49 +920,71 @@ function applyFieldBossMechanics(runtime, now) {
     if (now >= Number(boss.nextRangedAt || 0)) {
       boss.nextRangedAt = now + definition.rangedIntervalMs;
       const rangePercent = definition.rangedRangePx / ASSUMED_STAGE_WIDTH_PX * 100;
-      const targets = livePlayers().filter((player) => (
-        player.floor === boss.floor
-        && Math.abs(Number(player.x) - Number(boss.x)) <= rangePercent + 4.5
-        && now >= Number(player.invulnerableUntil || 0)
+      const decoyTargets = getActiveDecoys(runtime, now).filter((entry) => (
+        entry.floor === boss.floor
+        && Math.abs(Number(entry.x) - Number(boss.x)) <= rangePercent + 4.5
       ));
-      const target = pickRandom(targets);
-      if (target) {
+      const decoyTarget = pickRandom(decoyTargets);
+      if (decoyTarget) {
         const damage = Math.max(1, Math.floor(Number(definition.rangedDamage) || 1));
-        const damageSplit = splitDamageWithMpGuard(damage, {
-          currentMp: target.currentMp,
-          guardPercent: target.combatProfile?.mpDamageGuardPercent
-        });
-        target.currentMp = Math.max(0, Number(target.currentMp) - damageSplit.mpDamage);
-        target.currentHp = Math.max(0, Number(target.currentHp) - damageSplit.hpDamage);
-        target.invulnerableUntil = now + CONTACT_INVULNERABILITY_MS;
-        events.push({
-          userId: target.userId,
-          damage: damageSplit.hpDamage,
-          totalDamage: damageSplit.totalDamage,
-          mpDamage: damageSplit.mpDamage,
-          blocked: false,
-          dodged: false,
-          resistedKnockback: true,
-          reflectedDamage: 0,
-          monsterId: boss.id,
-          source: 'field-boss-ranged',
-          currentHp: target.currentHp,
-          currentMp: target.currentMp,
-          maxHp: target.maxHp,
-          x: target.x,
-          floor: target.floor,
-          invulnerableUntil: target.invulnerableUntil
-        });
+        damageDecoy(runtime, decoyTarget, boss, damage, 'field-boss-ranged', now);
+        boss.aggroTargetId = decoyTarget.player.userId;
+        boss.aggroTargetType = 'decoy';
         runtime.fieldBossStatusEvents.push({
           type: 'ranged',
           bossId: boss.id,
           bossName: boss.name,
-          targetUserId: target.userId,
-          damage: damageSplit.hpDamage,
-          totalDamage: damageSplit.totalDamage,
-          mpDamage: damageSplit.mpDamage,
+          targetUserId: decoyTarget.player.userId,
+          targetSummon: true,
+          summonName: decoyTarget.summon.name,
+          damage,
           createdAt: now
         });
+      } else {
+        const targets = livePlayers().filter((player) => (
+          player.floor === boss.floor
+          && Math.abs(Number(player.x) - Number(boss.x)) <= rangePercent + 4.5
+          && now >= Number(player.invulnerableUntil || 0)
+        ));
+        const target = pickRandom(targets);
+        if (target) {
+          const damage = Math.max(1, Math.floor(Number(definition.rangedDamage) || 1));
+          const damageSplit = splitDamageWithMpGuard(damage, {
+            currentMp: target.currentMp,
+            guardPercent: target.combatProfile?.mpDamageGuardPercent
+          });
+          target.currentMp = Math.max(0, Number(target.currentMp) - damageSplit.mpDamage);
+          target.currentHp = Math.max(0, Number(target.currentHp) - damageSplit.hpDamage);
+          target.invulnerableUntil = now + CONTACT_INVULNERABILITY_MS;
+          events.push({
+            userId: target.userId,
+            damage: damageSplit.hpDamage,
+            totalDamage: damageSplit.totalDamage,
+            mpDamage: damageSplit.mpDamage,
+            blocked: false,
+            dodged: false,
+            resistedKnockback: true,
+            reflectedDamage: 0,
+            monsterId: boss.id,
+            source: 'field-boss-ranged',
+            currentHp: target.currentHp,
+            currentMp: target.currentMp,
+            maxHp: target.maxHp,
+            x: target.x,
+            floor: target.floor,
+            invulnerableUntil: target.invulnerableUntil
+          });
+          runtime.fieldBossStatusEvents.push({
+            type: 'ranged',
+            bossId: boss.id,
+            bossName: boss.name,
+            targetUserId: target.userId,
+            damage: damageSplit.hpDamage,
+            totalDamage: damageSplit.totalDamage,
+            mpDamage: damageSplit.mpDamage,
+            createdAt: now
+          });
+        }
       }
     }
 
@@ -995,6 +1172,7 @@ function updatePresence({
   motion,
   facingLeft,
   jumpEvent,
+  summon,
   currentHp,
   maxHp,
   currentMp,
@@ -1057,6 +1235,16 @@ function updatePresence({
   const resolvedActivity = resolvedHp <= 0
     ? 'dead'
     : (['idle', 'moving', 'combat'].includes(activity) ? activity : 'idle');
+  const resolvedSummon = normalizeWorldSummon(
+    summon,
+    previous?.summon,
+    {
+      x: clamp(x, 0, 94),
+      floor: Number(floor) === 1 ? 1 : 0,
+      facingLeft: Boolean(facingLeft)
+    },
+    now
+  );
   const recovery = buildPassiveRecoverySchedule({
     previous,
     activity: resolvedActivity,
@@ -1093,6 +1281,7 @@ function updatePresence({
       : 0,
     recentSkill: previous?.recentSkill || null,
     jumpEvent: resolvedJumpEvent,
+    summon: resolvedSummon,
     lastContactAt: previous?.lastContactAt || 0,
     invulnerableUntil: previous?.invulnerableUntil || 0,
     silencedUntil: previous?.silencedUntil || 0,
@@ -1164,7 +1353,9 @@ function updatePresence({
     recoveryEvents,
     lootCollections: collectDueLoot(runtime, userKey, now),
     fieldBossRewards: runtime.fieldBossRewards.splice(0),
-    fieldBossStatusEvents: runtime.fieldBossStatusEvents.splice(0)
+    fieldBossStatusEvents: runtime.fieldBossStatusEvents.splice(0),
+    summonEvents: runtime.summonEvents.splice(0),
+    globalShout: getGlobalShout(now)
   };
 }
 
@@ -1958,6 +2149,7 @@ function clearPlayerNegativeStatus(userId, mapId) {
 function resetWorldRuntime() {
   activeMaps.clear();
   worldControllers.clear();
+  latestGlobalShout = null;
 }
 
 module.exports = {
@@ -1987,6 +2179,8 @@ module.exports = {
   recordSkillUse,
   listActivePlayers,
   listAllActivePlayers,
+  publishGlobalShout,
+  getGlobalShout,
   leaveWorld,
   resetWorldRuntime
 };

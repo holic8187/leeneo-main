@@ -1054,6 +1054,54 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
     #10271f;
   isolation: isolate;
 }
+.global-shout-banner {
+  position: absolute;
+  z-index: 40;
+  top: 44%;
+  left: 50%;
+  width: min(82%, 620px);
+  padding: 13px 24px 15px;
+  translate: -50% -50%;
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  color: #fffbe9;
+  text-align: center;
+  border: 1px solid rgba(255, 231, 142, .88);
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, transparent, rgba(255,255,255,.13), transparent),
+    rgba(16, 55, 44, .84);
+  box-shadow: 0 12px 34px rgba(0,0,0,.32), inset 0 0 22px rgba(255,222,108,.13);
+  backdrop-filter: blur(5px);
+  pointer-events: none;
+}
+.global-shout-banner::before,
+.global-shout-banner::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 46px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #ffe07a);
+}
+.global-shout-banner::before { right: calc(100% + 8px); }
+.global-shout-banner::after { left: calc(100% + 8px); rotate: 180deg; }
+.global-shout-banner span { color: #ffe07a; font-size: 10px; font-weight: 900; letter-spacing: .18em; }
+.global-shout-banner strong {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-size: clamp(17px, 3vw, 28px);
+  line-height: 1.25;
+  text-shadow: 0 2px 8px rgba(0,0,0,.65);
+}
+.global-shout-banner small { color: #d6e9df; font-weight: 800; }
+.global-shout-banner.is-entering { animation: global-shout-enter .55s cubic-bezier(.2,.9,.2,1) both; }
+@keyframes global-shout-enter {
+  0% { opacity: 0; scale: .82; filter: blur(5px); }
+  60% { opacity: 1; scale: 1.035; filter: blur(0); }
+  100% { opacity: 1; scale: 1; }
+}
 .world-stage[data-theme="rooftop"],
 .world-stage[data-theme="street"] { background: linear-gradient(#396d72 0 55%, #182c29 56%); }
 .world-stage[data-theme="parking"],
@@ -3128,10 +3176,51 @@ body.floating-actions-minimized .mail-callout.has-alert {
 }
 .field-companion span { font-size: 7px; }
 .field-companion b { color: #ffe57d; font-size: 14px; }
+.field-companion.is-attacking { animation: companion-attack .5s cubic-bezier(.2,.8,.2,1); }
+.summon-projectile {
+  --summon-travel-x: 0px;
+  --summon-travel-y: 0px;
+  position: absolute;
+  z-index: 22;
+  min-width: 18px;
+  min-height: 18px;
+  display: grid;
+  place-items: center;
+  font-size: 17px;
+  font-weight: 1000;
+  line-height: 1;
+  text-shadow: 0 0 8px currentColor;
+  pointer-events: none;
+  animation: summon-projectile-flight .48s cubic-bezier(.18,.72,.28,1) forwards;
+}
+.summon-projectile.is-laser,
+.summon-projectile.is-holy-ray {
+  font-size: 25px;
+  filter: drop-shadow(0 0 5px currentColor);
+}
+.summon-projectile.is-fireball { filter: drop-shadow(0 0 8px #ff7b35); }
+.summon-projectile.is-ice-shard { filter: drop-shadow(0 0 7px #91e8ff); }
 .field-monster.is-knockback { animation: monster-knockback .42s ease-out; }
 @keyframes buff-arm-left { to { transform: rotate(145deg); } }
 @keyframes buff-arm-right { to { transform: rotate(-145deg); } }
 @keyframes companion-float { to { translate: 0 -6px; } }
+@keyframes companion-attack {
+  0% { scale: 1; filter: drop-shadow(0 3px 4px rgba(0,0,0,.55)); }
+  35% { scale: 1.35; filter: drop-shadow(0 0 11px #ffe57d); }
+  100% { scale: 1; }
+}
+@keyframes summon-projectile-flight {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(.55); }
+  16% { opacity: 1; }
+  82% { opacity: 1; }
+  100% {
+    opacity: 0;
+    transform: translate(
+      calc(-50% + var(--summon-travel-x)),
+      calc(-50% + var(--summon-travel-y))
+    ) scale(1.12);
+  }
+}
 @keyframes monster-knockback {
   0% { translate: 0 0; }
   45% { translate: 10px -12px; }
@@ -3308,6 +3397,14 @@ body.floating-actions-minimized .mail-callout.has-alert {
 .special-action-list article > div:nth-child(2) { display: grid; gap: 5px; }
 .special-action-list p { margin: 0; line-height: 1.55; }
 .special-action-list small { color: var(--green-dark); font-weight: 800; }
+.special-action-shout input {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  background: #fbfcf8;
+  font: inherit;
+}
 
 @media (max-width: 680px) {
   .special-action-sheet > header { align-items: start; flex-direction: column; }

@@ -15,6 +15,8 @@ const {
   useSkillOnMonsters,
   updatePlayerResources,
   setPlayerStealth,
+  publishGlobalShout,
+  getGlobalShout,
   leaveWorld,
   resetWorldRuntime
 } = require('../../src/v2/world/worldRuntime');
@@ -1072,6 +1074,123 @@ test('multi-target skills use the same forty-percent knockback threshold', () =>
   });
   assert.equal(result.success, true);
   assert.ok(result.outcomes.some((outcome) => outcome.knockedBack));
+});
+
+test('decoy summons pull normal monster aggro and receive contact damage first', () => {
+  const initial = updatePresence({
+    userId: 'decoy-owner',
+    nickname: '궁수 사원',
+    mapId: 'newcomer_training',
+    x: 8,
+    floor: 0,
+    activity: 'idle',
+    facingLeft: false,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_000
+  });
+  const monster = initial.monsters.find((entry) => entry.floor === 0);
+  assert.ok(monster);
+
+  const state = updatePresence({
+    userId: 'decoy-owner',
+    nickname: '궁수 사원',
+    mapId: 'newcomer_training',
+    x: monster.x - 2.8,
+    floor: 0,
+    activity: 'idle',
+    facingLeft: false,
+    currentHp: 120,
+    maxHp: 120,
+    summon: {
+      skillId: 'extended_a882003cc1',
+      name: '대체 장부',
+      icon: '📒',
+      role: 'decoy',
+      summonHp: 100,
+      maxSummonHp: 100,
+      createdAt: 1_000,
+      expiresAt: 60_000
+    },
+    now: 1_100
+  });
+
+  assert.equal(state.contactEvents.length, 0);
+  assert.ok(state.summonEvents.length >= 1);
+  assert.ok(state.summonEvents.every((event) => event.userId === 'decoy-owner'));
+  const totalSummonDamage = state.summonEvents.reduce(
+    (total, event) => total + Number(event.damage || 0),
+    0
+  );
+  const expectedSummonHp = Math.max(0, 100 - totalSummonDamage);
+  assert.equal(state.summonEvents.at(-1).summonHp, expectedSummonHp);
+  assert.equal(state.players[0].currentHp, 120);
+  assert.equal(state.players[0].summon.summonHp, expectedSummonHp);
+});
+
+test('field boss ranged attacks prioritize an active decoy over players', () => {
+  updatePresence({
+    userId: 'boss-decoy-owner',
+    nickname: '보스 궁수',
+    mapId: 'hidden_hwang_overtime',
+    x: 40,
+    floor: 0,
+    activity: 'idle',
+    facingLeft: false,
+    currentHp: 5_000,
+    maxHp: 5_000,
+    summon: {
+      skillId: 'extended_41300a062e',
+      name: '마스코트 배치',
+      icon: '🧸',
+      role: 'decoy',
+      summonHp: 6_000,
+      maxSummonHp: 6_000,
+      createdAt: 1_000,
+      expiresAt: 60_000
+    },
+    now: 1_000
+  });
+  const state = updatePresence({
+    userId: 'boss-decoy-owner',
+    nickname: '보스 궁수',
+    mapId: 'hidden_hwang_overtime',
+    x: 40,
+    floor: 0,
+    activity: 'idle',
+    facingLeft: false,
+    currentHp: 5_000,
+    maxHp: 5_000,
+    summon: {
+      skillId: 'extended_41300a062e',
+      name: '마스코트 배치',
+      icon: '🧸',
+      role: 'decoy',
+      summonHp: 6_000,
+      maxSummonHp: 6_000,
+      createdAt: 1_000,
+      expiresAt: 60_000
+    },
+    now: 5_001
+  });
+
+  const rangedEvent = state.summonEvents.find((event) => event.source === 'field-boss-ranged');
+  assert.ok(rangedEvent);
+  assert.equal(rangedEvent.damage, 1_500);
+  assert.equal(state.contactEvents.some((event) => event.source === 'field-boss-ranged'), false);
+  assert.equal(state.players[0].currentHp, 5_000);
+});
+
+test('global shout stays visible for exactly its ten-second broadcast window', () => {
+  const shout = publishGlobalShout({
+    userId: 'shouter',
+    nickname: '외침 사원',
+    message: '  모두   회의실로!  ',
+    now: 10_000
+  });
+  assert.equal(shout.message, '모두 회의실로!');
+  assert.equal(getGlobalShout(19_999).id, shout.id);
+  assert.equal(getGlobalShout(20_000), null);
 });
 
 test('channeled skills return one mastery and critical result per visible hit', () => {

@@ -256,6 +256,20 @@ const BASE_ITEMS = {
     description: '사용 즉시 행동력을 1 회복합니다. 행동력이 가득 차 있으면 사용되지 않습니다.',
     adminGrantOnly: true
   },
+  shout_unlimited_pass_7d: {
+    id: 'shout_unlimited_pass_7d',
+    name: '외치기 자유이용권 (7일)',
+    category: 'cash',
+    itemType: 'shout-pass',
+    icon: '📣',
+    durationSeconds: 7 * 24 * 60 * 60,
+    maxStack: 100,
+    sellPrice: 0,
+    tradeable: false,
+    marketable: false,
+    description: '사용 후 7일 동안 전체 외치기의 3분 재사용 대기시간이 사라집니다.',
+    adminGrantOnly: true
+  },
   inventory_expansion_ticket: {
     id: 'inventory_expansion_ticket',
     name: '인벤토리 확장권',

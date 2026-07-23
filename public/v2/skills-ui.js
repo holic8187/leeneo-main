@@ -292,6 +292,7 @@ const COMBAT_BUFF_ICONS = Object.freeze({
   experience_coupon_2x_15m: '📈',
   event_experience_coupon_2x_15m: '📈',
   special_action_salary_lupin: '🕶️',
+  shout_unlimited_pass_7d: '📣',
   extended_2d39c91d21: '🎯',
   extended_47fcdc0ba0: '🥷',
   extended_51dd415210: '🔷',
