@@ -172,6 +172,15 @@ function ensureSkillState(character) {
   if (!Array.isArray(skills.activeBuffs)) skills.activeBuffs = [];
   if (!skills.cooldowns || typeof skills.cooldowns !== 'object') skills.cooldowns = {};
   if (!skills.summon || typeof skills.summon !== 'object') skills.summon = null;
+  if (!skills.decoySummon || typeof skills.decoySummon !== 'object') {
+    skills.decoySummon = null;
+  }
+  // Older characters stored every summon in one slot. Preserve an active
+  // puppet when an attacking summon is cast by moving decoys to their own slot.
+  if (skills.summon?.role === 'decoy') {
+    if (!skills.decoySummon) skills.decoySummon = skills.summon;
+    skills.summon = null;
+  }
   skills.offlineAutoRotationCursor = Math.max(
     0,
     Math.floor(Number(skills.offlineAutoRotationCursor) || 0)
@@ -558,8 +567,13 @@ function pruneExpiredSkillState(character, now = Date.now()) {
   skills.activeBuffs = skills.activeBuffs.filter(
     (buff) => !buff.expiresAt || new Date(buff.expiresAt).getTime() > now
   );
-  if (skills.summon?.expiresAt && new Date(skills.summon.expiresAt).getTime() <= now) {
-    skills.summon = null;
+  for (const summonKey of ['summon', 'decoySummon']) {
+    if (
+      skills[summonKey]?.expiresAt
+      && new Date(skills[summonKey].expiresAt).getTime() <= now
+    ) {
+      skills[summonKey] = null;
+    }
   }
   for (const [skillId, expiresAt] of Object.entries(skills.cooldowns)) {
     if (Number(expiresAt) <= now) delete skills.cooldowns[skillId];
@@ -830,11 +844,13 @@ function getActiveSkillEffects(character, now = Date.now()) {
       else effects[key] += Number(buff.effects?.[key]) || 0;
     }
   }
-  if (skills.summon) {
-    effects.weaponMastery += Number(skills.summon.masteryIncrease) || 0;
+  const activeSummons = [skills.summon, skills.decoySummon].filter(Boolean);
+  for (const activeSummon of activeSummons) {
+    effects.weaponMastery += Number(activeSummon.masteryIncrease) || 0;
   }
-  if (isCompanionSummon(skills.summon)) {
-    const summonCreatedAt = new Date(skills.summon.createdAt || Date.now()).getTime();
+  const companionSummon = activeSummons.find((summon) => isCompanionSummon(summon));
+  if (companionSummon) {
+    const summonCreatedAt = new Date(companionSummon.createdAt || Date.now()).getTime();
     const summonAgeSeconds = Math.max(0, (Date.now() - summonCreatedAt) / 1000);
     for (const definition of getDepartmentSkillDefinitions(character.job?.departmentId)) {
       const level = getSkillLevel(character, definition.id);
@@ -886,21 +902,22 @@ function buildSkillTree(character) {
       durationMs: expiresAt > createdAt ? expiresAt - createdAt : 0
     };
   });
-  const summonCreatedAt = skills.summon
-    ? new Date(skills.summon.createdAt || Date.now()).getTime()
-    : 0;
-  const summonExpiresAt = skills.summon?.expiresAt
-    ? new Date(skills.summon.expiresAt).getTime()
-    : 0;
-  const summon = skills.summon
-    ? {
-      ...skills.summon,
-      description: describeSummon(skills.summon),
-      createdAt: summonCreatedAt,
-      expiresAt: summonExpiresAt,
-      durationMs: summonExpiresAt > summonCreatedAt ? summonExpiresAt - summonCreatedAt : 0
-    }
-    : null;
+  const serializeSummon = (activeSummon) => {
+    if (!activeSummon) return null;
+    const createdAt = new Date(activeSummon.createdAt || Date.now()).getTime();
+    const expiresAt = activeSummon.expiresAt
+      ? new Date(activeSummon.expiresAt).getTime()
+      : 0;
+    return {
+      ...activeSummon,
+      description: describeSummon(activeSummon),
+      createdAt,
+      expiresAt,
+      durationMs: expiresAt > createdAt ? expiresAt - createdAt : 0
+    };
+  };
+  const summon = serializeSummon(skills.summon);
+  const decoySummon = serializeSummon(skills.decoySummon);
   return {
     tierSpent: Object.fromEntries([0, 1, 2, 3, 4].map((tier) => [tier, getTierSpent(character, tier)])),
     tierEarned: Object.fromEntries([0, 1, 2, 3, 4].map((tier) => [
@@ -910,6 +927,8 @@ function buildSkillTree(character) {
     activePreset: [...skills.activePreset],
     autoPreset: [...skills.autoPreset],
     summon,
+    decoySummon,
+    summons: [decoySummon, summon].filter(Boolean),
     activeBuffs,
     comboCount: skills.comboCount,
     skills: definitions.map((definition) => {

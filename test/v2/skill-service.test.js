@@ -109,6 +109,36 @@ test('marketing mascot summon uses MP only and treats the stated HP as summon HP
   assert.equal(values.summonHp, 6000);
 });
 
+test('legacy mascots migrate to a dedicated decoy slot beside attacking summons', () => {
+  const now = Date.now();
+  const mascot = findSkillByName('마스코트 배치');
+  const drone = findSkillByName('홍보 드론');
+  const character = makeCharacter();
+  character.skills.summon = buildSummonState(
+    mascot,
+    resolveSkillValues(mascot, mascot.maxLevel),
+    now
+  );
+
+  const skillState = ensureSkillState(character);
+  assert.equal(skillState.summon, null);
+  assert.equal(skillState.decoySummon.skillId, mascot.id);
+
+  skillState.summon = buildSummonState(
+    drone,
+    resolveSkillValues(drone, drone.maxLevel),
+    now + 1
+  );
+  const tree = buildSkillTree(character);
+
+  assert.equal(tree.decoySummon.skillId, mascot.id);
+  assert.equal(tree.summon.skillId, drone.id);
+  assert.deepEqual(
+    tree.summons.map((summon) => summon.skillId),
+    [mascot.id, drone.id]
+  );
+});
+
 test('phoenix summon keeps its attacker metadata and dedicated presentation', () => {
   const phoenix = findSkillByName('불사조 캠페인');
   const values = resolveSkillValues(phoenix, phoenix.maxLevel);

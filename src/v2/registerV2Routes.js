@@ -196,6 +196,20 @@ const MONSTER_QUEST_LOOKUP = new Map(
   MONSTER_CATALOG.map((monster) => [String(monster.id), monster])
 );
 
+function listStoredSummons(skillState = {}) {
+  return [skillState.decoySummon, skillState.summon].filter(Boolean);
+}
+
+function findStoredSummon(skillState = {}, predicate = () => true) {
+  return listStoredSummons(skillState).find(predicate) || null;
+}
+
+function storeSummonState(skillState, summon) {
+  if (summon?.role === 'decoy') skillState.decoySummon = summon;
+  else skillState.summon = summon;
+  return summon;
+}
+
 function clearStealthBuff(skillState) {
   const activeBuffs = Array.isArray(skillState?.activeBuffs) ? skillState.activeBuffs : [];
   const filtered = activeBuffs.filter((buff) => buff.skillId !== STEALTH_SKILL_ID);
@@ -302,7 +316,7 @@ const V2_PATCH_NOTE_HISTORY = Object.freeze([
     title: '소환수 전투와 전체 외치기',
     publishedAt: '2026-07-23',
     lines: Object.freeze([
-      '궁수 계열 퍼펫이 일반 몬스터와 필드보스의 공격 대상을 대신 맡도록 어그로 기능을 보강했습니다.',
+      '궁수 계열 퍼펫을 도발 전용 소환 슬롯으로 분리해 홍보 드론 등 공격형 소환수와 함께 있어도 사라지지 않으며, 일반 몬스터와 필드보스의 공격을 대신 받도록 수정했습니다.',
       '공격 가능한 모든 소환수에 속성과 콘셉트에 맞는 공격 동작과 투사체 연출을 추가했습니다.',
       '특수행동에 3분마다 사용할 수 있는 전체 외치기를 추가했습니다. 메시지는 모든 전투 화면 중앙에 10초간 표시됩니다.',
       '7일 동안 전체 외치기 재사용 대기시간을 없애는 외치기 자유이용권을 운영자 지급 목록에 추가했습니다.'
@@ -912,7 +926,7 @@ function registerV2Routes({
 
   function recordCompanionQuestTicks(character, now = Date.now()) {
     const skills = ensureSkillState(character);
-    const summon = skills.summon;
+    const summon = findStoredSummon(skills, (entry) => isCompanionSummon(entry, now));
     if (!summon) return false;
     const createdAt = new Date(summon.createdAt || now).getTime();
     const expiresAt = summon.expiresAt ? new Date(summon.expiresAt).getTime() : now;
@@ -947,7 +961,10 @@ function registerV2Routes({
   }
 
   function isCompanionQuestTickDue(profile, now = Date.now()) {
-    const summon = profile?.skillTree?.summon;
+    const summon = (profile?.skillTree?.summons || [
+      profile?.skillTree?.decoySummon,
+      profile?.skillTree?.summon
+    ]).find((entry) => isCompanionSummon(entry, now));
     if (!isCompanionSummon(summon, now)) return false;
     const createdAt = new Date(summon.createdAt || now).getTime();
     const expiresAt = new Date(summon.expiresAt || now).getTime();
@@ -1111,7 +1128,10 @@ function registerV2Routes({
     const response = buildCharacterResponse(character);
     const skillExpirations = [
       ...(response.skillTree?.activeBuffs || []).map((buff) => Number(buff.expiresAt) || 0),
-      Number(response.skillTree?.summon?.expiresAt) || 0
+      ...(response.skillTree?.summons || [
+        response.skillTree?.decoySummon,
+        response.skillTree?.summon
+      ]).map((summon) => Number(summon?.expiresAt) || 0)
     ].filter((expiresAt) => expiresAt > now);
     const profile = {
       loadedAt: now,
@@ -1161,6 +1181,7 @@ function registerV2Routes({
       activity,
       motion,
       summon: response.skillTree?.summon,
+      decoySummon: response.skillTree?.decoySummon,
       currentHp: response.resources.currentHp,
       maxHp: response.resources.maxHp,
       currentMp: response.resources.currentMp,
@@ -1277,11 +1298,13 @@ function registerV2Routes({
     }
     if (
       definition.effect === 'summon'
-      && skillState.summon?.skillId === skillId
-      && (
-        !skillState.summon.expiresAt
-        || new Date(skillState.summon.expiresAt).getTime() > now + refreshBeforeMs
-      )
+      && listStoredSummons(skillState).some((summon) => (
+        summon?.skillId === skillId
+        && (
+          !summon.expiresAt
+          || new Date(summon.expiresAt).getTime() > now + refreshBeforeMs
+        )
+      ))
     ) {
       return true;
     }
@@ -1677,8 +1700,11 @@ function registerV2Routes({
     } else if (definition.effect === 'summon') {
       character.resources.currentHp = Math.max(0, Number(character.resources.currentHp) - hpCost);
       character.resources.currentMp = Math.max(0, Number(character.resources.currentMp) - mpCost);
-      skillState.summon = buildSummonState(definition, values, now);
-      combat = { success: true, summon: skillState.summon };
+      const summon = storeSummonState(
+        skillState,
+        buildSummonState(definition, values, now)
+      );
+      combat = { success: true, summon };
     } else {
       character.resources.currentHp = Math.max(0, Number(character.resources.currentHp) - hpCost);
       character.resources.currentMp = Math.max(0, Number(character.resources.currentMp) - mpCost);
@@ -1752,7 +1778,7 @@ function registerV2Routes({
 
   async function processAttackingSummon({ character, profile, now = Date.now() }) {
     const skillState = ensureSkillState(character);
-    const summon = skillState.summon;
+    const summon = findStoredSummon(skillState, (entry) => isAttackingSummon(entry, now));
     if (!isAttackingSummon(summon, now) || !isSummonAttackDue(summon, now)) return null;
 
     // Advance the summon clock even when no target is in range so a heartbeat cannot
@@ -3139,8 +3165,11 @@ function registerV2Routes({
           });
           combat = { ...combat, appliedBuff: activeBuff };
         } else if (definition.effect === 'summon') {
-          skillState.summon = buildSummonState(definition, values, now);
-          combat = { success: true, summon: skillState.summon };
+          const summon = storeSummonState(
+            skillState,
+            buildSummonState(definition, values, now)
+          );
+          combat = { success: true, summon };
         } else if (definition.effect === 'toggle-amplifier') {
           const activeIndex = skillState.activeBuffs.findIndex((buff) => buff.skillId === skillId);
           if (activeIndex >= 0) {
@@ -4132,6 +4161,7 @@ function registerV2Routes({
           skillState.autoPreset = [];
           skillState.cooldowns = {};
           skillState.summon = null;
+          skillState.decoySummon = null;
           skillState.comboCount = 0;
           skillState.activeBuffs = skillState.activeBuffs.filter(
             (buff) => !skillDefinitionIds.has(String(buff.skillId || ''))
@@ -4740,6 +4770,7 @@ function registerV2Routes({
         facingLeft: req.body?.facingLeft,
         jumpEvent: req.body?.jumpEvent,
         summon: profile.skillTree?.summon,
+        decoySummon: profile.skillTree?.decoySummon,
         currentHp: profile.resources.currentHp,
         maxHp: profile.resources.maxHp,
         currentMp: profile.resources.currentMp,
@@ -4778,8 +4809,11 @@ function registerV2Routes({
         autoHuntRemainingSeconds: Number(profile.huntingTime?.remainingSeconds) || 0
       });
       let summonCombat = null;
-      const summonSnapshot = profile.skillTree?.summon;
       const summonNow = Date.now();
+      const summonSnapshot = (profile.skillTree?.summons || [
+        profile.skillTree?.decoySummon,
+        profile.skillTree?.summon
+      ]).find((summon) => isAttackingSummon(summon, summonNow));
       const shouldProcessSummon = isSummonAttackDue(summonSnapshot, summonNow)
         || isCompanionQuestTickDue(profile, summonNow);
       if (shouldProcessSummon) {
@@ -4906,17 +4940,25 @@ function registerV2Routes({
         await Promise.all(Array.from(latestSummonEvents.values()).map((event) => (
           withCharacterMutation(event.userId, async () => {
             const character = await V2Character.findOne({ userId: event.userId });
-            const summon = character?.skills?.summon;
-            if (!character || !summon) return;
+            if (!character) return;
+            const skillState = ensureSkillState(character);
+            const summonKey = ['decoySummon', 'summon'].find((key) => {
+              const candidate = skillState[key];
+              return candidate
+                && String(candidate.skillId) === String(event.skillId)
+                && new Date(candidate.createdAt || 0).getTime() === Number(event.summonCreatedAt);
+            });
+            if (!summonKey) return;
+            const summon = skillState[summonKey];
             const summonCreatedAt = new Date(summon.createdAt || 0).getTime();
             if (
               String(summon.skillId) !== String(event.skillId)
               || summonCreatedAt !== Number(event.summonCreatedAt)
             ) return;
             if (event.destroyed || Number(event.summonHp) <= 0) {
-              character.skills.summon = null;
+              skillState[summonKey] = null;
             } else {
-              character.skills.summon.summonHp = Math.max(
+              skillState[summonKey].summonHp = Math.max(
                 0,
                 Math.floor(Number(event.summonHp) || 0)
               );

@@ -1341,7 +1341,9 @@ function showGlobalShout(shout = null) {
 }
 
 function playSummonAttackMotion(combat = {}) {
-  const companion = $('fieldCompanion');
+  const companion = Array.from(document.querySelectorAll('.field-companion')).find(
+    (entry) => entry.dataset.summonSkillId === String(combat.summon?.skillId || '')
+  ) || $('fieldCompanion');
   const stage = $('worldStage');
   if (!companion || !stage || !combat.summon) return;
   const visual = combat.summon.attackVisual || {};
@@ -2815,6 +2817,11 @@ function renderWorldEntities(data = {}) {
   if (data.self?.userId) state.selfUserId = data.self.userId;
   if (data.self && state.character?.skillTree) {
     state.character.skillTree.summon = data.self.summon || null;
+    state.character.skillTree.decoySummon = data.self.decoySummon || null;
+    state.character.skillTree.summons = data.self.summons || [
+      data.self.decoySummon,
+      data.self.summon
+    ].filter(Boolean);
     renderCompanion();
   }
   showGlobalShout(data.globalShout);
@@ -2876,18 +2883,29 @@ function renderWorldEntities(data = {}) {
     }
     setWorldActivity(`패시브 회복 · ${recoveryLabels.join(' · ')}`);
   }
-  const ownSummonHit = (data.summonEvents || []).find(
+  const ownSummonHit = (data.summonEvents || []).filter(
     (event) => event.userId === state.selfUserId
-  );
+  ).at(-1);
   if (ownSummonHit) {
-    const companion = $('fieldCompanion');
+    const companion = Array.from(document.querySelectorAll('.field-companion')).find(
+      (entry) => entry.dataset.summonSkillId === String(ownSummonHit.skillId || '')
+    );
     if (companion) {
       showFloatingDamage(companion, ownSummonHit.damage, 'incoming');
       companion.classList.add('damage-flash');
       setTimeout(() => companion.classList.remove('damage-flash'), 260);
     }
     if (ownSummonHit.destroyed && state.character?.skillTree) {
-      state.character.skillTree.summon = null;
+      if (
+        state.character.skillTree.decoySummon?.skillId === ownSummonHit.skillId
+      ) state.character.skillTree.decoySummon = null;
+      if (state.character.skillTree.summon?.skillId === ownSummonHit.skillId) {
+        state.character.skillTree.summon = null;
+      }
+      state.character.skillTree.summons = [
+        state.character.skillTree.decoySummon,
+        state.character.skillTree.summon
+      ].filter(Boolean);
       renderCompanion();
       setWorldActivity(`${ownSummonHit.summonName || '퍼펫'}이(가) 파괴되었습니다.`);
     } else {

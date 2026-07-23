@@ -489,6 +489,13 @@ function serializePlayer(player, now = Date.now()) {
       maxSummonHp: Math.max(0, Number(player.summon.maxSummonHp) || 0)
     }
     : null;
+  const decoySummon = player.decoySummon && Number(player.decoySummon.expiresAt) > now
+    ? {
+      ...player.decoySummon,
+      summonHp: Math.max(0, Number(player.decoySummon.summonHp) || 0),
+      maxSummonHp: Math.max(0, Number(player.decoySummon.maxSummonHp) || 0)
+    }
+    : null;
   return {
     userId: player.userId,
     nickname: player.nickname,
@@ -510,6 +517,8 @@ function serializePlayer(player, now = Date.now()) {
     recentSkill: player.recentSkill?.expiresAt > now ? { ...player.recentSkill } : null,
     jumpEvent: player.jumpEvent?.expiresAt > now ? { ...player.jumpEvent } : null,
     summon,
+    decoySummon,
+    summons: [decoySummon, summon].filter(Boolean),
     isDead: player.currentHp <= 0
   };
 }
@@ -640,17 +649,23 @@ function normalizeWorldSummon(summon, previousSummon, {
 
 function getActiveDecoys(runtime, now = Date.now()) {
   return Array.from(runtime.players.values())
-    .filter((player) => (
-      player.currentHp > 0
-      && player.summon?.role === 'decoy'
-      && Number(player.summon.summonHp) > 0
-      && Number(player.summon.expiresAt) > now
-    ))
     .map((player) => ({
       player,
-      summon: player.summon,
-      x: Number(player.summon.x),
-      floor: Number(player.summon.floor)
+      summon: player.decoySummon?.role === 'decoy'
+        ? player.decoySummon
+        : (player.summon?.role === 'decoy' ? player.summon : null)
+    }))
+    .filter(({ player, summon }) => (
+      player.currentHp > 0
+      && summon
+      && Number(summon.summonHp) > 0
+      && Number(summon.expiresAt) > now
+    ))
+    .map(({ player, summon }) => ({
+      player,
+      summon,
+      x: Number(summon.x),
+      floor: Number(summon.floor)
     }));
 }
 
@@ -1173,6 +1188,7 @@ function updatePresence({
   facingLeft,
   jumpEvent,
   summon,
+  decoySummon,
   currentHp,
   maxHp,
   currentMp,
@@ -1245,6 +1261,16 @@ function updatePresence({
     },
     now
   );
+  const resolvedDecoySummon = normalizeWorldSummon(
+    decoySummon,
+    previous?.decoySummon,
+    {
+      x: clamp(x, 0, 94),
+      floor: Number(floor) === 1 ? 1 : 0,
+      facingLeft: !Boolean(facingLeft)
+    },
+    now
+  );
   const recovery = buildPassiveRecoverySchedule({
     previous,
     activity: resolvedActivity,
@@ -1282,6 +1308,7 @@ function updatePresence({
     recentSkill: previous?.recentSkill || null,
     jumpEvent: resolvedJumpEvent,
     summon: resolvedSummon,
+    decoySummon: resolvedDecoySummon,
     lastContactAt: previous?.lastContactAt || 0,
     invulnerableUntil: previous?.invulnerableUntil || 0,
     silencedUntil: previous?.silencedUntil || 0,

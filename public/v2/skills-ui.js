@@ -210,6 +210,20 @@ function shouldHoldAutoBuffUntilLater(expiresAt) {
   return Number(expiresAt) - Date.now() > AUTO_BUFF_RECAST_WINDOW_MS;
 }
 
+function getActiveSkillTreeSummons(tree = state.character?.skillTree || {}) {
+  const candidates = Array.isArray(tree.summons)
+    ? tree.summons
+    : [tree.decoySummon, tree.summon];
+  const seen = new Set();
+  return candidates.filter((summon) => {
+    if (!summon?.skillId) return false;
+    const key = `${summon.skillId}:${Number(summon.createdAt) || 0}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function hasActiveAutoSkillEffect(skill) {
   const tree = state.character?.skillTree || {};
   const now = Date.now();
@@ -221,9 +235,12 @@ function hasActiveAutoSkillEffect(skill) {
   }
   if (
     skill.effect === 'summon'
-    && tree.summon?.skillId === skill.id
-    && Number(tree.summon.expiresAt) > now
-  ) return shouldHoldAutoBuffUntilLater(tree.summon.expiresAt);
+  ) {
+    const summon = getActiveSkillTreeSummons(tree).find(
+      (entry) => entry.skillId === skill.id && Number(entry.expiresAt) > now
+    );
+    if (summon) return shouldHoldAutoBuffUntilLater(summon.expiresAt);
+  }
   return (tree.activeBuffs || []).some(
     (buff) => buff.skillId === skill.id
       && (!buff.expiresAt || (Number(buff.expiresAt) > now && shouldHoldAutoBuffUntilLater(buff.expiresAt)))
@@ -449,12 +466,12 @@ function renderCombatBuffTray() {
     ...buff,
     icon: getCombatBuffIcon(buff.skillId, buff.name, buff.effects)
   }));
-  if (tree.summon) {
+  for (const summon of getActiveSkillTreeSummons(tree)) {
     buffs.push({
-      ...tree.summon,
-      skillId: tree.summon.skillId || 'small_companion',
-      name: tree.summon.name || '작은 동반자',
-      icon: tree.summon.icon || '🐾'
+      ...summon,
+      skillId: summon.skillId || 'small_companion',
+      name: summon.name || '작은 동반자',
+      icon: summon.icon || '🐾'
     });
   }
   const comboBuffActive = buffs.some((buff) => buff.skillId === 'combo_attack');
@@ -559,25 +576,34 @@ function bindSkillPresetEditor(preferredSlot = null) {
 function renderCompanion() {
   const stage = $('worldStage');
   if (!stage) return;
-  let companion = $('fieldCompanion');
-  const summon = state.character?.skillTree?.summon;
-  if (!summon) {
-    companion?.remove();
-    return;
-  }
-  if (!companion) {
-    companion = document.createElement('div');
-    companion.id = 'fieldCompanion';
-    companion.className = 'field-companion';
-    companion.innerHTML = '<span></span><b></b>';
-    stage.appendChild(companion);
-  }
-  companion.querySelector('span').textContent = summon.name || '소환수';
-  companion.querySelector('b').textContent = summon.icon || '🐾';
-  companion.dataset.summonRole = summon.role || 'support';
+  const summons = getActiveSkillTreeSummons();
+  const visibleKeys = new Set();
   const character = $('fieldCharacter');
-  companion.style.left = `calc(${character.style.left || '8%'} + 22px)`;
-  companion.style.bottom = `calc(${character.style.bottom || '42px'} + 8px)`;
+  summons.forEach((summon, index) => {
+    const key = `${summon.role === 'decoy' ? 'decoy' : 'primary'}-${summon.skillId}`;
+    visibleKeys.add(key);
+    let companion = Array.from(stage.querySelectorAll('.field-companion')).find(
+      (entry) => entry.dataset.summonKey === key
+    );
+    if (!companion) {
+      companion = document.createElement('div');
+      companion.id = summon.role === 'decoy' ? 'fieldDecoyCompanion' : 'fieldCompanion';
+      companion.className = 'field-companion';
+      companion.innerHTML = '<span></span><b></b>';
+      companion.dataset.summonKey = key;
+      stage.appendChild(companion);
+    }
+    companion.querySelector('span').textContent = summon.name || '소환수';
+    companion.querySelector('b').textContent = summon.icon || '🐾';
+    companion.dataset.summonRole = summon.role || 'support';
+    companion.dataset.summonSkillId = summon.skillId || '';
+    const horizontalOffset = summon.role === 'decoy' ? -18 : 22 + index * 8;
+    companion.style.left = `calc(${character.style.left || '8%'} + ${horizontalOffset}px)`;
+    companion.style.bottom = `calc(${character.style.bottom || '42px'} + 8px)`;
+  });
+  stage.querySelectorAll('.field-companion').forEach((companion) => {
+    if (!visibleKeys.has(companion.dataset.summonKey)) companion.remove();
+  });
 }
 
 async function investActiveSkill(skillId, amount) {

@@ -1128,6 +1128,66 @@ test('decoy summons pull normal monster aggro and receive contact damage first',
   assert.equal(state.players[0].summon.summonHp, expectedSummonHp);
 });
 
+test('an attacking summon cannot replace mascot aggro', () => {
+  const initial = updatePresence({
+    userId: 'dual-summon-owner',
+    nickname: '마케팅 사원',
+    mapId: 'newcomer_training',
+    x: 8,
+    floor: 0,
+    activity: 'idle',
+    facingLeft: false,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_000
+  });
+  const monster = initial.monsters.find((entry) => entry.floor === 0);
+  assert.ok(monster);
+
+  const state = updatePresence({
+    userId: 'dual-summon-owner',
+    nickname: '마케팅 사원',
+    mapId: 'newcomer_training',
+    x: monster.x + 2.8,
+    floor: 0,
+    activity: 'idle',
+    facingLeft: false,
+    currentHp: 120,
+    maxHp: 120,
+    summon: {
+      skillId: 'extended_472a2a7dea',
+      name: '홍보 드론',
+      icon: '📣',
+      role: 'attacker',
+      summonHp: 1,
+      maxSummonHp: 1,
+      createdAt: 1_001,
+      expiresAt: 60_000
+    },
+    decoySummon: {
+      skillId: 'extended_41300a062e',
+      name: '마스코트 배치',
+      icon: '🧸',
+      role: 'decoy',
+      summonHp: 100,
+      maxSummonHp: 100,
+      createdAt: 1_000,
+      expiresAt: 60_000
+    },
+    now: 1_100
+  });
+
+  assert.equal(state.contactEvents.length, 0);
+  assert.ok(state.summonEvents.length >= 1);
+  assert.ok(state.summonEvents.every(
+    (event) => event.skillId === 'extended_41300a062e'
+  ));
+  assert.equal(state.players[0].currentHp, 120);
+  assert.equal(state.players[0].summon.skillId, 'extended_472a2a7dea');
+  assert.equal(state.players[0].decoySummon.skillId, 'extended_41300a062e');
+  assert.equal(state.players[0].summons.length, 2);
+});
+
 test('field boss ranged attacks prioritize an active decoy over players', () => {
   updatePresence({
     userId: 'boss-decoy-owner',

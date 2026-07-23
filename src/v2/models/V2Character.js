@@ -58,6 +58,7 @@ const v2CharacterSchema = new mongoose.Schema({
     activeBuffs: { type: [mongoose.Schema.Types.Mixed], default: [] },
     cooldowns: { type: mongoose.Schema.Types.Mixed, default: {} },
     summon: { type: mongoose.Schema.Types.Mixed, default: null },
+    decoySummon: { type: mongoose.Schema.Types.Mixed, default: null },
     offlineAutoRotationCursor: { type: Number, default: 0, min: 0 },
     comboCount: { type: Number, default: 0, min: 0, max: 10 }
   },
