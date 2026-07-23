@@ -703,6 +703,40 @@ function applyChannelSkillHit(hit = {}) {
 
 window.applyChannelSkillHit = applyChannelSkillHit;
 
+function prepareProgressivePiercingTarget(skill = {}) {
+  if (
+    String(skill.id || '') !== 'extended_cd94045605'
+    && String(skill.effect || '') !== 'progressive-piercing-damage'
+  ) return null;
+  const character = $('fieldCharacter');
+  if (!character) return null;
+  const characterX = typeof getCharacterX === 'function' ? getCharacterX() : 8;
+  const characterFloor = typeof getCharacterFloor === 'function' ? getCharacterFloor() : 0;
+  const floorRange = Math.max(
+    0,
+    Math.floor(Number(skill.values?.verticalFloorRange ?? skill.verticalFloorRange) || 0)
+  );
+  const rangePercent = (
+    Math.max(1, Number(skill.values?.range ?? skill.range) || 100) / 760 * 100
+  ) + 4.5;
+  const candidates = (state.worldMonsters || [])
+    .filter((monster) => (
+      Number(monster.hp) > 0
+      && Math.abs(Number(monster.floor) - characterFloor) <= floorRange
+      && Math.abs(Number(monster.x) - characterX) <= rangePercent
+    ))
+    .sort((left, right) => (
+      Math.abs(Number(left.x) - characterX) - Math.abs(Number(right.x) - characterX)
+    ));
+  const target = candidates.find(
+    (monster) => String(monster.id) === String(state.combatTargetId || '')
+  ) || candidates[0];
+  if (!target) return null;
+  state.combatTargetId = String(target.id);
+  character.classList.toggle('facing-left', Number(target.x) < characterX);
+  return target;
+}
+
 async function queueManualSkillUse(skillId) {
   if (!skillId || state.dead) return false;
   state.manualSkillQueue.push(String(skillId));
@@ -732,12 +766,13 @@ async function useActiveSkill(skillId, options = {}) {
     || state.dead
     || (!manual && (state.moving || state.manualSkillPriority))
   ) return false;
-  const skill = state.character?.skillTree?.skills?.find((entry) => entry.id === skillId);
-  if (!skill) return false;
-  state.skillUseBusy = true;
-  try {
-    const offensive = ['enemy', 'enemies'].includes(skill.target);
-    const motionKind = manual ? 'manual' : 'combat';
+    const skill = state.character?.skillTree?.skills?.find((entry) => entry.id === skillId);
+    if (!skill) return false;
+    state.skillUseBusy = true;
+    try {
+      const offensive = ['enemy', 'enemies'].includes(skill.target);
+      if (offensive) prepareProgressivePiercingTarget(skill);
+      const motionKind = manual ? 'manual' : 'combat';
     const motionRunId = manual ? 0 : state.combatRunId;
     const channelDurationSeconds = Math.max(
       0,
@@ -809,6 +844,9 @@ async function useActiveSkill(skillId, options = {}) {
       data = await requestSkillUse();
     }
     if (data.combat) {
+      if (typeof data.combat.facingLeft === 'boolean') {
+        $('fieldCharacter')?.classList.toggle('facing-left', data.combat.facingLeft);
+      }
       if (data.combat.teleport) {
         const character = $('fieldCharacter');
         const teleport = data.combat.teleport;

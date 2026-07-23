@@ -1787,8 +1787,13 @@ function useSkillOnMonsters(options = {}) {
   const targetLimit = Math.max(1, Math.floor(Number(maxTargets) || 1));
   let candidates;
   if (progressivePiercing) {
-    const requestedOffset = requestedMonster
-      ? Number(requestedMonster.x) - Number(player.x)
+    const nearestMonster = [...inRange].sort((left, right) => (
+      Math.abs(Number(left.x) - Number(player.x))
+      - Math.abs(Number(right.x) - Number(player.x))
+    ))[0];
+    const directionalTarget = requestedMonster || nearestMonster;
+    const requestedOffset = directionalTarget
+      ? Number(directionalTarget.x) - Number(player.x)
       : 0;
     const firingDirection = requestedOffset === 0
       ? (player.facingLeft ? -1 : 1)
@@ -1928,7 +1933,8 @@ function useSkillOnMonsters(options = {}) {
         (sum, outcome) => sum + Number(outcome.mpAbsorbed || 0),
         0
       ),
-      fieldBossRewards: retargetedFieldBossRewards
+      fieldBossRewards: retargetedFieldBossRewards,
+      facingLeft: player.facingLeft
     };
   }
   for (const [targetIndex, monster] of candidates.entries()) {
@@ -2146,7 +2152,8 @@ function useSkillOnMonsters(options = {}) {
     mpAbsorbed: outcomes.reduce((sum, outcome) => sum + (outcome.mpAbsorbed || 0), 0),
     fieldBossRewards,
     casterMovement,
-    progressivePiercing: Boolean(progressivePiercing)
+    progressivePiercing: Boolean(progressivePiercing),
+    facingLeft: player.facingLeft
   };
 }
 
