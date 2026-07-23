@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const {
   PLAYER_CONTACT_KNOCKBACK_DISTANCE,
   buildMonsterStats,
+  buildFieldBossRewardEvent,
   claimWorldControl,
   hasWorldControl,
   hasRecentWorldControl,
@@ -20,6 +21,47 @@ const {
 const { calculateMagicDamageAfterDefense } = require('../../src/v2/combat/combatFormulas');
 
 test.beforeEach(() => resetWorldRuntime());
+
+test('Hwang manager guarantees randomized elixir pools for every EXP-eligible participant', () => {
+  const originalRandom = Math.random;
+  let event;
+  try {
+    Math.random = () => 0.99;
+    event = buildFieldBossRewardEvent(
+      {
+        players: new Map([
+          ['eligible-a', { combatProfile: { playerLevel: 50 } }],
+          ['eligible-b', { combatProfile: { playerLevel: 120 } }],
+          ['too-low', { combatProfile: { playerLevel: 49 } }]
+        ])
+      },
+      {
+        fieldBoss: true,
+        fieldBossId: 'mad_hwang_manager',
+        name: '야근하다 미쳐버린 황과장',
+        expReward: 300_000,
+        contributors: { 'eligible-a': 100, 'eligible-b': 50, 'too-low': 999 }
+      },
+      'hwang_hidden_street',
+      'eligible-a',
+      1_000
+    );
+  } finally {
+    Math.random = originalRandom;
+  }
+
+  assert.deepEqual(event.rewards.map((reward) => reward.userId).sort(), [
+    'eligible-a',
+    'eligible-b'
+  ]);
+  for (const itemId of ['elixir', 'power_elixir']) {
+    const quantities = event.rewards.map((reward) => (
+      reward.items.find((item) => item.itemId === itemId)?.quantity || 0
+    ));
+    assert.equal(quantities.reduce((sum, quantity) => sum + quantity, 0), 32);
+    assert.ok(quantities.every((quantity) => quantity >= 1));
+  }
+});
 
 test('an occupied map lazily spawns test monsters with configured combat stats', () => {
   const state = updatePresence({
@@ -40,7 +82,7 @@ test('an occupied map lazily spawns test monsters with configured combat stats',
   assert.equal(state.monsters[0].contactDamage, 10);
   assert.equal(state.monsters[0].physicalDefense, 1);
   assert.equal(state.monsters[0].magicDefense, 1);
-  assert.equal(state.monsters[0].expReward, 6);
+  assert.equal(state.monsters[0].expReward, 5);
   assert.equal(state.monsters[0].spawnedAt, 1_000);
 });
 
@@ -273,6 +315,47 @@ test('holy healing damage targets undead monsters and ignores living monsters', 
     initial.monsters.find((monster) => monster.id === outcome.monsterId)?.undead
   )));
   assert.ok(result.outcomes.every((outcome) => outcome.damage > 0));
+});
+
+test('target-dash skills move the caster directly in front of the resolved target', () => {
+  const initial = updatePresence({
+    userId: 'dispatch-user',
+    nickname: '긴급 출동 사원',
+    mapId: 'newcomer_training',
+    x: 10,
+    floor: 0,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_000
+  });
+  const target = initial.monsters.find((monster) => monster.floor === 0);
+  assert.ok(target);
+  const startX = Math.max(2, Number(target.x) - 8);
+  updatePresence({
+    userId: 'dispatch-user',
+    nickname: '긴급 출동 사원',
+    mapId: 'newcomer_training',
+    x: startX,
+    floor: 0,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_050
+  });
+  const result = useSkillOnMonsters({
+    userId: 'dispatch-user',
+    mapId: 'newcomer_training',
+    targetId: target.id,
+    baseDamage: 1,
+    skillPercent: 100,
+    rangePx: 380,
+    moveCasterToTarget: true,
+    now: 1_100
+  });
+  assert.equal(result.success, true);
+  assert.ok(result.casterMovement);
+  assert.equal(result.casterMovement.floor, 0);
+  assert.ok(Math.abs(result.casterMovement.x - result.outcomes[0].monster.x) <= 3);
+  assert.notEqual(result.casterMovement.x, startX);
 });
 
 test('an offline auto-hunter remains visible but is marked offline', () => {
@@ -607,7 +690,7 @@ test('monster stats keep the level three baseline and scale for higher levels', 
   assert.equal(low.contactDamage, 10);
   assert.equal(low.physicalDefense, 1);
   assert.equal(low.magicDefense, 1);
-  assert.equal(low.expReward, 6);
+  assert.equal(low.expReward, 5);
   assert.ok(low.maxMp >= 10);
   assert.ok(high.maxMp > low.maxMp);
   assert.ok(low.monsterAccuracy > 0);
@@ -1092,6 +1175,50 @@ test('channeled projectiles retarget the next front monster after a kill', () =>
   assert.equal(hitResults[3].defeated, true);
   assert.equal(hitResults[4].remainingHp, hitResults[4].maxHp - 8);
   assert.equal(hitResults[9].remainingHp, hitResults[9].maxHp - 48);
+});
+
+test('channeled projectiles turn around when only rear monsters remain', () => {
+  const state = updatePresence({
+    userId: 'channel-turn-user',
+    nickname: 'channel-turn-user',
+    mapId: 'newcomer_training',
+    x: 50,
+    floor: 0,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_000
+  });
+  const floorMonsters = [...state.monsters].sort((left, right) => left.x - right.x);
+  assert.ok(floorMonsters.length >= 2);
+  const midpoint = (floorMonsters[0].x + floorMonsters.at(-1).x) / 2;
+  updatePresence({
+    userId: 'channel-turn-user',
+    nickname: 'channel-turn-user',
+    mapId: 'newcomer_training',
+    x: midpoint,
+    floor: 0,
+    facingLeft: true,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_050
+  });
+
+  const result = useSkillOnMonsters({
+    userId: 'channel-turn-user',
+    mapId: 'newcomer_training',
+    targetId: floorMonsters[0].id,
+    baseDamage: 999,
+    rangePx: 10_000,
+    hits: 10,
+    ignoreDefense: true,
+    retargetEachHit: true,
+    verticalFloorRange: 1,
+    now: 1_100
+  });
+  const hits = result.outcomes.flatMap((outcome) => outcome.hitResults || []);
+  assert.equal(result.success, true);
+  assert.equal(hits[0].facingLeft, true);
+  assert.ok(hits.some((hit) => hit.facingLeft === false));
 });
 
 test('vertical floor range allows a genesis-style skill to hit one floor above', () => {

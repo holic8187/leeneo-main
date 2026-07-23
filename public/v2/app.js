@@ -134,6 +134,7 @@ const state = {
     lastJumpStartedAt: 0
   },
   skillUseBusy: false,
+  statInvestmentDrafts: {},
   autoSkillOwnerKey: '',
   autoSkillIds: new Set(),
   autoSkillRotationIndex: 0,
@@ -1899,7 +1900,7 @@ async function playWorldMotion(motion, kind, runId, activityLabel = '') {
   if (isRunActive(kind, runId)) setCharacterMotion(null);
 }
 
-function launchChannelProjectile(targetId = '') {
+function launchChannelProjectile(targetId = '', projectileSpeedMultiplier = 1) {
   const stage = $('worldStage');
   const character = $('fieldCharacter');
   const monster = targetId
@@ -1926,6 +1927,10 @@ function launchChannelProjectile(targetId = '') {
   projectile.style.bottom = 'auto';
   projectile.style.setProperty('--projectile-x', `${targetX - startX}px`);
   projectile.style.setProperty('--projectile-y', `${targetY - startY}px`);
+  projectile.style.setProperty(
+    '--channel-projectile-duration',
+    `${Math.max(60, Math.round(200 / Math.max(0.1, Number(projectileSpeedMultiplier) || 1)))}ms`
+  );
   stage.appendChild(projectile);
   monster?.classList.add('is-hit');
   setTimeout(() => monster?.classList.remove('is-hit'), 110);
@@ -1941,15 +1946,22 @@ async function playChanneledSkillMotion(channel = {}, kind, runId, activityLabel
   const intervalMs = Math.max(1, Number(channel.intervalMs) || 180);
   const hitCount = Math.max(1, Math.floor(Number(channel.hitCount) || 1));
   const hitResults = Array.isArray(channel.hitResults) ? channel.hitResults : [];
+  const projectileSpeedMultiplier = Math.max(
+    0.1,
+    Number(channel.projectileSpeedMultiplier) || 1
+  );
   const startedAt = performance.now();
   setWorldActivity(activityLabel || '연속 공격 중');
   for (let hit = 0; hit < hitCount; hit += 1) {
     if (!isRunActive(kind, runId)) break;
+    const hitResult = hitResults[hit];
+    if (typeof hitResult?.facingLeft === 'boolean') {
+      character.classList.toggle('facing-left', hitResult.facingLeft);
+    }
     setCharacterMotion(null);
     void character.offsetWidth;
     setCharacterMotion('shoot');
-    const hitResult = hitResults[hit];
-    launchChannelProjectile(hitResult?.monsterId);
+    launchChannelProjectile(hitResult?.monsterId, projectileSpeedMultiplier);
     if (hitResult) window.applyChannelSkillHit?.(hitResult);
     const nextAt = startedAt + Math.min(durationMs, (hit + 1) * intervalMs);
     await sleep(Math.max(0, nextAt - performance.now()));
@@ -2231,7 +2243,7 @@ async function runAutoCombat(runId) {
       const used = await useActiveSkill(autoSkill.id, { automatic: true });
       if (used) {
         state.combatAttackCount += 1;
-        await sleep(300);
+        await sleep(Math.max(0, Math.min(300, Number(state.lastSkillPostCastDelayMs) || 0)));
         continue;
       }
     }
@@ -2979,6 +2991,7 @@ function getDisplayedMoney() {
 
 function renderPotionQuickbar() {
   if (!$('hpPotionButton') || !$('mpPotionButton')) return;
+  const depleted = [];
   for (const slot of ['hp', 'mp']) {
     const button = $(slot === 'hp' ? 'hpPotionButton' : 'mpPotionButton');
     const potion = state.inventory.quickSlots[slot];
@@ -2987,6 +3000,16 @@ function renderPotionQuickbar() {
       ? `${formatNumber(potion.quantity)}개 · ${formatPotionRestoreAmounts(potion)}`
       : (slot === 'hp' ? '체력 포션' : '정신력 포션');
     button.disabled = !potion || potion.quantity <= 0;
+    const isDepleted = Boolean(potion && Number(potion.quantity) <= 0);
+    button.classList.toggle('is-depleted', isDepleted);
+    if (isDepleted) depleted.push(slot === 'hp' ? '체력 포션' : '정신력 포션');
+  }
+  const warning = $('potionDepletionWarning');
+  if (warning) {
+    warning.textContent = depleted.length
+      ? `⚠ ${depleted.join('과 ')}이 모두 소진되었습니다!`
+      : '';
+    warning.classList.toggle('hidden', !depleted.length);
   }
 }
 
@@ -4289,10 +4312,14 @@ function bindQuestControls() {
 function statInvestmentControl(stat, availablePoints) {
   const disabled = Number(availablePoints) > 0 ? '' : 'disabled';
   const maximum = Math.max(1, Math.floor(Number(availablePoints) || 0));
+  const draftAmount = Math.max(
+    1,
+    Math.min(maximum, Number(state.statInvestmentDrafts?.[stat]) || 1)
+  );
   return `<div class="stat-investment-control">
     <label>
       <span>투자량</span>
-      <input type="number" min="1" max="${maximum}" value="1" inputmode="numeric"
+      <input type="number" min="1" max="${maximum}" value="${draftAmount}" inputmode="numeric"
         data-stat-amount="${stat}" ${disabled}>
     </label>
     <button type="button" data-allocate-stat="${stat}" ${disabled}>투자</button>
@@ -4307,18 +4334,19 @@ function statBody() {
   const effectiveStats = derived.effectiveStats || stats;
   const equipmentBonuses = derived.equipmentStatBonuses || {};
   const buffBonuses = derived.activeBuffStatBonuses || {};
+  const roundedAbility = (value) => formatNumber(Math.round(Number(value) || 0));
   const statValue = (key) => (
     `${formatNumber(effectiveStats[key])}${Number(equipmentBonuses[key]) > 0 || Number(buffBonuses[key]) > 0
       ? ` <small>(기본 ${formatNumber(stats[key])}${Number(equipmentBonuses[key]) > 0 ? ` + 장비 ${formatNumber(equipmentBonuses[key])}` : ''}${Number(buffBonuses[key]) > 0 ? ` + 버프 ${formatNumber(buffBonuses[key])}` : ''})</small>`
       : ''}`
   );
   const abilities = [
-    ['공격력', `${formatNumber(derived.attackMinimum)} ~ ${formatNumber(derived.attackMaximum)}`],
-    ['방어력', formatNumber(derived.defense)],
-    ['마력', formatNumber(derived.magic)],
-    ['명중률', formatNumber(derived.accuracy)],
-    ['회피율', formatNumber(derived.evasion)],
-    ['이동속도', `${formatNumber(derived.movementSpeed || 100)}%`]
+    ['공격력', `${roundedAbility(derived.attackMinimum)} ~ ${roundedAbility(derived.attackMaximum)}`],
+    ['방어력', roundedAbility(derived.defense)],
+    ['마력', roundedAbility(derived.magic)],
+    ['명중률', roundedAbility(derived.accuracy)],
+    ['회피율', roundedAbility(derived.evasion)],
+    ['이동속도', `${roundedAbility(derived.movementSpeed || 100)}%`]
   ];
   return `
     <div class="stat-overview">
@@ -4352,6 +4380,7 @@ async function allocateStat(stat, amount = 1) {
       body: JSON.stringify({ allocations: { [stat]: investment } })
     });
     state.character = data.character;
+    if (state.statInvestmentDrafts) delete state.statInvestmentDrafts[stat];
     renderGame({
       preview: state.preview,
       character: data.character,
@@ -4373,6 +4402,12 @@ function bindStatControls() {
     });
   });
   document.querySelectorAll('[data-stat-amount]').forEach((input) => {
+    const rememberDraft = () => {
+      if (!state.statInvestmentDrafts) state.statInvestmentDrafts = {};
+      state.statInvestmentDrafts[input.dataset.statAmount] = input.value;
+    };
+    input.addEventListener('input', rememberDraft);
+    input.addEventListener('focus', rememberDraft);
     input.addEventListener('keydown', (event) => {
       if (event.key !== 'Enter') return;
       event.preventDefault();
@@ -4920,10 +4955,24 @@ function worldMapOfficeBody() {
 }
 
 function formatPotionRestoreAmounts(item) {
+  const formatResourceRestore = (resource) => {
+    const label = resource === 'mp' ? 'MP' : 'HP';
+    const restorePercent = Number(item?.restorePercents?.[resource] ?? item?.restorePercent);
+    if (Number.isFinite(restorePercent) && restorePercent > 0) {
+      const cap = Number(item?.restoreCaps?.[resource] ?? item?.restoreCap);
+      return `${label} ${formatNumber(restorePercent)}%${Number.isFinite(cap) && cap > 0
+        ? ` (최대 ${formatNumber(cap)})`
+        : ''}`;
+    }
+    const amount = item?.resource === 'both'
+      ? item?.restoreAmounts?.[resource]
+      : item?.restoreAmount;
+    return `${label} +${formatNumber(amount)}`;
+  };
   if (item?.resource === 'both') {
-    return `HP +${formatNumber(item.restoreAmounts?.hp)} · MP +${formatNumber(item.restoreAmounts?.mp)}`;
+    return `${formatResourceRestore('hp')} · ${formatResourceRestore('mp')}`;
   }
-  return `${item?.resource === 'mp' ? 'MP' : 'HP'} +${formatNumber(item?.restoreAmount)}`;
+  return formatResourceRestore(item?.resource === 'mp' ? 'mp' : 'hp');
 }
 
 function questStatusLabel(status) {
@@ -5020,6 +5069,7 @@ function refreshOpenStatsFeature() {
     $('featureModal')?.classList.contains('hidden')
     || $('featureTitle')?.textContent !== featureMeta.stats.title
   ) return;
+  if (document.activeElement?.matches?.('[data-stat-amount]')) return;
   $('featureBody').innerHTML = statBody();
   bindStatControls();
 }
@@ -5225,8 +5275,8 @@ function cashShopBody() {
     ${shop.loaded ? `<section class="cash-product-grid">
       ${products.map((product) => `<article class="cash-product-card">
         <span class="cash-product-icon" aria-hidden="true">${escapeHtml(product.icon || '🎟️')}</span>
-        <div><strong>${escapeHtml(product.name)}</strong><p>${escapeHtml(product.description)}</p><small>${formatNumber(product.quantity)}개 지급</small></div>
-        <button type="button" data-buy-cash-product="${escapeHtml(product.id)}" ${balance < Number(product.price) ? 'disabled' : ''}>
+        <div><strong>${escapeHtml(product.name)}</strong><p>${escapeHtml(product.description)}</p><small>${escapeHtml(product.grantLabel || `${formatNumber(product.quantity)}개 지급`)}</small>${product.activeUntil ? `<em>이용 중 · ${escapeHtml(new Date(product.activeUntil).toLocaleDateString('ko-KR'))}까지</em>` : ''}</div>
+        <button type="button" data-buy-cash-product="${escapeHtml(product.id)}" ${product.disabled || balance < Number(product.price) ? 'disabled' : ''}>
           ${formatNumber(product.price)} P
         </button>
       </article>`).join('')}
@@ -5282,6 +5332,11 @@ async function buyCashProduct(productId) {
     });
     state.character = data.character;
     state.cashShop.cashPoints = Number(data.cashPoints) || 0;
+    if (data.product?.kind === 'hunting-subscription') {
+      state.cashShop.products = state.cashShop.products.map((product) => (
+        product.id === data.product.id ? { ...product, ...data.product } : product
+      ));
+    }
     setInventoryData(data.inventory);
     renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
     rerenderCashShop();

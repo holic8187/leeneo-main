@@ -278,6 +278,71 @@ function createCommonEquipment(slot, level) {
   };
 }
 
+const SHIELD_SOURCE_REFERENCES = Object.freeze({
+  warrior: 'https://maple.inven.co.kr/dataninfo/item/list.php?jobgroup=2&class2=207',
+  mage: 'https://maple.inven.co.kr/dataninfo/item/list.php?jobgroup=3&class2=207'
+});
+
+function createShield(row) {
+  const [id, name, archetype, level, requiredStats, stats, upgradeSlots = 7] = row;
+  return {
+    id,
+    name,
+    category: 'equipment',
+    itemType: 'armor',
+    equipmentSlot: 'shield',
+    icon: '🛡️',
+    requiredLevel: level,
+    requirements: {
+      level,
+      stats: { ...requiredStats },
+      archetype,
+      allowedArchetypes: [archetype]
+    },
+    stats: { ...stats },
+    upgradeSlots,
+    maxStack: 1,
+    buyPrice: 0,
+    shopTags: [],
+    sellPrice: getEquipmentSellPrice(level, 'shield'),
+    dropChance: deterministicRate(id),
+    craftable: true,
+    obtainMethods: ['monster-drop', 'crafting'],
+    sourceReference: SHIELD_SOURCE_REFERENCES[archetype],
+    description: `${level}레벨 ${ARCHETYPE_LABELS[archetype]} 계열 제작·드랍 전용 방패입니다.`
+  };
+}
+
+const SHIELD_ROWS = Object.freeze([
+  ['shield_warrior_5', '출입교육 목재방패', 'warrior', 5, {}, { defense: 5 }],
+  ['shield_warrior_15', '현장점검 강철방패', 'warrior', 15, { grit: 40 }, { defense: 15 }],
+  ['shield_warrior_20', '초급결재 미스릴방패', 'warrior', 20, { grit: 55 }, { defense: 20 }],
+  ['shield_warrior_25', '적색경보 삼각방패', 'warrior', 25, { grit: 70 }, { defense: 25 }],
+  ['shield_warrior_30', '응급대응 십자방패', 'warrior', 30, { grit: 90 }, { defense: 30 }],
+  ['shield_warrior_35', '분쟁조정 전투방패', 'warrior', 35, { grit: 120 }, { defense: 35 }],
+  ['shield_warrior_40', '철야경비 타워방패', 'warrior', 40, { grit: 130 }, { defense: 40, grit: 2 }],
+  ['shield_warrior_50', '감사실 해골방패', 'warrior', 50, { grit: 160 }, { defense: 50 }],
+  ['shield_warrior_60', '전설근무 원목방패', 'warrior', 60, { grit: 190 }, { defense: 52, magicDefense: 20 }],
+  ['shield_warrior_70', '고대결재 황금방패', 'warrior', 70, { grit: 220 }, { defense: 56, magicDefense: 20, grit: 2 }],
+  ['shield_warrior_80', '임원경호 독수리방패', 'warrior', 80, { grit: 250 }, { defense: 64, magicDefense: 25 }],
+  ['shield_warrior_90', '황금감사 칼칸', 'warrior', 90, { grit: 280 }, { defense: 70, grit: 3 }],
+  ['shield_warrior_100', '이사회 호플론', 'warrior', 100, { grit: 310 }, { defense: 72, magicDefense: 25, processingSpeed: 3 }],
+  ['shield_warrior_110', '청룡본부 방패', 'warrior', 110, { grit: 340 }, { defense: 78, magicDefense: 30, grit: 7, processingSpeed: 4, evasion: 5 }],
+  ['shield_warrior_120', '무결점 카이트방패', 'warrior', 120, { grit: 370 }, { defense: 100, magicDefense: 35, grit: 7, processingSpeed: 5, evasion: 5 }],
+  ['shield_warrior_125', '피어리스 결재방패', 'warrior', 125, { grit: 370 }, { defense: 180, magicDefense: 60, grit: 10, processingSpeed: 5, evasion: 20 }, 8],
+  ['shield_warrior_130', '회장실 보안방패', 'warrior', 130, { grit: 420, processingSpeed: 160 }, { defense: 118, magicDefense: 41, grit: 10, processingSpeed: 10 }],
+  ['shield_mage_22', '비상복구 미스틱방패', 'mage', 22, { workKnowledge: 68, awareness: 22 }, { defense: 10, magicDefense: 10, workKnowledge: 1 }],
+  ['shield_mage_33', '서비스안정 에스터방패', 'mage', 33, { workKnowledge: 100, awareness: 35 }, { defense: 15, magicDefense: 20, workKnowledge: 1 }],
+  ['shield_mage_64', '배포인증 매지션방패', 'mage', 64, {}, { defense: 31, magicDefense: 51, workKnowledge: 2 }, 10],
+  ['shield_mage_120', '무중단 프렐류드방패', 'mage', 120, { workKnowledge: 368, awareness: 120 }, { defense: 60, magicDefense: 110, workKnowledge: 5 }],
+  ['shield_mage_125', '피어리스 기술방패', 'mage', 125, { workKnowledge: 368, awareness: 120 }, { defense: 60, magicDefense: 180, workKnowledge: 10, awareness: 5, evasion: 20 }, 8],
+  ['shield_mage_130', '최종배포 세이지방패', 'mage', 130, { workKnowledge: 420, awareness: 160 }, { defense: 71, magicDefense: 130, workKnowledge: 10 }]
+]);
+
+const SHIELD_ITEMS = Object.freeze(
+  SHIELD_ROWS.map((row) => Object.freeze(createShield(row)))
+);
+
 function createBossWeapon({
   id,
   name,
@@ -349,6 +414,7 @@ const STARTER_DROP_ITEMS = Object.freeze([
 
 const EQUIPMENT_ITEMS = Object.freeze([
   ...STARTER_DROP_ITEMS,
+  ...SHIELD_ITEMS,
   ...WEAPON_LINES.flatMap((line) => EQUIPMENT_LEVELS.map((level, index) => createWeapon(line, level, index))),
   ...Object.keys(ARMOR_TIER_THEMES).flatMap((archetype) => (
     EQUIPMENT_LEVELS.flatMap((level) => (
@@ -388,6 +454,14 @@ function getEquipmentDropsForMonsterLevel(monsterLevel) {
     archetype,
     eligible.filter((item) => (
       item.equipmentSlot !== 'weapon'
+      && item.equipmentSlot !== 'shield'
+      && item.requirements?.archetype === archetype
+    ))
+  ]));
+  const shieldGroups = Object.fromEntries(archetypes.map((archetype) => [
+    archetype,
+    eligible.filter((item) => (
+      item.equipmentSlot === 'shield'
       && item.requirements?.archetype === archetype
     ))
   ]));
@@ -410,6 +484,8 @@ function getEquipmentDropsForMonsterLevel(monsterLevel) {
   // Every monster offers at least one weapon and one class armor piece per archetype.
   for (const archetype of rotatedArchetypes) addCandidate(weaponGroups[archetype][0]);
   for (const archetype of rotatedArchetypes) addCandidate(armorGroups[archetype][0]);
+  addCandidate(shieldGroups.warrior[0]);
+  addCandidate(shieldGroups.mage[0]);
   for (const candidate of commonEquipment.slice(0, 2)) addCandidate(candidate);
 
   const targetDropCount = 16;
@@ -445,6 +521,7 @@ module.exports = {
   DROP_RATE_MAX,
   EQUIPMENT_LEVELS,
   EQUIPMENT_ITEMS,
+  SHIELD_ITEMS,
   STARTER_DROP_ITEMS,
   BOSS_ENDGAME_WEAPONS,
   getEquipmentSellPrice,

@@ -209,6 +209,34 @@ function rollFieldBossRandomRewards() {
   return rewards;
 }
 
+function addStackableRewardItem(reward, item) {
+  const existing = reward.items.find((entry) => (
+    entry.itemId === item.itemId && !entry.instanceData && !item.instanceData
+  ));
+  if (existing) {
+    existing.quantity += Math.max(1, Math.floor(Number(item.quantity) || 1));
+    return;
+  }
+  reward.items.push({ ...item });
+}
+
+function distributeGuaranteedFieldBossItem(rewards, item, totalQuantity) {
+  if (!rewards.length) return;
+  let remaining = Math.max(rewards.length, Math.floor(Number(totalQuantity) || 0));
+
+  // Every EXP-eligible participant receives at least one before the rest is randomized.
+  for (const reward of rewards) {
+    addStackableRewardItem(reward, { ...item, quantity: 1 });
+    remaining -= 1;
+  }
+  while (remaining > 0) {
+    const receiver = pickRandom(rewards);
+    if (!receiver) break;
+    addStackableRewardItem(receiver, { ...item, quantity: 1 });
+    remaining -= 1;
+  }
+}
+
 function buildFieldBossRewardEvent(runtime, monster, mapId, defeatedBy, now = Date.now()) {
   if (!monster?.fieldBoss) return null;
   const respawnAt = scheduleFieldBossRespawn(mapId, now);
@@ -266,6 +294,17 @@ function buildFieldBossRewardEvent(runtime, monster, mapId, defeatedBy, now = Da
       itemId: 'hwang_manager_mark',
       quantity: Math.random() < 0.5 ? 1 : 2
     });
+  }
+  for (const guaranteedDrop of [
+    { itemId: 'elixir', name: '엘릭서', icon: '🧪' },
+    { itemId: 'power_elixir', name: '파워엘릭서', icon: '⚗️' }
+  ]) {
+    const quantityPerParticipant = 9 + Math.floor(Math.random() * 8);
+    distributeGuaranteedFieldBossItem(
+      rewards,
+      guaranteedDrop,
+      rewards.length * quantityPerParticipant
+    );
   }
   for (const item of rollFieldBossRandomRewards()) {
     const receiver = pickRandom(rewards);
@@ -1139,16 +1178,26 @@ function applyHeavyHitKnockback(monster, player, damage) {
   return true;
 }
 
-function selectFrontMonster(runtime, player, requestedMonster, rangePercent) {
+function selectFrontMonster(
+  runtime,
+  player,
+  requestedMonster,
+  rangePercent,
+  verticalFloorRange = 0
+) {
   if (!requestedMonster) return null;
   const requestedOffset = requestedMonster.x - player.x;
   const direction = requestedOffset === 0
     ? (player.facingLeft ? -1 : 1)
     : Math.sign(requestedOffset);
   const requestedDistance = Math.abs(requestedOffset);
+  const allowedFloorDistance = Math.max(0, Math.floor(Number(verticalFloorRange) || 0));
   return runtime.monsters
     .filter((monster) => {
-      if (monster.hp <= 0 || monster.floor !== player.floor) return false;
+      if (
+        monster.hp <= 0
+        || Math.abs(Number(monster.floor) - Number(player.floor)) > allowedFloorDistance
+      ) return false;
       const offset = monster.x - player.x;
       const sameDirection = offset === 0 || Math.sign(offset) === direction;
       const distance = Math.abs(offset);
@@ -1472,6 +1521,7 @@ function useSkillOnMonsters(options = {}) {
   playerLevel = 1,
   stunChance = 0,
   stunSeconds = 0,
+  moveCasterToTarget = false,
   pull = false,
   dealDamage = true,
   leaveAtOneHp = false,
@@ -1515,7 +1565,13 @@ function useSkillOnMonsters(options = {}) {
   const requestedMonster = inRange.find((monster) => monster.id === targetId);
   const targetLimit = Math.max(1, Math.floor(Number(maxTargets) || 1));
   const candidates = targetLimit === 1 && requestedMonster && !piercing
-    ? [selectFrontMonster(runtime, player, requestedMonster, rangePercent)].filter(Boolean)
+    ? [selectFrontMonster(
+      runtime,
+      player,
+      requestedMonster,
+      rangePercent,
+      verticalFloorRange
+    )].filter(Boolean)
     : inRange.sort((left, right) => {
       if (left.id === targetId) return -1;
       if (right.id === targetId) return 1;
@@ -1524,6 +1580,23 @@ function useSkillOnMonsters(options = {}) {
       .slice(0, targetLimit);
   if (!candidates.length) return { success: false, reason: 'out-of-range' };
   if (dealDamage) player.combatProfile.stealth = 0;
+
+  let casterMovement = null;
+  if (moveCasterToTarget && candidates[0]) {
+    const target = candidates[0];
+    const direction = Number(target.x) >= Number(player.x) ? 1 : -1;
+    player.x = clamp(Number(target.x) - direction * 2.8, 2, 92);
+    player.floor = Number(target.floor) === 1 ? 1 : 0;
+    player.facingLeft = direction < 0;
+    player.activity = 'combat';
+    player.motion = 'dash';
+    casterMovement = {
+      x: player.x,
+      floor: player.floor,
+      facingLeft: player.facingLeft,
+      targetId: target.id
+    };
+  }
 
   const outcomes = [];
   const drops = [];
@@ -1535,7 +1608,7 @@ function useSkillOnMonsters(options = {}) {
   if (retargetEachHit && targetLimit === 1 && hitCount > 1) {
     const initialTarget = candidates[0];
     const initialOffset = Number(initialTarget.x) - Number(player.x);
-    const firingDirection = initialOffset === 0
+    let firingDirection = initialOffset === 0
       ? (player.facingLeft ? -1 : 1)
       : Math.sign(initialOffset);
     const retargetedOutcomes = [];
@@ -1544,7 +1617,7 @@ function useSkillOnMonsters(options = {}) {
     let resolvedShots = 0;
 
     for (let projectileIndex = 0; projectileIndex < hitCount; projectileIndex += 1) {
-      const nextTarget = runtime.monsters
+      const eligibleTargets = runtime.monsters
         .filter((monster) => {
           if (
             monster.hp <= 0
@@ -1554,13 +1627,24 @@ function useSkillOnMonsters(options = {}) {
               > Math.max(0, Math.floor(Number(verticalFloorRange) || 0))
             || Math.abs(Number(monster.x) - Number(player.x)) > rangePercent + 4.5
           ) return false;
-          const offset = Number(monster.x) - Number(player.x);
-          return offset === 0 || Math.sign(offset) === firingDirection;
+          return true;
         })
         .sort((left, right) => (
           Math.abs(Number(left.x) - Number(player.x))
           - Math.abs(Number(right.x) - Number(player.x))
-        ))[0];
+        ));
+      let nextTarget = eligibleTargets.find((monster) => {
+        const offset = Number(monster.x) - Number(player.x);
+        return offset === 0 || Math.sign(offset) === firingDirection;
+      });
+      if (!nextTarget && eligibleTargets.length) {
+        firingDirection *= -1;
+        player.facingLeft = firingDirection < 0;
+        nextTarget = eligibleTargets.find((monster) => {
+          const offset = Number(monster.x) - Number(player.x);
+          return offset === 0 || Math.sign(offset) === firingDirection;
+        });
+      }
       if (!nextTarget) break;
 
       const shot = useSkillOnMonsters({
@@ -1580,7 +1664,8 @@ function useSkillOnMonsters(options = {}) {
             ...hit,
             hitIndex: projectileIndex,
             projectileIndex,
-            subHitIndex
+            subHitIndex,
+            facingLeft: firingDirection < 0
           }))
         });
       }
@@ -1781,7 +1866,8 @@ function useSkillOnMonsters(options = {}) {
     drops: drops.map(serializeLoot),
     expReward: outcomes.reduce((sum, outcome) => sum + outcome.expReward, 0),
     mpAbsorbed: outcomes.reduce((sum, outcome) => sum + (outcome.mpAbsorbed || 0), 0),
-    fieldBossRewards
+    fieldBossRewards,
+    casterMovement
   };
 }
 
@@ -1886,6 +1972,7 @@ module.exports = {
   getHwangFieldBossDrops,
   MONSTER_CATALOG,
   buildMonsterStats,
+  buildFieldBossRewardEvent,
   claimWorldControl,
   hasWorldControl,
   hasRecentWorldControl,

@@ -4,10 +4,15 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   MONSTER_CATALOG,
+  MONSTER_EXP_MULTIPLIER,
   getElementMultiplier,
   rollMonsterDrops
 } = require('../../src/v2/world/monsterCatalog');
 const { WORLD_MAPS } = require('../../src/v2/world/mapDefinitions');
+
+test('ordinary monster EXP uses the reduced 1.08 multiplier', () => {
+  assert.equal(MONSTER_EXP_MULTIPLIER, 1.08);
+});
 
 test('every configured map monster resolves to one canonical displayed level', () => {
   const byId = new Map(MONSTER_CATALOG.map((monster) => [monster.id, monster]));

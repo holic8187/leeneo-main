@@ -1754,7 +1754,7 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 }
 .attack-projectile.is-shoot { animation: projectile-shot .65s linear; }
 .attack-projectile.is-channel-shot {
-  animation: projectile-channel .2s linear forwards;
+  animation: projectile-channel var(--channel-projectile-duration, .2s) linear forwards;
 }
 .attack-projectile.is-cast {
   width: 17px;
@@ -2170,6 +2170,21 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 120px;
   gap: 8px;
 }
+.potion-depletion-warning {
+  margin: 8px 0 0;
+  padding: 10px 14px;
+  border: 2px solid #ffd84d;
+  color: #ffe879;
+  background: rgba(67, 45, 0, .94);
+  box-shadow: 0 0 18px rgba(255, 210, 51, .48), inset 0 0 18px rgba(255, 210, 51, .12);
+  font-size: clamp(15px, 2.5vw, 22px);
+  font-weight: 1000;
+  line-height: 1.25;
+  text-align: center;
+  text-shadow: 0 1px 0 #241700;
+  animation: potion-warning-attention 1.15s ease-in-out infinite;
+}
+.potion-depletion-warning.hidden { display: none; }
 .potion-quick, .potion-config-button, .jump-control {
   min-height: 52px;
   padding: 7px 10px;
@@ -2184,6 +2199,20 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .potion-quick.hp-potion { border-color: #a82e2e; color: #7d2020; background: #fff3ef; }
 .potion-quick.mp-potion { border-color: #24599b; color: #17477d; background: #eef6ff; }
 .potion-quick:disabled { opacity: .55; cursor: not-allowed; }
+.potion-quick.is-depleted {
+  opacity: 1;
+  border-color: #ffd84d;
+  box-shadow: 0 0 0 2px rgba(255, 216, 77, .32), 0 0 18px rgba(255, 216, 77, .72);
+  animation: depleted-potion-slot 1.15s ease-in-out infinite;
+}
+@keyframes potion-warning-attention {
+  0%, 100% { filter: brightness(.92); transform: translateY(0); }
+  50% { filter: brightness(1.25); transform: translateY(-1px); }
+}
+@keyframes depleted-potion-slot {
+  0%, 100% { filter: brightness(.8); }
+  50% { filter: brightness(1.35); }
+}
 .potion-config-button { grid-template-columns: 1fr; color: var(--green); background: #edf4ed; }
 .jump-control {
   grid-column: 1 / -1;

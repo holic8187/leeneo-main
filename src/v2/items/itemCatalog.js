@@ -98,6 +98,36 @@ const BASE_ITEMS = {
     description: '사용 즉시 체력을 1,500, 정신력을 500 회복합니다. HP·MP 포션 슬롯에 모두 등록할 수 있습니다.',
     eventItem: true
   },
+  elixir: {
+    id: 'elixir',
+    name: '엘릭서',
+    category: 'consumable',
+    itemType: 'potion',
+    icon: '🧪',
+    resource: 'both',
+    restorePercents: { hp: 50, mp: 50 },
+    restoreCaps: { hp: 5_000, mp: 5_000 },
+    maxStack: 100,
+    buyPrice: 0,
+    sellPrice: 5_000,
+    shopTags: [],
+    description: '최대 체력과 최대 정신력의 50%를 회복합니다. 각 회복량은 최대 5,000입니다. HP·MP 포션 슬롯에 모두 등록할 수 있습니다.'
+  },
+  power_elixir: {
+    id: 'power_elixir',
+    name: '파워엘릭서',
+    category: 'consumable',
+    itemType: 'potion',
+    icon: '⚗️',
+    resource: 'both',
+    restorePercents: { hp: 100, mp: 100 },
+    restoreCaps: { hp: 10_000, mp: 10_000 },
+    maxStack: 100,
+    buyPrice: 0,
+    sellPrice: 5_000,
+    shopTags: [],
+    description: '최대 체력과 최대 정신력의 100%를 회복합니다. 각 회복량은 최대 10,000입니다. HP·MP 포션 슬롯에 모두 등록할 수 있습니다.'
+  },
   red_potion: {
     id: 'red_potion', name: '빨간 포션', category: 'consumable', itemType: 'potion',
     icon: '🧪', resource: 'hp', restoreAmount: 50, maxStack: 100,
@@ -445,6 +475,18 @@ const BASE_ITEMS = {
     huntingMinutes: 180,
     description: '사용 시 자동사냥 시간을 180분 충전합니다. 현재 캐릭터의 자동사냥 최대치까지만 충전됩니다.',
     adminGrantOnly: true
+  },
+  hunting_time_90m_subscription: {
+    id: 'hunting_time_90m_subscription',
+    name: '정액제 자동사냥 시간 90분',
+    category: 'cash',
+    itemType: 'hunting-time',
+    icon: '🗓️',
+    maxStack: 100,
+    huntingMinutes: 90,
+    sellPrice: 0,
+    tradeable: false,
+    description: '자동사냥 정액제 이용자에게 매일 지급되는 90분 충전권입니다.'
   },
   hunting_capacity_40m: {
     id: 'hunting_capacity_40m',

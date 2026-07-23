@@ -8,7 +8,7 @@ const { getScrollsForMonster } = require('../items/scrollCatalog');
 const { listNormalMonsterMasteryBooks } = require('../items/masteryBookCatalog');
 
 const ELEMENTS = Object.freeze(['neutral', 'fire', 'lightning', 'ice', 'holy']);
-const MONSTER_EXP_MULTIPLIER = 1.2;
+const MONSTER_EXP_MULTIPLIER = 1.08;
 
 function scaleMonsterExp(expReward) {
   return Math.max(1, Math.round(Math.max(0, Number(expReward) || 0) * MONSTER_EXP_MULTIPLIER));
@@ -59,6 +59,33 @@ function getMasteryBookDropsForMonster(monsterId, level) {
     }));
 }
 
+function getPotionDropsForMonsterLevel(level) {
+  const safeLevel = Math.max(1, Math.floor(Number(level) || 1));
+  const drops = [];
+  if (safeLevel >= 40 && safeLevel <= 110) {
+    const chance = 0.001 + (safeLevel - 40) / 70 * 0.001;
+    drops.push(Object.freeze({
+      itemId: 'elixir',
+      name: '엘릭서',
+      icon: '🧪',
+      quantity: 1,
+      chance
+    }));
+  }
+  if (safeLevel >= 60) {
+    const interpolatedLevel = Math.min(110, safeLevel);
+    const chance = 0.002 - (interpolatedLevel - 60) / 50 * 0.0005;
+    drops.push(Object.freeze({
+      itemId: 'power_elixir',
+      name: '파워엘릭서',
+      icon: '⚗️',
+      quantity: 1,
+      chance
+    }));
+  }
+  return drops;
+}
+
 const MONSTER_CATALOG = Object.freeze(MONSTER_ROWS.map((
   [id, name, level, maxHp, expReward, lootName, icon, elementalMultipliers = {}, undead = false]
 ) => {
@@ -86,7 +113,7 @@ const MONSTER_CATALOG = Object.freeze(MONSTER_ROWS.map((
         getScrollsForMonster(id).map((entry) => Object.freeze(entry))
       ),
       masteryBooks: Object.freeze(getMasteryBookDropsForMonster(id, level)),
-      potions: Object.freeze([])
+      potions: Object.freeze(getPotionDropsForMonsterLevel(level))
     })
   });
 }));
@@ -186,5 +213,6 @@ module.exports = {
   getMoneyDrop,
   getMoneyIcon,
   getMasteryBookDropsForMonster,
+  getPotionDropsForMonsterLevel,
   rollMonsterDrops
 };

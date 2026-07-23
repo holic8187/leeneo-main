@@ -37,6 +37,7 @@ const {
   serializeActionPoints
 } = require('./actionPointService');
 const { getOfflineHuntingSummaryId } = require('./huntingTimeService');
+const { applyDailyHuntingSubscriptionGrant } = require('./cashShopService');
 
 const MIGRATION_VERSION = 1;
 const LEGACY_EXCHANGE_FORMULA_VERSION = 2;
@@ -579,6 +580,7 @@ async function ensureV2CharacterFoundation(character) {
   const resourceBuff = reconcileMaxResourceBuff(character);
   if (resourceBuff.changed) changed = true;
   if (ensureDailyActionPoints(character)) changed = true;
+  if (applyDailyHuntingSubscriptionGrant(character).granted) changed = true;
   if (!character.economy || typeof character.economy !== 'object') {
     character.economy = { money: 0, cashPoints: 0, stockPortfolio: [] };
     changed = true;

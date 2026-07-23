@@ -1460,6 +1460,7 @@ function registerV2Routes({
         poisonMaxStacks: Number(preUseEffects.poisonMaxStacks) || 0,
         stunChance: Number(values.stunChance) || 0,
         stunSeconds: Number(values.stunSeconds) || 0,
+        moveCasterToTarget: Boolean(values.moveCasterToTarget),
         pull: ['charge', 'pull'].includes(definition.effect),
         dealDamage: definition.effect !== 'pull',
         leaveAtOneHp: definition.effect === 'nonlethal-damage',
@@ -1472,6 +1473,11 @@ function registerV2Routes({
         now
       });
       if (!combat.success) return null;
+      if (combat.casterMovement) {
+        character.worldState.mapId = mapId;
+        character.worldState.x = combat.casterMovement.x;
+        character.worldState.floor = combat.casterMovement.floor;
+      }
       combat.critical = rollCriticalPerHit
         ? combat.outcomes.some((outcome) => outcome.hitResults?.some((hit) => hit.critical))
         : critical;
@@ -1480,6 +1486,7 @@ function registerV2Routes({
           durationMs: Math.round(castProfile.channelDurationSeconds * 1000),
           intervalMs: Math.round(castProfile.channelIntervalSeconds * 1000),
           hitCount: castProfile.hitCount,
+          projectileSpeedMultiplier: Number(values.projectileSpeedMultiplier) || 1,
           hitResults: combat.outcomes.flatMap((outcome) => outcome.hitResults || [])
         };
       }
@@ -2832,6 +2839,7 @@ function registerV2Routes({
             poisonMaxStacks: Number(activeEffects.poisonMaxStacks) || 0,
             stunChance: Number(values.stunChance) || 0,
             stunSeconds: Number(values.stunSeconds) || 0,
+            moveCasterToTarget: Boolean(values.moveCasterToTarget),
             pull: ['charge', 'pull'].includes(definition.effect),
             dealDamage: definition.effect !== 'pull',
             leaveAtOneHp: definition.effect === 'nonlethal-damage',
@@ -2845,6 +2853,21 @@ function registerV2Routes({
             retargetEachHit: castProfile.channelDurationSeconds > 0
           });
           if (!combat.success) throw new Error('사거리 안에 공격할 대상이 없습니다.');
+          if (combat.casterMovement) {
+            const activeMapId = String(
+              req.body?.mapId || character.worldState?.mapId || START_MAP_ID
+            );
+            character.worldState.mapId = activeMapId;
+            character.worldState.x = combat.casterMovement.x;
+            character.worldState.floor = combat.casterMovement.floor;
+            combat.teleport = {
+              mapId: activeMapId,
+              x: combat.casterMovement.x,
+              floor: combat.casterMovement.floor,
+              direction: combat.casterMovement.facingLeft ? 'left' : 'right',
+              distancePx: 0
+            };
+          }
           combat.critical = rollCriticalPerHit
             ? combat.outcomes.some((outcome) => outcome.hitResults?.some((hit) => hit.critical))
             : critical;
@@ -2853,6 +2876,7 @@ function registerV2Routes({
               durationMs: Math.round(castProfile.channelDurationSeconds * 1000),
               intervalMs: Math.round(castProfile.channelIntervalSeconds * 1000),
               hitCount: castProfile.hitCount,
+              projectileSpeedMultiplier: Number(values.projectileSpeedMultiplier) || 1,
               hitResults: combat.outcomes.flatMap((outcome) => outcome.hitResults || [])
             };
           }

@@ -122,6 +122,9 @@ const v2CharacterSchema = new mongoose.Schema({
     lastTickAt: { type: Date, default: null },
     offlinePassiveRecoveryAt: { type: Date, default: null },
     lastDailyGrantDate: { type: String, default: '' },
+    subscriptionExpiresAt: { type: Date, default: null },
+    subscriptionLastGrantDate: { type: String, default: '' },
+    subscriptionGrantCount: { type: Number, default: 0, min: 0, max: 30 },
     offlineSummary: { type: mongoose.Schema.Types.Mixed, default: null }
   },
   economy: {

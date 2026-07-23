@@ -143,7 +143,9 @@ function normalizeInventoryStacks(character) {
       changed = true;
       continue;
     }
-    const persistentEmptyAmmunition = item?.itemType === 'ammunition' && quantity === 0;
+    const persistentEmptyAmmunition = item?.itemType === 'ammunition'
+      && item?.ammunitionType === 'throwing-star'
+      && quantity === 0;
     if (!itemId || (!quantity && !persistentEmptyAmmunition)) {
       changed = true;
       continue;
@@ -260,7 +262,11 @@ function getItemStacks(character, itemId) {
       if (String(entry.itemId) !== String(itemId)) return false;
       const item = getItemDefinition(entry.itemId);
       return Number(entry.quantity) > 0
-        || (item?.itemType === 'ammunition' && Number(entry.quantity) === 0);
+        || (
+          item?.itemType === 'ammunition'
+          && item?.ammunitionType === 'throwing-star'
+          && Number(entry.quantity) === 0
+        );
     }
   );
 }
@@ -281,7 +287,11 @@ function getUsedSlots(character, category) {
     const item = getItemDefinition(entry.itemId);
     return item?.category === category && (
       Number(entry.quantity) > 0
-      || (item.itemType === 'ammunition' && Number(entry.quantity) === 0)
+      || (
+        item.itemType === 'ammunition'
+        && item.ammunitionType === 'throwing-star'
+        && Number(entry.quantity) === 0
+      )
     );
   }).length;
 }
@@ -531,10 +541,17 @@ function useQuickSlotPotion(character, slot, effectPercent = 100, maximumOverrid
   const maximumByResource = {};
   for (const entry of restorationResources) {
     const state = resourceState[entry];
-    const baseRestoreAmount = item.resource === 'both'
-      ? Number(item.restoreAmounts?.[entry] || 0)
-      : Number(item.restoreAmount || 0);
-    const boostedRestoreAmount = Math.max(0, Math.floor(baseRestoreAmount * effectMultiplier));
+    const restorePercent = Number(item.restorePercents?.[entry] ?? item.restorePercent);
+    const baseRestoreAmount = Number.isFinite(restorePercent) && restorePercent > 0
+      ? state.maximum * restorePercent / 100
+      : (item.resource === 'both'
+        ? Number(item.restoreAmounts?.[entry] || 0)
+        : Number(item.restoreAmount || 0));
+    let boostedRestoreAmount = Math.max(0, Math.floor(baseRestoreAmount * effectMultiplier));
+    const restoreCap = Number(item.restoreCaps?.[entry] ?? item.restoreCap);
+    if (Number.isFinite(restoreCap) && restoreCap > 0) {
+      boostedRestoreAmount = Math.min(boostedRestoreAmount, Math.floor(restoreCap));
+    }
     const nextValue = Math.min(state.maximum, state.current + boostedRestoreAmount);
     character.resources[state.currentKey] = nextValue;
     restoredByResource[entry] = nextValue - state.current;
@@ -628,7 +645,11 @@ function buildInventoryView(character) {
     .map((entry) => {
       const item = getItemDefinition(entry.itemId);
       const quantity = Math.max(0, Math.floor(Number(entry.quantity) || 0));
-      const visible = quantity > 0 || (item?.itemType === 'ammunition' && quantity === 0);
+      const visible = quantity > 0 || (
+        item?.itemType === 'ammunition'
+        && item?.ammunitionType === 'throwing-star'
+        && quantity === 0
+      );
       return item && visible
         ? {
           ...item,

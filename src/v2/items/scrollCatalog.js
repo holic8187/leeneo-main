@@ -214,8 +214,13 @@ function isScrollApplicable(scroll, equipment) {
 }
 
 function getDefaultUpgradeSlots(equipment = {}) {
+  const configuredSlots = Number(equipment.upgradeSlots);
+  if (Number.isFinite(configuredSlots) && configuredSlots >= 0) {
+    return Math.floor(configuredSlots);
+  }
   const slot = String(equipment.equipmentSlot || '');
   if (slot === 'weapon') return 7;
+  if (slot === 'shield') return 7;
   if (slot === 'helmet') return 10;
   if (slot === 'necklace') return 3;
   return equipment.category === 'equipment' ? 5 : 0;

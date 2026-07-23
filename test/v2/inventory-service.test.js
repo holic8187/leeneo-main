@@ -196,6 +196,24 @@ test('marshmallows can occupy either quick slot and restore HP and MP together',
   assert.equal(buildInventoryView(character).quickSlots.mp.id, 'marshmallow');
 });
 
+test('elixirs restore both resources by maximum percentage with per-resource caps', () => {
+  const character = characterFixture();
+  character.resources = { currentHp: 1_000, maxHp: 20_000, currentMp: 2_000, maxMp: 30_000 };
+  addInventoryItem(character, 'elixir', 1);
+  assignPotionQuickSlot(character, 'hp', 'elixir');
+  const elixir = useQuickSlotPotion(character, 'hp');
+  assert.deepEqual(elixir.restoredByResource, { hp: 5_000, mp: 5_000 });
+  assert.equal(character.resources.currentHp, 6_000);
+  assert.equal(character.resources.currentMp, 7_000);
+
+  addInventoryItem(character, 'power_elixir', 1);
+  assignPotionQuickSlot(character, 'mp', 'power_elixir');
+  const powerElixir = useQuickSlotPotion(character, 'mp');
+  assert.deepEqual(powerElixir.restoredByResource, { hp: 10_000, mp: 10_000 });
+  assert.equal(character.resources.currentHp, 16_000);
+  assert.equal(character.resources.currentMp, 17_000);
+});
+
 test('an expansion ticket adds four slots to the chosen tab and stops at sixty-four', () => {
   const character = characterFixture();
   addInventoryItem(character, 'inventory_expansion_ticket', 12);
@@ -290,6 +308,18 @@ test('an empty arrow stack is removed from inventory', () => {
     (item) => item.id === 'basic_arrow'
   );
   assert.equal(arrows.length, 0);
+});
+
+test('legacy zero-quantity arrow stacks are purged while zero throwing stars remain', () => {
+  const character = characterFixture();
+  character.inventory.items.push(
+    { stackId: 'empty-arrow', itemId: 'basic_arrow', quantity: 0 },
+    { stackId: 'empty-star', itemId: 'crude_throwing_star', quantity: 0 }
+  );
+  const consumables = buildInventoryView(character).categories.consumable.items;
+  assert.equal(consumables.some((item) => item.id === 'basic_arrow'), false);
+  assert.equal(consumables.find((item) => item.id === 'crude_throwing_star')?.quantity, 0);
+  assert.equal(character.inventory.items.some((item) => item.itemId === 'basic_arrow'), false);
 });
 
 test('cash items are marked non-tradeable in inventory responses', () => {

@@ -142,16 +142,18 @@ test('warriors receive both common fourth-job skills and support utility overrid
   assert.equal(genesis.verticalFloorRange, 1);
 });
 
-test('storm channel resolves one three-second cast into seventeen paid hits', () => {
+test('storm channel resolves one 1.5-second cast into nine paid hits', () => {
   const storm = findSkillByName('실시간 광고 송출');
   const values = resolveSkillValues(storm, storm.maxLevel);
   const cast = resolveSkillCastProfile(values);
   assert.equal(values.mpCost, 9);
-  assert.equal(cast.channelDurationSeconds, 3);
+  assert.equal(cast.channelDurationSeconds, 1.5);
   assert.equal(cast.channelIntervalSeconds, 0.18);
-  assert.equal(cast.hitCount, 17);
-  assert.equal(cast.mpCostMultiplier, 17);
-  assert.equal(cast.lockSeconds, 3);
+  assert.equal(cast.hitCount, 9);
+  assert.equal(cast.mpCostMultiplier, 9);
+  assert.equal(cast.lockSeconds, 1.5);
+  assert.equal(values.projectileSpeedMultiplier, 1.1);
+  assert.equal(values.postCastDelaySeconds, 0.2);
 });
 
 test('all mage teleport variants use the shared teleport runtime effect', () => {

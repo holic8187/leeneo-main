@@ -6,12 +6,17 @@ const {
   DROP_RATE_MIN,
   DROP_RATE_MAX,
   EQUIPMENT_ITEMS,
+  SHIELD_ITEMS,
   BOSS_ENDGAME_WEAPONS,
   getEquipmentSellPrice,
   rollEquipmentInstanceData,
   getEquipmentDropsForMonsterLevel
 } = require('../../src/v2/items/equipmentCatalog');
-const { MONSTER_CATALOG } = require('../../src/v2/world/monsterCatalog');
+const {
+  MONSTER_CATALOG,
+  getPotionDropsForMonsterLevel
+} = require('../../src/v2/world/monsterCatalog');
+const { getItemDefinition } = require('../../src/v2/items/itemCatalog');
 
 test('field equipment drops stay inside the requested probability range and near monster level', () => {
   for (const monster of MONSTER_CATALOG) {
@@ -34,6 +39,35 @@ test('boss endgame weapons never enter the ordinary monster drop pool', () => {
   assert.equal(BOSS_ENDGAME_WEAPONS.length, 15);
   assert.equal(BOSS_ENDGAME_WEAPONS.some((item) => ordinaryIds.has(item.id)), false);
   assert.ok(BOSS_ENDGAME_WEAPONS.every((item) => item.requiredLevel === 100));
+});
+
+test('warrior and mage shields keep source requirements and enter nearby drop pools', () => {
+  assert.ok(SHIELD_ITEMS.some((item) => item.requirements.archetype === 'warrior'));
+  assert.ok(SHIELD_ITEMS.some((item) => item.requirements.archetype === 'mage'));
+  const warriorShield = SHIELD_ITEMS.find((item) => item.id === 'shield_warrior_110');
+  const mageShield = SHIELD_ITEMS.find((item) => item.id === 'shield_mage_64');
+  assert.deepEqual(warriorShield.requirements.stats, { grit: 340 });
+  assert.equal(warriorShield.stats.defense, 78);
+  assert.equal(mageShield.stats.magicDefense, 51);
+  assert.equal(getItemDefinition(mageShield.id).upgradeSlots, 10);
+  assert.ok(SHIELD_ITEMS.every((item) => item.buyPrice === 0));
+  assert.ok(SHIELD_ITEMS.every((item) => item.shopTags.length === 0));
+  assert.ok(SHIELD_ITEMS.every((item) => item.obtainMethods.includes('crafting')));
+  assert.ok(getEquipmentDropsForMonsterLevel(66).some((drop) => drop.itemId === mageShield.id));
+});
+
+test('elixir drop rates follow their level curves without replacing other drop categories', () => {
+  assert.equal(getPotionDropsForMonsterLevel(39).length, 0);
+  assert.equal(getPotionDropsForMonsterLevel(40)[0].chance, 0.001);
+  assert.equal(getPotionDropsForMonsterLevel(59).some((drop) => drop.itemId === 'power_elixir'), false);
+  assert.equal(getPotionDropsForMonsterLevel(60).find((drop) => drop.itemId === 'power_elixir').chance, 0.002);
+  assert.equal(getPotionDropsForMonsterLevel(110).find((drop) => drop.itemId === 'elixir').chance, 0.002);
+  assert.equal(getPotionDropsForMonsterLevel(110).find((drop) => drop.itemId === 'power_elixir').chance, 0.0015);
+  assert.equal(getPotionDropsForMonsterLevel(140).find((drop) => drop.itemId === 'power_elixir').chance, 0.0015);
+  const level62 = MONSTER_CATALOG.find((monster) => monster.level === 62);
+  assert.ok(level62.dropTable.potions.length > 0);
+  assert.ok(level62.dropTable.equipment.length > 0);
+  assert.ok(level62.dropTable.scrolls.length > 0);
 });
 
 test('undead monsters are distributed from level 25 through 140 and are weak to holy', () => {

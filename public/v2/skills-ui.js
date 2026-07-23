@@ -1,6 +1,7 @@
 'use strict';
 
 let selectedSkillPanelTab = 'beginner';
+const skillInvestmentDrafts = new Map();
 
 function buildSkillBody() {
   const tree = state.character?.skillTree;
@@ -14,6 +15,11 @@ function buildSkillBody() {
     const requirement = tree.tierRequirements?.[tier];
     const cards = skills.map((skill) => {
       const registered = preset.has(skill.id);
+      const maximumInvestment = Math.max(1, skill.maxLevel - skill.level);
+      const draftInvestment = Math.max(
+        1,
+        Math.min(maximumInvestment, Number(skillInvestmentDrafts.get(skill.id)) || 1)
+      );
       return `<article class="skill-card ${skill.passive ? 'is-passive' : ''} ${skill.quest ? 'is-quest' : ''}">
         <div class="skill-card-heading">
           <span>${skill.passive ? 'P' : (skill.quest ? 'Q' : 'A')}</span>
@@ -23,7 +29,7 @@ function buildSkillBody() {
         ${skill.range ? `<small>사거리 ${formatNumber(skill.range)}</small>` : ''}
         ${skill.blockReason && skill.level < skill.maxLevel ? `<em>${escapeHtml(skill.blockReason)}</em>` : ''}
         <div class="skill-card-actions">
-          <input data-skill-amount="${escapeHtml(skill.id)}" type="number" min="1" max="${Math.max(1, skill.maxLevel - skill.level)}" value="1" ${skill.canInvest ? '' : 'disabled'}>
+          <input data-skill-amount="${escapeHtml(skill.id)}" type="number" min="1" max="${maximumInvestment}" value="${draftInvestment}" ${skill.canInvest ? '' : 'disabled'}>
           <button data-skill-invest="${escapeHtml(skill.id)}" type="button" ${skill.canInvest ? '' : 'disabled'}>SP 투자</button>
           ${skill.passive || skill.level <= 0 || skill.effect === 'flash-jump' ? '' : `<button class="secondary-action" data-skill-preset="${escapeHtml(skill.id)}" type="button">${registered ? '퀵슬롯 해제' : '퀵슬롯 등록'}</button>`}
           ${skill.effect === 'flash-jump' && skill.level > 0 ? '<small>공중에서 점프 버튼을 다시 누르면 자동으로 발동합니다.</small>' : ''}
@@ -250,6 +256,19 @@ function getNextAutoSkillForCombat() {
   const preset = tree?.activePreset || [];
   if (!preset.length || !state.autoSkillIds.size) return null;
   const definitions = new Map((tree.skills || []).map((skill) => [skill.id, skill]));
+  const preloadedId = String(state.preloadedAutoSkillId || '');
+  state.preloadedAutoSkillId = '';
+  if (preloadedId) {
+    const preloaded = definitions.get(preloadedId);
+    if (
+      preloaded
+      && !preloaded.passive
+      && preloaded.level > 0
+      && state.autoSkillIds.has(preloaded.id)
+      && Number(preloaded.cooldownUntil || 0) <= Date.now()
+      && !hasActiveAutoSkillEffect(preloaded)
+    ) return preloaded;
+  }
   for (let checked = 0; checked < preset.length; checked += 1) {
     const index = state.autoSkillRotationIndex % preset.length;
     state.autoSkillRotationIndex = (index + 1) % preset.length;
@@ -261,6 +280,12 @@ function getNextAutoSkillForCombat() {
     return skill;
   }
   return null;
+}
+
+function preloadNextAutoSkillForCombat() {
+  if (state.preloadedAutoSkillId) return;
+  const nextSkill = getNextAutoSkillForCombat();
+  state.preloadedAutoSkillId = nextSkill?.id || '';
 }
 
 const COMBAT_BUFF_ICONS = Object.freeze({
@@ -561,6 +586,7 @@ async function investActiveSkill(skillId, amount) {
       body: JSON.stringify({ skillId, amount })
     });
     state.character = data.character;
+    skillInvestmentDrafts.delete(skillId);
     renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
     $('featureBody').innerHTML = buildSkillBody();
     bindSkillControls();
@@ -689,6 +715,11 @@ async function useActiveSkill(skillId, options = {}) {
       0,
       Number(skill.values?.channelDurationSeconds) || 0
     );
+    const postCastDelayMs = Math.max(
+      0,
+      Math.min(300, Math.round(Number(skill.values?.postCastDelaySeconds ?? 0.3) * 1000))
+    );
+    state.lastSkillPostCastDelayMs = postCastDelayMs;
     const requestSkillUse = () => request('/api/v2/skills/use', {
       method: 'POST',
       body: JSON.stringify({
@@ -705,6 +736,10 @@ async function useActiveSkill(skillId, options = {}) {
     let data;
     if (channelDurationSeconds > 0 && typeof playChanneledSkillMotion === 'function') {
       data = await requestSkillUse();
+      if (options.automatic && data.character) {
+        state.character = data.character;
+        preloadNextAutoSkillForCombat();
+      }
       await playChanneledSkillMotion(
         data.combat?.channel || {
           durationMs: Math.round(channelDurationSeconds * 1000),
@@ -712,6 +747,7 @@ async function useActiveSkill(skillId, options = {}) {
             Number(skill.values?.channelIntervalSeconds || 0.18) * 1000
           )),
           hitCount: Math.max(1, Number(skill.values?.hits) || 1),
+          projectileSpeedMultiplier: Number(skill.values?.projectileSpeedMultiplier) || 1,
           hitResults: []
         },
         motionKind,
@@ -766,7 +802,7 @@ async function useActiveSkill(skillId, options = {}) {
     window.refreshOpenStatsFeature?.();
     showSkillUseLabel($('fieldCharacter'), data.skill.name);
     setWorldActivity(`${data.skill.name} 사용`);
-    if (!options.automatic) await sleep(300);
+    if (!options.automatic && postCastDelayMs > 0) await sleep(postCastDelayMs);
     return true;
   } catch (err) {
     setWorldActivity(err.message);
@@ -788,6 +824,18 @@ function bindSkillControls() {
     button.addEventListener('click', () => {
       const input = document.querySelector(`[data-skill-amount="${button.dataset.skillInvest}"]`);
       investActiveSkill(button.dataset.skillInvest, input?.value);
+    });
+  });
+  document.querySelectorAll('[data-skill-amount]').forEach((input) => {
+    const rememberDraft = () => {
+      skillInvestmentDrafts.set(input.dataset.skillAmount, input.value);
+    };
+    input.addEventListener('input', rememberDraft);
+    input.addEventListener('focus', rememberDraft);
+    input.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      investActiveSkill(input.dataset.skillAmount, input.value);
     });
   });
   document.querySelectorAll('[data-skill-preset]').forEach((button) => {
