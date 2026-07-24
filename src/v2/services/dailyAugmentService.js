@@ -100,6 +100,28 @@ function orderedCandidateIds(tier, seed) {
     .map((entry) => entry.id);
 }
 
+function rebuildOfferedIds(state, userSeed) {
+  const simulatedOptions = orderedCandidateIds(
+    state.tier,
+    `${state.dateKey}:${userSeed}:initial`
+  ).slice(0, 3);
+  const offeredIds = new Set(simulatedOptions);
+  for (const rawSlot of state.rerolledSlots || []) {
+    const slot = Math.floor(Number(rawSlot));
+    if (slot < 0 || slot > 2) continue;
+    const visibleIds = new Set(simulatedOptions);
+    const replacement = orderedCandidateIds(
+      state.tier,
+      `${state.dateKey}:${userSeed}:reroll:${slot}`
+    ).find((id) => !visibleIds.has(id));
+    if (!replacement) continue;
+    simulatedOptions[slot] = replacement;
+    offeredIds.add(replacement);
+  }
+  for (const id of state.options || []) offeredIds.add(id);
+  return [...offeredIds];
+}
+
 function ensureDailyAugmentState(character, now = new Date()) {
   if (!character.dailyAugment || typeof character.dailyAugment !== 'object') {
     character.dailyAugment = {};
@@ -110,10 +132,12 @@ function ensureDailyAugmentState(character, now = new Date()) {
   const stale = String(character.dailyAugment.dateKey || '') !== dateKey
     || String(character.dailyAugment.tier || '') !== tier;
   if (stale) {
+    const options = orderedCandidateIds(tier, `${dateKey}:${userSeed}:initial`).slice(0, 3);
     character.dailyAugment = {
       dateKey,
       tier,
-      options: orderedCandidateIds(tier, `${dateKey}:${userSeed}:initial`).slice(0, 3),
+      options,
+      offeredIds: [...options],
       rerolledSlots: [],
       selectedId: '',
       selectedAt: null,
@@ -130,6 +154,14 @@ function ensureDailyAugmentState(character, now = new Date()) {
     if (!Array.isArray(character.dailyAugment.rerolledSlots)) {
       character.dailyAugment.rerolledSlots = [];
     }
+    const offeredIds = Array.isArray(character.dailyAugment.offeredIds)
+      && character.dailyAugment.offeredIds.length
+      ? character.dailyAugment.offeredIds
+      : rebuildOfferedIds(character.dailyAugment, userSeed);
+    character.dailyAugment.offeredIds = [...new Set([
+      ...offeredIds,
+      ...character.dailyAugment.options
+    ])];
     if (!character.dailyAugment.counters || typeof character.dailyAugment.counters !== 'object') {
       character.dailyAugment.counters = {};
     }
@@ -171,13 +203,17 @@ function rerollDailyAugment(character, slot, now = new Date()) {
   if (slotIndex < 0 || slotIndex > 2) throw new Error('리롤할 증강 위치가 올바르지 않습니다.');
   if (state.rerolledSlots.includes(slotIndex)) throw new Error('이 선택지는 이미 리롤했습니다.');
   const userSeed = String(character.userId || character._id || character.displayName || 'user');
-  const used = new Set(state.options);
+  const used = new Set([
+    ...(Array.isArray(state.offeredIds) ? state.offeredIds : []),
+    ...state.options
+  ]);
   const candidates = orderedCandidateIds(
     state.tier,
     `${state.dateKey}:${userSeed}:reroll:${slotIndex}`
   ).filter((id) => !used.has(id));
   if (!candidates.length) throw new Error('교체할 수 있는 증강이 없습니다.');
   state.options[slotIndex] = candidates[0];
+  state.offeredIds = [...used, candidates[0]];
   state.rerolledSlots.push(slotIndex);
   if (typeof character.markModified === 'function') character.markModified('dailyAugment');
   return state;

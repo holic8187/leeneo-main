@@ -57,6 +57,38 @@ test('each daily candidate slot can be rerolled once and selection is final for 
   assert.throws(() => rerollDailyAugment(character, 0, now));
 });
 
+test('rerolls never offer an augment that appeared in an earlier slot', () => {
+  const now = new Date('2026-07-24T03:00:00.000Z');
+  const character = characterFixture('no-repeat-reroll');
+  const state = ensureDailyAugmentState(character, now);
+  const offered = new Set(state.options);
+
+  rerollDailyAugment(character, 0, now);
+  const firstReplacement = character.dailyAugment.options[0];
+  assert.equal(offered.has(firstReplacement), false);
+  offered.add(firstReplacement);
+
+  rerollDailyAugment(character, 2, now);
+  const secondReplacement = character.dailyAugment.options[2];
+  assert.equal(offered.has(secondReplacement), false);
+  offered.add(secondReplacement);
+  assert.deepEqual(new Set(character.dailyAugment.offeredIds), offered);
+});
+
+test('legacy reroll state restores candidates that disappeared before the history field existed', () => {
+  const now = new Date('2026-07-24T03:00:00.000Z');
+  const character = characterFixture('legacy-reroll-history');
+  const state = ensureDailyAugmentState(character, now);
+  const original = [...state.options];
+
+  rerollDailyAugment(character, 0, now);
+  delete character.dailyAugment.offeredIds;
+  const repaired = ensureDailyAugmentState(character, now);
+
+  assert.ok(original.every((id) => repaired.offeredIds.includes(id)));
+  assert.ok(repaired.options.every((id) => repaired.offeredIds.includes(id)));
+});
+
 test('daily state, rerolls, and selection reset after Korea midnight', () => {
   const beforeMidnight = new Date('2026-07-24T14:59:00.000Z');
   const afterMidnight = new Date('2026-07-24T15:01:00.000Z');
@@ -70,6 +102,7 @@ test('daily state, rerolls, and selection reset after Korea midnight', () => {
   assert.deepEqual(state.rerolledSlots, []);
   assert.deepEqual(state.counters, {});
   assert.equal(state.options.length, 3);
+  assert.deepEqual(state.offeredIds, state.options);
 });
 
 test('augment effects expose the requested static, low-HP, party, and night values', () => {

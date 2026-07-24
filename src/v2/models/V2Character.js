@@ -117,6 +117,7 @@ const v2CharacterSchema = new mongoose.Schema({
     dateKey: { type: String, default: '' },
     tier: { type: String, default: '' },
     options: { type: [String], default: [] },
+    offeredIds: { type: [String], default: [] },
     rerolledSlots: { type: [Number], default: [] },
     selectedId: { type: String, default: '' },
     selectedAt: { type: Date, default: null },
