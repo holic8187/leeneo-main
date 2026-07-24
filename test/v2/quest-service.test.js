@@ -226,3 +226,25 @@ test('skill-use quests accept canonical and requested skill ids as one use', () 
   const quest = buildQuestJournal(character).active[0];
   assert.equal(quest.objectives[0].progress, 1);
 });
+
+test('blocked-it mastery quest advances from actual shield blocks', () => {
+  const character = characterFixture();
+  character.job = { departmentId: 'field_operations', advancementTier: 4 };
+  character.skills = {
+    levels: { blocked_it: 10 }, activePreset: [], autoPreset: [],
+    unlockedQuestSkills: [], unlockProgress: {}, unlockMigrationVersion: 0,
+    activeBuffs: [], cooldowns: {}, summon: null, comboCount: 0
+  };
+  character.quests.completedIds.push('skill_field_blocked_10');
+  acceptQuest(character, 'skill_field_blocked_20');
+
+  recordQuestEvent(character, { type: 'block', amount: 99 });
+  let quest = buildQuestJournal(character).active[0];
+  assert.equal(quest.objectives[0].progress, 99);
+  assert.equal(quest.status, 'active');
+
+  recordQuestEvent(character, { type: 'block', amount: 1 });
+  quest = buildQuestJournal(character).active[0];
+  assert.equal(quest.objectives[0].progress, 100);
+  assert.equal(quest.status, 'ready');
+});

@@ -843,9 +843,17 @@ function applyContactDamage(runtime, now) {
     const blocked = !dodged
       && Math.random() * 100 < Number(player.combatProfile.blockChance || 0);
     const reduction = Math.max(0, Math.min(95, Number(player.combatProfile.damageReductionPercent) || 0));
+    const damageTakenIncrease = Math.max(
+      0,
+      Number(player.combatProfile.damageTakenIncreasePercent) || 0
+    );
     const incomingDamage = blocked || dodged
       ? 0
-      : Math.max(1, Math.floor(calculation.damage * (1 - reduction / 100)));
+      : Math.max(1, Math.floor(
+        calculation.damage
+          * (1 - reduction / 100)
+          * (1 + damageTakenIncrease / 100)
+      ));
     const damageSplit = splitDamageWithMpGuard(incomingDamage, {
       currentMp: player.currentMp,
       guardPercent: player.combatProfile.mpDamageGuardPercent
@@ -861,8 +869,14 @@ function applyContactDamage(runtime, now) {
       const knockbackDirection = Math.abs(relativeContactX) > 0.01
         ? Math.sign(relativeContactX)
         : (player.facingLeft ? 1 : -1);
+      const knockbackDistance = PLAYER_CONTACT_KNOCKBACK_DISTANCE * (
+        1 - Math.max(
+          0,
+          Math.min(95, Number(player.combatProfile.knockbackReductionPercent) || 0)
+        ) / 100
+      );
       player.x = clamp(
-        player.x + knockbackDirection * PLAYER_CONTACT_KNOCKBACK_DISTANCE,
+        player.x + knockbackDirection * knockbackDistance,
         0,
         94
       );
@@ -963,7 +977,19 @@ function applyFieldBossMechanics(runtime, now) {
         ));
         const target = pickRandom(targets);
         if (target) {
-          const damage = Math.max(1, Math.floor(Number(definition.rangedDamage) || 1));
+          const reduction = Math.max(
+            0,
+            Math.min(95, Number(target.combatProfile?.damageReductionPercent) || 0)
+          );
+          const damageTakenIncrease = Math.max(
+            0,
+            Number(target.combatProfile?.damageTakenIncreasePercent) || 0
+          );
+          const damage = Math.max(1, Math.floor(
+            (Number(definition.rangedDamage) || 1)
+              * (1 - reduction / 100)
+              * (1 + damageTakenIncrease / 100)
+          ));
           const damageSplit = splitDamageWithMpGuard(damage, {
             currentMp: target.currentMp,
             guardPercent: target.combatProfile?.mpDamageGuardPercent
@@ -1199,6 +1225,10 @@ function updatePresence({
   magicDefense,
   archetype,
   damageReductionPercent,
+  damageTakenIncreasePercent,
+  knockbackReductionPercent,
+  chainChance,
+  chainDamagePercent,
   dodgeChance,
   blockChance,
   stanceChance,
@@ -1335,6 +1365,31 @@ function updatePresence({
       damageReductionPercent: Math.max(
         0,
         Number(damageReductionPercent ?? previous?.combatProfile?.damageReductionPercent) || 0
+      ),
+      damageTakenIncreasePercent: Math.max(
+        0,
+        Number(
+          damageTakenIncreasePercent
+          ?? previous?.combatProfile?.damageTakenIncreasePercent
+        ) || 0
+      ),
+      knockbackReductionPercent: Math.max(
+        0,
+        Math.min(
+          95,
+          Number(
+            knockbackReductionPercent
+            ?? previous?.combatProfile?.knockbackReductionPercent
+          ) || 0
+        )
+      ),
+      chainChance: Math.max(
+        0,
+        Math.min(100, Number(chainChance ?? previous?.combatProfile?.chainChance) || 0)
+      ),
+      chainDamagePercent: Math.max(
+        0,
+        Number(chainDamagePercent ?? previous?.combatProfile?.chainDamagePercent) || 0
       ),
       dodgeChance: Math.max(
         0,
@@ -1679,6 +1734,30 @@ function attackMonster({
       runtime.groundLoot.push(...drops);
     }
   }
+  const primaryOutcome = {
+    monsterId: monster.id,
+    speciesId: monster.speciesId,
+    damage: finalDamage,
+    missed: false,
+    hitChance,
+    knockedBack,
+    defeated,
+    monsterLevel: monster.level,
+    expReward: defeated && !fieldBossReward ? monster.expReward : 0,
+    mpAbsorbed,
+    monster: defeated ? null : serializeMonster(monster)
+  };
+  const chained = applyAugmentChainAttack({
+    runtime,
+    player,
+    sourceMonster: monster,
+    userId: userKey,
+    sourceDamage: finalDamage,
+    mapId,
+    now
+  });
+  if (chained) drops.push(...chained.drops);
+  const outcomes = chained ? [primaryOutcome, chained.outcome] : [primaryOutcome];
   return {
     success: true,
     targetId: monster.id,
@@ -1693,10 +1772,12 @@ function attackMonster({
     knockedBack,
     defeated,
     monsterLevel: monster.level,
-    expReward: defeated && !fieldBossReward ? monster.expReward : 0,
+    expReward: outcomes.reduce((sum, outcome) => sum + Number(outcome.expReward || 0), 0),
     fieldBossReward,
     mpAbsorbed,
     drops: drops.map(serializeLoot),
+    outcomes,
+    chainOutcome: chained?.outcome || null,
     monster: defeated ? null : serializeMonster(monster),
     players: Array.from(runtime.players.values()).map((player) => serializePlayer(player, now)),
     monsters: runtime.monsters.filter((entry) => entry.hp > 0).map(serializeMonster)
@@ -1717,6 +1798,91 @@ function queueMonsterDrops(runtime, monster, userId, now) {
   }));
   runtime.groundLoot.push(...drops);
   return drops;
+}
+
+function applyAugmentChainAttack({
+  runtime,
+  player,
+  sourceMonster,
+  userId,
+  sourceDamage,
+  mapId,
+  now = Date.now()
+} = {}) {
+  const chance = Math.max(0, Math.min(100, Number(player?.combatProfile?.chainChance) || 0));
+  const damagePercent = Math.max(0, Number(player?.combatProfile?.chainDamagePercent) || 0);
+  if (
+    !runtime
+    || !player
+    || !sourceMonster
+    || chance <= 0
+    || damagePercent <= 0
+    || Math.random() * 100 >= chance
+  ) return null;
+  const sourceOffset = Number(sourceMonster.x) - Number(player.x);
+  const direction = sourceOffset === 0 ? (player.facingLeft ? -1 : 1) : Math.sign(sourceOffset);
+  const nextMonster = runtime.monsters
+    .filter((monster) => {
+      if (
+        monster.id === sourceMonster.id
+        || monster.hp <= 0
+        || monster.fieldBoss
+        || Number(monster.floor) !== Number(sourceMonster.floor)
+      ) return false;
+      const behindDistance = (Number(monster.x) - Number(sourceMonster.x)) * direction;
+      return behindDistance > 0.05 && behindDistance <= 42;
+    })
+    .sort((left, right) => (
+      Math.abs(Number(left.x) - Number(sourceMonster.x))
+      - Math.abs(Number(right.x) - Number(sourceMonster.x))
+    ))[0];
+  if (!nextMonster) return null;
+
+  const damage = Math.max(1, Math.floor(
+    Math.max(1, Number(sourceDamage) || 1) * damagePercent / 100
+  ));
+  recordMonsterContribution(nextMonster, userId, damage);
+  nextMonster.hp = Math.max(0, Number(nextMonster.hp) - damage);
+  nextMonster.aggroTargetId = String(userId);
+  nextMonster.state = nextMonster.hp > 0 ? 'chase' : 'defeated';
+  const knockedBack = nextMonster.hp > 0
+    ? applyHeavyHitKnockback(nextMonster, player, damage)
+    : false;
+  const defeated = nextMonster.hp <= 0;
+  const drops = defeated
+    ? queueMonsterDrops(runtime, nextMonster, userId, now)
+    : [];
+  return {
+    outcome: {
+      monsterId: nextMonster.id,
+      speciesId: nextMonster.speciesId,
+      damage,
+      missed: false,
+      hitChance: 1,
+      knockedBack,
+      defeated,
+      monsterLevel: nextMonster.level,
+      expReward: defeated ? nextMonster.expReward : 0,
+      mpAbsorbed: 0,
+      chained: true,
+      chainDamagePercent: damagePercent,
+      hitResults: [{
+        monsterId: nextMonster.id,
+        hitIndex: 0,
+        damage,
+        critical: false,
+        missed: false,
+        remainingHp: nextMonster.hp,
+        maxHp: nextMonster.maxHp,
+        defeated,
+        chained: true
+      }],
+      targetX: Number(nextMonster.x),
+      targetFloor: Number(nextMonster.floor) || 0,
+      monster: defeated ? null : serializeMonster(nextMonster)
+    },
+    drops
+  };
 }
 
 function useSkillOnMonsters(options = {}) {
@@ -2144,6 +2310,21 @@ function useSkillOnMonsters(options = {}) {
       monster: defeated ? null : serializeMonster(monster)
     });
   }
+  if (targetLimit === 1 && outcomes.length === 1 && Number(outcomes[0]?.damage) > 0) {
+    const chained = applyAugmentChainAttack({
+      runtime,
+      player,
+      sourceMonster: candidates[0],
+      userId: userKey,
+      sourceDamage: outcomes[0].damage,
+      mapId,
+      now
+    });
+    if (chained) {
+      outcomes.push(chained.outcome);
+      drops.push(...chained.drops);
+    }
+  }
   return {
     success: true,
     outcomes,
@@ -2178,6 +2359,40 @@ function updatePlayerResources(userId, resources = {}) {
       player.maxMp = Math.max(0, Number(resources.maxMp));
     }
   }
+}
+
+function setPlayerInvulnerability(userId, mapId, until) {
+  const runtime = activeMaps.get(String(mapId || ''));
+  const player = runtime?.players.get(String(userId || ''));
+  if (!player) return false;
+  player.invulnerableUntil = Math.max(
+    Number(player.invulnerableUntil) || 0,
+    Number(until) || 0
+  );
+  return true;
+}
+
+function spawnBonusMonster({
+  mapId,
+  ownerId = '',
+  expMultiplier = 7,
+  now = Date.now()
+} = {}) {
+  const runtime = activeMaps.get(String(mapId || ''));
+  const map = getWorldMap(String(mapId || ''));
+  if (!runtime || !map || map.safeZone || map.fieldBossId) return null;
+  const monster = createMonster(map, runtime.spawnSequence, now);
+  runtime.spawnSequence += 1;
+  monster.name = `보너스 ${monster.name}`;
+  monster.icon = '🎁';
+  monster.expReward = Math.max(
+    1,
+    Math.floor(Number(monster.expReward) * Math.max(1, Number(expMultiplier) || 1))
+  );
+  monster.bonusMonster = true;
+  monster.bonusOwnerId = String(ownerId || '');
+  runtime.monsters.push(monster);
+  return serializeMonster(monster);
 }
 
 function setPlayerStealth(userId, mapId, stealth) {
@@ -2270,6 +2485,8 @@ module.exports = {
   isPlayerSilenced,
   clearPlayerNegativeStatus,
   updatePlayerResources,
+  setPlayerInvulnerability,
+  spawnBonusMonster,
   setPlayerStealth,
   recordSkillUse,
   listActivePlayers,

@@ -614,6 +614,12 @@ function upsertActiveBuff(character, buff = {}, now = Date.now()) {
     skillId,
     name: String(buff.name || SKILL_DEFINITIONS[skillId]?.name || '버프'),
     effects: { ...(buff.effects || {}) },
+    ...(buff.element ? { element: String(buff.element) } : {}),
+    ...(buff.icon ? { icon: String(buff.icon) } : {}),
+    ...(buff.description ? { description: String(buff.description) } : {}),
+    ...(buff.metadata && typeof buff.metadata === 'object'
+      ? { metadata: { ...buff.metadata } }
+      : {}),
     createdAt: new Date(createdAtMs),
     expiresAt: expiresAtMs > 0 ? new Date(expiresAtMs) : null
   };
@@ -896,9 +902,17 @@ function buildSkillTree(character) {
     return {
       skillId: String(buff.skillId || ''),
       name: String(buff.name || definition?.name || '버프'),
-      description: definition
-        ? describeSkill(definition, values)
-        : '현재 캐릭터에게 적용 중인 버프입니다.',
+      description: String(
+        buff.description
+        || (definition
+          ? describeSkill(definition, values)
+          : '현재 캐릭터에게 적용 중인 버프입니다.')
+      ),
+      ...(buff.icon ? { icon: String(buff.icon) } : {}),
+      ...(buff.element ? { element: String(buff.element) } : {}),
+      ...(buff.metadata && typeof buff.metadata === 'object'
+        ? { metadata: { ...buff.metadata } }
+        : {}),
       effects: { ...(buff.effects || {}) },
       createdAt,
       expiresAt,

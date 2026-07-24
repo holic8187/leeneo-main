@@ -113,6 +113,15 @@ const v2CharacterSchema = new mongoose.Schema({
   specialActions: {
     shoutLastUsedAt: { type: Date, default: null }
   },
+  dailyAugment: {
+    dateKey: { type: String, default: '' },
+    tier: { type: String, default: '' },
+    options: { type: [String], default: [] },
+    rerolledSlots: { type: [Number], default: [] },
+    selectedId: { type: String, default: '' },
+    selectedAt: { type: Date, default: null },
+    counters: { type: mongoose.Schema.Types.Mixed, default: {} }
+  },
   worldState: {
     mapId: { type: String, default: 'main_lobby' },
     x: { type: Number, default: 8, min: 0, max: 94 },
@@ -129,6 +138,7 @@ const v2CharacterSchema = new mongoose.Schema({
     subscriptionExpiresAt: { type: Date, default: null },
     subscriptionLastGrantDate: { type: String, default: '' },
     subscriptionGrantCount: { type: Number, default: 0, min: 0, max: 30 },
+    consumptionRemainder: { type: Number, default: 0, min: 0, max: 1 },
     offlineSummary: { type: mongoose.Schema.Types.Mixed, default: null }
   },
   economy: {

@@ -159,7 +159,9 @@ const state = {
   offlineSummaryKey: '',
   offlineSummaryAcknowledgedKey: '',
   offlineSummaryRetryTimer: null,
-  offlineSummaryAcknowledging: false
+  offlineSummaryAcknowledging: false,
+  dailyAugmentBusy: false,
+  dailyAugmentOpen: false
 };
 sessionStorage.setItem('v2WorldClientId', state.worldClientId);
 
@@ -234,6 +236,134 @@ function setExperience(progression = {}) {
   $('expBar').style.width = `${percentage}%`;
 }
 
+const DAILY_AUGMENT_TIER_META = Object.freeze({
+  silver: { label: 'SILVER AUGMENT', korean: '실버 증강' },
+  gold: { label: 'GOLD AUGMENT', korean: '골드 증강' },
+  prism: { label: 'PRISM AUGMENT', korean: '프리즘 증강' }
+});
+
+function closeDailyAugmentOverlay() {
+  const overlay = $('dailyAugmentOverlay');
+  if (!overlay) return;
+  overlay.classList.add('hidden');
+  overlay.classList.remove('is-resolving');
+  document.body.classList.remove('augment-selection-open');
+  state.dailyAugmentOpen = false;
+}
+
+function dailyAugmentCardBody(option = {}, tier = 'silver') {
+  const rerollLabel = option.rerolled ? '리롤 사용 완료' : '이 카드만 다시 뽑기';
+  return `<article class="daily-augment-card tier-${escapeHtml(tier)}" data-augment-card="${escapeHtml(option.id)}">
+    <button class="daily-augment-select" type="button" data-select-daily-augment="${escapeHtml(option.id)}">
+      <span class="daily-augment-card-index">0${Number(option.slot || 0) + 1}</span>
+      <span class="daily-augment-card-icon" aria-hidden="true">${escapeHtml(option.icon || '✦')}</span>
+      <small>${escapeHtml(DAILY_AUGMENT_TIER_META[tier]?.korean || '오늘의 증강')}</small>
+      <strong>${escapeHtml(option.name || '증강')}</strong>
+      <p>${escapeHtml(option.description || '')}</p>
+      <b>이 증강 선택</b>
+    </button>
+    <button class="daily-augment-reroll" type="button" data-reroll-daily-augment="${Number(option.slot || 0)}"
+      ${option.rerolled ? 'disabled' : ''}>↻ ${rerollLabel}</button>
+  </article>`;
+}
+
+function bindDailyAugmentControls() {
+  document.querySelectorAll('[data-select-daily-augment]').forEach((button) => {
+    button.addEventListener('click', () => selectDailyAugmentChoice(button.dataset.selectDailyAugment));
+  });
+  document.querySelectorAll('[data-reroll-daily-augment]').forEach((button) => {
+    button.addEventListener('click', () => rerollDailyAugmentChoice(Number(button.dataset.rerollDailyAugment)));
+  });
+}
+
+function renderDailyAugmentOverlay(view = state.character?.dailyAugment) {
+  const overlay = $('dailyAugmentOverlay');
+  if (!overlay) return;
+  if (!view?.selectionRequired || view?.selected) {
+    closeDailyAugmentOverlay();
+    return;
+  }
+  const tier = String(view.tier || 'silver');
+  const tierMeta = DAILY_AUGMENT_TIER_META[tier] || DAILY_AUGMENT_TIER_META.silver;
+  overlay.dataset.tier = tier;
+  $('dailyAugmentTier').textContent = `${tierMeta.label} / ${tierMeta.korean}`;
+  $('dailyAugmentCards').innerHTML = (view.options || [])
+    .map((option) => dailyAugmentCardBody(option, tier))
+    .join('');
+  $('dailyAugmentStatus').textContent = '';
+  overlay.classList.remove('hidden', 'is-resolving');
+  document.body.classList.add('augment-selection-open');
+  state.dailyAugmentOpen = true;
+  bindDailyAugmentControls();
+}
+
+function maybeShowDailyAugment() {
+  const view = state.character?.dailyAugment;
+  if (!view?.selectionRequired || view?.selected) {
+    closeDailyAugmentOverlay();
+    return;
+  }
+  renderDailyAugmentOverlay(view);
+}
+
+async function rerollDailyAugmentChoice(slot) {
+  if (state.dailyAugmentBusy) return;
+  state.dailyAugmentBusy = true;
+  const status = $('dailyAugmentStatus');
+  try {
+    if (status) status.textContent = `${slot + 1}번 증강을 다시 뽑는 중입니다.`;
+    const data = await request('/api/v2/daily-augment/reroll', {
+      method: 'POST',
+      body: JSON.stringify({ slot })
+    });
+    state.character = data.character;
+    renderDailyAugmentOverlay(data.dailyAugment || data.character?.dailyAugment);
+    const card = document.querySelector(`[data-augment-card="${CSS.escape(
+      data.dailyAugment?.options?.[slot]?.id || ''
+    )}"]`);
+    if (card) card.classList.add('is-rerolled');
+  } catch (err) {
+    if (status) status.textContent = err.message;
+  } finally {
+    state.dailyAugmentBusy = false;
+  }
+}
+
+async function selectDailyAugmentChoice(augmentId) {
+  if (state.dailyAugmentBusy) return;
+  state.dailyAugmentBusy = true;
+  const overlay = $('dailyAugmentOverlay');
+  const selectedCard = document.querySelector(`[data-augment-card="${CSS.escape(augmentId)}"]`);
+  const status = $('dailyAugmentStatus');
+  overlay?.classList.add('is-resolving');
+  selectedCard?.classList.add('is-selected');
+  document.querySelectorAll('[data-augment-card]').forEach((card) => {
+    if (card !== selectedCard) card.classList.add('is-dismissed');
+  });
+  if (status) status.textContent = '오늘의 증강을 적용하고 있습니다.';
+  try {
+    const data = await request('/api/v2/daily-augment/select', {
+      method: 'POST',
+      body: JSON.stringify({ augmentId })
+    });
+    await new Promise((resolve) => setTimeout(resolve, 720));
+    closeDailyAugmentOverlay();
+    renderGame({
+      preview: state.preview,
+      character: data.character,
+      displayName: state.displayName
+    });
+    setWorldActivity(`${data.dailyAugment?.selected?.name || '오늘의 증강'} 효과가 적용되었습니다.`);
+  } catch (err) {
+    overlay?.classList.remove('is-resolving');
+    selectedCard?.classList.remove('is-selected');
+    document.querySelectorAll('[data-augment-card]').forEach((card) => card.classList.remove('is-dismissed'));
+    if (status) status.textContent = err.message;
+  } finally {
+    state.dailyAugmentBusy = false;
+  }
+}
+
 function renderGame(data) {
   state.preview = data.preview;
   state.character = data.character;
@@ -290,6 +420,7 @@ function renderGame(data) {
     $('questButtonTitle').textContent = `${quest.targetTier}차 전직 가능`;
     $('questButtonMeta').textContent = `Lv.${quest.requiredLevel} · ${quest.nextJobName}`;
   }
+  queueMicrotask(maybeShowDailyAugment);
 }
 
 async function loadMeta() {
@@ -1442,10 +1573,10 @@ function playSkillChargeEffect(skill = {}, durationMs = 1500) {
   setTimeout(() => charge.remove(), Math.max(1, durationMs) + 250);
 }
 
-function playProgressivePiercingVisual(skill = {}, combat = {}) {
+function playProgressivePiercingVisual(skill = {}, combat = {}, { onImpact = null } = {}) {
   const stage = $('worldStage');
   const caster = $('fieldCharacter');
-  if (!stage || !caster) return;
+  if (!stage || !caster) return Promise.resolve();
   const stageRect = stage.getBoundingClientRect();
   const casterRect = caster.getBoundingClientRect();
   const sourceX = casterRect.left - stageRect.left + casterRect.width / 2;
@@ -1474,13 +1605,19 @@ function playProgressivePiercingVisual(skill = {}, combat = {}) {
           : Math.max(24, stageRect.height - 48)
       };
     });
-  if (!targets.length) return;
+  if (!targets.length) return Promise.resolve();
 
   const attackSpeed = Math.max(.5, getAttackSpeedMultiplier());
   const alreadyCharged = Number(skill.values?.preCastDelaySeconds) > 0;
   const chargeDuration = alreadyCharged ? 0 : Math.max(120, Math.round(260 / attackSpeed));
-  const flightDuration = Math.max(260, Math.round(620 / attackSpeed));
-  const endpoint = targets.at(-1);
+  const flightDuration = Math.max(130, Math.round(310 / attackSpeed));
+  const lastTarget = targets.at(-1);
+  const direction = Math.sign(lastTarget.x - sourceX)
+    || (caster.classList.contains('facing-left') ? -1 : 1);
+  const endpoint = {
+    x: Math.max(8, Math.min(stageRect.width - 8, lastTarget.x + direction * 72)),
+    y: lastTarget.y
+  };
   const travelX = endpoint.x - sourceX;
   const travelY = endpoint.y - sourceY;
   const angle = Math.atan2(travelY, travelX);
@@ -1521,14 +1658,16 @@ function playProgressivePiercingVisual(skill = {}, combat = {}) {
       impact.dataset.piercingStep = String(index + 1);
       impact.title = `${skill.name || '누적 관통결산'} ${Number(outcome.piercingDamagePercent) || 0}%`;
       stage.appendChild(impact);
+      if (typeof onImpact === 'function') onImpact(outcome, index);
       impact.addEventListener('animationend', () => impact.remove(), { once: true });
       setTimeout(() => impact.remove(), 700);
     }, impactDelay);
   });
 
-  const cleanupDelay = chargeDuration + flightDuration + 500;
+  const cleanupDelay = chargeDuration + flightDuration + 40;
   setTimeout(() => charge?.remove(), cleanupDelay);
   setTimeout(() => projectile.remove(), cleanupDelay);
+  return new Promise((resolve) => setTimeout(resolve, cleanupDelay));
 }
 
 function playSkillVisualEffect(skill = {}, combat = {}) {

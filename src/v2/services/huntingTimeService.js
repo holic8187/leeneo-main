@@ -2,6 +2,11 @@
 
 const { randomUUID } = require('node:crypto');
 const { createAdminMail } = require('./inventoryService');
+const {
+  getDailyAugmentEffects,
+  hasDailyAugment,
+  updateDailyAugmentCounters
+} = require('./dailyAugmentService');
 
 const MAX_HUNTING_SECONDS = 400 * 60;
 const ABSOLUTE_MAX_HUNTING_SECONDS = 800 * 60;
@@ -76,6 +81,10 @@ function ensureHuntingState(character) {
   );
   character.huntingTime.enabled = Boolean(character.huntingTime.enabled);
   character.huntingTime.lastDailyGrantDate = String(character.huntingTime.lastDailyGrantDate || '');
+  character.huntingTime.consumptionRemainder = Math.max(
+    0,
+    Math.min(0.999999, Number(character.huntingTime.consumptionRemainder) || 0)
+  );
   return character.huntingTime;
 }
 
@@ -112,9 +121,29 @@ function tickHuntingTime(character, active, now = Date.now()) {
   const state = ensureHuntingState(character);
   const last = state.lastTickAt ? new Date(state.lastTickAt).getTime() : now;
   if (state.enabled && active && state.remainingSeconds > 0) {
+    let elapsedSeconds = Math.max(0, Math.floor((now - last) / 1000));
+    if (elapsedSeconds > 0 && hasDailyAugment(character, 'automation_revolution', new Date(now))) {
+      updateDailyAugmentCounters(character, (counters) => {
+        const freeSeconds = Math.max(0, Number(counters.freeHuntingSeconds) || 0);
+        const waivedSeconds = Math.min(freeSeconds, elapsedSeconds);
+        counters.freeHuntingSeconds = freeSeconds - waivedSeconds;
+        elapsedSeconds -= waivedSeconds;
+      });
+    }
+    const reduction = Math.max(
+      0,
+      Math.min(
+        99,
+        Number(getDailyAugmentEffects(character, {}, new Date(now)).huntingTimeReductionPercent) || 0
+      )
+    );
+    const preciseConsumption = elapsedSeconds * (1 - reduction / 100)
+      + Math.max(0, Number(state.consumptionRemainder) || 0);
+    const consumedSeconds = Math.floor(preciseConsumption);
+    state.consumptionRemainder = preciseConsumption - consumedSeconds;
     state.remainingSeconds = Math.max(
       0,
-      state.remainingSeconds - Math.max(0, Math.floor((now - last) / 1000))
+      state.remainingSeconds - consumedSeconds
     );
   }
   if (state.remainingSeconds <= 0) state.enabled = false;
@@ -157,6 +186,7 @@ function serializeHuntingTime(character) {
     remainingSeconds: state.remainingSeconds,
     maximumSeconds: state.maximumSeconds,
     enabled: state.enabled,
+    consumptionRemainder: state.consumptionRemainder,
     offlineSummary: state.offlineSummary || null
   };
 }

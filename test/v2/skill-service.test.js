@@ -100,6 +100,42 @@ test('salary lupin and the double experience coupon coexist at 2.2x experience',
   ]);
 });
 
+test('holy weapon enchantment retains its element through buff serialization', () => {
+  const now = Date.now();
+  const character = makeCharacter({
+    job: { departmentId: 'field_operations', advancementTier: 4 },
+    skills: {
+      levels: { element_holy: 20 },
+      activePreset: [],
+      autoPreset: [],
+      unlockedQuestSkills: ['element_holy'],
+      activeBuffs: [],
+      cooldowns: {},
+      summon: null,
+      comboCount: 0
+    }
+  });
+
+  upsertActiveBuff(character, {
+    skillId: 'element_holy',
+    name: SKILL_DEFINITIONS.element_holy.name,
+    element: 'holy',
+    effects: {
+      weaponElement: 'holy',
+      damageIncreasePercent: 50
+    },
+    durationSeconds: 300
+  }, now);
+
+  const buff = buildSkillTree(character).activeBuffs.find(
+    (entry) => entry.skillId === 'element_holy'
+  );
+  assert.equal(buff.element, 'holy');
+  assert.equal(buff.effects.weaponElement, 'holy');
+  assert.equal(buff.effects.damageIncreasePercent, 50);
+  assert.ok(buff.expiresAt > now);
+});
+
 test('generated support skills retain fixed durations and specialized effects', () => {
   const holySymbol = findSkillByName('성과 지원');
   const focus = findSkillByName('업무 집중');

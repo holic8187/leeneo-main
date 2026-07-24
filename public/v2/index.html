@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>호이상사 V2</title>
-  <link rel="stylesheet" href="/v2/styles.css?v=29">
+  <link rel="stylesheet" href="/v2/styles.css?v=30">
 </head>
 <body>
   <div class="blueprint-grid" aria-hidden="true"></div>
@@ -295,6 +295,20 @@
     </section>
   </main>
 
+  <div id="dailyAugmentOverlay" class="daily-augment-overlay hidden" role="dialog" aria-modal="true"
+    aria-labelledby="dailyAugmentTitle">
+    <div class="daily-augment-scrim" aria-hidden="true"></div>
+    <section class="daily-augment-stage">
+      <header class="daily-augment-heading">
+        <p id="dailyAugmentTier" class="section-number">TODAY'S AUGMENT</p>
+        <h2 id="dailyAugmentTitle">오늘의 증강을 선택하세요</h2>
+        <p>세 장 중 하나를 선택하면 오늘 자정까지 효과가 유지됩니다. 각 자리는 한 번씩 다시 뽑을 수 있습니다.</p>
+      </header>
+      <div id="dailyAugmentCards" class="daily-augment-cards"></div>
+      <p id="dailyAugmentStatus" class="daily-augment-status" role="status" aria-live="polite"></p>
+    </section>
+  </div>
+
   <div id="signupModal" class="site-modal hidden" role="dialog" aria-modal="true" aria-labelledby="signupTitle">
     <div class="modal-scrim" data-close-signup></div>
     <section class="modal-sheet signup-sheet">
@@ -349,7 +363,7 @@
     </section>
   </div>
 
-  <script src="/v2/skills-ui.js?v=31"></script>
-  <script src="/v2/app.js?v=41"></script>
+  <script src="/v2/skills-ui.js?v=33"></script>
+  <script src="/v2/app.js?v=43"></script>
 </body>
 </html>

@@ -129,14 +129,20 @@ function getEquipmentSellPrice(level, slot = 'weapon') {
   );
 }
 
-function rollEquipmentInstanceData(item, random = Math.random) {
+function rollEquipmentInstanceData(item, random = Math.random, options = {}) {
   const baseStats = item?.stats && typeof item.stats === 'object' ? item.stats : {};
   const stats = {};
   const rolls = {};
+  const requestedMinimum = Number(options.minimumVariation);
+  const minimumVariation = Math.max(-5, Math.min(
+    5,
+    Math.floor(Number.isFinite(requestedMinimum) ? requestedMinimum : -5)
+  ));
+  const variationRange = 5 - minimumVariation + 1;
   for (const [stat, rawValue] of Object.entries(baseStats)) {
     const value = Number(rawValue);
     if (!Number.isFinite(value)) continue;
-    const variation = Math.floor(random() * 11) - 5;
+    const variation = minimumVariation + Math.floor(random() * variationRange);
     rolls[stat] = variation;
     stats[stat] = value > 0
       ? Math.max(1, Math.round(value + variation))

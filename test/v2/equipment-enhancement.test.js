@@ -86,6 +86,29 @@ test('a failed scroll consumes the scroll and one upgrade slot without adding st
   assert.match(result.message, /아무런 변화도 일어나지 않았습니다/);
 });
 
+test('Hoi tax invoice preserves one upgrade slot when a scroll fails', () => {
+  const scroll = EQUIPMENT_SCROLLS.find(
+    (entry) => entry.successRate === 10 && entry.applicableWeaponType === 'oneHandedSword'
+  );
+  const character = makeCharacter(scroll.id);
+  const result = enhanceEquippedItem(
+    character,
+    'weapon',
+    'scroll-stack',
+    () => 0.99,
+    { preserveUpgradeOnFailure: true }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.preservedUpgradeSlot, true);
+  assert.equal(result.enhancement.remaining, 7);
+  assert.equal(character.inventory.items[0].quantity, 1);
+  assert.equal(
+    normalizeEnhancement(character.loadout.weapon).history[0].preservedUpgradeSlot,
+    true
+  );
+});
+
 test('upgrade slot defaults match equipment categories', () => {
   assert.equal(getItemDefinition('drop_oneHandedSword_10').upgradeSlots, 7);
   assert.equal(getItemDefinition('drop_warrior_helmet_20').upgradeSlots, 10);

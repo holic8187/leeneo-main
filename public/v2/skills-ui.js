@@ -464,7 +464,7 @@ function renderCombatBuffTray() {
   const tree = state.character?.skillTree || {};
   const buffs = [...(tree.activeBuffs || [])].map((buff) => ({
     ...buff,
-    icon: getCombatBuffIcon(buff.skillId, buff.name, buff.effects)
+    icon: buff.icon || getCombatBuffIcon(buff.skillId, buff.name, buff.effects)
   }));
   for (const summon of getActiveSkillTreeSummons(tree)) {
     buffs.push({
@@ -645,33 +645,46 @@ async function toggleSkillPreset(skillId) {
   }
 }
 
+function applySkillCombatOutcome(outcome = {}, combat = {}) {
+  const element = Array.from($('monsterLayer').children).find(
+    (node) => node.dataset.monsterId === outcome.monsterId
+  );
+  const critical = (outcome.hitResults || []).some((hit) => hit.critical)
+    || Boolean(combat.critical);
+  showFloatingDamage(
+    element,
+    outcome.missed ? 'MISS' : outcome.damage,
+    !outcome.missed && critical ? 'critical' : 'outgoing',
+    outcome.piercingIndex
+  );
+  if (outcome.knockedBack) {
+    element?.classList.add('is-knockback');
+    setTimeout(() => element?.classList.remove('is-knockback'), 420);
+  }
+  if (outcome.defeated || !outcome.monster) {
+    state.worldMonsters = state.worldMonsters.filter(
+      (monster) => monster.id !== outcome.monsterId
+    );
+    element?.remove();
+    return;
+  }
+  state.worldMonsters = state.worldMonsters.map((monster) => (
+    monster.id === outcome.monsterId
+      ? {
+        ...monster,
+        hp: outcome.monster.hp,
+        maxHp: outcome.monster.maxHp,
+        state: outcome.monster.state
+      }
+      : monster
+  ));
+  const hpBar = element?.querySelector('.monster-hp i');
+  if (hpBar) hpBar.style.width = `${ratio(outcome.monster.hp, outcome.monster.maxHp)}%`;
+}
+
 function applySkillCombat(combat = {}) {
   for (const outcome of combat.outcomes || []) {
-    const element = Array.from($('monsterLayer').children).find(
-      (node) => node.dataset.monsterId === outcome.monsterId
-    );
-    showFloatingDamage(
-      element,
-      outcome.missed ? 'MISS' : outcome.damage,
-      !outcome.missed && combat.critical ? 'critical' : 'outgoing',
-      outcome.piercingIndex
-    );
-    if (outcome.knockedBack) {
-      element?.classList.add('is-knockback');
-      setTimeout(() => element?.classList.remove('is-knockback'), 420);
-    }
-    if (outcome.defeated || !outcome.monster) {
-      state.worldMonsters = state.worldMonsters.filter((monster) => monster.id !== outcome.monsterId);
-      element?.remove();
-      continue;
-    }
-    state.worldMonsters = state.worldMonsters.map((monster) => (
-      monster.id === outcome.monsterId
-        ? { ...monster, hp: outcome.monster.hp, maxHp: outcome.monster.maxHp, state: outcome.monster.state }
-        : monster
-    ));
-    const hpBar = element?.querySelector('.monster-hp i');
-    if (hpBar) hpBar.style.width = `${ratio(outcome.monster.hp, outcome.monster.maxHp)}%`;
+    applySkillCombatOutcome(outcome, combat);
   }
 }
 
@@ -865,10 +878,19 @@ async function useActiveSkill(skillId, options = {}) {
           }, 240);
         }
       }
-      if (!data.combat.channel && typeof playSkillVisualEffect === 'function') {
+      const progressivePiercing = data.skill?.effect === 'progressive-piercing-damage';
+      if (
+        !data.combat.channel
+        && progressivePiercing
+        && typeof playProgressivePiercingVisual === 'function'
+      ) {
+        await playProgressivePiercingVisual(data.skill, data.combat, {
+          onImpact: (outcome) => applySkillCombatOutcome(outcome, data.combat)
+        });
+      } else if (!data.combat.channel && typeof playSkillVisualEffect === 'function') {
         playSkillVisualEffect(data.skill, data.combat);
+        applySkillCombat(data.combat);
       }
-      if (!data.combat.channel) applySkillCombat(data.combat);
       showGroundLoot(data.combat.drops || []);
       if (typeof handleFieldBossEvents === 'function' && Array.isArray(data.combat.fieldBossRewardResults)) {
         data.combat.fieldBossRewardResults.forEach((rewardResult) => (

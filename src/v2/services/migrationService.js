@@ -38,6 +38,11 @@ const {
 } = require('./actionPointService');
 const { getOfflineHuntingSummaryId } = require('./huntingTimeService');
 const { applyDailyHuntingSubscriptionGrant } = require('./cashShopService');
+const {
+  getDailyAugmentEffects,
+  serializeDailyAugment,
+  buildDailyAugmentBuff
+} = require('./dailyAugmentService');
 
 const MIGRATION_VERSION = 1;
 const LEGACY_EXCHANGE_FORMULA_VERSION = 2;
@@ -681,6 +686,30 @@ function buildCharacterResponse(character) {
     ])
   );
   const skillEffects = getActiveSkillEffects(plain);
+  const storedHpPercent = Math.max(0, Number(plain.resources?.currentHp) || 0)
+    / Math.max(1, Number(plain.resources?.maxHp) || 1)
+    * 100;
+  const dailyAugmentEffects = getDailyAugmentEffects(plain, {
+    hpPercent: storedHpPercent
+  });
+  skillEffects.damageReductionPercent += dailyAugmentEffects.damageReductionPercent;
+  skillEffects.damageIncreasePercent += dailyAugmentEffects.damageIncreasePercent;
+  skillEffects.movementSpeedIncrease += dailyAugmentEffects.movementSpeedIncrease;
+  skillEffects.consumableEffectPercent += dailyAugmentEffects.potionRecoveryPercent;
+  skillEffects.damageTakenIncreasePercent = (
+    Number(skillEffects.damageTakenIncreasePercent) || 0
+  ) + dailyAugmentEffects.damageTakenIncreasePercent;
+  skillEffects.knockbackReductionPercent = (
+    Number(skillEffects.knockbackReductionPercent) || 0
+  ) + dailyAugmentEffects.knockbackReductionPercent;
+  skillEffects.chainChance = Math.max(
+    Number(skillEffects.chainChance) || 0,
+    dailyAugmentEffects.chainChance
+  );
+  skillEffects.chainDamagePercent = Math.max(
+    Number(skillEffects.chainDamagePercent) || 0,
+    dailyAugmentEffects.chainDamagePercent
+  );
   const derivedStats = buildDerivedStats({
     progression: plain.progression,
     stats: normalizedStats,
@@ -689,9 +718,16 @@ function buildCharacterResponse(character) {
     skillEffects
   });
   const baseResources = buildResourceResponse(plain.resources);
-  const adjustedMaxHp = Math.max(
+  const adjustedMaxHpBeforeAugment = Math.max(
     1,
     baseResources.maxHp + Math.max(0, Number(derivedStats.maxHpBonus) || 0)
+  );
+  const adjustedMaxHp = Math.max(
+    1,
+    Math.floor(
+      adjustedMaxHpBeforeAugment
+        * (1 - Math.max(0, dailyAugmentEffects.maxHpReductionPercent) / 100)
+    )
   );
   const adjustedMaxMp = Math.max(
     0,
@@ -722,6 +758,11 @@ function buildCharacterResponse(character) {
     )),
     maxMp: adjustedMaxMp
   };
+  const dailyAugment = serializeDailyAugment(plain);
+  dailyAugment.effects = { ...dailyAugmentEffects };
+  const skillTree = buildSkillTree(plain);
+  const dailyAugmentBuff = buildDailyAugmentBuff(plain);
+  if (dailyAugmentBuff) skillTree.activeBuffs.push(dailyAugmentBuff);
   return {
     id: String(plain._id),
     displayName: plain.displayName,
@@ -765,8 +806,9 @@ function buildCharacterResponse(character) {
     derivedStats,
     advancementQuest: getAvailableAdvancementQuest(plain),
     skillAccess: getSkillAccessProfile(plain),
-    skillTree: buildSkillTree(plain),
+    skillTree,
     skillEffects,
+    dailyAugment,
     migration: plain.migration,
     createdAt: plain.createdAt,
     updatedAt: plain.updatedAt

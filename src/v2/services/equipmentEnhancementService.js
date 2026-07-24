@@ -44,7 +44,7 @@ function buildEnhancementView(equipment) {
   };
 }
 
-function enhanceEquippedItem(character, slot, scrollStackId, random = Math.random) {
+function enhanceEquippedItem(character, slot, scrollStackId, random = Math.random, options = {}) {
   const equipmentSlot = String(slot || '');
   const equipment = character.loadout?.[equipmentSlot];
   if (!equipment?.itemId) throw new Error('강화할 장착 장비를 선택해주세요.');
@@ -67,8 +67,9 @@ function enhanceEquippedItem(character, slot, scrollStackId, random = Math.rando
 
   const consumed = consumeInventoryStack(character, scrollStack.stackId, 1);
   if (!consumed) throw new Error('사용할 주문서를 찾을 수 없습니다.');
-  enhancement.remaining -= 1;
   const success = random() * 100 < Number(scroll.successRate);
+  const preservedUpgradeSlot = !success && Boolean(options.preserveUpgradeOnFailure);
+  if (!preservedUpgradeSlot) enhancement.remaining -= 1;
   if (success) {
     enhancement.level += 1;
     for (const [stat, rawValue] of Object.entries(scroll.scrollStats || {})) {
@@ -82,6 +83,7 @@ function enhanceEquippedItem(character, slot, scrollStackId, random = Math.rando
     scrollName: scroll.name,
     successRate: Number(scroll.successRate),
     success,
+    preservedUpgradeSlot,
     usedAt: new Date().toISOString()
   });
 
@@ -96,13 +98,16 @@ function enhanceEquippedItem(character, slot, scrollStackId, random = Math.rando
 
   return {
     success,
+    preservedUpgradeSlot,
     slot: equipmentSlot,
     equipment: { ...equipment },
     scroll: { ...scroll },
     enhancement: buildEnhancementView(equipment),
     message: success
       ? `${scroll.name}가 한 순간 빛나더니 신비로운 힘이 그대로 ${equipment.name}에 전해졌습니다.`
-      : `${scroll.name}가 한 순간 빛났지만 ${equipment.name}에는 아무런 변화도 일어나지 않았습니다.`
+      : `${scroll.name}가 한 순간 빛났지만 ${equipment.name}에는 아무런 변화도 일어나지 않았습니다.${
+        preservedUpgradeSlot ? ' 호이의 세금계산서가 업그레이드 가능 횟수를 지켜냈습니다.' : ''
+      }`
   };
 }
 

@@ -31,6 +31,8 @@ const {
   isPlayerSilenced,
   clearPlayerNegativeStatus,
   updatePlayerResources,
+  setPlayerInvulnerability,
+  spawnBonusMonster,
   setPlayerStealth,
   recordSkillUse,
   listActivePlayers,
@@ -62,6 +64,7 @@ const {
   applyLevelGrowth
 } = require('./progression/resourceGrowth');
 const { getItemDefinition, listAdminGrantItems } = require('./items/itemCatalog');
+const { rollEquipmentInstanceData } = require('./items/equipmentCatalog');
 const {
   addInventoryItem,
   ensureInventory,
@@ -132,6 +135,17 @@ const {
   spendActionPoints,
   restoreActionPoints
 } = require('./services/actionPointService');
+const {
+  ensureDailyAugmentState,
+  selectDailyAugment,
+  rerollDailyAugment,
+  getSelectedDailyAugment,
+  hasDailyAugment,
+  getDailyAugmentEffects,
+  updateDailyAugmentCounters,
+  consumeDailyAugmentCounter,
+  serializeDailyAugment
+} = require('./services/dailyAugmentService');
 const {
   applyOfflinePassiveMpRecovery,
   restoreCharacterMp
@@ -251,7 +265,12 @@ function getActiveWeaponElements(skillState, now = Date.now()) {
       ELEMENT_BUFF_SKILL_IDS.includes(buff.skillId)
       && (!buff.expiresAt || new Date(buff.expiresAt).getTime() > now)
     ))
-    .map((buff) => SKILL_DEFINITIONS[buff.skillId]?.element)
+    .map((buff) => String(
+      buff.element
+      || buff.effects?.weaponElement
+      || SKILL_DEFINITIONS[buff.skillId]?.element
+      || ''
+    ).trim())
     .filter(Boolean);
 }
 
@@ -321,6 +340,18 @@ const V2_PATCH_NOTE_HISTORY = Object.freeze([
       '특수행동에 3분마다 사용할 수 있는 전체 외치기를 추가했습니다. 메시지는 모든 전투 화면 중앙에 10초간 표시됩니다.',
       '7일 동안 전체 외치기 재사용 대기시간을 없애는 외치기 자유이용권을 운영자 지급 목록에 추가했습니다.'
     ])
+  }),
+  Object.freeze({
+    version: '2026-07-24-daily-augment-1',
+    title: '오늘의 증강과 스킬 퀘스트 보강',
+    publishedAt: '2026-07-24',
+    lines: Object.freeze([
+      '매일 모든 사원에게 공통 등급의 증강이 등장하며, 개인별 세 후보 중 하나를 선택할 수 있습니다.',
+      '각 증강 후보는 한 번씩 다시 뽑을 수 있고 선택한 효과는 자정까지 버프창에서 확인할 수 있습니다.',
+      '실버, 골드, 프리즘 증강 24종의 사냥, 전투, 드랍, 강화, 부활 효과를 적용했습니다.',
+      '막았죠? 마스터리 퀘스트가 실제 피해 차단 횟수로 진행되도록 수정했습니다.',
+      '속성 부여: 성의 속성 정보가 버프와 공격 판정에 유지되도록 수정했습니다.'
+    ])
   })
 ]);
 const V2_CURRENT_PATCH_NOTES = V2_PATCH_NOTE_HISTORY[V2_PATCH_NOTE_HISTORY.length - 1];
@@ -370,7 +401,7 @@ const V2_PLANNED_FEATURES = Object.freeze([
   '실시간 보스 전투'
 ]);
 
-function grantV2Experience(character, amount) {
+function grantV2Experience(character, amount, { bonusPercent = 0 } = {}) {
   if (!character) return { gained: 0, levels: 0 };
   const activeEffects = getActiveSkillEffects(character);
   const experienceMultiplier = (
@@ -378,7 +409,11 @@ function grantV2Experience(character, amount) {
   ) * (
     1 + Math.max(0, Number(activeEffects.experienceMultiplierPercent) || 0) / 100
   );
-  const gained = Math.max(0, Math.floor((Number(amount) || 0) * experienceMultiplier));
+  const gained = Math.max(0, Math.floor(
+    (Number(amount) || 0)
+      * (1 + Math.max(0, Number(bonusPercent) || 0) / 100)
+      * experienceMultiplier
+  ));
   let levels = 0;
   const previousLevel = Math.max(1, Number(character.progression?.level) || 1);
   character.progression.exp = Math.max(0, Number(character.progression.exp) || 0) + gained;
@@ -624,14 +659,165 @@ function registerV2Routes({
     return listActivePlayers(mapId).filter((player) => partyMemberIds.has(String(player.userId)));
   }
 
-  async function grantCombatExperience(character, baseExp, mapId) {
+  const AUGMENT_BUFF_SKILL_EFFECTS = new Set([
+    'buff',
+    'buff-drain',
+    'combo-buff',
+    'contact-reflect',
+    'debuff-self-buff',
+    'element-buff',
+    'toggle-amplifier'
+  ]);
+
+  function getAugmentPartySize(character, mapId) {
+    if (!character?.userId) return 1;
+    return Math.max(
+      1,
+      getActivePartyPlayers(String(character.userId), String(mapId || '')).length
+    );
+  }
+
+  function getCharacterAugmentEffects(character, mapId, now = Date.now()) {
+    const maxHp = Math.max(1, Number(character?.resources?.maxHp) || 1);
+    const currentHp = Math.max(0, Number(character?.resources?.currentHp) || 0);
+    return getDailyAugmentEffects(character, {
+      partySize: getAugmentPartySize(character, mapId),
+      hpPercent: currentHp / maxHp * 100
+    }, new Date(now));
+  }
+
+  function isAugmentBuffSkill(definition) {
+    return Boolean(definition && AUGMENT_BUFF_SKILL_EFFECTS.has(definition.effect));
+  }
+
+  function resolveAugmentedMpCost(character, definition, baseCost, mapId, now = Date.now()) {
+    const effects = getCharacterAugmentEffects(character, mapId, now);
+    let cost = Math.max(0, Math.floor(Number(baseCost) || 0));
+    if (isAugmentBuffSkill(definition)) {
+      cost = Math.max(
+        0,
+        Math.floor(cost * (1 - Math.max(0, effects.buffMpReductionPercent) / 100))
+      );
+    }
+    const freeCast = cost > 0
+      && effects.noMpCostChance > 0
+      && Math.random() * 100 < effects.noMpCostChance;
+    return { cost: freeCast ? 0 : cost, freeCast };
+  }
+
+  function resolveAugmentedBuffDuration(
+    character,
+    definition,
+    durationSeconds,
+    mapId,
+    now = Date.now()
+  ) {
+    const duration = Math.max(1, Number(durationSeconds) || 1);
+    if (!isAugmentBuffSkill(definition)) return duration;
+    const effects = getCharacterAugmentEffects(character, mapId, now);
+    return duration * (1 + Math.max(0, effects.buffDurationPercent) / 100);
+  }
+
+  function recordDailyAugmentKills(character, amount, now = Date.now()) {
+    const count = Math.max(0, Math.floor(Number(amount) || 0));
+    if (!count) return { expBonusPercent: 0, bonusMonsterCount: 0 };
+    const selected = getSelectedDailyAugment(character, new Date(now));
+    if (!selected) return { expBonusPercent: 0, bonusMonsterCount: 0 };
+    let expBonusTotal = 0;
+    let bonusMonsterCount = 0;
+    updateDailyAugmentCounters(character, (counters) => {
+      if (selected.id === 'overachievement') {
+        let streak = Math.max(0, Math.floor(Number(counters.consecutiveKills) || 0));
+        const lastKillAt = Math.max(0, Number(counters.lastKillAt) || 0);
+        for (let index = 0; index < count; index += 1) {
+          streak = index === 0 && now - lastKillAt > 4_000
+            ? 1
+            : Math.min(4, streak + 1);
+          expBonusTotal += Math.min(2, streak * 0.5);
+        }
+        counters.consecutiveKills = streak;
+        counters.lastKillAt = now;
+      }
+      if (['vending_machine_change', 'rayeon_delusion'].includes(selected.id)) {
+        const before = Math.max(0, Math.floor(Number(counters.killCount) || 0));
+        const after = before + count;
+        counters.killCount = after;
+        if (selected.id === 'vending_machine_change') {
+          const triggered = Math.floor(after / 77) - Math.floor(before / 77);
+          counters.vendingBonusesPending = (
+            Math.max(0, Number(counters.vendingBonusesPending) || 0) + triggered
+          );
+        } else {
+          bonusMonsterCount = Math.floor(after / 100) - Math.floor(before / 100);
+        }
+      }
+    });
+    return {
+      expBonusPercent: count > 0 ? expBonusTotal / count : 0,
+      bonusMonsterCount
+    };
+  }
+
+  function consumeVendingMoneyBonus(character) {
+    if (!hasDailyAugment(character, 'vending_machine_change')) return false;
+    let consumed = false;
+    updateDailyAugmentCounters(character, (counters) => {
+      const pending = Math.max(0, Math.floor(Number(counters.vendingBonusesPending) || 0));
+      if (pending <= 0) return;
+      counters.vendingBonusesPending = pending - 1;
+      consumed = true;
+    });
+    return consumed;
+  }
+
+  function applyDailyAugmentDeathProtection(character, mapId, now = Date.now()) {
+    if (!character || Number(character.resources?.currentHp) > 0) return null;
+    if (
+      hasDailyAugment(character, 'overwork_prevention', new Date(now))
+      && consumeDailyAugmentCounter(character, 'lethalGuardRemaining', 1)
+    ) {
+      character.resources.currentHp = 1;
+      setPlayerInvulnerability(character.userId, mapId, now + 7_000);
+      return { type: 'lethal-guard', currentHp: 1, invulnerableUntil: now + 7_000 };
+    }
+    if (
+      hasDailyAugment(character, 'night_watch', new Date(now))
+      && consumeDailyAugmentCounter(character, 'reviveRemaining', 1)
+    ) {
+      const maxHp = buildCharacterResponse(character).resources.maxHp;
+      character.resources.currentHp = maxHp;
+      setPlayerInvulnerability(character.userId, mapId, now + 10_000);
+      return { type: 'revive', currentHp: maxHp, invulnerableUntil: now + 10_000 };
+    }
+    return null;
+  }
+
+  async function grantCombatExperience(character, baseExp, mapId, { killCount = 1 } = {}) {
     const killerId = String(character?.userId || '');
     const activePartyPlayers = getActivePartyPlayers(killerId, mapId);
     const activePartyIds = [...new Set(activePartyPlayers.map((player) => String(player.userId)))];
     if (!activePartyIds.includes(killerId)) activePartyIds.push(killerId);
+    const killProgress = recordDailyAugmentKills(character, killCount);
+    for (let index = 0; index < killProgress.bonusMonsterCount; index += 1) {
+      spawnBonusMonster({
+        mapId,
+        ownerId: killerId,
+        expMultiplier: 7
+      });
+    }
     if (activePartyIds.length <= 1) {
+      const effects = getDailyAugmentEffects(character, {
+        partySize: 1,
+        hpPercent: Number(character.resources?.currentHp)
+          / Math.max(1, Number(character.resources?.maxHp) || 1)
+          * 100
+      });
       return {
-        self: grantV2Experience(character, baseExp),
+        self: grantV2Experience(character, baseExp, {
+          bonusPercent: effects.normalMonsterExpPercent
+            + effects.monsterExpPercent
+            + killProgress.expBonusPercent
+        }),
         party: []
       };
     }
@@ -652,8 +838,13 @@ function registerV2Routes({
       })
       .filter(Boolean);
     if (members.length <= 1) {
+      const effects = getDailyAugmentEffects(character, { partySize: 1 });
       return {
-        self: grantV2Experience(character, baseExp),
+        self: grantV2Experience(character, baseExp, {
+          bonusPercent: effects.normalMonsterExpPercent
+            + effects.monsterExpPercent
+            + killProgress.expBonusPercent
+        }),
         party: []
       };
     }
@@ -664,7 +855,18 @@ function registerV2Routes({
     for (const share of shares) {
       const target = share.userId === killerId ? character : byUserId.get(share.userId);
       if (!target) continue;
-      const granted = grantV2Experience(target, share.exp);
+      const effects = getDailyAugmentEffects(target, {
+        partySize: members.length,
+        hpPercent: Number(target.resources?.currentHp)
+          / Math.max(1, Number(target.resources?.maxHp) || 1)
+          * 100
+      });
+      const granted = grantV2Experience(target, share.exp, {
+        bonusPercent: effects.normalMonsterExpPercent
+          + effects.monsterExpPercent
+          + effects.partyExpPercent
+          + (share.userId === killerId ? killProgress.expBonusPercent : 0)
+      });
       if (share.userId === killerId) {
         self = granted;
       } else {
@@ -757,32 +959,180 @@ function registerV2Routes({
     return { mails, pendingCount: mails.length };
   }
 
+  function prepareDroppedEquipmentInstance(
+    character,
+    itemDefinition,
+    instanceData,
+    augmentEffects,
+    { rerollAlways = true } = {}
+  ) {
+    if (itemDefinition?.category !== 'equipment') return instanceData;
+    const qualityDropsRemaining = hasDailyAugment(character, 'quality_assurance')
+      ? Math.max(
+        0,
+        Number(character.dailyAugment?.counters?.qualityDropsRemaining) || 0
+      )
+      : 0;
+    const effects = augmentEffects || getCharacterAugmentEffects(
+      character,
+      character.worldState?.mapId
+    );
+    const appraiserActive = hasDailyAugment(character, 'equipment_appraiser');
+    if (!rerollAlways && qualityDropsRemaining <= 0 && !appraiserActive) {
+      return instanceData;
+    }
+    const minimumVariation = qualityDropsRemaining > 0
+      ? -2
+      : effects.equipmentRollMinimum;
+    const prepared = {
+      ...(instanceData || {}),
+      ...rollEquipmentInstanceData(itemDefinition, Math.random, { minimumVariation })
+    };
+    if (qualityDropsRemaining > 0) {
+      consumeDailyAugmentCounter(character, 'qualityDropsRemaining', 1);
+    }
+    return prepared;
+  }
+
   function applyCombatDrops(character, drops = []) {
     if (!character.economy || typeof character.economy !== 'object') character.economy = {};
+    const augmentEffects = getCharacterAugmentEffects(
+      character,
+      character.worldState?.mapId
+    );
     const moneyDropIncreasePercent = Math.max(
       0,
       Number(getActiveSkillEffects(character).moneyDropIncreasePercent) || 0
-    );
+    ) + Math.max(0, Number(augmentEffects.moneyPercent) || 0);
     return drops.map((drop) => {
       if (drop.kind === 'money') {
         const baseAmount = Math.max(0, Math.floor(Number(drop.amount) || 0));
-        const amount = calculateMoneyDropAmount(baseAmount, moneyDropIncreasePercent);
+        const vendingBonus = consumeVendingMoneyBonus(character);
+        const amount = calculateMoneyDropAmount(
+          baseAmount * (vendingBonus ? 10 : 1),
+          moneyDropIncreasePercent
+        );
         character.economy.money = Math.max(0, Number(character.economy.money) || 0)
           + amount;
         return {
           ...drop,
           amount,
+          vendingBonus,
           ...(amount !== baseAmount ? { baseAmount } : {}),
           stored: true
         };
       }
       try {
-        addInventoryItem(character, drop.itemId, drop.quantity, drop.instanceData);
-        return { ...drop, stored: true };
+        const item = getItemDefinition(drop.itemId);
+        const instanceData = prepareDroppedEquipmentInstance(
+          character,
+          item,
+          drop.instanceData,
+          augmentEffects
+        );
+        addInventoryItem(character, drop.itemId, drop.quantity, instanceData);
+        return { ...drop, instanceData, stored: true };
       } catch (_) {
         return { ...drop, stored: false };
       }
     });
+  }
+
+  function mergeCombatResults(primary, extra) {
+    if (!extra?.success) return primary;
+    const base = primary && typeof primary === 'object' ? primary : { success: true };
+    return {
+      ...base,
+      success: base.success !== false,
+      outcomes: [
+        ...(Array.isArray(base.outcomes) ? base.outcomes : []),
+        ...(Array.isArray(extra.outcomes) ? extra.outcomes : [])
+      ],
+      drops: [
+        ...(Array.isArray(base.drops) ? base.drops : []),
+        ...(Array.isArray(extra.drops) ? extra.drops : [])
+      ],
+      expReward: Math.max(0, Number(base.expReward) || 0)
+        + Math.max(0, Number(extra.expReward) || 0),
+      augmentProc: extra.augmentProc || null
+    };
+  }
+
+  async function processActiveSkillAugment(character, mapId, now = Date.now()) {
+    if (!hasDailyAugment(character, 'guma_celine', new Date(now))) return null;
+    let procCount = 0;
+    updateDailyAugmentCounters(character, (counters) => {
+      const before = Math.max(0, Math.floor(Number(counters.activeSkillUses) || 0));
+      const after = before + 1;
+      counters.activeSkillUses = after;
+      procCount = Math.floor(after / 30) - Math.floor(before / 30);
+    });
+    if (procCount <= 0) return null;
+
+    const profile = buildCharacterResponse(character);
+    const archetype = DEPARTMENTS[character.job?.departmentId]?.archetype || 'beginner';
+    let combined = null;
+    for (let index = 0; index < procCount; index += 1) {
+      let baseDamage = Math.max(1, Number(profile.derivedStats?.attackMaximum) || 4);
+      let damageRange = null;
+      let skillPercent = 120;
+      if (archetype === 'mage') {
+        damageRange = buildProfileMagicDamageRange(profile, 120);
+        baseDamage = 1;
+        skillPercent = 100;
+      }
+      const multiplier = 1 + Math.max(
+        0,
+        Number(profile.skillEffects?.damageIncreasePercent) || 0
+      ) / 100;
+      if (damageRange) damageRange = scaleDamageRange(damageRange, multiplier);
+      else baseDamage *= multiplier;
+      const proc = useSkillOnMonsters({
+        userId: String(character.userId),
+        mapId: String(mapId || character.worldState?.mapId || ''),
+        targetId: '',
+        baseDamage,
+        damageRange,
+        skillPercent,
+        rangePx: 10_000,
+        maxTargets: 99,
+        verticalFloorRange: 10,
+        damageType: archetype === 'mage' ? 'magic' : 'physical',
+        accuracy: profile.derivedStats?.accuracy,
+        playerLevel: profile.progression?.level,
+        now
+      });
+      if (!proc.success) continue;
+      proc.augmentProc = {
+        id: 'guma_celine',
+        name: '구마의 셀린느',
+        icon: '💥',
+        damagePercent: 120
+      };
+      if (Number(proc.expReward) > 0) {
+        const expGrant = await grantCombatExperience(
+          character,
+          proc.expReward,
+          mapId,
+          {
+            killCount: (proc.outcomes || []).filter((outcome) => outcome.defeated).length
+          }
+        );
+        proc.experience = expGrant.self;
+        proc.partyExperience = expGrant.party;
+        proc.drops = applyCombatDrops(character, proc.drops);
+        proc.drops = applySettlementEventDrops(
+          character,
+          (proc.outcomes || [])
+            .filter((outcome) => outcome.defeated)
+            .map((outcome) => outcome.monsterLevel),
+          proc.drops
+        );
+      }
+      recordCombatQuestProgress(character, proc, { mapId });
+      combined = mergeCombatResults(combined, proc);
+    }
+    return combined;
   }
 
   function applySettlementEventDrops(character, monsterLevels = [], drops = []) {
@@ -1050,19 +1400,39 @@ function registerV2Routes({
       if (!character) return null;
       await ensureV2CharacterFoundation(character);
       if (!character.economy || typeof character.economy !== 'object') character.economy = {};
-      const experience = grantV2Experience(character, reward.exp);
+      const augmentEffects = getDailyAugmentEffects(character, {
+        partySize: getAugmentPartySize(character, rewardEvent.mapId),
+        hpPercent: Number(character.resources?.currentHp)
+          / Math.max(1, Number(character.resources?.maxHp) || 1)
+          * 100
+      });
+      const experience = grantV2Experience(character, reward.exp, {
+        bonusPercent: augmentEffects.monsterExpPercent + augmentEffects.partyExpPercent
+      });
+      const money = calculateMoneyDropAmount(
+        reward.money,
+        augmentEffects.moneyPercent
+      );
       character.economy.money = Math.max(0, Number(character.economy.money) || 0)
-        + Math.max(0, Math.floor(Number(reward.money) || 0));
+        + money;
       const items = [];
       for (const item of reward.items || []) {
         try {
+          const itemDefinition = getItemDefinition(item.itemId);
+          const instanceData = prepareDroppedEquipmentInstance(
+            character,
+            itemDefinition,
+            item.instanceData,
+            augmentEffects,
+            { rerollAlways: false }
+          );
           addInventoryItem(
             character,
             item.itemId,
             Math.max(1, Math.floor(Number(item.quantity) || 1)),
-            item.instanceData
+            instanceData
           );
-          items.push({ ...item, stored: true });
+          items.push({ ...item, instanceData, stored: true });
         } catch (_) {
           items.push({ ...item, stored: false });
         }
@@ -1074,7 +1444,7 @@ function registerV2Routes({
       return {
         userId: String(character.userId),
         exp: Math.max(0, Math.floor(Number(reward.exp) || 0)),
-        money: Math.max(0, Math.floor(Number(reward.money) || 0)),
+        money,
         experience,
         items
       };
@@ -1126,6 +1496,11 @@ function registerV2Routes({
       updatePlayerResources(userId, character.resources);
     }
     const response = buildCharacterResponse(character);
+    const partyAugmentEffects = getDailyAugmentEffects(character, {
+      partySize: getAugmentPartySize(character, response.worldState?.mapId),
+      hpPercent: response.resources.currentHp / Math.max(1, response.resources.maxHp) * 100
+    });
+    response.skillEffects.damageIncreasePercent += partyAugmentEffects.partyDamagePercent;
     const skillExpirations = [
       ...(response.skillTree?.activeBuffs || []).map((buff) => Number(buff.expiresAt) || 0),
       ...(response.skillTree?.summons || [
@@ -1192,6 +1567,10 @@ function registerV2Routes({
       magicDefense: response.derivedStats.magicDefense,
       archetype: DEPARTMENTS[response.job?.departmentId]?.archetype || 'beginner',
       damageReductionPercent: response.skillEffects?.damageReductionPercent,
+      damageTakenIncreasePercent: response.skillEffects?.damageTakenIncreasePercent,
+      knockbackReductionPercent: response.skillEffects?.knockbackReductionPercent,
+      chainChance: response.skillEffects?.chainChance,
+      chainDamagePercent: response.skillEffects?.chainDamagePercent,
       dodgeChance: response.skillEffects?.dodgeChance,
       blockChance: response.skillEffects?.blockChance,
       stanceChance: response.skillEffects?.stanceChance,
@@ -1270,11 +1649,12 @@ function registerV2Routes({
   }
 
   function applyConfiguredAutoPotions(character) {
+    const characterResponse = buildCharacterResponse(character);
     const consumableMultiplier = Math.max(
       100,
-      Number(getActiveSkillEffects(character).consumableEffectPercent) || 100
+      Number(characterResponse.skillEffects?.consumableEffectPercent) || 100
     );
-    const resourceCaps = buildCharacterResponse(character).resources;
+    const resourceCaps = characterResponse.resources;
     return useConfiguredAutoPotions(
       character,
       consumableMultiplier,
@@ -1325,7 +1705,7 @@ function registerV2Routes({
     const currentHp = Math.max(0, Number(character.resources?.currentHp) || 0);
     const currentMp = Math.max(0, Number(character.resources?.currentMp) || 0);
     const maxHp = Math.max(1, Number(character.resources?.maxHp) || 1);
-    const preUseEffects = getActiveSkillEffects(character, now);
+    const preUseEffects = profile.skillEffects || getActiveSkillEffects(character, now);
     const archetype = DEPARTMENTS[character.job?.departmentId]?.archetype || 'beginner';
     const startIndex = skillState.offlineAutoRotationCursor % activePreset.length;
     for (let offset = 0; offset < activePreset.length; offset += 1) {
@@ -1369,7 +1749,7 @@ function registerV2Routes({
       const baseMpCost = Math.max(0, Number(values.mpCost) || 0);
       const magicAttackAmplified = archetype === 'mage'
         && ['enemy', 'enemies'].includes(definition.target);
-      const mpCost = Math.max(0, Math.floor(
+      const calculatedMpCost = Math.max(0, Math.floor(
         baseMpCost * (
           1 + (
             magicAttackAmplified
@@ -1378,11 +1758,19 @@ function registerV2Routes({
           ) / 100
         ) * castProfile.mpCostMultiplier
       ));
+      const augmentedMpCost = resolveAugmentedMpCost(
+        character,
+        definition,
+        calculatedMpCost,
+        String(profile.worldState?.mapId || character.worldState?.mapId || ''),
+        now
+      );
+      const mpCost = augmentedMpCost.cost;
       if (currentHp <= hpCost || currentMp < mpCost) continue;
       skillState.offlineAutoRotationCursor = (presetIndex + 1) % activePreset.length;
       return {
         skillId, definition, level, values, castProfile,
-        hpCost, mpCost, preUseEffects, archetype
+        hpCost, mpCost, freeMpCost: augmentedMpCost.freeCast, preUseEffects, archetype
       };
     }
     return null;
@@ -1450,6 +1838,9 @@ function registerV2Routes({
         damageMultiplier *= Number(profile.derivedStats.criticalDamagePercent || 200) / 100;
       }
       damageMultiplier *= 1 + Number(preUseEffects.damageIncreasePercent || 0) / 100;
+      damageMultiplier *= 1 + Number(
+        getCharacterAugmentEffects(character, mapId, now).partyDamagePercent
+      ) / 100;
       if (activeElements.length) {
         damageMultiplier *= 1 + Number(preUseEffects.elementDamageIncreasePercent || 0) / 100;
       }
@@ -1559,7 +1950,9 @@ function registerV2Routes({
         );
       }
       if (Number(combat.expReward) > 0) {
-        const expGrant = await grantCombatExperience(character, combat.expReward, mapId);
+        const expGrant = await grantCombatExperience(character, combat.expReward, mapId, {
+          killCount: (combat.outcomes || []).filter((outcome) => outcome.defeated).length
+        });
         combat.experience = expGrant.self;
         combat.partyExperience = expGrant.party;
         combat.drops = applyCombatDrops(character, combat.drops);
@@ -1631,7 +2024,9 @@ function registerV2Routes({
         now
       });
       if (combat.success && Number(combat.expReward) > 0) {
-        const expGrant = await grantCombatExperience(character, combat.expReward, mapId);
+        const expGrant = await grantCombatExperience(character, combat.expReward, mapId, {
+          killCount: (combat.outcomes || []).filter((outcome) => outcome.defeated).length
+        });
         combat.experience = expGrant.self;
         combat.partyExperience = expGrant.party;
         combat.drops = applyCombatDrops(character, combat.drops);
@@ -1698,7 +2093,13 @@ function registerV2Routes({
           accuracyIncrease: Number(values.accuracyIncrease) || 0
         },
         createdAt: new Date(now),
-        durationSeconds: Math.max(1, Number(values.durationSeconds) || 1)
+        durationSeconds: resolveAugmentedBuffDuration(
+          character,
+          definition,
+          Number(values.durationSeconds) || 1,
+          mapId,
+          now
+        )
       });
       combat = { ...combat, appliedBuff: activeBuff };
     } else if (definition.effect === 'summon') {
@@ -1723,6 +2124,7 @@ function registerV2Routes({
         skillState.activeBuffs = skillState.activeBuffs.filter(
           (buff) => !conflicting.has(buff.skillId)
         );
+        effects.weaponElement = definition.element;
       }
       if (Number.isFinite(Number(values.reflectPercent))) {
         effects.reflectPercent = Number(values.reflectPercent);
@@ -1742,9 +2144,16 @@ function registerV2Routes({
       const activeBuff = upsertActiveBuff(character, {
         skillId,
         name: definition.name,
+        element: definition.effect === 'element-buff' ? definition.element : '',
         effects,
         createdAt: new Date(now),
-        durationSeconds: Math.max(1, Number(values.durationSeconds) || 1)
+        durationSeconds: resolveAugmentedBuffDuration(
+          character,
+          definition,
+          Number(values.durationSeconds) || 1,
+          mapId,
+          now
+        )
       });
       if (definition.target === 'party') partyBuffToShare = activeBuff;
       combat = { success: true, appliedBuff: activeBuff };
@@ -1770,6 +2179,8 @@ function registerV2Routes({
         buffedPartyMemberIds
       };
     }
+    const augmentCombat = await processActiveSkillAugment(character, mapId, now);
+    if (augmentCombat) combat = mergeCombatResults(combat, augmentCombat);
     recordSkillQuestProgress(character, {
       skillId,
       skillIds: [definition.id],
@@ -1798,6 +2209,9 @@ function registerV2Routes({
     const critical = Math.random() * 100
       < Math.max(0, Number(profile.derivedStats?.criticalChance) || 0);
     let multiplier = 1 + Math.max(0, Number(activeEffects.damageIncreasePercent) || 0) / 100;
+    multiplier *= 1 + Number(
+      getCharacterAugmentEffects(character, mapId, now).partyDamagePercent
+    ) / 100;
     if (critical) {
       multiplier *= Math.max(100, Number(profile.derivedStats?.criticalDamagePercent) || 200) / 100;
     }
@@ -1850,7 +2264,9 @@ function registerV2Routes({
       }
     }
     if (Number(combat.expReward) > 0) {
-      const expGrant = await grantCombatExperience(character, combat.expReward, mapId);
+      const expGrant = await grantCombatExperience(character, combat.expReward, mapId, {
+        killCount: (combat.outcomes || []).filter((outcome) => outcome.defeated).length
+      });
       combat.experience = expGrant.self;
       combat.partyExperience = expGrant.party;
       combat.drops = applyCombatDrops(character, combat.drops);
@@ -1889,7 +2305,24 @@ function registerV2Routes({
         : beforeMp;
       character.worldState.x = Math.max(0, Math.min(94, Number(selfContact.x) || 8));
       character.worldState.floor = Number(selfContact.floor) === 1 ? 1 : 0;
-      if (beforeHp > 0 && character.resources.currentHp <= 0) {
+      if (selfContact.blocked) {
+        recordQuestEvent(character, {
+          type: 'block',
+          mapId: String(character.worldState?.mapId || ''),
+          amount: 1
+        });
+      }
+      const augmentProtection = beforeHp > 0 && character.resources.currentHp <= 0
+        ? applyDailyAugmentDeathProtection(
+          character,
+          String(character.worldState?.mapId || ''),
+          now
+        )
+        : null;
+      if (augmentProtection) {
+        selfContact.currentHp = augmentProtection.currentHp;
+        selfContact.augmentProtection = augmentProtection;
+      } else if (beforeHp > 0 && character.resources.currentHp <= 0) {
         recordQuestEvent(character, { type: 'death' });
         const requiredExp = getRequiredExpV2(character.progression?.level);
         const currentExp = Math.max(0, Number(character.progression?.exp) || 0);
@@ -2042,10 +2475,24 @@ function registerV2Routes({
     if (!result.success) return { idle: true };
     if (consumesAmmunition) consumeInventoryItem(character, rolled.ammunition.itemId, 1);
     if (result.expReward > 0) {
-      const expGrant = await grantCombatExperience(character, result.expReward, response.worldState.mapId);
+      const expGrant = await grantCombatExperience(
+        character,
+        result.expReward,
+        response.worldState.mapId,
+        {
+          killCount: (result.outcomes || [result])
+            .filter((outcome) => outcome.defeated).length
+        }
+      );
       result.experience = expGrant.self;
       result.drops = applyCombatDrops(character, result.drops);
-      result.drops = applySettlementEventDrops(character, [result.monsterLevel], result.drops);
+      result.drops = applySettlementEventDrops(
+        character,
+        (result.outcomes || [result])
+          .filter((outcome) => outcome.defeated)
+          .map((outcome) => outcome.monsterLevel),
+        result.drops
+      );
     }
     recordCombatQuestProgress(character, result, {
       mapId: String(response.worldState.mapId || ''),
@@ -2349,7 +2796,10 @@ function registerV2Routes({
       if (!user) return res.status(404).json({ msg: '유저 정보를 찾을 수 없습니다.' });
       const character = await V2Character.findOne({ userId: user._id });
       await ensureV2CharacterFoundation(character);
-      if (ensureDailyHuntingMail(character)) await character.save();
+      const previousAugmentDate = String(character.dailyAugment?.dateKey || '');
+      ensureDailyAugmentState(character);
+      const dailyAugmentChanged = previousAugmentDate !== String(character.dailyAugment?.dateKey || '');
+      if (ensureDailyHuntingMail(character) || dailyAugmentChanged) await character.save();
       return res.json({
         displayName: user.nickname || user.username,
         preview: buildMigrationPreview(user),
@@ -2420,6 +2870,72 @@ function registerV2Routes({
       return res.json({ npc });
     } catch (err) {
       return res.status(400).json({ msg: err.message || 'NPC 정보를 불러오지 못했습니다.' });
+    }
+  });
+
+  app.get('/api/v2/daily-augment', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const result = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        ensureDailyAugmentState(character);
+        await character.save();
+        return {
+          dailyAugment: serializeDailyAugment(character),
+          character: buildCharacterResponse(character)
+        };
+      });
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '오늘의 증강을 불러오지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/daily-augment/reroll', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const result = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        rerollDailyAugment(character, req.body?.slot);
+        await character.save();
+        return {
+          dailyAugment: serializeDailyAugment(character),
+          character: buildCharacterResponse(character)
+        };
+      });
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '증강을 리롤하지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/daily-augment/select', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const result = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        selectDailyAugment(character, req.body?.augmentId);
+        const response = buildCharacterResponse(character);
+        character.resources.currentHp = Math.min(
+          Number(character.resources.currentHp) || 0,
+          Number(response.resources.maxHp) || 1
+        );
+        await character.save();
+        worldProfileCache.delete(String(auth.id));
+        return {
+          dailyAugment: serializeDailyAugment(character),
+          character: buildCharacterResponse(character)
+        };
+      });
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '오늘의 증강을 선택하지 못했습니다.' });
     }
   });
 
@@ -2726,7 +3242,7 @@ function registerV2Routes({
         const baseMpCost = Math.max(0, Number(values.mpCost) || 0);
         const magicAttackAmplified = preUseArchetype === 'mage'
           && ['enemy', 'enemies'].includes(definition.target);
-        const mpCost = Math.max(0, Math.floor(
+        const calculatedMpCost = Math.max(0, Math.floor(
           baseMpCost * (
             1 + (
               magicAttackAmplified
@@ -2735,6 +3251,14 @@ function registerV2Routes({
             ) / 100
           ) * castProfile.mpCostMultiplier
         ));
+        const augmentedMpCost = resolveAugmentedMpCost(
+          character,
+          definition,
+          calculatedMpCost,
+          sourceMapId,
+          now
+        );
+        const mpCost = augmentedMpCost.cost;
         if (currentHp <= hpCost) throw new Error('체력이 부족합니다.');
         if (currentMp < mpCost) throw new Error('정신력이 부족합니다.');
         character.resources.currentHp = currentHp - hpCost;
@@ -2842,6 +3366,13 @@ function registerV2Routes({
             damageMultiplier *= Number(response.derivedStats.criticalDamagePercent || 200) / 100;
           }
           damageMultiplier *= 1 + Number(activeEffects.damageIncreasePercent || 0) / 100;
+          damageMultiplier *= 1 + Number(
+            getCharacterAugmentEffects(
+              character,
+              String(req.body?.mapId || character.worldState?.mapId || ''),
+              now
+            ).partyDamagePercent
+          ) / 100;
           if (activeElements.length) {
             damageMultiplier *= 1 + Number(activeEffects.elementDamageIncreasePercent || 0) / 100;
           }
@@ -2969,7 +3500,10 @@ function registerV2Routes({
           const expGrant = await grantCombatExperience(
             character,
             combat.expReward,
-            String(req.body?.mapId || character.worldState?.mapId || '')
+            String(req.body?.mapId || character.worldState?.mapId || ''),
+            {
+              killCount: (combat.outcomes || []).filter((outcome) => outcome.defeated).length
+            }
           );
           combat.partyExperience = expGrant.party;
           combat.drops = applyCombatDrops(character, combat.drops);
@@ -3049,7 +3583,11 @@ function registerV2Routes({
             const expGrant = await grantCombatExperience(
               character,
               undeadCombat.expReward,
-              String(req.body?.mapId || character.worldState?.mapId || '')
+              String(req.body?.mapId || character.worldState?.mapId || ''),
+              {
+                killCount: (undeadCombat.outcomes || [])
+                  .filter((outcome) => outcome.defeated).length
+              }
             );
             undeadCombat.partyExperience = expGrant.party;
             undeadCombat.drops = applyCombatDrops(character, undeadCombat.drops);
@@ -3171,7 +3709,13 @@ function registerV2Routes({
               accuracyIncrease: Number(values.accuracyIncrease) || 0
             },
             createdAt: new Date(now),
-            durationSeconds: Math.max(1, Number(values.durationSeconds) || 1)
+            durationSeconds: resolveAugmentedBuffDuration(
+              character,
+              definition,
+              Number(values.durationSeconds) || 1,
+              sourceMapId,
+              now
+            )
           });
           combat = { ...combat, appliedBuff: activeBuff };
         } else if (definition.effect === 'summon') {
@@ -3210,6 +3754,7 @@ function registerV2Routes({
             skillState.activeBuffs = skillState.activeBuffs.filter(
               (buff) => !conflicting.has(buff.skillId)
             );
+            effects.weaponElement = definition.element;
           }
           if (Number.isFinite(Number(values.reflectPercent))) {
             effects.reflectPercent = Number(values.reflectPercent);
@@ -3237,9 +3782,16 @@ function registerV2Routes({
           const activeBuff = upsertActiveBuff(character, {
             skillId,
             name: definition.name,
+            element: definition.effect === 'element-buff' ? definition.element : '',
             effects,
             createdAt: new Date(now),
-            durationSeconds: Math.max(1, Number(values.durationSeconds) || 1)
+            durationSeconds: resolveAugmentedBuffDuration(
+              character,
+              definition,
+              Number(values.durationSeconds) || 1,
+              sourceMapId,
+              now
+            )
           });
           if (definition.target === 'party') partyBuffToShare = activeBuff;
           combat = { ...(combat || { success: true }), appliedBuff: activeBuff };
@@ -3249,6 +3801,15 @@ function registerV2Routes({
             auth.id,
             String(req.body?.mapId || character.worldState?.mapId || '')
           ).map((player) => String(player.userId)));
+        }
+        const augmentCombat = await processActiveSkillAugment(
+          character,
+          sourceMapId,
+          now
+        );
+        if (augmentCombat) combat = mergeCombatResults(combat, augmentCombat);
+        if (augmentedMpCost.freeCast) {
+          combat = { ...(combat || { success: true }), freeMpCost: true };
         }
         recordCompanionQuestTicks(character, now);
         const questProgressed = recordSkillQuestProgress(character, {
@@ -3396,12 +3957,16 @@ function registerV2Routes({
         if (Number(character.resources?.currentHp) <= 0) {
           throw new Error('사망 상태에서는 포션을 사용할 수 없습니다. 먼저 안전지대에서 부활해주세요.');
         }
-        const skillEffects = getActiveSkillEffects(character);
-        const resourceCaps = buildCharacterResponse(character).resources;
+        const preUseResponse = buildCharacterResponse(character);
+        const resourceCaps = preUseResponse.resources;
+        const consumableMultiplier = Math.max(
+          100,
+          Number(preUseResponse.skillEffects?.consumableEffectPercent) || 100
+        );
         const used = useQuickSlotPotion(
           character,
           req.body?.slot,
-          skillEffects.consumableEffectPercent,
+          consumableMultiplier,
           { hp: resourceCaps.maxHp, mp: resourceCaps.maxMp }
         );
         await character.save();
@@ -3517,8 +4082,18 @@ function registerV2Routes({
         const enhancement = enhanceEquippedItem(
           character,
           req.body?.slot,
-          req.body?.scrollStackId
+          req.body?.scrollStackId,
+          Math.random,
+          {
+            preserveUpgradeOnFailure: hasDailyAugment(character, 'hoi_tax_invoice')
+              && Number(
+                character.dailyAugment?.counters?.scrollPreserveRemaining
+              ) > 0
+          }
         );
+        if (enhancement.preservedUpgradeSlot) {
+          consumeDailyAugmentCounter(character, 'scrollPreserveRemaining', 1);
+        }
         await character.save();
         worldProfileCache.delete(String(auth.id));
         return {
@@ -4800,6 +5375,10 @@ function registerV2Routes({
         magicDefense: profile.derivedStats.magicDefense,
         archetype: DEPARTMENTS[profile.job?.departmentId]?.archetype || 'beginner',
         damageReductionPercent: profile.skillEffects?.damageReductionPercent,
+        damageTakenIncreasePercent: profile.skillEffects?.damageTakenIncreasePercent,
+        knockbackReductionPercent: profile.skillEffects?.knockbackReductionPercent,
+        chainChance: profile.skillEffects?.chainChance,
+        chainDamagePercent: profile.skillEffects?.chainDamagePercent,
         dodgeChance: profile.skillEffects?.dodgeChance,
         blockChance: profile.skillEffects?.blockChance,
         stanceChance: profile.skillEffects?.stanceChance,
@@ -4873,7 +5452,24 @@ function registerV2Routes({
             character.worldState.mapId = state.mapId;
             character.worldState.x = Math.max(0, Math.min(94, Number(event.x) || 8));
             character.worldState.floor = Number(event.floor) === 1 ? 1 : 0;
-            if (currentHp > 0 && nextHp <= 0) {
+            if (event.blocked) {
+              recordQuestEvent(character, {
+                type: 'block',
+                mapId: String(state.mapId || ''),
+                amount: 1
+              });
+            }
+            const augmentProtection = currentHp > 0 && nextHp <= 0
+              ? applyDailyAugmentDeathProtection(
+                character,
+                String(state.mapId || ''),
+                Date.now()
+              )
+              : null;
+            if (augmentProtection) {
+              event.currentHp = augmentProtection.currentHp;
+              event.augmentProtection = augmentProtection;
+            } else if (currentHp > 0 && nextHp <= 0) {
               recordQuestEvent(character, { type: 'death' });
               const requiredExp = getRequiredExpV2(character.progression?.level);
               const currentExp = Math.max(0, Number(character.progression?.exp) || 0);
@@ -5200,14 +5796,20 @@ function registerV2Routes({
           const expGrant = await grantCombatExperience(
             character,
             result.expReward,
-            String(req.body?.mapId || profile.worldState?.mapId || '')
+            String(req.body?.mapId || profile.worldState?.mapId || ''),
+            {
+              killCount: (result.outcomes || [result])
+                .filter((outcome) => outcome.defeated).length
+            }
           );
           experience = expGrant.self;
           result.partyExperience = expGrant.party;
           result.drops = applyCombatDrops(character, result.drops);
           result.drops = applySettlementEventDrops(
             character,
-            [result.monsterLevel],
+            (result.outcomes || [result])
+              .filter((outcome) => outcome.defeated)
+              .map((outcome) => outcome.monsterLevel),
             result.drops
           );
         }

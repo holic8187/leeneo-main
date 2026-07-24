@@ -220,11 +220,14 @@ addGenericChain({
   baseObjectives: [objective('kill', '생산라인 몬스터 처치', 200, { mapIds: ['production_line'] })],
   followUpTitles: ['안전모 고정 시험', '무진동 작업 인증']
 });
-addGenericChain({
+addStagedChain({
   prefix: 'skill_field_blocked', npcId: 'facility_kim', departmentId: 'field_operations',
   skillId: 'blocked_it', baseTitle: '안전수칙 제1조',
   baseObjectives: [objective('hit-survive', '사망하지 않고 피격 후 생존', 500, { noDeath: true })],
-  followUpTitles: ['보호구 점검', '완전 차단']
+  stage20Title: '보호구 점검',
+  stage20Objectives: [objective('block', '막았죠?로 피해 차단', 100)],
+  stage30Title: '완전 차단',
+  stage30Objectives: [objective('block', '막았죠?로 피해 차단', 300)]
 });
 addGenericChain({
   prefix: 'skill_field_charge', npcId: 'production_morae', departmentId: 'field_operations',

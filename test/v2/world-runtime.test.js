@@ -14,6 +14,7 @@ const {
   attackMonster,
   useSkillOnMonsters,
   updatePlayerResources,
+  spawnBonusMonster,
   setPlayerStealth,
   publishGlobalShout,
   getGlobalShout,
@@ -317,6 +318,92 @@ test('holy healing damage targets undead monsters and ignores living monsters', 
     initial.monsters.find((monster) => monster.id === outcome.monsterId)?.undead
   )));
   assert.ok(result.outcomes.every((outcome) => outcome.damage > 0));
+});
+
+test('a chain augment transfers single-target damage to the next monster behind it', () => {
+  let state = updatePresence({
+    userId: 'chain-user',
+    nickname: '연쇄 사원',
+    mapId: 'newcomer_training',
+    x: 0,
+    floor: 0,
+    currentHp: 120,
+    maxHp: 120,
+    chainChance: 100,
+    chainDamagePercent: 75,
+    now: 1_000
+  });
+  state = updatePresence({
+    userId: 'chain-user',
+    nickname: '연쇄 사원',
+    mapId: 'newcomer_training',
+    x: 0,
+    floor: 0,
+    currentHp: 120,
+    maxHp: 120,
+    chainChance: 100,
+    chainDamagePercent: 75,
+    now: 17_000
+  });
+  const floorGroups = [0, 1]
+    .map((floor) => state.monsters.filter((monster) => monster.floor === floor)
+      .sort((left, right) => left.x - right.x))
+    .sort((left, right) => right.length - left.length);
+  const monsters = floorGroups[0];
+  assert.ok(monsters.length >= 2);
+  const [front] = monsters;
+  updatePresence({
+    userId: 'chain-user',
+    nickname: '연쇄 사원',
+    mapId: 'newcomer_training',
+    x: Math.max(0, front.x - 6),
+    floor: front.floor,
+    currentHp: 120,
+    maxHp: 120,
+    chainChance: 100,
+    chainDamagePercent: 75,
+    now: 17_100
+  });
+
+  const result = attackMonster({
+    userId: 'chain-user',
+    mapId: 'newcomer_training',
+    monsterId: front.id,
+    damage: 4,
+    rangePx: 1_000,
+    now: 17_200
+  });
+
+  assert.equal(result.success, true);
+  assert.ok(result.chainOutcome);
+  assert.equal(result.chainOutcome.chained, true);
+  assert.equal(result.chainOutcome.chainDamagePercent, 75);
+  assert.ok(result.chainOutcome.damage > 0);
+  assert.equal(result.outcomes.length, 2);
+});
+
+test('Rayeon bonus monsters are spawned with seven times normal experience', () => {
+  const state = updatePresence({
+    userId: 'bonus-user',
+    nickname: '보너스 사원',
+    mapId: 'newcomer_training',
+    x: 10,
+    floor: 0,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_000
+  });
+  const ordinaryRewards = state.monsters.map((monster) => monster.expReward);
+  const bonus = spawnBonusMonster({
+    mapId: 'newcomer_training',
+    ownerId: 'bonus-user',
+    expMultiplier: 7,
+    now: 1_100
+  });
+
+  assert.ok(bonus);
+  assert.match(bonus.name, /보너스/);
+  assert.ok(ordinaryRewards.some((reward) => bonus.expReward === reward * 7));
 });
 
 test('target-dash skills move the caster directly in front of the resolved target', () => {
@@ -769,7 +856,7 @@ test('contact damage uses the reduced knockback and grants 2 seconds of invulner
     maxHp: 120,
     now: 1_000
   });
-  const firstMonster = initial.monsters.find((monster) => monster.floor === 0);
+  const firstMonster = initial.monsters[0];
   assert.ok(firstMonster);
 
   const firstHit = updatePresence({
@@ -777,7 +864,7 @@ test('contact damage uses the reduced knockback and grants 2 seconds of invulner
     nickname: 'contact-user',
     mapId: 'newcomer_training',
     x: firstMonster.x,
-    floor: 0,
+    floor: firstMonster.floor,
     activity: 'idle',
     facingLeft: false,
     currentHp: 120,
@@ -796,7 +883,7 @@ test('contact damage uses the reduced knockback and grants 2 seconds of invulner
     nickname: 'contact-user',
     mapId: 'newcomer_training',
     x: firstHit.monsters.find((monster) => monster.id === firstMonster.id).x,
-    floor: 0,
+    floor: firstMonster.floor,
     activity: 'idle',
     facingLeft: false,
     currentHp: 120,
@@ -811,7 +898,7 @@ test('contact damage uses the reduced knockback and grants 2 seconds of invulner
     nickname: 'contact-user',
     mapId: 'newcomer_training',
     x: movedMonster.x,
-    floor: 0,
+    floor: firstMonster.floor,
     activity: 'idle',
     facingLeft: false,
     currentHp: 120,
@@ -827,7 +914,7 @@ test('contact damage uses the reduced knockback and grants 2 seconds of invulner
       nickname: 'contact-user',
       mapId: 'newcomer_training',
       x: latestMonster.x,
-      floor: 0,
+      floor: firstMonster.floor,
       activity: 'idle',
       facingLeft: false,
       currentHp: 120,
