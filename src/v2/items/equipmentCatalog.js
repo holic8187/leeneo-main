@@ -432,7 +432,7 @@ const EQUIPMENT_ITEMS = Object.freeze([
 
 function getEquipmentDropsForMonsterLevel(monsterLevel) {
   const level = Math.max(1, Math.floor(Number(monsterLevel) || 1));
-  const eligible = EQUIPMENT_ITEMS
+  return EQUIPMENT_ITEMS
     .filter((item) => {
       if (item.bossDropOnly) return false;
       const requiredLevel = Number(item.requiredLevel || item.requirements?.level) || 1;
@@ -441,69 +441,7 @@ function getEquipmentDropsForMonsterLevel(monsterLevel) {
     .sort((left, right) => (
       Math.abs(Number(left.requiredLevel) - level) - Math.abs(Number(right.requiredLevel) - level)
       || String(left.id).localeCompare(String(right.id))
-    ));
-  const archetypes = ['warrior', 'archer', 'thief', 'mage'];
-  const weaponGroups = Object.fromEntries(archetypes.map((archetype) => [
-    archetype,
-    eligible.filter((item) => (
-      item.equipmentSlot === 'weapon'
-      && item.requirements?.archetype === archetype
     ))
-  ]));
-  const armorGroups = Object.fromEntries(archetypes.map((archetype) => [
-    archetype,
-    eligible.filter((item) => (
-      item.equipmentSlot !== 'weapon'
-      && item.equipmentSlot !== 'shield'
-      && item.requirements?.archetype === archetype
-    ))
-  ]));
-  const shieldGroups = Object.fromEntries(archetypes.map((archetype) => [
-    archetype,
-    eligible.filter((item) => (
-      item.equipmentSlot === 'shield'
-      && item.requirements?.archetype === archetype
-    ))
-  ]));
-  const commonEquipment = eligible.filter((item) => (
-    item.equipmentSlot !== 'weapon'
-    && !item.requirements?.archetype
-  ));
-  const selected = [];
-  const selectedIds = new Set();
-  const addCandidate = (candidate) => {
-    if (!candidate || selectedIds.has(candidate.id)) return false;
-    selected.push(candidate);
-    selectedIds.add(candidate.id);
-    return true;
-  };
-  const rotatedArchetypes = archetypes.map((_, index) => (
-    archetypes[(index + level) % archetypes.length]
-  ));
-
-  // Every monster offers at least one weapon and one class armor piece per archetype.
-  for (const archetype of rotatedArchetypes) addCandidate(weaponGroups[archetype][0]);
-  for (const archetype of rotatedArchetypes) addCandidate(armorGroups[archetype][0]);
-  addCandidate(shieldGroups.warrior[0]);
-  addCandidate(shieldGroups.mage[0]);
-  for (const candidate of commonEquipment.slice(0, 2)) addCandidate(candidate);
-
-  const targetDropCount = 16;
-  for (let round = 1; selected.length < targetDropCount; round += 1) {
-    let added = false;
-    for (const archetype of rotatedArchetypes) {
-      if (selected.length >= targetDropCount) break;
-      added = addCandidate(weaponGroups[archetype][round]) || added;
-      if (selected.length >= targetDropCount) break;
-      added = addCandidate(armorGroups[archetype][round]) || added;
-    }
-    if (!added) break;
-  }
-  for (const candidate of eligible) {
-    if (selected.length >= targetDropCount) break;
-    addCandidate(candidate);
-  }
-  return selected
     .map((item) => ({
       itemId: item.id,
       name: item.name,

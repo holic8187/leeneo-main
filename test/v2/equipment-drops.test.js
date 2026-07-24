@@ -101,6 +101,25 @@ test('every ordinary monster drops a weapon for every archetype and at least thr
   }
 });
 
+test('every non-boss equipment item appears in an ordinary monster drop table', () => {
+  const droppedIds = new Set(MONSTER_CATALOG.flatMap((monster) => (
+    monster.dropTable.equipment.map((drop) => drop.itemId)
+  )));
+  const ordinaryItems = EQUIPMENT_ITEMS.filter((item) => !item.bossDropOnly);
+  const missingItems = ordinaryItems
+    .filter((item) => !droppedIds.has(item.id))
+    .map((item) => `${item.id}:${item.name}`);
+
+  assert.deepEqual(missingItems, []);
+
+  const thiefTops = ordinaryItems.filter((item) => (
+    item.requirements?.archetype === 'thief'
+    && item.equipmentSlot === 'top'
+  ));
+  assert.ok(thiefTops.length > 0);
+  assert.ok(thiefTops.every((item) => droppedIds.has(item.id)));
+});
+
 test('equipment prices stay ordered by slot and endgame weapons reach 400,000 won', () => {
   assert.ok(getEquipmentSellPrice(10, 'weapon') > getEquipmentSellPrice(10, 'top'));
   assert.ok(getEquipmentSellPrice(10, 'top') > getEquipmentSellPrice(10, 'shoes'));
