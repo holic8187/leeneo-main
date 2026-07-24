@@ -645,18 +645,30 @@ async function toggleSkillPreset(skillId) {
   }
 }
 
-function applySkillCombatOutcome(outcome = {}, combat = {}) {
+function applySkillCombatOutcome(outcome = {}, combat = {}, impactPoint = null) {
   const element = Array.from($('monsterLayer').children).find(
-    (node) => node.dataset.monsterId === outcome.monsterId
+    (node) => node.dataset.monsterId === String(outcome.monsterId)
   );
   const critical = (outcome.hitResults || []).some((hit) => hit.critical)
     || Boolean(combat.critical);
-  showFloatingDamage(
-    element,
-    outcome.missed ? 'MISS' : outcome.damage,
-    !outcome.missed && critical ? 'critical' : 'outgoing',
-    outcome.piercingIndex
-  );
+  const damageAmount = outcome.missed ? 'MISS' : outcome.damage;
+  const damageKind = !outcome.missed && critical ? 'critical' : 'outgoing';
+  if (element?.isConnected) {
+    showFloatingDamage(element, damageAmount, damageKind, outcome.piercingIndex);
+  } else {
+    const fallbackPoint = impactPoint
+      || (typeof getWorldStagePoint === 'function'
+        ? getWorldStagePoint(outcome.targetX, outcome.targetFloor)
+        : null);
+    if (fallbackPoint && typeof showFloatingDamageAtPoint === 'function') {
+      showFloatingDamageAtPoint(
+        fallbackPoint,
+        damageAmount,
+        damageKind,
+        outcome.piercingIndex
+      );
+    }
+  }
   if (outcome.knockedBack) {
     element?.classList.add('is-knockback');
     setTimeout(() => element?.classList.remove('is-knockback'), 420);
@@ -745,9 +757,23 @@ function prepareProgressivePiercingTarget(skill = {}) {
     (monster) => String(monster.id) === String(state.combatTargetId || '')
   ) || candidates[0];
   if (!target) return null;
+  const targetOffset = Number(target.x) - characterX;
+  const direction = targetOffset === 0
+    ? (character.classList.contains('facing-left') ? -1 : 1)
+    : Math.sign(targetOffset);
+  const targetCount = Math.max(
+    1,
+    Math.floor(Number(skill.values?.targetCount ?? skill.maxTargets) || 6)
+  );
+  const piercingTargets = candidates
+    .filter((monster) => {
+      const offset = Number(monster.x) - characterX;
+      return offset === 0 || Math.sign(offset) === direction;
+    })
+    .slice(0, targetCount);
   state.combatTargetId = String(target.id);
-  character.classList.toggle('facing-left', Number(target.x) < characterX);
-  return target;
+  character.classList.toggle('facing-left', direction < 0);
+  return { target, targets: piercingTargets };
 }
 
 async function queueManualSkillUse(skillId) {
@@ -781,10 +807,20 @@ async function useActiveSkill(skillId, options = {}) {
   ) return false;
     const skill = state.character?.skillTree?.skills?.find((entry) => entry.id === skillId);
     if (!skill) return false;
+    const progressivePiercingSkill = (
+      String(skill.id || '') === 'extended_cd94045605'
+      || String(skill.effect || '') === 'progressive-piercing-damage'
+    );
+    const pendingPiercingTargetIds = new Set();
+    const retainPreparedTargets = (prepared) => {
+      const ids = (prepared?.targets || []).map((monster) => String(monster.id || '')).filter(Boolean);
+      ids.forEach((id) => pendingPiercingTargetIds.add(id));
+      if (typeof retainCombatVisualTargets === 'function') retainCombatVisualTargets(ids);
+    };
     state.skillUseBusy = true;
     try {
       const offensive = ['enemy', 'enemies'].includes(skill.target);
-      if (offensive) prepareProgressivePiercingTarget(skill);
+      if (offensive) retainPreparedTargets(prepareProgressivePiercingTarget(skill));
       const motionKind = manual ? 'manual' : 'combat';
     const motionRunId = manual ? 0 : state.combatRunId;
     const channelDurationSeconds = Math.max(
@@ -800,19 +836,26 @@ async function useActiveSkill(skillId, options = {}) {
       Math.min(300, Math.round(Number(skill.values?.postCastDelaySeconds ?? 0.3) * 1000))
     );
     state.lastSkillPostCastDelayMs = postCastDelayMs;
-    const requestSkillUse = () => request('/api/v2/skills/use', {
-      method: 'POST',
-      body: JSON.stringify({
-        clientId: state.worldClientId,
-        mapId: state.currentMapId,
-        x: typeof getCharacterX === 'function' ? getCharacterX() : 8,
-        floor: typeof getCharacterFloor === 'function' ? getCharacterFloor() : 0,
-        facingLeft: $('fieldCharacter')?.classList.contains('facing-left') || false,
-        direction: $('fieldCharacter')?.classList.contains('facing-left') ? 'left' : 'right',
-        targetId: state.combatTargetId,
-        skillId
-      })
-    });
+    const requestSkillUse = () => {
+      if (progressivePiercingSkill) {
+        const prepared = prepareProgressivePiercingTarget(skill);
+        if (!prepared) return Promise.reject(new Error('사거리 안에 관통할 대상이 없습니다.'));
+        retainPreparedTargets(prepared);
+      }
+      return request('/api/v2/skills/use', {
+        method: 'POST',
+        body: JSON.stringify({
+          clientId: state.worldClientId,
+          mapId: state.currentMapId,
+          x: typeof getCharacterX === 'function' ? getCharacterX() : 8,
+          floor: typeof getCharacterFloor === 'function' ? getCharacterFloor() : 0,
+          facingLeft: $('fieldCharacter')?.classList.contains('facing-left') || false,
+          direction: $('fieldCharacter')?.classList.contains('facing-left') ? 'left' : 'right',
+          targetId: state.combatTargetId,
+          skillId
+        })
+      });
+    };
     let data;
     if (channelDurationSeconds > 0 && typeof playChanneledSkillMotion === 'function') {
       data = await requestSkillUse();
@@ -835,15 +878,29 @@ async function useActiveSkill(skillId, options = {}) {
         `${skill.name} 연사 중`
       );
     } else if (preCastDelayMs > 0) {
+      const progressiveRequest = progressivePiercingSkill
+        ? requestSkillUse().then(
+          (response) => ({ response, error: null }),
+          (error) => ({ response: null, error })
+        )
+        : null;
       setWorldActivity(`${skill.name} 충전 중 · ${(preCastDelayMs / 1000).toFixed(1)}초`);
       setCharacterMotion('cast');
       if (typeof playSkillChargeEffect === 'function') {
         playSkillChargeEffect(skill, preCastDelayMs);
       }
       await sleep(preCastDelayMs);
-      if (manual ? state.dead : !isRunActive(motionKind, motionRunId)) return false;
+      if (!progressiveRequest && (manual ? state.dead : !isRunActive(motionKind, motionRunId))) {
+        return false;
+      }
       setCharacterMotion(offensive ? (getCombatPresentation().motion || 'slash') : 'buff');
-      data = await requestSkillUse();
+      if (progressiveRequest) {
+        const progressiveResult = await progressiveRequest;
+        if (progressiveResult.error) throw progressiveResult.error;
+        data = progressiveResult.response;
+      } else {
+        data = await requestSkillUse();
+      }
       setTimeout(() => {
         if (!state.dead && !state.moving) setCharacterMotion(null);
       }, 140);
@@ -878,14 +935,28 @@ async function useActiveSkill(skillId, options = {}) {
           }, 240);
         }
       }
-      const progressivePiercing = data.skill?.effect === 'progressive-piercing-damage';
+      const progressivePiercing = (
+        String(data.skill?.id || '') === 'extended_cd94045605'
+        || String(data.skill?.effect || '') === 'progressive-piercing-damage'
+      );
+      if (progressivePiercing) {
+        const outcomeIds = (data.combat.outcomes || [])
+          .map((outcome) => String(outcome.monsterId || ''))
+          .filter(Boolean);
+        outcomeIds.forEach((id) => pendingPiercingTargetIds.add(id));
+        if (typeof retainCombatVisualTargets === 'function') {
+          retainCombatVisualTargets(outcomeIds);
+        }
+      }
       if (
         !data.combat.channel
         && progressivePiercing
         && typeof playProgressivePiercingVisual === 'function'
       ) {
         await playProgressivePiercingVisual(data.skill, data.combat, {
-          onImpact: (outcome) => applySkillCombatOutcome(outcome, data.combat)
+          onImpact: (outcome, index, impactPoint) => (
+            applySkillCombatOutcome(outcome, data.combat, impactPoint)
+          )
         });
       } else if (!data.combat.channel && typeof playSkillVisualEffect === 'function') {
         playSkillVisualEffect(data.skill, data.combat);
@@ -920,6 +991,9 @@ async function useActiveSkill(skillId, options = {}) {
     setWorldActivity(err.message);
     return false;
   } finally {
+    if (typeof releaseCombatVisualTargets === 'function') {
+      releaseCombatVisualTargets([...pendingPiercingTargetIds]);
+    }
     state.skillUseBusy = false;
   }
 }

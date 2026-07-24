@@ -1189,7 +1189,7 @@ test('progressive piercing attacks travel forward and increase damage for every 
     targetId: target.id,
     baseDamage: 10,
     skillPercent: 250,
-    rangePx: 10_000,
+    rangePx: 650,
     maxTargets: 6,
     ignoreDefense: true,
     piercing: true,
@@ -1245,7 +1245,7 @@ test('progressive piercing selects the nearest target when the caster faces an e
     targetId: '',
     baseDamage: 10,
     skillPercent: 250,
-    rangePx: 10_000,
+    rangePx: 650,
     maxTargets: 6,
     ignoreDefense: true,
     piercing: true,
@@ -1260,6 +1260,54 @@ test('progressive piercing selects the nearest target when the caster faces an e
   assert.equal(result.success, true);
   assert.equal(result.facingLeft, true);
   assert.ok(result.outcomes.length > 0);
+  assert.ok(result.outcomes.every((outcome) => outcome.targetX < 92));
+});
+
+test('progressive piercing uses the latest caster coordinates supplied with the cast', () => {
+  const originalRandom = Math.random;
+  let state;
+  try {
+    Math.random = () => 0.9;
+    state = updatePresence({
+      userId: 'moving-piercing-user',
+      nickname: '이동한 회계 사원',
+      mapId: 'newcomer_training',
+      x: 8,
+      floor: 0,
+      facingLeft: false,
+      currentHp: 120,
+      maxHp: 120,
+      now: 1_000
+    });
+  } finally {
+    Math.random = originalRandom;
+  }
+  assert.ok(state.monsters.some((monster) => monster.x < 92));
+
+  const result = useSkillOnMonsters({
+    userId: 'moving-piercing-user',
+    mapId: 'newcomer_training',
+    targetId: '',
+    baseDamage: 10,
+    skillPercent: 250,
+    rangePx: 650,
+    maxTargets: 6,
+    ignoreDefense: true,
+    piercing: true,
+    progressivePiercing: true,
+    progressiveStartPercent: 250,
+    progressiveEndPercent: 850,
+    verticalFloorRange: 0,
+    leaveAtOneHp: true,
+    casterX: 92,
+    casterFloor: 0,
+    casterFacingLeft: true,
+    now: 1_100
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.facingLeft, true);
+  assert.ok(result.outcomes.length > 1);
   assert.ok(result.outcomes.every((outcome) => outcome.targetX < 92));
 });
 

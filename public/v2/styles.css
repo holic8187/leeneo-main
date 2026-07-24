@@ -1944,6 +1944,7 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   animation-name: skill-teleport-ring;
 }
 .piercing-charge-effect,
+.piercing-beam-effect,
 .piercing-projectile-effect,
 .piercing-impact-effect {
   position: absolute;
@@ -1965,6 +1966,21 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .piercing-charge-effect.is-sustained {
   animation-name: piercing-charge-sustain;
   animation-timing-function: cubic-bezier(.2,.65,.18,1);
+}
+.piercing-beam-effect {
+  height: 7px;
+  border-radius: 999px;
+  transform: translateY(-50%) rotate(var(--piercing-angle, 0rad));
+  transform-origin: left center;
+  background: linear-gradient(
+    90deg,
+    rgba(110, 255, 228, .18),
+    rgba(110, 255, 228, .92) 15%,
+    rgba(255, 249, 190, .98) 72%,
+    rgba(255, 255, 255, .2)
+  );
+  box-shadow: 0 0 8px #71ffe3, 0 0 20px rgba(113, 255, 227, .72);
+  animation: piercing-beam-sweep .48s ease-out both;
 }
 .piercing-projectile-effect {
   --piercing-travel-x: 0px;
@@ -2042,6 +2058,12 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   62% { opacity: 1; scale: 1.05; rotate: 90deg; filter: brightness(1.35); }
   88% { opacity: 1; scale: 1.28; rotate: 180deg; filter: brightness(1.75); }
   100% { opacity: 0; scale: .74; rotate: 220deg; filter: brightness(2.2); }
+}
+@keyframes piercing-beam-sweep {
+  0% { opacity: 0; scale: 0 1; }
+  20% { opacity: 1; scale: 1 1; }
+  72% { opacity: .92; }
+  100% { opacity: 0; scale: 1 1; }
 }
 @keyframes piercing-projectile-flight {
   0% {

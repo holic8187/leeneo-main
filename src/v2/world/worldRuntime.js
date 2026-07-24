@@ -1929,6 +1929,9 @@ function useSkillOnMonsters(options = {}) {
   criticalDamagePercent = 200,
   rollCriticalPerHit = false,
   retargetEachHit = false,
+  casterX = null,
+  casterFloor = null,
+  casterFacingLeft = null,
   now = Date.now()
   } = options;
   cleanupInactiveMaps(now);
@@ -1939,6 +1942,13 @@ function useSkillOnMonsters(options = {}) {
   const player = runtime.players.get(userKey);
   if (!player) return { success: false, reason: 'missing-player' };
   if (player.currentHp <= 0) return { success: false, reason: 'dead' };
+  if (casterX !== null && casterX !== undefined && Number.isFinite(Number(casterX))) {
+    player.x = clamp(Number(casterX), 2, 92);
+  }
+  if (casterFloor !== null && casterFloor !== undefined && Number.isFinite(Number(casterFloor))) {
+    player.floor = Number(casterFloor) === 1 ? 1 : 0;
+  }
+  if (typeof casterFacingLeft === 'boolean') player.facingLeft = casterFacingLeft;
   const rangePercent = Math.max(1, Number(rangePx) || 100) / ASSUMED_STAGE_WIDTH_PX * 100;
   const inRange = runtime.monsters
     .filter((monster) => (

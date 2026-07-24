@@ -3435,7 +3435,12 @@ function registerV2Routes({
             criticalChance: Number(response.derivedStats.criticalChance) || 0,
             criticalDamagePercent: Number(response.derivedStats.criticalDamagePercent) || 200,
             rollCriticalPerHit,
-            retargetEachHit: castProfile.channelDurationSeconds > 0
+            retargetEachHit: castProfile.channelDurationSeconds > 0,
+            casterX: req.body?.x,
+            casterFloor: req.body?.floor,
+            casterFacingLeft: typeof req.body?.facingLeft === 'boolean'
+              ? req.body.facingLeft
+              : null
           });
           if (!combat.success) throw new Error('사거리 안에 공격할 대상이 없습니다.');
           if (combat.casterMovement) {

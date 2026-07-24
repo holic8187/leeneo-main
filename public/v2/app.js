@@ -80,6 +80,7 @@ const state = {
   reviving: false,
   selfUserId: '',
   worldMonsters: [],
+  pendingCombatVisualMonsterIds: new Set(),
   lastWorldSnapshotReceivedAt: 0,
   recentlyCollectedLootIds: new Map(),
   combatTargetId: '',
@@ -1406,15 +1407,13 @@ function getScaledMovementDuration(baseDuration) {
   );
 }
 
-function showFloatingDamage(targetElement, amount, kind = 'outgoing', sequence = null) {
+function showFloatingDamageAtPoint(point, amount, kind = 'outgoing', sequence = null) {
   const stage = $('worldStage');
-  if (!stage || !targetElement || !targetElement.isConnected) return;
+  if (!stage || !Number.isFinite(Number(point?.x)) || !Number.isFinite(Number(point?.y))) return;
   const label = typeof amount === 'string' ? amount : '';
   const value = Math.max(0, Math.floor(Number(amount) || 0));
   if (!value && !label) return;
 
-  const stageRect = stage.getBoundingClientRect();
-  const targetRect = targetElement.getBoundingClientRect();
   const element = document.createElement('span');
   element.className = `floating-damage is-${kind}`;
   element.textContent = label || formatNumber(value);
@@ -1422,11 +1421,34 @@ function showFloatingDamage(targetElement, amount, kind = 'outgoing', sequence =
   const lane = hasSequence ? Math.max(0, Math.floor(Number(sequence) || 0)) % 3 : 1;
   const xOffset = hasSequence ? (lane - 1) * 9 : 0;
   const yOffset = hasSequence ? lane * 5 : 0;
-  element.style.left = `${targetRect.left - stageRect.left + targetRect.width / 2 + xOffset}px`;
-  element.style.top = `${Math.max(18, targetRect.top - stageRect.top + 4 - yOffset)}px`;
+  element.style.left = `${Number(point.x) + xOffset}px`;
+  element.style.top = `${Math.max(18, Number(point.y) - yOffset)}px`;
   stage.appendChild(element);
   element.addEventListener('animationend', () => element.remove(), { once: true });
   setTimeout(() => element.remove(), 650);
+}
+
+function getWorldStagePoint(worldX, floor = 0) {
+  const stage = $('worldStage');
+  if (!stage) return null;
+  const stageRect = stage.getBoundingClientRect();
+  const normalizedX = Math.max(0, Math.min(100, Number(worldX) || 0));
+  const bottom = Number(floor) === 1 ? getUpperPlatformBottom() + 1 : 43;
+  return {
+    x: stageRect.width * normalizedX / 100,
+    y: Math.max(24, stageRect.height - bottom - 18)
+  };
+}
+
+function showFloatingDamage(targetElement, amount, kind = 'outgoing', sequence = null) {
+  const stage = $('worldStage');
+  if (!stage || !targetElement || !targetElement.isConnected) return;
+  const stageRect = stage.getBoundingClientRect();
+  const targetRect = targetElement.getBoundingClientRect();
+  showFloatingDamageAtPoint({
+    x: targetRect.left - stageRect.left + targetRect.width / 2,
+    y: targetRect.top - stageRect.top + 4
+  }, amount, kind, sequence);
 }
 
 function showSkillUseLabel(targetElement, skillName) {
@@ -1576,51 +1598,70 @@ function playSkillChargeEffect(skill = {}, durationMs = 1500) {
 function playProgressivePiercingVisual(skill = {}, combat = {}, { onImpact = null } = {}) {
   const stage = $('worldStage');
   const caster = $('fieldCharacter');
-  if (!stage || !caster) return Promise.resolve();
+  const outcomes = [...(combat.outcomes || [])].sort((left, right) => (
+    Number(left.piercingIndex ?? 0) - Number(right.piercingIndex ?? 0)
+  ));
+  if (!stage || !caster) {
+    outcomes.forEach((outcome, index) => {
+      if (typeof onImpact === 'function') onImpact(outcome, index, null);
+    });
+    return Promise.resolve();
+  }
   const stageRect = stage.getBoundingClientRect();
   const casterRect = caster.getBoundingClientRect();
   const sourceX = casterRect.left - stageRect.left + casterRect.width / 2;
   const sourceY = casterRect.top - stageRect.top + casterRect.height * .46;
-  const targets = [...(combat.outcomes || [])]
-    .sort((left, right) => (
-      Number(left.piercingIndex ?? 0) - Number(right.piercingIndex ?? 0)
-    ))
-    .map((outcome) => {
+  const targets = outcomes.map((outcome) => {
       const target = Array.from($('monsterLayer')?.children || []).find(
         (element) => element.dataset.monsterId === String(outcome.monsterId)
       );
+      const fallbackPoint = getWorldStagePoint(outcome.targetX, outcome.targetFloor) || {
+        x: sourceX,
+        y: sourceY
+      };
       if (target?.isConnected) {
         const rect = target.getBoundingClientRect();
         return {
           outcome,
-          x: rect.left - stageRect.left + rect.width / 2,
+          x: fallbackPoint.x,
           y: rect.top - stageRect.top + rect.height * .48
         };
       }
       return {
         outcome,
-        x: stageRect.width * Math.max(0, Math.min(100, Number(outcome.targetX) || 0)) / 100,
-        y: Number(outcome.targetFloor) === 1
-          ? Math.max(24, stageRect.height - getUpperPlatformBottom())
-          : Math.max(24, stageRect.height - 48)
+        x: fallbackPoint.x,
+        y: fallbackPoint.y
       };
     });
-  if (!targets.length) return Promise.resolve();
+  if (!targets.length) {
+    outcomes.forEach((outcome, index) => {
+      if (typeof onImpact === 'function') onImpact(outcome, index, null);
+    });
+    return Promise.resolve();
+  }
 
   const attackSpeed = Math.max(.5, getAttackSpeedMultiplier());
   const alreadyCharged = Number(skill.values?.preCastDelaySeconds) > 0;
   const chargeDuration = alreadyCharged ? 0 : Math.max(120, Math.round(260 / attackSpeed));
-  const flightDuration = Math.max(130, Math.round(310 / attackSpeed));
-  const lastTarget = targets.at(-1);
-  const direction = Math.sign(lastTarget.x - sourceX)
-    || (caster.classList.contains('facing-left') ? -1 : 1);
+  const flightDuration = Math.max(110, Math.round(260 / attackSpeed));
+  const firstTarget = targets[0];
+  const direction = typeof combat.facingLeft === 'boolean'
+    ? (combat.facingLeft ? -1 : 1)
+    : (Math.sign(firstTarget.x - sourceX)
+      || (caster.classList.contains('facing-left') ? -1 : 1));
+  const designRange = Math.max(
+    1,
+    Number(skill.values?.range ?? skill.range) || 650
+  );
+  const visualRange = stageRect.width * designRange / 760;
   const endpoint = {
-    x: Math.max(8, Math.min(stageRect.width - 8, lastTarget.x + direction * 72)),
-    y: lastTarget.y
+    x: Math.max(8, Math.min(stageRect.width - 8, sourceX + direction * visualRange)),
+    y: sourceY
   };
   const travelX = endpoint.x - sourceX;
   const travelY = endpoint.y - sourceY;
   const angle = Math.atan2(travelY, travelX);
+  const totalDistance = Math.max(1, Math.hypot(travelX, travelY));
 
   let charge = null;
   if (!alreadyCharged) {
@@ -1631,6 +1672,15 @@ function playProgressivePiercingVisual(skill = {}, combat = {}, { onImpact = nul
     charge.style.setProperty('--piercing-charge-duration', `${chargeDuration}ms`);
     stage.appendChild(charge);
   }
+
+  const beam = document.createElement('span');
+  beam.className = 'piercing-beam-effect';
+  beam.style.left = `${sourceX}px`;
+  beam.style.top = `${sourceY}px`;
+  beam.style.width = `${totalDistance}px`;
+  beam.style.setProperty('--piercing-angle', `${angle}rad`);
+  beam.style.animationDelay = `${chargeDuration}ms`;
+  stage.appendChild(beam);
 
   const projectile = document.createElement('span');
   projectile.className = 'piercing-projectile-effect';
@@ -1644,12 +1694,14 @@ function playProgressivePiercingVisual(skill = {}, combat = {}, { onImpact = nul
   stage.appendChild(projectile);
 
   targets.forEach(({ x, y, outcome }, index) => {
-    const totalDistance = Math.max(1, Math.hypot(travelX, travelY));
-    const targetDistance = Math.hypot(x - sourceX, y - sourceY);
+    const targetDistance = Math.max(0, (x - sourceX) * direction);
     const impactDelay = chargeDuration
       + Math.round(flightDuration * Math.min(1, targetDistance / totalDistance));
     setTimeout(() => {
-      if (!stage.isConnected) return;
+      if (!stage.isConnected) {
+        if (typeof onImpact === 'function') onImpact(outcome, index, { x, y });
+        return;
+      }
       const impact = document.createElement('span');
       impact.className = 'piercing-impact-effect';
       impact.style.left = `${x}px`;
@@ -1658,7 +1710,7 @@ function playProgressivePiercingVisual(skill = {}, combat = {}, { onImpact = nul
       impact.dataset.piercingStep = String(index + 1);
       impact.title = `${skill.name || '누적 관통결산'} ${Number(outcome.piercingDamagePercent) || 0}%`;
       stage.appendChild(impact);
-      if (typeof onImpact === 'function') onImpact(outcome, index);
+      if (typeof onImpact === 'function') onImpact(outcome, index, { x, y });
       impact.addEventListener('animationend', () => impact.remove(), { once: true });
       setTimeout(() => impact.remove(), 700);
     }, impactDelay);
@@ -1666,6 +1718,7 @@ function playProgressivePiercingVisual(skill = {}, combat = {}, { onImpact = nul
 
   const cleanupDelay = chargeDuration + flightDuration + 40;
   setTimeout(() => charge?.remove(), cleanupDelay);
+  setTimeout(() => beam.remove(), cleanupDelay + 180);
   setTimeout(() => projectile.remove(), cleanupDelay);
   return new Promise((resolve) => setTimeout(resolve, cleanupDelay));
 }
@@ -2807,6 +2860,28 @@ function ensureMonsterElement(monster) {
   return element;
 }
 
+function retainCombatVisualTargets(monsterIds = []) {
+  for (const monsterId of monsterIds) {
+    if (monsterId) state.pendingCombatVisualMonsterIds.add(String(monsterId));
+  }
+}
+
+function releaseCombatVisualTargets(monsterIds = []) {
+  const releasedIds = new Set(monsterIds.filter(Boolean).map(String));
+  for (const monsterId of releasedIds) {
+    state.pendingCombatVisualMonsterIds.delete(monsterId);
+  }
+  const liveIds = new Set((state.worldMonsters || []).map((monster) => String(monster.id)));
+  Array.from($('monsterLayer')?.children || []).forEach((element) => {
+    const monsterId = String(element.dataset.monsterId || '');
+    if (
+      releasedIds.has(monsterId)
+      && !liveIds.has(monsterId)
+      && !state.pendingCombatVisualMonsterIds.has(monsterId)
+    ) element.remove();
+  });
+}
+
 function renderMonsters(monsters = []) {
   state.worldMonsters = monsters;
   const visibleIds = new Set();
@@ -2828,7 +2903,10 @@ function renderMonsters(monsters = []) {
     element.classList.toggle('is-falling', monster.state === 'fall');
   });
   Array.from($('monsterLayer').children).forEach((element) => {
-    if (!visibleIds.has(element.dataset.monsterId)) element.remove();
+    if (
+      !visibleIds.has(element.dataset.monsterId)
+      && !state.pendingCombatVisualMonsterIds.has(String(element.dataset.monsterId || ''))
+    ) element.remove();
   });
   renderFieldBossTopBar(monsters);
 }
