@@ -501,6 +501,24 @@ function investSkill(character, skillId, amount = 1) {
   return { skillId: definition.id, invested: investment, level: current + investment };
 }
 
+function resetSkillInvestmentState(character) {
+  const skillState = ensureSkillState(character);
+  const skillDefinitionIds = new Set(Object.keys(SKILL_DEFINITIONS));
+  skillState.levels = {};
+  skillState.activePreset = [];
+  skillState.autoPreset = [];
+  skillState.cooldowns = {};
+  skillState.summon = null;
+  skillState.decoySummon = null;
+  skillState.offlineAutoRotationCursor = 0;
+  skillState.comboCount = 0;
+  skillState.activeBuffs = skillState.activeBuffs.filter(
+    (buff) => !skillDefinitionIds.has(String(buff.skillId || ''))
+  );
+  if (typeof character.markModified === 'function') character.markModified('skills');
+  return skillState;
+}
+
 function setActivePreset(character, skillIds = []) {
   const normalized = [...new Set((Array.isArray(skillIds) ? skillIds : [])
     .map((skillId) => String(skillId || ''))
@@ -1044,6 +1062,7 @@ module.exports = {
   getEarnedSkillPointsForTier,
   getInvestmentBlockReason,
   investSkill,
+  resetSkillInvestmentState,
   setActivePreset,
   setAutoPreset,
   pruneExpiredSkillState,

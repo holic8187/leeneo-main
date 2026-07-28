@@ -192,6 +192,7 @@ const {
   resolveSkillValues,
   resolveSkillCastProfile,
   investSkill,
+  resetSkillInvestmentState,
   setActivePreset,
   setAutoPreset,
   buildActiveBuffEffects,
@@ -2021,6 +2022,10 @@ function registerV2Routes({
         poisonAttack: Number(preUseEffects.poisonAttack) || 0,
         poisonDurationSeconds: Number(preUseEffects.poisonDurationSeconds) || 0,
         poisonMaxStacks: Number(preUseEffects.poisonMaxStacks) || 0,
+        closeRangeChance: Number(preUseEffects.closeRangeChance) || 0,
+        closeRangeDamagePercent: Number(preUseEffects.closeRangeDamagePercent) || 0,
+        executeThresholdPercent: Number(preUseEffects.executeThresholdPercent) || 0,
+        executeChance: Number(preUseEffects.executeChance) || 0,
         stunChance: Number(values.stunChance) || 0,
         stunSeconds: Number(values.stunSeconds) || 0,
         moveCasterToTarget: Boolean(values.moveCasterToTarget),
@@ -3554,6 +3559,10 @@ function registerV2Routes({
             poisonAttack: Number(activeEffects.poisonAttack) || 0,
             poisonDurationSeconds: Number(activeEffects.poisonDurationSeconds) || 0,
             poisonMaxStacks: Number(activeEffects.poisonMaxStacks) || 0,
+            closeRangeChance: Number(activeEffects.closeRangeChance) || 0,
+            closeRangeDamagePercent: Number(activeEffects.closeRangeDamagePercent) || 0,
+            executeThresholdPercent: Number(activeEffects.executeThresholdPercent) || 0,
+            executeChance: Number(activeEffects.executeChance) || 0,
             stunChance: Number(values.stunChance) || 0,
             stunSeconds: Number(values.stunSeconds) || 0,
             moveCasterToTarget: Boolean(values.moveCasterToTarget),
@@ -5001,18 +5010,7 @@ function registerV2Routes({
             ? `${item.name}을(를) 사용해 디버프를 해제했습니다.`
             : `${item.name}을(를) 사용했습니다. 해제할 디버프는 없었습니다.`;
         } else if (item.itemType === 'skill-reset') {
-          const skillState = ensureSkillState(character);
-          const skillDefinitionIds = new Set(Object.keys(SKILL_DEFINITIONS));
-          skillState.levels = {};
-          skillState.activePreset = [];
-          skillState.autoPreset = [];
-          skillState.cooldowns = {};
-          skillState.summon = null;
-          skillState.decoySummon = null;
-          skillState.comboCount = 0;
-          skillState.activeBuffs = skillState.activeBuffs.filter(
-            (buff) => !skillDefinitionIds.has(String(buff.skillId || ''))
-          );
+          resetSkillInvestmentState(character);
           character.progression.unspentSkillPoints = Math.max(
             0,
             Math.floor(Number(character.progression?.totalSkillPointsEarned) || 0)

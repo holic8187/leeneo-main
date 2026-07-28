@@ -2384,6 +2384,10 @@ function useSkillOnMonsters(options = {}) {
   poisonAttack = 0,
   poisonDurationSeconds = 0,
   poisonMaxStacks = 0,
+  closeRangeChance = 0,
+  closeRangeDamagePercent = 0,
+  executeThresholdPercent = 0,
+  executeChance = 0,
   undeadOnly = false,
   excludeFieldBoss = false,
   verticalFloorRange = 0,
@@ -2632,6 +2636,16 @@ function useSkillOnMonsters(options = {}) {
     }
     let totalDamage = 0;
     const hitResults = [];
+    const distancePx = Math.abs(Number(player.x) - Number(monster.x)) / 100 * ASSUMED_STAGE_WIDTH_PX;
+    const closeRangeTriggered = distancePx <= 100
+      && Number(closeRangeChance) > 0
+      && Math.random() * 100 < Number(closeRangeChance);
+    const closeRangeMultiplier = closeRangeTriggered
+      ? Math.max(0, Number(closeRangeDamagePercent) || 100) / 100
+      : 1;
+    const wasBelowExecuteThreshold = monster.hp / Math.max(1, monster.maxHp) * 100
+      <= Number(executeThresholdPercent || 0);
+    let executed = false;
     for (let hit = 0; dealDamage && hit < hitCount && monster.hp > 0; hit += 1) {
       const defense = damageType === 'magic' ? monster.magicDefense : monster.physicalDefense;
       const multiplier = Math.max(
@@ -2643,9 +2657,9 @@ function useSkillOnMonsters(options = {}) {
         ? Math.max(1, Number(criticalDamagePercent) || 200) / 100
         : 1;
       const damage = resolveOutgoingDamage({
-        damage: Number(baseDamage) * (damageRange ? 1 : criticalMultiplier),
+        damage: Number(baseDamage) * (damageRange ? closeRangeMultiplier : criticalMultiplier * closeRangeMultiplier),
         damageRange: targetDamageRange
-          ? scaleDamageRange(targetDamageRange, criticalMultiplier)
+          ? scaleDamageRange(targetDamageRange, criticalMultiplier * closeRangeMultiplier)
           : null,
         damageType,
         skillPercent: piercingDamagePercent,
@@ -2667,9 +2681,28 @@ function useSkillOnMonsters(options = {}) {
         remainingHp: monster.hp,
         maxHp: monster.maxHp,
         defeated: monster.hp <= 0,
+        closeRangeTriggered,
         piercingIndex: progressivePiercing ? targetIndex : undefined,
         piercingDamagePercent: progressivePiercing ? piercingDamagePercent : undefined
       });
+    }
+    if (
+      dealDamage
+      && !leaveAtOneHp
+      && closeRangeTriggered
+      && wasBelowExecuteThreshold
+      && monster.hp > 0
+      && Number(executeChance) > 0
+      && Math.random() * 100 < Number(executeChance)
+    ) {
+      monster.hp = 0;
+      executed = true;
+      if (hitResults.length) {
+        const lastHit = hitResults[hitResults.length - 1];
+        lastHit.remainingHp = 0;
+        lastHit.defeated = true;
+        lastHit.executed = true;
+      }
     }
     const mpAbsorbed = damageType === 'magic' && totalDamage > 0
       ? absorbMonsterMp(monster, mpAbsorbChance, mpAbsorbPercent)
@@ -2688,9 +2721,12 @@ function useSkillOnMonsters(options = {}) {
         ...activeElements.map((activeElement) => getElementMultiplier(monster, activeElement))
       );
       const damage = resolveOutgoingDamage({
-        damage: baseDamage,
+        damage: Number(baseDamage) * closeRangeMultiplier,
         damageRange: targetDamageRange
-          ? scaleDamageRange(targetDamageRange, Number(bonusAttackPercent) / 100)
+          ? scaleDamageRange(
+            targetDamageRange,
+            Number(bonusAttackPercent) / 100 * closeRangeMultiplier
+          )
           : null,
         damageType,
         skillPercent: targetDamageRange
@@ -2715,6 +2751,7 @@ function useSkillOnMonsters(options = {}) {
         maxHp: monster.maxHp,
         defeated: monster.hp <= 0,
         bonusAttack: true,
+        closeRangeTriggered,
         piercingIndex: progressivePiercing ? targetIndex : undefined,
         piercingDamagePercent: progressivePiercing ? piercingDamagePercent : undefined
       });
@@ -2763,6 +2800,8 @@ function useSkillOnMonsters(options = {}) {
       missed: false,
       hitChance,
       doubleStrike: bonusAttackPercent > 0,
+      closeRangeTriggered,
+      executed,
       knockedBack,
       defeated,
       monsterLevel: monster.level,

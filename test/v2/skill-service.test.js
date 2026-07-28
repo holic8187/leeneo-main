@@ -7,9 +7,11 @@ const {
   ensureSkillState,
   resolveSkillValues,
   resolveSkillCastProfile,
+  getSkillInvestmentCap,
   getEarnedSkillPointsForTier,
   getInvestmentBlockReason,
   investSkill,
+  resetSkillInvestmentState,
   setActivePreset,
   setAutoPreset,
   getActiveSkillEffects,
@@ -656,6 +658,40 @@ test('support light is a third-tier skill and never asks for mastery books', () 
   assert.equal(supportLight.tier, 3);
   assert.equal(treeSkill.investmentCap, 30);
   assert.equal(treeSkill.unlockMethod, 'level');
+});
+
+test('skill reset preserves mastery-book unlock caps', () => {
+  const skill = SKILL_DEFINITIONS.firm_will_hr;
+  const character = makeCharacter({
+    skills: {
+      levels: { [skill.id]: 21 },
+      activePreset: [skill.id],
+      autoPreset: [skill.id],
+      unlockedQuestSkills: [],
+      unlockProgress: {
+        hr: {
+          [skill.id]: {
+            cap: 30,
+            failures: { 30: 2 }
+          }
+        }
+      },
+      activeBuffs: [{ skillId: skill.id }],
+      cooldowns: { [skill.id]: Date.now() + 5000 },
+      summon: null,
+      decoySummon: null,
+      comboCount: 3
+    }
+  });
+
+  assert.equal(getSkillInvestmentCap(character, skill), 30);
+  resetSkillInvestmentState(character);
+
+  assert.deepEqual(character.skills.levels, {});
+  assert.deepEqual(character.skills.activePreset, []);
+  assert.deepEqual(character.skills.autoPreset, []);
+  assert.equal(getSkillInvestmentCap(character, skill), 30);
+  assert.equal(character.skills.unlockProgress.hr[skill.id].failures[30], 2);
 });
 
 test('prerequisites and previous-tier SP gates are enforced', () => {

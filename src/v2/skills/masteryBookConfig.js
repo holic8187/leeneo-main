@@ -52,11 +52,7 @@ const MASTERY_BOOK_SKILLS = Object.freeze([
   mastery('extended_5620bb5a09', ['research'], [20, 30], { originalSkillId: 'blizzard', bookName: '기후 제어 실험' }),
   mastery('extended_c868507ba3', ['research'], [20, 30], { originalSkillId: 'ice_demon', bookName: '아이스 데몬' }),
   mastery('extended_aef3d1db17', ['management_support'], [20, 30], { originalSkillId: 'genesis', bookName: '전사 비상지원' }),
-<<<<<<< HEAD
   mastery('extended_7a0f825273', ['management_support'], [20, 30], { originalSkillId: 'angel_ray', bookName: '엔젤레이' }),
-=======
-  mastery('extended_206bd2f4b1', ['management_support'], [20, 30], { originalSkillId: 'angel_ray', bookName: '엔젤레이' }),
->>>>>>> 29c984ed0e8f0fc859c2d706457eb4469d895117
 
   mastery('extended_e76286335c', COMMON_ADVANCED_DEPARTMENTS, [20], { originalSkillId: 'maple_warrior', bookName: '전 직원 역량강화' }),
   mastery('extended_ccb060a442', ['accounting'], [20, 30], { originalSkillId: 'sharp_eyes', bookName: '통찰 계열 공용' }),

@@ -1797,6 +1797,117 @@ test('channeled skills return one mastery and critical result per visible hit', 
   assert.ok(result.outcomes[0].hitResults.every((hit) => hit.damage > 0));
 });
 
+test('channeled skills can carry follow-up passive hits', () => {
+  const originalRandom = Math.random;
+  let state;
+  try {
+    Math.random = () => 0.9;
+    state = updatePresence({
+      userId: 'channel-follow-up-user',
+      nickname: 'channel-follow-up-user',
+      mapId: 'newcomer_training',
+      x: 50,
+      floor: 0,
+      currentHp: 120,
+      maxHp: 120,
+      now: 1_000
+    });
+  } finally {
+    Math.random = originalRandom;
+  }
+  const monster = state.monsters.find((entry) => entry.floor === 0);
+  updatePresence({
+    userId: 'channel-follow-up-user',
+    nickname: 'channel-follow-up-user',
+    mapId: 'newcomer_training',
+    x: monster.x,
+    floor: 0,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_050
+  });
+
+  const result = useSkillOnMonsters({
+    userId: 'channel-follow-up-user',
+    mapId: 'newcomer_training',
+    targetId: monster.id,
+    baseDamage: 1,
+    skillPercent: 100,
+    rangePx: 1_000,
+    hits: 3,
+    ignoreDefense: true,
+    retargetEachHit: true,
+    bonusAttackPercent: 100,
+    now: 1_100
+  });
+  const hitResults = result.outcomes.flatMap((outcome) => outcome.hitResults || []);
+
+  assert.equal(result.success, true);
+  assert.equal(hitResults.length, 6);
+  assert.equal(hitResults.filter((hit) => hit.bonusAttack).length, 3);
+  assert.equal(result.outcomes.some((outcome) => outcome.doubleStrike), true);
+});
+
+test('skill hits can trigger close-range execution passives', () => {
+  const originalRandom = Math.random;
+  let state;
+  try {
+    Math.random = () => 0.9;
+    state = updatePresence({
+      userId: 'skill-close-range-user',
+      nickname: 'skill-close-range-user',
+      mapId: 'newcomer_training',
+      x: 50,
+      floor: 0,
+      currentHp: 120,
+      maxHp: 120,
+      now: 1_000
+    });
+  } finally {
+    Math.random = originalRandom;
+  }
+  const monster = state.monsters.find((entry) => entry.floor === 0);
+  updatePresence({
+    userId: 'skill-close-range-user',
+    nickname: 'skill-close-range-user',
+    mapId: 'newcomer_training',
+    x: monster.x,
+    floor: 0,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_050
+  });
+
+  let result;
+  try {
+    Math.random = () => 0;
+    result = useSkillOnMonsters({
+      userId: 'skill-close-range-user',
+      mapId: 'newcomer_training',
+      targetId: monster.id,
+      baseDamage: 1,
+      skillPercent: 100,
+      rangePx: 1_000,
+      ignoreDefense: true,
+      closeRangeChance: 100,
+      closeRangeDamagePercent: 250,
+      executeThresholdPercent: 100,
+      executeChance: 100,
+      now: 1_100
+    });
+  } finally {
+    Math.random = originalRandom;
+  }
+  const firstHit = result.outcomes[0].hitResults[0];
+
+  assert.equal(result.success, true);
+  assert.equal(result.outcomes[0].closeRangeTriggered, true);
+  assert.equal(result.outcomes[0].executed, true);
+  assert.equal(firstHit.closeRangeTriggered, true);
+  assert.equal(firstHit.executed, true);
+  assert.equal(result.outcomes[0].defeated, true);
+});
+
 test('channeled projectiles retarget the next front monster after a kill', () => {
   const originalRandom = Math.random;
   let state;
