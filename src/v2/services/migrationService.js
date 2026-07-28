@@ -418,7 +418,7 @@ async function ensureV2MigrationForUser(user) {
             misc: 20,
             cash: 20
           },
-          quickSlots: { hp: '', mp: '' }
+          quickSlots: { hp: '', mp: '', consumables: ['', '', ''] }
         },
         mailbox: [],
         resources: {
@@ -789,6 +789,12 @@ function buildCharacterResponse(character) {
       x: Math.max(0, Math.min(94, Number(plain.worldState?.x) || 8)),
       floor: Number(plain.worldState?.floor) === 1 ? 1 : 0
     },
+    fieldBossLockouts: Object.fromEntries(
+      Object.entries(plain.fieldBossLockouts || {}).map(([bossId, until]) => [
+        bossId,
+        until ? new Date(until).getTime() : 0
+      ])
+    ),
     huntingTime: {
       remainingSeconds: Math.max(0, Number(plain.huntingTime?.remainingSeconds) || 0),
       maximumSeconds: Math.max(

@@ -60,10 +60,14 @@ test('elixir drop rates follow their level curves without replacing other drop c
   assert.equal(getPotionDropsForMonsterLevel(39).length, 0);
   assert.equal(getPotionDropsForMonsterLevel(40)[0].chance, 0.001);
   assert.equal(getPotionDropsForMonsterLevel(59).some((drop) => drop.itemId === 'power_elixir'), false);
+  assert.equal(getPotionDropsForMonsterLevel(59).some((drop) => drop.itemId === 'chunsik_blessing_potion'), false);
   assert.equal(getPotionDropsForMonsterLevel(60).find((drop) => drop.itemId === 'power_elixir').chance, 0.002);
+  assert.equal(getPotionDropsForMonsterLevel(60).find((drop) => drop.itemId === 'chunsik_blessing_potion').chance, 0.002);
   assert.equal(getPotionDropsForMonsterLevel(110).find((drop) => drop.itemId === 'elixir').chance, 0.002);
   assert.equal(getPotionDropsForMonsterLevel(110).find((drop) => drop.itemId === 'power_elixir').chance, 0.0015);
+  assert.ok(getPotionDropsForMonsterLevel(110).find((drop) => drop.itemId === 'chunsik_blessing_potion').chance > 0.002);
   assert.equal(getPotionDropsForMonsterLevel(140).find((drop) => drop.itemId === 'power_elixir').chance, 0.0015);
+  assert.equal(getPotionDropsForMonsterLevel(140).find((drop) => drop.itemId === 'chunsik_blessing_potion').chance, 0.009);
   const level62 = MONSTER_CATALOG.find((monster) => monster.level === 62);
   assert.ok(level62.dropTable.potions.length > 0);
   assert.ok(level62.dropTable.equipment.length > 0);

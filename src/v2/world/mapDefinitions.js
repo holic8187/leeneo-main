@@ -52,15 +52,27 @@ const MAP_DEFINITIONS = [
   { id: 'deadline_rooftop', name: '마감기한 드래곤 옥상', region: '단일 사냥터', minLevel: 132, maxLevel: 145, theme: 'executive', features: ['hazard', 'rope'], monsterIds: ['deadline_dragon'] }
   ,
   {
-    id: 'hidden_hwang_overtime',
-    name: '히든 스트리트 - 미쳐버린 야근실',
+    id: 'hidden_hwang_sales',
+    name: '히든 스트리트 - 미쳐버린 영업 회의실',
     region: '히든 스트리트',
-    minLevel: 50,
-    maxLevel: 70,
-    theme: 'overtime',
+    minLevel: 57,
+    maxLevel: 67,
+    theme: 'sales',
     features: ['hazard'],
     monsterIds: [],
     fieldBossId: 'mad_hwang_manager',
+    hidden: true
+  },
+  {
+    id: 'hidden_hwang_overtime',
+    name: '히든 스트리트 - 감맘 네오의 폐쇄실',
+    region: '히든 스트리트',
+    minLevel: 112,
+    maxLevel: 128,
+    theme: 'overtime',
+    features: ['hazard'],
+    monsterIds: [],
+    fieldBossId: 'gammam_neo',
     hidden: true
   }
 ];
@@ -121,7 +133,8 @@ const MAP_EDGES = [
   ['logistics_warehouse', 'overtime_depths', '야간배송 통로'],
   ['overtime_depths', 'executive_strategy', '최종보고 계단']
   ,
-  ['overtime_depths', 'hidden_hwang_overtime', '히든 야근실']
+  ['sales_fox_den', 'hidden_hwang_sales', '히든 영업 회의실'],
+  ['overtime_depths', 'hidden_hwang_overtime', '히든 감맘 폐쇄실']
 ];
 
 function buildMapGraph() {

@@ -34,6 +34,19 @@ function normalizeQuantity(quantity) {
   ));
 }
 
+function isZeroPriceSellableAmmunition(item) {
+  return item?.itemType === 'ammunition' && item?.ammunitionType === 'arrow';
+}
+
+function getShopSellPrice(item) {
+  if (isZeroPriceSellableAmmunition(item)) return 0;
+  return Math.max(0, Math.floor(Number(item?.sellPrice) || 0));
+}
+
+function isShopSellableItem(item) {
+  return Boolean(item) && (getShopSellPrice(item) > 0 || isZeroPriceSellableAmmunition(item));
+}
+
 function getRegionalShopItem(itemId, shopId) {
   const item = getItemDefinition(itemId);
   if (
@@ -74,11 +87,11 @@ function sellInventoryStack(character, stackId, quantity) {
   const stack = inventory.items.find((entry) => String(entry.stackId) === String(stackId));
   if (!stack) throw new Error('판매할 아이템을 찾을 수 없습니다.');
   const item = getItemDefinition(stack.itemId);
-  if (!item || Number(item.sellPrice) <= 0) throw new Error('상점에 판매할 수 없는 아이템입니다.');
+  if (!isShopSellableItem(item)) throw new Error('상점에 판매할 수 없는 아이템입니다.');
   const safeQuantity = Math.min(normalizeQuantity(quantity), Number(stack.quantity) || 0);
   const consumed = consumeInventoryStack(character, stackId, safeQuantity);
   if (!consumed?.quantity) throw new Error('판매할 수량이 부족합니다.');
-  const totalPrice = Math.floor(item.sellPrice * consumed.quantity);
+  const totalPrice = Math.floor(getShopSellPrice(item) * consumed.quantity);
   setMoney(character, getMoney(character) + totalPrice);
   return {
     item: { ...item },

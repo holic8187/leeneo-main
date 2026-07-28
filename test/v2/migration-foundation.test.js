@@ -250,6 +250,8 @@ test('V2 router exposes the current migration, world, inventory, and shop endpoi
     'GET /api/v2/inventory',
     'POST /api/v2/inventory/sort',
     'POST /api/v2/inventory/quick-slot',
+    'POST /api/v2/inventory/consumable-quick-slot',
+    'POST /api/v2/inventory/use-consumable-slot',
     'POST /api/v2/inventory/auto-potion',
     'POST /api/v2/inventory/use-potion',
     'POST /api/v2/inventory/expand',

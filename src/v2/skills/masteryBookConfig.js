@@ -36,15 +36,23 @@ const MASTERY_BOOK_SKILLS = Object.freeze([
   mastery('extended_2973270a08', ['marketing'], [20, 30], { originalSkillId: 'dragon_pulse', bookName: '파동 계열 공용' }),
   mastery('extended_cd94045605', ['accounting'], [30], { originalSkillId: 'piercing', bookName: '누적 관통결산' }),
   mastery('extended_e9c47b999a', ['accounting']),
-  mastery('extended_fc89f3cfc2', ['marketing']),
+  mastery('extended_f94d4bc9fa', ['accounting'], [20, 30], { originalSkillId: 'crossbow_expert', bookName: '크로스보우 엑스퍼트' }),
+  mastery('extended_16a368f8dd', ['marketing'], [20, 30], { originalSkillId: 'bow_expert', bookName: '보우 엑스퍼트' }),
+  mastery('extended_fc89f3cfc2', ['marketing'], [20, 30], { originalSkillId: 'storm', bookName: '폭풍의 시' }),
   mastery('extended_eb778160dd', ['sales'], [20, 30], { originalSkillId: 'triple_throw', bookName: '삼중 제안' }),
+  mastery('extended_3995d7f463', ['sales'], [20, 30], { originalSkillId: 'venom', bookName: '베놈 계열 공용' }),
+  mastery('extended_038626c3e1', ['facilities'], [20, 30], { originalSkillId: 'venom', bookName: '베놈 계열 공용' }),
+  mastery('extended_15ddd9bb60', ['sales'], [20, 30], { originalSkillId: 'spirit_javelin', bookName: '스피릿 자벨린' }),
 
   mastery('extended_0dcef657e3', ['development'], [20, 30], { originalSkillId: 'infinity', bookName: '무한 자원 계열 공용' }),
   mastery('extended_69705b66e7', ['research'], [20, 30], { originalSkillId: 'infinity', bookName: '무한 자원 계열 공용' }),
   mastery('extended_4d105c3f1f', ['management_support'], [20, 30], { originalSkillId: 'infinity', bookName: '무한 자원 계열 공용' }),
   mastery('extended_efc52e591a', ['development'], [20, 30], { originalSkillId: 'meteor', bookName: '프로덕션 대폭발' }),
+  mastery('extended_fae4c32e15', ['development'], [20, 30], { originalSkillId: 'fire_demon', bookName: '파이어 데몬' }),
   mastery('extended_5620bb5a09', ['research'], [20, 30], { originalSkillId: 'blizzard', bookName: '기후 제어 실험' }),
+  mastery('extended_c868507ba3', ['research'], [20, 30], { originalSkillId: 'ice_demon', bookName: '아이스 데몬' }),
   mastery('extended_aef3d1db17', ['management_support'], [20, 30], { originalSkillId: 'genesis', bookName: '전사 비상지원' }),
+  mastery('extended_7a0f825273', ['management_support'], [20, 30], { originalSkillId: 'angel_ray', bookName: '엔젤레이' }),
 
   mastery('extended_e76286335c', COMMON_ADVANCED_DEPARTMENTS, [20], { originalSkillId: 'maple_warrior', bookName: '전 직원 역량강화' }),
   mastery('extended_ccb060a442', ['accounting'], [20, 30], { originalSkillId: 'sharp_eyes', bookName: '통찰 계열 공용' }),
@@ -60,8 +68,7 @@ const MASTERY_BOOK_SKILLS = Object.freeze([
   mastery('extended_bb8a82a4b8', ['development'], [20, 30], { originalSkillId: 'mana_reflection', bookName: '피해 반송 계열 공용' }),
   mastery('extended_c074142eb3', ['research'], [20, 30], { originalSkillId: 'mana_reflection', bookName: '피해 반송 계열 공용' }),
   mastery('extended_e3ac6849e3', ['management_support'], [20, 30], { originalSkillId: 'mana_reflection', bookName: '피해 반송 계열 공용' }),
-  mastery('extended_4561b07dd3', ['research'], [20, 30], { originalSkillId: 'chain_lightning', bookName: '연쇄 방전' }),
-  mastery('extended_7fbad835e4', ['management_support'])
+  mastery('extended_4561b07dd3', ['research'], [20, 30], { originalSkillId: 'chain_lightning', bookName: '연쇄 방전' })
 ]);
 
 const BOSS_ONLY_MASTERY_STAGES = Object.freeze({
@@ -80,7 +87,15 @@ const BOSS_ONLY_MASTERY_STAGES = Object.freeze({
   dragon_pulse: Object.freeze([30]),
   blast: Object.freeze([30]),
   brandish: Object.freeze([30]),
-  meteor: Object.freeze([30])
+  meteor: Object.freeze([30]),
+  venom: Object.freeze([20]),
+  bow_expert: Object.freeze([20]),
+  storm: Object.freeze([30]),
+  spirit_javelin: Object.freeze([30]),
+  fire_demon: Object.freeze([30]),
+  crossbow_expert: Object.freeze([20]),
+  angel_ray: Object.freeze([30]),
+  ice_demon: Object.freeze([30])
 });
 
 function getMasteryBookRule(skillId, departmentId) {

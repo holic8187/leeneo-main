@@ -128,6 +128,18 @@ const BASE_ITEMS = {
     shopTags: [],
     description: '최대 체력과 최대 정신력의 100%를 회복합니다. 각 회복량은 최대 10,000입니다. HP·MP 포션 슬롯에 모두 등록할 수 있습니다.'
   },
+  chunsik_blessing_potion: {
+    id: 'chunsik_blessing_potion',
+    name: '춘식이의 축복의 물약',
+    category: 'consumable',
+    itemType: 'cleanse-potion',
+    icon: '✨',
+    maxStack: 100,
+    buyPrice: 0,
+    sellPrice: 50,
+    shopTags: [],
+    description: '사용 즉시 현재 플레이어에게 걸린 모든 해제 가능한 디버프를 해제합니다.'
+  },
   red_potion: {
     id: 'red_potion', name: '빨간 포션', category: 'consumable', itemType: 'potion',
     icon: '🧪', resource: 'hp', restoreAmount: 50, maxStack: 100,
@@ -347,6 +359,17 @@ const BASE_ITEMS = {
     sellPrice: 1000,
     tradeable: true,
     description: '야근하다 미쳐버린 황과장을 처치한 흔적입니다. 추후 교환 재료로 사용될 수 있습니다.'
+  },
+  gammam_broken_potato_leg: {
+    id: 'gammam_broken_potato_leg',
+    name: '감자의 부러진 다리',
+    category: 'misc',
+    itemType: 'field-boss-token',
+    icon: '🥔',
+    maxStack: 200,
+    sellPrice: 1,
+    tradeable: true,
+    description: '감맘 네오에게서 떨어진 기묘한 전리품입니다.'
   },
   settlement_event_coin: {
     id: 'settlement_event_coin',

@@ -132,7 +132,8 @@ const SKILL_DEFINITIONS = Object.freeze({
         values: {
           ...(definition.values || {}),
           range: Math.round(Number(definition.range || 1200) * 0.6),
-          verticalFloorRange: 1
+          verticalFloorRange: 1,
+          postCastDelaySeconds: 3
         }
       }];
     }

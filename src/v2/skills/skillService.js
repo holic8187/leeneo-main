@@ -65,6 +65,7 @@ const VALUE_LABELS = Object.freeze({
   cooldownSeconds: '재사용 대기시간'
   ,
   preCastDelaySeconds: '충전 시간',
+  postCastDelaySeconds: '후딜레이',
   channelDurationSeconds: '연사 지속시간',
   channelIntervalSeconds: '발사 간격',
   attackPower: '소환수 공격력',
@@ -373,6 +374,7 @@ function resolveSkillValues(definition, level) {
 
 function resolveSkillCastProfile(values = {}) {
   const preCastDelaySeconds = Math.max(0, Number(values.preCastDelaySeconds) || 0);
+  const postCastDelaySeconds = Math.max(0, Number(values.postCastDelaySeconds) || 0);
   const channelDurationSeconds = Math.max(0, Number(values.channelDurationSeconds) || 0);
   const channelIntervalSeconds = Math.max(0, Number(values.channelIntervalSeconds) || 0);
   const calculatedHits = channelDurationSeconds > 0 && channelIntervalSeconds > 0
@@ -386,11 +388,12 @@ function resolveSkillCastProfile(values = {}) {
     hitCount,
     mpCostMultiplier: Number(values.mpCostPerHit) > 0 ? hitCount : 1,
     preCastDelaySeconds,
+    postCastDelaySeconds,
     channelDurationSeconds,
     channelIntervalSeconds,
     lockSeconds: Math.max(
       Math.max(0, Number(values.cooldownSeconds) || 0),
-      channelDurationSeconds
+      channelDurationSeconds + postCastDelaySeconds
     )
   };
 }

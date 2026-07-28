@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const {
   addInventoryItem,
   assignPotionQuickSlot,
+  assignConsumableQuickSlot,
   setPotionAutoThreshold,
   useQuickSlotPotion,
   useConfiguredAutoPotions,
@@ -29,6 +30,7 @@ const {
   sellInventoryStack,
   rechargeThrowingStarStack
 } = require('../../src/v2/services/shopService');
+const { getItemDefinition, listShopItems } = require('../../src/v2/items/itemCatalog');
 
 function characterFixture() {
   return {
@@ -181,6 +183,25 @@ test('quick slots reject potions for the wrong resource', () => {
   assert.throws(() => assignPotionQuickSlot(character, 'hp', 'bacchus'));
 });
 
+test('manual consumable quick slots accept usable consumables and reject ammunition', () => {
+  const character = characterFixture();
+  addInventoryItem(character, 'safe_zone_return_scroll', 1);
+  addInventoryItem(character, 'chunsik_blessing_potion', 2);
+  addInventoryItem(character, 'basic_arrow', 400);
+
+  assignConsumableQuickSlot(character, 0, 'safe_zone_return_scroll');
+  assignConsumableQuickSlot(character, 1, 'chunsik_blessing_potion');
+  assert.throws(() => assignConsumableQuickSlot(character, 2, 'basic_arrow'), /소비 아이템/);
+
+  const view = buildInventoryView(character);
+  assert.equal(view.consumableQuickSlots[0].id, 'safe_zone_return_scroll');
+  assert.equal(view.consumableQuickSlots[1].id, 'chunsik_blessing_potion');
+  assert.equal(view.manualConsumables.some((item) => item.id === 'basic_arrow'), false);
+
+  assignConsumableQuickSlot(character, 1, '');
+  assert.equal(buildInventoryView(character).consumableQuickSlots[1], null);
+});
+
 test('marshmallows can occupy either quick slot and restore HP and MP together', () => {
   const character = characterFixture();
   addInventoryItem(character, 'marshmallow', 2);
@@ -212,6 +233,16 @@ test('elixirs restore both resources by maximum percentage with per-resource cap
   assert.deepEqual(powerElixir.restoredByResource, { hp: 10_000, mp: 10_000 });
   assert.equal(character.resources.currentHp, 16_000);
   assert.equal(character.resources.currentMp, 17_000);
+});
+
+test('Chunsik blessing potion is monster-only and sells for fifty won', () => {
+  const item = getItemDefinition('chunsik_blessing_potion');
+  assert.equal(item.name, '춘식이의 축복의 물약');
+  assert.equal(item.itemType, 'cleanse-potion');
+  assert.equal(item.maxStack, 100);
+  assert.equal(item.sellPrice, 50);
+  assert.equal(item.buyPrice, 0);
+  assert.equal(listShopItems('headquarters').some((shopItem) => shopItem.id === item.id), false);
 });
 
 test('an expansion ticket adds four slots to the chosen tab and stops at sixty-four', () => {
@@ -269,6 +300,21 @@ test('shop purchases and sales update money and inventory atomically', () => {
   assert.equal(sale.totalPrice, 25);
   assert.equal(sale.money, 925);
   assert.equal(sale.inventory.categories.consumable.items[0].quantity, 1);
+});
+
+test('arrows can be sold to a shop for zero money', () => {
+  const character = characterFixture();
+  addInventoryItem(character, 'basic_arrow', 120);
+  const stack = buildInventoryView(character).categories.consumable.items.find(
+    (item) => item.id === 'basic_arrow'
+  );
+  const sale = sellInventoryStack(character, stack.stackId, 40);
+  assert.equal(sale.totalPrice, 0);
+  assert.equal(sale.money, 1_000);
+  assert.equal(
+    sale.inventory.categories.consumable.items.find((item) => item.id === 'basic_arrow').quantity,
+    80
+  );
 });
 
 test('regional shops vary prices within five percent and sell ammunition bundles', () => {

@@ -1629,10 +1629,29 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .field-monster.facing-left { transform: scaleX(-1); }
 .field-monster.facing-left .monster-name,
 .field-monster.facing-left .monster-level,
+.field-monster.facing-left .monster-cast-label,
 .field-monster.facing-left .monster-hp { transform: scaleX(-1); }
 .field-monster pre { margin: 3px 0; font: 800 17px ui-monospace, monospace; }
 .monster-name, .monster-level { display: block; font: 800 16px ui-monospace, monospace; }
 .monster-name { overflow: hidden; color: #ffd7cc; text-overflow: ellipsis; white-space: nowrap; }
+.monster-cast-label {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 4px);
+  display: none;
+  min-width: 74px;
+  padding: 3px 6px;
+  border: 1px solid rgba(255, 240, 189, .72);
+  border-radius: 4px;
+  background: rgba(17, 17, 24, .9);
+  color: #fff1b8;
+  font: 800 11px ui-monospace, monospace;
+  line-height: 1.2;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .75);
+  translate: -50% 0;
+  white-space: nowrap;
+  pointer-events: none;
+}
 .monster-hp { width: 66px; height: 5px; margin: auto; overflow: hidden; background: #260b0b; }
 .monster-hp i { display: block; width: 100%; height: 100%; background: #e44f44; transition: width .25s ease; }
 .field-monster.is-moving pre { animation: monster-walk .32s ease-in-out infinite alternate; }
@@ -1645,6 +1664,41 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .field-monster.is-field-boss .monster-name { color: #ffe1a9; }
 .field-monster.is-field-boss .monster-hp { width: 86px; height: 7px; background: #2d0707; }
 .field-monster.is-field-boss .monster-hp i { background: linear-gradient(90deg, #ff4e42, #ffb347); }
+.field-monster.is-boss-casting .monster-cast-label { display: block; animation: boss-cast-label .38s ease-out both; }
+.field-monster.is-boss-casting::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 11px;
+  width: 76px;
+  height: 28px;
+  border: 2px solid rgba(255, 231, 127, .8);
+  border-radius: 50%;
+  box-shadow: 0 0 16px rgba(255, 231, 127, .7);
+  translate: -50% 0;
+  pointer-events: none;
+  animation: boss-cast-ring .9s ease-out infinite;
+}
+.field-monster.is-casting-global-silence::after {
+  border-color: rgba(191, 138, 255, .9);
+  box-shadow: 0 0 18px rgba(191, 138, 255, .75);
+}
+.field-monster.is-casting-close-blast::after {
+  border-color: rgba(255, 112, 91, .9);
+  box-shadow: 0 0 18px rgba(255, 112, 91, .75);
+}
+.field-monster.is-casting-dispel::after {
+  border-color: rgba(95, 218, 255, .9);
+  box-shadow: 0 0 18px rgba(95, 218, 255, .72);
+}
+.field-monster.is-casting-hwang-ranged::after {
+  border-color: rgba(255, 205, 84, .9);
+  box-shadow: 0 0 18px rgba(255, 205, 84, .72);
+}
+.field-monster.is-casting-hwang-silence::after {
+  border-color: rgba(198, 218, 226, .9);
+  box-shadow: 0 0 18px rgba(198, 218, 226, .7);
+}
 .field-monster.is-falling { animation: monster-fall .55s ease-in; }
 .field-monster.is-hit { animation: monster-hit .45s linear; }
 .field-monster.is-spawning { animation: monster-spawn-in .8s ease-out both; }
@@ -2216,6 +2270,14 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 @keyframes monster-hit { 0%,100% { transform: translateX(0); } 25% { transform: translateX(8px); color: #fff; } 50% { transform: translateX(-6px); } }
 @keyframes monster-walk { from { translate: 0 0; } to { translate: 0 -3px; } }
 @keyframes monster-fall { from { opacity: .75; translate: -50% -20px; } to { opacity: 1; translate: -50% 0; } }
+@keyframes boss-cast-label {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes boss-cast-ring {
+  from { opacity: .95; scale: .76; }
+  to { opacity: .15; scale: 1.42; }
+}
 @keyframes monster-spawn-in {
   0% { opacity: 0; filter: blur(5px); scale: .82; }
   65% { opacity: .72; filter: blur(1px); }
@@ -2378,11 +2440,22 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 
 
 /* Potion quick slots, mailbox, and smooth resource feedback */
-.potion-quickbar {
+.combat-resource-strip {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid rgba(29, 85, 67, .24);
+  background: rgba(248, 246, 238, .76);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.45);
+}
+.combat-resource-strip.resource-list { gap: 8px; }
+.combat-resource-strip .resource-row > div:first-child { color: #20382e; }
+.combat-resource-strip .bar { background: rgba(37, 52, 43, .2); }
+.status-resource-list { margin-top: 14px; }
+.consumable-quickbar {
   margin-top: 8px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 120px;
-  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) 112px;
+  gap: 6px;
 }
 .potion-depletion-warning {
   margin: 8px 0 0;
@@ -2399,7 +2472,7 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   animation: potion-warning-attention 1.15s ease-in-out infinite;
 }
 .potion-depletion-warning.hidden { display: none; }
-.potion-quick, .potion-config-button, .jump-control {
+.consumable-quick, .potion-quick, .potion-config-button, .jump-control {
   min-height: 52px;
   padding: 7px 10px;
   display: grid;
@@ -2407,13 +2480,42 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   align-items: center;
   text-align: left;
 }
+.consumable-quick {
+  position: relative;
+  min-width: 0;
+  color: #1d5543;
+  border: 1px solid #7fa993;
+  background: #eef6f0;
+}
+.consumable-quick.has-item {
+  color: #f4fff8;
+  border-color: #49a978;
+  background: linear-gradient(145deg, #174434, #1e7a55);
+}
+.consumable-quick b {
+  position: absolute;
+  top: 5px;
+  left: 6px;
+  color: #f2ca67;
+  font: 900 9px ui-monospace, monospace;
+}
+.consumable-quick span { grid-row: 1 / 3; font-size: 19px; text-align: center; }
+.consumable-quick strong {
+  overflow: hidden;
+  padding-left: 5px;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.consumable-quick small { padding-left: 5px; font-size: 8px; opacity: .74; }
+.consumable-quick.is-empty { color: #60766a; border-style: dashed; background: #edf1ec; }
 .potion-quick span { grid-row: 1 / 3; font: 900 13px ui-monospace, monospace; }
 .potion-quick strong, .potion-config-button strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .potion-quick small, .potion-config-button span { font-size: 9px; opacity: .7; }
 .potion-quick.hp-potion { border-color: #a82e2e; color: #7d2020; background: #fff3ef; }
 .potion-quick.mp-potion { border-color: #24599b; color: #17477d; background: #eef6ff; }
-.potion-quick:disabled { opacity: .55; cursor: not-allowed; }
-.potion-quick.is-depleted {
+.potion-quick:disabled, .consumable-quick:disabled { opacity: .55; cursor: not-allowed; }
+.potion-quick.is-depleted, .consumable-quick.is-depleted {
   opacity: 1;
   border-color: #ffd84d;
   box-shadow: 0 0 0 2px rgba(255, 216, 77, .32), 0 0 18px rgba(255, 216, 77, .72);
@@ -2428,8 +2530,9 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   50% { filter: brightness(1.35); }
 }
 .potion-config-button { grid-template-columns: 1fr; color: var(--green); background: #edf4ed; }
+.consumable-config-button { min-height: 52px; justify-items: center; text-align: center; }
+.movement-quickbar { margin-top: 8px; }
 .jump-control {
-  grid-column: 1 / -1;
   min-height: 38px;
   padding: 6px 12px;
   display: grid;
@@ -2448,6 +2551,32 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .jump-control:active { translate: 0 1px; filter: brightness(1.18); }
 .jump-control:disabled { opacity: .45; cursor: not-allowed; }
 .potion-slot-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
+.consumable-slot-settings,
+.legacy-potion-settings {
+  display: grid;
+  gap: 8px;
+}
+.consumable-slot-settings > strong,
+.legacy-potion-settings > strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+.consumable-slot-list {
+  display: grid;
+  gap: 6px;
+}
+.consumable-slot-row {
+  padding: 9px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 68px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line-soft);
+  background: #f7f8f3;
+}
+.consumable-slot-row strong,
+.consumable-slot-row small { display: block; }
+.consumable-slot-row small { margin-top: 3px; color: var(--muted); font-size: 11px; }
 
 .bar.is-restored { position: relative; box-shadow: 0 0 10px rgba(183, 228, 155, .75); }
 .bar.is-restored::after {
@@ -2767,7 +2896,7 @@ body.floating-actions-minimized .mail-callout.has-alert {
 }
 
 @media (max-width: 620px) {
-  .potion-quickbar { grid-template-columns: 1fr 1fr; }
+  .consumable-quickbar { grid-template-columns: 1fr 1fr; }
   .potion-config-button { grid-column: 1 / -1; }
   .mail-callout { top: auto; right: 12px; bottom: 12px; width: 142px; }
   .mail-callout.quest-visible { bottom: 106px; }

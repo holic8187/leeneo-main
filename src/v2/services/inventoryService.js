@@ -21,6 +21,12 @@ const QUICK_SLOT_RESOURCES = Object.freeze({
   hp: 'hp',
   mp: 'mp'
 });
+const MANUAL_CONSUMABLE_SLOT_COUNT = 3;
+const MANUAL_CONSUMABLE_ITEM_TYPES = Object.freeze([
+  'potion',
+  'return-scroll',
+  'cleanse-potion'
+]);
 
 const EQUIPMENT_SLOT_ALIASES = Object.freeze({
   cloak: 'cape',
@@ -108,6 +114,22 @@ function getMaxStackSize(item) {
   if (!item) return DEFAULT_STACK_SIZE;
   if (item.category === 'equipment') return 1;
   return Math.max(1, Math.floor(Number(item.maxStack) || DEFAULT_STACK_SIZE));
+}
+
+function isManualConsumableQuickItem(item) {
+  return Boolean(
+    item
+    && item.category === 'consumable'
+    && MANUAL_CONSUMABLE_ITEM_TYPES.includes(String(item.itemType || ''))
+  );
+}
+
+function normalizeManualConsumableSlot(slot) {
+  const index = Math.floor(Number(slot));
+  if (index < 0 || index >= MANUAL_CONSUMABLE_SLOT_COUNT) {
+    throw new Error('올바르지 않은 소비 아이템 단축 슬롯입니다.');
+  }
+  return index;
 }
 
 function getEquipmentEnhancement(item, instanceData = null) {
@@ -243,6 +265,12 @@ function ensureInventory(character) {
   }
   if (typeof inventory.quickSlots.hp !== 'string') inventory.quickSlots.hp = '';
   if (typeof inventory.quickSlots.mp !== 'string') inventory.quickSlots.mp = '';
+  if (!Array.isArray(inventory.quickSlots.consumables)) inventory.quickSlots.consumables = [];
+  inventory.quickSlots.consumables = Array.from({ length: MANUAL_CONSUMABLE_SLOT_COUNT }, (_, index) => (
+    typeof inventory.quickSlots.consumables[index] === 'string'
+      ? inventory.quickSlots.consumables[index]
+      : ''
+  ));
   inventory.quickSlots.autoHpPercent = Math.max(
     0,
     Math.min(100, Number(inventory.quickSlots.autoHpPercent) || 0)
@@ -488,6 +516,28 @@ function assignPotionQuickSlot(character, slot, itemId) {
   return item;
 }
 
+function assignConsumableQuickSlot(character, slot, itemId = '') {
+  const index = normalizeManualConsumableSlot(slot);
+  const inventory = ensureInventory(character);
+  const requestedItemId = String(itemId || '').trim();
+  if (!requestedItemId) {
+    inventory.quickSlots.consumables[index] = '';
+    markInventoryModified(character);
+    return null;
+  }
+  const item = getItemDefinition(requestedItemId);
+  if (!isManualConsumableQuickItem(item)) {
+    throw new Error('소비 아이템 단축 슬롯에는 포션, 귀환서, 축복 물약만 등록할 수 있습니다.');
+  }
+  const stack = getItemStack(character, item.id);
+  if (!stack || Number(stack.quantity) <= 0) {
+    throw new Error('해당 소비 아이템을 보유하고 있지 않습니다.');
+  }
+  inventory.quickSlots.consumables[index] = item.id;
+  markInventoryModified(character);
+  return item;
+}
+
 function setPotionAutoThreshold(character, slot, percent) {
   const resource = QUICK_SLOT_RESOURCES[String(slot || '')];
   if (!resource) throw new Error('올바르지 않은 포션 슬롯입니다.');
@@ -498,28 +548,29 @@ function setPotionAutoThreshold(character, slot, percent) {
   return value;
 }
 
-function useQuickSlotPotion(character, slot, effectPercent = 100, maximumOverride = null) {
-  const resource = QUICK_SLOT_RESOURCES[String(slot || '')];
-  if (!resource) throw new Error('올바르지 않은 포션 슬롯입니다.');
-  const inventory = ensureInventory(character);
-  const itemId = String(inventory.quickSlots[slot] || '');
+function useInventoryPotion(character, itemId, effectPercent = 100, maximumOverride = null, preferredResource = '') {
   const item = getItemDefinition(itemId);
-  const supportedResources = item?.resource === 'both'
+  if (!item || item.itemType !== 'potion') throw new Error('사용할 수 있는 포션이 아닙니다.');
+  const supportedResources = item.resource === 'both'
     ? ['hp', 'mp']
-    : [item?.resource];
-  if (!item || item.itemType !== 'potion' || !supportedResources.includes(resource)) {
-    throw new Error('이 슬롯에 포션이 설정되어 있지 않습니다.');
+    : [item.resource];
+  const normalizedPreferred = QUICK_SLOT_RESOURCES[String(preferredResource || '')]
+    || String(preferredResource || '');
+  if (normalizedPreferred && !supportedResources.includes(normalizedPreferred)) {
+    throw new Error('해당 자원에 사용할 수 없는 포션입니다.');
   }
   const stack = getItemStack(character, item.id);
   if (!stack || Number(stack.quantity) <= 0) throw new Error(`${item.name}이 부족합니다.`);
 
-  const restorationResources = item.resource === 'both' ? ['hp', 'mp'] : [resource];
+  const restorationResources = item.resource === 'both'
+    ? ['hp', 'mp']
+    : [item.resource];
   const resourceState = Object.fromEntries(restorationResources.map((entry) => {
     const currentKey = entry === 'hp' ? 'currentHp' : 'currentMp';
     const maxKey = entry === 'hp' ? 'maxHp' : 'maxMp';
     const override = maximumOverride && typeof maximumOverride === 'object'
       ? maximumOverride[entry]
-      : (entry === resource ? maximumOverride : null);
+      : (entry === normalizedPreferred ? maximumOverride : null);
     const current = Math.max(0, Number(character.resources?.[currentKey]) || 0);
     const maximum = Math.max(
       1,
@@ -532,7 +583,7 @@ function useQuickSlotPotion(character, slot, effectPercent = 100, maximumOverrid
   if (restorationResources.every((entry) => resourceState[entry].current >= resourceState[entry].maximum)) {
     throw new Error(item.resource === 'both'
       ? '체력과 정신력이 이미 가득 찼습니다.'
-      : (resource === 'hp' ? '체력이 이미 가득 찼습니다.' : '정신력이 이미 가득 찼습니다.'));
+      : (item.resource === 'hp' ? '체력이 이미 가득 찼습니다.' : '정신력이 이미 가득 찼습니다.'));
   }
 
   consumeInventoryItem(character, item.id, 1);
@@ -560,17 +611,33 @@ function useQuickSlotPotion(character, slot, effectPercent = 100, maximumOverrid
     maximumByResource[entry] = state.maximum;
   }
   markInventoryModified(character);
+  const primaryResource = normalizedPreferred || restorationResources[0];
   return {
-    slot,
+    slot: normalizedPreferred,
     item: { ...item },
-    restored: restoredByResource[resource] || 0,
+    restored: restoredByResource[primaryResource] || 0,
     restoredByResource,
-    current: currentByResource[resource],
+    current: currentByResource[primaryResource],
     currentByResource,
-    maximum: maximumByResource[resource],
+    maximum: maximumByResource[primaryResource],
     maximumByResource,
     remaining: getItemQuantity(character, item.id)
   };
+}
+
+function useQuickSlotPotion(character, slot, effectPercent = 100, maximumOverride = null) {
+  const resource = QUICK_SLOT_RESOURCES[String(slot || '')];
+  if (!resource) throw new Error('올바르지 않은 포션 슬롯입니다.');
+  const inventory = ensureInventory(character);
+  const itemId = String(inventory.quickSlots[slot] || '');
+  const item = getItemDefinition(itemId);
+  const supportedResources = item?.resource === 'both'
+    ? ['hp', 'mp']
+    : [item?.resource];
+  if (!item || item.itemType !== 'potion' || !supportedResources.includes(resource)) {
+    throw new Error('이 슬롯에 포션이 설정되어 있지 않습니다.');
+  }
+  return useInventoryPotion(character, item.id, effectPercent, maximumOverride, resource);
 }
 
 function useConfiguredAutoPotions(
@@ -685,6 +752,14 @@ function buildInventoryView(character) {
       return item?.itemType === 'potion' ? { ...item, quantity } : null;
     })
     .filter(Boolean);
+  const manualConsumables = [...quantities.entries()]
+    .map(([itemId, quantity]) => {
+      const item = getItemDefinition(itemId);
+      return isManualConsumableQuickItem(item) && quantity > 0
+        ? { ...item, quantity }
+        : null;
+    })
+    .filter(Boolean);
   const quickSlots = {};
   for (const slot of Object.keys(QUICK_SLOT_RESOURCES)) {
     const item = getItemDefinition(inventory.quickSlots[slot]);
@@ -692,11 +767,19 @@ function buildInventoryView(character) {
       ? { ...item, quantity: quantities.get(item.id) || 0 }
       : null;
   }
+  const consumableQuickSlots = Array.from({ length: MANUAL_CONSUMABLE_SLOT_COUNT }, (_, index) => {
+    const item = getItemDefinition(inventory.quickSlots.consumables[index]);
+    return isManualConsumableQuickItem(item)
+      ? { ...item, quantity: quantities.get(item.id) || 0 }
+      : null;
+  });
   return {
     items,
     categories,
     potions,
     quickSlots,
+    consumableQuickSlots,
+    manualConsumables,
     autoUsePercent: {
       hp: inventory.quickSlots.autoHpPercent,
       mp: inventory.quickSlots.autoMpPercent
@@ -944,6 +1027,8 @@ module.exports = {
   DEFAULT_STACK_SIZE,
   MAIL_TTL_MS,
   QUICK_SLOT_RESOURCES,
+  MANUAL_CONSUMABLE_SLOT_COUNT,
+  isManualConsumableQuickItem,
   markInventoryModified,
   ensureInventory,
   purgeExpiredEquippedItems,
@@ -960,7 +1045,9 @@ module.exports = {
   equipInventoryWeapon,
   unequipInventoryWeapon,
   assignPotionQuickSlot,
+  assignConsumableQuickSlot,
   setPotionAutoThreshold,
+  useInventoryPotion,
   useQuickSlotPotion,
   useConfiguredAutoPotions,
   useInventoryExpansionTicket,

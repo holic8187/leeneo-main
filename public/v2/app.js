@@ -98,6 +98,8 @@ const state = {
     categories: {},
     potions: [],
     quickSlots: { hp: null, mp: null },
+    consumableQuickSlots: [null, null, null],
+    manualConsumables: [],
     autoUsePercent: { hp: 0, mp: 0 },
     limits: { defaultCapacity: 20, maximumCapacity: 64, expansionSize: 4 }
   },
@@ -1920,9 +1922,12 @@ function updateFieldControls() {
   button.title = safeZone ? '안전지대에서는 자동전투를 사용할 수 없습니다.' : '';
   $('moveMapButton').disabled = state.moving || state.dead;
   button.disabled = state.dead || safeZone;
-  $('hpPotionButton').disabled = state.dead;
-  $('mpPotionButton').disabled = state.dead;
-  $('potionConfigButton').disabled = state.dead;
+  if ($('hpPotionButton')) $('hpPotionButton').disabled = state.dead;
+  if ($('mpPotionButton')) $('mpPotionButton').disabled = state.dead;
+  if ($('potionConfigButton')) $('potionConfigButton').disabled = state.dead;
+  document.querySelectorAll('[data-use-consumable-slot]').forEach((control) => {
+    control.disabled = state.dead || control.classList.contains('is-empty');
+  });
   if ($('jumpButton')) $('jumpButton').disabled = state.dead;
   document.querySelectorAll('.desk-action, #questButton, #mailButton, #eventButton').forEach((control) => {
     control.disabled = state.dead;
@@ -2883,6 +2888,7 @@ function ensureMonsterElement(monster) {
   element.dataset.monsterId = monster.id;
   element.innerHTML = `
     <span class="monster-name"></span><span class="monster-level"></span>
+    <span class="monster-cast-label"></span>
     <pre>(╬ಠ益ಠ)</pre>
     <div class="monster-hp"><i></i></div>`;
   $('monsterLayer').appendChild(element);
@@ -2914,6 +2920,26 @@ function releaseCombatVisualTargets(monsterIds = []) {
   });
 }
 
+const FIELD_BOSS_CAST_PATTERNS = Object.freeze([
+  'global-silence',
+  'close-blast',
+  'dispel',
+  'hwang-ranged',
+  'hwang-silence'
+]);
+
+function getFieldBossPatternLabel(pattern, skillName = '') {
+  const explicitName = String(skillName || '').trim();
+  if (explicitName) return explicitName;
+  return ({
+    'global-silence': '감자의 복수',
+    'close-blast': '감 맘 행 동',
+    dispel: '감자감싸기!!!',
+    'hwang-ranged': '퇴근 반려 결재',
+    'hwang-silence': '야근실 정숙령'
+  })[String(pattern || '')] || '시전 준비';
+}
+
 function renderMonsters(monsters = []) {
   state.worldMonsters = monsters;
   const visibleIds = new Set();
@@ -2925,6 +2951,19 @@ function renderMonsters(monsters = []) {
     element.querySelector('.monster-level').textContent = `Lv.${monster.level}`;
     element.querySelector('pre').textContent = monster.icon || '(•̀ᴗ•́)';
     element.querySelector('.monster-hp i').style.width = `${ratio(monster.hp, monster.maxHp)}%`;
+    const currentCast = monster.currentCast || null;
+    const castPattern = String(currentCast?.pattern || '');
+    const castLabel = element.querySelector('.monster-cast-label');
+    if (castLabel) {
+      castLabel.textContent = currentCast
+        ? getFieldBossPatternLabel(castPattern, currentCast.skillName)
+        : '';
+    }
+    element.dataset.bossPattern = castPattern;
+    element.classList.toggle('is-boss-casting', Boolean(currentCast));
+    FIELD_BOSS_CAST_PATTERNS.forEach((pattern) => {
+      element.classList.toggle(`is-casting-${pattern}`, castPattern === pattern);
+    });
     element.classList.toggle('is-field-boss', Boolean(monster.fieldBoss));
     element.style.setProperty('--monster-scale', String(Math.max(0.5, 0.5 * (Number(monster.visualScale) || 1))));
     element.style.left = `${monster.x}%`;
@@ -3038,14 +3077,62 @@ function showDeathState(expLost = 0) {
   document.body.classList.add('modal-open');
 }
 
+function playFieldBossCastVisual(event = {}) {
+  const bossId = String(event.bossId || '');
+  if (!bossId) return;
+  const element = Array.from($('monsterLayer')?.children || []).find(
+    (entry) => entry.dataset.monsterId === bossId
+  );
+  if (!element) return;
+  const pattern = String(event.pattern || '');
+  const skillLabel = getFieldBossPatternLabel(pattern, event.skillName);
+  const label = element.querySelector('.monster-cast-label');
+  if (label) label.textContent = skillLabel;
+  element.dataset.bossPattern = pattern;
+  element.classList.add('is-boss-casting');
+  FIELD_BOSS_CAST_PATTERNS.forEach((entry) => {
+    element.classList.toggle(`is-casting-${entry}`, entry === pattern);
+  });
+  const durationMs = Math.max(450, Number(event.durationMs) || 900);
+  setTimeout(() => {
+    if (element.dataset.bossPattern !== pattern) return;
+    element.classList.remove(
+      'is-boss-casting',
+      ...FIELD_BOSS_CAST_PATTERNS.map((entry) => `is-casting-${entry}`)
+    );
+    element.dataset.bossPattern = '';
+    if (label) label.textContent = '';
+  }, durationMs + 220);
+}
+
 function handleFieldBossEvents(data = {}) {
+  (data.fieldBossStatusEvents || [])
+    .filter((event) => event.type === 'cast')
+    .forEach((event) => {
+      playFieldBossCastVisual(event);
+      setWorldActivity(`${event.bossName || '필드보스'} 시전 준비 · ${getFieldBossPatternLabel(event.pattern, event.skillName)}`);
+    });
+
+  if (data.fieldBossEntryBlock) {
+    setWorldActivity('감맘 네오 처치 후 24시간 동안 해당 히든스트리트에 입장할 수 없습니다.');
+  }
+
   const ownStatus = (data.fieldBossStatusEvents || []).find((event) => (
     event.targetUserId === state.selfUserId
   ));
+  const ownSkillName = getFieldBossPatternLabel(ownStatus?.pattern, ownStatus?.skillName);
   if (ownStatus?.type === 'silence') {
-    setWorldActivity(`${ownStatus.bossName || '필드보스'}의 침묵에 걸렸습니다.`);
+    setWorldActivity(`${ownStatus.bossName || '필드보스'}의 ${ownSkillName}에 걸렸습니다.`);
   } else if (ownStatus?.type === 'ranged') {
-    setWorldActivity(`${ownStatus.bossName || '필드보스'}의 원거리 공격에 피격되었습니다.`);
+    setWorldActivity(`${ownStatus.bossName || '필드보스'}의 ${ownSkillName}에 피격되었습니다.`);
+  } else if (ownStatus?.type === 'close-blast') {
+    setWorldActivity(`${ownStatus.bossName || '필드보스'}의 ${ownSkillName}에 피격되었습니다.`);
+  } else if (ownStatus?.type === 'dispel') {
+    setWorldActivity(`${ownStatus.bossName || '필드보스'}의 ${ownSkillName}로 버프가 해제되었습니다.`);
+    request('/api/v2/me').then((me) => {
+      state.character = me.character;
+      renderGame({ preview: state.preview, character: me.character, displayName: state.displayName });
+    }).catch(() => {});
   }
 
   const bossReward = (data.fieldBossRewards || []).find((event) => (
@@ -3432,6 +3519,14 @@ function setInventoryData(inventory = {}) {
       hp: inventory.quickSlots?.hp || null,
       mp: inventory.quickSlots?.mp || null
     },
+    consumableQuickSlots: Array.from({ length: 3 }, (_, index) => (
+      Array.isArray(inventory.consumableQuickSlots)
+        ? inventory.consumableQuickSlots[index] || null
+        : null
+    )),
+    manualConsumables: Array.isArray(inventory.manualConsumables)
+      ? inventory.manualConsumables
+      : [],
     autoUsePercent: {
       hp: Math.max(0, Math.min(100, Number(inventory.autoUsePercent?.hp) || 0)),
       mp: Math.max(0, Math.min(100, Number(inventory.autoUsePercent?.mp) || 0))
@@ -3476,18 +3571,35 @@ function getDisplayedMoney() {
 }
 
 function renderPotionQuickbar() {
-  if (!$('hpPotionButton') || !$('mpPotionButton')) return;
+  const quickbar = $('consumableQuickbar');
+  if (quickbar) {
+    const slots = state.inventory.consumableQuickSlots || [];
+    quickbar.innerHTML = Array.from({ length: 3 }, (_, index) => {
+      const item = slots[index] || null;
+      const hasItem = Boolean(item);
+      const quantity = Math.max(0, Number(item?.quantity) || 0);
+      return `<button class="consumable-quick ${hasItem ? 'has-item' : 'is-empty'} ${hasItem && quantity <= 0 ? 'is-depleted' : ''}" type="button"
+          ${hasItem ? `data-use-consumable-slot="${index}"` : `data-empty-consumable-slot="${index}"`}
+          ${state.dead || (hasItem && quantity <= 0) ? 'disabled' : ''}>
+          <b>${index + 1}</b><span>${escapeHtml(item?.icon || '＋')}</span>
+          <strong>${escapeHtml(item?.name || '비어 있음')}</strong>
+          <small>${hasItem ? `${formatNumber(quantity)}개` : 'CONSUME'}</small>
+        </button>`;
+    }).join('') + `<button id="potionConfigButton" class="potion-config-button consumable-config-button" type="button" ${state.dead ? 'disabled' : ''}>
+        <span>ITEM SLOT</span><strong>등록</strong>
+      </button>`;
+    quickbar.querySelectorAll('[data-use-consumable-slot]').forEach((button) => {
+      button.addEventListener('click', () => useConsumableQuickSlot(Number(button.dataset.useConsumableSlot)));
+    });
+    quickbar.querySelectorAll('[data-empty-consumable-slot]').forEach((button) => {
+      button.addEventListener('click', () => openFeature('potion-config'));
+    });
+    quickbar.querySelector('#potionConfigButton')?.addEventListener('click', () => openFeature('potion-config'));
+  }
   const depleted = [];
   for (const slot of ['hp', 'mp']) {
-    const button = $(slot === 'hp' ? 'hpPotionButton' : 'mpPotionButton');
     const potion = state.inventory.quickSlots[slot];
-    button.querySelector('strong').textContent = potion?.name || '미설정';
-    button.querySelector('small').textContent = potion
-      ? `${formatNumber(potion.quantity)}개 · ${formatPotionRestoreAmounts(potion)}`
-      : (slot === 'hp' ? '체력 포션' : '정신력 포션');
-    button.disabled = !potion || potion.quantity <= 0;
     const isDepleted = Boolean(potion && Number(potion.quantity) <= 0);
-    button.classList.toggle('is-depleted', isDepleted);
     if (isDepleted) depleted.push(slot === 'hp' ? '체력 포션' : '정신력 포션');
   }
   const warning = $('potionDepletionWarning');
@@ -3536,6 +3648,45 @@ async function useQuickPotion(slot, automatic = false) {
     if (!automatic) setWorldActivity(err.message);
   } finally {
     state.autoPotionBusy[slot] = false;
+    state.potionUseBusy = false;
+  }
+}
+
+async function useConsumableQuickSlot(slot) {
+  if (state.dead || state.potionUseBusy) return;
+  state.potionUseBusy = true;
+  try {
+    const data = await request('/api/v2/inventory/use-consumable-slot', {
+      method: 'POST',
+      body: JSON.stringify({ slot, mapId: state.currentMapId })
+    });
+    state.character = data.character;
+    setInventoryData(data.inventory);
+    renderGame({
+      preview: state.preview,
+      character: data.character,
+      displayName: state.displayName
+    });
+    const restored = data.used?.restoredByResource || {};
+    for (const resource of ['hp', 'mp']) {
+      if (Number(restored[resource]) > 0) animateResourceRestore(resource);
+    }
+    if (data.map) {
+      state.worldStateEpoch += 1;
+      state.moveRunId += 1;
+      state.combatRunId += 1;
+      state.autoCombat = false;
+      localStorage.setItem('v2AutoCombat', 'false');
+      renderWorldMap(data.map.id, 0);
+    }
+    if (state.activeFeature === 'potion-config') {
+      $('featureBody').innerHTML = potionConfigurationBody();
+      bindPotionControls();
+    }
+    setWorldActivity(data.message);
+  } catch (err) {
+    setWorldActivity(err.message);
+  } finally {
     state.potionUseBusy = false;
   }
 }
@@ -3660,7 +3811,7 @@ function inventorySlotBody(item, slotNumber, locked = false) {
   }
   let usable = '';
   const directlyUsableItem = (
-    ['return-scroll', 'experience-buff', 'hunting-time', 'hunting-capacity', 'level-up', 'skill-reset', 'mastery-book', 'action-point', 'cash-point', 'shout-pass'].includes(item.itemType)
+    ['return-scroll', 'experience-buff', 'hunting-time', 'hunting-capacity', 'level-up', 'skill-reset', 'mastery-book', 'action-point', 'cash-point', 'shout-pass', 'cleanse-potion'].includes(item.itemType)
     || item.id === 'level_up_coupon'
   );
   if (item.itemType === 'inventory-expansion') {
@@ -4016,6 +4167,8 @@ async function unequipCurrentWeapon(slot = 'weapon') {
 
 function potionConfigurationBody() {
   const potions = state.inventory.potions;
+  const manualConsumables = state.inventory.manualConsumables || [];
+  const manualSlots = state.inventory.consumableQuickSlots || [];
   const autoControls = ['hp', 'mp'].map((slot) => {
     const value = Number(state.inventory.autoUsePercent?.[slot]) || 0;
     return `<label class="auto-potion-control">
@@ -4023,14 +4176,44 @@ function potionConfigurationBody() {
       <input type="range" min="0" max="100" step="5" value="${value}" data-auto-potion="${slot}">
     </label>`;
   }).join('');
+  const slotButtons = manualSlots.map((item, index) => `<article class="consumable-slot-row">
+      <div>
+        <strong>${index + 1}번 슬롯 · ${escapeHtml(item?.name || '비어 있음')}</strong>
+        <small>${item ? `${formatNumber(item.quantity)}개 보유` : '등록된 소비 아이템이 없습니다.'}</small>
+      </div>
+      <button type="button" data-clear-consumable-slot="${index}" ${item ? '' : 'disabled'}>해제</button>
+    </article>`).join('');
+  const consumableCards = manualConsumables.length
+    ? manualConsumables.map((item) => {
+      const registeredIndex = manualSlots.findIndex((slot) => slot?.id === item.id);
+      return `<article>
+        <div><strong>${escapeHtml(item.icon || '')} ${escapeHtml(item.name)}</strong><small>${escapeHtml(item.description || '')} · ${formatNumber(item.quantity)}개 보유</small></div>
+        <div class="potion-slot-actions">
+          ${Array.from({ length: 3 }, (_, index) => `<button type="button" data-assign-consumable="${escapeHtml(item.id)}" data-consumable-slot="${index}">
+            ${registeredIndex === index ? '등록됨' : `${index + 1}번 등록`}
+          </button>`).join('')}
+        </div>
+      </article>`;
+    }).join('')
+    : '<div class="empty-ledger"><b>등록 가능한 소비 아이템이 없습니다.</b><p>포션, 귀환서, 축복 물약을 보유하면 여기에 표시됩니다.</p></div>';
   return `<div class="potion-config-sheet">
     <section class="auto-potion-settings">
       <strong>자동 포션 기준</strong>
       <p>0%는 자동 사용 안 함입니다. 설정값 이하가 되면 지정한 포션을 1개 사용합니다.</p>
       ${autoControls}
     </section>
-    <p class="notice-line">체력·정신력 전용 포션은 각 슬롯에, 두 자원을 함께 회복하는 포션은 양쪽 슬롯 어디에나 설정할 수 있습니다.</p>
+    <p class="notice-line">자동 포션은 전투 중 자원 보호용이고, 소비 아이템 단축 슬롯은 직접 눌러 사용하는 3칸입니다.</p>
+    <section class="consumable-slot-settings">
+      <strong>소비 아이템 단축 슬롯</strong>
+      <div class="consumable-slot-list">${slotButtons}</div>
+    </section>
     <div class="potion-config-list">
+      ${consumableCards}
+    </div>
+    <p class="notice-line">화살과 표창 같은 탄약은 소비 아이템 단축 슬롯에 등록할 수 없습니다.</p>
+    <section class="legacy-potion-settings">
+      <strong>자동 포션 슬롯</strong>
+      <div class="potion-config-list">
       ${potions.length ? potions.map((item) => `<article>
         <div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.description)} · ${formatNumber(item.quantity)}개 보유</small></div>
         <div class="potion-slot-actions">
@@ -4038,7 +4221,8 @@ function potionConfigurationBody() {
           ${['mp', 'both'].includes(item.resource) ? `<button type="button" data-assign-potion="${escapeHtml(item.id)}" data-potion-slot="mp">MP 슬롯 설정</button>` : ''}
         </div>
       </article>`).join('') : '<div class="empty-ledger"><b>설정할 포션이 없습니다.</b></div>'}
-    </div>
+      </div>
+    </section>
   </div>`;
 }
 
@@ -4066,6 +4250,21 @@ async function assignQuickPotion(slot, itemId) {
     $('featureBody').innerHTML = potionConfigurationBody();
     bindPotionControls();
     setWorldActivity('포션 퀵슬롯을 변경했습니다.');
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+async function assignConsumableQuickSlot(slot, itemId = '') {
+  try {
+    const data = await request('/api/v2/inventory/consumable-quick-slot', {
+      method: 'POST',
+      body: JSON.stringify({ slot, itemId })
+    });
+    setInventoryData(data.inventory);
+    $('featureBody').innerHTML = potionConfigurationBody();
+    bindPotionControls();
+    setWorldActivity(itemId ? '소비 아이템 단축 슬롯을 변경했습니다.' : '소비 아이템 단축 슬롯을 해제했습니다.');
   } catch (err) {
     setWorldActivity(err.message);
   }
@@ -4154,6 +4353,18 @@ async function claimAllMailItems() {
 }
 
 function bindPotionControls() {
+  document.querySelectorAll('[data-assign-consumable]').forEach((button) => {
+    button.addEventListener('click', () => assignConsumableQuickSlot(
+      Number(button.dataset.consumableSlot),
+      button.dataset.assignConsumable
+    ));
+  });
+  document.querySelectorAll('[data-clear-consumable-slot]').forEach((button) => {
+    button.addEventListener('click', () => assignConsumableQuickSlot(
+      Number(button.dataset.clearConsumableSlot),
+      ''
+    ));
+  });
   document.querySelectorAll('[data-assign-potion]').forEach((button) => {
     button.addEventListener('click', () => assignQuickPotion(
       button.dataset.potionSlot,
@@ -4180,10 +4391,23 @@ function bindMailControls() {
   document.querySelector('[data-claim-all-mail]')?.addEventListener('click', claimAllMailItems);
 }
 
+function isZeroPriceSellableAmmunition(item) {
+  return item?.itemType === 'ammunition' && item?.ammunitionType === 'arrow';
+}
+
+function getShopSellPriceForView(item) {
+  if (isZeroPriceSellableAmmunition(item)) return 0;
+  return Math.max(0, Math.floor(Number(item?.sellPrice) || 0));
+}
+
+function isShopInventorySellable(item) {
+  return getShopSellPriceForView(item) > 0 || isZeroPriceSellableAmmunition(item);
+}
+
 function shopBody() {
   const category = state.inventory.categories[state.shop.tab] || { items: [] };
   const sellable = (category.items || []).filter((item) => (
-    Number(item.sellPrice) > 0
+    isShopInventorySellable(item)
     || (
       item.itemType === 'ammunition'
       && item.ammunitionType === 'throwing-star'
@@ -4212,7 +4436,7 @@ function shopBody() {
         <div class="shop-item-list">
           ${sellable.length ? sellable.map((item) => `<article>
             <span>${escapeHtml(item.icon)}</span>
-            <div><strong>${escapeHtml(item.name)}</strong><small>${formatNumber(item.quantity)}개 보유</small><b>개당 ${formatNumber(item.sellPrice)}원</b></div>
+            <div><strong>${escapeHtml(item.name)}</strong><small>${formatNumber(item.quantity)}개 보유</small><b>개당 ${formatNumber(getShopSellPriceForView(item))}원</b></div>
             ${item.itemType === 'ammunition' && item.ammunitionType === 'throwing-star' && Number(item.quantity) < Number(item.maxStack)
               ? `<span class="shop-recharge-note">${formatNumber(item.quantity)} / ${formatNumber(item.maxStack)} · 4,000원</span>
                  <button type="button" data-shop-recharge-star="${escapeHtml(item.stackId)}">충전</button>`
@@ -4534,7 +4758,7 @@ const featureMeta = {
   mail: { code: 'ADMIN / MAIL', title: '우편함' },
   event: { code: 'EVENT / SETTLEMENT', title: '정착 지원 이벤트' },
   enhancement: { code: 'EQUIPMENT / ENHANCE', title: '장비 강화' },
-  'potion-config': { code: 'QUICK / POTION', title: '포션 설정' }
+  'potion-config': { code: 'QUICK / ITEM', title: '소비 슬롯 설정' }
 };
 
 const EQUIPMENT_TABS = Object.freeze({
@@ -6106,9 +6330,9 @@ $('questButton').addEventListener('click', () => openFeature('quest'));
 $('moveMapButton').addEventListener('click', () => openFeature('move'));
 $('autoCombatButton').addEventListener('click', toggleAutoCombat);
 $('jumpButton')?.addEventListener('click', () => triggerCharacterJump());
-$('hpPotionButton').addEventListener('click', () => useQuickPotion('hp'));
-$('mpPotionButton').addEventListener('click', () => useQuickPotion('mp'));
-$('potionConfigButton').addEventListener('click', () => openFeature('potion-config'));
+$('hpPotionButton')?.addEventListener('click', () => useQuickPotion('hp'));
+$('mpPotionButton')?.addEventListener('click', () => useQuickPotion('mp'));
+$('potionConfigButton')?.addEventListener('click', () => openFeature('potion-config'));
 $('shopNpc')?.addEventListener('click', () => openFieldShop());
 $('scrollShopNpc')?.addEventListener('click', () => openFieldShop('scroll_vendor'));
 $('worldStage')?.addEventListener('click', handleWorldStagePoint);

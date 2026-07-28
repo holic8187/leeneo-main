@@ -83,6 +83,17 @@ function getPotionDropsForMonsterLevel(level) {
       chance
     }));
   }
+  if (safeLevel >= 60) {
+    const interpolatedLevel = Math.min(140, safeLevel);
+    const chance = Number((0.002 + (interpolatedLevel - 60) / 80 * 0.007).toFixed(6));
+    drops.push(Object.freeze({
+      itemId: 'chunsik_blessing_potion',
+      name: '춘식이의 축복의 물약',
+      icon: '✨',
+      quantity: 1,
+      chance
+    }));
+  }
   return drops;
 }
 

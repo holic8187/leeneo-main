@@ -4,7 +4,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { MASTERY_BOOK_ITEMS } = require('../../src/v2/items/masteryBookCatalog');
 const { MONSTER_CATALOG } = require('../../src/v2/world/monsterCatalog');
-const { getHwangFieldBossDrops } = require('../../src/v2/world/worldRuntime');
+const {
+  getHwangFieldBossDrops,
+  getGammamNeoFieldBossDrops
+} = require('../../src/v2/world/worldRuntime');
 const {
   validateMasteryBookUse,
   resolveMasteryBookUse
@@ -127,6 +130,51 @@ test('Hwang manager has the four requested boss-only mastery-book chances', () =
     ['blizzard', 30, 0.03],
     ['maple_warrior', 20, 0.01]
   ]);
+});
+
+test('Gammam Neo has the requested mastery-book chances', () => {
+  const books = getGammamNeoFieldBossDrops()
+    .filter((drop) => getItemDefinitionForTest(drop.itemId)?.itemType === 'mastery-book')
+    .map((drop) => {
+      const item = getItemDefinitionForTest(drop.itemId);
+      return [item.masteryOriginalSkillId, item.masteryStage, drop.chance];
+    });
+  assert.deepEqual(books, [
+    ['infinity', 20, 0.01],
+    ['venom', 20, 0.01],
+    ['stance', 20, 0.008],
+    ['blast', 30, 0.005],
+    ['bow_expert', 20, 0.005],
+    ['storm', 30, 0.005],
+    ['piercing', 30, 0.004],
+    ['spirit_javelin', 30, 0.004],
+    ['boomerang_step', 30, 0.004],
+    ['fire_demon', 30, 0.003],
+    ['crossbow_expert', 20, 0.003],
+    ['brandish', 30, 0.003],
+    ['angel_ray', 30, 0.01],
+    ['ice_demon', 30, 0.01]
+  ]);
+});
+
+test('support light is not tied to a mastery book', () => {
+  const supportLight = SKILL_DEFINITIONS.extended_206bd2f4b1;
+  assert.equal(supportLight.name, '지원의 빛');
+  assert.equal(supportLight.tier, 3);
+  assert.equal(MASTERY_BOOK_ITEMS.some((item) => (
+    item.masterySkillId === supportLight.id || item.masterySkillIds.includes(supportLight.id)
+  )), false);
+});
+
+test('angel ray mastery books unlock strategic support line', () => {
+  const strategicLine = SKILL_DEFINITIONS.extended_7a0f825273;
+  const angelRay30 = MASTERY_BOOK_ITEMS.find((item) => (
+    item.masteryOriginalSkillId === 'angel_ray' && item.masteryStage === 30
+  ));
+  assert.equal(strategicLine.name, '전략 지원선');
+  assert.equal(strategicLine.tier, 4);
+  assert.equal(angelRay30.masterySkillId, strategicLine.id);
+  assert.equal(angelRay30.bossOnly, true);
 });
 
 function getItemDefinitionForTest(itemId) {

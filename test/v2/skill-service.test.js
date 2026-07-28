@@ -64,6 +64,7 @@ test('accumulated piercing settlement is an escalating six-target attack', () =>
     hitCount: 1,
     mpCostMultiplier: 1,
     preCastDelaySeconds: 1.5,
+    postCastDelaySeconds: 0,
     channelDurationSeconds: 0,
     channelIntervalSeconds: 0,
     lockSeconds: 0
@@ -270,6 +271,8 @@ test('warriors receive both common fourth-job skills and support utility overrid
   const genesis = SKILL_DEFINITIONS.extended_aef3d1db17;
   assert.equal(genesis.range, 720);
   assert.equal(genesis.verticalFloorRange, 1);
+  assert.equal(resolveSkillValues(genesis, genesis.maxLevel).postCastDelaySeconds, 3);
+  assert.equal(resolveSkillCastProfile(resolveSkillValues(genesis, genesis.maxLevel)).lockSeconds, 3);
 });
 
 test('storm channel resolves one 1.5-second cast into nine paid hits', () => {
@@ -284,7 +287,8 @@ test('storm channel resolves one 1.5-second cast into nine paid hits', () => {
   assert.equal(cast.channelIntervalSeconds, 0.18);
   assert.equal(cast.hitCount, 9);
   assert.equal(cast.mpCostMultiplier, 9);
-  assert.equal(cast.lockSeconds, 1.5);
+  assert.equal(cast.postCastDelaySeconds, 0.2);
+  assert.equal(cast.lockSeconds, 1.7);
   assert.equal(values.projectileSpeedMultiplier, 1.1);
   assert.equal(values.postCastDelaySeconds, 0.2);
 });
@@ -632,6 +636,26 @@ test('skill tree descriptions explain the role before listing current coefficien
   const skill = buildSkillTree(character).skills.find((entry) => entry.id === 'power_strike');
   assert.match(skill.description, /단일 적/);
   assert.match(skill.description, /현재 효과/);
+});
+
+test('support light is a third-tier skill and never asks for mastery books', () => {
+  const supportLight = findSkillByName('지원의 빛');
+  const character = makeCharacter({
+    job: { departmentId: 'management_support', advancementTier: 3 },
+    progression: { level: 100, unspentSkillPoints: 30 },
+    skills: {
+      levels: { [supportLight.id]: 10 },
+      activePreset: [],
+      unlockedQuestSkills: [],
+      activeBuffs: [],
+      summon: null,
+      comboCount: 0
+    }
+  });
+  const treeSkill = buildSkillTree(character).skills.find((entry) => entry.id === supportLight.id);
+  assert.equal(supportLight.tier, 3);
+  assert.equal(treeSkill.investmentCap, 30);
+  assert.equal(treeSkill.unlockMethod, 'level');
 });
 
 test('prerequisites and previous-tier SP gates are enforced', () => {

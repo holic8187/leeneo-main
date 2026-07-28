@@ -30,6 +30,7 @@ const {
   useSkillOnMonsters,
   isPlayerSilenced,
   clearPlayerNegativeStatus,
+  getFieldBossDefinition,
   updatePlayerResources,
   setPlayerInvulnerability,
   spawnBonusMonster,
@@ -72,7 +73,10 @@ const {
   consumeInventoryStack,
   assertInventorySpace,
   assignPotionQuickSlot,
+  assignConsumableQuickSlot,
+  isManualConsumableQuickItem,
   setPotionAutoThreshold,
+  useInventoryPotion,
   useQuickSlotPotion,
   useConfiguredAutoPotions,
   useInventoryExpansionTicket,
@@ -208,6 +212,7 @@ const SHOUT_PASS_BUFF_ID = 'shout_unlimited_pass_7d';
 const SHOUT_COOLDOWN_MS = 3 * 60 * 1000;
 const MARKETPLACE_LISTING_HOURS = 60;
 const MARKETPLACE_ARCHETYPE_FILTERS = Object.freeze(['warrior', 'archer', 'thief', 'mage']);
+const GAMMAM_NEO_BOSS_ID = 'gammam_neo';
 const MONSTER_QUEST_LOOKUP = new Map(
   MONSTER_CATALOG.map((monster) => [String(monster.id), monster])
 );
@@ -1458,6 +1463,17 @@ function registerV2Routes({
         }
       }
       recordBossKill(character, rewardEvent.bossId);
+      const bossDefinition = getFieldBossDefinition(rewardEvent.bossId);
+      if (
+        String(rewardEvent.bossId || '') === GAMMAM_NEO_BOSS_ID
+        && Number(bossDefinition?.lockoutMs) > 0
+      ) {
+        setFieldBossLockout(
+          character,
+          GAMMAM_NEO_BOSS_ID,
+          Number(rewardEvent.defeatedAt || Date.now()) + Number(bossDefinition.lockoutMs)
+        );
+      }
       if (save) await character.save();
       worldProfileCache.delete(String(character.userId));
       updatePlayerResources(character.userId, character.resources);
@@ -1541,6 +1557,7 @@ function registerV2Routes({
       job: response.job,
       combatPresentation: response.combatPresentation,
       worldState: response.worldState,
+      fieldBossLockouts: response.fieldBossLockouts,
       huntingTime: response.huntingTime,
       inventory: response.inventory,
       equipmentLoadout: response.equipmentLoadout
@@ -1680,6 +1697,73 @@ function registerV2Routes({
       consumableMultiplier,
       { hp: resourceCaps.maxHp, mp: resourceCaps.maxMp }
     );
+  }
+
+  function getFieldBossLockoutUntil(character, bossId) {
+    const raw = character?.fieldBossLockouts?.[String(bossId || '')];
+    if (!raw) return 0;
+    const numeric = Number(raw);
+    if (Number.isFinite(numeric) && numeric > 0) return numeric;
+    const time = new Date(raw).getTime();
+    return Number.isFinite(time) ? time : 0;
+  }
+
+  function getFieldBossEntryBlock(character, map, now = Date.now()) {
+    if (!map?.fieldBossId || String(map.fieldBossId) !== GAMMAM_NEO_BOSS_ID) return null;
+    const lockoutUntil = getFieldBossLockoutUntil(character, GAMMAM_NEO_BOSS_ID);
+    if (lockoutUntil <= now) return null;
+    const fallback = findNearestSafeMap(map.id) || getWorldMap(START_MAP_ID);
+    return {
+      bossId: GAMMAM_NEO_BOSS_ID,
+      mapId: map.id,
+      until: lockoutUntil,
+      fallbackMapId: fallback?.id || START_MAP_ID
+    };
+  }
+
+  function setFieldBossLockout(character, bossId, until) {
+    if (!character.fieldBossLockouts || typeof character.fieldBossLockouts !== 'object') {
+      character.fieldBossLockouts = {};
+    }
+    character.fieldBossLockouts[String(bossId || '')] = new Date(until);
+    if (typeof character.markModified === 'function') character.markModified('fieldBossLockouts');
+  }
+
+  function isBuffProtectedFromFieldBossDispel(buff) {
+    const skillId = String(buff?.skillId || '');
+    const item = getItemDefinition(skillId);
+    return skillId.startsWith('daily_augment:')
+      || item?.itemType === 'experience-buff';
+  }
+
+  function restoreNoMpCostBuffSnapshot(character, buff) {
+    if (Number(buff?.effects?.noMpCost) <= 0) return false;
+    const storedCurrentMp = Number(buff?.metadata?.storedCurrentMp);
+    if (!Number.isFinite(storedCurrentMp)) return false;
+    if (!character.resources || typeof character.resources !== 'object') character.resources = {};
+    const maxMp = Math.max(0, Number(character.resources.maxMp) || 0);
+    const restoredCurrentMp = Math.max(
+      0,
+      maxMp ? Math.min(maxMp, storedCurrentMp) : storedCurrentMp
+    );
+    if (Number(character.resources.currentMp) === restoredCurrentMp) return false;
+    character.resources.currentMp = restoredCurrentMp;
+    if (typeof character.markModified === 'function') character.markModified('resources');
+    return true;
+  }
+
+  function applyFieldBossDispel(character) {
+    const skillState = ensureSkillState(character);
+    const activeBuffs = Array.isArray(skillState.activeBuffs) ? skillState.activeBuffs : [];
+    const removedBuffs = activeBuffs.filter((buff) => !isBuffProtectedFromFieldBossDispel(buff));
+    if (!removedBuffs.length) return { removedCount: 0, protectedCount: activeBuffs.length };
+    for (const buff of removedBuffs) restoreNoMpCostBuffSnapshot(character, buff);
+    skillState.activeBuffs = activeBuffs.filter(isBuffProtectedFromFieldBossDispel);
+    if (typeof character.markModified === 'function') character.markModified('skills');
+    return {
+      removedCount: removedBuffs.length,
+      protectedCount: skillState.activeBuffs.length
+    };
   }
 
   const OFFLINE_AUTO_SKILL_DAMAGE_EFFECTS = new Set([
@@ -3986,6 +4070,104 @@ function registerV2Routes({
     }
   });
 
+  app.post('/api/v2/inventory/consumable-quick-slot', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const result = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        assignConsumableQuickSlot(character, req.body?.slot, req.body?.itemId);
+        await character.save();
+        worldProfileCache.delete(String(auth.id));
+        return buildInventoryView(character);
+      });
+      return res.json({ success: true, inventory: result });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '소비 아이템 단축 슬롯을 설정하지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/v2/inventory/use-consumable-slot', async (req, res) => {
+    const auth = requireV2User(req, res);
+    if (!auth) return;
+    try {
+      const result = await withCharacterMutation(auth.id, async () => {
+        const character = await V2Character.findOne({ userId: auth.id });
+        if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        if (Number(character.resources?.currentHp) <= 0) {
+          throw new Error('쓰러진 상태에서는 소비 아이템을 사용할 수 없습니다.');
+        }
+        const slot = Math.floor(Number(req.body?.slot));
+        const inventory = ensureInventory(character);
+        const itemId = String(inventory.quickSlots.consumables?.[slot] || '');
+        const item = getItemDefinition(itemId);
+        if (!isManualConsumableQuickItem(item)) {
+          throw new Error('해당 슬롯에 사용할 수 있는 소비 아이템이 등록되어 있지 않습니다.');
+        }
+        const mapId = String(req.body?.mapId || character.worldState?.mapId || '');
+        let map = null;
+        let message = '';
+        let used = null;
+        let cleansed = false;
+        if (item.itemType === 'potion') {
+          const preUseResponse = buildCharacterResponse(character);
+          const resourceCaps = preUseResponse.resources;
+          const consumableMultiplier = Math.max(
+            100,
+            Number(preUseResponse.skillEffects?.consumableEffectPercent) || 100
+          );
+          used = useInventoryPotion(
+            character,
+            item.id,
+            consumableMultiplier,
+            { hp: resourceCaps.maxHp, mp: resourceCaps.maxMp }
+          );
+          const restored = used.restoredByResource || {};
+          const labels = ['hp', 'mp']
+            .filter((resource) => Number(restored[resource]) > 0)
+            .map((resource) => `${resource.toUpperCase()} +${Math.floor(Number(restored[resource]) || 0).toLocaleString('ko-KR')}`);
+          message = `${item.name} 사용 · ${labels.join(' · ') || '회복 없음'}`;
+        } else if (item.itemType === 'return-scroll') {
+          if (!consumeInventoryItem(character, item.id, 1)) {
+            throw new Error('해당 소비 아이템이 부족합니다.');
+          }
+          map = findNearestSafeMap(character.worldState?.mapId);
+          character.worldState.mapId = map.id;
+          character.worldState.x = 8;
+          character.worldState.floor = 0;
+          leaveWorld(auth.id);
+          message = `${map.name}(으)로 귀환했습니다.`;
+        } else if (item.itemType === 'cleanse-potion') {
+          if (!consumeInventoryItem(character, item.id, 1)) {
+            throw new Error('해당 소비 아이템이 부족합니다.');
+          }
+          cleansed = clearPlayerNegativeStatus(String(auth.id), mapId);
+          message = cleansed
+            ? `${item.name} 사용 · 디버프를 해제했습니다.`
+            : `${item.name} 사용 · 해제할 디버프가 없습니다.`;
+        }
+        await character.save();
+        worldProfileCache.delete(String(auth.id));
+        const characterResponse = buildCharacterResponse(character);
+        updatePlayerResources(auth.id, characterResponse.resources);
+        return {
+          slot,
+          used,
+          item: { id: item.id, name: item.name, itemType: item.itemType },
+          cleansed,
+          message,
+          map,
+          character: characterResponse,
+          inventory: buildInventoryView(character)
+        };
+      });
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      return res.status(400).json({ msg: err.message || '소비 아이템을 사용하지 못했습니다.' });
+    }
+  });
+
   app.post('/api/v2/inventory/auto-potion', async (req, res) => {
     const auth = requireV2User(req, res);
     if (!auth) return;
@@ -4714,7 +4896,7 @@ function registerV2Routes({
         const character = await V2Character.findOne({ userId: auth.id });
         if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
         const item = getItemDefinition(req.body?.itemId);
-        if (!item || !['return-scroll', 'experience-buff', 'hunting-time', 'hunting-capacity', 'level-up', 'skill-reset', 'mastery-book', 'action-point', 'cash-point', 'shout-pass'].includes(item.itemType)) {
+        if (!item || !['return-scroll', 'experience-buff', 'hunting-time', 'hunting-capacity', 'level-up', 'skill-reset', 'mastery-book', 'action-point', 'cash-point', 'shout-pass', 'cleanse-potion'].includes(item.itemType)) {
           throw new Error('사용할 수 없는 아이템입니다.');
         }
         if (item.itemType === 'level-up' && Number(character.progression?.level) >= MAX_LEVEL) {
@@ -4810,6 +4992,14 @@ function registerV2Routes({
             )
           });
           message = '7일 동안 전체 외치기를 재사용 대기시간 없이 이용할 수 있습니다.';
+        } else if (item.itemType === 'cleanse-potion') {
+          const cleansed = clearPlayerNegativeStatus(
+            String(auth.id),
+            String(character.worldState?.mapId || '')
+          );
+          message = cleansed
+            ? `${item.name}을(를) 사용해 디버프를 해제했습니다.`
+            : `${item.name}을(를) 사용했습니다. 해제할 디버프는 없었습니다.`;
         } else if (item.itemType === 'skill-reset') {
           const skillState = ensureSkillState(character);
           const skillDefinitionIds = new Set(Object.keys(SKILL_DEFINITIONS));
@@ -5368,10 +5558,20 @@ function registerV2Routes({
         });
         worldProfileCache.delete(String(auth.id));
       }
-      const requestedMapId = String(req.body?.mapId || '');
-      const requestedMap = getWorldMap(requestedMapId);
+      let requestedMapId = String(req.body?.mapId || '');
+      let requestedMap = getWorldMap(requestedMapId);
       if (!requestedMap) return res.status(400).json({ msg: '존재하지 않는 맵입니다.' });
       const isDead = Number(profile.resources.currentHp) <= 0;
+      let fieldBossEntryBlock = null;
+      if (!isDead) {
+        fieldBossEntryBlock = getFieldBossEntryBlock(profile, requestedMap);
+        if (fieldBossEntryBlock) {
+          const fallbackMap = getWorldMap(fieldBossEntryBlock.fallbackMapId)
+            || getWorldMap(START_MAP_ID);
+          requestedMapId = fallbackMap.id;
+          requestedMap = fallbackMap;
+        }
+      }
       const recoverySkill = profile.skillTree?.skills?.find(
         (skill) => skill.id === 'recovery_improvement' && skill.level > 0
       );
@@ -5606,6 +5806,35 @@ function registerV2Routes({
       for (const rewardEvent of state.fieldBossRewards || []) {
         fieldBossRewards.push(await applyFieldBossRewards(rewardEvent));
       }
+      const latestDispelEvents = new Map();
+      for (const event of state.fieldBossStatusEvents || []) {
+        if (event?.type !== 'dispel' || !event.targetUserId) continue;
+        latestDispelEvents.set(String(event.targetUserId), event);
+      }
+      if (latestDispelEvents.size) {
+        for (const event of latestDispelEvents.values()) {
+          await withCharacterMutation(event.targetUserId, async () => {
+            const character = await V2Character.findOne({ userId: event.targetUserId });
+            if (!character) return;
+            const result = applyFieldBossDispel(character);
+            event.removedBuffCount = result.removedCount;
+            event.protectedBuffCount = result.protectedCount;
+            if (result.removedCount > 0) {
+              await character.save();
+              updatePlayerResources(event.targetUserId, character.resources);
+              worldProfileCache.delete(String(event.targetUserId));
+            }
+            const player = state.players.find((entry) => entry.userId === String(event.targetUserId));
+            if (player && character.resources) {
+              player.currentMp = Math.max(0, Number(character.resources.currentMp) || 0);
+              event.currentMp = player.currentMp;
+            }
+            if (String(event.targetUserId) === String(auth.id) && character.resources) {
+              profile.resources.currentMp = Math.max(0, Number(character.resources.currentMp) || 0);
+            }
+          });
+        }
+      }
       if (state.summonEvents.length) {
         const latestSummonEvents = new Map();
         for (const event of state.summonEvents) {
@@ -5658,6 +5887,7 @@ function registerV2Routes({
         summonEvents: state.summonEvents,
         fieldBossStatusEvents: state.fieldBossStatusEvents,
         fieldBossRewards,
+        fieldBossEntryBlock,
         lootCollections: state.lootCollections,
         partyState: getPartyState(auth.id),
         tradeState: getTradeState(auth.id),
@@ -5684,6 +5914,13 @@ function registerV2Routes({
       );
       const map = getWorldMap(destination.mapId);
       if (!map) throw new Error('포탈 목적지를 찾지 못했습니다.');
+      if (map.fieldBossId === GAMMAM_NEO_BOSS_ID) {
+        const character = await V2Character.findOne({ userId: auth.id }).lean();
+        const entryBlock = getFieldBossEntryBlock(character, map);
+        if (entryBlock) {
+          throw new Error('감맘 네오 처치 후 24시간 동안 해당 히든스트리트에 입장할 수 없습니다.');
+        }
+      }
       await V2Character.updateOne(
         { userId: auth.id },
         {

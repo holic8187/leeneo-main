@@ -87,6 +87,7 @@ const v2CharacterSchema = new mongoose.Schema({
     quickSlots: {
       hp: { type: String, default: '' },
       mp: { type: String, default: '' },
+      consumables: { type: [String], default: ['', '', ''] },
       autoHpPercent: { type: Number, default: 0, min: 0, max: 100 },
       autoMpPercent: { type: Number, default: 0, min: 0, max: 100 }
     }
@@ -129,6 +130,7 @@ const v2CharacterSchema = new mongoose.Schema({
     floor: { type: Number, default: 0, min: 0, max: 1 },
     controlSessionId: { type: String, default: '' }
   },
+  fieldBossLockouts: { type: mongoose.Schema.Types.Mixed, default: {} },
   huntingTime: {
     remainingSeconds: { type: Number, default: 0, min: 0, max: 48000 },
     maximumSeconds: { type: Number, default: 24000, min: 24000, max: 48000 },
