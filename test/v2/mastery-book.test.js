@@ -157,6 +157,7 @@ test('Gammam Neo has the requested mastery-book chances', () => {
   ]);
 });
 
+<<<<<<< HEAD
 test('support light is not tied to a mastery book', () => {
   const supportLight = SKILL_DEFINITIONS.extended_206bd2f4b1;
   assert.equal(supportLight.name, '지원의 빛');
@@ -177,6 +178,8 @@ test('angel ray mastery books unlock strategic support line', () => {
   assert.equal(angelRay30.bossOnly, true);
 });
 
+=======
+>>>>>>> 29c984ed0e8f0fc859c2d706457eb4469d895117
 function getItemDefinitionForTest(itemId) {
   return MASTERY_BOOK_ITEMS.find((item) => item.id === itemId);
 }
