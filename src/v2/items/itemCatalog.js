@@ -348,6 +348,17 @@ const BASE_ITEMS = {
     tradeable: true,
     description: '야근하다 미쳐버린 황과장을 처치한 흔적입니다. 추후 교환 재료로 사용될 수 있습니다.'
   },
+  gammam_broken_potato_leg: {
+    id: 'gammam_broken_potato_leg',
+    name: '감자의 부러진 다리',
+    category: 'misc',
+    itemType: 'field-boss-token',
+    icon: '🥔',
+    maxStack: 200,
+    sellPrice: 1,
+    tradeable: true,
+    description: '감맘 네오에게서 떨어진 기묘한 전리품입니다.'
+  },
   settlement_event_coin: {
     id: 'settlement_event_coin',
     name: '정착 지원 이벤트 코인',

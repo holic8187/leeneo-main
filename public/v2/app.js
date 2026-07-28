@@ -2883,6 +2883,7 @@ function ensureMonsterElement(monster) {
   element.dataset.monsterId = monster.id;
   element.innerHTML = `
     <span class="monster-name"></span><span class="monster-level"></span>
+    <span class="monster-cast-label"></span>
     <pre>(╬ಠ益ಠ)</pre>
     <div class="monster-hp"><i></i></div>`;
   $('monsterLayer').appendChild(element);
@@ -2914,6 +2915,26 @@ function releaseCombatVisualTargets(monsterIds = []) {
   });
 }
 
+const FIELD_BOSS_CAST_PATTERNS = Object.freeze([
+  'global-silence',
+  'close-blast',
+  'dispel',
+  'hwang-ranged',
+  'hwang-silence'
+]);
+
+function getFieldBossPatternLabel(pattern, skillName = '') {
+  const explicitName = String(skillName || '').trim();
+  if (explicitName) return explicitName;
+  return ({
+    'global-silence': '감자의 복수',
+    'close-blast': '감 맘 행 동',
+    dispel: '감자감싸기!!!',
+    'hwang-ranged': '퇴근 반려 결재',
+    'hwang-silence': '야근실 정숙령'
+  })[String(pattern || '')] || '시전 준비';
+}
+
 function renderMonsters(monsters = []) {
   state.worldMonsters = monsters;
   const visibleIds = new Set();
@@ -2925,6 +2946,19 @@ function renderMonsters(monsters = []) {
     element.querySelector('.monster-level').textContent = `Lv.${monster.level}`;
     element.querySelector('pre').textContent = monster.icon || '(•̀ᴗ•́)';
     element.querySelector('.monster-hp i').style.width = `${ratio(monster.hp, monster.maxHp)}%`;
+    const currentCast = monster.currentCast || null;
+    const castPattern = String(currentCast?.pattern || '');
+    const castLabel = element.querySelector('.monster-cast-label');
+    if (castLabel) {
+      castLabel.textContent = currentCast
+        ? getFieldBossPatternLabel(castPattern, currentCast.skillName)
+        : '';
+    }
+    element.dataset.bossPattern = castPattern;
+    element.classList.toggle('is-boss-casting', Boolean(currentCast));
+    FIELD_BOSS_CAST_PATTERNS.forEach((pattern) => {
+      element.classList.toggle(`is-casting-${pattern}`, castPattern === pattern);
+    });
     element.classList.toggle('is-field-boss', Boolean(monster.fieldBoss));
     element.style.setProperty('--monster-scale', String(Math.max(0.5, 0.5 * (Number(monster.visualScale) || 1))));
     element.style.left = `${monster.x}%`;
@@ -3038,14 +3072,62 @@ function showDeathState(expLost = 0) {
   document.body.classList.add('modal-open');
 }
 
+function playFieldBossCastVisual(event = {}) {
+  const bossId = String(event.bossId || '');
+  if (!bossId) return;
+  const element = Array.from($('monsterLayer')?.children || []).find(
+    (entry) => entry.dataset.monsterId === bossId
+  );
+  if (!element) return;
+  const pattern = String(event.pattern || '');
+  const skillLabel = getFieldBossPatternLabel(pattern, event.skillName);
+  const label = element.querySelector('.monster-cast-label');
+  if (label) label.textContent = skillLabel;
+  element.dataset.bossPattern = pattern;
+  element.classList.add('is-boss-casting');
+  FIELD_BOSS_CAST_PATTERNS.forEach((entry) => {
+    element.classList.toggle(`is-casting-${entry}`, entry === pattern);
+  });
+  const durationMs = Math.max(450, Number(event.durationMs) || 900);
+  setTimeout(() => {
+    if (element.dataset.bossPattern !== pattern) return;
+    element.classList.remove(
+      'is-boss-casting',
+      ...FIELD_BOSS_CAST_PATTERNS.map((entry) => `is-casting-${entry}`)
+    );
+    element.dataset.bossPattern = '';
+    if (label) label.textContent = '';
+  }, durationMs + 220);
+}
+
 function handleFieldBossEvents(data = {}) {
+  (data.fieldBossStatusEvents || [])
+    .filter((event) => event.type === 'cast')
+    .forEach((event) => {
+      playFieldBossCastVisual(event);
+      setWorldActivity(`${event.bossName || '필드보스'} 시전 준비 · ${getFieldBossPatternLabel(event.pattern, event.skillName)}`);
+    });
+
+  if (data.fieldBossEntryBlock) {
+    setWorldActivity('감맘 네오 처치 후 24시간 동안 해당 히든스트리트에 입장할 수 없습니다.');
+  }
+
   const ownStatus = (data.fieldBossStatusEvents || []).find((event) => (
     event.targetUserId === state.selfUserId
   ));
+  const ownSkillName = getFieldBossPatternLabel(ownStatus?.pattern, ownStatus?.skillName);
   if (ownStatus?.type === 'silence') {
-    setWorldActivity(`${ownStatus.bossName || '필드보스'}의 침묵에 걸렸습니다.`);
+    setWorldActivity(`${ownStatus.bossName || '필드보스'}의 ${ownSkillName}에 걸렸습니다.`);
   } else if (ownStatus?.type === 'ranged') {
-    setWorldActivity(`${ownStatus.bossName || '필드보스'}의 원거리 공격에 피격되었습니다.`);
+    setWorldActivity(`${ownStatus.bossName || '필드보스'}의 ${ownSkillName}에 피격되었습니다.`);
+  } else if (ownStatus?.type === 'close-blast') {
+    setWorldActivity(`${ownStatus.bossName || '필드보스'}의 ${ownSkillName}에 피격되었습니다.`);
+  } else if (ownStatus?.type === 'dispel') {
+    setWorldActivity(`${ownStatus.bossName || '필드보스'}의 ${ownSkillName}로 버프가 해제되었습니다.`);
+    request('/api/v2/me').then((me) => {
+      state.character = me.character;
+      renderGame({ preview: state.preview, character: me.character, displayName: state.displayName });
+    }).catch(() => {});
   }
 
   const bossReward = (data.fieldBossRewards || []).find((event) => (
@@ -4180,10 +4262,23 @@ function bindMailControls() {
   document.querySelector('[data-claim-all-mail]')?.addEventListener('click', claimAllMailItems);
 }
 
+function isZeroPriceSellableAmmunition(item) {
+  return item?.itemType === 'ammunition' && item?.ammunitionType === 'arrow';
+}
+
+function getShopSellPriceForView(item) {
+  if (isZeroPriceSellableAmmunition(item)) return 0;
+  return Math.max(0, Math.floor(Number(item?.sellPrice) || 0));
+}
+
+function isShopInventorySellable(item) {
+  return getShopSellPriceForView(item) > 0 || isZeroPriceSellableAmmunition(item);
+}
+
 function shopBody() {
   const category = state.inventory.categories[state.shop.tab] || { items: [] };
   const sellable = (category.items || []).filter((item) => (
-    Number(item.sellPrice) > 0
+    isShopInventorySellable(item)
     || (
       item.itemType === 'ammunition'
       && item.ammunitionType === 'throwing-star'
@@ -4212,7 +4307,7 @@ function shopBody() {
         <div class="shop-item-list">
           ${sellable.length ? sellable.map((item) => `<article>
             <span>${escapeHtml(item.icon)}</span>
-            <div><strong>${escapeHtml(item.name)}</strong><small>${formatNumber(item.quantity)}개 보유</small><b>개당 ${formatNumber(item.sellPrice)}원</b></div>
+            <div><strong>${escapeHtml(item.name)}</strong><small>${formatNumber(item.quantity)}개 보유</small><b>개당 ${formatNumber(getShopSellPriceForView(item))}원</b></div>
             ${item.itemType === 'ammunition' && item.ammunitionType === 'throwing-star' && Number(item.quantity) < Number(item.maxStack)
               ? `<span class="shop-recharge-note">${formatNumber(item.quantity)} / ${formatNumber(item.maxStack)} · 4,000원</span>
                  <button type="button" data-shop-recharge-star="${escapeHtml(item.stackId)}">충전</button>`

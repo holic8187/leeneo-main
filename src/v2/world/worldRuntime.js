@@ -46,6 +46,7 @@ let latestGlobalShout = null;
 
 const FIELD_BOSS_RESPAWN_MIN_MS = 90 * 60 * 1000;
 const FIELD_BOSS_RESPAWN_MAX_MS = 180 * 60 * 1000;
+const GAMMAM_NEO_BOSS_ID = 'gammam_neo';
 const FIELD_BOSS_DEFINITIONS = Object.freeze({
   mad_hwang_manager: Object.freeze({
     id: 'mad_hwang_manager',
@@ -63,10 +64,63 @@ const FIELD_BOSS_DEFINITIONS = Object.freeze({
     expReward: 300_000,
     visualScale: 2,
     rangedIntervalMs: 4_000,
+    rangedCastMs: 800,
+    rangedSkillName: '퇴근 반려 결재',
     rangedDamage: 1_500,
     rangedRangePx: 1_000,
     silenceIntervalMs: 15_000,
+    silenceCastMs: 1_000,
+    silenceSkillName: '야근실 정숙령',
     silenceDurationMs: 10_000
+  }),
+  [GAMMAM_NEO_BOSS_ID]: Object.freeze({
+    id: GAMMAM_NEO_BOSS_ID,
+    name: '감맘 네오',
+    icon: '🥔',
+    level: 120,
+    maxHp: 2_500_000,
+    maxMp: 0,
+    contactDamage: 4_000,
+    physicalDefense: 800,
+    magicDefense: 1_200,
+    monsterEvasion: 62.73,
+    monsterAccuracy: 230,
+    requiredAccuracyBase: 230,
+    requiredAccuracyPerLevelBelow: 5.33,
+    movementSpeed: 70,
+    expReward: 1_500_000,
+    visualScale: 2.25,
+    respawnMinMs: 30 * 60 * 1000,
+    respawnMaxMs: 120 * 60 * 1000,
+    moneyReward: 180_000,
+    lockoutMs: 24 * 60 * 60 * 1000,
+    patterns: Object.freeze({
+      globalSilence: Object.freeze({
+        id: 'global-silence',
+        skillName: '감자의 복수',
+        intervalMs: 12_000,
+        castMs: 1_200,
+        damage: 2_250,
+        silenceDurationMs: 4_000,
+        allPlayers: true
+      }),
+      closeBlast: Object.freeze({
+        id: 'close-blast',
+        skillName: '감 맘 행 동',
+        intervalMs: 7_000,
+        castMs: 900,
+        damage: 3_100,
+        rangePx: 400
+      }),
+      dispel: Object.freeze({
+        id: 'dispel',
+        skillName: '감자감싸기!!!',
+        minIntervalMs: 10_000,
+        maxIntervalMs: 25_000,
+        castMs: 1_200,
+        rangePx: 600
+      })
+    })
   })
 });
 
@@ -76,6 +130,12 @@ function clamp(value, minimum, maximum) {
 
 function randomBetween(minimum, maximum) {
   return minimum + Math.random() * (maximum - minimum);
+}
+
+function randomIntegerBetween(minimum, maximum) {
+  const min = Math.floor(Number(minimum) || 0);
+  const max = Math.max(min, Math.floor(Number(maximum) || min));
+  return min + Math.floor(Math.random() * (max - min + 1));
 }
 
 function pickRandom(array, random = Math.random) {
@@ -180,6 +240,45 @@ function getHwangFieldBossDrops() {
   ].filter(Boolean);
 }
 
+function getGammamNeoFieldBossDrops() {
+  return [
+    findMasteryBookDrop('infinity', 20, 0.01),
+    findMasteryBookDrop('venom', 20, 0.01),
+    findScrollDrop((scroll) => (
+      scroll.applicableSlot === 'cape'
+      && Number(scroll.successRate) === 60
+      && Number(scroll.scrollStats?.processingSpeed) === 2
+    ), 0.008),
+    findMasteryBookDrop('stance', 20, 0.008),
+    findScrollDrop((scroll) => (
+      scroll.applicableSlot === 'cape'
+      && Number(scroll.successRate) === 60
+      && Number(scroll.scrollStats?.grit) === 2
+    ), 0.006),
+    findScrollDrop((scroll) => (
+      scroll.applicableSlot === 'cape'
+      && Number(scroll.successRate) === 60
+      && Number(scroll.scrollStats?.workKnowledge) === 2
+    ), 0.006),
+    findScrollDrop((scroll) => (
+      scroll.applicableSlot === 'cape'
+      && Number(scroll.successRate) === 60
+      && Number(scroll.scrollStats?.awareness) === 2
+    ), 0.006),
+    findMasteryBookDrop('blast', 30, 0.005),
+    findMasteryBookDrop('bow_expert', 20, 0.005),
+    findMasteryBookDrop('storm', 30, 0.005),
+    findMasteryBookDrop('piercing', 30, 0.004),
+    findMasteryBookDrop('spirit_javelin', 30, 0.004),
+    findMasteryBookDrop('boomerang_step', 30, 0.004),
+    findMasteryBookDrop('fire_demon', 30, 0.003),
+    findMasteryBookDrop('crossbow_expert', 20, 0.003),
+    findMasteryBookDrop('brandish', 30, 0.003),
+    findMasteryBookDrop('angel_ray', 30, 0.01),
+    findMasteryBookDrop('ice_demon', 30, 0.01)
+  ].filter(Boolean);
+}
+
 function getFieldBossWeaponPool() {
   return EQUIPMENT_ITEMS.filter((item) => {
     if (!item || item.category !== 'equipment' || item.itemType !== 'weapon') return false;
@@ -190,8 +289,11 @@ function getFieldBossWeaponPool() {
 }
 
 function scheduleFieldBossRespawn(mapId, now = Date.now()) {
-  const delay = FIELD_BOSS_RESPAWN_MIN_MS
-    + Math.floor(Math.random() * (FIELD_BOSS_RESPAWN_MAX_MS - FIELD_BOSS_RESPAWN_MIN_MS + 1));
+  const map = getWorldMap(mapId);
+  const definition = getFieldBossDefinition(map?.fieldBossId);
+  const minimum = Number(definition?.respawnMinMs) || FIELD_BOSS_RESPAWN_MIN_MS;
+  const maximum = Number(definition?.respawnMaxMs) || FIELD_BOSS_RESPAWN_MAX_MS;
+  const delay = minimum + Math.floor(Math.random() * (maximum - minimum + 1));
   const respawnAt = now + delay;
   fieldBossRespawns.set(String(mapId), respawnAt);
   return respawnAt;
@@ -206,9 +308,14 @@ function recordMonsterContribution(monster, userId, damage) {
     + Math.max(0, Math.floor(Number(damage) || 0));
 }
 
-function rollFieldBossRandomRewards() {
+function getFieldBossRandomDropTable(fieldBossId) {
+  if (String(fieldBossId || '') === GAMMAM_NEO_BOSS_ID) return getGammamNeoFieldBossDrops();
+  return getHwangFieldBossDrops();
+}
+
+function rollFieldBossRandomRewards(fieldBossId = 'mad_hwang_manager') {
   const rewards = [];
-  for (const drop of getHwangFieldBossDrops()) {
+  for (const drop of getFieldBossRandomDropTable(fieldBossId)) {
     if (Math.random() >= Number(drop.chance || 0)) continue;
     rewards.push({
       itemId: drop.itemId,
@@ -217,7 +324,7 @@ function rollFieldBossRandomRewards() {
       icon: drop.icon
     });
   }
-  if (Math.random() < 0.05) {
+  if (String(fieldBossId || '') !== GAMMAM_NEO_BOSS_ID && Math.random() < 0.05) {
     const pool = getFieldBossWeaponPool();
     const count = Math.random() < 0.5 ? 1 : 2;
     for (let index = 0; index < count; index += 1) {
@@ -265,6 +372,11 @@ function distributeGuaranteedFieldBossItem(rewards, item, totalQuantity) {
 
 function buildFieldBossRewardEvent(runtime, monster, mapId, defeatedBy, now = Date.now()) {
   if (!monster?.fieldBoss) return null;
+  const definition = getFieldBossDefinition(monster.fieldBossId);
+  const minimumParticipantLevel = Math.max(
+    1,
+    Math.floor(Number(definition?.minimumParticipantLevel) || 50)
+  );
   const respawnAt = scheduleFieldBossRespawn(mapId, now);
   const participants = Object.entries(monster.contributors || {})
     .map(([userId, damage]) => ({
@@ -275,7 +387,7 @@ function buildFieldBossRewardEvent(runtime, monster, mapId, defeatedBy, now = Da
     .filter((entry) => (
       entry.damage > 0
       && entry.player
-      && Number(entry.player.combatProfile?.playerLevel || 0) >= 50
+      && Number(entry.player.combatProfile?.playerLevel || 0) >= minimumParticipantLevel
     ))
     .sort((left, right) => right.damage - left.damage);
   if (!participants.length) {
@@ -309,30 +421,53 @@ function buildFieldBossRewardEvent(runtime, monster, mapId, defeatedBy, now = Da
     });
   }
 
-  const moneyShare = Math.floor(30_000 * 5 / rewards.length);
+  const totalMoney = Math.max(0, Math.floor(Number(definition?.moneyReward) || 30_000 * 5));
+  const moneyShare = Math.floor(totalMoney / rewards.length);
   rewards.forEach((reward) => {
     reward.money = moneyShare;
   });
 
-  const markReceiver = pickRandom(rewards);
-  if (markReceiver) {
-    markReceiver.items.push({
-      itemId: 'hwang_manager_mark',
-      quantity: Math.random() < 0.5 ? 1 : 2
-    });
+  if (String(monster.fieldBossId || '') === GAMMAM_NEO_BOSS_ID) {
+    for (const guaranteedDrop of [
+      { itemId: 'sunset_dew', name: '황혼의 이슬', icon: '💧', min: 20, max: 50 },
+      { itemId: 'power_elixir', name: '파워엘릭서', icon: '⚗️', min: 10, max: 40 },
+      { itemId: 'elixir', name: '엘릭서', icon: '🧪', min: 20, max: 50 },
+      {
+        itemId: 'gammam_broken_potato_leg',
+        name: '감자의 부러진 다리',
+        icon: '🥔',
+        min: 1,
+        max: 2
+      }
+    ]) {
+      const quantityPerParticipant = randomIntegerBetween(guaranteedDrop.min, guaranteedDrop.max);
+      distributeGuaranteedFieldBossItem(
+        rewards,
+        guaranteedDrop,
+        rewards.length * quantityPerParticipant
+      );
+    }
+  } else {
+    const markReceiver = pickRandom(rewards);
+    if (markReceiver) {
+      markReceiver.items.push({
+        itemId: 'hwang_manager_mark',
+        quantity: Math.random() < 0.5 ? 1 : 2
+      });
+    }
+    for (const guaranteedDrop of [
+      { itemId: 'elixir', name: '엘릭서', icon: '🧪' },
+      { itemId: 'power_elixir', name: '파워엘릭서', icon: '⚗️' }
+    ]) {
+      const quantityPerParticipant = 9 + Math.floor(Math.random() * 8);
+      distributeGuaranteedFieldBossItem(
+        rewards,
+        guaranteedDrop,
+        rewards.length * quantityPerParticipant
+      );
+    }
   }
-  for (const guaranteedDrop of [
-    { itemId: 'elixir', name: '엘릭서', icon: '🧪' },
-    { itemId: 'power_elixir', name: '파워엘릭서', icon: '⚗️' }
-  ]) {
-    const quantityPerParticipant = 9 + Math.floor(Math.random() * 8);
-    distributeGuaranteedFieldBossItem(
-      rewards,
-      guaranteedDrop,
-      rewards.length * quantityPerParticipant
-    );
-  }
-  for (const item of rollFieldBossRandomRewards()) {
+  for (const item of rollFieldBossRandomRewards(monster.fieldBossId)) {
     const receiver = pickRandom(rewards);
     if (receiver) receiver.items.push(item);
   }
@@ -392,6 +527,7 @@ function createMonster(map, index, now) {
 function createFieldBoss(map, now) {
   const definition = getFieldBossDefinition(map.fieldBossId);
   if (!definition) return null;
+  const patterns = definition.patterns || {};
   return {
     id: crypto.randomUUID(),
     speciesId: definition.id,
@@ -411,6 +547,8 @@ function createFieldBoss(map, now) {
     expReward: definition.expReward,
     monsterAccuracy: definition.monsterAccuracy,
     monsterEvasion: definition.monsterEvasion,
+    requiredAccuracyBase: definition.requiredAccuracyBase || 0,
+    requiredAccuracyPerLevelBelow: definition.requiredAccuracyPerLevelBelow || 0,
     elementalMultipliers: {},
     undead: false,
     visualScale: definition.visualScale,
@@ -425,8 +563,22 @@ function createFieldBoss(map, now) {
     outgoingDamageDebuffUntil: 0,
     aggroTargetId: '',
     contributors: {},
-    nextRangedAt: now + definition.rangedIntervalMs,
-    nextSilenceAt: now + definition.silenceIntervalMs
+    currentCast: null,
+    nextRangedAt: Number(definition.rangedIntervalMs) > 0
+      ? now + definition.rangedIntervalMs
+      : 0,
+    nextSilenceAt: Number(definition.silenceIntervalMs) > 0
+      ? now + definition.silenceIntervalMs
+      : 0,
+    nextGlobalSilenceAt: patterns.globalSilence
+      ? now + patterns.globalSilence.intervalMs
+      : 0,
+    nextCloseBlastAt: patterns.closeBlast
+      ? now + patterns.closeBlast.intervalMs
+      : 0,
+    nextDispelAt: patterns.dispel
+      ? now + randomIntegerBetween(patterns.dispel.minIntervalMs, patterns.dispel.maxIntervalMs)
+      : 0
   };
 }
 
@@ -465,6 +617,8 @@ function serializeMonster(monster) {
     expReward: monster.expReward,
     monsterAccuracy: monster.monsterAccuracy,
     monsterEvasion: monster.monsterEvasion,
+    requiredAccuracyBase: monster.requiredAccuracyBase || 0,
+    requiredAccuracyPerLevelBelow: monster.requiredAccuracyPerLevelBelow || 0,
     outgoingDamageReductionPercent: Math.max(
       0,
       Number(monster.outgoingDamageReductionPercent) || 0
@@ -476,6 +630,7 @@ function serializeMonster(monster) {
     floor: monster.floor,
     direction: monster.direction,
     state: monster.state,
+    currentCast: monster.currentCast ? { ...monster.currentCast } : null,
     spawnedAt: monster.spawnedAt,
     visualScale: Math.max(1, Number(monster.visualScale) || 1)
   };
@@ -709,6 +864,10 @@ function advanceMonster(monster, runtime, map, deltaSeconds, now) {
     monster.state = 'stunned';
     return;
   }
+  if (monster.currentCast) {
+    monster.state = `casting-${monster.currentCast.pattern || 'field-boss'}`;
+    return;
+  }
 
   const decoy = findNearestDecoy(runtime, monster, now);
   const aggroTarget = monster.aggroTargetId && runtime.players.get(monster.aggroTargetId);
@@ -935,122 +1094,429 @@ function applyContactDamage(runtime, now) {
   return damagedPlayers;
 }
 
+function getRequiredAccuracyForMonster(monster, playerLevel) {
+  const base = Number(monster?.requiredAccuracyBase) || 0;
+  if (base > 0) {
+    const levelGap = Math.max(0, Math.floor(Number(monster?.level) || 0) - Math.floor(Number(playerLevel) || 0));
+    return base + levelGap * (Number(monster?.requiredAccuracyPerLevelBelow) || 0);
+  }
+  return calculateRequiredAccuracy({
+    characterLevel: playerLevel,
+    monsterLevel: monster.level,
+    monsterEvasion: monster.monsterEvasion
+  });
+}
+
+function getRangePercent(rangePx) {
+  return Math.max(0, Number(rangePx) || 0) / ASSUMED_STAGE_WIDTH_PX * 100;
+}
+
+function getLiveFieldBossPlayers(runtime) {
+  return Array.from(runtime.players.values()).filter((player) => (
+    player.currentHp > 0 && Number(player.combatProfile?.stealth) <= 0
+  ));
+}
+
+function getFieldBossPlayersInRange(runtime, boss, rangePx, { requireVulnerable = false, now = Date.now() } = {}) {
+  const rangePercent = getRangePercent(rangePx);
+  return getLiveFieldBossPlayers(runtime).filter((player) => (
+    player.floor === boss.floor
+    && Math.abs(Number(player.x) - Number(boss.x)) <= rangePercent + 4.5
+    && (!requireVulnerable || now >= Number(player.invulnerableUntil || 0))
+  ));
+}
+
+function getNearestFieldBossPlayer(runtime, boss) {
+  return getLiveFieldBossPlayers(runtime)
+    .sort((left, right) => {
+      const leftFloorPenalty = left.floor === boss.floor ? 0 : 10_000;
+      const rightFloorPenalty = right.floor === boss.floor ? 0 : 10_000;
+      return leftFloorPenalty + Math.abs(Number(left.x) - Number(boss.x))
+        - (rightFloorPenalty + Math.abs(Number(right.x) - Number(boss.x)));
+    })[0] || null;
+}
+
+function makeFieldBossPursueTarget(runtime, boss) {
+  const target = getNearestFieldBossPlayer(runtime, boss);
+  if (!target) return false;
+  boss.aggroTargetId = target.userId;
+  boss.aggroTargetType = 'player';
+  boss.direction = Number(target.x) < Number(boss.x) ? -1 : 1;
+  boss.state = 'chase';
+  return true;
+}
+
+function canStartFieldBossPattern(runtime, boss, config = {}, now = Date.now()) {
+  if (config.allPlayers) return getLiveFieldBossPlayers(runtime).length > 0;
+  if (Number(config.rangePx) > 0) {
+    if (config.allowDecoys) {
+      const rangePercent = getRangePercent(config.rangePx);
+      const decoyTarget = getActiveDecoys(runtime, now).some((entry) => (
+        entry.floor === boss.floor
+        && Math.abs(Number(entry.x) - Number(boss.x)) <= rangePercent + 4.5
+      ));
+      if (decoyTarget) return true;
+    }
+    return getFieldBossPlayersInRange(runtime, boss, config.rangePx, { now }).length > 0;
+  }
+  return getLiveFieldBossPlayers(runtime).some((player) => player.floor === boss.floor);
+}
+
+function applyFixedFieldBossDamage(player, boss, baseDamage, source, now) {
+  if (!player || now < Number(player.invulnerableUntil || 0)) return null;
+  const reduction = Math.max(
+    0,
+    Math.min(95, Number(player.combatProfile?.damageReductionPercent) || 0)
+  );
+  const damageTakenIncrease = Math.max(
+    0,
+    Number(player.combatProfile?.damageTakenIncreasePercent) || 0
+  );
+  const damage = Math.max(1, Math.floor(
+    (Number(baseDamage) || 1)
+      * (1 - reduction / 100)
+      * (1 + damageTakenIncrease / 100)
+  ));
+  const damageSplit = splitDamageWithMpGuard(damage, {
+    currentMp: player.currentMp,
+    guardPercent: player.combatProfile?.mpDamageGuardPercent
+  });
+  player.currentMp = Math.max(0, Number(player.currentMp) - damageSplit.mpDamage);
+  player.currentHp = Math.max(0, Number(player.currentHp) - damageSplit.hpDamage);
+  player.invulnerableUntil = now + CONTACT_INVULNERABILITY_MS;
+  return {
+    userId: player.userId,
+    damage: damageSplit.hpDamage,
+    totalDamage: damageSplit.totalDamage,
+    mpDamage: damageSplit.mpDamage,
+    blocked: false,
+    dodged: false,
+    resistedKnockback: true,
+    reflectedDamage: 0,
+    monsterId: boss.id,
+    source,
+    currentHp: player.currentHp,
+    currentMp: player.currentMp,
+    maxHp: player.maxHp,
+    x: player.x,
+    floor: player.floor,
+    invulnerableUntil: player.invulnerableUntil
+  };
+}
+
+function startGammamNeoPattern(runtime, boss, pattern, config, now) {
+  const durationMs = Math.max(0, Math.floor(Number(config.castMs) || 0));
+  const resolvesAt = now + durationMs;
+  boss.currentCast = {
+    pattern,
+    skillName: String(config.skillName || ''),
+    startedAt: now,
+    resolvesAt,
+    durationMs,
+    rangePx: Math.max(0, Math.floor(Number(config.rangePx) || 0)),
+    damage: Math.max(0, Math.floor(Number(config.damage) || 0)),
+    silenceDurationMs: Math.max(0, Math.floor(Number(config.silenceDurationMs) || 0))
+  };
+  boss.state = `casting-${pattern}`;
+  runtime.fieldBossStatusEvents.push({
+    type: 'cast',
+    pattern,
+    skillName: boss.currentCast.skillName,
+    bossId: boss.id,
+    bossName: boss.name,
+    rangePx: boss.currentCast.rangePx,
+    damage: boss.currentCast.damage,
+    durationMs,
+    resolvesAt,
+    createdAt: now
+  });
+}
+
+function resolveGammamNeoPattern(runtime, boss, now) {
+  const cast = boss.currentCast;
+  if (!cast) return [];
+  boss.currentCast = null;
+  boss.state = 'field-boss';
+  const events = [];
+  const livePlayers = getLiveFieldBossPlayers(runtime);
+  const sameFloorInRange = (rangePx) => {
+    const rangePercent = getRangePercent(rangePx);
+    return livePlayers.filter((player) => (
+      player.floor === boss.floor
+      && Math.abs(Number(player.x) - Number(boss.x)) <= rangePercent + 4.5
+    ));
+  };
+  if (cast.pattern === 'global-silence') {
+    for (const target of livePlayers) {
+      const damageEvent = applyFixedFieldBossDamage(
+        target,
+        boss,
+        cast.damage,
+        'field-boss-global-silence',
+        now
+      );
+      if (damageEvent) events.push(damageEvent);
+      target.silencedUntil = Math.max(
+        Number(target.silencedUntil) || 0,
+        now + Math.max(0, Number(cast.silenceDurationMs) || 0)
+      );
+      runtime.fieldBossStatusEvents.push({
+        type: 'silence',
+        pattern: cast.pattern,
+        skillName: cast.skillName,
+        bossId: boss.id,
+        bossName: boss.name,
+        targetUserId: target.userId,
+        damage: damageEvent?.damage || 0,
+        totalDamage: damageEvent?.totalDamage || 0,
+        mpDamage: damageEvent?.mpDamage || 0,
+        durationMs: cast.silenceDurationMs,
+        expiresAt: target.silencedUntil,
+        createdAt: now
+      });
+    }
+  } else if (cast.pattern === 'close-blast') {
+    for (const target of sameFloorInRange(cast.rangePx)) {
+      const damageEvent = applyFixedFieldBossDamage(
+        target,
+        boss,
+        cast.damage,
+        'field-boss-close-blast',
+        now
+      );
+      if (!damageEvent) continue;
+      events.push(damageEvent);
+      runtime.fieldBossStatusEvents.push({
+        type: 'close-blast',
+        pattern: cast.pattern,
+        skillName: cast.skillName,
+        bossId: boss.id,
+        bossName: boss.name,
+        targetUserId: target.userId,
+        damage: damageEvent.damage,
+        totalDamage: damageEvent.totalDamage,
+        mpDamage: damageEvent.mpDamage,
+        rangePx: cast.rangePx,
+        createdAt: now
+      });
+    }
+  } else if (cast.pattern === 'dispel') {
+    for (const target of sameFloorInRange(cast.rangePx)) {
+      runtime.fieldBossStatusEvents.push({
+        type: 'dispel',
+        pattern: cast.pattern,
+        skillName: cast.skillName,
+        bossId: boss.id,
+        bossName: boss.name,
+        targetUserId: target.userId,
+        rangePx: cast.rangePx,
+        createdAt: now
+      });
+    }
+  }
+  return events;
+}
+
+function startFieldBossPatternIfReady(runtime, boss, pattern, config, now, onStart) {
+  if (!canStartFieldBossPattern(runtime, boss, config, now)) {
+    makeFieldBossPursueTarget(runtime, boss);
+    return false;
+  }
+  if (typeof onStart === 'function') onStart();
+  startGammamNeoPattern(runtime, boss, pattern, config, now);
+  return true;
+}
+
+function resolveHwangFieldBossPattern(runtime, boss, definition, now) {
+  const cast = boss.currentCast;
+  if (!cast) return [];
+  boss.currentCast = null;
+  boss.state = 'field-boss';
+  const events = [];
+  if (cast.pattern === 'hwang-ranged') {
+    const rangePx = Number(cast.rangePx) || Number(definition.rangedRangePx) || 0;
+    const rangePercent = getRangePercent(rangePx);
+    const decoyTargets = getActiveDecoys(runtime, now).filter((entry) => (
+      entry.floor === boss.floor
+      && Math.abs(Number(entry.x) - Number(boss.x)) <= rangePercent + 4.5
+    ));
+    const decoyTarget = pickRandom(decoyTargets);
+    if (decoyTarget) {
+      const damage = Math.max(1, Math.floor(Number(cast.damage || definition.rangedDamage) || 1));
+      damageDecoy(runtime, decoyTarget, boss, damage, 'field-boss-ranged', now);
+      boss.aggroTargetId = decoyTarget.player.userId;
+      boss.aggroTargetType = 'decoy';
+      runtime.fieldBossStatusEvents.push({
+        type: 'ranged',
+        pattern: cast.pattern,
+        skillName: cast.skillName,
+        bossId: boss.id,
+        bossName: boss.name,
+        targetUserId: decoyTarget.player.userId,
+        targetSummon: true,
+        summonName: decoyTarget.summon.name,
+        damage,
+        createdAt: now
+      });
+      return events;
+    }
+    const target = pickRandom(getFieldBossPlayersInRange(
+      runtime,
+      boss,
+      rangePx,
+      { requireVulnerable: true, now }
+    ));
+    const damageEvent = applyFixedFieldBossDamage(
+      target,
+      boss,
+      Math.max(1, Math.floor(Number(cast.damage || definition.rangedDamage) || 1)),
+      'field-boss-ranged',
+      now
+    );
+    if (damageEvent) {
+      events.push(damageEvent);
+      runtime.fieldBossStatusEvents.push({
+        type: 'ranged',
+        pattern: cast.pattern,
+        skillName: cast.skillName,
+        bossId: boss.id,
+        bossName: boss.name,
+        targetUserId: target.userId,
+        damage: damageEvent.damage,
+        totalDamage: damageEvent.totalDamage,
+        mpDamage: damageEvent.mpDamage,
+        createdAt: now
+      });
+    }
+  } else if (cast.pattern === 'hwang-silence') {
+    const targets = getLiveFieldBossPlayers(runtime)
+      .filter((player) => player.floor === boss.floor)
+      .sort(() => Math.random() - 0.5)
+      .slice(0, 2);
+    for (const target of targets) {
+      target.silencedUntil = Math.max(
+        Number(target.silencedUntil) || 0,
+        now + Math.max(0, Number(cast.silenceDurationMs || definition.silenceDurationMs) || 0)
+      );
+      runtime.fieldBossStatusEvents.push({
+        type: 'silence',
+        pattern: cast.pattern,
+        skillName: cast.skillName,
+        bossId: boss.id,
+        bossName: boss.name,
+        targetUserId: target.userId,
+        durationMs: cast.silenceDurationMs,
+        expiresAt: target.silencedUntil,
+        createdAt: now
+      });
+    }
+  }
+  return events;
+}
+
+function applyGammamNeoPatterns(runtime, boss, definition, now) {
+  const events = [];
+  const patterns = definition.patterns || {};
+  if (boss.currentCast) {
+    if (now >= Number(boss.currentCast.resolvesAt || 0)) {
+      events.push(...resolveGammamNeoPattern(runtime, boss, now));
+    }
+    return events;
+  }
+  if (patterns.globalSilence && now >= Number(boss.nextGlobalSilenceAt || 0)) {
+    if (startFieldBossPatternIfReady(
+      runtime,
+      boss,
+      patterns.globalSilence.id,
+      patterns.globalSilence,
+      now,
+      () => { boss.nextGlobalSilenceAt = now + patterns.globalSilence.intervalMs; }
+    )) return events;
+  }
+  if (patterns.closeBlast && now >= Number(boss.nextCloseBlastAt || 0)) {
+    if (startFieldBossPatternIfReady(
+      runtime,
+      boss,
+      patterns.closeBlast.id,
+      patterns.closeBlast,
+      now,
+      () => { boss.nextCloseBlastAt = now + patterns.closeBlast.intervalMs; }
+    )) return events;
+  }
+  if (patterns.dispel && now >= Number(boss.nextDispelAt || 0)) {
+    startFieldBossPatternIfReady(
+      runtime,
+      boss,
+      patterns.dispel.id,
+      patterns.dispel,
+      now,
+      () => {
+        boss.nextDispelAt = now + randomIntegerBetween(
+          patterns.dispel.minIntervalMs,
+          patterns.dispel.maxIntervalMs
+        );
+      }
+    );
+  }
+  return events;
+}
+
+function applyHwangFieldBossPatterns(runtime, boss, definition, now) {
+  const events = [];
+  if (boss.currentCast) {
+    if (now >= Number(boss.currentCast.resolvesAt || 0)) {
+      events.push(...resolveHwangFieldBossPattern(runtime, boss, definition, now));
+    }
+    return events;
+  }
+
+  if (now >= Number(boss.nextRangedAt || 0)) {
+    startFieldBossPatternIfReady(
+      runtime,
+      boss,
+      'hwang-ranged',
+      {
+        skillName: definition.rangedSkillName,
+        castMs: definition.rangedCastMs,
+        damage: definition.rangedDamage,
+        rangePx: definition.rangedRangePx,
+        allowDecoys: true
+      },
+      now,
+      () => { boss.nextRangedAt = now + definition.rangedIntervalMs; }
+    );
+    if (boss.currentCast) return events;
+  }
+
+  if (now >= Number(boss.nextSilenceAt || 0)) {
+    startFieldBossPatternIfReady(
+      runtime,
+      boss,
+      'hwang-silence',
+      {
+        skillName: definition.silenceSkillName,
+        castMs: definition.silenceCastMs,
+        silenceDurationMs: definition.silenceDurationMs
+      },
+      now,
+      () => { boss.nextSilenceAt = now + definition.silenceIntervalMs; }
+    );
+  }
+
+  return events;
+}
+
 function applyFieldBossMechanics(runtime, now) {
   const events = [];
-  const livePlayers = () => Array.from(runtime.players.values())
-    .filter((player) => (
-      player.currentHp > 0 && Number(player.combatProfile?.stealth) <= 0
-    ));
   for (const boss of runtime.monsters) {
     if (!boss.fieldBoss || boss.hp <= 0) continue;
     const definition = getFieldBossDefinition(boss.fieldBossId);
     if (!definition) continue;
-
-    if (now >= Number(boss.nextRangedAt || 0)) {
-      boss.nextRangedAt = now + definition.rangedIntervalMs;
-      const rangePercent = definition.rangedRangePx / ASSUMED_STAGE_WIDTH_PX * 100;
-      const decoyTargets = getActiveDecoys(runtime, now).filter((entry) => (
-        entry.floor === boss.floor
-        && Math.abs(Number(entry.x) - Number(boss.x)) <= rangePercent + 4.5
-      ));
-      const decoyTarget = pickRandom(decoyTargets);
-      if (decoyTarget) {
-        const damage = Math.max(1, Math.floor(Number(definition.rangedDamage) || 1));
-        damageDecoy(runtime, decoyTarget, boss, damage, 'field-boss-ranged', now);
-        boss.aggroTargetId = decoyTarget.player.userId;
-        boss.aggroTargetType = 'decoy';
-        runtime.fieldBossStatusEvents.push({
-          type: 'ranged',
-          bossId: boss.id,
-          bossName: boss.name,
-          targetUserId: decoyTarget.player.userId,
-          targetSummon: true,
-          summonName: decoyTarget.summon.name,
-          damage,
-          createdAt: now
-        });
-      } else {
-        const targets = livePlayers().filter((player) => (
-          player.floor === boss.floor
-          && Math.abs(Number(player.x) - Number(boss.x)) <= rangePercent + 4.5
-          && now >= Number(player.invulnerableUntil || 0)
-        ));
-        const target = pickRandom(targets);
-        if (target) {
-          const reduction = Math.max(
-            0,
-            Math.min(95, Number(target.combatProfile?.damageReductionPercent) || 0)
-          );
-          const damageTakenIncrease = Math.max(
-            0,
-            Number(target.combatProfile?.damageTakenIncreasePercent) || 0
-          );
-          const damage = Math.max(1, Math.floor(
-            (Number(definition.rangedDamage) || 1)
-              * (1 - reduction / 100)
-              * (1 + damageTakenIncrease / 100)
-          ));
-          const damageSplit = splitDamageWithMpGuard(damage, {
-            currentMp: target.currentMp,
-            guardPercent: target.combatProfile?.mpDamageGuardPercent
-          });
-          target.currentMp = Math.max(0, Number(target.currentMp) - damageSplit.mpDamage);
-          target.currentHp = Math.max(0, Number(target.currentHp) - damageSplit.hpDamage);
-          target.invulnerableUntil = now + CONTACT_INVULNERABILITY_MS;
-          events.push({
-            userId: target.userId,
-            damage: damageSplit.hpDamage,
-            totalDamage: damageSplit.totalDamage,
-            mpDamage: damageSplit.mpDamage,
-            blocked: false,
-            dodged: false,
-            resistedKnockback: true,
-            reflectedDamage: 0,
-            monsterId: boss.id,
-            source: 'field-boss-ranged',
-            currentHp: target.currentHp,
-            currentMp: target.currentMp,
-            maxHp: target.maxHp,
-            x: target.x,
-            floor: target.floor,
-            invulnerableUntil: target.invulnerableUntil
-          });
-          runtime.fieldBossStatusEvents.push({
-            type: 'ranged',
-            bossId: boss.id,
-            bossName: boss.name,
-            targetUserId: target.userId,
-            damage: damageSplit.hpDamage,
-            totalDamage: damageSplit.totalDamage,
-            mpDamage: damageSplit.mpDamage,
-            createdAt: now
-          });
-        }
-      }
+    if (definition.patterns) {
+      events.push(...applyGammamNeoPatterns(runtime, boss, definition, now));
+      continue;
     }
-
-    if (now >= Number(boss.nextSilenceAt || 0)) {
-      boss.nextSilenceAt = now + definition.silenceIntervalMs;
-      const targets = livePlayers()
-        .filter((player) => player.floor === boss.floor)
-        .sort(() => Math.random() - 0.5)
-        .slice(0, 2);
-      for (const target of targets) {
-        target.silencedUntil = Math.max(
-          Number(target.silencedUntil) || 0,
-          now + definition.silenceDurationMs
-        );
-        runtime.fieldBossStatusEvents.push({
-          type: 'silence',
-          bossId: boss.id,
-          bossName: boss.name,
-          targetUserId: target.userId,
-          durationMs: definition.silenceDurationMs,
-          expiresAt: target.silencedUntil,
-          createdAt: now
-        });
-      }
-    }
+    events.push(...applyHwangFieldBossPatterns(runtime, boss, definition, now));
   }
   return events;
 }
@@ -1633,11 +2099,7 @@ function attackMonster({
     : selectFrontMonster(runtime, player, requestedMonster, rangePercent);
   if (!monster) return { success: false, reason: 'missing-target' };
   player.combatProfile.stealth = 0;
-  const requiredAccuracy = calculateRequiredAccuracy({
-    characterLevel: playerLevel,
-    monsterLevel: monster.level,
-    monsterEvasion: monster.monsterEvasion
-  });
+  const requiredAccuracy = getRequiredAccuracyForMonster(monster, playerLevel);
   const hitChance = accuracy == null
     ? 1
     : calculateHitChance({ accuracy, requiredAccuracy });
@@ -2132,11 +2594,7 @@ function useSkillOnMonsters(options = {}) {
       : damageRange;
     const targetX = Number(monster.x);
     const targetFloor = Number(monster.floor) || 0;
-    const requiredAccuracy = calculateRequiredAccuracy({
-      characterLevel: playerLevel,
-      monsterLevel: monster.level,
-      monsterEvasion: monster.monsterEvasion
-    });
+    const requiredAccuracy = getRequiredAccuracyForMonster(monster, playerLevel);
     const hitChance = accuracy == null
       ? 1
       : calculateHitChance({ accuracy, requiredAccuracy });
@@ -2469,6 +2927,7 @@ function clearPlayerNegativeStatus(userId, mapId) {
 function resetWorldRuntime() {
   activeMaps.clear();
   worldControllers.clear();
+  fieldBossRespawns.clear();
   latestGlobalShout = null;
 }
 
@@ -2482,6 +2941,8 @@ module.exports = {
   MONSTER_MAX_PER_MAP,
   MONSTER_SPAWN_PER_WAVE,
   getHwangFieldBossDrops,
+  getGammamNeoFieldBossDrops,
+  getFieldBossDefinition,
   MONSTER_CATALOG,
   buildMonsterStats,
   buildFieldBossRewardEvent,

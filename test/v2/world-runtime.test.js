@@ -6,6 +6,7 @@ const {
   PLAYER_CONTACT_KNOCKBACK_DISTANCE,
   buildMonsterStats,
   buildFieldBossRewardEvent,
+  getFieldBossDefinition,
   claimWorldControl,
   hasWorldControl,
   hasRecentWorldControl,
@@ -64,6 +65,61 @@ test('Hwang manager guarantees randomized elixir pools for every EXP-eligible pa
     assert.equal(quantities.reduce((sum, quantity) => sum + quantity, 0), 32);
     assert.ok(quantities.every((quantity) => quantity >= 1));
   }
+});
+
+test('Gammam Neo definition matches the requested field-boss baseline', () => {
+  const definition = getFieldBossDefinition('gammam_neo');
+  assert.equal(definition.name, '감맘 네오');
+  assert.equal(definition.level, 120);
+  assert.equal(definition.maxHp, 2_500_000);
+  assert.equal(definition.expReward, 1_500_000);
+  assert.equal(definition.physicalDefense, 800);
+  assert.equal(definition.magicDefense, 1_200);
+  assert.equal(definition.requiredAccuracyBase, 230);
+  assert.equal(definition.requiredAccuracyPerLevelBelow, 5.33);
+  assert.equal(definition.contactDamage, 4_000);
+  assert.equal(definition.movementSpeed, 70);
+  assert.equal(definition.respawnMinMs, 30 * 60 * 1000);
+  assert.equal(definition.respawnMaxMs, 120 * 60 * 1000);
+});
+
+test('Gammam Neo rewards split money and guaranteed drops across participants', () => {
+  const originalRandom = Math.random;
+  let event;
+  try {
+    Math.random = () => 0.99;
+    event = buildFieldBossRewardEvent(
+      {
+        players: new Map([
+          ['dealer-a', { combatProfile: { playerLevel: 120 } }],
+          ['dealer-b', { combatProfile: { playerLevel: 121 } }]
+        ])
+      },
+      {
+        fieldBoss: true,
+        fieldBossId: 'gammam_neo',
+        name: '감맘 네오',
+        expReward: 1_500_000,
+        contributors: { 'dealer-a': 200, 'dealer-b': 100 }
+      },
+      'hidden_hwang_overtime',
+      'dealer-a',
+      1_000
+    );
+  } finally {
+    Math.random = originalRandom;
+  }
+
+  assert.ok(event.respawnAt >= 1_000 + 30 * 60 * 1000);
+  assert.ok(event.respawnAt <= 1_000 + 120 * 60 * 1000);
+  assert.deepEqual(event.rewards.map((reward) => reward.money), [90_000, 90_000]);
+  const totalQuantity = (itemId) => event.rewards.reduce((sum, reward) => (
+    sum + (reward.items.find((item) => item.itemId === itemId)?.quantity || 0)
+  ), 0);
+  assert.equal(totalQuantity('sunset_dew'), 100);
+  assert.equal(totalQuantity('power_elixir'), 80);
+  assert.equal(totalQuantity('elixir'), 100);
+  assert.equal(totalQuantity('gammam_broken_potato_leg'), 4);
 });
 
 test('an occupied map lazily spawns test monsters with configured combat stats', () => {
@@ -176,7 +232,7 @@ test('a hit gives the monster aggro and applies defense before defeat reward', (
     userId: 'user-a',
     mapId: 'newcomer_training',
     monsterId: monster.id,
-    damage: monster.maxHp + monster.physicalDefense,
+    damage: 10_000,
     rangePx: 22,
     now: 1_200
   });
@@ -277,16 +333,23 @@ test('magical attacks use the provided magic damage range before monster magic d
 });
 
 test('holy healing damage targets undead monsters and ignores living monsters', () => {
-  const initial = updatePresence({
-    userId: 'support-user',
-    nickname: '경영지원',
-    mapId: 'overtime_roost',
-    x: 50,
-    floor: 0,
-    currentHp: 120,
-    maxHp: 120,
-    now: 1_000
-  });
+  const originalRandom = Math.random;
+  let initial;
+  try {
+    Math.random = () => 0.9;
+    initial = updatePresence({
+      userId: 'support-user',
+      nickname: '경영지원',
+      mapId: 'overtime_roost',
+      x: 50,
+      floor: 0,
+      currentHp: 120,
+      maxHp: 120,
+      now: 1_000
+    });
+  } finally {
+    Math.random = originalRandom;
+  }
   const undead = initial.monsters.find((monster) => monster.undead && monster.floor === 0);
   assert.ok(undead);
   updatePresence({
@@ -844,18 +907,25 @@ test('a recently claimed world client temporarily excludes its character from of
 
 test('contact damage uses the reduced knockback and grants 2 seconds of invulnerability', () => {
   resetWorldRuntime();
-  const initial = updatePresence({
-    userId: 'contact-user',
-    nickname: 'contact-user',
-    mapId: 'newcomer_training',
-    x: 0,
-    floor: 0,
-    activity: 'moving',
-    facingLeft: false,
-    currentHp: 120,
-    maxHp: 120,
-    now: 1_000
-  });
+  const originalRandom = Math.random;
+  let initial;
+  try {
+    Math.random = () => 0.9;
+    initial = updatePresence({
+      userId: 'contact-user',
+      nickname: 'contact-user',
+      mapId: 'newcomer_training',
+      x: 0,
+      floor: 0,
+      activity: 'moving',
+      facingLeft: false,
+      currentHp: 120,
+      maxHp: 120,
+      now: 1_000
+    });
+  } finally {
+    Math.random = originalRandom;
+  }
   const firstMonster = initial.monsters[0];
   assert.ok(firstMonster);
 
@@ -1106,15 +1176,22 @@ test('moving across a monster applies swept contact damage instead of tunneling 
 });
 
 test('a single hit dealing at least forty percent of max HP knocks a monster back', () => {
-  const state = updatePresence({
-    userId: 'heavy-user',
-    nickname: 'heavy-user',
-    mapId: 'newcomer_training',
-    x: 20,
-    currentHp: 120,
-    maxHp: 120,
-    now: 1_000
-  });
+  const originalRandom = Math.random;
+  let state;
+  try {
+    Math.random = () => 0.9;
+    state = updatePresence({
+      userId: 'heavy-user',
+      nickname: 'heavy-user',
+      mapId: 'newcomer_training',
+      x: 20,
+      currentHp: 120,
+      maxHp: 120,
+      now: 1_000
+    });
+  } finally {
+    Math.random = originalRandom;
+  }
   const monster = state.monsters.find((entry) => entry.floor === 0);
   updatePresence({
     userId: 'heavy-user',
@@ -1427,7 +1504,7 @@ test('field boss ranged attacks prioritize an active decoy over players', () => 
   updatePresence({
     userId: 'boss-decoy-owner',
     nickname: '보스 궁수',
-    mapId: 'hidden_hwang_overtime',
+    mapId: 'hidden_hwang_sales',
     x: 40,
     floor: 0,
     activity: 'idle',
@@ -1446,10 +1523,10 @@ test('field boss ranged attacks prioritize an active decoy over players', () => 
     },
     now: 1_000
   });
-  const state = updatePresence({
+  const castState = updatePresence({
     userId: 'boss-decoy-owner',
     nickname: '보스 궁수',
-    mapId: 'hidden_hwang_overtime',
+    mapId: 'hidden_hwang_sales',
     x: 40,
     floor: 0,
     activity: 'idle',
@@ -1469,11 +1546,193 @@ test('field boss ranged attacks prioritize an active decoy over players', () => 
     now: 5_001
   });
 
+  assert.equal(castState.monsters[0].currentCast.pattern, 'hwang-ranged');
+  assert.equal(
+    castState.monsters[0].currentCast.skillName,
+    getFieldBossDefinition('mad_hwang_manager').rangedSkillName
+  );
+  assert.ok(castState.fieldBossStatusEvents.some((event) => (
+    event.type === 'cast'
+    && event.pattern === 'hwang-ranged'
+    && event.skillName === getFieldBossDefinition('mad_hwang_manager').rangedSkillName
+  )));
+  assert.equal(castState.summonEvents.some((event) => event.source === 'field-boss-ranged'), false);
+  assert.equal(castState.contactEvents.some((event) => event.source === 'field-boss-ranged'), false);
+  assert.equal(castState.players[0].currentHp, 5_000);
+
+  const state = updatePresence({
+    userId: 'boss-decoy-owner',
+    nickname: '보스 궁수',
+    mapId: 'hidden_hwang_sales',
+    x: 40,
+    floor: 0,
+    activity: 'idle',
+    facingLeft: false,
+    currentHp: 5_000,
+    maxHp: 5_000,
+    summon: {
+      skillId: 'extended_41300a062e',
+      name: '마스코트 배치',
+      icon: '🧸',
+      role: 'decoy',
+      summonHp: 6_000,
+      maxSummonHp: 6_000,
+      createdAt: 1_000,
+      expiresAt: 60_000
+    },
+    now: 5_901
+  });
+
   const rangedEvent = state.summonEvents.find((event) => event.source === 'field-boss-ranged');
   assert.ok(rangedEvent);
   assert.equal(rangedEvent.damage, 1_500);
+  assert.ok(state.fieldBossStatusEvents.some((event) => (
+    event.type === 'ranged'
+    && event.pattern === 'hwang-ranged'
+    && event.skillName === getFieldBossDefinition('mad_hwang_manager').rangedSkillName
+  )));
   assert.equal(state.contactEvents.some((event) => event.source === 'field-boss-ranged'), false);
   assert.equal(state.players[0].currentHp, 5_000);
+});
+
+test('Gammam Neo telegraphs close blast before applying damage', () => {
+  const definition = getFieldBossDefinition('gammam_neo');
+  updatePresence({
+    userId: 'neo-target',
+    nickname: '네오 대상',
+    mapId: 'hidden_hwang_overtime',
+    x: 40,
+    floor: 0,
+    activity: 'idle',
+    facingLeft: false,
+    currentHp: 10_000,
+    maxHp: 10_000,
+    currentMp: 0,
+    maxMp: 0,
+    playerLevel: 120,
+    now: 1_000
+  });
+  const castState = updatePresence({
+    userId: 'neo-target',
+    nickname: '네오 대상',
+    mapId: 'hidden_hwang_overtime',
+    x: 40,
+    floor: 0,
+    activity: 'idle',
+    facingLeft: false,
+    currentHp: 10_000,
+    maxHp: 10_000,
+    currentMp: 0,
+    maxMp: 0,
+    playerLevel: 120,
+    now: 8_001
+  });
+
+  assert.equal(castState.monsters[0].fieldBossId, 'gammam_neo');
+  assert.equal(castState.monsters[0].currentCast.pattern, 'close-blast');
+  assert.equal(castState.monsters[0].currentCast.skillName, definition.patterns.closeBlast.skillName);
+  assert.ok(castState.fieldBossStatusEvents.some((event) => (
+    event.type === 'cast'
+    && event.pattern === 'close-blast'
+    && event.skillName === definition.patterns.closeBlast.skillName
+  )));
+  assert.equal(castState.contactEvents.some((event) => event.source === 'field-boss-close-blast'), false);
+
+  const hitState = updatePresence({
+    userId: 'neo-target',
+    nickname: '네오 대상',
+    mapId: 'hidden_hwang_overtime',
+    x: 40,
+    floor: 0,
+    activity: 'idle',
+    facingLeft: false,
+    currentHp: 10_000,
+    maxHp: 10_000,
+    currentMp: 0,
+    maxMp: 0,
+    playerLevel: 120,
+    now: 9_001
+  });
+  const damageEvent = hitState.contactEvents.find((event) => (
+    event.source === 'field-boss-close-blast'
+  ));
+  assert.ok(damageEvent);
+  assert.equal(damageEvent.damage, 3_100);
+  assert.ok(hitState.fieldBossStatusEvents.some((event) => (
+    event.type === 'close-blast'
+    && event.pattern === 'close-blast'
+    && event.skillName === definition.patterns.closeBlast.skillName
+  )));
+  assert.equal(hitState.players[0].currentHp, 6_900);
+});
+
+test('Gammam Neo waits to cast range-bound patterns until a target is in range', () => {
+  updatePresence({
+    userId: 'neo-far-target',
+    nickname: '네오 원거리 대상',
+    mapId: 'hidden_hwang_overtime',
+    x: 0,
+    floor: 0,
+    activity: 'idle',
+    facingLeft: false,
+    currentHp: 10_000,
+    maxHp: 10_000,
+    currentMp: 0,
+    maxMp: 0,
+    playerLevel: 120,
+    now: 1_000
+  });
+
+  const originalRandom = Math.random;
+  let waitingState;
+  try {
+    Math.random = () => 0.99;
+    waitingState = updatePresence({
+      userId: 'neo-far-target',
+      nickname: '네오 원거리 대상',
+      mapId: 'hidden_hwang_overtime',
+      x: 0,
+      floor: 0,
+      activity: 'idle',
+      facingLeft: false,
+      currentHp: 10_000,
+      maxHp: 10_000,
+      currentMp: 0,
+      maxMp: 0,
+      playerLevel: 120,
+      now: 8_001
+    });
+  } finally {
+    Math.random = originalRandom;
+  }
+
+  assert.equal(waitingState.monsters[0].fieldBossId, 'gammam_neo');
+  assert.equal(waitingState.monsters[0].currentCast, null);
+  assert.equal(waitingState.fieldBossStatusEvents.some((event) => event.type === 'cast'), false);
+  assert.equal(waitingState.monsters[0].state, 'chase');
+
+  const bossX = Number(waitingState.monsters[0].x);
+  const castState = updatePresence({
+    userId: 'neo-far-target',
+    nickname: '네오 원거리 대상',
+    mapId: 'hidden_hwang_overtime',
+    x: bossX - 1,
+    floor: 0,
+    activity: 'idle',
+    facingLeft: false,
+    currentHp: 10_000,
+    maxHp: 10_000,
+    currentMp: 0,
+    maxMp: 0,
+    playerLevel: 120,
+    now: 8_101
+  });
+
+  assert.equal(castState.monsters[0].currentCast.pattern, 'close-blast');
+  assert.equal(
+    castState.monsters[0].currentCast.skillName,
+    getFieldBossDefinition('gammam_neo').patterns.closeBlast.skillName
+  );
 });
 
 test('global shout stays visible for exactly its ten-second broadcast window', () => {
@@ -1489,16 +1748,23 @@ test('global shout stays visible for exactly its ten-second broadcast window', (
 });
 
 test('channeled skills return one mastery and critical result per visible hit', () => {
-  const state = updatePresence({
-    userId: 'channel-user',
-    nickname: 'channel-user',
-    mapId: 'newcomer_training',
-    x: 50,
-    floor: 0,
-    currentHp: 120,
-    maxHp: 120,
-    now: 1_000
-  });
+  const originalRandom = Math.random;
+  let state;
+  try {
+    Math.random = () => 0.9;
+    state = updatePresence({
+      userId: 'channel-user',
+      nickname: 'channel-user',
+      mapId: 'newcomer_training',
+      x: 50,
+      floor: 0,
+      currentHp: 120,
+      maxHp: 120,
+      now: 1_000
+    });
+  } finally {
+    Math.random = originalRandom;
+  }
   const monster = state.monsters.find((entry) => entry.floor === 0);
   updatePresence({
     userId: 'channel-user',
@@ -1670,16 +1936,23 @@ test('vertical floor range allows a genesis-style skill to hit one floor above',
 });
 
 test('work reduction applies its outgoing damage debuff to normal monsters', () => {
-  const state = updatePresence({
-    userId: 'work-reduction-user',
-    nickname: 'work-reduction-user',
-    mapId: 'newcomer_training',
-    x: 50,
-    floor: 0,
-    currentHp: 120,
-    maxHp: 120,
-    now: 1_000
-  });
+  const originalRandom = Math.random;
+  let state;
+  try {
+    Math.random = () => 0.9;
+    state = updatePresence({
+      userId: 'work-reduction-user',
+      nickname: 'work-reduction-user',
+      mapId: 'newcomer_training',
+      x: 50,
+      floor: 0,
+      currentHp: 120,
+      maxHp: 120,
+      now: 1_000
+    });
+  } finally {
+    Math.random = originalRandom;
+  }
   const monster = state.monsters.find((entry) => entry.floor === 0);
   assert.ok(monster);
   const result = useSkillOnMonsters({

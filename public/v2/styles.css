@@ -1629,10 +1629,29 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .field-monster.facing-left { transform: scaleX(-1); }
 .field-monster.facing-left .monster-name,
 .field-monster.facing-left .monster-level,
+.field-monster.facing-left .monster-cast-label,
 .field-monster.facing-left .monster-hp { transform: scaleX(-1); }
 .field-monster pre { margin: 3px 0; font: 800 17px ui-monospace, monospace; }
 .monster-name, .monster-level { display: block; font: 800 16px ui-monospace, monospace; }
 .monster-name { overflow: hidden; color: #ffd7cc; text-overflow: ellipsis; white-space: nowrap; }
+.monster-cast-label {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 4px);
+  display: none;
+  min-width: 74px;
+  padding: 3px 6px;
+  border: 1px solid rgba(255, 240, 189, .72);
+  border-radius: 4px;
+  background: rgba(17, 17, 24, .9);
+  color: #fff1b8;
+  font: 800 11px ui-monospace, monospace;
+  line-height: 1.2;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .75);
+  translate: -50% 0;
+  white-space: nowrap;
+  pointer-events: none;
+}
 .monster-hp { width: 66px; height: 5px; margin: auto; overflow: hidden; background: #260b0b; }
 .monster-hp i { display: block; width: 100%; height: 100%; background: #e44f44; transition: width .25s ease; }
 .field-monster.is-moving pre { animation: monster-walk .32s ease-in-out infinite alternate; }
@@ -1645,6 +1664,41 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .field-monster.is-field-boss .monster-name { color: #ffe1a9; }
 .field-monster.is-field-boss .monster-hp { width: 86px; height: 7px; background: #2d0707; }
 .field-monster.is-field-boss .monster-hp i { background: linear-gradient(90deg, #ff4e42, #ffb347); }
+.field-monster.is-boss-casting .monster-cast-label { display: block; animation: boss-cast-label .38s ease-out both; }
+.field-monster.is-boss-casting::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 11px;
+  width: 76px;
+  height: 28px;
+  border: 2px solid rgba(255, 231, 127, .8);
+  border-radius: 50%;
+  box-shadow: 0 0 16px rgba(255, 231, 127, .7);
+  translate: -50% 0;
+  pointer-events: none;
+  animation: boss-cast-ring .9s ease-out infinite;
+}
+.field-monster.is-casting-global-silence::after {
+  border-color: rgba(191, 138, 255, .9);
+  box-shadow: 0 0 18px rgba(191, 138, 255, .75);
+}
+.field-monster.is-casting-close-blast::after {
+  border-color: rgba(255, 112, 91, .9);
+  box-shadow: 0 0 18px rgba(255, 112, 91, .75);
+}
+.field-monster.is-casting-dispel::after {
+  border-color: rgba(95, 218, 255, .9);
+  box-shadow: 0 0 18px rgba(95, 218, 255, .72);
+}
+.field-monster.is-casting-hwang-ranged::after {
+  border-color: rgba(255, 205, 84, .9);
+  box-shadow: 0 0 18px rgba(255, 205, 84, .72);
+}
+.field-monster.is-casting-hwang-silence::after {
+  border-color: rgba(198, 218, 226, .9);
+  box-shadow: 0 0 18px rgba(198, 218, 226, .7);
+}
 .field-monster.is-falling { animation: monster-fall .55s ease-in; }
 .field-monster.is-hit { animation: monster-hit .45s linear; }
 .field-monster.is-spawning { animation: monster-spawn-in .8s ease-out both; }
@@ -2216,6 +2270,14 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 @keyframes monster-hit { 0%,100% { transform: translateX(0); } 25% { transform: translateX(8px); color: #fff; } 50% { transform: translateX(-6px); } }
 @keyframes monster-walk { from { translate: 0 0; } to { translate: 0 -3px; } }
 @keyframes monster-fall { from { opacity: .75; translate: -50% -20px; } to { opacity: 1; translate: -50% 0; } }
+@keyframes boss-cast-label {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes boss-cast-ring {
+  from { opacity: .95; scale: .76; }
+  to { opacity: .15; scale: 1.42; }
+}
 @keyframes monster-spawn-in {
   0% { opacity: 0; filter: blur(5px); scale: .82; }
   65% { opacity: .72; filter: blur(1px); }

@@ -9,15 +9,18 @@ const {
   findNearestSafeMap
 } = require('../../src/v2/world/mapDefinitions');
 
-test('world contains forty visible company maps and one hidden field-boss map', () => {
+test('world contains forty visible company maps and two hidden field-boss maps', () => {
   const visibleMaps = WORLD_MAPS.filter((map) => !map.hidden);
   const hiddenMaps = WORLD_MAPS.filter((map) => map.hidden);
-  assert.equal(WORLD_MAPS.length, 41);
+  assert.equal(WORLD_MAPS.length, 42);
   assert.equal(visibleMaps.length, 40);
-  assert.equal(hiddenMaps.length, 1);
-  assert.equal(hiddenMaps[0].fieldBossId, 'mad_hwang_manager');
-  assert.equal(new Set(WORLD_MAPS.map((map) => map.id)).size, 41);
-  assert.equal(new Set(WORLD_MAPS.map((map) => map.name)).size, 41);
+  assert.equal(hiddenMaps.length, 2);
+  assert.deepEqual(hiddenMaps.map((map) => map.fieldBossId).sort(), [
+    'gammam_neo',
+    'mad_hwang_manager'
+  ]);
+  assert.equal(new Set(WORLD_MAPS.map((map) => map.id)).size, 42);
+  assert.equal(new Set(WORLD_MAPS.map((map) => map.name)).size, 42);
   assert.equal(getWorldMap(START_MAP_ID).name, '호이상사 중앙로비');
   assert.equal(getWorldMap(START_MAP_ID).safeZone, true);
   assert.ok(
@@ -25,6 +28,13 @@ test('world contains forty visible company maps and one hidden field-boss map', 
       (connection) => connection.targetId === 'hidden_hwang_overtime'
     )
   );
+  assert.ok(
+    getWorldMap('sales_fox_den').connections.some(
+      (connection) => connection.targetId === 'hidden_hwang_sales'
+    )
+  );
+  assert.equal(getWorldMap('hidden_hwang_overtime').fieldBossId, 'gammam_neo');
+  assert.equal(getWorldMap('hidden_hwang_sales').fieldBossId, 'mad_hwang_manager');
 });
 
 test('the nearest safe zone can be found through the map graph', () => {

@@ -271,6 +271,21 @@ test('shop purchases and sales update money and inventory atomically', () => {
   assert.equal(sale.inventory.categories.consumable.items[0].quantity, 1);
 });
 
+test('arrows can be sold to a shop for zero money', () => {
+  const character = characterFixture();
+  addInventoryItem(character, 'basic_arrow', 120);
+  const stack = buildInventoryView(character).categories.consumable.items.find(
+    (item) => item.id === 'basic_arrow'
+  );
+  const sale = sellInventoryStack(character, stack.stackId, 40);
+  assert.equal(sale.totalPrice, 0);
+  assert.equal(sale.money, 1_000);
+  assert.equal(
+    sale.inventory.categories.consumable.items.find((item) => item.id === 'basic_arrow').quantity,
+    80
+  );
+});
+
 test('regional shops vary prices within five percent and sell ammunition bundles', () => {
   const personnel = characterFixture();
   personnel.economy.money = 10_000;
