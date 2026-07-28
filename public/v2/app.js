@@ -150,7 +150,7 @@ const state = {
   enhancementSlot: '',
   enhancementScrollStackId: '',
   eventState: null,
-  marketplace: { listings: [], mine: [], rules: {}, search: '' },
+  marketplace: { listings: [], mine: [], rules: {}, search: '', archetype: 'all' },
   pendingPatchNotes: null,
   patchNotesHistory: [],
   patchNotesShownKeys: new Set(),
@@ -1591,8 +1591,18 @@ function playSkillChargeEffect(skill = {}, durationMs = 1500) {
   charge.style.top = `${casterRect.top - stageRect.top + casterRect.height * .46}px`;
   charge.style.setProperty('--piercing-charge-duration', `${Math.max(1, durationMs)}ms`);
   stage.appendChild(charge);
+  const gauge = document.createElement('span');
+  gauge.className = 'piercing-charge-gauge';
+  gauge.setAttribute('aria-hidden', 'true');
+  gauge.style.left = `${casterRect.left - stageRect.left + casterRect.width / 2}px`;
+  gauge.style.top = `${Math.max(8, casterRect.top - stageRect.top - 14)}px`;
+  gauge.style.setProperty('--piercing-charge-duration', `${Math.max(1, durationMs)}ms`);
+  gauge.innerHTML = '<i></i>';
+  stage.appendChild(gauge);
   charge.addEventListener('animationend', () => charge.remove(), { once: true });
+  gauge.addEventListener('animationend', () => gauge.remove(), { once: true });
   setTimeout(() => charge.remove(), Math.max(1, durationMs) + 250);
+  setTimeout(() => gauge.remove(), Math.max(1, durationMs) + 250);
 }
 
 function playProgressivePiercingVisual(skill = {}, combat = {}, { onImpact = null } = {}) {
@@ -2270,6 +2280,7 @@ async function playWorldMotion(motion, kind, runId, activityLabel = '') {
     projectile.style.bottom = 'auto';
     projectile.style.setProperty('--projectile-x', `${targetX - startX}px`);
     projectile.style.setProperty('--projectile-y', `${targetY - startY}px`);
+    projectile.style.setProperty('--projectile-duration', `${getWeaponMotionImpactDelay(motion)}ms`);
     projectile.className = `attack-projectile is-${motion}`;
   }
   if (motion === 'hit') character.classList.add('damage-flash');
@@ -2599,6 +2610,22 @@ function getAttackSpeedMultiplier() {
   return (1 + (stage - 1) * 0.2) * weaponMultiplier;
 }
 
+function getWeaponMotionImpactDelay(motion = '') {
+  const baseDelay = {
+    slash: 210,
+    'one-hand-swing': 220,
+    'two-hand-swing': 250,
+    'axe-swing': 260,
+    'blunt-swing': 265,
+    'spear-thrust': 220,
+    'polearm-thrust': 235,
+    shoot: 270,
+    throw: 260,
+    'staff-swing': 260
+  }[motion] || 230;
+  return Math.max(90, Math.round(baseDelay / getAttackSpeedMultiplier()));
+}
+
 async function runAutoCombat(runId) {
   while (isRunActive('combat', runId) && state.token && !state.isAdmin && !state.dead) {
     if (state.manualSkillPriority) {
@@ -2643,8 +2670,12 @@ async function runAutoCombat(runId) {
       continue;
     }
     const motion = getCombatPresentation().motion;
-    await playWorldMotion(motion, 'combat', runId);
-    if (!isRunActive('combat', runId)) return;
+    const motionPromise = playWorldMotion(motion, 'combat', runId);
+    await sleep(getWeaponMotionImpactDelay(motion));
+    if (!isRunActive('combat', runId)) {
+      await motionPromise;
+      return;
+    }
     try {
       const result = await request('/api/v2/world/attack', {
         method: 'POST',
@@ -2683,6 +2714,7 @@ async function runAutoCombat(runId) {
     } catch (err) {
       if (!String(err.message).includes('사거리')) console.error('V2 field attack error:', err);
     }
+    await motionPromise;
     state.combatAttackCount += 1;
     await sleep(Math.max(180, Math.round(900 / getAttackSpeedMultiplier())));
   }
@@ -3551,6 +3583,13 @@ const ITEM_ARCHETYPE_LABELS = Object.freeze({
   thief: '도적 계열',
   mage: '마법사 계열'
 });
+const MARKETPLACE_ARCHETYPE_TABS = Object.freeze([
+  { key: 'all', label: '전체' },
+  { key: 'warrior', label: '전사' },
+  { key: 'archer', label: '궁수' },
+  { key: 'thief', label: '도적' },
+  { key: 'mage', label: '마법사' }
+]);
 const ITEM_SLOT_LABELS = Object.freeze({
   weapon: '무기',
   shield: '방패',
@@ -4528,7 +4567,8 @@ const EQUIPMENT_TABS = Object.freeze({
 });
 
 const EQUIPMENT_SLOT_ALIASES = Object.freeze({
-  cape: ['cape', 'cloak', 'mantle']
+  cape: ['cape', 'cloak', 'mantle'],
+  earrings: ['earrings', 'earring']
 });
 
 function getEquippedItem(loadout = {}, slotKey = '') {
@@ -5007,9 +5047,12 @@ function bindEventControls() {
 
 async function refreshMarketplace(openAfter = false) {
   try {
-    const query = state.marketplace.search
-      ? `?search=${encodeURIComponent(state.marketplace.search)}`
-      : '';
+    const params = new URLSearchParams();
+    if (state.marketplace.search) params.set('search', state.marketplace.search);
+    if (state.marketplace.archetype && state.marketplace.archetype !== 'all') {
+      params.set('archetype', state.marketplace.archetype);
+    }
+    const query = params.toString() ? `?${params.toString()}` : '';
     const data = await request(`/api/v2/marketplace${query}`);
     state.marketplace = {
       ...state.marketplace,
@@ -5064,11 +5107,41 @@ function marketplaceEquipmentSpecHtml(listing) {
   </div>`;
 }
 
+function getMarketplaceListingArchetypes(listing = {}) {
+  const allowed = listing.equipmentSpec?.requirements?.allowedArchetypes || [];
+  return Array.isArray(allowed)
+    ? allowed.map((archetype) => String(archetype)).filter(Boolean)
+    : [];
+}
+
+function marketplaceListingMatchesArchetype(listing, archetype) {
+  const selected = String(archetype || 'all');
+  if (selected === 'all') return true;
+  if (!listing.equipmentSpec) return false;
+  const allowed = getMarketplaceListingArchetypes(listing);
+  return !allowed.length || allowed.includes(selected);
+}
+
 function marketplaceBody() {
   const market = state.marketplace;
   const registerable = (state.inventory.items || []).filter(
     (item) => ['equipment', 'consumable', 'misc'].includes(item.category) && item.tradeable !== false
   );
+  const activeArchetype = MARKETPLACE_ARCHETYPE_TABS.some((tab) => tab.key === market.archetype)
+    ? market.archetype
+    : 'all';
+  const visibleListings = (market.listings || []).filter((listing) => (
+    marketplaceListingMatchesArchetype(listing, activeArchetype)
+  ));
+  const listingHours = Math.max(1, Number(market.rules?.listingHours) || 60);
+  const archetypeTabs = MARKETPLACE_ARCHETYPE_TABS.map((tab) => `
+    <button
+      type="button"
+      class="${tab.key === activeArchetype ? 'is-active' : ''}"
+      aria-pressed="${tab.key === activeArchetype ? 'true' : 'false'}"
+      data-market-archetype-tab="${escapeHtml(tab.key)}"
+    >${escapeHtml(tab.label)}</button>
+  `).join('');
   const statusLabel = {
     active: '판매 중',
     sold: '판매 완료 · 정산 대기',
@@ -5077,7 +5150,7 @@ function marketplaceBody() {
   };
   return `<div class="marketplace-sheet">
     <header class="marketplace-toolbar">
-      <div><h3>사내 거래소</h3><p>등록 수수료 1% · 판매 정산 수수료 3% · 등록 후 48시간 유지</p></div>
+      <div><h3>사내 거래소</h3><p>등록 수수료 1% · 판매 정산 수수료 3% · 등록 후 ${formatNumber(listingHours)}시간 유지</p></div>
       <button type="button" data-market-settle>판매 정산 / 만료 회수</button>
     </header>
     <section class="market-register">
@@ -5095,15 +5168,18 @@ function marketplaceBody() {
       <button type="button" data-market-search-submit>검색</button>
       <button type="button" data-market-search-reset>초기화</button>
     </section>
+    <section class="market-archetype-tabs" aria-label="직업별 모아보기">
+      ${archetypeTabs}
+    </section>
     <section>
       <h3>최근 등록 물품</h3>
       <div class="market-list">
-        ${market.listings.length ? market.listings.map((listing) => `<article>
+        ${visibleListings.length ? visibleListings.map((listing) => `<article>
           <span class="market-icon">${escapeHtml(listing.itemIcon)}</span>
           <div><strong>${escapeHtml(marketplaceListingName(listing))}</strong><small>${formatNumber(listing.quantity)}개 · ${new Date(listing.createdAt).toLocaleString('ko-KR')} 등록</small>${marketplaceEquipmentSpecHtml(listing)}</div>
           <b>${formatNumber(listing.totalPrice)}원</b>
           <button type="button" data-market-buy="${escapeHtml(listing.id)}">구매</button>
-        </article>`).join('') : '<p class="notice-line">검색 조건에 맞는 판매 물품이 없습니다.</p>'}
+        </article>`).join('') : '<p class="notice-line">선택한 조건에 맞는 판매 물품이 없습니다.</p>'}
       </div>
     </section>
     <section>
@@ -5193,6 +5269,15 @@ async function settleMarketplace() {
 
 function bindMarketplaceControls() {
   document.querySelector('[data-market-register]')?.addEventListener('click', registerMarketplaceItem);
+  document.querySelectorAll('[data-market-archetype-tab]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const nextArchetype = button.dataset.marketArchetypeTab || 'all';
+      state.marketplace.archetype = MARKETPLACE_ARCHETYPE_TABS.some((tab) => tab.key === nextArchetype)
+        ? nextArchetype
+        : 'all';
+      refreshMarketplace();
+    });
+  });
   document.querySelectorAll('[data-market-buy]').forEach((button) => {
     button.addEventListener('click', () => buyMarketplaceItem(button.dataset.marketBuy));
   });

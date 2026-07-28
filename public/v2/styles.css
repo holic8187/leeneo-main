@@ -1801,7 +1801,9 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   background: #fff09b;
   box-shadow: 0 0 12px #fff09b;
 }
-.attack-projectile.is-shoot { animation: projectile-shot .65s linear; }
+.attack-projectile.is-shoot {
+  animation: projectile-shot var(--projectile-duration, .36s) linear;
+}
 .attack-projectile.is-channel-shot {
   animation: projectile-channel var(--channel-projectile-duration, .2s) linear forwards;
 }
@@ -1944,12 +1946,35 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   animation-name: skill-teleport-ring;
 }
 .piercing-charge-effect,
+.piercing-charge-gauge,
 .piercing-beam-effect,
 .piercing-projectile-effect,
 .piercing-impact-effect {
   position: absolute;
   z-index: 23;
   pointer-events: none;
+}
+.piercing-charge-gauge {
+  width: 68px;
+  height: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 250, 187, .95);
+  border-radius: 999px;
+  background: rgba(7, 19, 23, .76);
+  box-shadow: 0 0 10px rgba(113, 255, 227, .55), inset 0 0 8px rgba(255, 255, 255, .16);
+  transform: translate(-50%, -50%);
+  animation: piercing-charge-gauge-out var(--piercing-charge-duration, 1500ms) linear forwards;
+}
+.piercing-charge-gauge i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #71ffe3, #fff4a5);
+  box-shadow: 0 0 12px rgba(255, 244, 165, .8);
+  transform: scaleX(0);
+  transform-origin: left center;
+  animation: piercing-charge-fill var(--piercing-charge-duration, 1500ms) linear forwards;
 }
 .piercing-charge-effect {
   width: 58px;
@@ -2058,6 +2083,15 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   62% { opacity: 1; scale: 1.05; rotate: 90deg; filter: brightness(1.35); }
   88% { opacity: 1; scale: 1.28; rotate: 180deg; filter: brightness(1.75); }
   100% { opacity: 0; scale: .74; rotate: 220deg; filter: brightness(2.2); }
+}
+@keyframes piercing-charge-fill {
+  to { transform: scaleX(1); }
+}
+@keyframes piercing-charge-gauge-out {
+  0% { opacity: 0; translate: 0 4px; }
+  10% { opacity: 1; translate: 0 0; }
+  88% { opacity: 1; }
+  100% { opacity: 0; translate: 0 -4px; }
 }
 @keyframes piercing-beam-sweep {
   0% { opacity: 0; scale: 0 1; }
@@ -2303,7 +2337,7 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   border: 2px solid #f7d776;
   border-radius: 2px;
   background: transparent;
-  animation: thrown-projectile .68s linear;
+  animation: thrown-projectile var(--projectile-duration, .36s) linear;
 }
 @keyframes throw-arm { 0% { transform: rotate(-90deg); } 45% { transform: rotate(55deg); } 100% { transform: rotate(-25deg); } }
 @keyframes one-hand-swing { 0% { transform: rotate(-110deg); } 55% { transform: rotate(75deg); } 100% { transform: rotate(-30deg); } }
@@ -2789,6 +2823,9 @@ body.floating-actions-minimized .mail-callout.has-alert {
 .market-register input { width: 130px; }
 .market-register select, .market-register input, .market-search input { min-height: 40px; padding: 8px 10px; border: 1px solid var(--line); background: #fff; }
 .market-search input { flex: 1; }
+.market-archetype-tabs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.market-archetype-tabs button { min-height: 34px; padding: 0 12px; border: 1px solid var(--line); background: #fff; color: var(--ink); }
+.market-archetype-tabs button.is-active { border-color: #5f8f72; background: #eaf3ec; color: #163b2a; font-weight: 700; }
 .market-list { display: grid; gap: 7px; }
 .market-list article { min-height: 62px; padding: 10px 12px; display: grid; grid-template-columns: 42px minmax(0, 1fr) 130px 70px; align-items: center; gap: 10px; border: 1px solid var(--line-soft); background: #fafaf6; }
 .market-list.is-mine article { grid-template-columns: 42px minmax(0, 1fr) 130px; }
@@ -2813,8 +2850,10 @@ body.floating-actions-minimized .mail-callout.has-alert {
   .enhancement-equipment-list, .enhancement-scroll-list { grid-template-columns: 1fr; }
   .event-shop-list article { grid-template-columns: minmax(0, 1fr) 78px; }
   .event-shop-list article button { grid-column: 1 / -1; }
-  .marketplace-toolbar, .market-register { align-items: stretch; flex-direction: column; }
+  .marketplace-toolbar, .market-register, .market-search { align-items: stretch; flex-direction: column; }
   .market-register select, .market-register input { width: 100%; min-width: 0; }
+  .market-search input { width: 100%; }
+  .market-archetype-tabs button { flex: 1 1 92px; }
   .market-list article, .market-list.is-mine article { grid-template-columns: 36px minmax(0, 1fr); }
   .market-list article > b, .market-list article > button { grid-column: 2; justify-self: start; }
 }

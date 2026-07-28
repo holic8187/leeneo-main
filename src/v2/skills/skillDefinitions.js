@@ -30,6 +30,12 @@ const WAKE_UP_SKILL_ID = 'extended_b067160f36';
 const WORK_REDUCTION_SKILL_ID = 'extended_245ea8ab5c';
 const GENESIS_SKILL_ID = 'extended_aef3d1db17';
 const ACCUMULATED_PIERCING_SKILL_ID = 'extended_cd94045605';
+const STORM_CHANNEL_SKILL_ID = 'extended_fc89f3cfc2';
+const INFINITE_MP_SKILL_IDS = new Set([
+  'extended_0dcef657e3',
+  'extended_69705b66e7',
+  'extended_4d105c3f1f'
+]);
 
 function defineSkill(id, options) {
   return Object.freeze({
@@ -89,6 +95,16 @@ const SKILL_DEFINITIONS = Object.freeze({
         }
       }];
     }
+    if (INFINITE_MP_SKILL_IDS.has(id)) {
+      return [id, {
+        ...definition,
+        effect: 'buff',
+        values: {
+          ...(definition.values || {}),
+          noMpCost: 1
+        }
+      }];
+    }
     if (id === WAKE_UP_SKILL_ID) {
       return [id, {
         ...definition,
@@ -137,6 +153,15 @@ const SKILL_DEFINITIONS = Object.freeze({
           preCastDelaySeconds: 1.5,
           range: 650,
           targetCount: 6
+        }
+      }];
+    }
+    if (id === STORM_CHANNEL_SKILL_ID) {
+      return [id, {
+        ...definition,
+        values: {
+          ...(definition.values || {}),
+          damagePercent: [66, 110]
         }
       }];
     }
@@ -397,7 +422,7 @@ const SKILL_DEFINITIONS = Object.freeze({
   element_holy: defineSkill('element_holy', {
     name: '속성 부여: 성', tier: 4, maxLevel: 20, departments: ['field_operations'],
     quest: true, effect: 'element-buff', element: 'holy',
-    values: { mpCost: 30, durationSeconds: 300, damageIncreasePercent: 50 }
+    values: { mpCost: [100, 30], durationSeconds: [30, 300], damageIncreasePercent: [10, 55] }
   }),
   wall_break: defineSkill('wall_break', {
     name: '벽부수기', tier: 4, maxLevel: 30, departments: ['field_operations'],

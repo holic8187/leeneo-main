@@ -24,7 +24,8 @@ const QUICK_SLOT_RESOURCES = Object.freeze({
 
 const EQUIPMENT_SLOT_ALIASES = Object.freeze({
   cloak: 'cape',
-  mantle: 'cape'
+  mantle: 'cape',
+  earring: 'earrings'
 });
 
 function normalizeEquipmentSlot(slot = 'weapon') {

@@ -33,6 +33,30 @@ test('weapon equip validation checks both level and mapped V2 stats', () => {
   }, item), true);
 });
 
+test('equipment stat bonuses count toward secondary equip requirements', () => {
+  const crossbow = { weaponType: 'crossbow', requiredLevel: 60 };
+  const archerWithEarrings = {
+    progression: { level: 60 },
+    job: { departmentId: 'accounting' },
+    stats: { grit: 55 },
+    loadout: {
+      weapon: { stats: { grit: 99 } },
+      earrings: { stats: { grit: 5 } }
+    }
+  };
+  const archerWithoutOtherEquipment = {
+    progression: { level: 60 },
+    job: { departmentId: 'accounting' },
+    stats: { grit: 55 },
+    loadout: {
+      weapon: { stats: { grit: 99 } }
+    }
+  };
+
+  assert.equal(canEquipWeapon(archerWithEarrings, crossbow), true);
+  assert.equal(canEquipWeapon(archerWithoutOtherEquipment, crossbow), false);
+});
+
 test('weapon equip validation rejects weapons outside the character job archetype', () => {
   const sword = { weaponType: 'oneHandedSword', requiredLevel: 1 };
   const bow = { weaponType: 'bow', requiredLevel: 1 };
@@ -95,4 +119,8 @@ test('earrings and capes are common equipment even when old data contains job re
     }
   };
   assert.equal(getEquipmentEquipFailureReason(character, legacyEarrings), '');
+  assert.equal(
+    getEquipmentEquipFailureReason(character, { ...legacyEarrings, equipmentSlot: 'earring' }),
+    ''
+  );
 });

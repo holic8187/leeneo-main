@@ -10,7 +10,14 @@ const {
   buildCharacterResponse,
   ensureV2SkillPointGrant
 } = require('../../src/v2/services/migrationService');
-const { registerV2Routes, validateSignupPayload } = require('../../src/v2/registerV2Routes');
+const {
+  registerV2Routes,
+  validateSignupPayload,
+  MARKETPLACE_LISTING_HOURS,
+  getMarketplaceListingExpiresAt,
+  getMarketplaceArchetypeItemIds
+} = require('../../src/v2/registerV2Routes');
+const { getItemDefinition } = require('../../src/v2/items/itemCatalog');
 const {
   getIncompleteMigrationIds,
   getOrphanedDeletedIds
@@ -177,6 +184,25 @@ test('V2 signup fields require matching passwords and a signup code', () => {
     signupCode: 'HOI2026',
     nickname: '신입사원'
   }).valid, false);
+});
+
+test('V2 marketplace listings stay active for sixty hours', () => {
+  const baseTime = Date.UTC(2026, 6, 28, 0, 0, 0);
+  assert.equal(MARKETPLACE_LISTING_HOURS, 60);
+  assert.equal(getMarketplaceListingExpiresAt(baseTime).getTime() - baseTime, 60 * 60 * 60 * 1000);
+});
+
+test('V2 marketplace archetype filters resolve to compatible equipment only', () => {
+  const archerItemIds = getMarketplaceArchetypeItemIds('archer');
+  assert.ok(archerItemIds.length > 0);
+  assert.equal(getMarketplaceArchetypeItemIds('all'), null);
+  assert.equal(getMarketplaceArchetypeItemIds('unknown'), null);
+  assert.ok(archerItemIds.every((itemId) => {
+    const item = getItemDefinition(itemId);
+    const allowed = item.requirements?.allowedArchetypes || [];
+    return item.category === 'equipment'
+      && (!Array.isArray(allowed) || !allowed.length || allowed.includes('archer'));
+  }));
 });
 
 test('V2 router exposes the current migration, world, inventory, and shop endpoints', () => {

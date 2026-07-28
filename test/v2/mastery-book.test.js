@@ -89,13 +89,23 @@ test('one common original-skill book unlocks the matching renamed department ski
   );
 });
 
-test('level 110+ monsters split normal books at 0.002 percent and exclude boss-only stages', () => {
+test('level 110+ monsters split normal books at 0.0015 percent and exclude boss-only stages', () => {
   const eligibleMonsters = MONSTER_CATALOG.filter((monster) => monster.level >= 110);
   assert.ok(eligibleMonsters.length > 0);
   const drops = eligibleMonsters.flatMap((monster) => monster.dropTable.masteryBooks || []);
   assert.ok(drops.length > 0);
-  assert.ok(drops.every((drop) => drop.chance === 0.00002));
+  assert.ok(drops.every((drop) => drop.chance === 0.000015));
   const droppedIds = new Set(drops.map((drop) => drop.itemId));
+  const piercing20 = MASTERY_BOOK_ITEMS.find((item) => (
+    item.masteryOriginalSkillId === 'piercing' && item.masteryStage === 20
+  ));
+  const piercing30 = MASTERY_BOOK_ITEMS.find((item) => (
+    item.masteryOriginalSkillId === 'piercing' && item.masteryStage === 30
+  ));
+  assert.equal(piercing20, undefined);
+  assert.ok(piercing30);
+  assert.equal(piercing30.bossOnly, false);
+  assert.ok(droppedIds.has(piercing30.id));
   assert.ok(MASTERY_BOOK_ITEMS
     .filter((item) => item.dropEligible && !item.bossOnly)
     .every((item) => droppedIds.has(item.id)));

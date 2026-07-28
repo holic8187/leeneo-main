@@ -55,7 +55,7 @@ function getMasteryBookDropsForMonster(monsterId, level) {
       name: item.name,
       icon: item.icon,
       quantity: 1,
-      chance: 0.00002
+      chance: 0.000015
     }));
 }
 

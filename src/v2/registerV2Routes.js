@@ -63,7 +63,7 @@ const {
   applyReferenceResources,
   applyLevelGrowth
 } = require('./progression/resourceGrowth');
-const { getItemDefinition, listAdminGrantItems } = require('./items/itemCatalog');
+const { getItemDefinition, listAdminGrantItems, listItemDefinitions } = require('./items/itemCatalog');
 const { rollEquipmentInstanceData } = require('./items/equipmentCatalog');
 const {
   addInventoryItem,
@@ -206,6 +206,8 @@ const { calculateMagicDamageRange } = require('./combat/combatFormulas');
 const STEALTH_SKILL_ID = 'extended_47fcdc0ba0';
 const SHOUT_PASS_BUFF_ID = 'shout_unlimited_pass_7d';
 const SHOUT_COOLDOWN_MS = 3 * 60 * 1000;
+const MARKETPLACE_LISTING_HOURS = 60;
+const MARKETPLACE_ARCHETYPE_FILTERS = Object.freeze(['warrior', 'archer', 'thief', 'mage']);
 const MONSTER_QUEST_LOOKUP = new Map(
   MONSTER_CATALOG.map((monster) => [String(monster.id), monster])
 );
@@ -569,6 +571,24 @@ function serializeMarketplaceListing(listing = {}) {
     expiresAt: listing.expiresAt || null,
     soldAt: listing.soldAt || null
   };
+}
+
+function getMarketplaceListingExpiresAt(baseTime = Date.now()) {
+  const timestamp = Number(baseTime);
+  const safeBaseTime = Number.isFinite(timestamp) ? timestamp : Date.now();
+  return new Date(safeBaseTime + MARKETPLACE_LISTING_HOURS * 60 * 60 * 1000);
+}
+
+function getMarketplaceArchetypeItemIds(archetype) {
+  const selected = String(archetype || '').trim();
+  if (!MARKETPLACE_ARCHETYPE_FILTERS.includes(selected)) return null;
+  return listItemDefinitions()
+    .filter((item) => item.category === 'equipment')
+    .filter((item) => {
+      const allowed = item.requirements?.allowedArchetypes || [];
+      return !Array.isArray(allowed) || !allowed.length || allowed.map(String).includes(selected);
+    })
+    .map((item) => item.id);
 }
 
 function calculateWelfareSupportDamage({
@@ -1669,6 +1689,28 @@ function registerV2Routes({
     'progressive-piercing-damage'
   ]);
 
+  function hasNoMpCostEffect(effects = {}) {
+    return Number(effects.noMpCost) > 0;
+  }
+
+  function getEffectiveSkillCurrentMp(character, currentMp, effects = {}, resources = {}) {
+    if (!hasNoMpCostEffect(effects)) return currentMp;
+    return Math.max(
+      currentMp,
+      Number(resources.maxMp) || 0,
+      Number(character.resources?.maxMp) || 0
+    );
+  }
+
+  function applySkillResourceCosts(character, hpCost, mpCost, effects = {}) {
+    const currentHp = Math.max(0, Number(character.resources?.currentHp) || 0);
+    const currentMp = Math.max(0, Number(character.resources?.currentMp) || 0);
+    character.resources.currentHp = Math.max(0, currentHp - hpCost);
+    character.resources.currentMp = hasNoMpCostEffect(effects)
+      ? currentMp
+      : Math.max(0, currentMp - mpCost);
+  }
+
   function hasActiveOfflineSkillEffect(skillState, skillId, definition, now) {
     const refreshBeforeMs = 3_000;
     if (['element_fire', 'element_ice'].includes(skillId)) {
@@ -1766,7 +1808,13 @@ function registerV2Routes({
         now
       );
       const mpCost = augmentedMpCost.cost;
-      if (currentHp <= hpCost || currentMp < mpCost) continue;
+      const effectiveCurrentMp = getEffectiveSkillCurrentMp(
+        character,
+        currentMp,
+        preUseEffects,
+        profile.resources
+      );
+      if (currentHp <= hpCost || effectiveCurrentMp < mpCost) continue;
       skillState.offlineAutoRotationCursor = (presetIndex + 1) % activePreset.length;
       return {
         skillId, definition, level, values, castProfile,
@@ -1925,12 +1973,11 @@ function registerV2Routes({
         };
       }
       clearStealthBuff(skillState);
-      character.resources.currentHp = Math.max(0, Number(character.resources.currentHp) - hpCost);
-      character.resources.currentMp = Math.max(0, Number(character.resources.currentMp) - mpCost);
+      applySkillResourceCosts(character, hpCost, mpCost, preUseEffects);
       if (ammunition && !preUseEffects.noAmmoConsumption) {
         consumeInventoryItem(character, ammunition.itemId, ammunitionCount);
       }
-      if (Number(combat.mpAbsorbed) > 0) {
+      if (Number(combat.mpAbsorbed) > 0 && !hasNoMpCostEffect(preUseEffects)) {
         restoreCharacterMp(character, combat.mpAbsorbed);
       }
       if (definition.effect === 'consume-combo-damage') skillState.comboCount = 0;
@@ -1978,8 +2025,7 @@ function registerV2Routes({
         );
       }
     } else if (definition.effect === 'heal') {
-      character.resources.currentHp = Math.max(0, Number(character.resources.currentHp) - hpCost);
-      character.resources.currentMp = Math.max(0, Number(character.resources.currentMp) - mpCost);
+      applySkillResourceCosts(character, hpCost, mpCost, preUseEffects);
       const healingAmount = Math.max(
         1,
         Math.floor(
@@ -2058,11 +2104,9 @@ function registerV2Routes({
         now
       });
       if (!combat.success) return null;
-      character.resources.currentHp = Math.max(0, Number(character.resources.currentHp) - hpCost);
-      character.resources.currentMp = Math.max(0, Number(character.resources.currentMp) - mpCost);
+      applySkillResourceCosts(character, hpCost, mpCost, preUseEffects);
     } else if (definition.effect === 'cleanse-self') {
-      character.resources.currentHp = Math.max(0, Number(character.resources.currentHp) - hpCost);
-      character.resources.currentMp = Math.max(0, Number(character.resources.currentMp) - mpCost);
+      applySkillResourceCosts(character, hpCost, mpCost, preUseEffects);
       const cleansed = clearPlayerNegativeStatus(String(character.userId), mapId);
       combat = { success: true, cleansed };
     } else if (definition.effect === 'debuff-self-buff') {
@@ -2083,8 +2127,7 @@ function registerV2Routes({
         now
       });
       if (!combat.success) return null;
-      character.resources.currentHp = Math.max(0, Number(character.resources.currentHp) - hpCost);
-      character.resources.currentMp = Math.max(0, Number(character.resources.currentMp) - mpCost);
+      applySkillResourceCosts(character, hpCost, mpCost, preUseEffects);
       const activeBuff = upsertActiveBuff(character, {
         skillId,
         name: definition.name,
@@ -2103,16 +2146,15 @@ function registerV2Routes({
       });
       combat = { ...combat, appliedBuff: activeBuff };
     } else if (definition.effect === 'summon') {
-      character.resources.currentHp = Math.max(0, Number(character.resources.currentHp) - hpCost);
-      character.resources.currentMp = Math.max(0, Number(character.resources.currentMp) - mpCost);
+      applySkillResourceCosts(character, hpCost, mpCost, preUseEffects);
       const summon = storeSummonState(
         skillState,
         buildSummonState(definition, values, now)
       );
       combat = { success: true, summon };
     } else {
-      character.resources.currentHp = Math.max(0, Number(character.resources.currentHp) - hpCost);
-      character.resources.currentMp = Math.max(0, Number(character.resources.currentMp) - mpCost);
+      const storedCurrentMpBeforeBuff = Math.max(0, Number(character.resources?.currentMp) || 0);
+      applySkillResourceCosts(character, hpCost, mpCost, preUseEffects);
       if (definition.effect === 'combo-buff') skillState.comboCount = 0;
       const effects = buildActiveBuffEffects(values);
       if (definition.effect === 'element-buff') {
@@ -2146,6 +2188,9 @@ function registerV2Routes({
         name: definition.name,
         element: definition.effect === 'element-buff' ? definition.element : '',
         effects,
+        metadata: Number(effects.noMpCost) > 0
+          ? { storedCurrentMp: storedCurrentMpBeforeBuff }
+          : undefined,
         createdAt: new Date(now),
         durationSeconds: resolveAugmentedBuffDuration(
           character,
@@ -2440,7 +2485,7 @@ function registerV2Routes({
         skillUses: 1,
         drops: combat.drops || []
       }, now);
-      updatePlayerResources(userId, character.resources);
+      updatePlayerResources(userId, buildCharacterResponse(character).resources);
       return { acted: true, usedSkill: true };
     }
 
@@ -2517,7 +2562,7 @@ function registerV2Routes({
       kills: result.defeated ? 1 : 0,
       drops: result.drops || []
     }, now);
-    updatePlayerResources(userId, character.resources);
+    updatePlayerResources(userId, buildCharacterResponse(character).resources);
     return { acted: true };
   }
 
@@ -3231,6 +3276,7 @@ function registerV2Routes({
           throw new Error('침묵 상태에서는 공격 스킬을 사용할 수 없습니다.');
         }
         const preUseEffects = getActiveSkillEffects(character);
+        const preUseResourceCaps = buildCharacterResponse(character).resources;
         const preUseArchetype = DEPARTMENTS[character.job?.departmentId]?.archetype || 'beginner';
         if (values.minimumHpPercent && currentHp / maxHp * 100 < values.minimumHpPercent) {
           throw new Error(`체력이 ${values.minimumHpPercent}% 이상일 때만 사용할 수 있습니다.`);
@@ -3259,10 +3305,15 @@ function registerV2Routes({
           now
         );
         const mpCost = augmentedMpCost.cost;
+        const effectiveCurrentMp = getEffectiveSkillCurrentMp(
+          character,
+          currentMp,
+          preUseEffects,
+          preUseResourceCaps
+        );
         if (currentHp <= hpCost) throw new Error('체력이 부족합니다.');
-        if (currentMp < mpCost) throw new Error('정신력이 부족합니다.');
-        character.resources.currentHp = currentHp - hpCost;
-        character.resources.currentMp = currentMp - mpCost;
+        if (effectiveCurrentMp < mpCost) throw new Error('정신력이 부족합니다.');
+        applySkillResourceCosts(character, hpCost, mpCost, preUseEffects);
 
         let combat = null;
         let partyBuffToShare = null;
@@ -3479,7 +3530,7 @@ function registerV2Routes({
               );
             }
           }
-          if (Number(combat.mpAbsorbed) > 0) {
+          if (Number(combat.mpAbsorbed) > 0 && !hasNoMpCostEffect(activeEffects)) {
             character.resources.currentMp = Math.min(
               Math.max(0, Number(character.resources.maxMp) || 0),
               Math.max(0, Number(character.resources.currentMp) || 0)
@@ -3750,6 +3801,7 @@ function registerV2Routes({
         } else {
           if (definition.effect === 'combo-buff') skillState.comboCount = 0;
           const effects = buildActiveBuffEffects(values);
+          const storedCurrentMpBeforeBuff = currentMp;
           if (definition.effect === 'element-buff') {
             const conflicting = skillId === 'element_fire'
               ? new Set(['element_fire', 'element_ice'])
@@ -3789,6 +3841,9 @@ function registerV2Routes({
             name: definition.name,
             element: definition.effect === 'element-buff' ? definition.element : '',
             effects,
+            metadata: Number(effects.noMpCost) > 0
+              ? { storedCurrentMp: storedCurrentMpBeforeBuff }
+              : undefined,
             createdAt: new Date(now),
             durationSeconds: resolveAugmentedBuffDuration(
               character,
@@ -3856,7 +3911,8 @@ function registerV2Routes({
           };
         }
         worldProfileCache.delete(String(auth.id));
-        updatePlayerResources(auth.id, character.resources);
+        const characterResponse = buildCharacterResponse(character);
+        updatePlayerResources(auth.id, characterResponse.resources);
         return {
           skill: {
             id: definition.id,
@@ -3869,7 +3925,7 @@ function registerV2Routes({
             values
           },
           combat,
-          character: buildCharacterResponse(character),
+          character: characterResponse,
           inventory: buildInventoryView(character),
           autoPotionUses,
           questProgressed,
@@ -4197,9 +4253,11 @@ function registerV2Routes({
       );
       const search = String(req.query?.search || '').trim().slice(0, 40);
       const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const archetypeItemIds = getMarketplaceArchetypeItemIds(req.query?.archetype);
       const listings = await V2MarketListing.find({
         status: 'active',
         expiresAt: { $gt: now },
+        ...(archetypeItemIds ? { itemId: { $in: archetypeItemIds } } : {}),
         ...(escapedSearch ? { itemName: { $regex: escapedSearch, $options: 'i' } } : {})
       })
         .sort({ createdAt: -1 })
@@ -4215,7 +4273,7 @@ function registerV2Routes({
         rules: {
           registrationFeePercent: 1,
           settlementFeePercent: 3,
-          listingHours: 48
+          listingHours: MARKETPLACE_LISTING_HOURS
         }
       });
     } catch (err) {
@@ -4268,7 +4326,7 @@ function registerV2Routes({
         registrationFee,
         sellerProceeds: Math.floor(totalPrice * 0.97),
         status: 'pending',
-        expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000)
+        expiresAt: getMarketplaceListingExpiresAt()
       });
       const result = await withCharacterMutation(auth.id, async () => {
         const current = await V2Character.findOne({ userId: auth.id });
@@ -5790,7 +5848,7 @@ function registerV2Routes({
           const skills = ensureSkillState(character);
           if (clearStealthBuff(skills)) character.markModified('skills');
         }
-        if (result.mpAbsorbed > 0) {
+        if (result.mpAbsorbed > 0 && !hasNoMpCostEffect(skillEffects)) {
           character.resources.currentMp = Math.min(
             Math.max(0, Number(character.resources.maxMp) || 0),
             Math.max(0, Number(character.resources.currentMp) || 0)
@@ -6219,5 +6277,8 @@ module.exports = {
   calculatePartyExperienceShares,
   calculateWelfareSupportDamage,
   calculateMoneyDropAmount,
-  serializeMarketplaceListing
+  serializeMarketplaceListing,
+  MARKETPLACE_LISTING_HOURS,
+  getMarketplaceListingExpiresAt,
+  getMarketplaceArchetypeItemIds
 };

@@ -34,7 +34,7 @@ const MASTERY_BOOK_SKILLS = Object.freeze([
 
   mastery('extended_2926a732db', ['accounting'], [20, 30], { originalSkillId: 'dragon_pulse', bookName: '파동 계열 공용' }),
   mastery('extended_2973270a08', ['marketing'], [20, 30], { originalSkillId: 'dragon_pulse', bookName: '파동 계열 공용' }),
-  mastery('extended_cd94045605', ['accounting'], [20, 30], { originalSkillId: 'piercing', bookName: '누적 관통결산' }),
+  mastery('extended_cd94045605', ['accounting'], [30], { originalSkillId: 'piercing', bookName: '누적 관통결산' }),
   mastery('extended_e9c47b999a', ['accounting']),
   mastery('extended_fc89f3cfc2', ['marketing']),
   mastery('extended_eb778160dd', ['sales'], [20, 30], { originalSkillId: 'triple_throw', bookName: '삼중 제안' }),
@@ -66,7 +66,6 @@ const MASTERY_BOOK_SKILLS = Object.freeze([
 
 const BOSS_ONLY_MASTERY_STAGES = Object.freeze({
   stance: Object.freeze([20]),
-  piercing: Object.freeze([30]),
   sharp_eyes: Object.freeze([20]),
   berserk: Object.freeze([30]),
   triple_throw: Object.freeze([20, 30]),

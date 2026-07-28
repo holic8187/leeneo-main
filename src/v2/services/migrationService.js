@@ -65,7 +65,8 @@ const EQUIPMENT_SLOT_KEYS = Object.freeze([
   'earrings'
 ]);
 const EQUIPMENT_SLOT_ALIASES = Object.freeze({
-  cape: Object.freeze(['cape', 'cloak', 'mantle'])
+  cape: Object.freeze(['cape', 'cloak', 'mantle']),
+  earrings: Object.freeze(['earrings', 'earring'])
 });
 
 const SNAPSHOT_FIELDS = Object.freeze([
@@ -758,6 +759,9 @@ function buildCharacterResponse(character) {
     )),
     maxMp: adjustedMaxMp
   };
+  if (Number(skillEffects.noMpCost) > 0) {
+    resources.currentMp = resources.maxMp;
+  }
   const dailyAugment = serializeDailyAugment(plain);
   dailyAugment.effects = { ...dailyAugmentEffects };
   const skillTree = buildSkillTree(plain);

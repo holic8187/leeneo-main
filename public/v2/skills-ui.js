@@ -878,29 +878,17 @@ async function useActiveSkill(skillId, options = {}) {
         `${skill.name} 연사 중`
       );
     } else if (preCastDelayMs > 0) {
-      const progressiveRequest = progressivePiercingSkill
-        ? requestSkillUse().then(
-          (response) => ({ response, error: null }),
-          (error) => ({ response: null, error })
-        )
-        : null;
       setWorldActivity(`${skill.name} 충전 중 · ${(preCastDelayMs / 1000).toFixed(1)}초`);
       setCharacterMotion('cast');
       if (typeof playSkillChargeEffect === 'function') {
         playSkillChargeEffect(skill, preCastDelayMs);
       }
       await sleep(preCastDelayMs);
-      if (!progressiveRequest && (manual ? state.dead : !isRunActive(motionKind, motionRunId))) {
+      if (manual ? state.dead : !isRunActive(motionKind, motionRunId)) {
         return false;
       }
       setCharacterMotion(offensive ? (getCombatPresentation().motion || 'slash') : 'buff');
-      if (progressiveRequest) {
-        const progressiveResult = await progressiveRequest;
-        if (progressiveResult.error) throw progressiveResult.error;
-        data = progressiveResult.response;
-      } else {
-        data = await requestSkillUse();
-      }
+      data = await requestSkillUse();
       setTimeout(() => {
         if (!state.dead && !state.moving) setCharacterMotion(null);
       }, 140);

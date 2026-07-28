@@ -22,7 +22,7 @@ const ACTIVE_BUFF_EFFECT_KEYS = Object.freeze([
   'lowHpDamageIncreasePercent', 'maxResourcePercent',
   'damageIncreasePercent', 'elementDamageIncreasePercent',
   'experienceBonusPercent', 'experienceMultiplierPercent', 'allStatsPercent',
-  'moneyDropIncreasePercent', 'noAmmoConsumption',
+  'moneyDropIncreasePercent', 'noAmmoConsumption', 'noMpCost',
   'movementSpeedIncrease', 'criticalChance', 'criticalDamagePercent',
   'attackRangeIncrease', 'dodgeChance', 'consumableEffectPercent',
   'magicMpCostIncreasePercent', 'stealth'
@@ -564,12 +564,41 @@ function describeSkill(definition, values) {
   return coefficients ? `${role} 현재 효과: ${coefficients}` : role;
 }
 
+function isBuffExpired(buff, now) {
+  if (!buff?.expiresAt) return false;
+  const expiresAt = new Date(buff.expiresAt).getTime();
+  return Number.isFinite(expiresAt) ? expiresAt <= now : true;
+}
+
+function restoreExpiredNoMpCostBuffs(character, expiredBuffs = []) {
+  if (!expiredBuffs.some((buff) => Number(buff.effects?.noMpCost) > 0)) return false;
+  let changed = false;
+  for (const buff of expiredBuffs) {
+    if (Number(buff.effects?.noMpCost) <= 0) continue;
+    const storedCurrentMp = Number(buff.metadata?.storedCurrentMp);
+    if (!Number.isFinite(storedCurrentMp)) continue;
+    if (!character.resources || typeof character.resources !== 'object') character.resources = {};
+    const maxMp = Math.max(0, Number(character.resources.maxMp) || 0);
+    const restoredCurrentMp = Math.max(
+      0,
+      maxMp ? Math.min(maxMp, storedCurrentMp) : storedCurrentMp
+    );
+    if (Number(character.resources.currentMp) === restoredCurrentMp) continue;
+    character.resources.currentMp = restoredCurrentMp;
+    changed = true;
+  }
+  if (changed && typeof character.markModified === 'function') {
+    character.markModified('resources');
+  }
+  return changed;
+}
+
 function pruneExpiredSkillState(character, now = Date.now()) {
   const skills = ensureSkillState(character);
   const before = skills.activeBuffs.length;
-  skills.activeBuffs = skills.activeBuffs.filter(
-    (buff) => !buff.expiresAt || new Date(buff.expiresAt).getTime() > now
-  );
+  const expiredBuffs = skills.activeBuffs.filter((buff) => isBuffExpired(buff, now));
+  const restoredResources = restoreExpiredNoMpCostBuffs(character, expiredBuffs);
+  skills.activeBuffs = skills.activeBuffs.filter((buff) => !isBuffExpired(buff, now));
   for (const summonKey of ['summon', 'decoySummon']) {
     if (
       skills[summonKey]?.expiresAt
@@ -581,7 +610,10 @@ function pruneExpiredSkillState(character, now = Date.now()) {
   for (const [skillId, expiresAt] of Object.entries(skills.cooldowns)) {
     if (Number(expiresAt) <= now) delete skills.cooldowns[skillId];
   }
-  if (before !== skills.activeBuffs.length && typeof character.markModified === 'function') {
+  if (
+    (before !== skills.activeBuffs.length || restoredResources)
+    && typeof character.markModified === 'function'
+  ) {
     character.markModified('skills');
   }
   return skills;
@@ -667,6 +699,7 @@ function getActiveSkillEffects(character, now = Date.now()) {
     allStatsPercent: 0,
     moneyDropIncreasePercent: 0,
     noAmmoConsumption: 0,
+    noMpCost: 0,
     movementSpeedIncrease: 0,
     criticalChance: 0,
     criticalDamagePercent: 200,

@@ -102,6 +102,11 @@ test('salary lupin and the double experience coupon coexist at 2.2x experience',
 
 test('holy weapon enchantment retains its element through buff serialization', () => {
   const now = Date.now();
+  const valuesAtLevelOne = resolveSkillValues(SKILL_DEFINITIONS.element_holy, 1);
+  const valuesAtMaster = resolveSkillValues(
+    SKILL_DEFINITIONS.element_holy,
+    SKILL_DEFINITIONS.element_holy.maxLevel
+  );
   const character = makeCharacter({
     job: { departmentId: 'field_operations', advancementTier: 4 },
     skills: {
@@ -116,13 +121,23 @@ test('holy weapon enchantment retains its element through buff serialization', (
     }
   });
 
+  assert.deepEqual(valuesAtLevelOne, {
+    mpCost: 100,
+    durationSeconds: 30,
+    damageIncreasePercent: 10
+  });
+  assert.deepEqual(valuesAtMaster, {
+    mpCost: 30,
+    durationSeconds: 300,
+    damageIncreasePercent: 55
+  });
   upsertActiveBuff(character, {
     skillId: 'element_holy',
     name: SKILL_DEFINITIONS.element_holy.name,
     element: 'holy',
     effects: {
       weaponElement: 'holy',
-      damageIncreasePercent: 50
+      damageIncreasePercent: 55
     },
     durationSeconds: 300
   }, now);
@@ -132,7 +147,7 @@ test('holy weapon enchantment retains its element through buff serialization', (
   );
   assert.equal(buff.element, 'holy');
   assert.equal(buff.effects.weaponElement, 'holy');
-  assert.equal(buff.effects.damageIncreasePercent, 50);
+  assert.equal(buff.effects.damageIncreasePercent, 55);
   assert.ok(buff.expiresAt > now);
 });
 
@@ -260,8 +275,11 @@ test('warriors receive both common fourth-job skills and support utility overrid
 test('storm channel resolves one 1.5-second cast into nine paid hits', () => {
   const storm = findSkillByName('실시간 광고 송출');
   const values = resolveSkillValues(storm, storm.maxLevel);
+  const levelTwentyOneValues = resolveSkillValues(storm, 21);
   const cast = resolveSkillCastProfile(values);
   assert.equal(values.mpCost, 9);
+  assert.equal(values.damagePercent, 110);
+  assert.equal(levelTwentyOneValues.damagePercent, 96);
   assert.equal(cast.channelDurationSeconds, 1.5);
   assert.equal(cast.channelIntervalSeconds, 0.18);
   assert.equal(cast.hitCount, 9);
@@ -308,6 +326,57 @@ test('magic guard exposes MP damage guard as an active buff effect', () => {
     }
   });
   assert.equal(getActiveSkillEffects(character).mpDamageGuardPercent, 80);
+});
+
+test('infinite budget exposes no MP cost and restores its MP snapshot after expiry', () => {
+  const now = Date.now();
+  const infiniteBudget = SKILL_DEFINITIONS.extended_4d105c3f1f;
+  assert.equal(resolveSkillValues(infiniteBudget, 1).noMpCost, 1);
+  assert.equal(resolveSkillValues(infiniteBudget, infiniteBudget.maxLevel).durationSeconds, 40);
+
+  const activeCharacter = makeCharacter({
+    job: { departmentId: 'management_support', advancementTier: 4 },
+    skills: {
+      levels: { [infiniteBudget.id]: infiniteBudget.maxLevel },
+      activePreset: [],
+      unlockedQuestSkills: [infiniteBudget.id],
+      activeBuffs: [{
+        skillId: infiniteBudget.id,
+        effects: { noMpCost: 1 },
+        metadata: { storedCurrentMp: 12 },
+        createdAt: new Date(now - 1_000),
+        expiresAt: new Date(now + 10_000)
+      }],
+      cooldowns: {},
+      summon: null,
+      comboCount: 0
+    },
+    resources: { currentMp: 12, maxMp: 500 }
+  });
+  assert.equal(getActiveSkillEffects(activeCharacter, now).noMpCost, 1);
+
+  const expiredCharacter = makeCharacter({
+    job: { departmentId: 'management_support', advancementTier: 4 },
+    skills: {
+      levels: { [infiniteBudget.id]: infiniteBudget.maxLevel },
+      activePreset: [],
+      unlockedQuestSkills: [infiniteBudget.id],
+      activeBuffs: [{
+        skillId: infiniteBudget.id,
+        effects: { noMpCost: 1 },
+        metadata: { storedCurrentMp: 12 },
+        createdAt: new Date(now - 50_000),
+        expiresAt: new Date(now - 1)
+      }],
+      cooldowns: {},
+      summon: null,
+      comboCount: 0
+    },
+    resources: { currentMp: 500, maxMp: 500 }
+  });
+  assert.equal(getActiveSkillEffects(expiredCharacter, now).noMpCost, 0);
+  assert.equal(expiredCharacter.resources.currentMp, 12);
+  assert.equal(expiredCharacter.skills.activeBuffs.length, 0);
 });
 
 test('undercover work exposes a real stealth buff for sales and facilities', () => {

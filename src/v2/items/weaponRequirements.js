@@ -28,8 +28,19 @@ const ARCHETYPE_LABELS = Object.freeze({
   gunPirate: '건슬링거'
 });
 
+const EQUIPMENT_SLOT_ALIASES = Object.freeze({
+  cloak: 'cape',
+  mantle: 'cape',
+  earring: 'earrings'
+});
+
 function normalizeRequiredLevel(value) {
   return Math.max(1, Math.min(200, Math.floor(Number(value) || 1)));
+}
+
+function normalizeEquipmentSlot(slot = '') {
+  const normalized = String(slot || '').trim();
+  return EQUIPMENT_SLOT_ALIASES[normalized] || normalized;
 }
 
 function buildWeaponRequirements(weaponType, requiredLevel) {
@@ -67,6 +78,22 @@ function getAllowedWeaponArchetypes(requirements = {}) {
   return requirements.archetype ? [String(requirements.archetype)] : [];
 }
 
+function getEffectiveRequirementStats(character = {}, excludedSlot = '') {
+  const effectiveStats = { ...(character.stats || {}) };
+  const normalizedExcludedSlot = normalizeEquipmentSlot(excludedSlot);
+  for (const [slot, equipped] of Object.entries(character.loadout || {})) {
+    if (!equipped || typeof equipped !== 'object') continue;
+    if (normalizeEquipmentSlot(slot) === normalizedExcludedSlot) continue;
+    const stats = equipped.stats && typeof equipped.stats === 'object'
+      ? equipped.stats
+      : (equipped.instanceData?.stats || {});
+    for (const [stat, value] of Object.entries(stats || {})) {
+      effectiveStats[stat] = (Number(effectiveStats[stat]) || 0) + (Number(value) || 0);
+    }
+  }
+  return effectiveStats;
+}
+
 function getWeaponEquipFailureReason(character = {}, item = {}) {
   const requirements = item.requirements
     || buildWeaponRequirements(item.weaponType, item.requiredLevel ?? item.levelRequirement);
@@ -80,8 +107,9 @@ function getWeaponEquipFailureReason(character = {}, item = {}) {
   }
   const level = Math.max(1, Math.floor(Number(character.progression?.level) || 1));
   if (level < requirements.level) return `레벨 ${requirements.level} 이상부터 장착할 수 있습니다.`;
-  const missingStat = Object.entries(requirements.stats).find(
-    ([stat, required]) => Number(character.stats?.[stat] || 0) < required
+  const requirementStats = getEffectiveRequirementStats(character, 'weapon');
+  const missingStat = Object.entries(requirements.stats || {}).find(
+    ([stat, required]) => Number(requirementStats[stat] || 0) < required
   );
   if (missingStat) {
     const [stat, required] = missingStat;
@@ -97,7 +125,8 @@ function canEquipWeapon(character = {}, item = {}) {
 function getEquipmentEquipFailureReason(character = {}, item = {}) {
   if (item.itemType === 'weapon') return getWeaponEquipFailureReason(character, item);
   const requirements = item.requirements || {};
-  const commonEquipmentSlot = ['earrings', 'cape'].includes(String(item.equipmentSlot || ''));
+  const equipmentSlot = normalizeEquipmentSlot(item.equipmentSlot || '');
+  const commonEquipmentSlot = ['earrings', 'cape'].includes(equipmentSlot);
   const allowedArchetypes = getAllowedWeaponArchetypes(requirements);
   const characterArchetype = getCharacterArchetype(character);
   if (
@@ -116,9 +145,11 @@ function getEquipmentEquipFailureReason(character = {}, item = {}) {
   );
   const level = Math.max(1, Math.floor(Number(character.progression?.level) || 1));
   if (level < requiredLevel) return `레벨 ${requiredLevel} 이상부터 장착할 수 있습니다.`;
-  const missingStat = !commonEquipmentSlot && Object.entries(requirements.stats || {}).find(
-    ([stat, required]) => Number(character.stats?.[stat] || 0) < Number(required)
-  );
+  const requirementStats = getEffectiveRequirementStats(character, equipmentSlot);
+  const missingStat = !commonEquipmentSlot
+    && Object.entries(requirements.stats || {}).find(
+      ([stat, required]) => Number(requirementStats[stat] || 0) < Number(required)
+    );
   if (missingStat) {
     const [stat, required] = missingStat;
     return `${stat} 능력치가 ${required} 이상이어야 합니다.`;
@@ -132,6 +163,7 @@ module.exports = {
   applyWeaponRequirements,
   getCharacterArchetype,
   getAllowedWeaponArchetypes,
+  getEffectiveRequirementStats,
   getWeaponEquipFailureReason,
   getEquipmentEquipFailureReason,
   canEquipWeapon
