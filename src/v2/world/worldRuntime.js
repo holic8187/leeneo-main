@@ -275,7 +275,9 @@ function getGammamNeoFieldBossDrops() {
     findMasteryBookDrop('crossbow_expert', 20, 0.003),
     findMasteryBookDrop('brandish', 30, 0.003),
     findMasteryBookDrop('angel_ray', 30, 0.01),
-    findMasteryBookDrop('ice_demon', 30, 0.01)
+    findMasteryBookDrop('ice_demon', 30, 0.01),
+    findMasteryBookDrop('genesis', 30, 0.01),
+    findMasteryBookDrop('maple_warrior', 20, 0.01)
   ].filter(Boolean);
 }
 

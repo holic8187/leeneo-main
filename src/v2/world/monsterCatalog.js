@@ -5,7 +5,10 @@ const {
   rollEquipmentInstanceData
 } = require('../items/equipmentCatalog');
 const { getScrollsForMonster } = require('../items/scrollCatalog');
-const { listNormalMonsterMasteryBooks } = require('../items/masteryBookCatalog');
+const {
+  getMasteryBookByOriginalSkill,
+  listNormalMonsterMasteryBooks
+} = require('../items/masteryBookCatalog');
 
 const ELEMENTS = Object.freeze(['neutral', 'fire', 'lightning', 'ice', 'holy']);
 const MONSTER_EXP_MULTIPLIER = 1.08;
@@ -43,20 +46,37 @@ const HIGH_LEVEL_MASTERY_MONSTER_IDS = Object.freeze(
   MONSTER_ROWS.filter((row) => Number(row[2]) >= 110).map((row) => row[0])
 );
 const NORMAL_MONSTER_MASTERY_BOOKS = Object.freeze(listNormalMonsterMasteryBooks());
+const NORMAL_MONSTER_MASTERY_BOOK_CHANCE = 0.000015;
+
+function createMasteryBookDrop(item, chance = NORMAL_MONSTER_MASTERY_BOOK_CHANCE) {
+  if (!item) return null;
+  return Object.freeze({
+    itemId: item.id,
+    name: item.name,
+    icon: item.icon,
+    quantity: 1,
+    chance
+  });
+}
+
+function getExtraMasteryBookDropsForMonster(monsterId) {
+  if (String(monsterId || '') !== 'deadline_dragon') return [];
+  return [
+    createMasteryBookDrop(getMasteryBookByOriginalSkill('genesis', 30))
+  ].filter(Boolean);
+}
 
 function getMasteryBookDropsForMonster(monsterId, level) {
   if (Number(level) < 110) return [];
   const monsterIndex = HIGH_LEVEL_MASTERY_MONSTER_IDS.indexOf(String(monsterId || ''));
   if (monsterIndex < 0 || !HIGH_LEVEL_MASTERY_MONSTER_IDS.length) return [];
-  return NORMAL_MONSTER_MASTERY_BOOKS
+  const regularDrops = NORMAL_MONSTER_MASTERY_BOOKS
     .filter((item, index) => index % HIGH_LEVEL_MASTERY_MONSTER_IDS.length === monsterIndex)
-    .map((item) => Object.freeze({
-      itemId: item.id,
-      name: item.name,
-      icon: item.icon,
-      quantity: 1,
-      chance: 0.000015
-    }));
+    .map((item) => createMasteryBookDrop(item));
+  return [
+    ...regularDrops,
+    ...getExtraMasteryBookDropsForMonster(monsterId)
+  ];
 }
 
 function getPotionDropsForMonsterLevel(level) {
