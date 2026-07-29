@@ -201,6 +201,19 @@ test('V2 signup treats visually identical normalized passwords as matching', () 
   assert.equal(result.password, composed.normalize('NFC'));
 });
 
+test('V2 signup reports short matching passwords as too short, not mismatched', () => {
+  const result = validateSignupPayload({
+    username: 'employee_03',
+    password: '1',
+    passwordConfirm: '1',
+    signupCode: 'HOI2026',
+    nickname: '길이검사'
+  });
+
+  assert.equal(result.valid, false);
+  assert.equal(result.message, '비밀번호는 6~72자로 입력해주세요.');
+});
+
 test('V2 marketplace listings stay active for sixty hours', () => {
   const baseTime = Date.UTC(2026, 6, 28, 0, 0, 0);
   assert.equal(MARKETPLACE_LISTING_HOURS, 60);

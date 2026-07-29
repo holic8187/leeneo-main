@@ -657,7 +657,9 @@ function applySkillCombatOutcome(outcome = {}, combat = {}, impactPoint = null) 
   );
   const critical = (outcome.hitResults || []).some((hit) => hit.critical)
     || Boolean(combat.critical);
-  const damageAmount = outcome.missed ? 'MISS' : outcome.damage;
+  const damageAmount = outcome.missed
+    ? 'MISS'
+    : (outcome.displayDamage ?? outcome.damage);
   const damageKind = !outcome.missed && critical ? 'critical' : 'outgoing';
   if (element?.isConnected) {
     showFloatingDamage(element, damageAmount, damageKind, outcome.piercingIndex);
@@ -712,7 +714,7 @@ function applyChannelSkillHit(hit = {}) {
   );
   showFloatingDamage(
     element,
-    hit.missed ? 'MISS' : hit.damage,
+    hit.missed ? 'MISS' : (hit.displayDamage ?? hit.damage),
     !hit.missed && hit.critical ? 'critical' : 'outgoing',
     hit.projectileIndex ?? hit.hitIndex
   );
@@ -730,6 +732,27 @@ function applyChannelSkillHit(hit = {}) {
   ));
   const hpBar = element?.querySelector('.monster-hp i');
   if (hpBar) hpBar.style.width = `${ratio(hit.remainingHp, hit.maxHp)}%`;
+}
+
+async function playFollowUpSkillHits(combat = {}, kind, runId) {
+  const hitResults = (combat.outcomes || []).flatMap(
+    (outcome) => outcome.hitResults || []
+  );
+  if (!hitResults.length) {
+    applySkillCombat(combat);
+    return;
+  }
+  const orderedHits = typeof orderFollowUpHitResults === 'function'
+    ? orderFollowUpHitResults(hitResults)
+    : hitResults;
+  for (const [index, hit] of orderedHits.entries()) {
+    if (!isRunActive(kind, runId)) break;
+    if (hit.followUpAttack && typeof playFollowUpSummonHitMotion === 'function') {
+      playFollowUpSummonHitMotion(hit, combat.followUpSummon);
+    }
+    applyChannelSkillHit({ ...hit, hitIndex: index });
+    if (index < orderedHits.length - 1) await sleep(hit.followUpAttack ? 140 : 70);
+  }
 }
 
 window.applyChannelSkillHit = applyChannelSkillHit;
@@ -892,25 +915,29 @@ async function useActiveSkill(skillId, options = {}) {
         state.character = data.character;
         preloadNextAutoSkillForCombat();
       }
-      const hitCount = Math.max(1, Math.floor(Number(skill.values?.hits) || 3));
-      const hitResults = (data.combat?.outcomes?.[0]?.hitResults || [])
-        .slice(0, hitCount)
+      const baseHitCount = Math.max(1, Math.floor(Number(skill.values?.hits) || 3));
+      const rawHitResults = (data.combat?.outcomes?.[0]?.hitResults || [])
         .map((hit) => ({
           ...hit,
           critical: Boolean(hit.critical || data.combat?.critical)
         }));
+      const hitResults = typeof orderFollowUpHitResults === 'function'
+        ? orderFollowUpHitResults(rawHitResults)
+        : rawHitResults;
+      const hitCount = Math.max(baseHitCount, hitResults.length);
       await playChanneledSkillMotion(
         {
-          durationMs: hitCount * 170,
+          durationMs: baseHitCount * 170,
           intervalMs: 170,
           hitCount,
           projectileSpeedMultiplier: 1.25,
           motion: 'throw',
-          hitResults
+          hitResults,
+          followUpSummon: data.combat?.followUpSummon || null
         },
         motionKind,
         motionRunId,
-        `${skill.name} 3연타 중`
+        `${skill.name} ${hitCount}연타 중`
       );
       handledSequentialHits = true;
     } else if (preCastDelayMs > 0) {
@@ -992,6 +1019,16 @@ async function useActiveSkill(skillId, options = {}) {
             applySkillCombatOutcome(outcome, data.combat, impactPoint)
           )
         });
+      } else if (
+        !data.combat.channel
+        && !handledSequentialHits
+        && data.combat.followUpSummon
+      ) {
+        if (typeof playSkillVisualEffect === 'function') {
+          playSkillVisualEffect(data.skill, data.combat);
+        }
+        await playFollowUpSkillHits(data.combat, motionKind, motionRunId);
+        handledSequentialHits = true;
       } else if (
         !data.combat.channel
         && !handledSequentialHits

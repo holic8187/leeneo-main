@@ -201,6 +201,8 @@ const {
 } = require('./skills/skillService');
 const {
   buildSummonState,
+  buildFollowUpBonusAttack,
+  getActiveFollowUpSummon,
   getSummonAttackVisual,
   isAttackingSummon,
   isSummonAttackDue,
@@ -230,6 +232,16 @@ function storeSummonState(skillState, summon) {
   if (summon?.role === 'decoy') skillState.decoySummon = summon;
   else skillState.summon = summon;
   return summon;
+}
+
+function serializeFollowUpSummon(summon) {
+  if (!summon) return null;
+  return {
+    skillId: String(summon.skillId || ''),
+    name: String(summon.name || '영업 대리인'),
+    icon: String(summon.icon || '👥'),
+    attackVisual: summon.attackVisual || getSummonAttackVisual(summon)
+  };
 }
 
 function clearStealthBuff(skillState) {
@@ -1999,6 +2011,18 @@ function registerV2Routes({
       else baseDamage *= damageMultiplier;
       const doubleStrike = Math.random() * 100
         < Number(preUseEffects.doubleStrikeChance || 0);
+      const followUpSummon = getActiveFollowUpSummon(skillState, now);
+      const followUpAttack = buildFollowUpBonusAttack(followUpSummon, 'skill');
+      const bonusAttacks = [
+        followUpAttack,
+        doubleStrike
+          ? {
+            percent: Number(preUseEffects.doubleStrikeDamagePercent || 0),
+            source: 'double-strike',
+            repeatEffects: true
+          }
+          : null
+      ].filter(Boolean);
       combat = useSkillOnMonsters({
         userId: String(character.userId),
         mapId,
@@ -2011,9 +2035,7 @@ function registerV2Routes({
         hits: upgradedAudit
           ? Number(preUseEffects.upgradedAuditHits)
           : castProfile.hitCount,
-        bonusAttackPercent: doubleStrike
-          ? Number(preUseEffects.doubleStrikeDamagePercent || 0)
-          : 0,
+        bonusAttacks,
         element: definition.element,
         elements: activeElements.length ? activeElements : [definition.element],
         ignoreDefense: ['ignore-defense-damage', 'fixed-damage'].includes(definition.effect),
@@ -2048,6 +2070,7 @@ function registerV2Routes({
         now
       });
       if (!combat.success) return null;
+      if (followUpAttack) combat.followUpSummon = serializeFollowUpSummon(followUpSummon);
       if (combat.casterMovement) {
         character.worldState.mapId = mapId;
         character.worldState.x = combat.casterMovement.x;
@@ -2057,12 +2080,16 @@ function registerV2Routes({
         ? combat.outcomes.some((outcome) => outcome.hitResults?.some((hit) => hit.critical))
         : critical;
       if (castProfile.channelDurationSeconds > 0) {
+        const channelHitResults = combat.outcomes.flatMap(
+          (outcome) => outcome.hitResults || []
+        );
         combat.channel = {
           durationMs: Math.round(castProfile.channelDurationSeconds * 1000),
           intervalMs: Math.round(castProfile.channelIntervalSeconds * 1000),
-          hitCount: castProfile.hitCount,
+          hitCount: channelHitResults.length || castProfile.hitCount,
           projectileSpeedMultiplier: Number(values.projectileSpeedMultiplier) || 1,
-          hitResults: combat.outcomes.flatMap((outcome) => outcome.hitResults || [])
+          hitResults: channelHitResults,
+          followUpSummon: combat.followUpSummon || null
         };
       }
       clearStealthBuff(skillState);
@@ -3536,6 +3563,18 @@ function registerV2Routes({
           else baseDamage *= damageMultiplier;
           const doubleStrike = Math.random() * 100
             < Number(activeEffects.doubleStrikeChance || 0);
+          const followUpSummon = getActiveFollowUpSummon(skillState, now);
+          const followUpAttack = buildFollowUpBonusAttack(followUpSummon, 'skill');
+          const bonusAttacks = [
+            followUpAttack,
+            doubleStrike
+              ? {
+                percent: Number(activeEffects.doubleStrikeDamagePercent || 0),
+                source: 'double-strike',
+                repeatEffects: true
+              }
+              : null
+          ].filter(Boolean);
           combat = useSkillOnMonsters({
             userId: String(auth.id),
             mapId: String(req.body?.mapId || ''),
@@ -3548,9 +3587,7 @@ function registerV2Routes({
             hits: upgradedAudit
               ? Number(activeEffects.upgradedAuditHits)
               : castProfile.hitCount,
-            bonusAttackPercent: doubleStrike
-              ? Number(activeEffects.doubleStrikeDamagePercent || 0)
-              : 0,
+            bonusAttacks,
             element: definition.element,
             elements: activeElements.length ? activeElements : [definition.element],
             ignoreDefense: ['ignore-defense-damage', 'fixed-damage'].includes(definition.effect),
@@ -3591,6 +3628,7 @@ function registerV2Routes({
               : null
           });
           if (!combat.success) throw new Error('사거리 안에 공격할 대상이 없습니다.');
+          if (followUpAttack) combat.followUpSummon = serializeFollowUpSummon(followUpSummon);
           if (combat.casterMovement) {
             const activeMapId = String(
               req.body?.mapId || character.worldState?.mapId || START_MAP_ID
@@ -3610,12 +3648,16 @@ function registerV2Routes({
             ? combat.outcomes.some((outcome) => outcome.hitResults?.some((hit) => hit.critical))
             : critical;
           if (castProfile.channelDurationSeconds > 0) {
+            const channelHitResults = combat.outcomes.flatMap(
+              (outcome) => outcome.hitResults || []
+            );
             combat.channel = {
               durationMs: Math.round(castProfile.channelDurationSeconds * 1000),
               intervalMs: Math.round(castProfile.channelIntervalSeconds * 1000),
-              hitCount: castProfile.hitCount,
+              hitCount: channelHitResults.length || castProfile.hitCount,
               projectileSpeedMultiplier: Number(values.projectileSpeedMultiplier) || 1,
-              hitResults: combat.outcomes.flatMap((outcome) => outcome.hitResults || [])
+              hitResults: channelHitResults,
+              followUpSummon: combat.followUpSummon || null
             };
           }
           clearStealthBuff(skillState);
@@ -6004,6 +6046,17 @@ function registerV2Routes({
         });
       }
       result.critical = rolled.critical;
+      result.hitResults = [{
+        monsterId: result.targetId,
+        hitIndex: 0,
+        damage: Number(result.displayDamage ?? result.damage) || 0,
+        displayDamage: Number(result.displayDamage ?? result.damage) || 0,
+        critical: Boolean(rolled.critical),
+        missed: Boolean(result.missed),
+        remainingHp: Number(result.monster?.hp) || 0,
+        maxHp: Number(result.monster?.maxHp) || 0,
+        defeated: Boolean(result.defeated)
+      }];
       if (consumesAmmunition) {
         await V2Character.updateOne(
           {
@@ -6022,18 +6075,28 @@ function registerV2Routes({
         }
         worldProfileCache.delete(String(auth.id));
       }
-      if (
-        !result.defeated
-        && !result.missed
-        && Math.random() * 100 < Number(skillEffects.doubleStrikeChance || 0)
-      ) {
+      const followUpSummon = getActiveFollowUpSummon(profile.skillTree, Date.now());
+      const followUpAttack = buildFollowUpBonusAttack(followUpSummon, 'basic');
+      const doubleStrike = Math.random() * 100
+        < Number(skillEffects.doubleStrikeChance || 0);
+      const additionalAttacks = [
+        followUpAttack,
+        doubleStrike
+          ? {
+            percent: Number(skillEffects.doubleStrikeDamagePercent || 0),
+            source: 'double-strike'
+          }
+          : null
+      ].filter((attack) => Number(attack?.percent) > 0);
+      for (const additionalAttack of additionalAttacks) {
+        if (result.defeated || result.missed) break;
         const second = attackMonster({
           userId: String(auth.id),
           mapId: String(req.body?.mapId || ''),
           monsterId: String(result.targetId || req.body?.monsterId || ''),
-          damage: rolled.damage * Number(skillEffects.doubleStrikeDamagePercent || 0) / 100,
+          damage: rolled.damage * Number(additionalAttack.percent) / 100,
           damageRange: rolled.damageRange
-            ? scaleDamageRange(rolled.damageRange, Number(skillEffects.doubleStrikeDamagePercent || 0) / 100)
+            ? scaleDamageRange(rolled.damageRange, Number(additionalAttack.percent) / 100)
             : null,
           rangePx: profile.combatPresentation?.rangePx || profile.derivedStats.attackRange,
           damageType: archetype === 'mage' ? 'magic' : 'physical',
@@ -6041,6 +6104,8 @@ function registerV2Routes({
           freezeSeconds: activeElements.includes('ice') ? 4 : 0,
           accuracy: profile.derivedStats.accuracy,
           playerLevel: profile.progression?.level,
+          mpAbsorbChance: archetype === 'mage' ? Number(skillEffects.mpAbsorbChance) || 0 : 0,
+          mpAbsorbPercent: archetype === 'mage' ? Number(skillEffects.mpAbsorbPercent) || 0 : 0,
           poisonChance: Number(skillEffects.poisonChance) || 0,
           poisonAttack: Number(skillEffects.poisonAttack) || 0,
           poisonDurationSeconds: Number(skillEffects.poisonDurationSeconds) || 0,
@@ -6052,17 +6117,41 @@ function registerV2Routes({
         });
         if (second.success) {
           result.damage += Number(second.damage) || 0;
-          result.doubleStrike = true;
+          result.displayDamage = result.damage;
+          result.doubleStrike = result.doubleStrike
+            || additionalAttack.source === 'double-strike';
+          result.followUpAttack = result.followUpAttack
+            || additionalAttack.source === 'follow-up-summon';
           result.knockedBack = result.knockedBack || second.knockedBack;
           result.defeated = second.defeated;
           if (second.monsterLevel) result.monsterLevel = second.monsterLevel;
           result.expReward += Number(second.expReward) || 0;
+          result.mpAbsorbed += Number(second.mpAbsorbed) || 0;
+          result.poisoned = result.poisoned || second.poisoned;
           result.drops.push(...(second.drops || []));
+          result.outcomes.push(...(second.outcomes || []));
           if (second.fieldBossReward) result.fieldBossReward = second.fieldBossReward;
           result.monster = second.monster;
           result.players = second.players;
           result.monsters = second.monsters;
+          result.hitResults.push({
+            monsterId: second.targetId,
+            hitIndex: result.hitResults.length,
+            damage: Number(second.displayDamage ?? second.damage) || 0,
+            displayDamage: Number(second.displayDamage ?? second.damage) || 0,
+            critical: Boolean(rolled.critical),
+            missed: Boolean(second.missed),
+            remainingHp: Number(second.monster?.hp) || 0,
+            maxHp: Number(second.monster?.maxHp) || 0,
+            defeated: Boolean(second.defeated),
+            bonusAttack: true,
+            bonusAttackSource: additionalAttack.source,
+            followUpAttack: additionalAttack.source === 'follow-up-summon'
+          });
         }
+      }
+      if (result.followUpAttack) {
+        result.followUpSummon = serializeFollowUpSummon(followUpSummon);
       }
 
       let character = null;

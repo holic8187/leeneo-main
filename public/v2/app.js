@@ -837,23 +837,22 @@ async function enterWorkspace() {
 }
 
 function normalizePasswordInput(value = '') {
-  return String(value).normalize('NFC');
+  return window.V2SignupValidation.normalizePasswordInput(value);
 }
 
 function updateSignupButtonState() {
-  const password = normalizePasswordInput($('signupPassword').value);
-  const confirmation = normalizePasswordInput($('signupPasswordConfirm').value);
-  const passwordsMatch = password.length >= 6 && password === confirmation;
-  $('passwordMatchState').textContent = passwordsMatch
-    ? '비밀번호가 일치합니다.'
-    : (confirmation ? '비밀번호가 일치하지 않습니다.' : '비밀번호 확인을 입력해주세요.');
-  $('passwordMatchState').classList.toggle('is-valid', passwordsMatch);
+  const passwordState = window.V2SignupValidation.getPasswordValidationState(
+    $('signupPassword').value,
+    $('signupPasswordConfirm').value
+  );
+  $('passwordMatchState').textContent = passwordState.message;
+  $('passwordMatchState').classList.toggle('is-valid', passwordState.valid);
   $('signupCodeState').classList.toggle('is-valid', state.signupCodeValid);
 
   const fieldsValid = /^[A-Za-z0-9_]{3,24}$/.test($('signupUsername').value.trim())
     && $('signupNickname').value.trim().length >= 2
     && $('signupNickname').value.trim().length <= 12;
-  $('signupSubmitButton').disabled = !(fieldsValid && passwordsMatch && state.signupCodeValid);
+  $('signupSubmitButton').disabled = !(fieldsValid && passwordState.valid && state.signupCodeValid);
 }
 
 async function validateSignupCode() {
@@ -1551,6 +1550,42 @@ function playSummonAttackMotion(combat = {}) {
       setTimeout(() => projectile.remove(), 850);
     }, index * 70);
   });
+}
+
+function playFollowUpSummonHitMotion(hit = {}, summon = {}) {
+  const companion = Array.from(document.querySelectorAll('.field-companion')).find(
+    (entry) => entry.dataset.summonSkillId === String(summon.skillId || '')
+  ) || $('fieldCompanion');
+  const stage = $('worldStage');
+  if (!companion || !stage) return;
+  const target = Array.from($('monsterLayer')?.children || []).find(
+    (node) => node.dataset.monsterId === String(hit.monsterId || '')
+  );
+  companion.classList.remove('is-attacking');
+  void companion.offsetWidth;
+  companion.classList.add('is-attacking');
+  setTimeout(() => companion.classList.remove('is-attacking'), 360);
+  if (!target) return;
+
+  const visual = summon.attackVisual || {};
+  const stageRect = stage.getBoundingClientRect();
+  const sourceRect = companion.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  const sourceX = sourceRect.left - stageRect.left + sourceRect.width / 2;
+  const sourceY = sourceRect.top - stageRect.top + sourceRect.height / 2;
+  const targetX = targetRect.left - stageRect.left + targetRect.width / 2;
+  const targetY = targetRect.top - stageRect.top + targetRect.height / 2;
+  const projectile = document.createElement('span');
+  projectile.className = `summon-projectile is-${String(visual.style || 'energy-bolt')}`;
+  projectile.textContent = String(visual.projectile || '◆');
+  projectile.style.left = `${sourceX}px`;
+  projectile.style.top = `${sourceY}px`;
+  projectile.style.color = String(visual.color || '#ffcf67');
+  projectile.style.setProperty('--summon-travel-x', `${targetX - sourceX}px`);
+  projectile.style.setProperty('--summon-travel-y', `${targetY - sourceY}px`);
+  stage.appendChild(projectile);
+  projectile.addEventListener('animationend', () => projectile.remove(), { once: true });
+  setTimeout(() => projectile.remove(), 850);
 }
 
 function classifySkillVisual(skill = {}) {
@@ -2405,14 +2440,36 @@ function launchChannelProjectile(targetId = '', projectileSpeedMultiplier = 1) {
   setTimeout(() => projectile.remove(), 500);
 }
 
+function orderFollowUpHitResults(hitResults = []) {
+  const primaryHits = hitResults.filter((hit) => !hit.bonusAttack);
+  const followUpHits = hitResults.filter((hit) => hit.followUpAttack);
+  const otherBonusHits = hitResults.filter(
+    (hit) => hit.bonusAttack && !hit.followUpAttack
+  );
+  if (!followUpHits.length) return [...hitResults];
+  const ordered = [];
+  const pairedCount = Math.max(primaryHits.length, followUpHits.length);
+  for (let index = 0; index < pairedCount; index += 1) {
+    if (primaryHits[index]) ordered.push(primaryHits[index]);
+    if (followUpHits[index]) ordered.push(followUpHits[index]);
+  }
+  ordered.push(...otherBonusHits);
+  return ordered;
+}
+
 async function playChanneledSkillMotion(channel = {}, kind, runId, activityLabel = '') {
   if (!isRunActive(kind, runId)) return;
   const character = $('fieldCharacter');
   if (!character) return;
   const durationMs = Math.max(1, Number(channel.durationMs) || 3000);
-  const intervalMs = Math.max(1, Number(channel.intervalMs) || 180);
   const hitCount = Math.max(1, Math.floor(Number(channel.hitCount) || 1));
-  const hitResults = Array.isArray(channel.hitResults) ? channel.hitResults : [];
+  const hitResults = orderFollowUpHitResults(
+    Array.isArray(channel.hitResults) ? channel.hitResults : []
+  );
+  const requestedIntervalMs = Math.max(1, Number(channel.intervalMs) || 180);
+  const intervalMs = hitResults.some((hit) => hit.followUpAttack)
+    ? Math.max(40, Math.min(requestedIntervalMs, durationMs / hitCount))
+    : requestedIntervalMs;
   const projectileSpeedMultiplier = Math.max(
     0.1,
     Number(channel.projectileSpeedMultiplier) || 1
@@ -2425,10 +2482,14 @@ async function playChanneledSkillMotion(channel = {}, kind, runId, activityLabel
     if (typeof hitResult?.facingLeft === 'boolean') {
       character.classList.toggle('facing-left', hitResult.facingLeft);
     }
-    setCharacterMotion(null);
-    void character.offsetWidth;
-    setCharacterMotion(String(channel.motion || 'shoot'));
-    launchChannelProjectile(hitResult?.monsterId, projectileSpeedMultiplier);
+    if (hitResult?.followUpAttack && channel.followUpSummon) {
+      playFollowUpSummonHitMotion(hitResult, channel.followUpSummon);
+    } else {
+      setCharacterMotion(null);
+      void character.offsetWidth;
+      setCharacterMotion(String(channel.motion || 'shoot'));
+      launchChannelProjectile(hitResult?.monsterId, projectileSpeedMultiplier);
+    }
     if (hitResult) window.applyChannelSkillHit?.(hitResult);
     const nextAt = startedAt + Math.min(durationMs, (hit + 1) * intervalMs);
     await sleep(Math.max(0, nextAt - performance.now()));
@@ -2763,11 +2824,27 @@ async function runAutoCombat(runId) {
         })
       });
       if (result.targetId) state.combatTargetId = String(result.targetId);
-      showFloatingDamage(
-        getCombatTargetElement(),
-        result.missed ? 'MISS' : result.damage,
-        result.critical ? 'critical' : 'outgoing'
-      );
+      const hitResults = Array.isArray(result.hitResults) ? result.hitResults : [];
+      if (result.followUpSummon && hitResults.length > 1) {
+        for (const [hitIndex, hit] of hitResults.entries()) {
+          if (hit.followUpAttack) {
+            playFollowUpSummonHitMotion(hit, result.followUpSummon);
+          }
+          showFloatingDamage(
+            getCombatTargetElement(),
+            hit.missed ? 'MISS' : (hit.displayDamage ?? hit.damage),
+            !hit.missed && hit.critical ? 'critical' : 'outgoing',
+            hitIndex
+          );
+          if (hitIndex < hitResults.length - 1) await sleep(110);
+        }
+      } else {
+        showFloatingDamage(
+          getCombatTargetElement(),
+          result.missed ? 'MISS' : (result.displayDamage ?? result.damage),
+          result.critical ? 'critical' : 'outgoing'
+        );
+      }
       applyAttackResult(result);
       showGroundLoot(result.drops || []);
       if (result.fieldBossRewardResult) {

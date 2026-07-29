@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   PLAYER_CONTACT_KNOCKBACK_DISTANCE,
+  EXECUTE_FIXED_DAMAGE,
   buildMonsterStats,
   buildFieldBossRewardEvent,
   getFieldBossDefinition,
@@ -1848,6 +1849,76 @@ test('channeled skills can carry follow-up passive hits', () => {
   assert.equal(result.outcomes.some((outcome) => outcome.doubleStrike), true);
 });
 
+test('follow-up summons repeat every skill hit and its on-hit effects', () => {
+  const originalRandom = Math.random;
+  let state;
+  try {
+    Math.random = () => 0.9;
+    state = updatePresence({
+      userId: 'sales-follow-up-user',
+      nickname: 'sales-follow-up-user',
+      mapId: 'newcomer_training',
+      x: 50,
+      floor: 0,
+      currentHp: 120,
+      maxHp: 120,
+      now: 1_000
+    });
+  } finally {
+    Math.random = originalRandom;
+  }
+  const monster = state.monsters.find((entry) => entry.floor === 0);
+  updatePresence({
+    userId: 'sales-follow-up-user',
+    nickname: 'sales-follow-up-user',
+    mapId: 'newcomer_training',
+    x: monster.x,
+    floor: 0,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_050
+  });
+
+  let result;
+  try {
+    Math.random = () => 0;
+    result = useSkillOnMonsters({
+      userId: 'sales-follow-up-user',
+      mapId: 'newcomer_training',
+      targetId: monster.id,
+      baseDamage: 1,
+      skillPercent: 100,
+      rangePx: 1_000,
+      hits: 3,
+      ignoreDefense: true,
+      bonusAttacks: [{
+        percent: 50,
+        source: 'follow-up-summon',
+        repeatEffects: true
+      }],
+      poisonChance: 100,
+      poisonAttack: 10,
+      poisonDurationSeconds: 10,
+      poisonMaxStacks: 3,
+      stunChance: 100,
+      stunSeconds: 1,
+      now: 1_100
+    });
+  } finally {
+    Math.random = originalRandom;
+  }
+
+  const outcome = result.outcomes[0];
+  assert.equal(result.success, true);
+  assert.equal(outcome.hitResults.length, 6);
+  assert.equal(outcome.hitResults.filter((hit) => hit.followUpAttack).length, 3);
+  assert.ok(outcome.hitResults.slice(0, 3).every((hit) => !hit.followUpAttack));
+  assert.ok(outcome.hitResults.slice(3).every((hit) => hit.followUpAttack));
+  assert.equal(outcome.followUpAttack, true);
+  assert.equal(outcome.poisonApplications, 2);
+  assert.equal(outcome.stunApplications, 2);
+});
+
 test('skill hits can trigger close-range execution passives', () => {
   const originalRandom = Math.random;
   let state;
@@ -1903,9 +1974,68 @@ test('skill hits can trigger close-range execution passives', () => {
   assert.equal(result.success, true);
   assert.equal(result.outcomes[0].closeRangeTriggered, true);
   assert.equal(result.outcomes[0].executed, true);
+  assert.equal(result.outcomes[0].damage, EXECUTE_FIXED_DAMAGE);
+  assert.equal(result.outcomes[0].displayDamage, EXECUTE_FIXED_DAMAGE);
+  assert.equal(result.outcomes[0].executeDamage, EXECUTE_FIXED_DAMAGE);
   assert.equal(firstHit.closeRangeTriggered, true);
   assert.equal(firstHit.executed, true);
+  assert.equal(firstHit.damage, EXECUTE_FIXED_DAMAGE);
+  assert.equal(firstHit.displayDamage, EXECUTE_FIXED_DAMAGE);
   assert.equal(result.outcomes[0].defeated, true);
+});
+
+test('execution passive deals fixed max damage without instantly defeating a field boss', () => {
+  const initial = updatePresence({
+    userId: 'execute-boss-user',
+    nickname: 'execute-boss-user',
+    mapId: 'hidden_hwang_overtime',
+    x: 40,
+    floor: 0,
+    currentHp: 10_000,
+    maxHp: 10_000,
+    playerLevel: 120,
+    now: 1_000
+  });
+  const boss = initial.monsters.find((monster) => monster.fieldBossId === 'gammam_neo');
+  updatePresence({
+    userId: 'execute-boss-user',
+    nickname: 'execute-boss-user',
+    mapId: 'hidden_hwang_overtime',
+    x: boss.x,
+    floor: boss.floor,
+    currentHp: 10_000,
+    maxHp: 10_000,
+    playerLevel: 120,
+    now: 1_050
+  });
+
+  const originalRandom = Math.random;
+  let result;
+  try {
+    Math.random = () => 0;
+    result = attackMonster({
+      userId: 'execute-boss-user',
+      mapId: 'hidden_hwang_overtime',
+      monsterId: boss.id,
+      damage: 1,
+      rangePx: 1_000,
+      closeRangeChance: 100,
+      closeRangeDamagePercent: 100,
+      executeThresholdPercent: 100,
+      executeChance: 100,
+      now: 1_100
+    });
+  } finally {
+    Math.random = originalRandom;
+  }
+
+  assert.equal(result.success, true);
+  assert.equal(result.executed, true);
+  assert.equal(result.displayDamage, EXECUTE_FIXED_DAMAGE);
+  assert.equal(result.executeDamage, EXECUTE_FIXED_DAMAGE);
+  assert.equal(result.defeated, false);
+  assert.equal(result.damage, EXECUTE_FIXED_DAMAGE);
+  assert.equal(result.monster.hp, boss.maxHp - EXECUTE_FIXED_DAMAGE);
 });
 
 test('channeled projectiles retarget the next front monster after a kill', () => {

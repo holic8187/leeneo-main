@@ -21,6 +21,8 @@ const {
 } = require('../../src/v2/skills/skillService');
 const {
   buildSummonState,
+  buildFollowUpBonusAttack,
+  getActiveFollowUpSummon,
   getSummonAttackVisual,
   isSummonAttackDue
 } = require('../../src/v2/skills/summonService');
@@ -82,6 +84,30 @@ test('triple offer resolves as three separate hits', () => {
   assert.equal(values.hits, 3);
   assert.equal(cast.hitCount, 3);
   assert.equal(cast.mpCostMultiplier, 1);
+});
+
+test('sales agent exposes a full follow-up attack pass at its skill level', () => {
+  const skill = SKILL_DEFINITIONS.extended_55b25d7cb2;
+  const values = resolveSkillValues(skill, skill.maxLevel);
+  const now = Date.UTC(2026, 6, 29);
+  const summon = buildSummonState(skill, values, now);
+  const skillState = { summon, decoySummon: null };
+
+  assert.equal(summon.role, 'follow-up');
+  assert.equal(summon.basicFollowUpPercent, 80);
+  assert.equal(summon.skillFollowUpPercent, 50);
+  assert.equal(getActiveFollowUpSummon(skillState, now + 1), summon);
+  assert.deepEqual(buildFollowUpBonusAttack(summon, 'skill'), {
+    percent: 50,
+    source: 'follow-up-summon',
+    repeatEffects: true
+  });
+  assert.deepEqual(buildFollowUpBonusAttack(summon, 'basic'), {
+    percent: 80,
+    source: 'follow-up-summon',
+    repeatEffects: true
+  });
+  assert.equal(getActiveFollowUpSummon(skillState, now + 181_000), null);
 });
 
 test('all big bang variants auto-charge and burst at up to three nearby targets', () => {

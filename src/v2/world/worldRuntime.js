@@ -38,6 +38,7 @@ const PLAYER_VISUAL_WIDTH_PX = 19;
 const MONSTER_VISUAL_WIDTH_PX = 36;
 const DECOY_VISUAL_WIDTH_PX = 22;
 const GLOBAL_SHOUT_DURATION_MS = 10_000;
+const EXECUTE_FIXED_DAMAGE = 199_999;
 
 const activeMaps = new Map();
 const worldControllers = new Map();
@@ -2147,15 +2148,16 @@ function attackMonster({
   const mpAbsorbed = damageType === 'magic'
     ? absorbMonsterMp(monster, mpAbsorbChance, mpAbsorbPercent)
     : 0;
-  recordMonsterContribution(monster, userKey, finalDamage);
   const wasBelowExecuteThreshold = monster.hp / Math.max(1, monster.maxHp) * 100
     <= Number(executeThresholdPercent || 0);
-  monster.hp = Math.max(0, monster.hp - finalDamage);
   const executed = closeRangeTriggered
     && wasBelowExecuteThreshold
     && Number(executeChance) > 0
     && Math.random() * 100 < Number(executeChance);
-  if (executed) monster.hp = 0;
+  const totalDamage = executed ? EXECUTE_FIXED_DAMAGE : finalDamage;
+  const displayDamage = totalDamage;
+  recordMonsterContribution(monster, userKey, totalDamage);
+  monster.hp = Math.max(0, monster.hp - totalDamage);
   const poisoned = monster.hp > 0 && applyPoisonPassive(monster, {
     userId: userKey,
     chance: poisonChance,
@@ -2175,7 +2177,7 @@ function attackMonster({
   } else {
     monster.state = 'chase';
   }
-  const knockedBack = applyHeavyHitKnockback(monster, player, finalDamage);
+  const knockedBack = applyHeavyHitKnockback(monster, player, totalDamage);
   const defeated = monster.hp <= 0;
   let drops = [];
   let fieldBossReward = null;
@@ -2201,7 +2203,9 @@ function attackMonster({
   const primaryOutcome = {
     monsterId: monster.id,
     speciesId: monster.speciesId,
-    damage: finalDamage,
+    damage: totalDamage,
+    displayDamage,
+    executeDamage: executed ? EXECUTE_FIXED_DAMAGE : 0,
     missed: false,
     hitChance,
     knockedBack,
@@ -2226,7 +2230,9 @@ function attackMonster({
     success: true,
     targetId: monster.id,
     speciesId: monster.speciesId,
-    damage: finalDamage,
+    damage: totalDamage,
+    displayDamage,
+    executeDamage: executed ? EXECUTE_FIXED_DAMAGE : 0,
     closeRangeTriggered,
     executed,
     poisoned,
@@ -2361,6 +2367,7 @@ function useSkillOnMonsters(options = {}) {
   maxTargets = 1,
   hits = 1,
   bonusAttackPercent = 0,
+  bonusAttacks = [],
   damageType = 'physical',
   element = 'neutral',
   elements = [],
@@ -2493,6 +2500,20 @@ function useSkillOnMonsters(options = {}) {
   const drops = [];
   const fieldBossRewards = [];
   const hitCount = Math.max(1, Math.floor(Number(hits) || 1));
+  const normalizedBonusAttacks = [
+    ...(Array.isArray(bonusAttacks) ? bonusAttacks : []),
+    Number(bonusAttackPercent) > 0
+      ? {
+        percent: Number(bonusAttackPercent),
+        source: 'double-strike',
+        repeatEffects: false
+      }
+      : null
+  ].filter((attack) => Number(attack?.percent) > 0).map((attack) => ({
+    percent: Math.max(0, Number(attack.percent) || 0),
+    source: String(attack.source || 'bonus-attack'),
+    repeatEffects: Boolean(attack.repeatEffects)
+  }));
   const activeElements = [...new Set(
     (Array.isArray(elements) && elements.length ? elements : [element]).filter(Boolean)
   )];
@@ -2607,18 +2628,26 @@ function useSkillOnMonsters(options = {}) {
     if (Math.random() > hitChance) {
       monster.aggroTargetId = userKey;
       monster.state = 'chase';
-      const missedHits = Array.from({ length: hitCount }, (_, hitIndex) => ({
-        monsterId: monster.id,
-        hitIndex,
-        damage: 0,
-        critical: false,
-        missed: true,
-        remainingHp: monster.hp,
-        maxHp: monster.maxHp,
-        defeated: false,
-        piercingIndex: progressivePiercing ? targetIndex : undefined,
-        piercingDamagePercent: progressivePiercing ? piercingDamagePercent : undefined
-      }));
+      const missedHits = [
+        null,
+        ...normalizedBonusAttacks
+      ].flatMap((bonusAttack, attackPassIndex) => (
+        Array.from({ length: hitCount }, (_, passHitIndex) => ({
+          monsterId: monster.id,
+          hitIndex: attackPassIndex * hitCount + passHitIndex,
+          damage: 0,
+          critical: false,
+          missed: true,
+          remainingHp: monster.hp,
+          maxHp: monster.maxHp,
+          defeated: false,
+          bonusAttack: Boolean(bonusAttack),
+          bonusAttackSource: bonusAttack?.source,
+          followUpAttack: bonusAttack?.source === 'follow-up-summon',
+          piercingIndex: progressivePiercing ? targetIndex : undefined,
+          piercingDamagePercent: progressivePiercing ? piercingDamagePercent : undefined
+        }))
+      ));
       outcomes.push({
         monsterId: monster.id,
         damage: 0,
@@ -2647,8 +2676,34 @@ function useSkillOnMonsters(options = {}) {
       : 1;
     const wasBelowExecuteThreshold = monster.hp / Math.max(1, monster.maxHp) * 100
       <= Number(executeThresholdPercent || 0);
-    let executed = false;
-    for (let hit = 0; dealDamage && hit < hitCount && monster.hp > 0; hit += 1) {
+    const executed = dealDamage
+      && !leaveAtOneHp
+      && closeRangeTriggered
+      && wasBelowExecuteThreshold
+      && Number(executeChance) > 0
+      && Math.random() * 100 < Number(executeChance);
+    if (executed) {
+      recordMonsterContribution(monster, userKey, EXECUTE_FIXED_DAMAGE);
+      monster.hp = Math.max(0, monster.hp - EXECUTE_FIXED_DAMAGE);
+      totalDamage = EXECUTE_FIXED_DAMAGE;
+      hitResults.push({
+        monsterId: monster.id,
+        hitIndex: 0,
+        damage: EXECUTE_FIXED_DAMAGE,
+        displayDamage: EXECUTE_FIXED_DAMAGE,
+        executeDamage: EXECUTE_FIXED_DAMAGE,
+        critical: false,
+        missed: false,
+        remainingHp: monster.hp,
+        maxHp: monster.maxHp,
+        defeated: monster.hp <= 0,
+        closeRangeTriggered,
+        executed: true,
+        piercingIndex: progressivePiercing ? targetIndex : undefined,
+        piercingDamagePercent: progressivePiercing ? piercingDamagePercent : undefined
+      });
+    }
+    for (let hit = 0; !executed && dealDamage && hit < hitCount && monster.hp > 0; hit += 1) {
       const defense = damageType === 'magic' ? monster.magicDefense : monster.physicalDefense;
       const multiplier = Math.max(
         ...activeElements.map((activeElement) => getElementMultiplier(monster, activeElement))
@@ -2688,95 +2743,115 @@ function useSkillOnMonsters(options = {}) {
         piercingDamagePercent: progressivePiercing ? piercingDamagePercent : undefined
       });
     }
-    if (
-      dealDamage
-      && !leaveAtOneHp
-      && closeRangeTriggered
-      && wasBelowExecuteThreshold
-      && monster.hp > 0
-      && Number(executeChance) > 0
-      && Math.random() * 100 < Number(executeChance)
-    ) {
-      monster.hp = 0;
-      executed = true;
-      if (hitResults.length) {
-        const lastHit = hitResults[hitResults.length - 1];
-        lastHit.remainingHp = 0;
-        lastHit.defeated = true;
-        lastHit.executed = true;
-      }
-    }
-    const mpAbsorbed = damageType === 'magic' && totalDamage > 0
+    let mpAbsorbed = damageType === 'magic' && totalDamage > 0
       ? absorbMonsterMp(monster, mpAbsorbChance, mpAbsorbPercent)
       : 0;
-    const poisoned = totalDamage > 0 && monster.hp > 0 && applyPoisonPassive(monster, {
+    let poisonApplications = totalDamage > 0 && monster.hp > 0 && applyPoisonPassive(monster, {
       userId: userKey,
       chance: poisonChance,
       attack: poisonAttack,
       durationSeconds: poisonDurationSeconds,
       maxStacks: poisonMaxStacks,
       now
-    });
-    for (let hit = 0; dealDamage && hit < hitCount && monster.hp > 0 && bonusAttackPercent > 0; hit += 1) {
-      const defense = damageType === 'magic' ? monster.magicDefense : monster.physicalDefense;
-      const multiplier = Math.max(
-        ...activeElements.map((activeElement) => getElementMultiplier(monster, activeElement))
-      );
-      const damage = resolveOutgoingDamage({
-        damage: Number(baseDamage) * closeRangeMultiplier,
-        damageRange: targetDamageRange
-          ? scaleDamageRange(
-            targetDamageRange,
-            Number(bonusAttackPercent) / 100 * closeRangeMultiplier
-          )
-          : null,
-        damageType,
-        skillPercent: targetDamageRange
-          ? 100
-          : piercingDamagePercent * Number(bonusAttackPercent) / 100,
-        defense,
-        ignoreDefense,
-        playerLevel,
-        monsterLevel: monster.level,
-        elementMultiplier: multiplier
-      });
-      recordMonsterContribution(monster, userKey, damage);
-      monster.hp = Math.max(leaveAtOneHp ? 1 : 0, monster.hp - damage);
-      totalDamage += damage;
-      hitResults.push({
-        monsterId: monster.id,
-        hitIndex: hitResults.length,
-        damage,
-        critical: false,
-        missed: false,
-        remainingHp: monster.hp,
-        maxHp: monster.maxHp,
-        defeated: monster.hp <= 0,
-        bonusAttack: true,
-        closeRangeTriggered,
-        piercingIndex: progressivePiercing ? targetIndex : undefined,
-        piercingDamagePercent: progressivePiercing ? piercingDamagePercent : undefined
-      });
+    }) ? 1 : 0;
+    let repeatedEffectPasses = 0;
+    for (const [bonusAttackIndex, bonusAttack] of normalizedBonusAttacks.entries()) {
+      let bonusPassDamage = 0;
+      for (let hit = 0; !executed && dealDamage && hit < hitCount && monster.hp > 0; hit += 1) {
+        const defense = damageType === 'magic' ? monster.magicDefense : monster.physicalDefense;
+        const multiplier = Math.max(
+          ...activeElements.map((activeElement) => getElementMultiplier(monster, activeElement))
+        );
+        const critical = rollCriticalPerHit
+          && Math.random() * 100 < Math.max(0, Number(criticalChance) || 0);
+        const criticalMultiplier = critical
+          ? Math.max(1, Number(criticalDamagePercent) || 200) / 100
+          : 1;
+        const damage = resolveOutgoingDamage({
+          damage: Number(baseDamage) * criticalMultiplier * closeRangeMultiplier,
+          damageRange: targetDamageRange
+            ? scaleDamageRange(
+              targetDamageRange,
+              Number(bonusAttack.percent) / 100 * criticalMultiplier * closeRangeMultiplier
+            )
+            : null,
+          damageType,
+          skillPercent: targetDamageRange
+            ? 100
+            : piercingDamagePercent * Number(bonusAttack.percent) / 100,
+          defense,
+          ignoreDefense,
+          playerLevel,
+          monsterLevel: monster.level,
+          elementMultiplier: multiplier
+        });
+        recordMonsterContribution(monster, userKey, damage);
+        monster.hp = Math.max(leaveAtOneHp ? 1 : 0, monster.hp - damage);
+        totalDamage += damage;
+        bonusPassDamage += damage;
+        hitResults.push({
+          monsterId: monster.id,
+          hitIndex: hitResults.length,
+          damage,
+          critical,
+          missed: false,
+          remainingHp: monster.hp,
+          maxHp: monster.maxHp,
+          defeated: monster.hp <= 0,
+          bonusAttack: true,
+          bonusAttackIndex,
+          bonusAttackSource: bonusAttack.source,
+          followUpAttack: bonusAttack.source === 'follow-up-summon',
+          closeRangeTriggered,
+          piercingIndex: progressivePiercing ? targetIndex : undefined,
+          piercingDamagePercent: progressivePiercing ? piercingDamagePercent : undefined
+        });
+      }
+      if (bonusPassDamage <= 0) continue;
+      if (damageType === 'magic') {
+        mpAbsorbed += absorbMonsterMp(monster, mpAbsorbChance, mpAbsorbPercent);
+      }
+      if (bonusAttack.repeatEffects) {
+        repeatedEffectPasses += 1;
+        if (monster.hp > 0 && applyPoisonPassive(monster, {
+          userId: userKey,
+          chance: poisonChance,
+          attack: poisonAttack,
+          durationSeconds: poisonDurationSeconds,
+          maxStacks: poisonMaxStacks,
+          now
+        })) poisonApplications += 1;
+      }
     }
     monster.aggroTargetId = userKey;
     let debuffApplied = false;
-    if (
-      Number(outgoingDamageReductionPercent) > 0
-      && !monster.fieldBoss
-      && Math.random() * 100 < Number(debuffChance || 0)
-    ) {
-      monster.outgoingDamageReductionPercent = Math.max(
-        Number(monster.outgoingDamageReductionPercent) || 0,
-        Number(outgoingDamageReductionPercent) || 0
-      );
-      monster.outgoingDamageDebuffUntil = Math.max(
-        Number(monster.outgoingDamageDebuffUntil) || 0,
-        now + Math.max(0, Number(debuffDurationSeconds) || 0) * 1000
-      );
-      debuffApplied = true;
+    let debuffApplications = 0;
+    for (let attempt = 0; attempt < 1 + repeatedEffectPasses; attempt += 1) {
+      if (
+        Number(outgoingDamageReductionPercent) > 0
+        && !monster.fieldBoss
+        && Math.random() * 100 < Number(debuffChance || 0)
+      ) {
+        monster.outgoingDamageReductionPercent = Math.max(
+          Number(monster.outgoingDamageReductionPercent) || 0,
+          Number(outgoingDamageReductionPercent) || 0
+        );
+        monster.outgoingDamageDebuffUntil = Math.max(
+          Number(monster.outgoingDamageDebuffUntil) || 0,
+          now + Math.max(0, Number(debuffDurationSeconds) || 0) * 1000
+        );
+        debuffApplied = true;
+        debuffApplications += 1;
+      }
     }
     let knockedBack = false;
-    if (Math.random() * 100 < Number(stunChance || 0)) {
+    let stunApplications = 0;
+    if (Number(stunChance) > 0) {
+      for (let attempt = 0; attempt < 1 + repeatedEffectPasses; attempt += 1) {
+        if (Math.random() * 100 < Number(stunChance)) stunApplications += 1;
+      }
+    }
+    if (stunApplications > 0) {
       monster.stunnedUntil = now + Math.max(0, Number(stunSeconds) || 0) * 1000;
       monster.state = 'stunned';
     } else {
@@ -2799,9 +2874,16 @@ function useSkillOnMonsters(options = {}) {
       monsterId: monster.id,
       speciesId: monster.speciesId,
       damage: totalDamage,
+      displayDamage: executed ? EXECUTE_FIXED_DAMAGE : totalDamage,
+      executeDamage: executed ? EXECUTE_FIXED_DAMAGE : 0,
       missed: false,
       hitChance,
-      doubleStrike: bonusAttackPercent > 0,
+      doubleStrike: normalizedBonusAttacks.some(
+        (attack) => attack.source === 'double-strike'
+      ),
+      followUpAttack: normalizedBonusAttacks.some(
+        (attack) => attack.source === 'follow-up-summon'
+      ),
       closeRangeTriggered,
       executed,
       knockedBack,
@@ -2809,8 +2891,11 @@ function useSkillOnMonsters(options = {}) {
       monsterLevel: monster.level,
       expReward: defeated && !monster.fieldBoss ? monster.expReward : 0,
       mpAbsorbed,
-      poisoned,
+      poisoned: poisonApplications > 0,
+      poisonApplications,
       debuffApplied,
+      debuffApplications,
+      stunApplications,
       hitResults,
       targetX,
       targetFloor,
@@ -2819,7 +2904,12 @@ function useSkillOnMonsters(options = {}) {
       monster: defeated ? null : serializeMonster(monster)
     });
   }
-  if (targetLimit === 1 && outcomes.length === 1 && Number(outcomes[0]?.damage) > 0) {
+  if (
+    targetLimit === 1
+    && outcomes.length === 1
+    && Number(outcomes[0]?.damage) > 0
+    && !outcomes[0].executed
+  ) {
     const chained = applyAugmentChainAttack({
       runtime,
       player,
@@ -2974,6 +3064,7 @@ function resetWorldRuntime() {
 
 module.exports = {
   PLAYER_TIMEOUT_MS,
+  EXECUTE_FIXED_DAMAGE,
   WORLD_CONTROL_ACTIVE_MS,
   CONTACT_COOLDOWN_MS,
   CONTACT_INVULNERABILITY_MS,
