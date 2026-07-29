@@ -24,12 +24,21 @@ for (const rule of MASTERY_BOOK_SKILLS) {
   }
 }
 
+function getMasteryBookDisplayName(members) {
+  const names = [...new Set(members
+    .map((member) => String(member.definition?.name || '').trim())
+    .filter(Boolean))];
+  if (names.length) return names.join(' / ');
+  const fallback = members[0]?.rule?.bookName || members[0]?.rule?.skillId || '마스터리';
+  return String(fallback);
+}
+
 const MASTERY_BOOK_ITEMS = Object.freeze([...groupedRules.values()].flatMap((members) => {
   const primary = members[0];
   const stage = primary.stage;
   const skillIds = [...new Set(members.map((member) => member.rule.skillId))];
   const departments = [...new Set(members.flatMap((member) => member.rule.departments))];
-  const bookName = primary.rule.bookName || primary.definition.name;
+  const bookName = getMasteryBookDisplayName(members);
   const bossOnly = isBossOnlyMasteryStage(primary.rule.originalSkillId, stage);
   return members.map((member, index) => Object.freeze({
     id: getMasteryBookItemId(member.rule.skillId, stage),

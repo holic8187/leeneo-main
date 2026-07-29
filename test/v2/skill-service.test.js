@@ -21,6 +21,8 @@ const {
 } = require('../../src/v2/skills/skillService');
 const {
   buildSummonState,
+  buildFollowUpBonusAttack,
+  getActiveFollowUpSummon,
   getSummonAttackVisual,
   isSummonAttackDue
 } = require('../../src/v2/skills/summonService');
@@ -60,17 +62,78 @@ test('accumulated piercing settlement is an escalating six-target attack', () =>
   assert.equal(values.piercingStartPercent, 250);
   assert.equal(values.piercingEndPercent, 850);
   assert.equal(values.targetCount, 6);
-  assert.equal(values.preCastDelaySeconds, 1.5);
+  assert.equal(values.preCastDelaySeconds, 1);
   assert.equal(values.cooldownSeconds, undefined);
   assert.deepEqual(resolveSkillCastProfile(values), {
     hitCount: 1,
     mpCostMultiplier: 1,
-    preCastDelaySeconds: 1.5,
+    preCastDelaySeconds: 1,
     postCastDelaySeconds: 0,
     channelDurationSeconds: 0,
     channelIntervalSeconds: 0,
     lockSeconds: 0
   });
+});
+
+test('triple offer resolves as three separate hits', () => {
+  const skill = SKILL_DEFINITIONS.extended_eb778160dd;
+  const values = resolveSkillValues(skill, skill.maxLevel);
+  const cast = resolveSkillCastProfile(values);
+
+  assert.equal(skill.target, 'enemy');
+  assert.equal(values.hits, 3);
+  assert.equal(cast.hitCount, 3);
+  assert.equal(cast.mpCostMultiplier, 1);
+});
+
+test('sales agent exposes a full follow-up attack pass at its skill level', () => {
+  const skill = SKILL_DEFINITIONS.extended_55b25d7cb2;
+  const values = resolveSkillValues(skill, skill.maxLevel);
+  const now = Date.UTC(2026, 6, 29);
+  const summon = buildSummonState(skill, values, now);
+  const skillState = { summon, decoySummon: null };
+
+  assert.equal(summon.role, 'follow-up');
+  assert.equal(summon.basicFollowUpPercent, 80);
+  assert.equal(summon.skillFollowUpPercent, 50);
+  assert.equal(getActiveFollowUpSummon(skillState, now + 1), summon);
+  assert.deepEqual(buildFollowUpBonusAttack(summon, 'skill'), {
+    percent: 50,
+    source: 'follow-up-summon',
+    repeatEffects: true
+  });
+  assert.deepEqual(buildFollowUpBonusAttack(summon, 'basic'), {
+    percent: 80,
+    source: 'follow-up-summon',
+    repeatEffects: true
+  });
+  assert.equal(getActiveFollowUpSummon(skillState, now + 181_000), null);
+});
+
+test('all big bang variants auto-charge and burst at up to three nearby targets', () => {
+  for (const skillId of [
+    'extended_b517ab1d69',
+    'extended_2e29f80103',
+    'extended_72b5477b43'
+  ]) {
+    const skill = SKILL_DEFINITIONS[skillId];
+    const levelOneValues = resolveSkillValues(skill, 1);
+    const values = resolveSkillValues(skill, skill.maxLevel);
+
+    assert.equal(skill.target, 'enemies');
+    assert.equal(skill.maxTargets, 3);
+    assert.equal(skill.range, 150);
+    assert.equal(values.targetCount, 3);
+    assert.equal(values.range, 150);
+    assert.equal(values.hits, 3);
+    assert.equal(levelOneValues.mastery, 35);
+    assert.equal(values.mastery, 80);
+    assert.equal(values.splitDamageAcrossHits, true);
+    assert.equal(values.preCastDelaySeconds, 1);
+    const cast = resolveSkillCastProfile(values);
+    assert.equal(cast.hitCount, 3);
+    assert.equal(cast.preCastDelaySeconds, 1);
+  }
 });
 
 test('salary lupin and the double experience coupon coexist at 2.2x experience', () => {

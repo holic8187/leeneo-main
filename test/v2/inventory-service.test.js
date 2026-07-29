@@ -31,6 +31,7 @@ const {
   rechargeThrowingStarStack
 } = require('../../src/v2/services/shopService');
 const { getItemDefinition, listShopItems } = require('../../src/v2/items/itemCatalog');
+const V2Character = require('../../src/v2/models/V2Character');
 
 function characterFixture() {
   return {
@@ -406,6 +407,48 @@ test('admin event weapons occupy one slot and can be equipped and returned', () 
   unequipInventoryWeapon(character);
   assert.equal(character.loadout.weapon, null);
   assert.equal(buildInventoryView(character).categories.equipment.items[0].id, 'event_spear');
+});
+
+test('an HR manager with an empty Mongoose loadout can equip a mailed two-handed sword', () => {
+  const character = new V2Character({
+    userId: '507f191e810c19729de860ea',
+    displayName: '신규 인재매니저',
+    progression: { level: 30 },
+    job: { departmentId: 'hr', advancementTier: 2 },
+    stats: { grit: 40, processingSpeed: 40, workKnowledge: 4, awareness: 4 },
+    loadout: { weapon: null, shield: null },
+    mailbox: []
+  });
+  character.mailbox.push(createAdminMail({
+    itemId: 'event_two_handed_sword',
+    quantity: 1,
+    message: '체험용 두손검'
+  }));
+
+  claimMail(character, character.mailbox[0].id);
+  const stack = buildInventoryView(character).categories.equipment.items[0];
+  const equipped = equipInventoryEquipment(character, stack.stackId);
+
+  assert.equal(equipped.equipped.id, 'event_two_handed_sword');
+  assert.equal(character.loadout.weapon.weaponType, 'twoHandedSword');
+});
+
+test('an accounting archer Mongoose character can equip common earrings', () => {
+  const character = new V2Character({
+    userId: '507f191e810c19729de860eb',
+    displayName: '신궁 확인',
+    progression: { level: 140 },
+    job: { departmentId: 'accounting', advancementTier: 4 },
+    stats: { grit: 200, processingSpeed: 500, workKnowledge: 4, awareness: 4 },
+    loadout: { weapon: null, earrings: null }
+  });
+  addInventoryItem(character, 'drop_common_earrings_140', 1);
+
+  const stack = buildInventoryView(character).categories.equipment.items[0];
+  const equipped = equipInventoryEquipment(character, stack.stackId);
+
+  assert.equal(equipped.slot, 'earrings');
+  assert.equal(character.loadout.earrings.id, 'drop_common_earrings_140');
 });
 
 test('legacy capes with id-only data can be unequipped without item loss', () => {
