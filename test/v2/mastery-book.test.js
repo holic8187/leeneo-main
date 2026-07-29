@@ -92,13 +92,42 @@ test('one common original-skill book unlocks the matching renamed department ski
   );
 });
 
-test('level 110+ monsters split normal books at 0.0015 percent and exclude boss-only stages', () => {
+test('mastery book names are generated from in-game skill names', () => {
+  const storm30 = MASTERY_BOOK_ITEMS.find((item) => (
+    item.masteryOriginalSkillId === 'storm' && item.masteryStage === 30
+  ));
+  const angelRay30 = MASTERY_BOOK_ITEMS.find((item) => (
+    item.masteryOriginalSkillId === 'angel_ray' && item.masteryStage === 30
+  ));
+  const dragonPulse20 = MASTERY_BOOK_ITEMS.find((item) => (
+    item.masteryOriginalSkillId === 'dragon_pulse' && item.masteryStage === 20
+  ));
+
+  assert.equal(
+    storm30.name,
+    `${SKILL_DEFINITIONS.extended_fc89f3cfc2.name} 마스터리북 30`
+  );
+  assert.equal(
+    angelRay30.name,
+    `${SKILL_DEFINITIONS.extended_7a0f825273.name} 마스터리북 30`
+  );
+  assert.equal(
+    dragonPulse20.name,
+    `${SKILL_DEFINITIONS.extended_2926a732db.name} / ${SKILL_DEFINITIONS.extended_2973270a08.name} 마스터리북 20`
+  );
+});
+
+test('level 110+ monsters split normal books and deadline dragon has genesis 30', () => {
   const eligibleMonsters = MONSTER_CATALOG.filter((monster) => monster.level >= 110);
   assert.ok(eligibleMonsters.length > 0);
   const drops = eligibleMonsters.flatMap((monster) => monster.dropTable.masteryBooks || []);
   assert.ok(drops.length > 0);
   assert.ok(drops.every((drop) => drop.chance === 0.000015));
   const droppedIds = new Set(drops.map((drop) => drop.itemId));
+  const genesis30 = MASTERY_BOOK_ITEMS.find((item) => (
+    item.masteryOriginalSkillId === 'genesis' && item.masteryStage === 30
+  ));
+  const deadlineDragon = MONSTER_CATALOG.find((monster) => monster.id === 'deadline_dragon');
   const piercing20 = MASTERY_BOOK_ITEMS.find((item) => (
     item.masteryOriginalSkillId === 'piercing' && item.masteryStage === 20
   ));
@@ -109,11 +138,13 @@ test('level 110+ monsters split normal books at 0.0015 percent and exclude boss-
   assert.ok(piercing30);
   assert.equal(piercing30.bossOnly, false);
   assert.ok(droppedIds.has(piercing30.id));
+  assert.ok(genesis30);
+  assert.ok(deadlineDragon.dropTable.masteryBooks.some((drop) => drop.itemId === genesis30.id));
   assert.ok(MASTERY_BOOK_ITEMS
     .filter((item) => item.dropEligible && !item.bossOnly)
     .every((item) => droppedIds.has(item.id)));
   assert.ok(MASTERY_BOOK_ITEMS
-    .filter((item) => item.dropEligible && item.bossOnly)
+    .filter((item) => item.dropEligible && item.bossOnly && item.id !== genesis30.id)
     .every((item) => !droppedIds.has(item.id)));
 });
 
@@ -153,7 +184,9 @@ test('Gammam Neo has the requested mastery-book chances', () => {
     ['crossbow_expert', 20, 0.003],
     ['brandish', 30, 0.003],
     ['angel_ray', 30, 0.01],
-    ['ice_demon', 30, 0.01]
+    ['ice_demon', 30, 0.01],
+    ['genesis', 30, 0.01],
+    ['maple_warrior', 20, 0.01]
   ]);
 });
 

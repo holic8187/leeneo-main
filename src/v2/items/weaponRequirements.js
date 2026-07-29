@@ -34,6 +34,10 @@ const EQUIPMENT_SLOT_ALIASES = Object.freeze({
   earring: 'earrings'
 });
 
+const WEAPON_TYPE_LABELS = Object.freeze({
+  dagger: '단검'
+});
+
 function normalizeRequiredLevel(value) {
   return Math.max(1, Math.min(200, Math.floor(Number(value) || 1)));
 }
@@ -78,6 +82,19 @@ function getAllowedWeaponArchetypes(requirements = {}) {
   return requirements.archetype ? [String(requirements.archetype)] : [];
 }
 
+function getAllowedEquipmentWeaponTypes(item = {}) {
+  const allowedWeaponTypes = item.requirements?.allowedWeaponTypes;
+  return Array.isArray(allowedWeaponTypes)
+    ? allowedWeaponTypes.map(String).filter(Boolean)
+    : [];
+}
+
+function getWeaponTypeRestrictionLabel(weaponTypes = []) {
+  return weaponTypes
+    .map((weaponType) => WEAPON_TYPE_LABELS[weaponType] || weaponType)
+    .join(', ');
+}
+
 function getEffectiveRequirementStats(character = {}, excludedSlot = '') {
   const effectiveStats = { ...(character.stats || {}) };
   const normalizedExcludedSlot = normalizeEquipmentSlot(excludedSlot);
@@ -104,6 +121,13 @@ function getWeaponEquipFailureReason(character = {}, item = {}) {
       .map((archetype) => ARCHETYPE_LABELS[archetype] || archetype)
       .join(', ');
     return `${allowed || '지정된'} 직업군만 장착할 수 있는 무기입니다.`;
+  }
+  const shield = character.loadout?.shield;
+  const shieldWeaponTypes = getAllowedEquipmentWeaponTypes(shield);
+  const weaponType = String(item.weaponType || '');
+  if (shieldWeaponTypes.length && !shieldWeaponTypes.includes(weaponType)) {
+    const allowed = getWeaponTypeRestrictionLabel(shieldWeaponTypes);
+    return `${shield?.name || '장착 중인 방패'}는 ${allowed}과 함께만 사용할 수 있습니다.`;
   }
   const level = Math.max(1, Math.floor(Number(character.progression?.level) || 1));
   if (level < requirements.level) return `레벨 ${requirements.level} 이상부터 장착할 수 있습니다.`;
@@ -139,6 +163,12 @@ function getEquipmentEquipFailureReason(character = {}, item = {}) {
       .join(', ');
     return `${allowed} 직업군만 장착할 수 있는 장비입니다.`;
   }
+  const allowedWeaponTypes = getAllowedEquipmentWeaponTypes(item);
+  const equippedWeaponType = String(character.loadout?.weapon?.weaponType || '');
+  if (allowedWeaponTypes.length && !allowedWeaponTypes.includes(equippedWeaponType)) {
+    const allowed = getWeaponTypeRestrictionLabel(allowedWeaponTypes);
+    return `${allowed}을 장착한 상태에서만 사용할 수 있는 장비입니다.`;
+  }
   const requiredLevel = Math.max(
     1,
     Number(requirements.level ?? item.requiredLevel ?? item.levelRequirement) || 1
@@ -163,6 +193,7 @@ module.exports = {
   applyWeaponRequirements,
   getCharacterArchetype,
   getAllowedWeaponArchetypes,
+  getAllowedEquipmentWeaponTypes,
   getEffectiveRequirementStats,
   getWeaponEquipFailureReason,
   getEquipmentEquipFailureReason,
