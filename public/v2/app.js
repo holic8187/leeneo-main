@@ -2,6 +2,11 @@
 
 const HUNTING_TIME_CACHE_KEY = 'v2HuntingTime';
 const WORLD_HEARTBEAT_INTERVAL_MS = 1000;
+const BIG_BANG_VISUAL_SKILL_IDS = new Set([
+  'extended_b517ab1d69',
+  'extended_2e29f80103',
+  'extended_72b5477b43'
+]);
 const DEFAULT_HUNTING_TIME = Object.freeze({
   remainingSeconds: 0,
   maximumSeconds: 24000,
@@ -831,9 +836,13 @@ async function enterWorkspace() {
   }
 }
 
+function normalizePasswordInput(value = '') {
+  return String(value).normalize('NFC');
+}
+
 function updateSignupButtonState() {
-  const password = $('signupPassword').value;
-  const confirmation = $('signupPasswordConfirm').value;
+  const password = normalizePasswordInput($('signupPassword').value);
+  const confirmation = normalizePasswordInput($('signupPasswordConfirm').value);
   const passwordsMatch = password.length >= 6 && password === confirmation;
   $('passwordMatchState').textContent = passwordsMatch
     ? '비밀번호가 일치합니다.'
@@ -911,8 +920,8 @@ async function signup(event) {
       body: JSON.stringify({
         username: $('signupUsername').value.trim(),
         nickname: $('signupNickname').value.trim(),
-        password: $('signupPassword').value,
-        passwordConfirm: $('signupPasswordConfirm').value,
+        password: normalizePasswordInput($('signupPassword').value),
+        passwordConfirm: normalizePasswordInput($('signupPasswordConfirm').value),
         signupCode: $('signupCode').value.trim()
       })
     });
@@ -1577,24 +1586,30 @@ function getSkillEffectAnchor(combat = {}) {
   return $('fieldCharacter');
 }
 
-function playSkillChargeEffect(skill = {}, durationMs = 1500) {
-  if (
+function isBigBangVisualSkill(skill = {}) {
+  return BIG_BANG_VISUAL_SKILL_IDS.has(String(skill.id || ''));
+}
+
+function playSkillChargeEffect(skill = {}, durationMs = 1000) {
+  const progressivePiercing = (
     String(skill.id || '') !== 'extended_cd94045605'
     && String(skill.effect || '') !== 'progressive-piercing-damage'
-  ) return;
+  ) === false;
+  const bigBang = isBigBangVisualSkill(skill);
+  if (!progressivePiercing && !bigBang) return;
   const stage = $('worldStage');
   const caster = $('fieldCharacter');
   if (!stage || !caster) return;
   const stageRect = stage.getBoundingClientRect();
   const casterRect = caster.getBoundingClientRect();
   const charge = document.createElement('span');
-  charge.className = 'piercing-charge-effect is-sustained';
+  charge.className = `piercing-charge-effect is-sustained${bigBang ? ' is-big-bang' : ''}`;
   charge.style.left = `${casterRect.left - stageRect.left + casterRect.width / 2}px`;
   charge.style.top = `${casterRect.top - stageRect.top + casterRect.height * .46}px`;
   charge.style.setProperty('--piercing-charge-duration', `${Math.max(1, durationMs)}ms`);
   stage.appendChild(charge);
   const gauge = document.createElement('span');
-  gauge.className = 'piercing-charge-gauge';
+  gauge.className = `piercing-charge-gauge${bigBang ? ' is-big-bang' : ''}`;
   gauge.setAttribute('aria-hidden', 'true');
   gauge.style.left = `${casterRect.left - stageRect.left + casterRect.width / 2}px`;
   gauge.style.top = `${Math.max(8, casterRect.top - stageRect.top - 14)}px`;
@@ -1605,6 +1620,48 @@ function playSkillChargeEffect(skill = {}, durationMs = 1500) {
   gauge.addEventListener('animationend', () => gauge.remove(), { once: true });
   setTimeout(() => charge.remove(), Math.max(1, durationMs) + 250);
   setTimeout(() => gauge.remove(), Math.max(1, durationMs) + 250);
+}
+
+function playBigBangVisual(skill = {}, combat = {}, { onImpact = null } = {}) {
+  const stage = $('worldStage');
+  const caster = $('fieldCharacter');
+  const outcomes = (combat.outcomes || []).slice(0, 3);
+  if (!stage || !caster) {
+    outcomes.forEach((outcome, index) => {
+      if (typeof onImpact === 'function') onImpact(outcome, index, null);
+    });
+    return Promise.resolve();
+  }
+  const stageRect = stage.getBoundingClientRect();
+  const casterRect = caster.getBoundingClientRect();
+  const center = {
+    x: casterRect.left - stageRect.left + casterRect.width / 2,
+    y: casterRect.top - stageRect.top + casterRect.height * .5
+  };
+  const radius = Math.max(1, Number(skill.values?.range ?? skill.range) || 150);
+  const diameter = Math.max(110, stageRect.width * radius * 2 / 760);
+  const pulseIntervalMs = 150;
+
+  outcomes.forEach((outcome, index) => {
+    setTimeout(() => {
+      const explosion = document.createElement('span');
+      explosion.className = 'big-bang-explosion-effect';
+      explosion.style.left = `${center.x}px`;
+      explosion.style.top = `${center.y}px`;
+      explosion.style.setProperty('--big-bang-size', `${diameter}px`);
+      explosion.style.setProperty('--big-bang-pulse', `"${index + 1}"`);
+      stage.appendChild(explosion);
+      const impactPoint = typeof getWorldStagePoint === 'function'
+        ? getWorldStagePoint(outcome.targetX, outcome.targetFloor)
+        : null;
+      if (typeof onImpact === 'function') onImpact(outcome, index, impactPoint);
+      explosion.addEventListener('animationend', () => explosion.remove(), { once: true });
+      setTimeout(() => explosion.remove(), 650);
+    }, index * pulseIntervalMs);
+  });
+
+  const totalDuration = Math.max(1, outcomes.length) * pulseIntervalMs + 520;
+  return new Promise((resolve) => setTimeout(resolve, totalDuration));
 }
 
 function playProgressivePiercingVisual(skill = {}, combat = {}, { onImpact = null } = {}) {
@@ -2004,6 +2061,8 @@ function renderPartyPortals(portals = []) {
 function renderWorldMap(mapId, arrivalPortalIndex = 0) {
   const map = getMap(mapId) || getMap(state.startMapId) || state.maps[0];
   if (!map) return;
+  const mapChanged = Boolean(state.currentMapId && state.currentMapId !== map.id);
+  if (mapChanged) state.worldStateEpoch += 1;
   state.lastWorldSnapshotReceivedAt = 0;
   $('worldStage')?.style.removeProperty('--world-snapshot-transition');
   state.currentMapId = map.id;
@@ -2049,6 +2108,11 @@ function renderWorldMap(mapId, arrivalPortalIndex = 0) {
     }).catch(() => {});
   }
   $('lootLayer').replaceChildren();
+  $('monsterLayer').replaceChildren();
+  $('remotePlayerLayer').replaceChildren();
+  state.worldMonsters = [];
+  state.combatTargetId = '';
+  renderFieldBossTopBar([]);
 
   const character = $('fieldCharacter');
   resetCharacterPhysics();
@@ -2063,6 +2127,7 @@ function renderWorldMap(mapId, arrivalPortalIndex = 0) {
   character.style.transitionDuration = '';
   setWorldActivity(map.safeZone ? '안전지대에서는 자동전투를 사용할 수 없습니다.' : (state.autoCombat ? '자동 전투 준비 중' : '명령 대기 중'));
   updateFieldControls();
+  if (mapChanged) queueWorldHeartbeat();
 }
 
 function isRunActive(kind, runId) {
@@ -2362,7 +2427,7 @@ async function playChanneledSkillMotion(channel = {}, kind, runId, activityLabel
     }
     setCharacterMotion(null);
     void character.offsetWidth;
-    setCharacterMotion('shoot');
+    setCharacterMotion(String(channel.motion || 'shoot'));
     launchChannelProjectile(hitResult?.monsterId, projectileSpeedMultiplier);
     if (hitResult) window.applyChannelSkillHit?.(hitResult);
     const nextAt = startedAt + Math.min(durationMs, (hit + 1) * intervalMs);
@@ -2538,7 +2603,7 @@ async function commandMove(targetMapId) {
   return commandTravelTo(targetMapId);
 }
 
-async function approachMonsterForCombat(runId) {
+async function approachMonsterForCombat(runId, requestedRangePx = null) {
   if (!isRunActive('combat', runId)) return false;
   const target = getCombatTarget();
   const monster = getCombatTargetElement();
@@ -2570,8 +2635,12 @@ async function approachMonsterForCombat(runId) {
   const stageRect = stage.getBoundingClientRect();
   const characterRect = character.getBoundingClientRect();
   const monsterRect = monster.getBoundingClientRect();
-  const rangePx = Math.max(30, Number(getCombatPresentation().rangePx
-    || state.character?.derivedStats?.attackRange) || 55);
+  const rangePx = Math.max(
+    30,
+    Number(requestedRangePx)
+      || Number(getCombatPresentation().rangePx || state.character?.derivedStats?.attackRange)
+      || 55
+  );
   const characterCenter = characterRect.left + characterRect.width / 2;
   const monsterCenter = monsterRect.left + monsterRect.width / 2;
   const characterIsLeft = characterCenter <= monsterCenter;
@@ -2652,11 +2721,14 @@ async function runAutoCombat(runId) {
       await sleep(650);
       continue;
     }
-    if (!await approachMonsterForCombat(runId)) {
+    const autoSkill = getNextAutoSkillForCombat();
+    const autoSkillRange = ['enemy', 'enemies'].includes(autoSkill?.target)
+      ? Number(autoSkill.values?.range ?? autoSkill.range) || null
+      : null;
+    if (!await approachMonsterForCombat(runId, autoSkillRange)) {
       await sleep(350);
       continue;
     }
-    const autoSkill = getNextAutoSkillForCombat();
     if (autoSkill) {
       const used = await useActiveSkill(autoSkill.id, { automatic: true });
       if (used) {
@@ -6311,7 +6383,9 @@ $('adminGiftAll').addEventListener('change', () => {
   $('adminGiftTarget').placeholder = sendAll ? '전체 발송 선택됨' : '아이디 또는 닉네임';
 });
 ['signupUsername', 'signupNickname', 'signupPassword', 'signupPasswordConfirm'].forEach((id) => {
-  $(id).addEventListener('input', updateSignupButtonState);
+  ['input', 'change', 'keyup'].forEach((eventName) => {
+    $(id).addEventListener(eventName, updateSignupButtonState);
+  });
 });
 $('signupCode').addEventListener('input', () => {
   state.signupCodeValid = false;

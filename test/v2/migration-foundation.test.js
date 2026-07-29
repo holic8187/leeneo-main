@@ -186,6 +186,21 @@ test('V2 signup fields require matching passwords and a signup code', () => {
   }).valid, false);
 });
 
+test('V2 signup treats visually identical normalized passwords as matching', () => {
+  const composed = 'café비밀번호';
+  const decomposed = composed.normalize('NFD');
+  const result = validateSignupPayload({
+    username: 'employee_02',
+    password: composed,
+    passwordConfirm: decomposed,
+    signupCode: 'HOI2026',
+    nickname: '정규화사원'
+  });
+
+  assert.equal(result.valid, true);
+  assert.equal(result.password, composed.normalize('NFC'));
+});
+
 test('V2 marketplace listings stay active for sixty hours', () => {
   const baseTime = Date.UTC(2026, 6, 28, 0, 0, 0);
   assert.equal(MARKETPLACE_LISTING_HOURS, 60);

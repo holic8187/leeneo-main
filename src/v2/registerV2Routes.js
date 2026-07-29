@@ -364,10 +364,14 @@ const V2_PATCH_NOTE_HISTORY = Object.freeze([
 ]);
 const V2_CURRENT_PATCH_NOTES = V2_PATCH_NOTE_HISTORY[V2_PATCH_NOTE_HISTORY.length - 1];
 
+function normalizePasswordInput(value = '') {
+  return String(value).normalize('NFC');
+}
+
 function validateSignupPayload(payload = {}) {
   const username = String(payload.username || '').trim();
-  const password = String(payload.password || '');
-  const passwordConfirm = String(payload.passwordConfirm || '');
+  const password = normalizePasswordInput(payload.password);
+  const passwordConfirm = normalizePasswordInput(payload.passwordConfirm);
   const signupCode = String(payload.signupCode || '').trim();
   const nickname = String(payload.nickname || '').trim();
   if (!/^[A-Za-z0-9_]{3,24}$/.test(username)) {
@@ -2854,7 +2858,7 @@ function registerV2Routes({
   app.post('/api/v2/login', async (req, res) => {
     try {
       const username = String(req.body?.username || '').trim();
-      const password = String(req.body?.password || '');
+      const password = normalizePasswordInput(req.body?.password);
       if (!username || !password) {
         return res.status(400).json({ msg: '아이디와 비밀번호를 입력해주세요.' });
       }

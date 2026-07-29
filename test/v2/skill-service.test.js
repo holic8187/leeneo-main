@@ -60,17 +60,47 @@ test('accumulated piercing settlement is an escalating six-target attack', () =>
   assert.equal(values.piercingStartPercent, 250);
   assert.equal(values.piercingEndPercent, 850);
   assert.equal(values.targetCount, 6);
-  assert.equal(values.preCastDelaySeconds, 1.5);
+  assert.equal(values.preCastDelaySeconds, 1);
   assert.equal(values.cooldownSeconds, undefined);
   assert.deepEqual(resolveSkillCastProfile(values), {
     hitCount: 1,
     mpCostMultiplier: 1,
-    preCastDelaySeconds: 1.5,
+    preCastDelaySeconds: 1,
     postCastDelaySeconds: 0,
     channelDurationSeconds: 0,
     channelIntervalSeconds: 0,
     lockSeconds: 0
   });
+});
+
+test('triple offer resolves as three separate hits', () => {
+  const skill = SKILL_DEFINITIONS.extended_eb778160dd;
+  const values = resolveSkillValues(skill, skill.maxLevel);
+  const cast = resolveSkillCastProfile(values);
+
+  assert.equal(skill.target, 'enemy');
+  assert.equal(values.hits, 3);
+  assert.equal(cast.hitCount, 3);
+  assert.equal(cast.mpCostMultiplier, 1);
+});
+
+test('all big bang variants auto-charge and burst at up to three nearby targets', () => {
+  for (const skillId of [
+    'extended_b517ab1d69',
+    'extended_2e29f80103',
+    'extended_72b5477b43'
+  ]) {
+    const skill = SKILL_DEFINITIONS[skillId];
+    const values = resolveSkillValues(skill, skill.maxLevel);
+
+    assert.equal(skill.target, 'enemies');
+    assert.equal(skill.maxTargets, 3);
+    assert.equal(skill.range, 150);
+    assert.equal(values.targetCount, 3);
+    assert.equal(values.range, 150);
+    assert.equal(values.preCastDelaySeconds, 1);
+    assert.equal(resolveSkillCastProfile(values).preCastDelaySeconds, 1);
+  }
 });
 
 test('salary lupin and the double experience coupon coexist at 2.2x experience', () => {

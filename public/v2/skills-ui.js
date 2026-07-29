@@ -2,6 +2,12 @@
 
 let selectedSkillPanelTab = 'beginner';
 const skillInvestmentDrafts = new Map();
+const TRIPLE_OFFER_SKILL_ID = 'extended_eb778160dd';
+const BIG_BANG_SKILL_IDS = new Set([
+  'extended_b517ab1d69',
+  'extended_2e29f80103',
+  'extended_72b5477b43'
+]);
 
 function buildSkillBody() {
   const tree = state.character?.skillTree;
@@ -811,6 +817,8 @@ async function useActiveSkill(skillId, options = {}) {
       String(skill.id || '') === 'extended_cd94045605'
       || String(skill.effect || '') === 'progressive-piercing-damage'
     );
+    const tripleOfferSkill = String(skill.id || '') === TRIPLE_OFFER_SKILL_ID;
+    const bigBangSkill = BIG_BANG_SKILL_IDS.has(String(skill.id || ''));
     const pendingPiercingTargetIds = new Set();
     const retainPreparedTargets = (prepared) => {
       const ids = (prepared?.targets || []).map((monster) => String(monster.id || '')).filter(Boolean);
@@ -857,6 +865,7 @@ async function useActiveSkill(skillId, options = {}) {
       });
     };
     let data;
+    let handledSequentialHits = false;
     if (channelDurationSeconds > 0 && typeof playChanneledSkillMotion === 'function') {
       data = await requestSkillUse();
       if (options.automatic && data.character) {
@@ -877,6 +886,33 @@ async function useActiveSkill(skillId, options = {}) {
         motionRunId,
         `${skill.name} 연사 중`
       );
+    } else if (tripleOfferSkill && typeof playChanneledSkillMotion === 'function') {
+      data = await requestSkillUse();
+      if (options.automatic && data.character) {
+        state.character = data.character;
+        preloadNextAutoSkillForCombat();
+      }
+      const hitCount = Math.max(1, Math.floor(Number(skill.values?.hits) || 3));
+      const hitResults = (data.combat?.outcomes?.[0]?.hitResults || [])
+        .slice(0, hitCount)
+        .map((hit) => ({
+          ...hit,
+          critical: Boolean(hit.critical || data.combat?.critical)
+        }));
+      await playChanneledSkillMotion(
+        {
+          durationMs: hitCount * 170,
+          intervalMs: 170,
+          hitCount,
+          projectileSpeedMultiplier: 1.25,
+          motion: 'throw',
+          hitResults
+        },
+        motionKind,
+        motionRunId,
+        `${skill.name} 3연타 중`
+      );
+      handledSequentialHits = true;
     } else if (preCastDelayMs > 0) {
       setWorldActivity(`${skill.name} 충전 중 · ${(preCastDelayMs / 1000).toFixed(1)}초`);
       setCharacterMotion('cast');
@@ -946,7 +982,21 @@ async function useActiveSkill(skillId, options = {}) {
             applySkillCombatOutcome(outcome, data.combat, impactPoint)
           )
         });
-      } else if (!data.combat.channel && typeof playSkillVisualEffect === 'function') {
+      } else if (
+        !data.combat.channel
+        && bigBangSkill
+        && typeof playBigBangVisual === 'function'
+      ) {
+        await playBigBangVisual(data.skill, data.combat, {
+          onImpact: (outcome, index, impactPoint) => (
+            applySkillCombatOutcome(outcome, data.combat, impactPoint)
+          )
+        });
+      } else if (
+        !data.combat.channel
+        && !handledSequentialHits
+        && typeof playSkillVisualEffect === 'function'
+      ) {
         playSkillVisualEffect(data.skill, data.combat);
         applySkillCombat(data.combat);
       }
