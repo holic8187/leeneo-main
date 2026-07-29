@@ -166,6 +166,7 @@ test('players in the same map see one another and an empty map is discarded', ()
     now: 1_100
   });
   assert.deepEqual(shared.players.map((player) => player.nickname).sort(), ['사원A', '사원B']);
+  assert.ok(shared.players.every((player) => Array.isArray(player.statusEffects)));
   leaveWorld('user-a');
   leaveWorld('user-b');
   const fresh = updatePresence({
@@ -1919,6 +1920,76 @@ test('follow-up summons repeat every skill hit and its on-hit effects', () => {
   assert.equal(outcome.stunApplications, 2);
 });
 
+<<<<<<< HEAD
+=======
+test('multi-hit skills and follow-up summons roll criticals independently per visible hit', () => {
+  const originalRandom = Math.random;
+  let state;
+  try {
+    Math.random = () => 0.9;
+    state = updatePresence({
+      userId: 'sales-critical-user',
+      nickname: 'sales-critical-user',
+      mapId: 'newcomer_training',
+      x: 50,
+      floor: 0,
+      currentHp: 120,
+      maxHp: 120,
+      now: 1_000
+    });
+  } finally {
+    Math.random = originalRandom;
+  }
+  const monster = state.monsters.find((entry) => entry.floor === 0);
+  updatePresence({
+    userId: 'sales-critical-user',
+    nickname: 'sales-critical-user',
+    mapId: 'newcomer_training',
+    x: monster.x,
+    floor: 0,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_050
+  });
+
+  const rolls = [0, 0.1, 0.9, 0.1, 0.9, 0.1, 0.9];
+  let result;
+  try {
+    Math.random = () => rolls.shift() ?? 0.9;
+    result = useSkillOnMonsters({
+      userId: 'sales-critical-user',
+      mapId: 'newcomer_training',
+      targetId: monster.id,
+      baseDamage: 1,
+      skillPercent: 100,
+      rangePx: 1_000,
+      hits: 3,
+      ignoreDefense: true,
+      leaveAtOneHp: true,
+      criticalChance: 50,
+      criticalDamagePercent: 200,
+      rollCriticalPerHit: true,
+      bonusAttacks: [{
+        percent: 50,
+        source: 'follow-up-summon',
+        repeatEffects: true
+      }],
+      now: 1_100
+    });
+  } finally {
+    Math.random = originalRandom;
+  }
+
+  const hits = result.outcomes[0].hitResults;
+  assert.equal(hits.length, 6);
+  assert.deepEqual(hits.map((hit) => hit.critical), [
+    true, false, true, false, true, false
+  ]);
+  assert.ok(hits.slice(0, 3).every((hit) => !hit.followUpAttack));
+  assert.ok(hits.slice(3).every((hit) => hit.followUpAttack));
+});
+
+>>>>>>> 3d9207d (a)
 test('skill hits can trigger close-range execution passives', () => {
   const originalRandom = Math.random;
   let state;

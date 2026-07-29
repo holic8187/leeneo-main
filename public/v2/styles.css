@@ -1446,6 +1446,32 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 .leg-right { left: 20px; transform: rotate(-28deg); }
 .field-character.facing-left { transform: scaleX(-1); }
 .field-character.facing-left .character-tag { transform: translateX(-50%) scaleX(-1); }
+.character-status-indicator {
+  position: absolute;
+  z-index: 26;
+  top: -86px;
+  left: 50%;
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  border: 3px solid rgba(255, 227, 154, .95);
+  border-radius: 50%;
+  opacity: 0;
+  color: #fff;
+  background: rgba(91, 23, 30, .94);
+  box-shadow: 0 0 16px rgba(255, 93, 97, .86), inset 0 0 12px rgba(255, 255, 255, .18);
+  font-size: 42px;
+  line-height: 1;
+  transform: translateX(-50%);
+  transition: opacity .16s ease;
+  pointer-events: none;
+}
+.character-status-indicator.is-visible { opacity: 1; }
+.field-character.facing-left .character-status-indicator,
+.remote-player.facing-left .character-status-indicator {
+  transform: translateX(-50%) scaleX(-1);
+}
 .field-character.is-walking .character-tag,
 .field-character.is-walking .character-head,
 .field-character.is-walking .character-body {
@@ -2390,6 +2416,12 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
   gap: 8px;
   align-items: center;
 }
+.movement-command-pair {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
 .field-control { min-height: 40px; padding: 8px 12px; border-color: var(--green); color: var(--green); background: #f4f7f2; }
 .field-control:disabled { cursor: wait; }
 .combat-toggle.is-on { color: #fff; background: var(--green); box-shadow: inset 0 0 0 2px rgba(255,255,255,.18); }
@@ -2578,23 +2610,22 @@ form button.secondary-action { color: var(--green); background: #edf4ef; }
 }
 .potion-config-button { grid-template-columns: 1fr; color: var(--green); background: #edf4ed; }
 .consumable-config-button { min-height: 52px; justify-items: center; text-align: center; }
-.movement-quickbar { margin-top: 8px; }
 .jump-control {
-  min-height: 38px;
-  padding: 6px 12px;
-  display: grid;
-  grid-template-columns: auto 1fr auto;
+  min-width: 0;
+  min-height: 40px;
+  padding: 4px 3px;
+  display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: center;
+  gap: 3px;
   color: #f8f2c8;
   border: 1px solid #9d7b2d;
-  background: linear-gradient(90deg, #26372f, #17694a 48%, #26372f);
+  background: #17694a;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
-  text-align: left;
+  text-align: center;
 }
-.jump-control span { color: #f2ca67; font: 900 10px ui-monospace, monospace; letter-spacing: .12em; }
-.jump-control strong { font-size: 13px; }
-.jump-control small { color: #dce8df; font-size: 9px; }
+.jump-control span { color: #f2ca67; font-size: 14px; font-weight: 1000; line-height: 1; }
+.jump-control strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .jump-control:active { translate: 0 1px; filter: brightness(1.18); }
 .jump-control:disabled { opacity: .45; cursor: not-allowed; }
 .potion-slot-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }

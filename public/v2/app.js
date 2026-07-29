@@ -127,6 +127,7 @@ const state = {
   activeFeature: '',
   autoPotionBusy: { hp: false, mp: false },
   potionUseBusy: false,
+  consumableUseBusy: false,
   autoPotionCheckRunning: false,
   manualSkillPriority: false,
   manualSkillQueue: [],
@@ -1674,7 +1675,11 @@ function playBigBangVisual(skill = {}, combat = {}, { onImpact = null } = {}) {
     y: casterRect.top - stageRect.top + casterRect.height * .5
   };
   const radius = Math.max(1, Number(skill.values?.range ?? skill.range) || 150);
+<<<<<<< HEAD
   const diameter = Math.max(110, stageRect.width * radius * 2 / 760);
+=======
+  const diameter = Math.max(55, stageRect.width * radius / 760);
+>>>>>>> 3d9207d (a)
   const pulseIntervalMs = 150;
 
   outcomes.forEach((outcome, index) => {
@@ -2961,6 +2966,20 @@ function activityLabel(activity) {
   return activity === 'moving' ? '이동 중' : (activity === 'combat' ? '전투 중' : '대기 중');
 }
 
+function renderPlayerStatusIndicator(element, player = {}, now = Date.now()) {
+  const indicator = element?.querySelector('.character-status-indicator');
+  if (!indicator) return;
+  const activeStatuses = (Array.isArray(player.statusEffects) ? player.statusEffects : [])
+    .filter((status) => Number(status?.expiresAt || 0) > now);
+  if (!activeStatuses.length && Number(player.silencedUntil || 0) > now) {
+    activeStatuses.push({ id: 'silence', name: '침묵', icon: '🔒' });
+  }
+  indicator.textContent = activeStatuses.map((status) => status.icon || '⚠').join('');
+  indicator.title = activeStatuses.map((status) => status.name || '상태이상').join(' · ');
+  indicator.dataset.status = activeStatuses.map((status) => status.id || 'debuff').join(' ');
+  indicator.classList.toggle('is-visible', activeStatuses.length > 0);
+}
+
 function ensureRemotePlayerElement(player) {
   let element = Array.from($('remotePlayerLayer').children).find(
     (entry) => entry.dataset.userId === player.userId
@@ -2970,6 +2989,7 @@ function ensureRemotePlayerElement(player) {
   element.className = 'remote-player';
   element.dataset.userId = player.userId;
   element.innerHTML = `
+    <span class="character-status-indicator" aria-hidden="true"></span>
     <span class="remote-player-tag"><b></b><small></small></span>
     <span class="remote-skill-use"></span>
     <i class="remote-head"></i><i class="remote-body"></i>
@@ -3018,6 +3038,7 @@ function renderRemotePlayers(players = []) {
       'is-invulnerable',
       Number(player.invulnerableUntil) > state.worldServerTime
     );
+    renderPlayerStatusIndicator(element, player, state.worldServerTime);
     playRemoteJumpEvent(element, player.jumpEvent);
   });
   Array.from($('remotePlayerLayer').children).forEach((element) => {
@@ -3416,6 +3437,7 @@ function renderWorldEntities(data = {}) {
   }
   state.worldServerTime = Number(data.serverTime) || Date.now();
   if (data.self?.userId) state.selfUserId = data.self.userId;
+  renderPlayerStatusIndicator($('fieldCharacter'), data.self, state.worldServerTime);
   if (data.self && state.character?.skillTree) {
     state.character.skillTree.summon = data.self.summon || null;
     state.character.skillTree.decoySummon = data.self.decoySummon || null;
@@ -3802,8 +3824,8 @@ async function useQuickPotion(slot, automatic = false) {
 }
 
 async function useConsumableQuickSlot(slot) {
-  if (state.dead || state.potionUseBusy) return;
-  state.potionUseBusy = true;
+  if (state.dead || state.consumableUseBusy) return;
+  state.consumableUseBusy = true;
   try {
     const data = await request('/api/v2/inventory/use-consumable-slot', {
       method: 'POST',
@@ -3832,11 +3854,14 @@ async function useConsumableQuickSlot(slot) {
       $('featureBody').innerHTML = potionConfigurationBody();
       bindPotionControls();
     }
+    if (data.cleansed) {
+      renderPlayerStatusIndicator($('fieldCharacter'), {}, Date.now());
+    }
     setWorldActivity(data.message);
   } catch (err) {
     setWorldActivity(err.message);
   } finally {
-    state.potionUseBusy = false;
+    state.consumableUseBusy = false;
   }
 }
 

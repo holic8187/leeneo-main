@@ -13,6 +13,7 @@ const {
 const {
   registerV2Routes,
   validateSignupPayload,
+  shouldRollSkillCriticalPerHit,
   MARKETPLACE_LISTING_HOURS,
   getMarketplaceListingExpiresAt,
   getMarketplaceArchetypeItemIds
@@ -22,6 +23,28 @@ const {
   getIncompleteMigrationIds,
   getOrphanedDeletedIds
 } = require('../../src/v2/services/automaticMigrationService');
+
+test('multi-hit and follow-up skill attacks request independent critical rolls', () => {
+  assert.equal(shouldRollSkillCriticalPerHit({
+    effect: 'damage',
+    hitCount: 3,
+    hasFollowUpAttack: true
+  }), true);
+  assert.equal(shouldRollSkillCriticalPerHit({
+    effect: 'damage',
+    hitCount: 1,
+    hasFollowUpAttack: true
+  }), true);
+  assert.equal(shouldRollSkillCriticalPerHit({
+    effect: 'damage',
+    hitCount: 1
+  }), false);
+  assert.equal(shouldRollSkillCriticalPerHit({
+    effect: 'fixed-damage',
+    hitCount: 6,
+    hasFollowUpAttack: true
+  }), false);
+});
 
 function createLegacyUser(overrides = {}) {
   return {

@@ -493,6 +493,21 @@ function scaleDamageRange(range, multiplier = 1) {
   };
 }
 
+function shouldRollSkillCriticalPerHit({
+  effect,
+  hitCount = 1,
+  channelDurationSeconds = 0,
+  hasFollowUpAttack = false,
+  hasDoubleStrike = false
+} = {}) {
+  return effect !== 'fixed-damage' && (
+    Number(hitCount) > 1
+    || Number(channelDurationSeconds) > 0
+    || Boolean(hasFollowUpAttack)
+    || Boolean(hasDoubleStrike)
+  );
+}
+
 function buildProfileMagicDamageRange(profile, skillAttack = 100) {
   return calculateMagicDamageRange({
     magic: profile?.derivedStats?.magic,
@@ -1946,12 +1961,13 @@ function registerV2Routes({
       const ammunition = definition.effect === 'fixed-damage'
         ? null
         : getCombatAmmunition(profile);
-      const ammunitionCount = Math.max(
+      const runtimeHitCount = Math.max(
         1,
         upgradedAudit
           ? Number(preUseEffects.upgradedAuditHits)
           : castProfile.hitCount
       );
+      const ammunitionCount = runtimeHitCount;
       if (
         ammunition
         && !preUseEffects.noAmmoConsumption
@@ -1978,8 +1994,17 @@ function registerV2Routes({
         baseDamage += Number(ammunition?.attackBonus) || 0;
       }
       const activeElements = getActiveWeaponElements(skillState, now);
-      const rollCriticalPerHit = castProfile.channelDurationSeconds > 0
-        && definition.effect !== 'fixed-damage';
+      const doubleStrike = Math.random() * 100
+        < Number(preUseEffects.doubleStrikeChance || 0);
+      const followUpSummon = getActiveFollowUpSummon(skillState, now);
+      const followUpAttack = buildFollowUpBonusAttack(followUpSummon, 'skill');
+      const rollCriticalPerHit = shouldRollSkillCriticalPerHit({
+        effect: definition.effect,
+        hitCount: runtimeHitCount,
+        channelDurationSeconds: castProfile.channelDurationSeconds,
+        hasFollowUpAttack: Boolean(followUpAttack),
+        hasDoubleStrike: doubleStrike
+      });
       const critical = !rollCriticalPerHit && definition.effect !== 'fixed-damage'
         && Math.random() * 100 < Number(profile.derivedStats.criticalChance || 0);
       let damageMultiplier = 1;
@@ -2009,10 +2034,13 @@ function registerV2Routes({
       }
       if (damageRange) damageRange = scaleDamageRange(damageRange, damageMultiplier);
       else baseDamage *= damageMultiplier;
+<<<<<<< HEAD
       const doubleStrike = Math.random() * 100
         < Number(preUseEffects.doubleStrikeChance || 0);
       const followUpSummon = getActiveFollowUpSummon(skillState, now);
       const followUpAttack = buildFollowUpBonusAttack(followUpSummon, 'skill');
+=======
+>>>>>>> 3d9207d (a)
       const bonusAttacks = [
         followUpAttack,
         doubleStrike
@@ -2032,9 +2060,13 @@ function registerV2Routes({
         skillPercent: skillPercentForRuntime,
         rangePx: Number(values.range ?? definition.range) || 100,
         maxTargets: Number(values.targetCount ?? definition.maxTargets) || 1,
+<<<<<<< HEAD
         hits: upgradedAudit
           ? Number(preUseEffects.upgradedAuditHits)
           : castProfile.hitCount,
+=======
+        hits: runtimeHitCount,
+>>>>>>> 3d9207d (a)
         bonusAttacks,
         element: definition.element,
         elements: activeElements.length ? activeElements : [definition.element],
@@ -3495,12 +3527,13 @@ function registerV2Routes({
           const ammunition = definition.effect === 'fixed-damage'
             ? null
             : getCombatAmmunition(response);
-          const ammunitionCount = Math.max(
+          const runtimeHitCount = Math.max(
             1,
             upgradedAudit
               ? Number(activeEffects.upgradedAuditHits)
               : castProfile.hitCount
           );
+          const ammunitionCount = runtimeHitCount;
           if (
             ammunition
             && !activeEffects.noAmmoConsumption
@@ -3528,8 +3561,17 @@ function registerV2Routes({
           } else {
             baseDamage += Number(ammunition?.attackBonus) || 0;
           }
-          const rollCriticalPerHit = castProfile.channelDurationSeconds > 0
-            && definition.effect !== 'fixed-damage';
+          const doubleStrike = Math.random() * 100
+            < Number(activeEffects.doubleStrikeChance || 0);
+          const followUpSummon = getActiveFollowUpSummon(skillState, now);
+          const followUpAttack = buildFollowUpBonusAttack(followUpSummon, 'skill');
+          const rollCriticalPerHit = shouldRollSkillCriticalPerHit({
+            effect: definition.effect,
+            hitCount: runtimeHitCount,
+            channelDurationSeconds: castProfile.channelDurationSeconds,
+            hasFollowUpAttack: Boolean(followUpAttack),
+            hasDoubleStrike: doubleStrike
+          });
           const critical = !rollCriticalPerHit && definition.effect !== 'fixed-damage'
             && Math.random() * 100 < Number(response.derivedStats.criticalChance || 0);
           let damageMultiplier = 1;
@@ -3561,10 +3603,13 @@ function registerV2Routes({
           }
           if (damageRange) damageRange = scaleDamageRange(damageRange, damageMultiplier);
           else baseDamage *= damageMultiplier;
+<<<<<<< HEAD
           const doubleStrike = Math.random() * 100
             < Number(activeEffects.doubleStrikeChance || 0);
           const followUpSummon = getActiveFollowUpSummon(skillState, now);
           const followUpAttack = buildFollowUpBonusAttack(followUpSummon, 'skill');
+=======
+>>>>>>> 3d9207d (a)
           const bonusAttacks = [
             followUpAttack,
             doubleStrike
@@ -3584,9 +3629,13 @@ function registerV2Routes({
             skillPercent: skillPercentForRuntime,
             rangePx: Number(values.range ?? definition.range) || 100,
             maxTargets: Number(values.targetCount ?? definition.maxTargets) || 1,
+<<<<<<< HEAD
             hits: upgradedAudit
               ? Number(activeEffects.upgradedAuditHits)
               : castProfile.hitCount,
+=======
+            hits: runtimeHitCount,
+>>>>>>> 3d9207d (a)
             bonusAttacks,
             element: definition.element,
             elements: activeElements.length ? activeElements : [definition.element],
@@ -6605,6 +6654,7 @@ module.exports = {
   calculatePartyExperienceShares,
   calculateWelfareSupportDamage,
   calculateMoneyDropAmount,
+  shouldRollSkillCriticalPerHit,
   serializeMarketplaceListing,
   MARKETPLACE_LISTING_HOURS,
   getMarketplaceListingExpiresAt,

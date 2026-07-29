@@ -919,7 +919,11 @@ async function useActiveSkill(skillId, options = {}) {
       const rawHitResults = (data.combat?.outcomes?.[0]?.hitResults || [])
         .map((hit) => ({
           ...hit,
+<<<<<<< HEAD
           critical: Boolean(hit.critical || data.combat?.critical)
+=======
+          critical: Boolean(hit.critical)
+>>>>>>> 3d9207d (a)
         }));
       const hitResults = typeof orderFollowUpHitResults === 'function'
         ? orderFollowUpHitResults(rawHitResults)

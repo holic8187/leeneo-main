@@ -654,6 +654,15 @@ function serializePlayer(player, now = Date.now()) {
       maxSummonHp: Math.max(0, Number(player.decoySummon.maxSummonHp) || 0)
     }
     : null;
+  const statusEffects = [];
+  if (Number(player.silencedUntil || 0) > now) {
+    statusEffects.push({
+      id: 'silence',
+      name: '침묵',
+      icon: '🔒',
+      expiresAt: Number(player.silencedUntil)
+    });
+  }
   return {
     userId: player.userId,
     nickname: player.nickname,
@@ -669,6 +678,7 @@ function serializePlayer(player, now = Date.now()) {
     maxMp: player.maxMp,
     invulnerableUntil: player.invulnerableUntil,
     silencedUntil: Number(player.silencedUntil) || 0,
+    statusEffects,
     stealth: Number(player.combatProfile?.stealth) > 0,
     online: now - Number(player.lastSeenAt || 0) <= PLAYER_TIMEOUT_MS,
     autoHunting: Boolean(player.autoHunting),
@@ -3048,11 +3058,22 @@ function isPlayerSilenced(userId, mapId, now = Date.now()) {
 }
 
 function clearPlayerNegativeStatus(userId, mapId) {
-  const runtime = activeMaps.get(String(mapId || ''));
-  const player = runtime?.players.get(String(userId || ''));
-  if (!player) return false;
-  player.silencedUntil = 0;
-  return true;
+  const userKey = String(userId || '');
+  const preferredMapId = String(mapId || '');
+  const runtimes = [
+    activeMaps.get(preferredMapId),
+    ...Array.from(activeMaps.entries())
+      .filter(([activeMapId]) => activeMapId !== preferredMapId)
+      .map(([, runtime]) => runtime)
+  ].filter(Boolean);
+  let cleansed = false;
+  for (const runtime of runtimes) {
+    const player = runtime.players.get(userKey);
+    if (!player) continue;
+    cleansed = cleansed || Number(player.silencedUntil || 0) > 0;
+    player.silencedUntil = 0;
+  }
+  return cleansed;
 }
 
 function resetWorldRuntime() {
