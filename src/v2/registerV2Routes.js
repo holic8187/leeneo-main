@@ -2034,13 +2034,6 @@ function registerV2Routes({
       }
       if (damageRange) damageRange = scaleDamageRange(damageRange, damageMultiplier);
       else baseDamage *= damageMultiplier;
-<<<<<<< HEAD
-      const doubleStrike = Math.random() * 100
-        < Number(preUseEffects.doubleStrikeChance || 0);
-      const followUpSummon = getActiveFollowUpSummon(skillState, now);
-      const followUpAttack = buildFollowUpBonusAttack(followUpSummon, 'skill');
-=======
->>>>>>> 3d9207d (a)
       const bonusAttacks = [
         followUpAttack,
         doubleStrike
@@ -2060,13 +2053,7 @@ function registerV2Routes({
         skillPercent: skillPercentForRuntime,
         rangePx: Number(values.range ?? definition.range) || 100,
         maxTargets: Number(values.targetCount ?? definition.maxTargets) || 1,
-<<<<<<< HEAD
-        hits: upgradedAudit
-          ? Number(preUseEffects.upgradedAuditHits)
-          : castProfile.hitCount,
-=======
         hits: runtimeHitCount,
->>>>>>> 3d9207d (a)
         bonusAttacks,
         element: definition.element,
         elements: activeElements.length ? activeElements : [definition.element],
@@ -3603,13 +3590,6 @@ function registerV2Routes({
           }
           if (damageRange) damageRange = scaleDamageRange(damageRange, damageMultiplier);
           else baseDamage *= damageMultiplier;
-<<<<<<< HEAD
-          const doubleStrike = Math.random() * 100
-            < Number(activeEffects.doubleStrikeChance || 0);
-          const followUpSummon = getActiveFollowUpSummon(skillState, now);
-          const followUpAttack = buildFollowUpBonusAttack(followUpSummon, 'skill');
-=======
->>>>>>> 3d9207d (a)
           const bonusAttacks = [
             followUpAttack,
             doubleStrike
@@ -3629,13 +3609,7 @@ function registerV2Routes({
             skillPercent: skillPercentForRuntime,
             rangePx: Number(values.range ?? definition.range) || 100,
             maxTargets: Number(values.targetCount ?? definition.maxTargets) || 1,
-<<<<<<< HEAD
-            hits: upgradedAudit
-              ? Number(activeEffects.upgradedAuditHits)
-              : castProfile.hitCount,
-=======
             hits: runtimeHitCount,
->>>>>>> 3d9207d (a)
             bonusAttacks,
             element: definition.element,
             elements: activeElements.length ? activeElements : [definition.element],

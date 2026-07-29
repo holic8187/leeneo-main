@@ -1675,11 +1675,7 @@ function playBigBangVisual(skill = {}, combat = {}, { onImpact = null } = {}) {
     y: casterRect.top - stageRect.top + casterRect.height * .5
   };
   const radius = Math.max(1, Number(skill.values?.range ?? skill.range) || 150);
-<<<<<<< HEAD
-  const diameter = Math.max(110, stageRect.width * radius * 2 / 760);
-=======
   const diameter = Math.max(55, stageRect.width * radius / 760);
->>>>>>> 3d9207d (a)
   const pulseIntervalMs = 150;
 
   outcomes.forEach((outcome, index) => {

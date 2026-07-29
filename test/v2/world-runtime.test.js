@@ -1920,8 +1920,6 @@ test('follow-up summons repeat every skill hit and its on-hit effects', () => {
   assert.equal(outcome.stunApplications, 2);
 });
 
-<<<<<<< HEAD
-=======
 test('multi-hit skills and follow-up summons roll criticals independently per visible hit', () => {
   const originalRandom = Math.random;
   let state;
@@ -1989,7 +1987,6 @@ test('multi-hit skills and follow-up summons roll criticals independently per vi
   assert.ok(hits.slice(3).every((hit) => hit.followUpAttack));
 });
 
->>>>>>> 3d9207d (a)
 test('skill hits can trigger close-range execution passives', () => {
   const originalRandom = Math.random;
   let state;
