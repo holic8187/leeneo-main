@@ -7,6 +7,9 @@ const {
   acceptInvitation,
   removeMember,
   getPartyState,
+  recordPartyMonsterKill,
+  isPartyExperienceEligible,
+  PARTY_EXP_ACTIVITY_WINDOW_MS,
   resetPartyRuntime
 } = require('../../src/v2/services/partyService');
 
@@ -35,4 +38,32 @@ test('only the leader can kick another party member', () => {
   assert.throws(() => removeMember('leader', 'member'), /파티장만/);
   removeMember('member', 'leader');
   assert.equal(getPartyState('member').party, null);
+});
+
+test('party experience stops after two minutes without a kill and resumes on kill', () => {
+  const joinedAt = Date.now();
+  const invitation = invitePlayer(
+    { userId: 'leader', nickname: 'leader' },
+    { userId: 'member', nickname: 'member' }
+  );
+  acceptInvitation({ userId: 'member', nickname: 'member' }, invitation.id);
+
+  assert.equal(
+    isPartyExperienceEligible('member', joinedAt + PARTY_EXP_ACTIVITY_WINDOW_MS - 1),
+    true
+  );
+  assert.equal(
+    isPartyExperienceEligible('member', joinedAt + PARTY_EXP_ACTIVITY_WINDOW_MS + 10),
+    false
+  );
+
+  recordPartyMonsterKill('member', joinedAt + PARTY_EXP_ACTIVITY_WINDOW_MS + 20);
+  assert.equal(
+    isPartyExperienceEligible('member', joinedAt + PARTY_EXP_ACTIVITY_WINDOW_MS + 30),
+    true
+  );
+  assert.equal(
+    Object.hasOwn(getPartyState('member').party.members[0], 'lastKillAt'),
+    false
+  );
 });

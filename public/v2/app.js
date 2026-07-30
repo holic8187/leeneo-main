@@ -2,6 +2,11 @@
 
 const HUNTING_TIME_CACHE_KEY = 'v2HuntingTime';
 const WORLD_HEARTBEAT_INTERVAL_MS = 1000;
+const BIG_BANG_VISUAL_SKILL_IDS = new Set([
+  'extended_b517ab1d69',
+  'extended_2e29f80103',
+  'extended_72b5477b43'
+]);
 const DEFAULT_HUNTING_TIME = Object.freeze({
   remainingSeconds: 0,
   maximumSeconds: 24000,
@@ -83,9 +88,15 @@ const state = {
   pendingCombatVisualMonsterIds: new Set(),
   lastWorldSnapshotReceivedAt: 0,
   recentlyCollectedLootIds: new Map(),
+  playedFieldBossRewardIds: new Set(),
   combatTargetId: '',
   rallyPoint: null,
   worldServerTime: 0,
+  worldRemotePlayers: [],
+  partyMemberIds: new Set(),
+  worldCameraX: 0,
+  worldCameraY: 0,
+  worldCameraFrame: 0,
   invulnerableUntil: 0,
   invulnerabilityTimer: null,
   lastContactDamageKey: '',
@@ -122,6 +133,7 @@ const state = {
   activeFeature: '',
   autoPotionBusy: { hp: false, mp: false },
   potionUseBusy: false,
+  consumableUseBusy: false,
   autoPotionCheckRunning: false,
   manualSkillPriority: false,
   manualSkillQueue: [],
@@ -831,20 +843,23 @@ async function enterWorkspace() {
   }
 }
 
+function normalizePasswordInput(value = '') {
+  return window.V2SignupValidation.normalizePasswordInput(value);
+}
+
 function updateSignupButtonState() {
-  const password = $('signupPassword').value;
-  const confirmation = $('signupPasswordConfirm').value;
-  const passwordsMatch = password.length >= 6 && password === confirmation;
-  $('passwordMatchState').textContent = passwordsMatch
-    ? '비밀번호가 일치합니다.'
-    : (confirmation ? '비밀번호가 일치하지 않습니다.' : '비밀번호 확인을 입력해주세요.');
-  $('passwordMatchState').classList.toggle('is-valid', passwordsMatch);
+  const passwordState = window.V2SignupValidation.getPasswordValidationState(
+    $('signupPassword').value,
+    $('signupPasswordConfirm').value
+  );
+  $('passwordMatchState').textContent = passwordState.message;
+  $('passwordMatchState').classList.toggle('is-valid', passwordState.valid);
   $('signupCodeState').classList.toggle('is-valid', state.signupCodeValid);
 
   const fieldsValid = /^[A-Za-z0-9_]{3,24}$/.test($('signupUsername').value.trim())
     && $('signupNickname').value.trim().length >= 2
     && $('signupNickname').value.trim().length <= 12;
-  $('signupSubmitButton').disabled = !(fieldsValid && passwordsMatch && state.signupCodeValid);
+  $('signupSubmitButton').disabled = !(fieldsValid && passwordState.valid && state.signupCodeValid);
 }
 
 async function validateSignupCode() {
@@ -911,8 +926,8 @@ async function signup(event) {
       body: JSON.stringify({
         username: $('signupUsername').value.trim(),
         nickname: $('signupNickname').value.trim(),
-        password: $('signupPassword').value,
-        passwordConfirm: $('signupPasswordConfirm').value,
+        password: normalizePasswordInput($('signupPassword').value),
+        passwordConfirm: normalizePasswordInput($('signupPasswordConfirm').value),
         signupCode: $('signupCode').value.trim()
       })
     });
@@ -1019,16 +1034,237 @@ const CHARACTER_MOTION_CLASSES = [
   'is-cast',
   'is-dead'
 ];
-const PORTAL_POSITIONS = [
-  { left: '4%', side: 'left', characterX: 8 },
-  { left: '82%', side: 'right', characterX: 78 },
-  { left: '61%', side: 'upper', characterX: 61 },
-  { left: '32%', side: 'left', characterX: 34 },
-  { left: '46%', side: 'upper', characterX: 46 }
-];
-
 function getMap(mapId) {
   return state.maps.find((map) => map.id === mapId) || null;
+}
+
+const FALLBACK_MAP_LAYOUT = Object.freeze({
+  id: 'fallback',
+  worldWidth: 760,
+  worldHeight: 390,
+  maxMonsters: 14,
+  spawnPerWave: 6,
+  platforms: Object.freeze([
+    Object.freeze({
+      id: 'ground',
+      floor: 0,
+      x: 0,
+      width: 100,
+      bottom: 42,
+      spawnEnabled: true,
+      spawnSlots: 14
+    })
+  ]),
+  connectors: Object.freeze([])
+});
+
+function getMapLayout(map = getMap(state.currentMapId)) {
+  return map?.layout || FALLBACK_MAP_LAYOUT;
+}
+
+function getWorldWidth(map = getMap(state.currentMapId)) {
+  return Math.max(760, Number(getMapLayout(map).worldWidth) || 760);
+}
+
+function getWorldHeight(map = getMap(state.currentMapId)) {
+  return Math.max(300, Number(getMapLayout(map).worldHeight) || 390);
+}
+
+function getFloorPlatforms(floor, map = getMap(state.currentMapId)) {
+  return getMapLayout(map).platforms.filter(
+    (platform) => Number(platform.floor) === Math.max(0, Math.floor(Number(floor) || 0))
+  );
+}
+
+function getPlatformAt(floor, worldX = 50, map = getMap(state.currentMapId)) {
+  const platforms = getFloorPlatforms(floor, map);
+  if (!platforms.length) return getMapLayout(map).platforms[0] || FALLBACK_MAP_LAYOUT.platforms[0];
+  const x = Number(worldX) || 0;
+  return platforms.find((platform) => (
+    x >= Number(platform.x)
+    && x <= Number(platform.x) + Number(platform.width)
+  )) || [...platforms].sort((left, right) => {
+    const leftCenter = Number(left.x) + Number(left.width) / 2;
+    const rightCenter = Number(right.x) + Number(right.width) / 2;
+    return Math.abs(leftCenter - x) - Math.abs(rightCenter - x);
+  })[0];
+}
+
+function getFloorBottom(floor, worldX = 50, map = getMap(state.currentMapId)) {
+  return Math.max(42, Number(getPlatformAt(floor, worldX, map)?.bottom) || 42);
+}
+
+function clampToPlatform(worldX, floor, map = getMap(state.currentMapId)) {
+  const platform = getPlatformAt(floor, worldX, map);
+  const minimum = Math.max(1, Number(platform.x) + 1);
+  const maximum = Math.min(96, Number(platform.x) + Number(platform.width) - 1);
+  return Math.max(minimum, Math.min(maximum, Number(worldX) || minimum));
+}
+
+function setCharacterFloor(floor, worldX = getCharacterX()) {
+  const character = $('fieldCharacter');
+  if (!character) return;
+  const resolvedFloor = Math.max(0, Math.floor(Number(floor) || 0));
+  character.dataset.floor = String(resolvedFloor);
+  character.style.bottom = `${getFloorBottom(resolvedFloor, worldX)}px`;
+}
+
+function getConnectorBetweenFloors(fromFloor, toFloor, worldX = getCharacterX()) {
+  return getMapLayout().connectors
+    .filter((connector) => (
+      (
+        Number(connector.fromFloor) === Number(fromFloor)
+        && Number(connector.toFloor) === Number(toFloor)
+      ) || (
+        Number(connector.fromFloor) === Number(toFloor)
+        && Number(connector.toFloor) === Number(fromFloor)
+      )
+    ))
+    .sort((left, right) => (
+      Math.abs(Number(left.x) - Number(worldX))
+      - Math.abs(Number(right.x) - Number(worldX))
+    ))[0] || null;
+}
+
+function renderWorldDecorations(map) {
+  const layer = $('worldDecorationLayer');
+  if (!layer) return;
+  const layout = getMapLayout(map);
+  const count = Math.max(8, Math.round(getWorldWidth(map) / 150));
+  layer.innerHTML = Array.from({ length: count }, (_, index) => {
+    const left = (index * 19 + Number(layout.variant || 0) * 13) % 96;
+    const bottom = 54 + (index % 3) * 98;
+    return `<i class="world-prop prop-${index % 4}" style="left:${left}%;bottom:${bottom}px"></i>`;
+  }).join('');
+}
+
+function renderTerrain(map) {
+  const scene = $('worldScene');
+  const layer = $('terrainLayer');
+  if (!scene || !layer) return;
+  const layout = getMapLayout(map);
+  scene.style.width = `${getWorldWidth(map)}px`;
+  scene.style.height = `${getWorldHeight(map)}px`;
+  scene.dataset.layout = String(layout.id || 'fallback');
+  scene.dataset.variant = String(layout.variant || 0);
+  const platformMarkup = layout.platforms.map((platform) => (
+    `<div class="terrain-platform${platform.spawnEnabled === false ? ' is-quiet' : ''}" `
+    + `data-platform-id="${escapeHtml(platform.id)}" data-floor="${Number(platform.floor) || 0}" `
+    + `style="left:${Number(platform.x) || 0}%;width:${Number(platform.width) || 0}%;bottom:${Number(platform.bottom) || 42}px">`
+    + '<i></i><b></b></div>'
+  )).join('');
+  const connectorMarkup = layout.connectors.map((connector) => {
+    const fromBottom = getFloorBottom(connector.fromFloor, connector.x, map);
+    const toBottom = getFloorBottom(connector.toFloor, connector.x, map);
+    const lowerBottom = Math.min(fromBottom, toBottom) + 8;
+    const height = Math.max(54, Math.abs(toBottom - fromBottom) - 4);
+    return `<div class="terrain-connector is-${connector.type === 'jump' ? 'jump' : 'ladder'}" `
+      + `data-connector-id="${escapeHtml(connector.id)}" `
+      + `style="left:${Number(connector.x) || 0}%;bottom:${lowerBottom}px;height:${height}px">`
+      + '<i></i><i></i><i></i><i></i><i></i></div>';
+  }).join('');
+  layer.innerHTML = platformMarkup + connectorMarkup;
+  renderWorldDecorations(map);
+}
+
+function getMinimapPointBottom(floor, worldX, map = getMap(state.currentMapId)) {
+  return getFloorBottom(floor, worldX, map) / getWorldHeight(map) * 100;
+}
+
+function renderWorldMinimap(players = state.worldRemotePlayers) {
+  const canvas = $('worldMinimapCanvas');
+  const map = getMap(state.currentMapId);
+  if (!canvas || !map) return;
+  const layout = getMapLayout(map);
+  const partyIds = new Set(
+    state.partyState?.party?.members?.map((member) => String(member.userId))
+    || Array.from(state.partyMemberIds)
+  );
+  state.partyMemberIds = partyIds;
+  const terrain = layout.platforms.map((platform) => (
+    `<i class="minimap-platform" style="left:${Number(platform.x) || 0}%;`
+    + `width:${Number(platform.width) || 0}%;bottom:${getMinimapPointBottom(platform.floor, Number(platform.x) + Number(platform.width) / 2, map)}%"></i>`
+  )).join('');
+  const connectors = layout.connectors.map((connector) => {
+    const from = getMinimapPointBottom(connector.fromFloor, connector.x, map);
+    const to = getMinimapPointBottom(connector.toFloor, connector.x, map);
+    return `<i class="minimap-connector" style="left:${Number(connector.x) || 0}%;`
+      + `bottom:${Math.min(from, to)}%;height:${Math.max(3, Math.abs(to - from))}%"></i>`;
+  }).join('');
+  if (canvas.dataset.mapId !== map.id) {
+    canvas.dataset.mapId = map.id;
+    canvas.innerHTML = terrain + connectors
+      + '<b class="minimap-dot is-self" data-minimap-self></b>';
+  }
+  const visibleIds = new Set();
+  for (const player of players || []) {
+    const userId = String(player.userId);
+    if (!userId || userId === String(state.selfUserId)) continue;
+    visibleIds.add(userId);
+    let dot = [...canvas.querySelectorAll('[data-minimap-user]')].find(
+      (entry) => entry.dataset.minimapUser === userId
+    );
+    if (!dot) {
+      dot = document.createElement('b');
+      dot.className = 'minimap-dot';
+      dot.dataset.minimapUser = userId;
+      canvas.appendChild(dot);
+    }
+    dot.classList.toggle('is-party', partyIds.has(userId));
+    dot.classList.toggle('is-other', !partyIds.has(userId));
+    dot.style.left = `${Math.max(0, Math.min(100, Number(player.x) || 0))}%`;
+    dot.style.bottom = `${getMinimapPointBottom(player.floor, player.x, map)}%`;
+  }
+  canvas.querySelectorAll('[data-minimap-user]').forEach((dot) => {
+    if (!visibleIds.has(dot.dataset.minimapUser)) dot.remove();
+  });
+  $('worldMinimapName').textContent = map.name;
+  updateSelfMinimapDot();
+}
+
+function updateSelfMinimapDot() {
+  const dot = $('worldMinimapCanvas')?.querySelector('[data-minimap-self]');
+  if (!dot) return;
+  const x = getCharacterX();
+  dot.style.left = `${x}%`;
+  dot.style.bottom = `${getMinimapPointBottom(getCharacterFloor(), x)}%`;
+}
+
+function runWorldCameraFrame() {
+  const stage = $('worldStage');
+  const scene = $('worldScene');
+  const character = $('fieldCharacter');
+  if (stage && scene && character && stage.clientWidth > 0) {
+    const sceneWidth = scene.offsetWidth;
+    const sceneHeight = scene.offsetHeight;
+    const characterBottom = Number.parseFloat(character.style.bottom)
+      || getFloorBottom(getCharacterFloor(), getCharacterX());
+    const characterCenterX = character.offsetLeft + character.offsetWidth / 2;
+    const characterCenterY = sceneHeight - characterBottom - character.offsetHeight / 4;
+    const maximumX = Math.max(0, sceneWidth - stage.clientWidth);
+    const maximumY = Math.max(0, sceneHeight - stage.clientHeight);
+    const targetX = Math.max(0, Math.min(maximumX, characterCenterX - stage.clientWidth * .5));
+    const targetY = Math.max(0, Math.min(maximumY, characterCenterY - stage.clientHeight * .58));
+    state.worldCameraX += (targetX - state.worldCameraX) * .14;
+    state.worldCameraY += (targetY - state.worldCameraY) * .14;
+    if (Math.abs(targetX - state.worldCameraX) < .1) state.worldCameraX = targetX;
+    if (Math.abs(targetY - state.worldCameraY) < .1) state.worldCameraY = targetY;
+    scene.style.transform = `translate3d(${-state.worldCameraX}px, ${-state.worldCameraY}px, 0)`;
+    updateSelfMinimapDot();
+  }
+  state.worldCameraFrame = requestAnimationFrame(runWorldCameraFrame);
+}
+
+function startWorldCamera({ reset = false } = {}) {
+  if (reset) {
+    state.worldCameraX = 0;
+    state.worldCameraY = 0;
+    const scene = $('worldScene');
+    if (scene) scene.style.transform = 'translate3d(0, 0, 0)';
+  }
+  if (!state.worldCameraFrame) {
+    state.worldCameraFrame = requestAnimationFrame(runWorldCameraFrame);
+  }
 }
 
 function getCharacterLevel() {
@@ -1250,17 +1486,18 @@ function endManualSkillPriority() {
 }
 
 function getCharacterFloor() {
-  return (Number.parseFloat($('fieldCharacter').style.bottom) || 42) > 60 ? 1 : 0;
+  return Math.max(0, Math.floor(Number($('fieldCharacter')?.dataset.floor) || 0));
 }
 
 function getCharacterX() {
   const character = $('fieldCharacter');
-  const stage = $('worldStage');
+  const scene = $('worldScene');
+  if (!character || !scene) return 0;
   const renderedLeftPx = Number.parseFloat(getComputedStyle(character).left);
-  const renderedPercent = stage.clientWidth > 0 && Number.isFinite(renderedLeftPx)
-    ? renderedLeftPx / stage.clientWidth * 100
+  const renderedPercent = scene.clientWidth > 0 && Number.isFinite(renderedLeftPx)
+    ? renderedLeftPx / scene.clientWidth * 100
     : Number.parseFloat(character.style.left);
-  return Math.max(0, Math.min(94, Number(renderedPercent) || 0));
+  return Math.max(0, Math.min(100, Number(renderedPercent) || 0));
 }
 
 function stopCharacterMovementAtCurrentPosition() {
@@ -1280,7 +1517,7 @@ function stopCharacterMovementAtCurrentPosition() {
 }
 
 function getPortalFloor(portal) {
-  return portal?.side === 'upper' ? 1 : 0;
+  return Math.max(0, Math.floor(Number(portal?.floor) || 0));
 }
 
 function isCharacterTouchingPortal(portal) {
@@ -1296,12 +1533,13 @@ function loadStoredRallyPoint() {
       parsed
       && typeof parsed.mapId === 'string'
       && Number.isFinite(Number(parsed.x))
-      && [0, 1].includes(Number(parsed.floor))
+      && Number.isFinite(Number(parsed.floor))
     ) {
       return {
         mapId: parsed.mapId,
         x: Math.max(2, Math.min(92, Number(parsed.x))),
-        floor: Number(parsed.floor)
+        floor: Math.max(0, Math.floor(Number(parsed.floor) || 0)),
+        platformId: String(parsed.platformId || '')
       };
     }
   } catch (_) {}
@@ -1316,14 +1554,16 @@ function renderRallyPoint() {
   marker.classList.toggle('hidden', !visible);
   if (!visible) return;
   marker.style.left = `${point.x}%`;
-  marker.style.bottom = point.floor === 1
-    ? `${getUpperPlatformBottom()}px`
-    : '42px';
+  marker.style.bottom = `${getFloorBottom(point.floor, point.x)}px`;
 }
 
 function setRallyPoint(point) {
-  state.rallyPoint = point;
-  localStorage.setItem(RALLY_POINT_STORAGE_KEY, JSON.stringify(point));
+  const platform = getPlatformAt(point.floor, point.x);
+  state.rallyPoint = {
+    ...point,
+    platformId: String(point.platformId || platform?.id || '')
+  };
+  localStorage.setItem(RALLY_POINT_STORAGE_KEY, JSON.stringify(state.rallyPoint));
   renderRallyPoint();
 }
 
@@ -1336,33 +1576,30 @@ function clearRallyPoint(removeStored = true) {
 function getNearestWalkablePoint(clientX, clientY) {
   const stage = $('worldStage');
   const stageRect = stage.getBoundingClientRect();
-  const clickX = Math.max(0, Math.min(stageRect.width, clientX - stageRect.left));
-  const clickY = Math.max(0, Math.min(stageRect.height, clientY - stageRect.top));
-  const candidates = [{
-    xPx: Math.max(stageRect.width * .02, Math.min(stageRect.width * .92, clickX)),
-    yPx: stageRect.height - 42,
-    floor: 0
-  }];
-  const ladder = $('worldRope');
-  const upper = stage.querySelector('.platform-upper');
-  if (upper && ladder && !ladder.classList.contains('hidden')) {
-    const upperRect = upper.getBoundingClientRect();
-    const upperLeft = upperRect.left - stageRect.left;
-    const upperRight = upperRect.right - stageRect.left;
-    candidates.push({
-      xPx: Math.max(upperLeft, Math.min(upperRight, clickX)),
-      yPx: upperRect.top - stageRect.top,
-      floor: 1
-    });
-  }
+  const map = getMap(state.currentMapId);
+  const worldWidth = getWorldWidth(map);
+  const worldHeight = getWorldHeight(map);
+  const clickX = Math.max(0, Math.min(worldWidth, clientX - stageRect.left + state.worldCameraX));
+  const clickY = Math.max(0, Math.min(worldHeight, clientY - stageRect.top + state.worldCameraY));
+  const candidates = getMapLayout(map).platforms.map((platform) => {
+    const left = Number(platform.x) / 100 * worldWidth;
+    const right = (Number(platform.x) + Number(platform.width)) / 100 * worldWidth;
+    return {
+      xPx: Math.max(left + 8, Math.min(right - 8, clickX)),
+      yPx: worldHeight - Number(platform.bottom),
+      floor: Math.max(0, Math.floor(Number(platform.floor) || 0)),
+      platformId: String(platform.id || '')
+    };
+  });
   const selected = candidates.sort((left, right) => (
     Math.hypot(left.xPx - clickX, left.yPx - clickY)
       - Math.hypot(right.xPx - clickX, right.yPx - clickY)
   ))[0];
   return {
     mapId: state.currentMapId,
-    x: Math.max(2, Math.min(92, selected.xPx / stageRect.width * 100)),
-    floor: selected.floor
+    x: Math.max(1, Math.min(99, selected.xPx / worldWidth * 100)),
+    floor: selected.floor,
+    platformId: selected.platformId
   };
 }
 
@@ -1432,13 +1669,15 @@ function showFloatingDamageAtPoint(point, amount, kind = 'outgoing', sequence = 
 
 function getWorldStagePoint(worldX, floor = 0) {
   const stage = $('worldStage');
-  if (!stage) return null;
+  const scene = $('worldScene');
+  if (!stage || !scene) return null;
   const stageRect = stage.getBoundingClientRect();
+  const sceneRect = scene.getBoundingClientRect();
   const normalizedX = Math.max(0, Math.min(100, Number(worldX) || 0));
-  const bottom = Number(floor) === 1 ? getUpperPlatformBottom() + 1 : 43;
+  const bottom = getFloorBottom(floor, normalizedX) + 1;
   return {
-    x: stageRect.width * normalizedX / 100,
-    y: Math.max(24, stageRect.height - bottom - 18)
+    x: sceneRect.left - stageRect.left + scene.offsetWidth * normalizedX / 100,
+    y: Math.max(24, sceneRect.top - stageRect.top + scene.offsetHeight - bottom - 18)
   };
 }
 
@@ -1544,6 +1783,42 @@ function playSummonAttackMotion(combat = {}) {
   });
 }
 
+function playFollowUpSummonHitMotion(hit = {}, summon = {}) {
+  const companion = Array.from(document.querySelectorAll('.field-companion')).find(
+    (entry) => entry.dataset.summonSkillId === String(summon.skillId || '')
+  ) || $('fieldCompanion');
+  const stage = $('worldStage');
+  if (!companion || !stage) return;
+  const target = Array.from($('monsterLayer')?.children || []).find(
+    (node) => node.dataset.monsterId === String(hit.monsterId || '')
+  );
+  companion.classList.remove('is-attacking');
+  void companion.offsetWidth;
+  companion.classList.add('is-attacking');
+  setTimeout(() => companion.classList.remove('is-attacking'), 360);
+  if (!target) return;
+
+  const visual = summon.attackVisual || {};
+  const stageRect = stage.getBoundingClientRect();
+  const sourceRect = companion.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  const sourceX = sourceRect.left - stageRect.left + sourceRect.width / 2;
+  const sourceY = sourceRect.top - stageRect.top + sourceRect.height / 2;
+  const targetX = targetRect.left - stageRect.left + targetRect.width / 2;
+  const targetY = targetRect.top - stageRect.top + targetRect.height / 2;
+  const projectile = document.createElement('span');
+  projectile.className = `summon-projectile is-${String(visual.style || 'energy-bolt')}`;
+  projectile.textContent = String(visual.projectile || '◆');
+  projectile.style.left = `${sourceX}px`;
+  projectile.style.top = `${sourceY}px`;
+  projectile.style.color = String(visual.color || '#ffcf67');
+  projectile.style.setProperty('--summon-travel-x', `${targetX - sourceX}px`);
+  projectile.style.setProperty('--summon-travel-y', `${targetY - sourceY}px`);
+  stage.appendChild(projectile);
+  projectile.addEventListener('animationend', () => projectile.remove(), { once: true });
+  setTimeout(() => projectile.remove(), 850);
+}
+
 function classifySkillVisual(skill = {}) {
   const id = String(skill.id || '').toLowerCase();
   const effect = String(skill.effect || '').toLowerCase();
@@ -1577,24 +1852,30 @@ function getSkillEffectAnchor(combat = {}) {
   return $('fieldCharacter');
 }
 
-function playSkillChargeEffect(skill = {}, durationMs = 1500) {
-  if (
+function isBigBangVisualSkill(skill = {}) {
+  return BIG_BANG_VISUAL_SKILL_IDS.has(String(skill.id || ''));
+}
+
+function playSkillChargeEffect(skill = {}, durationMs = 1000) {
+  const progressivePiercing = (
     String(skill.id || '') !== 'extended_cd94045605'
     && String(skill.effect || '') !== 'progressive-piercing-damage'
-  ) return;
+  ) === false;
+  const bigBang = isBigBangVisualSkill(skill);
+  if (!progressivePiercing && !bigBang) return;
   const stage = $('worldStage');
   const caster = $('fieldCharacter');
   if (!stage || !caster) return;
   const stageRect = stage.getBoundingClientRect();
   const casterRect = caster.getBoundingClientRect();
   const charge = document.createElement('span');
-  charge.className = 'piercing-charge-effect is-sustained';
+  charge.className = `piercing-charge-effect is-sustained${bigBang ? ' is-big-bang' : ''}`;
   charge.style.left = `${casterRect.left - stageRect.left + casterRect.width / 2}px`;
   charge.style.top = `${casterRect.top - stageRect.top + casterRect.height * .46}px`;
   charge.style.setProperty('--piercing-charge-duration', `${Math.max(1, durationMs)}ms`);
   stage.appendChild(charge);
   const gauge = document.createElement('span');
-  gauge.className = 'piercing-charge-gauge';
+  gauge.className = `piercing-charge-gauge${bigBang ? ' is-big-bang' : ''}`;
   gauge.setAttribute('aria-hidden', 'true');
   gauge.style.left = `${casterRect.left - stageRect.left + casterRect.width / 2}px`;
   gauge.style.top = `${Math.max(8, casterRect.top - stageRect.top - 14)}px`;
@@ -1605,6 +1886,83 @@ function playSkillChargeEffect(skill = {}, durationMs = 1500) {
   gauge.addEventListener('animationend', () => gauge.remove(), { once: true });
   setTimeout(() => charge.remove(), Math.max(1, durationMs) + 250);
   setTimeout(() => gauge.remove(), Math.max(1, durationMs) + 250);
+}
+
+function playBigBangVisual(skill = {}, combat = {}, { onImpact = null } = {}) {
+  const stage = $('worldStage');
+  const caster = $('fieldCharacter');
+  const outcomes = (combat.outcomes || []).slice(0, 3);
+  const pulseCount = Math.max(
+    1,
+    Math.floor(Number(skill.values?.hits) || 3),
+    ...outcomes.map((outcome) => (outcome.hitResults || []).length)
+  );
+  const resolveHitOutcome = (outcome, pulseIndex) => {
+    const hitResults = Array.isArray(outcome.hitResults) ? outcome.hitResults : [];
+    if (!hitResults.length) return pulseIndex === 0 ? outcome : null;
+    const hit = hitResults[pulseIndex];
+    if (!hit) return null;
+    const defeated = Boolean(hit.defeated) || Number(hit.remainingHp) <= 0;
+    return {
+      ...outcome,
+      damage: Number(hit.damage) || 0,
+      displayDamage: hit.displayDamage ?? hit.damage,
+      missed: Boolean(hit.missed),
+      knockedBack: pulseIndex === hitResults.length - 1 && outcome.knockedBack,
+      defeated,
+      hitResults: [hit],
+      monster: defeated
+        ? null
+        : {
+          ...(outcome.monster || {}),
+          hp: Number(hit.remainingHp),
+          maxHp: Number(hit.maxHp) || Number(outcome.monster?.maxHp) || 1
+        }
+    };
+  };
+  const applyPulse = (pulseIndex) => {
+    outcomes.forEach((outcome) => {
+      const hitOutcome = resolveHitOutcome(outcome, pulseIndex);
+      if (!hitOutcome || typeof onImpact !== 'function') return;
+      const impactPoint = typeof getWorldStagePoint === 'function'
+        ? getWorldStagePoint(outcome.targetX, outcome.targetFloor)
+        : null;
+      onImpact(hitOutcome, pulseIndex, impactPoint);
+    });
+  };
+  if (!stage || !caster) {
+    for (let pulseIndex = 0; pulseIndex < pulseCount; pulseIndex += 1) {
+      applyPulse(pulseIndex);
+    }
+    return Promise.resolve();
+  }
+  const stageRect = stage.getBoundingClientRect();
+  const casterRect = caster.getBoundingClientRect();
+  const center = {
+    x: casterRect.left - stageRect.left + casterRect.width / 2,
+    y: casterRect.top - stageRect.top + casterRect.height * .5
+  };
+  const radius = Math.max(1, Number(skill.values?.range ?? skill.range) || 150);
+  const diameter = Math.max(55, stageRect.width * radius / 760);
+  const pulseIntervalMs = 150;
+
+  for (let pulseIndex = 0; pulseIndex < pulseCount; pulseIndex += 1) {
+    setTimeout(() => {
+      const explosion = document.createElement('span');
+      explosion.className = 'big-bang-explosion-effect';
+      explosion.style.left = `${center.x}px`;
+      explosion.style.top = `${center.y}px`;
+      explosion.style.setProperty('--big-bang-size', `${diameter}px`);
+      explosion.style.setProperty('--big-bang-pulse', `"${pulseIndex + 1}"`);
+      stage.appendChild(explosion);
+      applyPulse(pulseIndex);
+      explosion.addEventListener('animationend', () => explosion.remove(), { once: true });
+      setTimeout(() => explosion.remove(), 650);
+    }, pulseIndex * pulseIntervalMs);
+  }
+
+  const totalDuration = pulseCount * pulseIntervalMs + 520;
+  return new Promise((resolve) => setTimeout(resolve, totalDuration));
 }
 
 function playProgressivePiercingVisual(skill = {}, combat = {}, { onImpact = null } = {}) {
@@ -1783,8 +2141,8 @@ function playSkillVisualEffect(skill = {}, combat = {}) {
   setTimeout(() => effect.remove(), duration + 420);
 }
 
-function getLootBottom(floor) {
-  return Number(floor) === 1 ? `${getUpperPlatformBottom() + 3}px` : '44px';
+function getLootBottom(floor, worldX = 50) {
+  return `${getFloorBottom(floor, worldX) + 2}px`;
 }
 
 function pruneCollectedLootIds(now = Date.now()) {
@@ -1849,7 +2207,7 @@ function showGroundLoot(drops = []) {
     element.className = `field-loot is-${drop.kind}`;
     element.dataset.lootId = lootId;
     element.style.left = `${drop.x}%`;
-    element.style.bottom = getLootBottom(drop.floor);
+    element.style.bottom = getLootBottom(drop.floor, drop.x);
     element.innerHTML = `<span>${escapeHtml(drop.icon || '📦')}</span><small>${escapeHtml(drop.name || '')}</small>`;
     layer.appendChild(element);
     scheduleGroundLootExpiry(element, getGroundLootExpiresAt(drop, now));
@@ -1890,7 +2248,7 @@ function collectGroundLoot(collections = []) {
       element.className = `field-loot is-${loot.kind}`;
       element.dataset.lootId = lootId;
       element.style.left = `${Math.max(5, Math.min(88, Number(loot.x) || 8))}%`;
-      element.style.bottom = getLootBottom(loot.floor);
+      element.style.bottom = getLootBottom(loot.floor, loot.x);
       element.innerHTML = `<span>${escapeHtml(loot.icon || '📦')}</span>`;
       layer.appendChild(element);
       elements = [element];
@@ -1902,7 +2260,7 @@ function collectGroundLoot(collections = []) {
       setTimeout(() => element.remove(), 520);
     });
   });
-  if (collections.length) {
+  if (collections.length && !collections.every((loot) => loot.silentCollection)) {
     const money = collections
       .filter((loot) => loot.kind === 'money')
       .reduce((sum, loot) => sum + Number(loot.amount || 0), 0);
@@ -1935,11 +2293,39 @@ function updateFieldControls() {
   $('combatMotionLabel').textContent = `전투 모션 · ${getCombatPresentation().label}`;
 }
 
+function getPortalPlacement(map, index = 0) {
+  const platforms = getMapLayout(map).platforms;
+  const ground = platforms.filter((platform) => Number(platform.floor) === 0);
+  const elevated = platforms.filter((platform) => Number(platform.floor) > 0);
+  let platform;
+  let characterX;
+  if (index === 0) {
+    platform = ground[0] || platforms[0];
+    characterX = Number(platform.x) + Math.min(8, Number(platform.width) * .22);
+  } else if (index === 1) {
+    platform = ground.at(-1) || platforms.at(-1);
+    characterX = Number(platform.x) + Number(platform.width)
+      - Math.min(10, Number(platform.width) * .24);
+  } else {
+    platform = elevated[(index - 2) % Math.max(1, elevated.length)]
+      || ground[index % Math.max(1, ground.length)]
+      || platforms[0];
+    characterX = Number(platform.x) + Number(platform.width) / 2;
+  }
+  const floor = Math.max(0, Math.floor(Number(platform?.floor) || 0));
+  return {
+    left: `${clampToPlatform(characterX - 2.5, floor, map)}%`,
+    side: floor > 0 ? 'upper' : (characterX < 50 ? 'left' : 'right'),
+    characterX: clampToPlatform(characterX, floor, map),
+    floor
+  };
+}
+
 function renderPortals(map) {
   $('portalLayer').innerHTML = map.connections.map((connection, index) => {
     const target = getMap(connection.targetId);
-    const position = PORTAL_POSITIONS[index] || PORTAL_POSITIONS[1];
-    return `<div class="world-portal portal-${position.side}" style="left:${position.left}">
+    const position = getPortalPlacement(map, index);
+    return `<div class="world-portal portal-${position.side}" data-floor="${position.floor}" style="left:${position.left};bottom:${getFloorBottom(position.floor, position.characterX, map) + 2}px">
       <i></i><span>PORTAL</span><small>${escapeHtml(target?.name || connection.targetId)}</small>
     </div>`;
   }).join('');
@@ -1949,7 +2335,7 @@ function renderMapNpcs(map) {
   const layer = $('npcLayer');
   if (!layer) return;
   layer.innerHTML = (map.npcs || []).map((npc) => (
-    `<button class="field-quest-npc" type="button" data-npc-id="${escapeHtml(npc.id)}" style="left:${Math.max(5, Math.min(90, Number(npc.x) || 50))}%">
+    `<button class="field-quest-npc" type="button" data-npc-id="${escapeHtml(npc.id)}" style="left:${clampToPlatform(Number(npc.x) || 50, 0, map)}%;bottom:${getFloorBottom(0, Number(npc.x) || 50, map) + 2}px">
       <span>${escapeHtml(npc.icon || '🧑‍💼')}</span><strong>${escapeHtml(npc.name)}</strong><small>대화</small>
     </button>`
   )).join('');
@@ -1971,7 +2357,7 @@ function renderPartyPortals(portals = []) {
     button.className = 'world-portal party-return-portal';
     button.dataset.partyPortalId = portal.id;
     button.style.left = `${Math.max(3, Math.min(88, Number(portal.x) || 8))}%`;
-    button.style.bottom = Number(portal.floor) === 1 ? '176px' : '44px';
+    button.style.bottom = `${getFloorBottom(portal.floor, portal.x) + 2}px`;
     button.innerHTML = `<i></i><span>PARTY</span><small>${escapeHtml(portal.label)}</small>`;
     button.addEventListener('click', async (event) => {
       event.stopPropagation();
@@ -1991,7 +2377,7 @@ function renderPartyPortals(portals = []) {
         renderWorldMap(data.destination.mapId, 0);
         const character = $('fieldCharacter');
         character.style.left = `${data.destination.x}%`;
-        character.style.bottom = data.destination.floor === 1 ? `${getUpperPlatformBottom()}px` : '42px';
+        setCharacterFloor(data.destination.floor, data.destination.x);
         setWorldActivity(`${data.map.name}(으)로 포탈 이동했습니다.`);
       } catch (err) {
         setWorldActivity(err.message);
@@ -2004,6 +2390,8 @@ function renderPartyPortals(portals = []) {
 function renderWorldMap(mapId, arrivalPortalIndex = 0) {
   const map = getMap(mapId) || getMap(state.startMapId) || state.maps[0];
   if (!map) return;
+  const mapChanged = Boolean(state.currentMapId && state.currentMapId !== map.id);
+  if (mapChanged) state.worldStateEpoch += 1;
   state.lastWorldSnapshotReceivedAt = 0;
   $('worldStage')?.style.removeProperty('--world-snapshot-transition');
   state.currentMapId = map.id;
@@ -2029,14 +2417,10 @@ function renderWorldMap(mapId, arrivalPortalIndex = 0) {
   $('mapLevelRange').textContent = map.safeZone ? 'SAFE ZONE' : 'FIELD';
   $('currentLocation').textContent = map.name;
   $('worldStage').dataset.theme = map.theme;
+  $('worldStage').dataset.layout = getMapLayout(map).id || 'fallback';
   $('shopNpc')?.classList.toggle('hidden', !map.safeZone || !map.shopId);
   $('scrollShopNpc')?.classList.toggle('hidden', !map.safeZone || !map.scrollShopId);
-  const needsUpperRoute = map.connections.length > 2;
-  $('worldRope').classList.toggle('is-ladder', map.features.includes('ladder') || needsUpperRoute);
-  $('worldRope').classList.toggle(
-    'hidden',
-    !needsUpperRoute && !map.features.some((feature) => feature === 'rope' || feature === 'ladder')
-  );
+  renderTerrain(map);
   renderPortals(map);
   renderMapNpcs(map);
   renderRallyPoint();
@@ -2049,20 +2433,28 @@ function renderWorldMap(mapId, arrivalPortalIndex = 0) {
     }).catch(() => {});
   }
   $('lootLayer').replaceChildren();
+  $('monsterLayer').replaceChildren();
+  $('remotePlayerLayer').replaceChildren();
+  state.worldMonsters = [];
+  state.combatTargetId = '';
+  renderFieldBossTopBar([]);
 
   const character = $('fieldCharacter');
   resetCharacterPhysics();
-  const arrival = PORTAL_POSITIONS[arrivalPortalIndex] || PORTAL_POSITIONS[0];
+  const arrival = getPortalPlacement(map, arrivalPortalIndex);
   character.style.transitionDuration = '0ms';
   character.style.left = `${arrival.characterX}%`;
-  character.style.bottom = arrival.side === 'upper' ? `${getUpperPlatformBottom()}px` : '42px';
+  setCharacterFloor(arrival.floor, arrival.characterX);
   character.classList.toggle('facing-left', arrival.characterX > 50);
   setCharacterMotion(null);
   character.classList.toggle('is-dead', state.dead);
   void character.offsetWidth;
   character.style.transitionDuration = '';
+  renderWorldMinimap([]);
+  startWorldCamera({ reset: mapChanged });
   setWorldActivity(map.safeZone ? '안전지대에서는 자동전투를 사용할 수 없습니다.' : (state.autoCombat ? '자동 전투 준비 중' : '명령 대기 중'));
   updateFieldControls();
+  if (mapChanged) queueWorldHeartbeat();
 }
 
 function isRunActive(kind, runId) {
@@ -2110,8 +2502,7 @@ async function moveCharacter(left, duration, runId) {
 }
 
 function getFieldMoveDuration(targetX) {
-  const stage = $('worldStage');
-  const distance = Math.abs(targetX - getCharacterX()) / 100 * stage.clientWidth;
+  const distance = Math.abs(targetX - getCharacterX()) / 100 * getWorldWidth();
   return Math.max(
     220,
     Math.min(
@@ -2122,18 +2513,20 @@ function getFieldMoveDuration(targetX) {
 }
 
 function getLadderCharacterX() {
-  const stage = $('worldStage');
-  const ladder = $('worldRope');
-  const character = $('fieldCharacter');
-  if (!stage.clientWidth) return 55;
-  return ((ladder.offsetLeft + (ladder.offsetWidth / 2) - (character.offsetWidth / 2)) / stage.clientWidth) * 100;
+  const floor = getCharacterFloor();
+  const connector = getMapLayout().connectors
+    .filter((entry) => (
+      Number(entry.fromFloor) === floor || Number(entry.toFloor) === floor
+    ))
+    .sort((left, right) => (
+      Math.abs(Number(left.x) - getCharacterX())
+      - Math.abs(Number(right.x) - getCharacterX())
+    ))[0];
+  return Number(connector?.x) || getCharacterX();
 }
 
 function getUpperPlatformBottom() {
-  const stage = $('worldStage');
-  const platform = stage.querySelector('.platform-upper');
-  if (!platform) return 176;
-  return Math.max(42, stage.clientHeight - platform.offsetTop);
+  return getFloorBottom(1, getCharacterX());
 }
 
 async function climbToUpperPlatform(runId) {
@@ -2144,7 +2537,7 @@ async function climbToUpperPlatform(runId) {
   setWorldActivity('사다리를 타고 위층으로 이동 중');
   setCharacterMotion('climb');
   character.style.transitionDuration = `${duration}ms`;
-  character.style.bottom = `${getUpperPlatformBottom()}px`;
+  setCharacterFloor(1, getCharacterX());
   await sleep(duration + 20);
   if (isRunActive('move', runId)) setCharacterMotion(null);
   return isRunActive('move', runId);
@@ -2158,7 +2551,7 @@ async function climbToLowerPlatform(runId) {
   setWorldActivity('사다리를 타고 아래층으로 이동 중');
   setCharacterMotion('climb');
   character.style.transitionDuration = `${duration}ms`;
-  character.style.bottom = '42px';
+  setCharacterFloor(0, getCharacterX());
   await sleep(duration + 20);
   if (isRunActive('move', runId)) setCharacterMotion(null);
   return isRunActive('move', runId);
@@ -2167,16 +2560,36 @@ async function climbToLowerPlatform(runId) {
 async function walkToFieldPoint(point, runId) {
   if (!isRunActive('move', runId)) return false;
   const character = $('fieldCharacter');
-  if (getCharacterFloor() !== point.floor) {
-    const ladderX = getLadderCharacterX();
-    character.classList.toggle('facing-left', ladderX < getCharacterX());
-    if (!await moveCharacter(ladderX, getFieldMoveDuration(ladderX), runId)) return false;
-    if (point.floor === 1) {
-      if (!await climbToUpperPlatform(runId)) return false;
-    } else if (!await climbToLowerPlatform(runId)) return false;
+  const targetFloor = Math.max(0, Math.floor(Number(point.floor) || 0));
+  while (getCharacterFloor() !== targetFloor) {
+    const currentFloor = getCharacterFloor();
+    const nextFloor = currentFloor + Math.sign(targetFloor - currentFloor);
+    const connector = getConnectorBetweenFloors(currentFloor, nextFloor);
+    if (!connector) return false;
+    const connectorX = clampToPlatform(connector.x, currentFloor);
+    if (getPlatformAt(currentFloor, getCharacterX())?.id
+      !== getPlatformAt(currentFloor, connectorX)?.id) {
+      triggerCharacterJump();
+    }
+    character.classList.toggle('facing-left', connectorX < getCharacterX());
+    if (!await moveCharacter(connectorX, getFieldMoveDuration(connectorX), runId)) return false;
+    const duration = getScaledMovementDuration(connector.type === 'jump' ? 680 : 1100);
+    character.classList.remove('facing-left');
+    setCharacterMotion(connector.type === 'jump' ? 'jump' : 'climb');
+    character.style.transitionDuration = `${duration}ms`;
+    setCharacterFloor(nextFloor, connector.x);
+    await sleep(duration + 20);
+    if (!isRunActive('move', runId)) return false;
+    setCharacterMotion(null);
   }
-  character.classList.toggle('facing-left', point.x < getCharacterX());
-  return moveCharacter(point.x, getFieldMoveDuration(point.x), runId);
+  const targetX = clampToPlatform(point.x, targetFloor);
+  const currentPlatform = getPlatformAt(targetFloor, getCharacterX());
+  const targetPlatform = getPlatformAt(targetFloor, targetX);
+  if (currentPlatform?.id !== targetPlatform?.id) {
+    triggerCharacterJump();
+  }
+  character.classList.toggle('facing-left', targetX < getCharacterX());
+  return moveCharacter(targetX, getFieldMoveDuration(targetX), runId);
 }
 
 async function commandFieldPoint(point, returning = false) {
@@ -2212,11 +2625,55 @@ function handleWorldStagePoint(event) {
 function getCombatTarget() {
   const characterX = getCharacterX();
   const floor = getCharacterFloor();
-  const candidates = state.worldMonsters.filter((monster) => monster.floor === floor && monster.hp > 0);
-  if (!candidates.length) return null;
-  const selected = candidates.sort(
-    (a, b) => Math.abs(a.x - characterX) - Math.abs(b.x - characterX)
-  )[0];
+  const candidates = state.worldMonsters
+    .filter((monster) => monster.hp > 0)
+    .map((monster) => ({
+      ...monster,
+      platformId: String(
+        monster.platformId
+        || getPlatformAt(monster.floor, monster.x)?.id
+        || ''
+      )
+    }));
+  if (!candidates.length) {
+    state.combatTargetId = '';
+    return null;
+  }
+  const activeRallyPoint = state.rallyPoint?.mapId === state.currentMapId
+    ? state.rallyPoint
+    : null;
+  const rallyPlatformId = activeRallyPoint
+    ? String(
+      activeRallyPoint.platformId
+      || getPlatformAt(activeRallyPoint.floor, activeRallyPoint.x)?.id
+      || ''
+    )
+    : '';
+  const currentPlatformId = String(getPlatformAt(floor, characterX)?.id || '');
+  const context = {
+    currentX: characterX,
+    currentFloor: floor,
+    currentPlatformId,
+    rallyPlatformId,
+    worldWidth: getWorldWidth(),
+    connectors: getMapLayout().connectors
+  };
+  const selected = window.V2CombatTargeting?.selectCombatTarget(candidates, context)
+    || candidates
+      .filter((monster) => !rallyPlatformId || monster.platformId === rallyPlatformId)
+      .sort((left, right) => (
+        Math.abs(Number(left.floor) - floor) * 500
+        + Math.abs(Number(left.x) - characterX) / 100 * getWorldWidth()
+        - (
+          Math.abs(Number(right.floor) - floor) * 500
+          + Math.abs(Number(right.x) - characterX) / 100 * getWorldWidth()
+        )
+      ))[0]
+    || null;
+  if (!selected) {
+    state.combatTargetId = '';
+    return null;
+  }
   state.combatTargetId = selected.id;
   return selected;
 }
@@ -2340,14 +2797,36 @@ function launchChannelProjectile(targetId = '', projectileSpeedMultiplier = 1) {
   setTimeout(() => projectile.remove(), 500);
 }
 
+function orderFollowUpHitResults(hitResults = []) {
+  const primaryHits = hitResults.filter((hit) => !hit.bonusAttack);
+  const followUpHits = hitResults.filter((hit) => hit.followUpAttack);
+  const otherBonusHits = hitResults.filter(
+    (hit) => hit.bonusAttack && !hit.followUpAttack
+  );
+  if (!followUpHits.length) return [...hitResults];
+  const ordered = [];
+  const pairedCount = Math.max(primaryHits.length, followUpHits.length);
+  for (let index = 0; index < pairedCount; index += 1) {
+    if (primaryHits[index]) ordered.push(primaryHits[index]);
+    if (followUpHits[index]) ordered.push(followUpHits[index]);
+  }
+  ordered.push(...otherBonusHits);
+  return ordered;
+}
+
 async function playChanneledSkillMotion(channel = {}, kind, runId, activityLabel = '') {
   if (!isRunActive(kind, runId)) return;
   const character = $('fieldCharacter');
   if (!character) return;
   const durationMs = Math.max(1, Number(channel.durationMs) || 3000);
-  const intervalMs = Math.max(1, Number(channel.intervalMs) || 180);
   const hitCount = Math.max(1, Math.floor(Number(channel.hitCount) || 1));
-  const hitResults = Array.isArray(channel.hitResults) ? channel.hitResults : [];
+  const hitResults = orderFollowUpHitResults(
+    Array.isArray(channel.hitResults) ? channel.hitResults : []
+  );
+  const requestedIntervalMs = Math.max(1, Number(channel.intervalMs) || 180);
+  const intervalMs = hitResults.some((hit) => hit.followUpAttack)
+    ? Math.max(40, Math.min(requestedIntervalMs, durationMs / hitCount))
+    : requestedIntervalMs;
   const projectileSpeedMultiplier = Math.max(
     0.1,
     Number(channel.projectileSpeedMultiplier) || 1
@@ -2360,10 +2839,14 @@ async function playChanneledSkillMotion(channel = {}, kind, runId, activityLabel
     if (typeof hitResult?.facingLeft === 'boolean') {
       character.classList.toggle('facing-left', hitResult.facingLeft);
     }
-    setCharacterMotion(null);
-    void character.offsetWidth;
-    setCharacterMotion('shoot');
-    launchChannelProjectile(hitResult?.monsterId, projectileSpeedMultiplier);
+    if (hitResult?.followUpAttack && channel.followUpSummon) {
+      playFollowUpSummonHitMotion(hitResult, channel.followUpSummon);
+    } else {
+      setCharacterMotion(null);
+      void character.offsetWidth;
+      setCharacterMotion(String(channel.motion || 'shoot'));
+      launchChannelProjectile(hitResult?.monsterId, projectileSpeedMultiplier);
+    }
     if (hitResult) window.applyChannelSkillHit?.(hitResult);
     const nextAt = startedAt + Math.min(durationMs, (hit + 1) * intervalMs);
     await sleep(Math.max(0, nextAt - performance.now()));
@@ -2476,25 +2959,16 @@ async function performMapMoveStep(targetMapId, runId) {
   const portalIndex = Math.max(0, map.connections.findIndex(
     (entry) => entry.targetId === targetMapId
   ));
-  const portal = PORTAL_POSITIONS[portalIndex] || PORTAL_POSITIONS[1];
-  const character = $('fieldCharacter');
+  const portal = getPortalPlacement(map, portalIndex);
 
   if (map.features.includes('hazard')) {
     await playWorldMotion('jump', 'move', runId);
   }
-  if (portal.side === 'upper') {
-    const ladderX = getLadderCharacterX();
-    const currentX = Number.parseFloat(character.style.left) || 38;
-    character.classList.toggle('facing-left', ladderX < currentX);
-    if (!await moveCharacter(ladderX, 1050, runId)) return false;
-    if (!await climbToUpperPlatform(runId)) return false;
-    character.classList.toggle('facing-left', portal.characterX < ladderX);
-    if (!await moveCharacter(portal.characterX, 650, runId)) return false;
-  } else {
-    const currentX = Number.parseFloat(character.style.left) || 38;
-    character.classList.toggle('facing-left', portal.characterX < currentX);
-    if (!await moveCharacter(portal.characterX, 1700, runId)) return false;
-  }
+  if (!await walkToFieldPoint({
+    mapId: state.currentMapId,
+    x: portal.characterX,
+    floor: portal.floor
+  }, runId)) return false;
   if (!await ensureCharacterTouchesPortal(portal, runId)) {
     setWorldActivity('포탈에 도착하지 못해 이동을 중단했습니다.');
     return false;
@@ -2538,7 +3012,7 @@ async function commandMove(targetMapId) {
   return commandTravelTo(targetMapId);
 }
 
-async function approachMonsterForCombat(runId) {
+async function approachMonsterForCombatLegacy(runId, requestedRangePx = null) {
   if (!isRunActive('combat', runId)) return false;
   const target = getCombatTarget();
   const monster = getCombatTargetElement();
@@ -2570,8 +3044,12 @@ async function approachMonsterForCombat(runId) {
   const stageRect = stage.getBoundingClientRect();
   const characterRect = character.getBoundingClientRect();
   const monsterRect = monster.getBoundingClientRect();
-  const rangePx = Math.max(30, Number(getCombatPresentation().rangePx
-    || state.character?.derivedStats?.attackRange) || 55);
+  const rangePx = Math.max(
+    30,
+    Number(requestedRangePx)
+      || Number(getCombatPresentation().rangePx || state.character?.derivedStats?.attackRange)
+      || 55
+  );
   const characterCenter = characterRect.left + characterRect.width / 2;
   const monsterCenter = monsterRect.left + monsterRect.width / 2;
   const characterIsLeft = characterCenter <= monsterCenter;
@@ -2596,6 +3074,96 @@ async function approachMonsterForCombat(runId) {
     )
   );
   setWorldActivity(`몬스터에게 접근 중 · 사거리 ${Math.round(rangePx)}`);
+  setCharacterMotion('walking');
+  character.style.transitionDuration = `${duration}ms`;
+  character.style.left = `${targetPercent}%`;
+  await sleep(duration);
+  if (isRunActive('combat', runId)) setCharacterMotion(null);
+  return isRunActive('combat', runId);
+}
+
+async function approachMonsterForCombat(runId, requestedRangePx = null) {
+  if (!isRunActive('combat', runId)) return false;
+  const target = getCombatTarget();
+  if (!target || !getCombatTargetElement()) return false;
+  const character = $('fieldCharacter');
+  const targetFloor = Math.max(0, Math.floor(Number(target.floor) || 0));
+
+  while (getCharacterFloor() !== targetFloor) {
+    const currentFloor = getCharacterFloor();
+    const nextFloor = currentFloor + Math.sign(targetFloor - currentFloor);
+    const connector = getConnectorBetweenFloors(currentFloor, nextFloor);
+    if (!connector) return false;
+    const connectorX = clampToPlatform(connector.x, currentFloor);
+    if (getPlatformAt(currentFloor, getCharacterX())?.id
+      !== getPlatformAt(currentFloor, connectorX)?.id) {
+      triggerCharacterJump();
+    }
+    const approachDuration = getScaledMovementDuration(getFieldMoveDuration(connectorX));
+    character.classList.toggle('facing-left', connectorX < getCharacterX());
+    setCharacterMotion('walking');
+    character.style.transitionDuration = `${approachDuration}ms`;
+    character.style.left = `${connectorX}%`;
+    await sleep(approachDuration + 20);
+    if (!isRunActive('combat', runId)) return false;
+
+    const climbDuration = getScaledMovementDuration(connector.type === 'jump' ? 680 : 1050);
+    character.classList.remove('facing-left');
+    setCharacterMotion(connector.type === 'jump' ? 'jump' : 'climb');
+    character.style.transitionDuration = `${climbDuration}ms`;
+    setCharacterFloor(nextFloor, connector.x);
+    await sleep(climbDuration + 20);
+    if (!isRunActive('combat', runId)) return false;
+  }
+
+  const currentPlatform = getPlatformAt(targetFloor, getCharacterX());
+  const targetPlatform = getPlatformAt(targetFloor, target.x);
+
+  const rangePx = Math.max(
+    30,
+    Number(requestedRangePx)
+      || Number(getCombatPresentation().rangePx || state.character?.derivedStats?.attackRange)
+      || 55
+  );
+  const worldWidth = getWorldWidth();
+  const currentX = getCharacterX();
+  const characterIsLeft = currentX <= Number(target.x);
+  const gapPx = Math.max(
+    0,
+    Math.abs(Number(target.x) - currentX) / 100 * worldWidth - 30
+  );
+  character.classList.toggle('facing-left', !characterIsLeft);
+  if (gapPx <= rangePx) {
+    setCharacterMotion(null);
+    return true;
+  }
+  const shouldJump = window.V2CombatTargeting?.shouldJumpForCombatApproach?.({
+    currentPlatformId: currentPlatform?.id,
+    targetPlatformId: targetPlatform?.id,
+    gapPx,
+    rangePx
+  }) ?? (
+    currentPlatform?.id
+    && targetPlatform?.id
+    && currentPlatform.id !== targetPlatform.id
+  );
+  if (shouldJump) triggerCharacterJump();
+
+  const distancePercent = (rangePx + 24) / worldWidth * 100;
+  const targetPercent = clampToPlatform(
+    Number(target.x) + (characterIsLeft ? -distancePercent : distancePercent),
+    targetFloor
+  );
+  const travelDistance = Math.abs(targetPercent - currentX) / 100 * worldWidth;
+  const duration = Math.max(
+    840,
+    Math.min(
+      7200,
+      travelDistance
+        / (CHARACTER_BASE_MOVEMENT_PX_PER_SECOND * getMovementSpeedPercent() / 100)
+        * 1000
+    )
+  );
   setCharacterMotion('walking');
   character.style.transitionDuration = `${duration}ms`;
   character.style.left = `${targetPercent}%`;
@@ -2652,11 +3220,14 @@ async function runAutoCombat(runId) {
       await sleep(650);
       continue;
     }
-    if (!await approachMonsterForCombat(runId)) {
+    const autoSkill = getNextAutoSkillForCombat();
+    const autoSkillRange = ['enemy', 'enemies'].includes(autoSkill?.target)
+      ? Number(autoSkill.values?.range ?? autoSkill.range) || null
+      : null;
+    if (!await approachMonsterForCombat(runId, autoSkillRange)) {
       await sleep(350);
       continue;
     }
-    const autoSkill = getNextAutoSkillForCombat();
     if (autoSkill) {
       const used = await useActiveSkill(autoSkill.id, { automatic: true });
       if (used) {
@@ -2691,11 +3262,27 @@ async function runAutoCombat(runId) {
         })
       });
       if (result.targetId) state.combatTargetId = String(result.targetId);
-      showFloatingDamage(
-        getCombatTargetElement(),
-        result.missed ? 'MISS' : result.damage,
-        result.critical ? 'critical' : 'outgoing'
-      );
+      const hitResults = Array.isArray(result.hitResults) ? result.hitResults : [];
+      if (result.followUpSummon && hitResults.length > 1) {
+        for (const [hitIndex, hit] of hitResults.entries()) {
+          if (hit.followUpAttack) {
+            playFollowUpSummonHitMotion(hit, result.followUpSummon);
+          }
+          showFloatingDamage(
+            getCombatTargetElement(),
+            hit.missed ? 'MISS' : (hit.displayDamage ?? hit.damage),
+            !hit.missed && hit.critical ? 'critical' : 'outgoing',
+            hitIndex
+          );
+          if (hitIndex < hitResults.length - 1) await sleep(110);
+        }
+      } else {
+        showFloatingDamage(
+          getCombatTargetElement(),
+          result.missed ? 'MISS' : (result.displayDamage ?? result.damage),
+          result.critical ? 'critical' : 'outgoing'
+        );
+      }
       applyAttackResult(result);
       showGroundLoot(result.drops || []);
       if (result.fieldBossRewardResult) {
@@ -2812,6 +3399,20 @@ function activityLabel(activity) {
   return activity === 'moving' ? '이동 중' : (activity === 'combat' ? '전투 중' : '대기 중');
 }
 
+function renderPlayerStatusIndicator(element, player = {}, now = Date.now()) {
+  const indicator = element?.querySelector('.character-status-indicator');
+  if (!indicator) return;
+  const activeStatuses = (Array.isArray(player.statusEffects) ? player.statusEffects : [])
+    .filter((status) => Number(status?.expiresAt || 0) > now);
+  if (!activeStatuses.length && Number(player.silencedUntil || 0) > now) {
+    activeStatuses.push({ id: 'silence', name: '침묵', icon: '🔒' });
+  }
+  indicator.textContent = activeStatuses.map((status) => status.icon || '⚠').join('');
+  indicator.title = activeStatuses.map((status) => status.name || '상태이상').join(' · ');
+  indicator.dataset.status = activeStatuses.map((status) => status.id || 'debuff').join(' ');
+  indicator.classList.toggle('is-visible', activeStatuses.length > 0);
+}
+
 function ensureRemotePlayerElement(player) {
   let element = Array.from($('remotePlayerLayer').children).find(
     (entry) => entry.dataset.userId === player.userId
@@ -2821,6 +3422,7 @@ function ensureRemotePlayerElement(player) {
   element.className = 'remote-player';
   element.dataset.userId = player.userId;
   element.innerHTML = `
+    <span class="character-status-indicator" aria-hidden="true"></span>
     <span class="remote-player-tag"><b></b><small></small></span>
     <span class="remote-skill-use"></span>
     <i class="remote-head"></i><i class="remote-body"></i>
@@ -2844,6 +3446,7 @@ function playRemoteJumpEvent(element, jumpEvent) {
 }
 
 function renderRemotePlayers(players = []) {
+  state.worldRemotePlayers = players;
   const visibleIds = new Set();
   players.filter((player) => player.userId !== state.selfUserId).forEach((player) => {
     visibleIds.add(player.userId);
@@ -2859,7 +3462,7 @@ function renderRemotePlayers(players = []) {
     }
     element.dataset.skillKey = '';
     element.style.left = `${player.x}%`;
-    element.style.bottom = player.floor === 1 ? `${getUpperPlatformBottom()}px` : '42px';
+    element.style.bottom = `${getFloorBottom(player.floor, player.x)}px`;
     element.classList.toggle('facing-left', Boolean(player.facingLeft));
     element.classList.toggle('is-walking', player.activity === 'moving');
     element.classList.toggle('is-combat', player.activity === 'combat');
@@ -2869,11 +3472,13 @@ function renderRemotePlayers(players = []) {
       'is-invulnerable',
       Number(player.invulnerableUntil) > state.worldServerTime
     );
+    renderPlayerStatusIndicator(element, player, state.worldServerTime);
     playRemoteJumpEvent(element, player.jumpEvent);
   });
   Array.from($('remotePlayerLayer').children).forEach((element) => {
     if (!visibleIds.has(element.dataset.userId)) element.remove();
   });
+  renderWorldMinimap(players);
 }
 
 function ensureMonsterElement(monster) {
@@ -2967,7 +3572,7 @@ function renderMonsters(monsters = []) {
     element.classList.toggle('is-field-boss', Boolean(monster.fieldBoss));
     element.style.setProperty('--monster-scale', String(Math.max(0.5, 0.5 * (Number(monster.visualScale) || 1))));
     element.style.left = `${monster.x}%`;
-    element.style.bottom = monster.floor === 1 ? `${getUpperPlatformBottom() + 1}px` : '43px';
+    element.style.bottom = `${getFloorBottom(monster.floor, monster.x) + 1}px`;
     element.classList.toggle('facing-left', monster.direction < 0);
     element.classList.toggle('is-moving', ['walk-left', 'walk-right', 'chase'].includes(monster.state));
     element.classList.toggle('is-chasing', monster.state === 'chase');
@@ -3105,6 +3710,58 @@ function playFieldBossCastVisual(event = {}) {
   }, durationMs + 220);
 }
 
+function playFieldBossRewardLoot(bossReward = {}, ownReward = {}) {
+  const visualId = [
+    String(bossReward.bossId || 'field-boss'),
+    String(bossReward.defeatedAt || ''),
+    String(state.selfUserId || '')
+  ].join(':');
+  if (state.playedFieldBossRewardIds.has(visualId)) return;
+  state.playedFieldBossRewardIds.add(visualId);
+  if (state.playedFieldBossRewardIds.size > 50) {
+    state.playedFieldBossRewardIds.delete(state.playedFieldBossRewardIds.values().next().value);
+  }
+
+  const originX = Math.max(5, Math.min(88, Number(bossReward.bossX) || 50));
+  const floor = Math.max(0, Math.floor(Number(bossReward.bossFloor) || 0));
+  const rewardDrops = [];
+  const money = Math.max(0, Math.floor(Number(ownReward.money) || 0));
+  if (money > 0) {
+    rewardDrops.push({
+      kind: 'money',
+      amount: money,
+      name: `${formatNumber(money)}원`,
+      icon: '💰'
+    });
+  }
+  (ownReward.items || [])
+    .filter((item) => item.stored)
+    .forEach((item) => {
+      const quantity = Math.max(1, Math.floor(Number(item.quantity) || 1));
+      rewardDrops.push({
+        kind: 'item',
+        itemId: item.itemId,
+        quantity,
+        name: `${item.name || item.itemId} x${formatNumber(quantity)}`,
+        icon: item.icon || '📦'
+      });
+    });
+  const center = (rewardDrops.length - 1) / 2;
+  const drops = rewardDrops.map((drop, index) => ({
+    ...drop,
+    id: `boss-reward-${visualId}-${index}`,
+    x: Math.max(5, Math.min(88, originX + (index - center) * 5)),
+    floor,
+    collectAt: Date.now() + 900,
+    silentCollection: true,
+    stored: true,
+    grounded: true
+  }));
+  if (!drops.length) return;
+  showGroundLoot(drops);
+  setTimeout(() => collectGroundLoot(drops), 900);
+}
+
 function handleFieldBossEvents(data = {}) {
   (data.fieldBossStatusEvents || [])
     .filter((event) => event.type === 'cast')
@@ -3140,6 +3797,7 @@ function handleFieldBossEvents(data = {}) {
   ));
   if (!bossReward) return;
   const ownReward = (bossReward.rewards || []).find((reward) => reward.userId === state.selfUserId);
+  playFieldBossRewardLoot(bossReward, ownReward);
   const itemText = (ownReward?.items || [])
     .filter((item) => item.stored)
     .map((item) => `${item.name || item.itemId} x${formatNumber(item.quantity || 1)}`)
@@ -3234,6 +3892,9 @@ function renderWorldEntities(data = {}) {
     $('worldStage')?.style.setProperty('--world-snapshot-transition', `${transitionMs}ms`);
   }
   state.lastWorldSnapshotReceivedAt = receivedAt;
+  if (Array.isArray(data.partyMemberIds)) {
+    state.partyMemberIds = new Set(data.partyMemberIds.map(String));
+  }
   if (data.partyState) {
     state.partyState = { ...state.partyState, ...data.partyState };
     const invitation = data.partyState.invitation;
@@ -3267,6 +3928,7 @@ function renderWorldEntities(data = {}) {
   }
   state.worldServerTime = Number(data.serverTime) || Date.now();
   if (data.self?.userId) state.selfUserId = data.self.userId;
+  renderPlayerStatusIndicator($('fieldCharacter'), data.self, state.worldServerTime);
   if (data.self && state.character?.skillTree) {
     state.character.skillTree.summon = data.self.summon || null;
     state.character.skillTree.decoySummon = data.self.decoySummon || null;
@@ -3285,9 +3947,7 @@ function renderWorldEntities(data = {}) {
     const character = $('fieldCharacter');
     character.style.transitionDuration = '0ms';
     character.style.left = `${ownContact.x}%`;
-    character.style.bottom = Number(ownContact.floor) === 1
-      ? `${getUpperPlatformBottom()}px`
-      : '42px';
+    setCharacterFloor(ownContact.floor, ownContact.x);
     void character.offsetWidth;
     if (!ownContact.dodged && !ownContact.blocked && Number(ownContact.damage) > 0) {
       triggerCharacterJump({ knockback: true });
@@ -3499,9 +4159,7 @@ function startWorldSimulation() {
   if (startMap.id === persistedWorld.mapId) {
     const character = $('fieldCharacter');
     character.style.left = `${Math.max(0, Math.min(94, Number(persistedWorld.x) || 8))}%`;
-    character.style.bottom = Number(persistedWorld.floor) === 1
-      ? `${getUpperPlatformBottom()}px`
-      : '42px';
+    setCharacterFloor(persistedWorld.floor, persistedWorld.x);
   }
   if (Number(state.character?.resources?.currentHp) <= 0) showDeathState(0);
   startWorldPresence();
@@ -3653,8 +4311,8 @@ async function useQuickPotion(slot, automatic = false) {
 }
 
 async function useConsumableQuickSlot(slot) {
-  if (state.dead || state.potionUseBusy) return;
-  state.potionUseBusy = true;
+  if (state.dead || state.consumableUseBusy) return;
+  state.consumableUseBusy = true;
   try {
     const data = await request('/api/v2/inventory/use-consumable-slot', {
       method: 'POST',
@@ -3683,11 +4341,14 @@ async function useConsumableQuickSlot(slot) {
       $('featureBody').innerHTML = potionConfigurationBody();
       bindPotionControls();
     }
+    if (data.cleansed) {
+      renderPlayerStatusIndicator($('fieldCharacter'), {}, Date.now());
+    }
     setWorldActivity(data.message);
   } catch (err) {
     setWorldActivity(err.message);
   } finally {
-    state.potionUseBusy = false;
+    state.consumableUseBusy = false;
   }
 }
 
@@ -4440,7 +5101,7 @@ function shopBody() {
             ${item.itemType === 'ammunition' && item.ammunitionType === 'throwing-star' && Number(item.quantity) < Number(item.maxStack)
               ? `<span class="shop-recharge-note">${formatNumber(item.quantity)} / ${formatNumber(item.maxStack)} · 4,000원</span>
                  <button type="button" data-shop-recharge-star="${escapeHtml(item.stackId)}">충전</button>`
-              : `<input type="number" min="1" max="${Number(item.quantity) || 1}" value="1" inputmode="numeric" data-shop-sell-quantity="${escapeHtml(item.stackId)}">`}
+              : `<input type="number" min="1" max="${Number(item.quantity) || 1}" value="${Number(item.quantity) || 1}" inputmode="numeric" data-shop-sell-quantity="${escapeHtml(item.stackId)}">`}
             ${item.itemType === 'ammunition' && item.ammunitionType === 'throwing-star' && Number(item.quantity) < Number(item.maxStack)
               ? ''
               : `<button type="button" data-shop-sell="${escapeHtml(item.stackId)}">판매</button>`}
@@ -6311,7 +6972,9 @@ $('adminGiftAll').addEventListener('change', () => {
   $('adminGiftTarget').placeholder = sendAll ? '전체 발송 선택됨' : '아이디 또는 닉네임';
 });
 ['signupUsername', 'signupNickname', 'signupPassword', 'signupPasswordConfirm'].forEach((id) => {
-  $(id).addEventListener('input', updateSignupButtonState);
+  ['input', 'change', 'keyup'].forEach((eventName) => {
+    $(id).addEventListener(eventName, updateSignupButtonState);
+  });
 });
 $('signupCode').addEventListener('input', () => {
   state.signupCodeValid = false;
