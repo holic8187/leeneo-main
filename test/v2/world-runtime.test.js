@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   PLAYER_CONTACT_KNOCKBACK_DISTANCE,
+  EXECUTE_FIXED_DAMAGE,
   buildMonsterStats,
   buildFieldBossRewardEvent,
   getFieldBossDefinition,
@@ -23,6 +24,7 @@ const {
   resetWorldRuntime
 } = require('../../src/v2/world/worldRuntime');
 const { calculateMagicDamageAfterDefense } = require('../../src/v2/combat/combatFormulas');
+const { getWorldMap } = require('../../src/v2/world/mapDefinitions');
 
 test.beforeEach(() => resetWorldRuntime());
 
@@ -99,6 +101,8 @@ test('Gammam Neo rewards split money and guaranteed drops across participants', 
         fieldBoss: true,
         fieldBossId: 'gammam_neo',
         name: '감맘 네오',
+        x: 64,
+        floor: 1,
         expReward: 1_500_000,
         contributors: { 'dealer-a': 200, 'dealer-b': 100 }
       },
@@ -112,6 +116,8 @@ test('Gammam Neo rewards split money and guaranteed drops across participants', 
 
   assert.ok(event.respawnAt >= 1_000 + 30 * 60 * 1000);
   assert.ok(event.respawnAt <= 1_000 + 120 * 60 * 1000);
+  assert.equal(event.bossX, 64);
+  assert.equal(event.bossFloor, 1);
   assert.deepEqual(event.rewards.map((reward) => reward.money), [90_000, 90_000]);
   const totalQuantity = (itemId) => event.rewards.reduce((sum, reward) => (
     sum + (reward.items.find((item) => item.itemId === itemId)?.quantity || 0)
@@ -145,6 +151,41 @@ test('an occupied map lazily spawns test monsters with configured combat stats',
   assert.equal(state.monsters[0].spawnedAt, 1_000);
 });
 
+test('monster waves respect the map cap and each platform spawn capacity', () => {
+  const map = getWorldMap('newcomer_training');
+  let state;
+  for (const now of [1_000, 9_000, 17_000, 25_000]) {
+    state = updatePresence({
+      userId: 'layout-user',
+      nickname: 'layout-user',
+      mapId: map.id,
+      x: 1,
+      floor: 0,
+      activity: 'idle',
+      currentHp: 999_999,
+      maxHp: 999_999,
+      stealth: 1,
+      now
+    });
+  }
+
+  assert.equal(state.monsters.length, map.layout.maxMonsters);
+  const byPlatform = new Map();
+  for (const monster of state.monsters) {
+    const platform = map.layout.platforms.find((entry) => entry.id === monster.platformId);
+    assert.ok(platform);
+    assert.equal(platform.spawnEnabled, true);
+    assert.equal(monster.floor, platform.floor);
+    assert.ok(monster.x >= platform.x);
+    assert.ok(monster.x <= platform.x + platform.width);
+    byPlatform.set(platform.id, (byPlatform.get(platform.id) || 0) + 1);
+  }
+  for (const platform of map.layout.platforms.filter((entry) => entry.spawnEnabled)) {
+    assert.ok((byPlatform.get(platform.id) || 0) <= platform.spawnSlots);
+  }
+  assert.ok(byPlatform.size >= 3);
+});
+
 test('players in the same map see one another and an empty map is discarded', () => {
   updatePresence({
     userId: 'user-a',
@@ -165,6 +206,7 @@ test('players in the same map see one another and an empty map is discarded', ()
     now: 1_100
   });
   assert.deepEqual(shared.players.map((player) => player.nickname).sort(), ['사원A', '사원B']);
+  assert.ok(shared.players.every((player) => Array.isArray(player.statusEffects)));
   leaveWorld('user-a');
   leaveWorld('user-b');
   const fresh = updatePresence({
@@ -408,13 +450,34 @@ test('a chain augment transfers single-target damage to the next monster behind 
     chainDamagePercent: 75,
     now: 17_000
   });
-  const floorGroups = [0, 1]
+  state = updatePresence({
+    userId: 'chain-user',
+    nickname: 'chain-user',
+    mapId: 'newcomer_training',
+    x: 1,
+    floor: 0,
+    currentHp: 999_999,
+    maxHp: 999_999,
+    stealth: 1,
+    chainChance: 100,
+    chainDamagePercent: 75,
+    now: 25_000
+  });
+  const floorGroups = [0, 1, 2]
     .map((floor) => state.monsters.filter((monster) => monster.floor === floor)
       .sort((left, right) => left.x - right.x))
     .sort((left, right) => right.length - left.length);
   const monsters = floorGroups[0];
   assert.ok(monsters.length >= 2);
-  const [front] = monsters;
+  const chainPair = monsters
+    .slice(0, -1)
+    .map((monster, index) => ({
+      source: monster,
+      distance: Number(monsters[index + 1].x) - Number(monster.x)
+    }))
+    .find((pair) => pair.distance > 0.05 && pair.distance <= 42);
+  assert.ok(chainPair);
+  const front = chainPair.source;
   updatePresence({
     userId: 'chain-user',
     nickname: '연쇄 사원',
@@ -945,7 +1008,15 @@ test('contact damage uses the reduced knockback and grants 2 seconds of invulner
   assert.equal(firstHit.contactEvents[0].damageCalculation.type, 'physical-contact');
   assert.ok(firstHit.contactEvents[0].damageCalculation.standardPdd > 0);
   assert.ok(firstHit.contactEvents[0].x > firstMonster.x);
-  assert.equal(firstHit.contactEvents[0].x, Math.min(94, firstMonster.x + 2.56));
+  assert.equal(
+    firstHit.contactEvents[0].x,
+    Math.min(
+      94,
+      firstMonster.x
+        + PLAYER_CONTACT_KNOCKBACK_DISTANCE * 760
+          / getWorldMap('newcomer_training').layout.worldWidth
+    )
+  );
   assert.equal(firstHit.contactEvents[0].invulnerableUntil, 3_100);
 
   const duringInvulnerability = updatePresence({
@@ -1030,7 +1101,12 @@ test('contact knockback always pushes the player away from the monster', () => {
   assert.equal(hitFromBehind.contactEvents.length, 1);
   assert.equal(
     hitFromBehind.contactEvents[0].x,
-    Math.min(94, playerX + PLAYER_CONTACT_KNOCKBACK_DISTANCE)
+    Math.min(
+      94,
+      playerX
+        + PLAYER_CONTACT_KNOCKBACK_DISTANCE * 760
+          / getWorldMap('newcomer_training').layout.worldWidth
+    )
   );
 });
 
@@ -1240,6 +1316,42 @@ test('multi-target skills use the same forty-percent knockback threshold', () =>
   assert.ok(result.outcomes.some((outcome) => outcome.knockedBack));
 });
 
+test('multi-target three-hit skills hit every selected target three times', () => {
+  for (const targetCount of [1, 2, 3]) {
+    resetWorldRuntime();
+    const state = updatePresence({
+      userId: `three-hit-user-${targetCount}`,
+      nickname: `three-hit-user-${targetCount}`,
+      mapId: 'newcomer_training',
+      x: 50,
+      floor: 0,
+      currentHp: 120,
+      maxHp: 120,
+      now: 1_000
+    });
+    const result = useSkillOnMonsters({
+      userId: `three-hit-user-${targetCount}`,
+      mapId: 'newcomer_training',
+      targetId: state.monsters[0].id,
+      baseDamage: 100,
+      skillPercent: 450,
+      rangePx: 10_000,
+      maxTargets: targetCount,
+      hits: 3,
+      splitDamageAcrossHits: true,
+      ignoreDefense: true,
+      leaveAtOneHp: true,
+      verticalFloorRange: 1,
+      now: 1_100
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(result.outcomes.length, targetCount);
+    assert.ok(result.outcomes.every((outcome) => outcome.hitResults.length === 3));
+    assert.ok(result.outcomes.every((outcome) => outcome.damage === 450));
+  }
+});
+
 test('progressive piercing attacks travel forward and increase damage for every target', () => {
   const originalRandom = Math.random;
   let state;
@@ -1259,6 +1371,18 @@ test('progressive piercing attacks travel forward and increase damage for every 
   } finally {
     Math.random = originalRandom;
   }
+  state = updatePresence({
+    userId: 'piercing-user',
+    nickname: 'piercing-user',
+    mapId: 'newcomer_training',
+    x: 2,
+    floor: 0,
+    facingLeft: false,
+    currentHp: 999_999,
+    maxHp: 999_999,
+    stealth: 1,
+    now: 9_000
+  });
   const target = [...state.monsters].sort((left, right) => left.x - right.x)[0];
   const result = useSkillOnMonsters({
     userId: 'piercing-user',
@@ -1283,7 +1407,7 @@ test('progressive piercing attacks travel forward and increase damage for every 
   assert.ok(result.outcomes.length >= 3);
   assert.deepEqual(
     result.outcomes.map((outcome) => outcome.piercingDamagePercent),
-    [250, 370, 490, 610].slice(0, result.outcomes.length)
+    result.outcomes.map((_, index) => Math.min(850, 250 + index * 120))
   );
   assert.deepEqual(
     result.outcomes.map((outcome) => outcome.piercingIndex),
@@ -1601,7 +1725,7 @@ test('Gammam Neo telegraphs close blast before applying damage', () => {
     userId: 'neo-target',
     nickname: '네오 대상',
     mapId: 'hidden_hwang_overtime',
-    x: 40,
+    x: 60,
     floor: 0,
     activity: 'idle',
     facingLeft: false,
@@ -1616,7 +1740,7 @@ test('Gammam Neo telegraphs close blast before applying damage', () => {
     userId: 'neo-target',
     nickname: '네오 대상',
     mapId: 'hidden_hwang_overtime',
-    x: 40,
+    x: 60,
     floor: 0,
     activity: 'idle',
     facingLeft: false,
@@ -1642,7 +1766,7 @@ test('Gammam Neo telegraphs close blast before applying damage', () => {
     userId: 'neo-target',
     nickname: '네오 대상',
     mapId: 'hidden_hwang_overtime',
-    x: 40,
+    x: 60,
     floor: 0,
     activity: 'idle',
     facingLeft: false,
@@ -1848,6 +1972,143 @@ test('channeled skills can carry follow-up passive hits', () => {
   assert.equal(result.outcomes.some((outcome) => outcome.doubleStrike), true);
 });
 
+test('follow-up summons repeat every skill hit and its on-hit effects', () => {
+  const originalRandom = Math.random;
+  let state;
+  try {
+    Math.random = () => 0.9;
+    state = updatePresence({
+      userId: 'sales-follow-up-user',
+      nickname: 'sales-follow-up-user',
+      mapId: 'newcomer_training',
+      x: 50,
+      floor: 0,
+      currentHp: 120,
+      maxHp: 120,
+      now: 1_000
+    });
+  } finally {
+    Math.random = originalRandom;
+  }
+  const monster = state.monsters.find((entry) => entry.floor === 0);
+  updatePresence({
+    userId: 'sales-follow-up-user',
+    nickname: 'sales-follow-up-user',
+    mapId: 'newcomer_training',
+    x: monster.x,
+    floor: 0,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_050
+  });
+
+  let result;
+  try {
+    Math.random = () => 0;
+    result = useSkillOnMonsters({
+      userId: 'sales-follow-up-user',
+      mapId: 'newcomer_training',
+      targetId: monster.id,
+      baseDamage: 1,
+      skillPercent: 100,
+      rangePx: 1_000,
+      hits: 3,
+      ignoreDefense: true,
+      bonusAttacks: [{
+        percent: 50,
+        source: 'follow-up-summon',
+        repeatEffects: true
+      }],
+      poisonChance: 100,
+      poisonAttack: 10,
+      poisonDurationSeconds: 10,
+      poisonMaxStacks: 3,
+      stunChance: 100,
+      stunSeconds: 1,
+      now: 1_100
+    });
+  } finally {
+    Math.random = originalRandom;
+  }
+
+  const outcome = result.outcomes[0];
+  assert.equal(result.success, true);
+  assert.equal(outcome.hitResults.length, 6);
+  assert.equal(outcome.hitResults.filter((hit) => hit.followUpAttack).length, 3);
+  assert.ok(outcome.hitResults.slice(0, 3).every((hit) => !hit.followUpAttack));
+  assert.ok(outcome.hitResults.slice(3).every((hit) => hit.followUpAttack));
+  assert.equal(outcome.followUpAttack, true);
+  assert.equal(outcome.poisonApplications, 2);
+  assert.equal(outcome.stunApplications, 2);
+});
+
+test('multi-hit skills and follow-up summons roll criticals independently per visible hit', () => {
+  const originalRandom = Math.random;
+  let state;
+  try {
+    Math.random = () => 0.9;
+    state = updatePresence({
+      userId: 'sales-critical-user',
+      nickname: 'sales-critical-user',
+      mapId: 'newcomer_training',
+      x: 50,
+      floor: 0,
+      currentHp: 120,
+      maxHp: 120,
+      now: 1_000
+    });
+  } finally {
+    Math.random = originalRandom;
+  }
+  const monster = state.monsters.find((entry) => entry.floor === 0);
+  updatePresence({
+    userId: 'sales-critical-user',
+    nickname: 'sales-critical-user',
+    mapId: 'newcomer_training',
+    x: monster.x,
+    floor: 0,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_050
+  });
+
+  const rolls = [0, 0.1, 0.9, 0.1, 0.9, 0.1, 0.9];
+  let result;
+  try {
+    Math.random = () => rolls.shift() ?? 0.9;
+    result = useSkillOnMonsters({
+      userId: 'sales-critical-user',
+      mapId: 'newcomer_training',
+      targetId: monster.id,
+      baseDamage: 1,
+      skillPercent: 100,
+      rangePx: 1_000,
+      hits: 3,
+      ignoreDefense: true,
+      leaveAtOneHp: true,
+      criticalChance: 50,
+      criticalDamagePercent: 200,
+      rollCriticalPerHit: true,
+      bonusAttacks: [{
+        percent: 50,
+        source: 'follow-up-summon',
+        repeatEffects: true
+      }],
+      now: 1_100
+    });
+  } finally {
+    Math.random = originalRandom;
+  }
+
+  const hits = result.outcomes[0].hitResults;
+  assert.equal(hits.length, 6);
+  assert.deepEqual(hits.map((hit) => hit.critical), [
+    true, false, true, false, true, false
+  ]);
+  assert.ok(hits.slice(0, 3).every((hit) => !hit.followUpAttack));
+  assert.ok(hits.slice(3).every((hit) => hit.followUpAttack));
+});
+
 test('skill hits can trigger close-range execution passives', () => {
   const originalRandom = Math.random;
   let state;
@@ -1903,9 +2164,68 @@ test('skill hits can trigger close-range execution passives', () => {
   assert.equal(result.success, true);
   assert.equal(result.outcomes[0].closeRangeTriggered, true);
   assert.equal(result.outcomes[0].executed, true);
+  assert.equal(result.outcomes[0].damage, EXECUTE_FIXED_DAMAGE);
+  assert.equal(result.outcomes[0].displayDamage, EXECUTE_FIXED_DAMAGE);
+  assert.equal(result.outcomes[0].executeDamage, EXECUTE_FIXED_DAMAGE);
   assert.equal(firstHit.closeRangeTriggered, true);
   assert.equal(firstHit.executed, true);
+  assert.equal(firstHit.damage, EXECUTE_FIXED_DAMAGE);
+  assert.equal(firstHit.displayDamage, EXECUTE_FIXED_DAMAGE);
   assert.equal(result.outcomes[0].defeated, true);
+});
+
+test('execution passive deals fixed max damage without instantly defeating a field boss', () => {
+  const initial = updatePresence({
+    userId: 'execute-boss-user',
+    nickname: 'execute-boss-user',
+    mapId: 'hidden_hwang_overtime',
+    x: 40,
+    floor: 0,
+    currentHp: 10_000,
+    maxHp: 10_000,
+    playerLevel: 120,
+    now: 1_000
+  });
+  const boss = initial.monsters.find((monster) => monster.fieldBossId === 'gammam_neo');
+  updatePresence({
+    userId: 'execute-boss-user',
+    nickname: 'execute-boss-user',
+    mapId: 'hidden_hwang_overtime',
+    x: boss.x,
+    floor: boss.floor,
+    currentHp: 10_000,
+    maxHp: 10_000,
+    playerLevel: 120,
+    now: 1_050
+  });
+
+  const originalRandom = Math.random;
+  let result;
+  try {
+    Math.random = () => 0;
+    result = attackMonster({
+      userId: 'execute-boss-user',
+      mapId: 'hidden_hwang_overtime',
+      monsterId: boss.id,
+      damage: 1,
+      rangePx: 1_000,
+      closeRangeChance: 100,
+      closeRangeDamagePercent: 100,
+      executeThresholdPercent: 100,
+      executeChance: 100,
+      now: 1_100
+    });
+  } finally {
+    Math.random = originalRandom;
+  }
+
+  assert.equal(result.success, true);
+  assert.equal(result.executed, true);
+  assert.equal(result.displayDamage, EXECUTE_FIXED_DAMAGE);
+  assert.equal(result.executeDamage, EXECUTE_FIXED_DAMAGE);
+  assert.equal(result.defeated, false);
+  assert.equal(result.damage, EXECUTE_FIXED_DAMAGE);
+  assert.equal(result.monster.hp, boss.maxHp - EXECUTE_FIXED_DAMAGE);
 });
 
 test('channeled projectiles retarget the next front monster after a kill', () => {

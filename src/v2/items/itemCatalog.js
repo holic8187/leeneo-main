@@ -453,10 +453,10 @@ const BASE_ITEMS = {
     maxStack: 1,
     sellPrice: 0,
     tradeable: false,
-    fixedExpiresAt: '2026-08-01T00:00:00+09:00',
+    fixedExpiresAt: '2026-08-04T13:00:00+09:00',
     acquisitionSource: 'settlement-event-shop',
     dropEligible: false,
-    description: '계정당 한 번 무료로 받는 기간제 전직업 공용 반지입니다. 2026년 7월 31일 이후 사라집니다.'
+    description: '계정당 한 번 무료로 받는 기간제 전직업 공용 반지입니다. 2026년 8월 4일 13시 이후 사라집니다.'
   },
   event_blessed_necklace_scroll_60: {
     id: 'event_blessed_necklace_scroll_60',
@@ -485,10 +485,10 @@ const BASE_ITEMS = {
     itemType: 'stat-reset',
     icon: '🧾',
     maxStack: 100,
-    fixedExpiresAt: '2026-08-01T00:00:00+09:00',
+    fixedExpiresAt: '2026-08-04T13:00:00+09:00',
     tradeable: false,
     sellPrice: 1,
-    description: '투자한 스탯을 초기화합니다. 2026년 7월 31일 이후 사라집니다.'
+    description: '투자한 스탯을 초기화합니다. 2026년 8월 4일 13시 이후 사라집니다.'
   },
   event_skill_reset_coupon: {
     id: 'event_skill_reset_coupon',
@@ -497,10 +497,10 @@ const BASE_ITEMS = {
     itemType: 'skill-reset',
     icon: '📘',
     maxStack: 100,
-    fixedExpiresAt: '2026-08-01T00:00:00+09:00',
+    fixedExpiresAt: '2026-08-04T13:00:00+09:00',
     tradeable: false,
     sellPrice: 1,
-    description: '투자한 모든 스킬포인트를 회수합니다. 2026년 7월 31일 이후 사라집니다.'
+    description: '투자한 모든 스킬포인트를 회수합니다. 2026년 8월 4일 13시 이후 사라집니다.'
   },
   hunting_time_180m: {
     id: 'hunting_time_180m',

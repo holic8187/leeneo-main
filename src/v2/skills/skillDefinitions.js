@@ -30,6 +30,11 @@ const WAKE_UP_SKILL_ID = 'extended_b067160f36';
 const WORK_REDUCTION_SKILL_ID = 'extended_245ea8ab5c';
 const GENESIS_SKILL_ID = 'extended_aef3d1db17';
 const ACCUMULATED_PIERCING_SKILL_ID = 'extended_cd94045605';
+const BIG_BANG_SKILL_IDS = new Set([
+  'extended_b517ab1d69',
+  'extended_2e29f80103',
+  'extended_72b5477b43'
+]);
 const STORM_CHANNEL_SKILL_ID = 'extended_fc89f3cfc2';
 const INFINITE_MP_SKILL_IDS = new Set([
   'extended_0dcef657e3',
@@ -140,7 +145,7 @@ const SKILL_DEFINITIONS = Object.freeze({
     if (id === ACCUMULATED_PIERCING_SKILL_ID) {
       return [id, {
         ...definition,
-        description: 'MP 18 → 33, 1.5초 충전 후 직선상의 최대 6명을 관통합니다. 첫 대상 250%, 관통마다 증가하여 마지막 대상 최대 850% 피해를 입힙니다.',
+        description: 'MP 18 → 33, 1초 충전 후 직선상의 최대 6명을 관통합니다. 첫 대상 250%, 관통마다 증가하여 마지막 대상 최대 850% 피해를 입힙니다.',
         effect: 'progressive-piercing-damage',
         target: 'enemies',
         maxTargets: 6,
@@ -151,9 +156,30 @@ const SKILL_DEFINITIONS = Object.freeze({
           damagePercent: 250,
           piercingStartPercent: 250,
           piercingEndPercent: 850,
-          preCastDelaySeconds: 1.5,
+          preCastDelaySeconds: 1,
           range: 650,
           targetCount: 6
+        }
+      }];
+    }
+    if (BIG_BANG_SKILL_IDS.has(id)) {
+      return [id, {
+        ...definition,
+        description: String(definition.description || '')
+          .replace('최대 1초 충전', '1초 자동 충전')
+          .replace('주변 최대 6명', '반경 150 이내 최대 3명')
+          .replace('최대 3명에게 스킬 공격력', '최대 3명에게 각각 3회 스킬 공격력'),
+        target: 'enemies',
+        maxTargets: 3,
+        range: 150,
+        values: {
+          ...(definition.values || {}),
+          hits: 3,
+          mastery: [35, 80],
+          splitDamageAcrossHits: true,
+          preCastDelaySeconds: 1,
+          range: 150,
+          targetCount: 3
         }
       }];
     }

@@ -86,3 +86,37 @@ test('department-themed regions are represented in the world', () => {
     assert.match(names, new RegExp(keyword));
   }
 });
+
+test('maps expose varied multi-platform layouts with explicit spawn rules', () => {
+  const widths = WORLD_MAPS.map((map) => Number(map.layout.worldWidth));
+  const layouts = new Set(WORLD_MAPS.map((map) => map.layout.id));
+  assert.ok(Math.min(...widths) <= 920);
+  assert.ok(Math.max(...widths) >= 2_000);
+  assert.ok(layouts.has('tiny'));
+  assert.ok(layouts.has('tower'));
+  assert.ok(layouts.has('sprawling'));
+
+  for (const map of WORLD_MAPS) {
+    assert.ok(map.layout.worldHeight >= 300, `${map.id} has an invalid world height`);
+    assert.ok(map.layout.platforms.length >= 1, `${map.id} has no terrain platform`);
+    const spawnSlots = map.layout.platforms.reduce(
+      (sum, platform) => sum + Math.max(0, Number(platform.spawnSlots) || 0),
+      0
+    );
+    assert.ok(
+      map.safeZone || map.fieldBossId || spawnSlots >= map.layout.maxMonsters,
+      `${map.id} does not have enough platform spawn slots`
+    );
+  }
+
+  const huntingMaps = WORLD_MAPS.filter((map) => !map.safeZone && !map.fieldBossId);
+  assert.ok(huntingMaps.some((map) => (
+    map.layout.platforms.some((platform) => platform.spawnEnabled === false)
+  )));
+  assert.ok(huntingMaps.some((map) => (
+    map.layout.connectors.some((connector) => connector.type === 'ladder')
+  )));
+  assert.ok(huntingMaps.some((map) => (
+    map.layout.connectors.some((connector) => connector.type === 'jump')
+  )));
+});

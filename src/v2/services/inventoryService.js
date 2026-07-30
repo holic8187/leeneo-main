@@ -33,6 +33,11 @@ const EQUIPMENT_SLOT_ALIASES = Object.freeze({
   mantle: 'cape',
   earring: 'earrings'
 });
+const EQUIPMENT_SLOT_STORAGE_KEYS = Object.freeze({
+  cape: Object.freeze(['cape', 'cloak', 'mantle']),
+  earrings: Object.freeze(['earrings', 'earring'])
+});
+const COMMON_EQUIPMENT_LEVELS = Object.freeze([20, 40, 60, 80, 100, 120, 140]);
 
 function normalizeEquipmentSlot(slot = 'weapon') {
   const normalized = String(slot || 'weapon').trim();
@@ -41,7 +46,7 @@ function normalizeEquipmentSlot(slot = 'weapon') {
 
 function getStoredEquipmentSlot(loadout = {}, requestedSlot = 'weapon') {
   const slot = normalizeEquipmentSlot(requestedSlot);
-  const aliases = slot === 'cape' ? ['cape', 'cloak', 'mantle'] : [slot];
+  const aliases = EQUIPMENT_SLOT_STORAGE_KEYS[slot] || [slot];
   return aliases.find((key) => {
     const equipped = loadout?.[key];
     return equipped && typeof equipped === 'object'
@@ -55,18 +60,19 @@ function resolveEquippedItemDefinition(equipped, slot = '') {
   const direct = getItemDefinition(storedId);
   if (direct) return direct;
 
-  // Early V2 capes were saved under job-specific ids that were retired when
-  // capes became shared equipment. Recover them by their original level.
-  if (normalizeEquipmentSlot(slot) !== 'cape') return null;
+  // Early V2 capes and earrings used job-specific ids. Recover retired
+  // definitions as their same-level shared item so they can be replaced safely.
+  const normalizedSlot = normalizeEquipmentSlot(slot);
+  if (!['cape', 'earrings'].includes(normalizedSlot)) return null;
+  const idLevel = storedId.match(/_(\d+)$/)?.[1];
   const nameLevel = String(equipped.name || '').match(/(\d+)\s*제/)?.[1];
   const requiredLevel = Math.max(1, Math.floor(Number(
-    equipped.requiredLevel ?? equipped.requirements?.level ?? nameLevel
+    equipped.requiredLevel ?? equipped.requirements?.level ?? idLevel ?? nameLevel
   ) || 1));
-  const capeLevels = [20, 40, 60, 80, 100, 120, 140];
-  const closestLevel = capeLevels.reduce((closest, level) => (
+  const closestLevel = COMMON_EQUIPMENT_LEVELS.reduce((closest, level) => (
     Math.abs(level - requiredLevel) < Math.abs(closest - requiredLevel) ? level : closest
-  ), capeLevels[0]);
-  return getItemDefinition(`drop_common_cape_${closestLevel}`);
+  ), COMMON_EQUIPMENT_LEVELS[0]);
+  return getItemDefinition(`drop_common_${normalizedSlot}_${closestLevel}`);
 }
 
 function buildEquippedInstanceData(equipped) {
@@ -158,8 +164,20 @@ function normalizeInventoryStacks(character) {
     const quantity = Math.max(0, Math.floor(Number(entry?.quantity) || 0));
     const item = getItemDefinition(itemId);
     let expiresAt = entry?.expiresAt ? new Date(entry.expiresAt) : null;
-    if ((item?.expiresAfterSeconds || item?.fixedExpiresAt) && !expiresAt) {
-      expiresAt = getDefaultExpiry(item);
+    const defaultExpiry = item?.expiresAfterSeconds || item?.fixedExpiresAt
+      ? getDefaultExpiry(item)
+      : null;
+    const shouldExtendFixedExpiry = Boolean(
+      item?.fixedExpiresAt
+      && defaultExpiry
+      && (
+        !expiresAt
+        || !Number.isFinite(expiresAt.getTime())
+        || expiresAt.getTime() < defaultExpiry.getTime()
+      )
+    );
+    if (shouldExtendFixedExpiry || (defaultExpiry && !expiresAt)) {
+      expiresAt = defaultExpiry;
       changed = true;
     }
     if (expiresAt && expiresAt.getTime() <= Date.now()) {
@@ -211,9 +229,23 @@ function normalizeInventoryStacks(character) {
 function purgeExpiredEquippedItems(character, now = Date.now()) {
   if (!character.loadout || typeof character.loadout !== 'object') return 0;
   let removed = 0;
+  let changed = false;
   for (const [slot, equipped] of Object.entries(character.loadout)) {
     if (!equipped?.itemId) continue;
     const definition = getItemDefinition(equipped.itemId);
+    const configuredExpiry = definition?.fixedExpiresAt
+      ? new Date(definition.fixedExpiresAt).getTime()
+      : NaN;
+    const equippedExpiry = equipped.expiresAt
+      ? new Date(equipped.expiresAt).getTime()
+      : NaN;
+    if (
+      Number.isFinite(configuredExpiry)
+      && (!Number.isFinite(equippedExpiry) || equippedExpiry < configuredExpiry)
+    ) {
+      equipped.expiresAt = new Date(configuredExpiry).toISOString();
+      changed = true;
+    }
     const expiryValue = equipped.expiresAt || definition?.fixedExpiresAt;
     if (!expiryValue) continue;
     const expiresAt = new Date(expiryValue).getTime();
@@ -221,7 +253,7 @@ function purgeExpiredEquippedItems(character, now = Date.now()) {
     character.loadout[slot] = null;
     removed += 1;
   }
-  if (removed) markInventoryModified(character);
+  if (removed || changed) markInventoryModified(character);
   return removed;
 }
 

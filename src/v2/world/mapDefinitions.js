@@ -2,6 +2,121 @@
 
 const START_MAP_ID = 'main_lobby';
 
+const MAP_LAYOUT_PRESETS = Object.freeze({
+  safe: Object.freeze({
+    worldWidth: 920,
+    worldHeight: 390,
+    maxMonsters: 0,
+    spawnPerWave: 0,
+    platforms: Object.freeze([
+      Object.freeze({ id: 'ground', floor: 0, x: 0, width: 100, bottom: 42, spawnEnabled: false, spawnSlots: 0 })
+    ]),
+    connectors: Object.freeze([])
+  }),
+  tiny: Object.freeze({
+    worldWidth: 820,
+    worldHeight: 390,
+    maxMonsters: 7,
+    spawnPerWave: 3,
+    platforms: Object.freeze([
+      Object.freeze({ id: 'ground', floor: 0, x: 0, width: 100, bottom: 42, spawnEnabled: true, spawnSlots: 5 }),
+      Object.freeze({ id: 'jump-ledge', floor: 1, x: 37, width: 28, bottom: 172, spawnEnabled: true, spawnSlots: 2 })
+    ]),
+    connectors: Object.freeze([
+      Object.freeze({ id: 'jump-01', fromFloor: 0, toFloor: 1, x: 40, type: 'jump' })
+    ])
+  }),
+  compact: Object.freeze({
+    worldWidth: 1_080,
+    worldHeight: 470,
+    maxMonsters: 10,
+    spawnPerWave: 4,
+    platforms: Object.freeze([
+      Object.freeze({ id: 'ground-left', floor: 0, x: 0, width: 46, bottom: 42, spawnEnabled: true, spawnSlots: 3 }),
+      Object.freeze({ id: 'ground-right', floor: 0, x: 54, width: 46, bottom: 42, spawnEnabled: true, spawnSlots: 3 }),
+      Object.freeze({ id: 'jump-deck', floor: 1, x: 18, width: 26, bottom: 178, spawnEnabled: true, spawnSlots: 2 }),
+      Object.freeze({ id: 'quiet-deck', floor: 1, x: 60, width: 25, bottom: 178, spawnEnabled: false, spawnSlots: 0 }),
+      Object.freeze({ id: 'ladder-deck', floor: 2, x: 48, width: 27, bottom: 322, spawnEnabled: true, spawnSlots: 2 })
+    ]),
+    connectors: Object.freeze([
+      Object.freeze({ id: 'jump-01', fromFloor: 0, toFloor: 1, x: 22, type: 'jump' }),
+      Object.freeze({ id: 'ladder-12', fromFloor: 1, toFloor: 2, x: 63, type: 'ladder' })
+    ])
+  }),
+  wide: Object.freeze({
+    worldWidth: 1_560,
+    worldHeight: 520,
+    maxMonsters: 15,
+    spawnPerWave: 5,
+    platforms: Object.freeze([
+      Object.freeze({ id: 'ground', floor: 0, x: 0, width: 100, bottom: 42, spawnEnabled: true, spawnSlots: 6 }),
+      Object.freeze({ id: 'west-deck', floor: 1, x: 8, width: 28, bottom: 184, spawnEnabled: true, spawnSlots: 3 }),
+      Object.freeze({ id: 'center-rest', floor: 1, x: 42, width: 16, bottom: 184, spawnEnabled: false, spawnSlots: 0 }),
+      Object.freeze({ id: 'east-deck', floor: 1, x: 65, width: 28, bottom: 184, spawnEnabled: true, spawnSlots: 3 }),
+      Object.freeze({ id: 'high-deck', floor: 2, x: 34, width: 32, bottom: 342, spawnEnabled: true, spawnSlots: 3 })
+    ]),
+    connectors: Object.freeze([
+      Object.freeze({ id: 'jump-west', fromFloor: 0, toFloor: 1, x: 12, type: 'jump' }),
+      Object.freeze({ id: 'ladder-east', fromFloor: 0, toFloor: 1, x: 78, type: 'ladder' }),
+      Object.freeze({ id: 'ladder-high', fromFloor: 1, toFloor: 2, x: 50, type: 'ladder' })
+    ])
+  }),
+  tower: Object.freeze({
+    worldWidth: 1_240,
+    worldHeight: 700,
+    maxMonsters: 17,
+    spawnPerWave: 5,
+    platforms: Object.freeze([
+      Object.freeze({ id: 'ground', floor: 0, x: 0, width: 100, bottom: 42, spawnEnabled: true, spawnSlots: 5 }),
+      Object.freeze({ id: 'first-left', floor: 1, x: 6, width: 37, bottom: 190, spawnEnabled: true, spawnSlots: 3 }),
+      Object.freeze({ id: 'first-right', floor: 1, x: 55, width: 38, bottom: 190, spawnEnabled: true, spawnSlots: 3 }),
+      Object.freeze({ id: 'second-left', floor: 2, x: 18, width: 30, bottom: 354, spawnEnabled: false, spawnSlots: 0 }),
+      Object.freeze({ id: 'second-right', floor: 2, x: 60, width: 31, bottom: 354, spawnEnabled: true, spawnSlots: 3 }),
+      Object.freeze({ id: 'summit', floor: 3, x: 34, width: 34, bottom: 524, spawnEnabled: true, spawnSlots: 3 })
+    ]),
+    connectors: Object.freeze([
+      Object.freeze({ id: 'ladder-01', fromFloor: 0, toFloor: 1, x: 72, type: 'ladder' }),
+      Object.freeze({ id: 'jump-12', fromFloor: 1, toFloor: 2, x: 24, type: 'jump' }),
+      Object.freeze({ id: 'ladder-23', fromFloor: 2, toFloor: 3, x: 64, type: 'ladder' })
+    ])
+  }),
+  sprawling: Object.freeze({
+    worldWidth: 2_080,
+    worldHeight: 650,
+    maxMonsters: 22,
+    spawnPerWave: 6,
+    platforms: Object.freeze([
+      Object.freeze({ id: 'ground-west', floor: 0, x: 0, width: 31, bottom: 42, spawnEnabled: true, spawnSlots: 4 }),
+      Object.freeze({ id: 'ground-center', floor: 0, x: 35, width: 29, bottom: 42, spawnEnabled: true, spawnSlots: 4 }),
+      Object.freeze({ id: 'ground-east', floor: 0, x: 68, width: 32, bottom: 42, spawnEnabled: true, spawnSlots: 4 }),
+      Object.freeze({ id: 'lower-west', floor: 1, x: 6, width: 23, bottom: 190, spawnEnabled: true, spawnSlots: 3 }),
+      Object.freeze({ id: 'lower-center', floor: 1, x: 38, width: 24, bottom: 190, spawnEnabled: false, spawnSlots: 0 }),
+      Object.freeze({ id: 'lower-east', floor: 1, x: 72, width: 22, bottom: 190, spawnEnabled: true, spawnSlots: 3 }),
+      Object.freeze({ id: 'upper-west', floor: 2, x: 18, width: 25, bottom: 358, spawnEnabled: true, spawnSlots: 2 }),
+      Object.freeze({ id: 'upper-east', floor: 2, x: 58, width: 27, bottom: 358, spawnEnabled: true, spawnSlots: 2 })
+    ]),
+    connectors: Object.freeze([
+      Object.freeze({ id: 'jump-west', fromFloor: 0, toFloor: 1, x: 14, type: 'jump' }),
+      Object.freeze({ id: 'ladder-east', fromFloor: 0, toFloor: 1, x: 80, type: 'ladder' }),
+      Object.freeze({ id: 'ladder-upper-west', fromFloor: 1, toFloor: 2, x: 25, type: 'ladder' }),
+      Object.freeze({ id: 'jump-upper-east', fromFloor: 1, toFloor: 2, x: 67, type: 'jump' })
+    ])
+  }),
+  boss: Object.freeze({
+    worldWidth: 1_420,
+    worldHeight: 430,
+    maxMonsters: 1,
+    spawnPerWave: 1,
+    platforms: Object.freeze([
+      Object.freeze({ id: 'boss-arena', floor: 0, x: 0, width: 100, bottom: 42, spawnEnabled: true, spawnSlots: 1 }),
+      Object.freeze({ id: 'spectator-ledge', floor: 1, x: 37, width: 26, bottom: 198, spawnEnabled: false, spawnSlots: 0 })
+    ]),
+    connectors: Object.freeze([
+      Object.freeze({ id: 'arena-jump', fromFloor: 0, toFloor: 1, x: 40, type: 'jump' })
+    ])
+  })
+});
+
 const MAP_DEFINITIONS = [
   { id: 'main_lobby', name: '호이상사 중앙로비', region: '본관 초입', minLevel: 1, maxLevel: 8, theme: 'lobby', features: ['elevator'], safeZone: true, shopId: 'headquarters' },
   { id: 'newcomer_training', name: '신입사원 연수원', region: '본관 초입', minLevel: 1, maxLevel: 10, theme: 'training', features: ['ladder'] },
@@ -149,10 +264,68 @@ function buildMapGraph() {
   return Array.from(byId.values());
 }
 
+function stableMapNumber(mapId = '') {
+  return Array.from(String(mapId)).reduce(
+    (total, character) => (total * 31 + character.charCodeAt(0)) >>> 0,
+    17
+  );
+}
+
+function mirrorLayoutEntry(entry = {}) {
+  if (!Number.isFinite(Number(entry.x))) return { ...entry };
+  if (Number.isFinite(Number(entry.width))) {
+    return { ...entry, x: 100 - Number(entry.x) - Number(entry.width) };
+  }
+  return { ...entry, x: 100 - Number(entry.x) };
+}
+
+function chooseMapLayoutPreset(map, index) {
+  if (map.safeZone) return 'safe';
+  if (map.fieldBossId) return 'boss';
+  if (map.id === 'newcomer_training') return 'compact';
+  if (map.region === '단일 사냥터') return index % 2 ? 'tiny' : 'compact';
+  if (map.features.includes('ladder') && map.features.includes('rope')) return 'tower';
+  if (map.features.includes('hazard') || map.connections.length >= 4) return 'sprawling';
+  return index % 3 === 0 ? 'wide' : 'compact';
+}
+
+function buildMapLayout(map, index = 0) {
+  const presetId = chooseMapLayoutPreset(map, index);
+  const preset = MAP_LAYOUT_PRESETS[presetId];
+  const seed = stableMapNumber(map.id);
+  const mirrored = seed % 2 === 1 && !map.safeZone;
+  const widthOffset = map.safeZone || map.fieldBossId ? 0 : (seed % 3 - 1) * 80;
+  const platforms = preset.platforms.map((platform) => (
+    mirrored ? mirrorLayoutEntry(platform) : { ...platform }
+  ));
+  const connectors = preset.connectors.map((connector) => (
+    mirrored ? mirrorLayoutEntry(connector) : { ...connector }
+  ));
+  return {
+    id: presetId,
+    variant: seed % 4,
+    mirrored,
+    worldWidth: Math.max(760, preset.worldWidth + widthOffset),
+    worldHeight: preset.worldHeight,
+    maxMonsters: preset.maxMonsters,
+    spawnPerWave: preset.spawnPerWave,
+    platforms,
+    connectors
+  };
+}
+
 const WORLD_MAPS = Object.freeze(buildMapGraph().map((map) => Object.freeze({
   ...map,
   features: Object.freeze([...map.features]),
-  connections: Object.freeze(map.connections.map((connection) => Object.freeze(connection)))
+  connections: Object.freeze(map.connections.map((connection) => Object.freeze(connection))),
+  layout: (() => {
+    const layout = buildMapLayout(map, MAP_DEFINITIONS.findIndex((entry) => entry.id === map.id));
+    return Object.freeze({
+      ...layout,
+      platforms: Object.freeze(layout.platforms.map((platform) => Object.freeze(platform))),
+      connectors: Object.freeze(layout.connectors.map((connector) => Object.freeze(connector)))
+    });
+  })()
 })));
 
 function getWorldMap(mapId) {
@@ -181,8 +354,10 @@ function findNearestSafeMap(mapId) {
 module.exports = {
   START_MAP_ID,
   MAP_DEFINITIONS,
+  MAP_LAYOUT_PRESETS,
   MAP_EDGES,
   WORLD_MAPS,
+  buildMapLayout,
   getWorldMap,
   findNearestSafeMap
 };
