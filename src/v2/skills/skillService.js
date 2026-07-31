@@ -23,7 +23,7 @@ const ACTIVE_BUFF_EFFECT_KEYS = Object.freeze([
   'damageIncreasePercent', 'elementDamageIncreasePercent',
   'experienceBonusPercent', 'experienceMultiplierPercent', 'allStatsPercent',
   'moneyDropIncreasePercent', 'noAmmoConsumption', 'noMpCost',
-  'movementSpeedIncrease', 'criticalChance', 'criticalDamagePercent',
+  'movementSpeedIncrease', 'jumpIncrease', 'criticalChance', 'criticalDamagePercent',
   'attackRangeIncrease', 'dodgeChance', 'consumableEffectPercent',
   'magicMpCostIncreasePercent', 'stealth'
 ]);
@@ -44,6 +44,8 @@ const VALUE_LABELS = Object.freeze({
   masteryIncrease: '숙련도',
   accuracyIncrease: '명중률',
   evasionIncrease: '회피율',
+  movementSpeedIncrease: '이동속도',
+  jumpIncrease: '점프력',
   chance: '발동 확률',
   successChance: '성공 확률',
   stunChance: '기절 확률',
@@ -722,6 +724,7 @@ function getActiveSkillEffects(character, now = Date.now()) {
     noAmmoConsumption: 0,
     noMpCost: 0,
     movementSpeedIncrease: 0,
+    jumpIncrease: 0,
     criticalChance: 0,
     criticalDamagePercent: 200,
     attackRangeIncrease: 0,
