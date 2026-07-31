@@ -11,7 +11,8 @@ const {
   START_MAP_ID,
   WORLD_MAPS,
   getWorldMap,
-  findNearestSafeMap
+  findNearestSafeMap,
+  findNearestReturnMap
 } = require('./world/mapDefinitions');
 const { MONSTER_CATALOG } = require('./world/monsterCatalog');
 const {
@@ -157,6 +158,8 @@ const {
 const {
   getPartyState,
   getPartyMemberIds,
+  recordPartyMonsterKill,
+  isPartyExperienceEligible,
   invitePlayer,
   acceptInvitation,
   declineInvitation,
@@ -201,6 +204,8 @@ const {
 } = require('./skills/skillService');
 const {
   buildSummonState,
+  buildFollowUpBonusAttack,
+  getActiveFollowUpSummon,
   getSummonAttackVisual,
   isAttackingSummon,
   isSummonAttackDue,
@@ -230,6 +235,16 @@ function storeSummonState(skillState, summon) {
   if (summon?.role === 'decoy') skillState.decoySummon = summon;
   else skillState.summon = summon;
   return summon;
+}
+
+function serializeFollowUpSummon(summon) {
+  if (!summon) return null;
+  return {
+    skillId: String(summon.skillId || ''),
+    name: String(summon.name || '영업 대리인'),
+    icon: String(summon.icon || '👥'),
+    attackVisual: summon.attackVisual || getSummonAttackVisual(summon)
+  };
 }
 
 function clearStealthBuff(skillState) {
@@ -364,10 +379,14 @@ const V2_PATCH_NOTE_HISTORY = Object.freeze([
 ]);
 const V2_CURRENT_PATCH_NOTES = V2_PATCH_NOTE_HISTORY[V2_PATCH_NOTE_HISTORY.length - 1];
 
+function normalizePasswordInput(value = '') {
+  return String(value).normalize('NFC');
+}
+
 function validateSignupPayload(payload = {}) {
   const username = String(payload.username || '').trim();
-  const password = String(payload.password || '');
-  const passwordConfirm = String(payload.passwordConfirm || '');
+  const password = normalizePasswordInput(payload.password);
+  const passwordConfirm = normalizePasswordInput(payload.passwordConfirm);
   const signupCode = String(payload.signupCode || '').trim();
   const nickname = String(payload.nickname || '').trim();
   if (!/^[A-Za-z0-9_]{3,24}$/.test(username)) {
@@ -477,15 +496,37 @@ function scaleDamageRange(range, multiplier = 1) {
   };
 }
 
-function buildProfileMagicDamageRange(profile, skillAttack = 100) {
+function shouldRollSkillCriticalPerHit({
+  effect,
+  hitCount = 1,
+  channelDurationSeconds = 0,
+  hasFollowUpAttack = false,
+  hasDoubleStrike = false
+} = {}) {
+  return effect !== 'fixed-damage' && (
+    Number(hitCount) > 1
+    || Number(channelDurationSeconds) > 0
+    || Boolean(hasFollowUpAttack)
+    || Boolean(hasDoubleStrike)
+  );
+}
+
+function buildProfileMagicDamageRange(profile, skillAttack = 100, skillMastery = null) {
+  const hasSkillMastery = skillMastery !== null
+    && skillMastery !== undefined
+    && Number.isFinite(Number(skillMastery));
   return calculateMagicDamageRange({
     magic: profile?.derivedStats?.magic,
     workKnowledge: profile?.derivedStats?.effectiveStats?.workKnowledge
       ?? profile?.stats?.workKnowledge,
     skillAttack,
-    mastery: profile?.derivedStats?.weaponMastery
-      || profile?.skillEffects?.weaponMastery
-      || 0
+    mastery: hasSkillMastery
+      ? Number(skillMastery)
+      : (
+        profile?.derivedStats?.weaponMastery
+        || profile?.skillEffects?.weaponMastery
+        || 0
+      )
   });
 }
 
@@ -579,6 +620,17 @@ function serializeMarketplaceListing(listing = {}) {
   };
 }
 
+function normalizeWorldFloor(mapId, floor) {
+  const map = getWorldMap(String(mapId || ''));
+  const maximumFloor = Math.max(
+    0,
+    ...(map?.layout?.platforms || []).map(
+      (platform) => Math.max(0, Math.floor(Number(platform.floor) || 0))
+    )
+  );
+  return Math.max(0, Math.min(maximumFloor, Math.floor(Number(floor) || 0)));
+}
+
 function getMarketplaceListingExpiresAt(baseTime = Date.now()) {
   const timestamp = Number(baseTime);
   const safeBaseTime = Number.isFinite(timestamp) ? timestamp : Date.now();
@@ -633,6 +685,7 @@ function registerV2Routes({
   requireAdmin
 }) {
   const worldProfileCache = new Map();
+  const worldProfileCharacterSnapshot = Symbol('worldProfileCharacterSnapshot');
   const characterMutationQueues = new Map();
   const pendingAutoPotionUpdates = new Map();
 
@@ -820,7 +873,15 @@ function registerV2Routes({
 
   async function grantCombatExperience(character, baseExp, mapId, { killCount = 1 } = {}) {
     const killerId = String(character?.userId || '');
-    const activePartyPlayers = getActivePartyPlayers(killerId, mapId);
+    const activityNow = Date.now();
+    if (Math.max(0, Math.floor(Number(killCount) || 0)) > 0) {
+      recordPartyMonsterKill(killerId, activityNow);
+    }
+    const activePartyPlayers = getActivePartyPlayers(killerId, mapId)
+      .filter((player) => (
+        String(player.userId) === killerId
+        || isPartyExperienceEligible(player.userId, activityNow)
+      ));
     const activePartyIds = [...new Set(activePartyPlayers.map((player) => String(player.userId)))];
     if (!activePartyIds.includes(killerId)) activePartyIds.push(killerId);
     const killProgress = recordDailyAugmentKills(character, killCount);
@@ -1506,10 +1567,67 @@ function registerV2Routes({
       bossId: rewardEvent.bossId || '',
       bossName: rewardEvent.bossName || '',
       mapId: rewardEvent.mapId || '',
+      bossX: Number.isFinite(Number(rewardEvent.bossX)) ? Number(rewardEvent.bossX) : 50,
+      bossFloor: Math.max(0, Math.floor(Number(rewardEvent.bossFloor) || 0)),
       defeatedAt: rewardEvent.defeatedAt || null,
       respawnAt: rewardEvent.respawnAt || null,
       rewards: results
     };
+  }
+
+  function cloneWorldCharacterSnapshot(snapshot) {
+    return JSON.parse(JSON.stringify(snapshot));
+  }
+
+  function cacheWorldProfile(character, now = Date.now(), response = null) {
+    if (!character) return null;
+    const key = String(character.userId);
+    const characterResponse = response || buildCharacterResponse(character);
+    const profileResponse = {
+      ...characterResponse,
+      skillEffects: { ...(characterResponse.skillEffects || {}) }
+    };
+    const partyAugmentEffects = getDailyAugmentEffects(character, {
+      partySize: getAugmentPartySize(character, profileResponse.worldState?.mapId),
+      hpPercent: profileResponse.resources.currentHp
+        / Math.max(1, profileResponse.resources.maxHp)
+        * 100
+    });
+    profileResponse.skillEffects.damageIncreasePercent += partyAugmentEffects.partyDamagePercent;
+    const skillExpirations = [
+      ...(profileResponse.skillTree?.activeBuffs || []).map((buff) => Number(buff.expiresAt) || 0),
+      ...(profileResponse.skillTree?.summons || [
+        profileResponse.skillTree?.decoySummon,
+        profileResponse.skillTree?.summon
+      ]).map((summon) => Number(summon?.expiresAt) || 0)
+    ].filter((expiresAt) => expiresAt > now);
+    const profile = {
+      loadedAt: now,
+      nextSkillExpiryAt: skillExpirations.length ? Math.min(...skillExpirations) : 0,
+      displayName: profileResponse.displayName,
+      progression: profileResponse.progression,
+      stats: profileResponse.stats,
+      resources: profileResponse.resources,
+      derivedStats: profileResponse.derivedStats,
+      skillTree: profileResponse.skillTree,
+      skillEffects: profileResponse.skillEffects,
+      job: profileResponse.job,
+      combatPresentation: profileResponse.combatPresentation,
+      worldState: profileResponse.worldState,
+      fieldBossLockouts: profileResponse.fieldBossLockouts,
+      huntingTime: profileResponse.huntingTime,
+      inventory: profileResponse.inventory,
+      equipmentLoadout: profileResponse.equipmentLoadout
+    };
+    const plainCharacter = typeof character.toObject === 'function'
+      ? character.toObject({ depopulate: true })
+      : character;
+    Object.defineProperty(profile, worldProfileCharacterSnapshot, {
+      value: cloneWorldCharacterSnapshot(plainCharacter),
+      enumerable: false
+    });
+    worldProfileCache.set(key, profile);
+    return profile;
   }
 
   async function getWorldProfile(userId, force = false) {
@@ -1532,39 +1650,14 @@ function registerV2Routes({
       );
       updatePlayerResources(userId, character.resources);
     }
-    const response = buildCharacterResponse(character);
-    const partyAugmentEffects = getDailyAugmentEffects(character, {
-      partySize: getAugmentPartySize(character, response.worldState?.mapId),
-      hpPercent: response.resources.currentHp / Math.max(1, response.resources.maxHp) * 100
-    });
-    response.skillEffects.damageIncreasePercent += partyAugmentEffects.partyDamagePercent;
-    const skillExpirations = [
-      ...(response.skillTree?.activeBuffs || []).map((buff) => Number(buff.expiresAt) || 0),
-      ...(response.skillTree?.summons || [
-        response.skillTree?.decoySummon,
-        response.skillTree?.summon
-      ]).map((summon) => Number(summon?.expiresAt) || 0)
-    ].filter((expiresAt) => expiresAt > now);
-    const profile = {
-      loadedAt: now,
-      nextSkillExpiryAt: skillExpirations.length ? Math.min(...skillExpirations) : 0,
-      displayName: response.displayName,
-      progression: response.progression,
-      stats: response.stats,
-      resources: response.resources,
-      derivedStats: response.derivedStats,
-      skillTree: response.skillTree,
-      skillEffects: response.skillEffects,
-      job: response.job,
-      combatPresentation: response.combatPresentation,
-      worldState: response.worldState,
-      fieldBossLockouts: response.fieldBossLockouts,
-      huntingTime: response.huntingTime,
-      inventory: response.inventory,
-      equipmentLoadout: response.equipmentLoadout
-    };
-    worldProfileCache.set(key, profile);
-    return profile;
+    return cacheWorldProfile(character, now);
+  }
+
+  async function getMutableWorldCharacter(userId) {
+    const profile = await getWorldProfile(userId);
+    const snapshot = profile?.[worldProfileCharacterSnapshot];
+    if (!snapshot) return V2Character.findOne({ userId });
+    return V2Character.hydrate(cloneWorldCharacterSnapshot(snapshot));
   }
 
   function buildWorldPresenceFromResponse(response, {
@@ -1930,12 +2023,13 @@ function registerV2Routes({
       const ammunition = definition.effect === 'fixed-damage'
         ? null
         : getCombatAmmunition(profile);
-      const ammunitionCount = Math.max(
+      const runtimeHitCount = Math.max(
         1,
         upgradedAudit
           ? Number(preUseEffects.upgradedAuditHits)
           : castProfile.hitCount
       );
+      const ammunitionCount = runtimeHitCount;
       if (
         ammunition
         && !preUseEffects.noAmmoConsumption
@@ -1955,15 +2049,28 @@ function registerV2Routes({
         ? Math.max(1, Number(values.fixedDamage) || 1)
         : Math.max(1, Number(profile.derivedStats.attackMaximum) || 4);
       if (archetype === 'mage' && definition.effect !== 'fixed-damage') {
-        damageRange = buildProfileMagicDamageRange(profile, skillPercentForRuntime);
+        damageRange = buildProfileMagicDamageRange(
+          profile,
+          skillPercentForRuntime,
+          values.mastery
+        );
         baseDamage = 1;
         skillPercentForRuntime = 100;
       } else {
         baseDamage += Number(ammunition?.attackBonus) || 0;
       }
       const activeElements = getActiveWeaponElements(skillState, now);
-      const rollCriticalPerHit = castProfile.channelDurationSeconds > 0
-        && definition.effect !== 'fixed-damage';
+      const doubleStrike = Math.random() * 100
+        < Number(preUseEffects.doubleStrikeChance || 0);
+      const followUpSummon = getActiveFollowUpSummon(skillState, now);
+      const followUpAttack = buildFollowUpBonusAttack(followUpSummon, 'skill');
+      const rollCriticalPerHit = shouldRollSkillCriticalPerHit({
+        effect: definition.effect,
+        hitCount: runtimeHitCount,
+        channelDurationSeconds: castProfile.channelDurationSeconds,
+        hasFollowUpAttack: Boolean(followUpAttack),
+        hasDoubleStrike: doubleStrike
+      });
       const critical = !rollCriticalPerHit && definition.effect !== 'fixed-damage'
         && Math.random() * 100 < Number(profile.derivedStats.criticalChance || 0);
       let damageMultiplier = 1;
@@ -1993,8 +2100,16 @@ function registerV2Routes({
       }
       if (damageRange) damageRange = scaleDamageRange(damageRange, damageMultiplier);
       else baseDamage *= damageMultiplier;
-      const doubleStrike = Math.random() * 100
-        < Number(preUseEffects.doubleStrikeChance || 0);
+      const bonusAttacks = [
+        followUpAttack,
+        doubleStrike
+          ? {
+            percent: Number(preUseEffects.doubleStrikeDamagePercent || 0),
+            source: 'double-strike',
+            repeatEffects: true
+          }
+          : null
+      ].filter(Boolean);
       combat = useSkillOnMonsters({
         userId: String(character.userId),
         mapId,
@@ -2004,12 +2119,9 @@ function registerV2Routes({
         skillPercent: skillPercentForRuntime,
         rangePx: Number(values.range ?? definition.range) || 100,
         maxTargets: Number(values.targetCount ?? definition.maxTargets) || 1,
-        hits: upgradedAudit
-          ? Number(preUseEffects.upgradedAuditHits)
-          : castProfile.hitCount,
-        bonusAttackPercent: doubleStrike
-          ? Number(preUseEffects.doubleStrikeDamagePercent || 0)
-          : 0,
+        hits: runtimeHitCount,
+        splitDamageAcrossHits: Boolean(values.splitDamageAcrossHits),
+        bonusAttacks,
         element: definition.element,
         elements: activeElements.length ? activeElements : [definition.element],
         ignoreDefense: ['ignore-defense-damage', 'fixed-damage'].includes(definition.effect),
@@ -2028,6 +2140,9 @@ function registerV2Routes({
         executeChance: Number(preUseEffects.executeChance) || 0,
         stunChance: Number(values.stunChance) || 0,
         stunSeconds: Number(values.stunSeconds) || 0,
+        freezeSeconds: (
+          activeElements.includes('ice') || definition.element === 'ice'
+        ) ? Number(values.freezeSeconds) || 4 : 0,
         moveCasterToTarget: Boolean(values.moveCasterToTarget),
         pull: ['charge', 'pull'].includes(definition.effect),
         dealDamage: definition.effect !== 'pull',
@@ -2037,6 +2152,7 @@ function registerV2Routes({
         progressiveStartPercent: Number(values.piercingStartPercent) || 0,
         progressiveEndPercent: Number(values.piercingEndPercent) || 0,
         verticalFloorRange: Number(values.verticalFloorRange ?? definition.verticalFloorRange) || 0,
+        verticalRangePx: Number(values.verticalRangePx ?? definition.verticalRangePx) || 0,
         criticalChance: Number(profile.derivedStats.criticalChance) || 0,
         criticalDamagePercent: Number(profile.derivedStats.criticalDamagePercent) || 200,
         rollCriticalPerHit,
@@ -2044,6 +2160,7 @@ function registerV2Routes({
         now
       });
       if (!combat.success) return null;
+      if (followUpAttack) combat.followUpSummon = serializeFollowUpSummon(followUpSummon);
       if (combat.casterMovement) {
         character.worldState.mapId = mapId;
         character.worldState.x = combat.casterMovement.x;
@@ -2053,12 +2170,16 @@ function registerV2Routes({
         ? combat.outcomes.some((outcome) => outcome.hitResults?.some((hit) => hit.critical))
         : critical;
       if (castProfile.channelDurationSeconds > 0) {
+        const channelHitResults = combat.outcomes.flatMap(
+          (outcome) => outcome.hitResults || []
+        );
         combat.channel = {
           durationMs: Math.round(castProfile.channelDurationSeconds * 1000),
           intervalMs: Math.round(castProfile.channelIntervalSeconds * 1000),
-          hitCount: castProfile.hitCount,
+          hitCount: channelHitResults.length || castProfile.hitCount,
           projectileSpeedMultiplier: Number(values.projectileSpeedMultiplier) || 1,
-          hitResults: combat.outcomes.flatMap((outcome) => outcome.hitResults || [])
+          hitResults: channelHitResults,
+          followUpSummon: combat.followUpSummon || null
         };
       }
       clearStealthBuff(skillState);
@@ -2378,6 +2499,7 @@ function registerV2Routes({
       playerLevel: profile.progression?.level,
       stunChance: Number(summon.stunChance) || 0,
       stunSeconds: Number(summon.stunSeconds) || 0,
+      freezeSeconds: Number(summon.freezeSeconds) || 0,
       now
     });
     if (!combat.success) return { ...combat, summonAttack: true, critical };
@@ -2438,7 +2560,10 @@ function registerV2Routes({
         ? Math.max(0, Number(selfContact.currentMp))
         : beforeMp;
       character.worldState.x = Math.max(0, Math.min(94, Number(selfContact.x) || 8));
-      character.worldState.floor = Number(selfContact.floor) === 1 ? 1 : 0;
+      character.worldState.floor = normalizeWorldFloor(
+        character.worldState?.mapId,
+        selfContact.floor
+      );
       if (selfContact.blocked) {
         recordQuestEvent(character, {
           type: 'block',
@@ -2546,7 +2671,10 @@ function registerV2Routes({
         Number(self?.x) + direction * Math.min(movementStep, distance - rangePercent - 3.5)
       ));
       character.worldState.x = nextX;
-      character.worldState.floor = Number(self?.floor) === 1 ? 1 : 0;
+      character.worldState.floor = normalizeWorldFloor(
+        character.worldState?.mapId,
+        self?.floor
+      );
       buildWorldPresenceFromResponse(response, {
         userId,
         x: nextX,
@@ -2854,7 +2982,7 @@ function registerV2Routes({
   app.post('/api/v2/login', async (req, res) => {
     try {
       const username = String(req.body?.username || '').trim();
-      const password = String(req.body?.password || '');
+      const password = normalizePasswordInput(req.body?.password);
       if (!username || !password) {
         return res.status(400).json({ msg: '아이디와 비밀번호를 입력해주세요.' });
       }
@@ -3324,7 +3452,7 @@ function registerV2Routes({
         ? getPartyMemberIds(auth.id)
         : [auth.id];
       const result = await withCharacterMutations(mutationUserIds, async () => {
-        const character = await V2Character.findOne({ userId: auth.id });
+        const character = await getMutableWorldCharacter(auth.id);
         if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
         const skillId = String(req.body?.skillId || '');
         const definition = SKILL_DEFINITIONS[skillId];
@@ -3426,15 +3554,21 @@ function registerV2Routes({
             || Boolean(req.body?.facingLeft)
             ? -1
             : 1;
-          const currentX = Math.max(
-            0,
-            Math.min(94, Number(req.body?.x ?? character.worldState?.x) || 8)
-          );
+          const requestedX = Number(req.body?.x ?? character.worldState?.x);
+          const currentX = Math.max(0, Math.min(94, Number.isFinite(requestedX) ? requestedX : 8));
           const nextX = Math.max(
             0,
-            Math.min(94, currentX + direction * distancePx / 760 * 100)
+            Math.min(
+              94,
+              currentX + direction * distancePx
+                / Math.max(760, Number(getWorldMap(activeMapId)?.layout?.worldWidth) || 760)
+                * 100
+            )
           );
-          const nextFloor = Number(req.body?.floor ?? character.worldState?.floor) === 1 ? 1 : 0;
+          const nextFloor = normalizeWorldFloor(
+            activeMapId,
+            req.body?.floor ?? character.worldState?.floor
+          );
           if (!character.worldState || typeof character.worldState !== 'object') {
             character.worldState = {};
           }
@@ -3464,12 +3598,13 @@ function registerV2Routes({
           const ammunition = definition.effect === 'fixed-damage'
             ? null
             : getCombatAmmunition(response);
-          const ammunitionCount = Math.max(
+          const runtimeHitCount = Math.max(
             1,
             upgradedAudit
               ? Number(activeEffects.upgradedAuditHits)
               : castProfile.hitCount
           );
+          const ammunitionCount = runtimeHitCount;
           if (
             ammunition
             && !activeEffects.noAmmoConsumption
@@ -3491,14 +3626,27 @@ function registerV2Routes({
             ? Math.max(1, Number(values.fixedDamage) || 1)
             : Math.max(1, Number(response.derivedStats.attackMaximum) || 4);
           if (archetype === 'mage' && definition.effect !== 'fixed-damage') {
-            damageRange = buildProfileMagicDamageRange(response, skillPercentForRuntime);
+            damageRange = buildProfileMagicDamageRange(
+              response,
+              skillPercentForRuntime,
+              values.mastery
+            );
             baseDamage = 1;
             skillPercentForRuntime = 100;
           } else {
             baseDamage += Number(ammunition?.attackBonus) || 0;
           }
-          const rollCriticalPerHit = castProfile.channelDurationSeconds > 0
-            && definition.effect !== 'fixed-damage';
+          const doubleStrike = Math.random() * 100
+            < Number(activeEffects.doubleStrikeChance || 0);
+          const followUpSummon = getActiveFollowUpSummon(skillState, now);
+          const followUpAttack = buildFollowUpBonusAttack(followUpSummon, 'skill');
+          const rollCriticalPerHit = shouldRollSkillCriticalPerHit({
+            effect: definition.effect,
+            hitCount: runtimeHitCount,
+            channelDurationSeconds: castProfile.channelDurationSeconds,
+            hasFollowUpAttack: Boolean(followUpAttack),
+            hasDoubleStrike: doubleStrike
+          });
           const critical = !rollCriticalPerHit && definition.effect !== 'fixed-damage'
             && Math.random() * 100 < Number(response.derivedStats.criticalChance || 0);
           let damageMultiplier = 1;
@@ -3530,8 +3678,16 @@ function registerV2Routes({
           }
           if (damageRange) damageRange = scaleDamageRange(damageRange, damageMultiplier);
           else baseDamage *= damageMultiplier;
-          const doubleStrike = Math.random() * 100
-            < Number(activeEffects.doubleStrikeChance || 0);
+          const bonusAttacks = [
+            followUpAttack,
+            doubleStrike
+              ? {
+                percent: Number(activeEffects.doubleStrikeDamagePercent || 0),
+                source: 'double-strike',
+                repeatEffects: true
+              }
+              : null
+          ].filter(Boolean);
           combat = useSkillOnMonsters({
             userId: String(auth.id),
             mapId: String(req.body?.mapId || ''),
@@ -3541,12 +3697,9 @@ function registerV2Routes({
             skillPercent: skillPercentForRuntime,
             rangePx: Number(values.range ?? definition.range) || 100,
             maxTargets: Number(values.targetCount ?? definition.maxTargets) || 1,
-            hits: upgradedAudit
-              ? Number(activeEffects.upgradedAuditHits)
-              : castProfile.hitCount,
-            bonusAttackPercent: doubleStrike
-              ? Number(activeEffects.doubleStrikeDamagePercent || 0)
-              : 0,
+            hits: runtimeHitCount,
+            splitDamageAcrossHits: Boolean(values.splitDamageAcrossHits),
+            bonusAttacks,
             element: definition.element,
             elements: activeElements.length ? activeElements : [definition.element],
             ignoreDefense: ['ignore-defense-damage', 'fixed-damage'].includes(definition.effect),
@@ -3565,6 +3718,9 @@ function registerV2Routes({
             executeChance: Number(activeEffects.executeChance) || 0,
             stunChance: Number(values.stunChance) || 0,
             stunSeconds: Number(values.stunSeconds) || 0,
+            freezeSeconds: (
+              activeElements.includes('ice') || definition.element === 'ice'
+            ) ? Number(values.freezeSeconds) || 4 : 0,
             moveCasterToTarget: Boolean(values.moveCasterToTarget),
             pull: ['charge', 'pull'].includes(definition.effect),
             dealDamage: definition.effect !== 'pull',
@@ -3576,6 +3732,7 @@ function registerV2Routes({
             verticalFloorRange: Number(
               values.verticalFloorRange ?? definition.verticalFloorRange
             ) || 0,
+            verticalRangePx: Number(values.verticalRangePx ?? definition.verticalRangePx) || 0,
             criticalChance: Number(response.derivedStats.criticalChance) || 0,
             criticalDamagePercent: Number(response.derivedStats.criticalDamagePercent) || 200,
             rollCriticalPerHit,
@@ -3587,6 +3744,7 @@ function registerV2Routes({
               : null
           });
           if (!combat.success) throw new Error('사거리 안에 공격할 대상이 없습니다.');
+          if (followUpAttack) combat.followUpSummon = serializeFollowUpSummon(followUpSummon);
           if (combat.casterMovement) {
             const activeMapId = String(
               req.body?.mapId || character.worldState?.mapId || START_MAP_ID
@@ -3606,12 +3764,16 @@ function registerV2Routes({
             ? combat.outcomes.some((outcome) => outcome.hitResults?.some((hit) => hit.critical))
             : critical;
           if (castProfile.channelDurationSeconds > 0) {
+            const channelHitResults = combat.outcomes.flatMap(
+              (outcome) => outcome.hitResults || []
+            );
             combat.channel = {
               durationMs: Math.round(castProfile.channelDurationSeconds * 1000),
               intervalMs: Math.round(castProfile.channelIntervalSeconds * 1000),
-              hitCount: castProfile.hitCount,
+              hitCount: channelHitResults.length || castProfile.hitCount,
               projectileSpeedMultiplier: Number(values.projectileSpeedMultiplier) || 1,
-              hitResults: combat.outcomes.flatMap((outcome) => outcome.hitResults || [])
+              hitResults: channelHitResults,
+              followUpSummon: combat.followUpSummon || null
             };
           }
           clearStealthBuff(skillState);
@@ -3782,18 +3944,25 @@ function registerV2Routes({
             || Boolean(req.body?.facingLeft)
             ? -1
             : 1;
-          const currentX = Math.max(
-            0,
-            Math.min(94, Number(req.body?.x ?? character.worldState?.x) || 8)
-          );
+          const requestedX = Number(req.body?.x ?? character.worldState?.x);
+          const currentX = Math.max(0, Math.min(94, Number.isFinite(requestedX) ? requestedX : 8));
           const nextX = Math.max(
             0,
-            Math.min(94, currentX + direction * distancePx / 760 * 100)
+            Math.min(
+              94,
+              currentX + direction * distancePx
+                / Math.max(760, Number(getWorldMap(activeMapId)?.layout?.worldWidth) || 760)
+                * 100
+            )
           );
-          const nextFloor = Number(req.body?.floor ?? character.worldState?.floor) === 1 ? 1 : 0;
+          const nextFloor = normalizeWorldFloor(
+            activeMapId,
+            req.body?.floor ?? character.worldState?.floor
+          );
           character.worldState.mapId = activeMapId;
           character.worldState.x = nextX;
           character.worldState.floor = nextFloor;
+          character.markModified('worldState');
           combat = {
             success: true,
             teleport: {
@@ -4003,8 +4172,8 @@ function registerV2Routes({
             )
           };
         }
-        worldProfileCache.delete(String(auth.id));
         const characterResponse = buildCharacterResponse(character);
+        cacheWorldProfile(character, Date.now(), characterResponse);
         updatePlayerResources(auth.id, characterResponse.resources);
         return {
           skill: {
@@ -4141,7 +4310,7 @@ function registerV2Routes({
           if (!consumeInventoryItem(character, item.id, 1)) {
             throw new Error('해당 소비 아이템이 부족합니다.');
           }
-          map = findNearestSafeMap(character.worldState?.mapId);
+          map = findNearestReturnMap(character.worldState?.mapId);
           character.worldState.mapId = map.id;
           character.worldState.x = 8;
           character.worldState.floor = 0;
@@ -4433,10 +4602,20 @@ function registerV2Routes({
     }
   });
 
+  function requireMarketplaceSafeZone(character) {
+    if (!character || !getWorldMap(character.worldState?.mapId)?.safeZone) {
+      const error = new Error('거래소는 안전지대에서만 이용할 수 있습니다.');
+      error.code = 'MARKETPLACE_SAFE_ZONE_ONLY';
+      throw error;
+    }
+  }
+
   app.get('/api/v2/marketplace', async (req, res) => {
     const auth = requireV2User(req, res);
     if (!auth) return;
     try {
+      const character = await V2Character.findOne({ userId: auth.id }).select('worldState').lean();
+      requireMarketplaceSafeZone(character);
       const now = new Date();
       await V2MarketListing.updateMany(
         { status: 'active', expiresAt: { $lte: now } },
@@ -4468,6 +4647,9 @@ function registerV2Routes({
         }
       });
     } catch (err) {
+      if (err.code === 'MARKETPLACE_SAFE_ZONE_ONLY') {
+        return res.status(400).json({ msg: err.message });
+      }
       console.error('V2 marketplace load error:', err);
       return res.status(500).json({ msg: '거래소 정보를 불러오지 못했습니다.' });
     }
@@ -4486,6 +4668,7 @@ function registerV2Routes({
       }
       const character = await V2Character.findOne({ userId: auth.id });
       if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+      requireMarketplaceSafeZone(character);
       const stack = ensureInventory(character).items.find(
         (entry) => String(entry.stackId) === stackId && Number(entry.quantity) >= quantity
       );
@@ -4568,6 +4751,7 @@ function registerV2Routes({
       const result = await withCharacterMutation(auth.id, async () => {
         const buyer = await V2Character.findOne({ userId: auth.id });
         if (!buyer) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        requireMarketplaceSafeZone(buyer);
         const money = Math.max(0, Number(buyer.economy?.money) || 0);
         if (money < listing.totalPrice) throw new Error('구매 금액이 부족합니다.');
         addInventoryItem(buyer, listing.itemId, listing.quantity, listing.instanceData);
@@ -4613,6 +4797,7 @@ function registerV2Routes({
       const result = await withCharacterMutation(auth.id, async () => {
         const character = await V2Character.findOne({ userId: auth.id });
         if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        requireMarketplaceSafeZone(character);
         addInventoryItem(character, listing.itemId, listing.quantity, listing.instanceData);
         await character.save();
         listing.status = 'cancelled';
@@ -4646,6 +4831,7 @@ function registerV2Routes({
       const result = await withCharacterMutation(auth.id, async () => {
         const character = await V2Character.findOne({ userId: auth.id });
         if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
+        requireMarketplaceSafeZone(character);
         const sold = await V2MarketListing.find({ sellerId: auth.id, status: 'sold' });
         const expired = await V2MarketListing.find({ sellerId: auth.id, status: 'expired' });
         const proceeds = sold.reduce(
@@ -4942,7 +5128,7 @@ function registerV2Routes({
         let masteryResult = null;
         let appliedBuff = null;
         if (item.itemType === 'return-scroll') {
-          map = findNearestSafeMap(character.worldState?.mapId);
+          map = findNearestReturnMap(character.worldState?.mapId);
           character.worldState.mapId = map.id;
           character.worldState.x = 8;
           character.worldState.floor = 0;
@@ -5208,7 +5394,7 @@ function registerV2Routes({
     if (!auth) return;
     try {
       const huntingTime = await withCharacterMutation(auth.id, async () => {
-        const character = await V2Character.findOne({ userId: auth.id });
+        const character = await getMutableWorldCharacter(auth.id);
         if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
         const enabled = req.body?.enabled === true;
         if (enabled && getWorldMap(character.worldState?.mapId)?.safeZone) {
@@ -5216,7 +5402,7 @@ function registerV2Routes({
         }
         const result = setHuntingEnabled(character, enabled);
         await character.save();
-        worldProfileCache.delete(String(auth.id));
+        cacheWorldProfile(character);
         return result;
       });
       return res.json({ success: true, huntingTime });
@@ -5230,14 +5416,14 @@ function registerV2Routes({
     if (!auth) return;
     try {
       const huntingTime = await withCharacterMutation(auth.id, async () => {
-        const character = await V2Character.findOne({ userId: auth.id });
+        const character = await getMutableWorldCharacter(auth.id);
         if (!character) throw new Error('V2 캐릭터를 찾을 수 없습니다.');
         const safeZone = Boolean(getWorldMap(character.worldState?.mapId)?.safeZone);
         const result = safeZone
           ? setHuntingEnabled(character, false)
           : tickHuntingTime(character, req.body?.active === true);
         await character.save();
-        worldProfileCache.delete(String(auth.id));
+        cacheWorldProfile(character);
         return result;
       });
       return res.json({ success: true, huntingTime });
@@ -5587,7 +5773,7 @@ function registerV2Routes({
         && Boolean(profile.huntingTime?.enabled);
       if (!isDead && (mapId !== profile.worldState?.mapId || enteringSafeZoneWithAutoCombat)) {
         const x = Math.max(0, Math.min(94, Number(req.body?.x) || 8));
-        const floor = Number(req.body?.floor) === 1 ? 1 : 0;
+        const floor = normalizeWorldFloor(mapId, req.body?.floor);
         const safeZoneHuntingUpdate = requestedMap.safeZone
           ? {
             'huntingTime.enabled': false,
@@ -5613,6 +5799,7 @@ function registerV2Routes({
             lastTickAt: null
           };
         }
+        worldProfileCache.delete(String(auth.id));
       }
       const state = updatePresence({
         userId: String(auth.id),
@@ -5688,7 +5875,7 @@ function registerV2Routes({
           });
           if (companionProgressed || summonCombat) {
             await character.save();
-            worldProfileCache.delete(String(auth.id));
+            cacheWorldProfile(character);
           }
         });
       }
@@ -5712,7 +5899,7 @@ function registerV2Routes({
             event.expLost = 0;
             character.worldState.mapId = state.mapId;
             character.worldState.x = Math.max(0, Math.min(94, Number(event.x) || 8));
-            character.worldState.floor = Number(event.floor) === 1 ? 1 : 0;
+            character.worldState.floor = normalizeWorldFloor(state.mapId, event.floor);
             if (event.blocked) {
               recordQuestEvent(character, {
                 type: 'block',
@@ -5750,7 +5937,7 @@ function registerV2Routes({
             await character.save();
             queueAutoPotionUpdate(event.userId, character, autoPotionUses);
             updatePlayerResources(event.userId, character.resources);
-            worldProfileCache.delete(String(event.userId));
+            cacheWorldProfile(character);
           })
         )));
         for (const event of state.contactEvents) {
@@ -5782,9 +5969,11 @@ function registerV2Routes({
             event.restoredMp = restoredMp;
             event.currentHp = character.resources.currentHp;
             event.currentMp = character.resources.currentMp;
-            if (healed > 0 || restoredMp > 0) await character.save();
+            if (healed > 0 || restoredMp > 0) {
+              await character.save();
+              cacheWorldProfile(character);
+            }
             updatePlayerResources(event.userId, character.resources);
-            worldProfileCache.delete(String(event.userId));
           });
           const player = state.players.find((entry) => entry.userId === event.userId);
           if (player) {
@@ -5820,7 +6009,7 @@ function registerV2Routes({
             if (result.removedCount > 0) {
               await character.save();
               updatePlayerResources(event.targetUserId, character.resources);
-              worldProfileCache.delete(String(event.targetUserId));
+              cacheWorldProfile(character);
             }
             const player = state.players.find((entry) => entry.userId === String(event.targetUserId));
             if (player && character.resources) {
@@ -5870,7 +6059,7 @@ function registerV2Routes({
             }
             character.markModified('skills');
             await character.save();
-            worldProfileCache.delete(String(event.userId));
+            cacheWorldProfile(character);
           })
         )));
       }
@@ -5888,6 +6077,7 @@ function registerV2Routes({
         fieldBossEntryBlock,
         lootCollections: state.lootCollections,
         partyState: getPartyState(auth.id),
+        partyMemberIds: getPartyMemberIds(auth.id),
         tradeState: getTradeState(auth.id),
         partyPortals: listVisiblePartyPortals(auth.id, state.mapId),
         autoPotionUpdate: takeAutoPotionUpdate(auth.id),
@@ -6000,6 +6190,17 @@ function registerV2Routes({
         });
       }
       result.critical = rolled.critical;
+      result.hitResults = [{
+        monsterId: result.targetId,
+        hitIndex: 0,
+        damage: Number(result.displayDamage ?? result.damage) || 0,
+        displayDamage: Number(result.displayDamage ?? result.damage) || 0,
+        critical: Boolean(rolled.critical),
+        missed: Boolean(result.missed),
+        remainingHp: Number(result.monster?.hp) || 0,
+        maxHp: Number(result.monster?.maxHp) || 0,
+        defeated: Boolean(result.defeated)
+      }];
       if (consumesAmmunition) {
         await V2Character.updateOne(
           {
@@ -6018,18 +6219,28 @@ function registerV2Routes({
         }
         worldProfileCache.delete(String(auth.id));
       }
-      if (
-        !result.defeated
-        && !result.missed
-        && Math.random() * 100 < Number(skillEffects.doubleStrikeChance || 0)
-      ) {
+      const followUpSummon = getActiveFollowUpSummon(profile.skillTree, Date.now());
+      const followUpAttack = buildFollowUpBonusAttack(followUpSummon, 'basic');
+      const doubleStrike = Math.random() * 100
+        < Number(skillEffects.doubleStrikeChance || 0);
+      const additionalAttacks = [
+        followUpAttack,
+        doubleStrike
+          ? {
+            percent: Number(skillEffects.doubleStrikeDamagePercent || 0),
+            source: 'double-strike'
+          }
+          : null
+      ].filter((attack) => Number(attack?.percent) > 0);
+      for (const additionalAttack of additionalAttacks) {
+        if (result.defeated || result.missed) break;
         const second = attackMonster({
           userId: String(auth.id),
           mapId: String(req.body?.mapId || ''),
           monsterId: String(result.targetId || req.body?.monsterId || ''),
-          damage: rolled.damage * Number(skillEffects.doubleStrikeDamagePercent || 0) / 100,
+          damage: rolled.damage * Number(additionalAttack.percent) / 100,
           damageRange: rolled.damageRange
-            ? scaleDamageRange(rolled.damageRange, Number(skillEffects.doubleStrikeDamagePercent || 0) / 100)
+            ? scaleDamageRange(rolled.damageRange, Number(additionalAttack.percent) / 100)
             : null,
           rangePx: profile.combatPresentation?.rangePx || profile.derivedStats.attackRange,
           damageType: archetype === 'mage' ? 'magic' : 'physical',
@@ -6037,6 +6248,8 @@ function registerV2Routes({
           freezeSeconds: activeElements.includes('ice') ? 4 : 0,
           accuracy: profile.derivedStats.accuracy,
           playerLevel: profile.progression?.level,
+          mpAbsorbChance: archetype === 'mage' ? Number(skillEffects.mpAbsorbChance) || 0 : 0,
+          mpAbsorbPercent: archetype === 'mage' ? Number(skillEffects.mpAbsorbPercent) || 0 : 0,
           poisonChance: Number(skillEffects.poisonChance) || 0,
           poisonAttack: Number(skillEffects.poisonAttack) || 0,
           poisonDurationSeconds: Number(skillEffects.poisonDurationSeconds) || 0,
@@ -6048,17 +6261,41 @@ function registerV2Routes({
         });
         if (second.success) {
           result.damage += Number(second.damage) || 0;
-          result.doubleStrike = true;
+          result.displayDamage = result.damage;
+          result.doubleStrike = result.doubleStrike
+            || additionalAttack.source === 'double-strike';
+          result.followUpAttack = result.followUpAttack
+            || additionalAttack.source === 'follow-up-summon';
           result.knockedBack = result.knockedBack || second.knockedBack;
           result.defeated = second.defeated;
           if (second.monsterLevel) result.monsterLevel = second.monsterLevel;
           result.expReward += Number(second.expReward) || 0;
+          result.mpAbsorbed += Number(second.mpAbsorbed) || 0;
+          result.poisoned = result.poisoned || second.poisoned;
           result.drops.push(...(second.drops || []));
+          result.outcomes.push(...(second.outcomes || []));
           if (second.fieldBossReward) result.fieldBossReward = second.fieldBossReward;
           result.monster = second.monster;
           result.players = second.players;
           result.monsters = second.monsters;
+          result.hitResults.push({
+            monsterId: second.targetId,
+            hitIndex: result.hitResults.length,
+            damage: Number(second.displayDamage ?? second.damage) || 0,
+            displayDamage: Number(second.displayDamage ?? second.damage) || 0,
+            critical: Boolean(rolled.critical),
+            missed: Boolean(second.missed),
+            remainingHp: Number(second.monster?.hp) || 0,
+            maxHp: Number(second.monster?.maxHp) || 0,
+            defeated: Boolean(second.defeated),
+            bonusAttack: true,
+            bonusAttackSource: additionalAttack.source,
+            followUpAttack: additionalAttack.source === 'follow-up-summon'
+          });
         }
+      }
+      if (result.followUpAttack) {
+        result.followUpSummon = serializeFollowUpSummon(followUpSummon);
       }
 
       let character = null;
@@ -6201,7 +6438,7 @@ function registerV2Routes({
             $set: {
               'worldState.mapId': mapId,
               'worldState.x': Math.max(0, Math.min(94, Number(req.body?.x) || 8)),
-              'worldState.floor': Number(req.body?.floor) === 1 ? 1 : 0
+              'worldState.floor': normalizeWorldFloor(mapId, req.body?.floor)
             }
           }
         );
@@ -6512,6 +6749,8 @@ module.exports = {
   calculatePartyExperienceShares,
   calculateWelfareSupportDamage,
   calculateMoneyDropAmount,
+  shouldRollSkillCriticalPerHit,
+  buildProfileMagicDamageRange,
   serializeMarketplaceListing,
   MARKETPLACE_LISTING_HOURS,
   getMarketplaceListingExpiresAt,

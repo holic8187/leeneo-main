@@ -4,6 +4,7 @@ const crypto = require('crypto');
 
 const PARTY_INVITE_TTL_MS = 30_000;
 const MAX_PARTY_SIZE = 6;
+const PARTY_EXP_ACTIVITY_WINDOW_MS = 120_000;
 const parties = new Map();
 const partyIdByUser = new Map();
 const invitationsByTarget = new Map();
@@ -22,7 +23,8 @@ function serializeParty(party, viewerId = '') {
     leaderId: party.leaderId,
     isLeader: String(party.leaderId) === String(viewerId),
     members: party.members.map((member) => ({
-      ...member,
+      userId: member.userId,
+      nickname: member.nickname,
       isLeader: member.userId === party.leaderId,
       isSelf: member.userId === String(viewerId)
     }))
@@ -55,6 +57,26 @@ function getPartyMemberIds(userId) {
   return party
     ? party.members.map((member) => String(member.userId))
     : [String(userId)];
+}
+
+function recordPartyMonsterKill(userId, now = Date.now()) {
+  const party = getParty(userId);
+  const member = party?.members.find((entry) => entry.userId === String(userId));
+  if (!member) return false;
+  member.lastKillAt = Number(now) || Date.now();
+  return true;
+}
+
+function isPartyExperienceEligible(userId, now = Date.now()) {
+  const party = getParty(userId);
+  if (!party) return true;
+  const member = party.members.find((entry) => entry.userId === String(userId));
+  if (!member) return false;
+  const activityAt = Math.max(
+    Number(member.lastKillAt) || 0,
+    Number(member.joinedAt) || 0
+  );
+  return Number(now) - activityAt <= PARTY_EXP_ACTIVITY_WINDOW_MS;
 }
 
 function invitePlayer(inviter, target) {
@@ -93,12 +115,15 @@ function acceptInvitation(target, invitationId) {
   if (getParty(member.userId)) throw new Error('이미 파티에 참여 중입니다.');
   let party = getParty(invitation.inviterId);
   if (!party) {
+    const joinedAt = Date.now();
     party = {
       id: crypto.randomUUID(),
       leaderId: invitation.inviterId,
       members: [{
         userId: invitation.inviterId,
-        nickname: invitation.inviterNickname
+        nickname: invitation.inviterNickname,
+        joinedAt,
+        lastKillAt: 0
       }]
     };
     parties.set(party.id, party);
@@ -108,7 +133,11 @@ function acceptInvitation(target, invitationId) {
     throw new Error('파티 구성이 변경되어 초대가 만료되었습니다.');
   }
   if (party.members.length >= MAX_PARTY_SIZE) throw new Error('파티 정원이 가득 찼습니다.');
-  party.members.push(member);
+  party.members.push({
+    ...member,
+    joinedAt: Date.now(),
+    lastKillAt: 0
+  });
   partyIdByUser.set(member.userId, party.id);
   invitationsByTarget.delete(member.userId);
   return serializeParty(party, member.userId);
@@ -148,8 +177,11 @@ function resetPartyRuntime() {
 module.exports = {
   PARTY_INVITE_TTL_MS,
   MAX_PARTY_SIZE,
+  PARTY_EXP_ACTIVITY_WINDOW_MS,
   getPartyState,
   getPartyMemberIds,
+  recordPartyMonsterKill,
+  isPartyExperienceEligible,
   invitePlayer,
   acceptInvitation,
   declineInvitation,
