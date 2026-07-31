@@ -13,6 +13,8 @@ const {
 const {
   registerV2Routes,
   validateSignupPayload,
+  shouldRollSkillCriticalPerHit,
+  buildProfileMagicDamageRange,
   MARKETPLACE_LISTING_HOURS,
   getMarketplaceListingExpiresAt,
   getMarketplaceArchetypeItemIds
@@ -22,6 +24,45 @@ const {
   getIncompleteMigrationIds,
   getOrphanedDeletedIds
 } = require('../../src/v2/services/automaticMigrationService');
+
+test('multi-hit and follow-up skill attacks request independent critical rolls', () => {
+  assert.equal(shouldRollSkillCriticalPerHit({
+    effect: 'damage',
+    hitCount: 3,
+    hasFollowUpAttack: true
+  }), true);
+  assert.equal(shouldRollSkillCriticalPerHit({
+    effect: 'damage',
+    hitCount: 1,
+    hasFollowUpAttack: true
+  }), true);
+  assert.equal(shouldRollSkillCriticalPerHit({
+    effect: 'damage',
+    hitCount: 1
+  }), false);
+  assert.equal(shouldRollSkillCriticalPerHit({
+    effect: 'fixed-damage',
+    hitCount: 6,
+    hasFollowUpAttack: true
+  }), false);
+});
+
+test('skill-specific magic mastery overrides equipment mastery for its damage range', () => {
+  const profile = {
+    derivedStats: {
+      magic: 500,
+      weaponMastery: 10,
+      effectiveStats: { workKnowledge: 400 }
+    }
+  };
+  const levelOneRange = buildProfileMagicDamageRange(profile, 100, 35);
+  const masterLevelRange = buildProfileMagicDamageRange(profile, 100, 80);
+
+  assert.equal(levelOneRange.mastery, 0.35);
+  assert.equal(masterLevelRange.mastery, 0.8);
+  assert.ok(masterLevelRange.minimum > levelOneRange.minimum);
+  assert.equal(masterLevelRange.maximum, levelOneRange.maximum);
+});
 
 function createLegacyUser(overrides = {}) {
   return {
@@ -184,6 +225,34 @@ test('V2 signup fields require matching passwords and a signup code', () => {
     signupCode: 'HOI2026',
     nickname: '신입사원'
   }).valid, false);
+});
+
+test('V2 signup treats visually identical normalized passwords as matching', () => {
+  const composed = 'café비밀번호';
+  const decomposed = composed.normalize('NFD');
+  const result = validateSignupPayload({
+    username: 'employee_02',
+    password: composed,
+    passwordConfirm: decomposed,
+    signupCode: 'HOI2026',
+    nickname: '정규화사원'
+  });
+
+  assert.equal(result.valid, true);
+  assert.equal(result.password, composed.normalize('NFC'));
+});
+
+test('V2 signup reports short matching passwords as too short, not mismatched', () => {
+  const result = validateSignupPayload({
+    username: 'employee_03',
+    password: '1',
+    passwordConfirm: '1',
+    signupCode: 'HOI2026',
+    nickname: '길이검사'
+  });
+
+  assert.equal(result.valid, false);
+  assert.equal(result.message, '비밀번호는 6~72자로 입력해주세요.');
 });
 
 test('V2 marketplace listings stay active for sixty hours', () => {
