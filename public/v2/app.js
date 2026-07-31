@@ -2341,6 +2341,34 @@ function getPortalPlacement(map, index = 0) {
   };
 }
 
+function getPortalPlacement(map, index = 0) {
+  const platforms = getMapLayout(map).platforms;
+  const ground = platforms.filter((platform) => Number(platform.floor) === 0);
+  const elevated = platforms.filter((platform) => Number(platform.floor) > 0);
+  let platform;
+  let characterX;
+  if (index === 0) {
+    platform = ground[0] || platforms[0];
+    characterX = Number(platform.x) + Math.min(8, Number(platform.width) * .22);
+  } else if (index === 1) {
+    platform = ground.at(-1) || platforms.at(-1);
+    characterX = Number(platform.x) + Number(platform.width)
+      - Math.min(10, Number(platform.width) * .24);
+  } else {
+    platform = elevated[(index - 2) % Math.max(1, elevated.length)]
+      || ground[index % Math.max(1, ground.length)]
+      || platforms[0];
+    characterX = Number(platform.x) + Number(platform.width) / 2;
+  }
+  const floor = Math.max(0, Math.floor(Number(platform?.floor) || 0));
+  return {
+    left: `${clampToPlatform(characterX - 2.5, floor, map)}%`,
+    side: floor > 0 ? 'upper' : (characterX < 50 ? 'left' : 'right'),
+    characterX: clampToPlatform(characterX, floor, map),
+    floor
+  };
+}
+
 function renderPortals(map) {
   $('portalLayer').innerHTML = map.connections.map((connection, index) => {
     const target = getMap(connection.targetId);
