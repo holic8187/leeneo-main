@@ -418,7 +418,7 @@ async function ensureV2MigrationForUser(user) {
             misc: 20,
             cash: 20
           },
-          quickSlots: { hp: '', mp: '', consumables: ['', '', ''] }
+          quickSlots: { hp: '', mp: '', consumables: ['', '', '', ''] }
         },
         mailbox: [],
         resources: {
