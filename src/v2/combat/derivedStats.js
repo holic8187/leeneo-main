@@ -187,6 +187,11 @@ function buildDerivedStats({
       + sumLoadoutStat(loadout, 'movementSpeed')
       + finite(skillEffects.movementSpeedIncrease)
     ),
+    jumpPower: roundStat(
+      100
+      + sumLoadoutStat(loadout, 'jump')
+      + finite(skillEffects.jumpIncrease)
+    ),
     criticalChance: Math.max(0, Math.min(100, finite(skillEffects.criticalChance))),
     criticalDamagePercent: Math.max(100, finite(skillEffects.criticalDamagePercent) || 200),
     attackRange: Math.max(
