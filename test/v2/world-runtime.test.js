@@ -1953,7 +1953,7 @@ test('Gammam Neo telegraphs close blast before applying damage', () => {
     userId: 'neo-target',
     nickname: '네오 대상',
     mapId: 'hidden_hwang_overtime',
-    x: 40,
+    x: 45,
     floor: 0,
     activity: 'idle',
     facingLeft: false,
