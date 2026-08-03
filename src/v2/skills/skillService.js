@@ -23,7 +23,7 @@ const ACTIVE_BUFF_EFFECT_KEYS = Object.freeze([
   'damageIncreasePercent', 'elementDamageIncreasePercent',
   'experienceBonusPercent', 'experienceMultiplierPercent', 'allStatsPercent',
   'moneyDropIncreasePercent', 'noAmmoConsumption', 'noMpCost',
-  'movementSpeedIncrease', 'criticalChance', 'criticalDamagePercent',
+  'movementSpeedIncrease', 'jumpIncrease', 'criticalChance', 'criticalDamagePercent',
   'attackRangeIncrease', 'dodgeChance', 'consumableEffectPercent',
   'magicMpCostIncreasePercent', 'stealth'
 ]);
@@ -44,6 +44,8 @@ const VALUE_LABELS = Object.freeze({
   masteryIncrease: '숙련도',
   accuracyIncrease: '명중률',
   evasionIncrease: '회피율',
+  movementSpeedIncrease: '이동속도',
+  jumpIncrease: '점프력',
   chance: '발동 확률',
   successChance: '성공 확률',
   stunChance: '기절 확률',
@@ -359,6 +361,13 @@ function interpolate(start, end, level, maxLevel) {
 }
 
 function resolveValue(value, level, maxLevel) {
+  if (value && typeof value === 'object' && Array.isArray(value.byLevel)) {
+    const index = Math.max(0, Math.min(
+      value.byLevel.length - 1,
+      Math.floor(Number(level) || 1) - 1
+    ));
+    return value.byLevel[index];
+  }
   if (Array.isArray(value) && value.length === 2 && value.every(Number.isFinite)) {
     return interpolate(value[0], value[1], level, maxLevel);
   }
@@ -591,6 +600,36 @@ function isBuffExpired(buff, now) {
   return Number.isFinite(expiresAt) ? expiresAt <= now : true;
 }
 
+function setActivePresetSlot(character, skillId, slotIndex) {
+  const id = String(skillId || '');
+  const slot = Math.floor(Number(slotIndex));
+  const definition = SKILL_DEFINITIONS[id];
+  if (slot < 0 || slot >= MAX_ACTIVE_PRESET_SIZE) {
+    throw new Error('올바르지 않은 스킬 슬롯입니다.');
+  }
+  if (
+    !definition
+    || definition.passive
+    || NON_PRESET_EFFECTS.has(definition.effect)
+    || getSkillLevel(character, id) <= 0
+  ) {
+    throw new Error('배운 액티브 스킬만 프리셋에 등록할 수 있습니다.');
+  }
+  const skills = ensureSkillState(character);
+  const preset = [...skills.activePreset];
+  while (preset.length <= slot) preset.push('');
+  const existingIndex = preset.indexOf(id);
+  if (existingIndex >= 0) preset[existingIndex] = '';
+  preset[slot] = id;
+  while (preset.length && !preset[preset.length - 1]) preset.pop();
+  skills.activePreset = preset;
+  skills.offlineAutoRotationCursor = 0;
+  const activeSet = new Set(preset.filter(Boolean));
+  skills.autoPreset = skills.autoPreset.filter((entry) => activeSet.has(String(entry)));
+  if (typeof character.markModified === 'function') character.markModified('skills');
+  return [...preset];
+}
+
 function restoreExpiredNoMpCostBuffs(character, expiredBuffs = []) {
   if (!expiredBuffs.some((buff) => Number(buff.effects?.noMpCost) > 0)) return false;
   let changed = false;
@@ -722,6 +761,7 @@ function getActiveSkillEffects(character, now = Date.now()) {
     noAmmoConsumption: 0,
     noMpCost: 0,
     movementSpeedIncrease: 0,
+    jumpIncrease: 0,
     criticalChance: 0,
     criticalDamagePercent: 200,
     attackRangeIncrease: 0,
@@ -1064,6 +1104,7 @@ module.exports = {
   investSkill,
   resetSkillInvestmentState,
   setActivePreset,
+  setActivePresetSlot,
   setAutoPreset,
   pruneExpiredSkillState,
   resolveSkillCastProfile,
