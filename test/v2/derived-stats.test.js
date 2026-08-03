@@ -35,6 +35,7 @@ test('derived stats use equipped weapon, loadout totals, and base movement speed
   assert.equal(result.accuracy, 18.5);
   assert.equal(result.evasion, 12.25);
   assert.equal(result.movementSpeed, 105);
+  assert.equal(result.jumpPower, 100);
   assert.equal(result.weaponType, 'twoHandedSword');
   assert.equal(result.weaponConstant, 4.6);
   assert.equal(result.weaponMastery, 50);
@@ -117,6 +118,7 @@ test('level one base stats produce four attack, magic, defense, and evasion', ()
   assert.equal(result.defense, 4);
   assert.equal(result.evasion, 4);
   assert.equal(result.movementSpeed, 100);
+  assert.equal(result.jumpPower, 100);
   assert.equal(result.attackRange, 100);
   assert.equal(result.attackSpeedStage, 1);
 });
@@ -187,6 +189,23 @@ test('all-stat percentage buffs multiply base stats before equipment bonuses', (
     workKnowledge: 0,
     awareness: 0
   });
+});
+
+test('equipment and haste buffs affect movement speed and jump power', () => {
+  const result = buildDerivedStats({
+    stats: { grit: 4, processingSpeed: 4, workKnowledge: 4, awareness: 4 },
+    job: { departmentId: 'sales' },
+    loadout: {
+      shoes: { stats: { movementSpeed: 5, jump: 7 } }
+    },
+    skillEffects: {
+      movementSpeedIncrease: 40,
+      jumpIncrease: 20
+    }
+  });
+
+  assert.equal(result.movementSpeed, 145);
+  assert.equal(result.jumpPower, 127);
 });
 
 test('mage accuracy includes its flat correction and active party-buff accuracy', () => {

@@ -134,7 +134,7 @@ const BASE_ITEMS = {
     category: 'consumable',
     itemType: 'cleanse-potion',
     icon: '✨',
-    maxStack: 100,
+    maxStack: 150,
     buyPrice: 0,
     sellPrice: 50,
     shopTags: [],
@@ -371,6 +371,49 @@ const BASE_ITEMS = {
     tradeable: true,
     description: '감맘 네오에게서 떨어진 기묘한 전리품입니다.'
   },
+  kim_manager_hair: {
+    id: 'kim_manager_hair',
+    name: '김부장의 머리카락',
+    category: 'misc',
+    itemType: 'raid-boss-token',
+    icon: '〰',
+    maxStack: 200,
+    sellPrice: 1,
+    tradeable: true,
+    description: '대머리 김부장 원정대에서 살아남아 전투에 기여한 증표입니다.'
+  },
+  kim_manager_wig: {
+    id: 'kim_manager_wig',
+    name: '김부장의 가발',
+    category: 'equipment',
+    itemType: 'armor',
+    equipmentSlot: 'helmet',
+    icon: '♟',
+    requiredLevel: 50,
+    requirements: {
+      level: 50,
+      stats: {},
+      archetype: '',
+      allowedArchetypes: ['warrior', 'archer', 'thief', 'mage']
+    },
+    stats: {
+      grit: 15,
+      processingSpeed: 15,
+      workKnowledge: 15,
+      awareness: 15,
+      defense: 150,
+      magicDefense: 150,
+      accuracy: 20,
+      evasion: 20
+    },
+    upgradeSlots: 10,
+    maxStack: 1,
+    sellPrice: 1,
+    tradeable: false,
+    bossDropOnly: true,
+    dropEligible: false,
+    description: '대머리 김부장 원정대에서만 획득할 수 있는 전 직업 공용 투구입니다.'
+  },
   settlement_event_coin: {
     id: 'settlement_event_coin',
     name: '정착 지원 이벤트 코인',
@@ -453,10 +496,10 @@ const BASE_ITEMS = {
     maxStack: 1,
     sellPrice: 0,
     tradeable: false,
-    fixedExpiresAt: '2026-08-01T00:00:00+09:00',
+    fixedExpiresAt: '2026-08-04T13:00:00+09:00',
     acquisitionSource: 'settlement-event-shop',
     dropEligible: false,
-    description: '계정당 한 번 무료로 받는 기간제 전직업 공용 반지입니다. 2026년 7월 31일 이후 사라집니다.'
+    description: '계정당 한 번 무료로 받는 기간제 전직업 공용 반지입니다. 2026년 8월 4일 13시 이후 사라집니다.'
   },
   event_blessed_necklace_scroll_60: {
     id: 'event_blessed_necklace_scroll_60',
@@ -485,10 +528,10 @@ const BASE_ITEMS = {
     itemType: 'stat-reset',
     icon: '🧾',
     maxStack: 100,
-    fixedExpiresAt: '2026-08-01T00:00:00+09:00',
+    fixedExpiresAt: '2026-08-04T13:00:00+09:00',
     tradeable: false,
     sellPrice: 1,
-    description: '투자한 스탯을 초기화합니다. 2026년 7월 31일 이후 사라집니다.'
+    description: '투자한 스탯을 초기화합니다. 2026년 8월 4일 13시 이후 사라집니다.'
   },
   event_skill_reset_coupon: {
     id: 'event_skill_reset_coupon',
@@ -497,10 +540,10 @@ const BASE_ITEMS = {
     itemType: 'skill-reset',
     icon: '📘',
     maxStack: 100,
-    fixedExpiresAt: '2026-08-01T00:00:00+09:00',
+    fixedExpiresAt: '2026-08-04T13:00:00+09:00',
     tradeable: false,
     sellPrice: 1,
-    description: '투자한 모든 스킬포인트를 회수합니다. 2026년 7월 31일 이후 사라집니다.'
+    description: '투자한 모든 스킬포인트를 회수합니다. 2026년 8월 4일 13시 이후 사라집니다.'
   },
   hunting_time_180m: {
     id: 'hunting_time_180m',
