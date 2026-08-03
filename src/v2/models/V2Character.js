@@ -12,7 +12,8 @@ const inventoryStackSchema = new mongoose.Schema({
 
 const mailAttachmentSchema = new mongoose.Schema({
   itemId: { type: String, required: true },
-  quantity: { type: Number, default: 1, min: 1 }
+  quantity: { type: Number, default: 1, min: 1 },
+  data: { type: mongoose.Schema.Types.Mixed, default: null }
 }, { _id: false });
 
 const mailboxEntrySchema = new mongoose.Schema({
@@ -20,6 +21,7 @@ const mailboxEntrySchema = new mongoose.Schema({
   sender: { type: String, default: '운영자' },
   title: { type: String, default: '운영자 선물' },
   message: { type: String, default: '' },
+  money: { type: Number, default: 0, min: 0 },
   attachments: { type: [mailAttachmentSchema], default: [] },
   createdAt: { type: Date, default: Date.now },
   expiresAt: { type: Date, default: () => new Date(Date.now() + 24 * 60 * 60 * 1000) },
@@ -87,7 +89,7 @@ const v2CharacterSchema = new mongoose.Schema({
     quickSlots: {
       hp: { type: String, default: '' },
       mp: { type: String, default: '' },
-      consumables: { type: [String], default: ['', '', ''] },
+      consumables: { type: [String], default: ['', '', '', ''] },
       autoHpPercent: { type: Number, default: 0, min: 0, max: 100 },
       autoMpPercent: { type: Number, default: 0, min: 0, max: 100 }
     }
@@ -128,9 +130,15 @@ const v2CharacterSchema = new mongoose.Schema({
     mapId: { type: String, default: 'main_lobby' },
     x: { type: Number, default: 8, min: 0, max: 94 },
     floor: { type: Number, default: 0, min: 0, max: 1 },
-    controlSessionId: { type: String, default: '' }
+    controlSessionId: { type: String, default: '' },
+    returnMapId: { type: String, default: '' },
+    raidBossId: { type: String, default: '' },
+    raidPartyNumber: { type: Number, default: 0, min: 0, max: 3 },
+    raidStartedAt: { type: Date, default: null },
+    raidDeadAt: { type: Date, default: null }
   },
   fieldBossLockouts: { type: mongoose.Schema.Types.Mixed, default: {} },
+  bossRaidEntries: { type: mongoose.Schema.Types.Mixed, default: {} },
   huntingTime: {
     remainingSeconds: { type: Number, default: 0, min: 0, max: 48000 },
     maximumSeconds: { type: Number, default: 24000, min: 24000, max: 48000 },

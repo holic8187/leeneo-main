@@ -966,7 +966,7 @@
   "extended_29b113878d": {
     "id": "extended_29b113878d",
     "name": "오류 말소",
-    "description": "근접한 적에게도 30% → 90% 확률로 석궁 사격. 110% → 250% 피해, HP 50% 이하 일반 몬스터를 1% → 10% 확률로 즉시 처치",
+    "description": "근접한 적에게도 30% → 90% 확률로 석궁 사격. 110% → 250% 피해, HP 50% 이하 적에게 1% → 10% 확률로 199,999 고정 피해",
     "tier": 3,
     "maxLevel": 20,
     "departments": [
@@ -1690,7 +1690,7 @@
   "extended_61747f7343": {
     "id": "extended_61747f7343",
     "name": "시장 퇴출",
-    "description": "근접한 적에게도 30% → 90% 확률로 활 사격. 110% → 250% 피해, HP 50% 이하 일반 몬스터를 1% → 10% 확률로 즉시 처치",
+    "description": "근접한 적에게도 30% → 90% 확률로 활 사격. 110% → 250% 피해, HP 50% 이하 적에게 1% → 10% 확률로 199,999 고정 피해",
     "tier": 3,
     "maxLevel": 20,
     "departments": [
@@ -2081,7 +2081,8 @@
       "channelIntervalSeconds": 0.18,
       "hits": 9,
       "projectileSpeedMultiplier": 1.1,
-      "postCastDelaySeconds": 0.2,
+      "preCastDelaySeconds": 0,
+      "postCastDelaySeconds": 0,
       "mpCostPerHit": 1
     }
   },
@@ -2346,6 +2347,10 @@
       "movementSpeedIncrease": [
         2,
         40
+      ],
+      "jumpIncrease": [
+        1,
+        20
       ],
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
@@ -3012,6 +3017,10 @@
       "movementSpeedIncrease": [
         2,
         40
+      ],
+      "jumpIncrease": [
+        1,
+        20
       ],
       "attackSpeedStage": 0,
       "damageReductionPercent": 0,
@@ -4180,7 +4189,7 @@
   "extended_efc52e591a": {
     "id": "extended_efc52e591a",
     "name": "프로덕션 대폭발",
-    "description": "MP 2,100 → 3,500, 최대 15명에게 불 속성 스킬 공격력 330 → 620",
+    "description": "MP 2,100 → 3,500, 가로 ±540·세로 ±459 범위 내 최대 12명에게 불 속성 스킬 공격력 330 → 620",
     "tier": 4,
     "maxLevel": 30,
     "departments": [
@@ -4191,8 +4200,8 @@
     "prerequisites": [],
     "element": "fire",
     "target": "enemies",
-    "maxTargets": 15,
-    "range": 1200,
+    "maxTargets": 12,
+    "range": 540,
     "effect": "damage",
     "values": {
       "mpCost": [
@@ -4202,7 +4211,12 @@
       "damagePercent": [
         330,
         620
-      ]
+      ],
+      "range": 540,
+      "targetCount": 12,
+      "verticalFloorRange": 0,
+      "verticalRangePx": 459,
+      "postCastDelaySeconds": 3
     }
   },
   "extended_9bdc4398af": {
@@ -4830,7 +4844,7 @@
   "extended_5620bb5a09": {
     "id": "extended_5620bb5a09",
     "name": "기후 제어 실험",
-    "description": "MP 2,100 → 3,500, 최대 15명에게 얼음 속성 스킬 공격력 330 → 570",
+    "description": "MP 2,100 → 3,500, 가로 ±540·세로 ±459 범위 내 최대 12명에게 얼음 속성 스킬 공격력 330 → 570",
     "tier": 4,
     "maxLevel": 30,
     "departments": [
@@ -4841,8 +4855,8 @@
     "prerequisites": [],
     "element": "ice",
     "target": "enemies",
-    "maxTargets": 15,
-    "range": 1200,
+    "maxTargets": 12,
+    "range": 540,
     "effect": "damage",
     "values": {
       "mpCost": [
@@ -4852,7 +4866,12 @@
       "damagePercent": [
         330,
         570
-      ]
+      ],
+      "range": 540,
+      "targetCount": 12,
+      "verticalFloorRange": 0,
+      "verticalRangePx": 459,
+      "postCastDelaySeconds": 3
     }
   },
   "extended_d9464f60cf": {
@@ -5493,13 +5512,14 @@
     "target": "party",
     "maxTargets": 1,
     "range": 350,
-    "effect": "buff",
+    "effect": "resurrection",
     "values": {
       "mpCost": 40,
-      "hpCost": 50,
+      "hpCost": 0,
+      "reviveHpPercent": 50,
       "cooldownSeconds": [
-        57,
-        30
+        3420,
+        1800
       ],
       "attackIncrease": 0,
       "defenseIncrease": 0,
@@ -5543,7 +5563,7 @@
   "extended_aef3d1db17": {
     "id": "extended_aef3d1db17",
     "name": "전사 비상지원",
-    "description": "MP 2,100 → 3,500, 최대 15명에게 성 속성 스킬 공격력 430 → 670",
+    "description": "MP 2,100 → 3,500, 가로 ±540·세로 ±459 범위 내 최대 12명에게 성 속성 스킬 공격력 430 → 670",
     "tier": 4,
     "maxLevel": 30,
     "departments": [
@@ -5554,8 +5574,8 @@
     "prerequisites": [],
     "element": "holy",
     "target": "enemies",
-    "maxTargets": 15,
-    "range": 1200,
+    "maxTargets": 12,
+    "range": 540,
     "effect": "damage",
     "values": {
       "mpCost": [
@@ -5565,7 +5585,12 @@
       "damagePercent": [
         430,
         670
-      ]
+      ],
+      "range": 540,
+      "targetCount": 12,
+      "verticalFloorRange": 0,
+      "verticalRangePx": 459,
+      "postCastDelaySeconds": 3
     }
   }
 }

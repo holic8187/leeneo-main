@@ -84,6 +84,30 @@ function isSummonActive(summon, now = Date.now()) {
   return Number.isFinite(expiresAt) && expiresAt > now;
 }
 
+function getActiveFollowUpSummon(skillState = {}, now = Date.now()) {
+  return [skillState.summon, skillState.decoySummon].find((summon) => (
+    summon?.role === 'follow-up'
+    && isSummonActive(summon, now)
+    && (
+      Number(summon.basicFollowUpPercent) > 0
+      || Number(summon.skillFollowUpPercent) > 0
+    )
+  )) || null;
+}
+
+function buildFollowUpBonusAttack(summon, attackKind = 'skill') {
+  if (!summon || summon.role !== 'follow-up') return null;
+  const percent = attackKind === 'basic'
+    ? Number(summon.basicFollowUpPercent)
+    : Number(summon.skillFollowUpPercent);
+  if (!Number.isFinite(percent) || percent <= 0) return null;
+  return {
+    percent,
+    source: 'follow-up-summon',
+    repeatEffects: true
+  };
+}
+
 function isAttackingSummon(summon, now = Date.now()) {
   return isSummonActive(summon, now)
     && summon.role === 'attacker'
@@ -119,12 +143,20 @@ function describeSummon(summon = {}) {
   if (Number(summon.masteryIncrease) > 0) {
     details.push(`무기 숙련도 +${Number(summon.masteryIncrease)}%`);
   }
+  if (Number(summon.basicFollowUpPercent) > 0) {
+    details.push(`일반 공격 추격 피해 ${Number(summon.basicFollowUpPercent)}%`);
+  }
+  if (Number(summon.skillFollowUpPercent) > 0) {
+    details.push(`스킬 추격 피해 ${Number(summon.skillFollowUpPercent)}%`);
+  }
   return details.length ? `${role}입니다. ${details.join(' · ')}` : `${role}입니다.`;
 }
 
 module.exports = {
   buildSummonState,
+  buildFollowUpBonusAttack,
   describeSummon,
+  getActiveFollowUpSummon,
   getSummonAttackVisual,
   getSummonRole,
   isSummonActive,
