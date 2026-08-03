@@ -23,7 +23,7 @@ const ACTIVE_BUFF_EFFECT_KEYS = Object.freeze([
   'damageIncreasePercent', 'elementDamageIncreasePercent',
   'experienceBonusPercent', 'experienceMultiplierPercent', 'allStatsPercent',
   'moneyDropIncreasePercent', 'noAmmoConsumption', 'noMpCost',
-  'movementSpeedIncrease', 'criticalChance', 'criticalDamagePercent',
+  'movementSpeedIncrease', 'jumpIncrease', 'criticalChance', 'criticalDamagePercent',
   'attackRangeIncrease', 'dodgeChance', 'consumableEffectPercent',
   'magicMpCostIncreasePercent', 'stealth'
 ]);
@@ -44,6 +44,8 @@ const VALUE_LABELS = Object.freeze({
   masteryIncrease: '숙련도',
   accuracyIncrease: '명중률',
   evasionIncrease: '회피율',
+  movementSpeedIncrease: '이동속도',
+  jumpIncrease: '점프력',
   chance: '발동 확률',
   successChance: '성공 확률',
   stunChance: '기절 확률',
@@ -359,6 +361,13 @@ function interpolate(start, end, level, maxLevel) {
 }
 
 function resolveValue(value, level, maxLevel) {
+  if (value && typeof value === 'object' && Array.isArray(value.byLevel)) {
+    const index = Math.max(0, Math.min(
+      value.byLevel.length - 1,
+      Math.floor(Number(level) || 1) - 1
+    ));
+    return value.byLevel[index];
+  }
   if (Array.isArray(value) && value.length === 2 && value.every(Number.isFinite)) {
     return interpolate(value[0], value[1], level, maxLevel);
   }
@@ -722,6 +731,7 @@ function getActiveSkillEffects(character, now = Date.now()) {
     noAmmoConsumption: 0,
     noMpCost: 0,
     movementSpeedIncrease: 0,
+    jumpIncrease: 0,
     criticalChance: 0,
     criticalDamagePercent: 200,
     attackRangeIncrease: 0,
