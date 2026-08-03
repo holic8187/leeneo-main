@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>호이상사 V2</title>
-  <link rel="stylesheet" href="/v2/styles.css?v=31">
+  <link rel="stylesheet" href="/v2/styles.css?v=46">
 </head>
 <body>
   <div class="blueprint-grid" aria-hidden="true"></div>
@@ -69,15 +69,21 @@
                 </div>
                 <div class="field-boss-top-track"><i id="fieldBossTopFill"></i></div>
               </div>
+              <aside id="worldMinimap" class="world-minimap" aria-label="현재 맵 미니맵">
+                <strong id="worldMinimapName">MINI MAP</strong>
+                <div id="worldMinimapCanvas" class="world-minimap-canvas"></div>
+              </aside>
+              <div id="partyCombatHud" class="party-combat-hud hidden" aria-label="파티원 체력"></div>
+              <div id="worldScene" class="world-scene">
+              <div id="raidTelegraphLayer" class="raid-telegraph-layer" aria-hidden="true"></div>
               <div class="office-skyline" aria-hidden="true"></div>
               <div class="world-grid" aria-hidden="true"></div>
               <div class="hanging-light light-a" aria-hidden="true"></div>
               <div class="hanging-light light-b" aria-hidden="true"></div>
+              <div id="worldDecorationLayer" class="world-decoration-layer" aria-hidden="true"></div>
+              <div id="terrainLayer" class="terrain-layer" aria-hidden="true"></div>
               <div id="portalLayer" class="portal-layer" aria-hidden="true"></div>
               <div id="npcLayer" class="npc-layer"></div>
-              <div class="world-platform platform-main" aria-hidden="true"></div>
-              <div class="world-platform platform-upper" aria-hidden="true"></div>
-              <div id="worldRope" class="world-rope" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
 
               <div id="monsterLayer" class="monster-layer" aria-hidden="true"></div>
               <div id="lootLayer" class="loot-layer" aria-hidden="true"></div>
@@ -92,6 +98,7 @@
               </button>
 
               <div id="fieldCharacter" class="field-character is-walking" aria-hidden="true">
+                <span class="character-status-indicator" aria-hidden="true"></span>
                 <span class="character-tag">YOU</span>
                 <i class="character-head"></i>
                 <i class="character-body"></i>
@@ -102,44 +109,44 @@
               </div>
 
               <div id="attackProjectile" class="attack-projectile" aria-hidden="true"></div>
+              </div>
+              <div id="raidCountdown" class="raid-countdown hidden" aria-live="assertive"></div>
               <div id="combatBuffTray" class="combat-buff-tray" aria-label="현재 적용 중인 버프"></div>
+              <div id="combatResourceStrip" class="combat-resource-strip resource-list" aria-label="전투 자원">
+                <div class="resource-row">
+                  <div><span>체력</span><strong id="hpText">준비 중</strong></div>
+                  <div class="bar"><i id="hpBar" class="hp"></i></div>
+                </div>
+                <div class="resource-row">
+                  <div><span>정신력</span><strong id="mpText">준비 중</strong></div>
+                  <div class="bar"><i id="mpBar" class="mp"></i></div>
+                </div>
+                <div id="experienceResourceRow" class="resource-row experience-row"
+                  role="button" tabindex="0" aria-expanded="false" aria-label="경험치 상세 보기">
+                  <div><span>경험치</span><strong id="expText">-</strong></div>
+                  <div class="bar exp-track"><i id="expBar" class="exp"></i></div>
+                </div>
+              </div>
+              <span id="worldActivity" class="sr-only" aria-live="polite">명령 대기 중</span>
               <div class="world-vignette" aria-hidden="true"></div>
               <div id="mapCurtain" class="map-curtain" aria-hidden="true"></div>
             </div>
 
-            <div class="location-line">
-              <span class="signal-dot"></span>
-              <strong id="currentLocation">호이상사 중앙로비</strong>
-              <span id="worldActivity">명령 대기 중</span>
+            <div class="hunting-time-panel">
+              <span id="huntingTimeLabel" class="hunting-time-label">남은 자동사냥시간 00:00:00 / 06:40:00</span>
             </div>
             <div class="field-command-bar">
-              <button id="moveMapButton" class="field-control" type="button">이동</button>
+              <div class="movement-command-pair">
+                <button id="moveMapButton" class="field-control" type="button">이동</button>
+                <button id="jumpButton" class="field-control jump-control" type="button" aria-label="점프">
+                  <span aria-hidden="true">↑</span><strong>점프</strong>
+                </button>
+              </div>
               <button id="autoCombatButton" class="field-control combat-toggle" type="button" aria-pressed="false">자동 전투 OFF</button>
-              <span id="huntingTimeLabel" class="hunting-time-label">남은 자동사냥시간 00:00:00 / 06:40:00</span>
-              <span id="combatMotionLabel" class="combat-motion-label">전투 모션 확인 중</span>
-            </div>
-            <div id="combatResourceStrip" class="combat-resource-strip resource-list" aria-label="전투 자원">
-              <div class="resource-row">
-                <div><span>체력</span><strong id="hpText">준비 중</strong></div>
-                <div class="bar"><i id="hpBar" class="hp"></i></div>
-              </div>
-              <div class="resource-row">
-                <div><span>정신력</span><strong id="mpText">준비 중</strong></div>
-                <div class="bar"><i id="mpBar" class="mp"></i></div>
-              </div>
-              <div class="resource-row experience-row">
-                <div><span>경험치</span><strong id="expText">-</strong></div>
-                <div class="bar exp-track"><i id="expBar" class="exp"></i></div>
-              </div>
             </div>
             <p id="potionDepletionWarning" class="potion-depletion-warning hidden" role="alert" aria-live="assertive"></p>
             <div id="consumableQuickbar" class="consumable-quickbar" aria-label="소비 아이템 단축키"></div>
             <div id="skillQuickbar" class="skill-quickbar" aria-label="액티브 스킬 퀵슬롯"></div>
-            <div class="movement-quickbar" aria-label="이동 단축키">
-              <button id="jumpButton" class="jump-control" type="button" aria-label="점프">
-                <span>JUMP</span><strong>점프</strong><small>이동·전투 중 사용 가능</small>
-              </button>
-            </div>
           </article>
 
           <aside class="panel employee-panel">
@@ -168,7 +175,6 @@
               <div><dt>미사용 스탯</dt><dd id="unspentStats">-</dd></div>
               <div><dt>스킬 포인트</dt><dd id="unspentSkills">-</dd></div>
               <div><dt>전직 단계</dt><dd id="advancementTier">0차</dd></div>
-              <div><dt>이관 상태</dt><dd id="migrationStatus">확인 중</dd></div>
             </dl>
           </aside>
         </section>
@@ -207,26 +213,15 @@
         <button id="eventButton" class="event-callout" type="button">
           <span>LIMITED EVENT</span>
           <strong>정착 지원</strong>
-          <small>7월 31일까지</small>
+          <small>8월 4일 13시까지</small>
         </button>
         <button id="floatMinimizeButton" class="float-minimize-button" type="button" aria-label="우편/이벤트 버튼 최소화">−</button>
 
-        <section class="migration-strip">
-          <div>
-            <span class="signal-dot"></span>
-            <strong id="migrationStateLabel">자동 이관 확인 중</strong>
-          </div>
-          <p id="prepareStatus">누락된 원본 데이터는 로그인 시 자동으로 준비됩니다.</p>
-        </section>
       </div>
 
       <section id="adminWorkspace" class="panel hidden">
         <p class="section-number">ADMIN</p>
-        <h3>전체 유저 이관 현황</h3>
-        <p>자동 이관이 누락 계정을 계속 보완합니다. 필요하면 아래 버튼으로 즉시 재검사할 수 있습니다.</p>
-        <div id="adminSummary" class="legacy-list"></div>
-        <button id="snapshotAllButton" type="button">전체 계정 지금 재검사</button>
-        <p id="adminStatus" class="status"></p>
+        <h3>운영자 관리</h3>
         <section class="admin-setting-card">
           <div>
             <p class="section-number">SIGNUP CODE</p>
@@ -277,7 +272,7 @@
           <div>
             <p class="section-number">ACCOUNT DELETE</p>
             <h3>V2 계정 영구 삭제</h3>
-            <p>V2 계정·캐릭터·이관 스냅샷을 삭제하고 자동 이관에서 영구 제외합니다. V1 원본 자체는 보존됩니다.</p>
+            <p>V2 계정과 캐릭터 데이터를 삭제합니다. V1 원본 자체는 보존됩니다.</p>
           </div>
           <form id="adminDeleteAccountForm">
             <label>대상<input id="adminDeleteAccountTarget" maxlength="24" placeholder="아이디 또는 닉네임" required></label>
@@ -345,6 +340,28 @@
     </section>
   </div>
 
+  <div id="bossPartyModal" class="site-modal boss-party-modal hidden" role="dialog" aria-modal="true"
+    aria-labelledby="bossPartyTitle">
+    <div class="modal-scrim"></div>
+    <section class="modal-sheet boss-party-sheet">
+      <header>
+        <div><p class="section-number">EXPEDITION PARTY</p><h2 id="bossPartyTitle">원정대 파티 편집</h2></div>
+        <button id="bossPartyClose" class="modal-close" type="button" aria-label="구성 저장 후 닫기">×</button>
+      </header>
+      <div id="bossPartyBody" class="boss-party-body"></div>
+    </section>
+  </div>
+
+  <div id="bossEntryConfirm" class="boss-entry-confirmation hidden" role="dialog" aria-modal="true"
+    aria-labelledby="bossEntryConfirmTitle">
+    <strong id="bossEntryConfirmTitle">보스에 입장하시겠습니까?</strong>
+    <span id="bossEntryConfirmTimer">30초</span>
+    <div>
+      <button id="bossEntryAccept" type="button">확인</button>
+      <button id="bossEntryDecline" class="secondary-action" type="button">취소</button>
+    </div>
+  </div>
+
   <div id="deathModal" class="site-modal death-modal hidden" role="dialog" aria-modal="true" aria-labelledby="deathTitle">
     <div class="modal-scrim"></div>
     <section class="death-sheet">
@@ -357,7 +374,22 @@
     </section>
   </div>
 
-  <script src="/v2/skills-ui.js?v=34"></script>
-  <script src="/v2/app.js?v=44"></script>
+  <div id="bossRaidClearModal" class="site-modal boss-raid-clear-modal hidden" role="dialog"
+    aria-modal="true" aria-labelledby="bossRaidClearTitle">
+    <div class="modal-scrim"></div>
+    <section class="boss-raid-clear-sheet">
+      <p class="section-number">EXPEDITION CLEAR</p>
+      <h2 id="bossRaidClearTitle">원정대 클리어</h2>
+      <p id="bossRaidClearSummary"></p>
+      <div id="bossRaidClearRewards" class="boss-raid-clear-rewards"></div>
+      <button id="bossRaidClearConfirm" type="button">확인하고 마을로 복귀</button>
+    </section>
+  </div>
+
+  <script src="/v2/login-bootstrap.js?v=1"></script>
+  <script src="/v2/signup-validation.js?v=2"></script>
+  <script src="/v2/combat-targeting.js?v=5"></script>
+  <script src="/v2/skills-ui.js?v=44"></script>
+  <script src="/v2/app.js?v=68"></script>
 </body>
 </html>
