@@ -1326,6 +1326,308 @@ function startWorldCamera({ reset = false } = {}) {
   }
 }
 
+const FALLBACK_MAP_LAYOUT = Object.freeze({
+  id: 'fallback',
+  worldWidth: 760,
+  worldHeight: 390,
+  maxMonsters: 14,
+  spawnPerWave: 6,
+  platforms: Object.freeze([
+    Object.freeze({
+      id: 'ground',
+      floor: 0,
+      x: 0,
+      width: 100,
+      bottom: 42,
+      spawnEnabled: true,
+      spawnSlots: 14
+    })
+  ]),
+  connectors: Object.freeze([])
+});
+
+function getMapLayout(map = getMap(state.currentMapId)) {
+  return map?.layout || FALLBACK_MAP_LAYOUT;
+}
+
+function getWorldWidth(map = getMap(state.currentMapId)) {
+  return Math.max(760, Number(getMapLayout(map).worldWidth) || 760);
+}
+
+function getWorldHeight(map = getMap(state.currentMapId)) {
+  return Math.max(300, Number(getMapLayout(map).worldHeight) || 390);
+}
+
+function getFloorPlatforms(floor, map = getMap(state.currentMapId)) {
+  return getMapLayout(map).platforms.filter(
+    (platform) => Number(platform.floor) === Math.max(0, Math.floor(Number(floor) || 0))
+  );
+}
+
+function getPlatformAt(floor, worldX = 50, map = getMap(state.currentMapId)) {
+  const platforms = getFloorPlatforms(floor, map);
+  if (!platforms.length) return getMapLayout(map).platforms[0] || FALLBACK_MAP_LAYOUT.platforms[0];
+  const x = Number(worldX) || 0;
+  return platforms.find((platform) => (
+    x >= Number(platform.x)
+    && x <= Number(platform.x) + Number(platform.width)
+  )) || [...platforms].sort((left, right) => {
+    const leftCenter = Number(left.x) + Number(left.width) / 2;
+    const rightCenter = Number(right.x) + Number(right.width) / 2;
+    return Math.abs(leftCenter - x) - Math.abs(rightCenter - x);
+  })[0];
+}
+
+function getFloorBottom(floor, worldX = 50, map = getMap(state.currentMapId)) {
+  return Math.max(42, Number(getPlatformAt(floor, worldX, map)?.bottom) || 42);
+}
+
+function clampToPlatform(worldX, floor, map = getMap(state.currentMapId)) {
+  const platform = getPlatformAt(floor, worldX, map);
+  const minimum = Math.max(1, Number(platform.x) + 1);
+  const maximum = Math.min(96, Number(platform.x) + Number(platform.width) - 1);
+  return Math.max(minimum, Math.min(maximum, Number(worldX) || minimum));
+}
+
+function setCharacterFloor(floor, worldX = getCharacterX()) {
+  const character = $('fieldCharacter');
+  if (!character) return;
+  const resolvedFloor = Math.max(0, Math.floor(Number(floor) || 0));
+  character.dataset.floor = String(resolvedFloor);
+  character.style.bottom = `${getFloorBottom(resolvedFloor, worldX)}px`;
+}
+
+function getConnectorBetweenFloors(fromFloor, toFloor, worldX = getCharacterX()) {
+  return getMapLayout().connectors
+    .filter((connector) => (
+      (
+        Number(connector.fromFloor) === Number(fromFloor)
+        && Number(connector.toFloor) === Number(toFloor)
+      ) || (
+        Number(connector.fromFloor) === Number(toFloor)
+        && Number(connector.toFloor) === Number(fromFloor)
+      )
+    ))
+    .sort((left, right) => (
+      Math.abs(Number(left.x) - Number(worldX))
+      - Math.abs(Number(right.x) - Number(worldX))
+    ))[0] || null;
+}
+
+function renderWorldDecorations(map) {
+  const layer = $('worldDecorationLayer');
+  if (!layer) return;
+  if (map?.features?.includes('bus-stop')) {
+    layer.innerHTML = `
+      <div class="bus-stop-shelter"><i></i><b>BUS</b><span>출장 노선 준비 중</span></div>
+      <div class="bus-stop-sign"><i></i><strong>정류장</strong></div>
+      <div class="road-lane-mark lane-a"></div><div class="road-lane-mark lane-b"></div>`;
+    return;
+  }
+  const layout = getMapLayout(map);
+  const count = Math.max(8, Math.round(getWorldWidth(map) / 150));
+  const props = Array.from({ length: count }, (_, index) => {
+    const left = (index * 19 + Number(layout.variant || 0) * 13) % 96;
+    const bottom = 54 + (index % 3) * 98;
+    return `<i class="world-prop prop-${index % 4}" style="left:${left}%;bottom:${bottom}px"></i>`;
+  }).join('');
+  const iceCrystals = map?.features?.includes('ice')
+    ? '<i class="ice-crystal crystal-a"></i><i class="ice-crystal crystal-b"></i><i class="ice-crystal crystal-c"></i>'
+    : '';
+  layer.innerHTML = props + iceCrystals;
+}
+
+function renderTerrain(map) {
+  const scene = $('worldScene');
+  const layer = $('terrainLayer');
+  if (!scene || !layer) return;
+  const layout = getMapLayout(map);
+  scene.style.width = `${getWorldWidth(map)}px`;
+  scene.style.height = `${getWorldHeight(map)}px`;
+  scene.dataset.layout = String(layout.id || 'fallback');
+  scene.dataset.variant = String(layout.variant || 0);
+  const platformMarkup = layout.platforms.map((platform) => (
+    `<div class="terrain-platform${platform.spawnEnabled === false ? ' is-quiet' : ''}" `
+    + `data-platform-id="${escapeHtml(platform.id)}" data-floor="${Number(platform.floor) || 0}" `
+    + `style="left:${Number(platform.x) || 0}%;width:${Number(platform.width) || 0}%;bottom:${Number(platform.bottom) || 42}px">`
+    + '<i></i><b></b></div>'
+  )).join('');
+  const connectorMarkup = layout.connectors.map((connector) => {
+    const fromBottom = getFloorBottom(connector.fromFloor, connector.x, map);
+    const toBottom = getFloorBottom(connector.toFloor, connector.x, map);
+    const lowerBottom = Math.min(fromBottom, toBottom) + 8;
+    const height = Math.max(54, Math.abs(toBottom - fromBottom) - 4);
+    return `<div class="terrain-connector is-${connector.type === 'jump' ? 'jump' : 'ladder'}" `
+      + `data-connector-id="${escapeHtml(connector.id)}" `
+      + `style="left:${Number(connector.x) || 0}%;bottom:${lowerBottom}px;height:${height}px">`
+      + '<i></i><i></i><i></i><i></i><i></i></div>';
+  }).join('');
+  layer.innerHTML = platformMarkup + connectorMarkup;
+  renderWorldDecorations(map);
+}
+
+function getMinimapPointBottom(floor, worldX, map = getMap(state.currentMapId)) {
+  return getFloorBottom(floor, worldX, map) / getWorldHeight(map) * 100;
+}
+
+function updateMinimapRallyMarker() {
+  const marker = $('worldMinimapCanvas')?.querySelector('[data-minimap-target]');
+  if (!marker) return;
+  const point = state.rallyPoint;
+  const visible = Boolean(point && point.mapId === state.currentMapId);
+  marker.classList.toggle('hidden', !visible);
+  if (!visible) return;
+  marker.style.left = `${Math.max(0, Math.min(100, Number(point.x) || 0))}%`;
+  marker.style.bottom = `${getMinimapPointBottom(point.floor, point.x)}%`;
+}
+
+function renderWorldMinimap(players = state.worldRemotePlayers) {
+  const canvas = $('worldMinimapCanvas');
+  const map = getMap(state.currentMapId);
+  if (!canvas || !map) return;
+  const layout = getMapLayout(map);
+  const partyIds = new Set(
+    state.partyState?.party?.members?.map((member) => String(member.userId))
+    || Array.from(state.partyMemberIds)
+  );
+  state.partyMemberIds = partyIds;
+  const terrain = layout.platforms.map((platform) => (
+    `<i class="minimap-platform" style="left:${Number(platform.x) || 0}%;`
+    + `width:${Number(platform.width) || 0}%;bottom:${getMinimapPointBottom(platform.floor, Number(platform.x) + Number(platform.width) / 2, map)}%"></i>`
+  )).join('');
+  const connectors = layout.connectors.map((connector) => {
+    const from = getMinimapPointBottom(connector.fromFloor, connector.x, map);
+    const to = getMinimapPointBottom(connector.toFloor, connector.x, map);
+    return `<i class="minimap-connector" style="left:${Number(connector.x) || 0}%;`
+      + `bottom:${Math.min(from, to)}%;height:${Math.max(3, Math.abs(to - from))}%"></i>`;
+  }).join('');
+  const portals = map.connections.map((connection, index) => {
+    const position = getPortalPlacement(map, index);
+    return `<i class="minimap-landmark is-portal" title="포탈" style="left:${position.left};`
+      + `bottom:${getMinimapPointBottom(position.floor, position.characterX, map)}%"></i>`;
+  }).join('');
+  const npcEntries = [
+    ...(map.npcs || []).map((npc) => ({ x: Number(npc.x) || 50, floor: 0 })),
+    ...(map.shopId ? [{ x: 86, floor: 0 }] : []),
+    ...(map.scrollShopId ? [{ x: 74, floor: 0 }] : [])
+  ];
+  const npcs = npcEntries.map((npc) => (
+    `<i class="minimap-landmark is-npc" title="NPC" style="left:${npc.x}%;`
+    + `bottom:${getMinimapPointBottom(npc.floor, npc.x, map)}%"></i>`
+  )).join('');
+  if (canvas.dataset.mapId !== map.id) {
+    canvas.dataset.mapId = map.id;
+    canvas.innerHTML = terrain + connectors + portals + npcs
+      + '<b class="minimap-target-marker hidden" data-minimap-target></b>'
+      + '<b class="minimap-dot is-self" data-minimap-self></b>';
+  }
+  const visibleIds = new Set();
+  for (const player of players || []) {
+    const userId = String(player.userId);
+    if (!userId || userId === String(state.selfUserId)) continue;
+    visibleIds.add(userId);
+    let dot = [...canvas.querySelectorAll('[data-minimap-user]')].find(
+      (entry) => entry.dataset.minimapUser === userId
+    );
+    if (!dot) {
+      dot = document.createElement('b');
+      dot.className = 'minimap-dot';
+      dot.dataset.minimapUser = userId;
+      canvas.appendChild(dot);
+    }
+    dot.classList.toggle('is-party', partyIds.has(userId));
+    dot.classList.toggle('is-other', !partyIds.has(userId));
+    dot.style.left = `${Math.max(0, Math.min(100, Number(player.x) || 0))}%`;
+    dot.style.bottom = `${getMinimapPointBottom(player.floor, player.x, map)}%`;
+    const jumpSequence = Math.max(0, Math.floor(Number(player.jumpEvent?.sequence) || 0));
+    if (jumpSequence && dot.dataset.jumpSequence !== String(jumpSequence)) {
+      dot.dataset.jumpSequence = String(jumpSequence);
+      dot.classList.remove('is-jumping', 'is-flash-jumping');
+      void dot.offsetWidth;
+      const jumpClass = player.jumpEvent?.kind === 'flash-jump'
+        ? 'is-flash-jumping'
+        : 'is-jumping';
+      dot.classList.add(jumpClass);
+      setTimeout(() => {
+        if (dot.dataset.jumpSequence === String(jumpSequence)) dot.classList.remove(jumpClass);
+      }, jumpClass === 'is-flash-jumping' ? 420 : 560);
+    }
+  }
+  canvas.querySelectorAll('[data-minimap-user]').forEach((dot) => {
+    if (!visibleIds.has(dot.dataset.minimapUser)) dot.remove();
+  });
+  $('worldMinimapName').textContent = map.name;
+  updateSelfMinimapDot();
+  updateMinimapRallyMarker();
+}
+
+function updateSelfMinimapDot() {
+  const dot = $('worldMinimapCanvas')?.querySelector('[data-minimap-self]');
+  if (!dot) return;
+  const x = getCharacterX();
+  dot.style.left = `${x}%`;
+  dot.style.bottom = `${getMinimapPointBottom(getCharacterFloor(), x)}%`;
+}
+
+function renderPartyCombatHud() {
+  const hud = $('partyCombatHud');
+  if (!hud) return;
+  const members = Array.isArray(state.partyMembers) ? state.partyMembers : [];
+  const visible = Boolean(state.partyState?.party && members.length);
+  hud.classList.toggle('hidden', !visible);
+  if (!visible) {
+    hud.replaceChildren();
+    return;
+  }
+  hud.innerHTML = members.map((member) => {
+    const currentHp = Math.max(0, Number(member.currentHp) || 0);
+    const maxHp = Math.max(1, Number(member.maxHp) || 1);
+    const hpPercent = Math.max(0, Math.min(100, currentHp / maxHp * 100));
+    return `<div class="party-combat-member${member.isSelf ? ' is-self' : ''}${member.online ? '' : ' is-offline'}">
+      <b>${escapeHtml(member.nickname || '파티원')}</b>
+      <small>${member.online ? `${Math.round(hpPercent)}%` : 'OFF'}</small>
+      <i style="--party-hp:${hpPercent}%"></i>
+    </div>`;
+  }).join('');
+}
+
+function runWorldCameraFrame() {
+  const stage = $('worldStage');
+  const scene = $('worldScene');
+  const character = $('fieldCharacter');
+  if (stage && scene && character && stage.clientWidth > 0) {
+    const sceneWidth = scene.offsetWidth;
+    const sceneHeight = scene.offsetHeight;
+    const characterBottom = Number.parseFloat(character.style.bottom)
+      || getFloorBottom(getCharacterFloor(), getCharacterX());
+    const characterCenterX = character.offsetLeft + character.offsetWidth / 2;
+    const characterCenterY = sceneHeight - characterBottom - character.offsetHeight / 4;
+    const maximumX = Math.max(0, sceneWidth - stage.clientWidth);
+    const maximumY = Math.max(0, sceneHeight - stage.clientHeight);
+    const targetX = Math.max(0, Math.min(maximumX, characterCenterX - stage.clientWidth * .5));
+    const targetY = Math.max(0, Math.min(maximumY, characterCenterY - stage.clientHeight * .58));
+    state.worldCameraX += (targetX - state.worldCameraX) * .14;
+    state.worldCameraY += (targetY - state.worldCameraY) * .14;
+    if (Math.abs(targetX - state.worldCameraX) < .1) state.worldCameraX = targetX;
+    if (Math.abs(targetY - state.worldCameraY) < .1) state.worldCameraY = targetY;
+    scene.style.transform = `translate3d(${-state.worldCameraX}px, ${-state.worldCameraY}px, 0)`;
+    updateSelfMinimapDot();
+  }
+  state.worldCameraFrame = requestAnimationFrame(runWorldCameraFrame);
+}
+
+function startWorldCamera({ reset = false } = {}) {
+  if (reset) {
+    state.worldCameraX = 0;
+    state.worldCameraY = 0;
+    const scene = $('worldScene');
+    if (scene) scene.style.transform = 'translate3d(0, 0, 0)';
+  }
+  if (!state.worldCameraFrame) {
+    state.worldCameraFrame = requestAnimationFrame(runWorldCameraFrame);
+  }
+}
+
 function getCharacterLevel() {
   return Math.max(1, Number(state.character?.progression?.level) || 1);
 }
