@@ -23,7 +23,7 @@ const ACTIVE_BUFF_EFFECT_KEYS = Object.freeze([
   'damageIncreasePercent', 'elementDamageIncreasePercent',
   'experienceBonusPercent', 'experienceMultiplierPercent', 'allStatsPercent',
   'moneyDropIncreasePercent', 'noAmmoConsumption', 'noMpCost',
-  'movementSpeedIncrease', 'criticalChance', 'criticalDamagePercent',
+  'movementSpeedIncrease', 'jumpIncrease', 'criticalChance', 'criticalDamagePercent',
   'attackRangeIncrease', 'dodgeChance', 'consumableEffectPercent',
   'magicMpCostIncreasePercent', 'stealth'
 ]);
@@ -44,6 +44,8 @@ const VALUE_LABELS = Object.freeze({
   masteryIncrease: '숙련도',
   accuracyIncrease: '명중률',
   evasionIncrease: '회피율',
+  movementSpeedIncrease: '이동속도',
+  jumpIncrease: '점프력',
   chance: '발동 확률',
   successChance: '성공 확률',
   stunChance: '기절 확률',
@@ -119,7 +121,7 @@ const SKILL_ROLE_DESCRIPTIONS = Object.freeze({
   mace_mastery: '둔기 계열 무기의 숙련도와 명중률을 높이는 패시브입니다.',
   double_strike_field: '공격 시 일정 확률로 추가 공격을 연속 발동하는 패시브입니다.',
   booster_field: '체력과 정신력을 소비해 일정 시간 무기 공격속도를 높입니다.',
-  war_cry: '주변 적의 공격을 약화시키고 자신의 데미지를 높이는 대신 명중률이 감소합니다.',
+  war_cry: '자신 주변의 적에게 고함을 질러 받는 피해를 증가시키고 공격력과 명중률을 약화시킵니다.',
   element_explosion: '무기에 부여된 속성을 폭발시켜 여러 적을 공격하고 기절시킵니다.',
   element_fire: '무기에 불 속성을 부여하고 자신의 데미지를 높입니다. 얼음 속성과는 공존할 수 없습니다.',
   element_ice: '무기에 얼음 속성을 부여하고 비반감 적을 빙결시킵니다. 불 속성과는 공존할 수 없습니다.',
@@ -359,6 +361,13 @@ function interpolate(start, end, level, maxLevel) {
 }
 
 function resolveValue(value, level, maxLevel) {
+  if (value && typeof value === 'object' && Array.isArray(value.byLevel)) {
+    const index = Math.max(0, Math.min(
+      value.byLevel.length - 1,
+      Math.floor(Number(level) || 1) - 1
+    ));
+    return value.byLevel[index];
+  }
   if (Array.isArray(value) && value.length === 2 && value.every(Number.isFinite)) {
     return interpolate(value[0], value[1], level, maxLevel);
   }
@@ -591,6 +600,36 @@ function isBuffExpired(buff, now) {
   return Number.isFinite(expiresAt) ? expiresAt <= now : true;
 }
 
+function setActivePresetSlot(character, skillId, slotIndex) {
+  const id = String(skillId || '');
+  const slot = Math.floor(Number(slotIndex));
+  const definition = SKILL_DEFINITIONS[id];
+  if (slot < 0 || slot >= MAX_ACTIVE_PRESET_SIZE) {
+    throw new Error('올바르지 않은 스킬 슬롯입니다.');
+  }
+  if (
+    !definition
+    || definition.passive
+    || NON_PRESET_EFFECTS.has(definition.effect)
+    || getSkillLevel(character, id) <= 0
+  ) {
+    throw new Error('배운 액티브 스킬만 프리셋에 등록할 수 있습니다.');
+  }
+  const skills = ensureSkillState(character);
+  const preset = [...skills.activePreset];
+  while (preset.length <= slot) preset.push('');
+  const existingIndex = preset.indexOf(id);
+  if (existingIndex >= 0) preset[existingIndex] = '';
+  preset[slot] = id;
+  while (preset.length && !preset[preset.length - 1]) preset.pop();
+  skills.activePreset = preset;
+  skills.offlineAutoRotationCursor = 0;
+  const activeSet = new Set(preset.filter(Boolean));
+  skills.autoPreset = skills.autoPreset.filter((entry) => activeSet.has(String(entry)));
+  if (typeof character.markModified === 'function') character.markModified('skills');
+  return [...preset];
+}
+
 function restoreExpiredNoMpCostBuffs(character, expiredBuffs = []) {
   if (!expiredBuffs.some((buff) => Number(buff.effects?.noMpCost) > 0)) return false;
   let changed = false;
@@ -722,6 +761,7 @@ function getActiveSkillEffects(character, now = Date.now()) {
     noAmmoConsumption: 0,
     noMpCost: 0,
     movementSpeedIncrease: 0,
+    jumpIncrease: 0,
     criticalChance: 0,
     criticalDamagePercent: 200,
     attackRangeIncrease: 0,
@@ -1064,6 +1104,7 @@ module.exports = {
   investSkill,
   resetSkillInvestmentState,
   setActivePreset,
+  setActivePresetSlot,
   setAutoPreset,
   pruneExpiredSkillState,
   resolveSkillCastProfile,

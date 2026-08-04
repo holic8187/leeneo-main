@@ -13,6 +13,7 @@ const {
   investSkill,
   resetSkillInvestmentState,
   setActivePreset,
+  setActivePresetSlot,
   setAutoPreset,
   getActiveSkillEffects,
   buildActiveBuffEffects,
@@ -21,6 +22,8 @@ const {
 } = require('../../src/v2/skills/skillService');
 const {
   buildSummonState,
+  buildFollowUpBonusAttack,
+  getActiveFollowUpSummon,
   getSummonAttackVisual,
   isSummonAttackDue
 } = require('../../src/v2/skills/summonService');
@@ -48,6 +51,28 @@ function findSkillByName(name) {
   return Object.values(SKILL_DEFINITIONS).find((definition) => definition.name === name);
 }
 
+test('warrior shout and smash can be placed in the sixth active slot', () => {
+  const character = makeCharacter({
+    skills: {
+      levels: { shout: 1, smash_buff: 1, power_strike: 1 },
+      activePreset: ['power_strike'],
+      autoPreset: [],
+      unlockedQuestSkills: [],
+      activeBuffs: [],
+      summon: null,
+      comboCount: 0
+    }
+  });
+  assert.deepEqual(
+    setActivePresetSlot(character, 'shout', 5),
+    ['power_strike', '', '', '', '', 'shout']
+  );
+  assert.deepEqual(
+    setActivePresetSlot(character, 'smash_buff', 5),
+    ['power_strike', '', '', '', '', 'smash_buff']
+  );
+});
+
 test('accumulated piercing settlement is an escalating six-target attack', () => {
   const skill = SKILL_DEFINITIONS.extended_cd94045605;
   const values = resolveSkillValues(skill, skill.maxLevel);
@@ -60,17 +85,105 @@ test('accumulated piercing settlement is an escalating six-target attack', () =>
   assert.equal(values.piercingStartPercent, 250);
   assert.equal(values.piercingEndPercent, 850);
   assert.equal(values.targetCount, 6);
-  assert.equal(values.preCastDelaySeconds, 1.5);
+  assert.equal(values.preCastDelaySeconds, 1);
   assert.equal(values.cooldownSeconds, undefined);
   assert.deepEqual(resolveSkillCastProfile(values), {
     hitCount: 1,
     mpCostMultiplier: 1,
-    preCastDelaySeconds: 1.5,
+    preCastDelaySeconds: 1,
     postCastDelaySeconds: 0,
     channelDurationSeconds: 0,
     channelIntervalSeconds: 0,
     lockSeconds: 0
   });
+});
+
+test('resurrection reaches a ten-minute cooldown at level ten', () => {
+  const skill = findSkillByName('복직 지원');
+
+  assert.ok(skill);
+  assert.equal(skill.maxLevel, 10);
+  assert.equal(resolveSkillValues(skill, 1).cooldownSeconds, 57 * 60);
+  assert.equal(resolveSkillValues(skill, 10).cooldownSeconds, 10 * 60);
+  assert.match(skill.description, /57분 → 10분/);
+  assert.doesNotMatch(skill.description, /30분/);
+});
+
+test('war cry reaches the requested monster debuffs at level twenty', () => {
+  const skill = SKILL_DEFINITIONS.war_cry;
+  const values = resolveSkillValues(skill, skill.maxLevel);
+
+  assert.equal(skill.name, '고함');
+  assert.equal(values.mpCost, 25);
+  assert.equal(values.successChance, 70);
+  assert.equal(values.durationSeconds, 60);
+  assert.equal(values.enemyDamageReductionPercent, 10);
+  assert.equal(values.enemyDamageTakenIncreasePercent, 7);
+  assert.equal(values.enemyAccuracyReductionPercent, 10);
+  assert.equal(values.damageIncreasePercent, undefined);
+  assert.equal(values.accuracyIncrease, undefined);
+  assert.match(skill.description, /받는 피해를 증가/);
+});
+
+test('triple offer resolves as three separate hits', () => {
+  const skill = SKILL_DEFINITIONS.extended_eb778160dd;
+  const values = resolveSkillValues(skill, skill.maxLevel);
+  const cast = resolveSkillCastProfile(values);
+
+  assert.equal(skill.target, 'enemy');
+  assert.equal(values.hits, 3);
+  assert.equal(cast.hitCount, 3);
+  assert.equal(cast.mpCostMultiplier, 1);
+});
+
+test('sales agent exposes a full follow-up attack pass at its skill level', () => {
+  const skill = SKILL_DEFINITIONS.extended_55b25d7cb2;
+  const values = resolveSkillValues(skill, skill.maxLevel);
+  const now = Date.UTC(2026, 6, 29);
+  const summon = buildSummonState(skill, values, now);
+  const skillState = { summon, decoySummon: null };
+
+  assert.equal(summon.role, 'follow-up');
+  assert.equal(summon.basicFollowUpPercent, 80);
+  assert.equal(summon.skillFollowUpPercent, 50);
+  assert.equal(getActiveFollowUpSummon(skillState, now + 1), summon);
+  assert.deepEqual(buildFollowUpBonusAttack(summon, 'skill'), {
+    percent: 50,
+    source: 'follow-up-summon',
+    repeatEffects: true
+  });
+  assert.deepEqual(buildFollowUpBonusAttack(summon, 'basic'), {
+    percent: 80,
+    source: 'follow-up-summon',
+    repeatEffects: true
+  });
+  assert.equal(getActiveFollowUpSummon(skillState, now + 181_000), null);
+});
+
+test('all big bang variants auto-charge and burst at up to three nearby targets', () => {
+  for (const skillId of [
+    'extended_b517ab1d69',
+    'extended_2e29f80103',
+    'extended_72b5477b43'
+  ]) {
+    const skill = SKILL_DEFINITIONS[skillId];
+    const levelOneValues = resolveSkillValues(skill, 1);
+    const values = resolveSkillValues(skill, skill.maxLevel);
+
+    assert.equal(skill.target, 'enemies');
+    assert.equal(skill.maxTargets, 3);
+    assert.equal(skill.range, 150);
+    assert.equal(values.targetCount, 3);
+    assert.equal(values.range, 150);
+    assert.equal(values.hits, 3);
+    assert.equal(levelOneValues.mastery, 35);
+    assert.equal(values.mastery, 80);
+    assert.equal(values.splitDamageAcrossHits, true);
+    assert.equal(values.preCastDelaySeconds, 1);
+    const cast = resolveSkillCastProfile(values);
+    assert.equal(cast.hitCount, 3);
+    assert.equal(cast.preCastDelaySeconds, 1);
+  }
 });
 
 test('salary lupin and the double experience coupon coexist at 2.2x experience', () => {
@@ -270,11 +383,39 @@ test('warriors receive both common fourth-job skills and support utility overrid
   assert.equal(resolveSkillValues(reduction, reduction.maxLevel).successChance, 90);
   assert.equal(resolveSkillValues(reduction, reduction.maxLevel).enemyDamageReductionPercent, 50);
 
+  const largeAreaSkills = [
+    SKILL_DEFINITIONS.extended_aef3d1db17,
+    SKILL_DEFINITIONS.extended_5620bb5a09,
+    SKILL_DEFINITIONS.extended_efc52e591a
+  ];
+  for (const skill of largeAreaSkills) {
+    const values = resolveSkillValues(skill, skill.maxLevel);
+    assert.equal(skill.maxTargets, 12);
+    assert.equal(skill.range, 540);
+    assert.equal(skill.verticalFloorRange, 0);
+    assert.equal(skill.verticalRangePx, 459);
+    assert.equal(values.targetCount, 12);
+    assert.equal(values.verticalRangePx, 459);
+    assert.equal(values.postCastDelaySeconds, 3);
+    assert.equal(resolveSkillCastProfile(values).lockSeconds, 3);
+  }
+
   const genesis = SKILL_DEFINITIONS.extended_aef3d1db17;
-  assert.equal(genesis.range, 720);
-  assert.equal(genesis.verticalFloorRange, 1);
-  assert.equal(resolveSkillValues(genesis, genesis.maxLevel).postCastDelaySeconds, 3);
-  assert.equal(resolveSkillCastProfile(resolveSkillValues(genesis, genesis.maxLevel)).lockSeconds, 3);
+  const meteor = SKILL_DEFINITIONS.extended_efc52e591a;
+  const blizzard = SKILL_DEFINITIONS.extended_5620bb5a09;
+  assert.match(genesis.description, /MP 5,500\(Lv\.1~21\) → 5,000\(Lv\.30\)/);
+  assert.match(meteor.description, /MP 5,000\(Lv\.1~21\) → 4,500\(Lv\.30\)/);
+  assert.match(blizzard.description, /MP 5,000\(Lv\.1~21\) → 4,500\(Lv\.30\)/);
+  for (const [skill, expected] of [
+    [genesis, [5_500, 5_500, 5_450, 5_100, 5_000]],
+    [meteor, [5_000, 5_000, 4_950, 4_600, 4_500]],
+    [blizzard, [5_000, 5_000, 4_950, 4_600, 4_500]]
+  ]) {
+    assert.deepEqual(
+      [1, 21, 22, 29, 30].map((level) => resolveSkillValues(skill, level).mpCost),
+      expected
+    );
+  }
 });
 
 test('storm channel resolves one 1.5-second cast into nine paid hits', () => {
@@ -289,10 +430,12 @@ test('storm channel resolves one 1.5-second cast into nine paid hits', () => {
   assert.equal(cast.channelIntervalSeconds, 0.18);
   assert.equal(cast.hitCount, 9);
   assert.equal(cast.mpCostMultiplier, 9);
-  assert.equal(cast.postCastDelaySeconds, 0.2);
-  assert.equal(cast.lockSeconds, 1.7);
+  assert.equal(cast.preCastDelaySeconds, 0);
+  assert.equal(cast.postCastDelaySeconds, 0);
+  assert.equal(cast.lockSeconds, 1.5);
   assert.equal(values.projectileSpeedMultiplier, 1.1);
-  assert.equal(values.postCastDelaySeconds, 0.2);
+  assert.equal(values.preCastDelaySeconds, 0);
+  assert.equal(values.postCastDelaySeconds, 0);
 });
 
 test('all mage teleport variants use the shared teleport runtime effect', () => {
@@ -869,6 +1012,19 @@ test('active buffs expose duration and tooltip data for the combat buff tray', (
   assert.equal(tree.activeBuffs[0].name, '강철몸');
   assert.match(tree.activeBuffs[0].description, /방어력/);
   assert.ok(tree.activeBuffs[0].durationMs >= 10_000);
+});
+
+test('haste counterparts expose movement speed and jump power at every level', () => {
+  for (const name of ['발 빠른 영업', '순찰 가속']) {
+    const skill = findSkillByName(name);
+    const levelOne = buildActiveBuffEffects(resolveSkillValues(skill, 1));
+    const mastered = buildActiveBuffEffects(resolveSkillValues(skill, skill.maxLevel));
+
+    assert.equal(levelOne.movementSpeedIncrease, 2);
+    assert.equal(levelOne.jumpIncrease, 1);
+    assert.equal(mastered.movementSpeedIncrease, 40);
+    assert.equal(mastered.jumpIncrease, 20);
+  }
 });
 
 test('active buff effects and skill tree are not capped by buff count', () => {

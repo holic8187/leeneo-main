@@ -286,11 +286,24 @@ function createCommonEquipment(slot, level) {
 
 const SHIELD_SOURCE_REFERENCES = Object.freeze({
   warrior: 'https://maple.inven.co.kr/dataninfo/item/list.php?jobgroup=2&class2=207',
-  mage: 'https://maple.inven.co.kr/dataninfo/item/list.php?jobgroup=3&class2=207'
+  mage: 'https://maple.inven.co.kr/dataninfo/item/list.php?jobgroup=3&class2=207',
+  thief: 'https://maple.inven.co.kr/dataninfo/item/list.php?datagroup=Misc&jobgroup=5&class2=207'
 });
 
 function createShield(row) {
-  const [id, name, archetype, level, requiredStats, stats, upgradeSlots = 7] = row;
+  const [
+    id,
+    name,
+    archetype,
+    level,
+    requiredStats,
+    stats,
+    upgradeSlots = 7,
+    allowedWeaponTypes = []
+  ] = row;
+  const weaponRestriction = allowedWeaponTypes.length
+    ? { allowedWeaponTypes: [...allowedWeaponTypes] }
+    : {};
   return {
     id,
     name,
@@ -303,7 +316,8 @@ function createShield(row) {
       level,
       stats: { ...requiredStats },
       archetype,
-      allowedArchetypes: [archetype]
+      allowedArchetypes: [archetype],
+      ...weaponRestriction
     },
     stats: { ...stats },
     upgradeSlots,
@@ -315,7 +329,7 @@ function createShield(row) {
     craftable: true,
     obtainMethods: ['monster-drop', 'crafting'],
     sourceReference: SHIELD_SOURCE_REFERENCES[archetype],
-    description: `${level}레벨 ${ARCHETYPE_LABELS[archetype]} 계열 제작·드랍 전용 방패입니다.`
+    description: `${level}레벨 ${ARCHETYPE_LABELS[archetype]} 계열 제작·드랍 전용 방패입니다.${allowedWeaponTypes.includes('dagger') ? ' 단검을 장착한 상태에서만 사용할 수 있습니다.' : ''}`
   };
 }
 
@@ -342,7 +356,19 @@ const SHIELD_ROWS = Object.freeze([
   ['shield_mage_64', '배포인증 매지션방패', 'mage', 64, {}, { defense: 31, magicDefense: 51, workKnowledge: 2 }, 10],
   ['shield_mage_120', '무중단 프렐류드방패', 'mage', 120, { workKnowledge: 368, awareness: 120 }, { defense: 60, magicDefense: 110, workKnowledge: 5 }],
   ['shield_mage_125', '피어리스 기술방패', 'mage', 125, { workKnowledge: 368, awareness: 120 }, { defense: 60, magicDefense: 180, workKnowledge: 10, awareness: 5, evasion: 20 }, 8],
-  ['shield_mage_130', '최종배포 세이지방패', 'mage', 130, { workKnowledge: 420, awareness: 160 }, { defense: 71, magicDefense: 130, workKnowledge: 10 }]
+  ['shield_mage_130', '최종배포 세이지방패', 'mage', 130, { workKnowledge: 420, awareness: 160 }, { defense: 71, magicDefense: 130, workKnowledge: 10 }],
+  ['shield_thief_dagger_5', '신입사원 명찰방패', 'thief', 5, {}, { defense: 5 }, 7, ['dagger']],
+  ['shield_thief_dagger_15', '장기근속 인내방패', 'thief', 15, { awareness: 40 }, { defense: 10 }, 7, ['dagger']],
+  ['shield_thief_dagger_25', '시설보수 합판방패', 'thief', 25, { awareness: 70 }, { defense: 16, awareness: 1 }, 7, ['dagger']],
+  ['shield_thief_dagger_35', '구내식당 냄비방패', 'thief', 35, { awareness: 100 }, { defense: 22, evasion: 1 }, 7, ['dagger']],
+  ['shield_thief_dagger_45', '창립기념 단풍방패', 'thief', 45, { awareness: 130 }, { defense: 28, awareness: 1, evasion: 1 }, 7, ['dagger']],
+  ['shield_thief_dagger_55', '현장점검 손목방패', 'thief', 55, { awareness: 160 }, { defense: 34, awareness: 2, evasion: 2 }, 7, ['dagger']],
+  ['shield_thief_dagger_65', '신속대응 손목방패', 'thief', 65, { awareness: 190 }, { defense: 40, awareness: 2, evasion: 2 }, 7, ['dagger']],
+  ['shield_thief_dagger_75', '출입통제 손목방패', 'thief', 75, { awareness: 220 }, { defense: 46, awareness: 3, evasion: 3 }, 7, ['dagger']],
+  ['shield_thief_dagger_85', '기밀보안 손목방패', 'thief', 85, { awareness: 250 }, { defense: 52, awareness: 3, processingSpeed: 1, evasion: 4 }, 7, ['dagger']],
+  ['shield_thief_dagger_95', '디자인실 팔레트방패', 'thief', 95, { awareness: 280 }, { defense: 60, awareness: 4, processingSpeed: 2, evasion: 5 }, 7, ['dagger']],
+  ['shield_thief_dagger_105', '사내복지 탄산방패', 'thief', 105, { awareness: 310 }, { defense: 68, magicDefense: 20, awareness: 5, processingSpeed: 3, evasion: 6 }, 7, ['dagger']],
+  ['shield_thief_dagger_115', '임원실 잠입방패', 'thief', 115, { awareness: 340 }, { defense: 78, magicDefense: 30, awareness: 7, processingSpeed: 4, evasion: 8 }, 7, ['dagger']]
 ]);
 
 const SHIELD_ITEMS = Object.freeze(
