@@ -1494,6 +1494,42 @@ function registerV2Routes({
     };
   }
 
+  async function resurrectActivePartyMember({ caster, mapId, rangePx, hpPercent }) {
+    const casterId = String(caster.userId);
+    const activePlayers = getActivePartyPlayers(casterId, mapId);
+    const targetPresence = selectResurrectionTarget({
+      casterId,
+      activePlayers,
+      rangePx,
+      worldWidth: getWorldMap(mapId)?.layout?.worldWidth
+    });
+    if (!targetPresence) {
+      throw new Error('사거리 안에 부활시킬 사망 파티원이 없습니다.');
+    }
+
+    const targetId = String(targetPresence.userId);
+    const teammate = await V2Character.findOne({ userId: targetId });
+    if (!teammate || Number(teammate.resources?.currentHp) > 0) {
+      throw new Error('부활시킬 사망 파티원이 없습니다.');
+    }
+    const response = buildCharacterResponse(teammate);
+    const restored = reviveCharacter(teammate, {
+      maxHp: response.resources.maxHp,
+      maxMp: response.resources.maxMp,
+      hpPercent
+    });
+    teammate.markModified('worldState');
+    await teammate.save();
+    const revivedResponse = buildCharacterResponse(teammate);
+    updatePlayerResources(targetId, revivedResponse.resources);
+    worldProfileCache.delete(targetId);
+    return {
+      userId: targetId,
+      nickname: String(targetPresence.nickname || ''),
+      ...restored
+    };
+  }
+
   function buildMailResponse(character) {
     const mails = getPendingMail(character)
       .map(serializeMail)
