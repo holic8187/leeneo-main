@@ -3026,6 +3026,7 @@ app.get('/index.html', (req, res, next) => {
 });
 
 app.get(['/v2', '/v2/'], (req, res) => {
+  res.set('Cache-Control', 'no-store');
   res.sendFile(path.join(__dirname, 'public', 'v2', 'index.html'));
 });
 

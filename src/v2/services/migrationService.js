@@ -418,7 +418,7 @@ async function ensureV2MigrationForUser(user) {
             misc: 20,
             cash: 20
           },
-          quickSlots: { hp: '', mp: '', consumables: ['', '', ''] }
+          quickSlots: { hp: '', mp: '', consumables: ['', '', '', ''] }
         },
         mailbox: [],
         resources: {
@@ -787,8 +787,18 @@ function buildCharacterResponse(character) {
     worldState: {
       mapId: String(plain.worldState?.mapId || 'main_lobby'),
       x: Math.max(0, Math.min(94, Number(plain.worldState?.x) || 8)),
-      floor: Number(plain.worldState?.floor) === 1 ? 1 : 0
+      floor: Number(plain.worldState?.floor) === 1 ? 1 : 0,
+      returnMapId: String(plain.worldState?.returnMapId || ''),
+      raidBossId: String(plain.worldState?.raidBossId || ''),
+      raidPartyNumber: Math.max(0, Math.floor(Number(plain.worldState?.raidPartyNumber) || 0)),
+      raidStartedAt: plain.worldState?.raidStartedAt
+        ? new Date(plain.worldState.raidStartedAt).getTime()
+        : 0,
+      raidDeadAt: plain.worldState?.raidDeadAt
+        ? new Date(plain.worldState.raidDeadAt).getTime()
+        : 0
     },
+    bossRaidEntries: { ...(plain.bossRaidEntries || {}) },
     fieldBossLockouts: Object.fromEntries(
       Object.entries(plain.fieldBossLockouts || {}).map(([bossId, until]) => [
         bossId,

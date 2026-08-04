@@ -10,8 +10,8 @@ const {
 } = require('../../src/v2/world/monsterCatalog');
 const { WORLD_MAPS } = require('../../src/v2/world/mapDefinitions');
 
-test('ordinary monster EXP uses the reduced 1.08 multiplier', () => {
-  assert.equal(MONSTER_EXP_MULTIPLIER, 1.08);
+test('ordinary monster EXP uses the base 1.0 multiplier', () => {
+  assert.equal(MONSTER_EXP_MULTIPLIER, 1);
 });
 
 test('every configured map monster resolves to one canonical displayed level', () => {
