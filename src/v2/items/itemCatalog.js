@@ -66,7 +66,7 @@ const BASE_ITEMS = {
     sellPrice: 25,
     description: '사용 즉시 체력을 50 회복합니다.',
     adminGrantOnly: true,
-    shopTags: ['headquarters', 'personnel_annex', 'sales_outpost']
+    shopTags: ['headquarters', 'personnel_annex', 'sales_outpost', 'peach_convenience']
   },
   bacchus: {
     id: 'bacchus',
@@ -81,7 +81,7 @@ const BASE_ITEMS = {
     sellPrice: 100,
     description: '사용 즉시 정신력을 80 회복합니다.',
     adminGrantOnly: true,
-    shopTags: ['headquarters', 'personnel_annex', 'sales_outpost']
+    shopTags: ['headquarters', 'personnel_annex', 'sales_outpost', 'peach_convenience']
   },
   marshmallow: {
     id: 'marshmallow',
@@ -134,7 +134,7 @@ const BASE_ITEMS = {
     category: 'consumable',
     itemType: 'cleanse-potion',
     icon: '✨',
-    maxStack: 100,
+    maxStack: 150,
     buyPrice: 0,
     sellPrice: 50,
     shopTags: [],
@@ -144,61 +144,61 @@ const BASE_ITEMS = {
     id: 'red_potion', name: '빨간 포션', category: 'consumable', itemType: 'potion',
     icon: '🧪', resource: 'hp', restoreAmount: 50, maxStack: 100,
     buyPrice: 50, sellPrice: 25, description: '체력을 50 회복합니다.',
-    shopTags: ['headquarters', 'personnel_annex', 'sales_outpost']
+    shopTags: ['headquarters', 'personnel_annex', 'sales_outpost', 'peach_convenience']
   },
   orange_potion: {
     id: 'orange_potion', name: '주황 포션', category: 'consumable', itemType: 'potion',
     icon: '🧃', resource: 'hp', restoreAmount: 150, maxStack: 100,
     buyPrice: 150, sellPrice: 75, description: '체력을 150 회복합니다.',
-    shopTags: ['headquarters', 'personnel_annex', 'sales_outpost']
+    shopTags: ['headquarters', 'personnel_annex', 'sales_outpost', 'peach_convenience']
   },
   white_potion: {
     id: 'white_potion', name: '하얀 포션', category: 'consumable', itemType: 'potion',
     icon: '🥛', resource: 'hp', restoreAmount: 300, maxStack: 100,
     buyPrice: 300, sellPrice: 150, description: '체력을 300 회복합니다.',
-    shopTags: ['personnel_annex', 'sales_outpost']
+    shopTags: ['personnel_annex', 'sales_outpost', 'peach_convenience']
   },
   grilled_eel: {
     id: 'grilled_eel', name: '장어구이', category: 'consumable', itemType: 'potion',
     icon: '🍱', resource: 'hp', restoreAmount: 1_000, maxStack: 100,
     buyPrice: 1_000, sellPrice: 500, description: '체력을 1,000 회복합니다.',
-    shopTags: ['sales_outpost']
+    shopTags: ['sales_outpost', 'peach_convenience']
   },
   reindeer_milk: {
     id: 'reindeer_milk', name: '순록의 우유', category: 'consumable', itemType: 'potion',
     icon: '🥛', resource: 'hp', restoreAmount: 5_000, maxStack: 100,
     buyPrice: 5_000, sellPrice: 2_500, description: '체력을 5,000 회복합니다.',
-    shopTags: ['sales_outpost']
+    shopTags: ['sales_outpost', 'peach_convenience']
   },
   blue_potion: {
     id: 'blue_potion', name: '파란 포션', category: 'consumable', itemType: 'potion',
     icon: '🧴', resource: 'mp', restoreAmount: 100, maxStack: 100,
     buyPrice: 200, sellPrice: 100, description: '정신력을 100 회복합니다.',
-    shopTags: ['headquarters', 'personnel_annex', 'sales_outpost']
+    shopTags: ['headquarters', 'personnel_annex', 'sales_outpost', 'peach_convenience']
   },
   mana_elixir: {
     id: 'mana_elixir', name: '마나 엘릭서', category: 'consumable', itemType: 'potion',
     icon: '🔷', resource: 'mp', restoreAmount: 300, maxStack: 100,
     buyPrice: 600, sellPrice: 300, description: '정신력을 300 회복합니다.',
-    shopTags: ['personnel_annex', 'sales_outpost']
+    shopTags: ['personnel_annex', 'sales_outpost', 'peach_convenience']
   },
   pure_water: {
     id: 'pure_water', name: '맑은 물', category: 'consumable', itemType: 'potion',
     icon: '💧', resource: 'mp', restoreAmount: 800, maxStack: 100,
     buyPrice: 1_600, sellPrice: 800, description: '정신력을 800 회복합니다.',
-    shopTags: ['sales_outpost']
+    shopTags: ['sales_outpost', 'peach_convenience']
   },
   sunrise_dew: {
     id: 'sunrise_dew', name: '새벽의 이슬', category: 'consumable', itemType: 'potion',
     icon: '🌅', resource: 'mp', restoreAmount: 4_000, maxStack: 100,
     buyPrice: 8_000, sellPrice: 4_000, description: '정신력을 4,000 회복합니다.',
-    shopTags: ['sales_outpost']
+    shopTags: ['sales_outpost', 'peach_convenience']
   },
   sunset_dew: {
     id: 'sunset_dew', name: '황혼의 이슬', category: 'consumable', itemType: 'potion',
     icon: '🌇', resource: 'mp', restoreAmount: 5_000, maxStack: 100,
     buyPrice: 10_000, sellPrice: 5_000, description: '정신력을 5,000 회복합니다.',
-    shopTags: ['sales_outpost']
+    shopTags: ['sales_outpost', 'peach_convenience']
   },
   safe_zone_return_scroll: {
     id: 'safe_zone_return_scroll',
@@ -238,9 +238,91 @@ const BASE_ITEMS = {
     maxStack: 600,
     purchaseQuantity: 600,
     buyPrice: 500,
-    sellPrice: 0,
+    sellPrice: 1,
     description: '아대 공격에 사용합니다. 공격력 +15, 한 묶음 600개.',
     shopTags: ['headquarters', 'personnel_annex', 'sales_outpost']
+  },
+  compressed_badge_star: {
+    id: 'compressed_badge_star',
+    name: '압축 명찰 표창',
+    category: 'consumable',
+    itemType: 'ammunition',
+    ammunitionType: 'throwing-star',
+    icon: '🔹',
+    attackBonus: 17,
+    maxStack: 600,
+    buyPrice: 0,
+    sellPrice: 1,
+    description: '몬스터에게서 얻을 수 있는 아대용 표창입니다. 공격력 +17, 한 묶음 600개.',
+    shopTags: []
+  },
+  circuit_shard_star: {
+    id: 'circuit_shard_star',
+    name: '회로 파편 표창',
+    category: 'consumable',
+    itemType: 'ammunition',
+    ammunitionType: 'throwing-star',
+    icon: '🔸',
+    attackBonus: 19,
+    maxStack: 600,
+    buyPrice: 0,
+    sellPrice: 1,
+    description: '몬스터에게서 얻을 수 있는 아대용 표창입니다. 공격력 +19, 한 묶음 600개.',
+    shopTags: []
+  },
+  peach_alloy_star: {
+    id: 'peach_alloy_star',
+    name: '피치 합금 표창',
+    category: 'consumable',
+    itemType: 'ammunition',
+    ammunitionType: 'throwing-star',
+    icon: '✳️',
+    attackBonus: 21,
+    maxStack: 600,
+    buyPrice: 0,
+    sellPrice: 1,
+    description: '몬스터에게서 얻을 수 있는 아대용 표창입니다. 공격력 +21, 한 묶음 600개.',
+    shopTags: []
+  },
+  executive_approval_star: {
+    id: 'executive_approval_star',
+    name: '임원 결재 표창',
+    category: 'consumable',
+    itemType: 'ammunition',
+    ammunitionType: 'throwing-star',
+    icon: '✴️',
+    attackBonus: 23,
+    maxStack: 600,
+    buyPrice: 0,
+    sellPrice: 1,
+    description: '몬스터에게서 얻을 수 있는 아대용 표창입니다. 공격력 +23, 한 묶음 600개.',
+    shopTags: []
+  },
+  peach_bus_ticket: {
+    id: 'peach_bus_ticket',
+    name: '버스탑승권',
+    category: 'misc',
+    itemType: 'transport-ticket',
+    icon: '🎫',
+    maxStack: 100,
+    buyPrice: 10_000,
+    sellPrice: 0,
+    tradeable: true,
+    description: '호이상사와 피치전자 사이를 오가는 버스에 탑승할 때 1장 소모됩니다.',
+    shopTags: []
+  },
+  queen_doll_fragment: {
+    id: 'queen_doll_fragment',
+    name: '퀸돌 조각',
+    category: 'misc',
+    itemType: 'crafting-material',
+    icon: '💠',
+    maxStack: 200,
+    buyPrice: 0,
+    sellPrice: 0,
+    tradeable: true,
+    description: '피치전자 몬스터에게서 드물게 얻는 제작 재료입니다.',
+    shopTags: []
   },
   experience_coupon_2x_15m: {
     id: 'experience_coupon_2x_15m',
@@ -337,6 +419,20 @@ const BASE_ITEMS = {
     description: '현재 경험치와 관계없이 정확히 1레벨 상승하고 경험치는 0%가 됩니다. 만렙에서는 사용할 수 없습니다.',
     adminGrantOnly: true
   },
+  bald_kim_entry_ticket: {
+    id: 'bald_kim_entry_ticket',
+    name: '대머리 김부장 입장권',
+    category: 'cash',
+    itemType: 'boss-entry-ticket',
+    bossId: 'bald_kim_manager',
+    icon: '🎫',
+    maxStack: 100,
+    sellPrice: 0,
+    tradeable: false,
+    marketable: false,
+    description: '사용 시 대머리 김부장 추가 입장 가능 횟수를 1회 충전합니다.',
+    adminGrantOnly: true
+  },
   legacy_exchange_coupon: {
     id: 'legacy_exchange_coupon',
     name: '특수 교환권',
@@ -370,6 +466,49 @@ const BASE_ITEMS = {
     sellPrice: 1,
     tradeable: true,
     description: '감맘 네오에게서 떨어진 기묘한 전리품입니다.'
+  },
+  kim_manager_hair: {
+    id: 'kim_manager_hair',
+    name: '김부장의 머리카락',
+    category: 'misc',
+    itemType: 'raid-boss-token',
+    icon: '〰',
+    maxStack: 200,
+    sellPrice: 1,
+    tradeable: true,
+    description: '대머리 김부장 원정대에서 살아남아 전투에 기여한 증표입니다.'
+  },
+  kim_manager_wig: {
+    id: 'kim_manager_wig',
+    name: '김부장의 가발',
+    category: 'equipment',
+    itemType: 'armor',
+    equipmentSlot: 'helmet',
+    icon: '♟',
+    requiredLevel: 50,
+    requirements: {
+      level: 50,
+      stats: {},
+      archetype: '',
+      allowedArchetypes: ['warrior', 'archer', 'thief', 'mage']
+    },
+    stats: {
+      grit: 15,
+      processingSpeed: 15,
+      workKnowledge: 15,
+      awareness: 15,
+      defense: 150,
+      magicDefense: 150,
+      accuracy: 20,
+      evasion: 20
+    },
+    upgradeSlots: 10,
+    maxStack: 1,
+    sellPrice: 1,
+    tradeable: false,
+    bossDropOnly: true,
+    dropEligible: false,
+    description: '대머리 김부장 원정대에서만 획득할 수 있는 전 직업 공용 투구입니다.'
   },
   settlement_event_coin: {
     id: 'settlement_event_coin',
@@ -453,10 +592,10 @@ const BASE_ITEMS = {
     maxStack: 1,
     sellPrice: 0,
     tradeable: false,
-    fixedExpiresAt: '2026-08-01T00:00:00+09:00',
+    fixedExpiresAt: '2026-08-04T13:00:00+09:00',
     acquisitionSource: 'settlement-event-shop',
     dropEligible: false,
-    description: '계정당 한 번 무료로 받는 기간제 전직업 공용 반지입니다. 2026년 7월 31일 이후 사라집니다.'
+    description: '계정당 한 번 무료로 받는 기간제 전직업 공용 반지입니다. 2026년 8월 4일 13시 이후 사라집니다.'
   },
   event_blessed_necklace_scroll_60: {
     id: 'event_blessed_necklace_scroll_60',
@@ -485,10 +624,10 @@ const BASE_ITEMS = {
     itemType: 'stat-reset',
     icon: '🧾',
     maxStack: 100,
-    fixedExpiresAt: '2026-08-01T00:00:00+09:00',
+    fixedExpiresAt: '2026-08-04T13:00:00+09:00',
     tradeable: false,
     sellPrice: 1,
-    description: '투자한 스탯을 초기화합니다. 2026년 7월 31일 이후 사라집니다.'
+    description: '투자한 스탯을 초기화합니다. 2026년 8월 4일 13시 이후 사라집니다.'
   },
   event_skill_reset_coupon: {
     id: 'event_skill_reset_coupon',
@@ -497,10 +636,10 @@ const BASE_ITEMS = {
     itemType: 'skill-reset',
     icon: '📘',
     maxStack: 100,
-    fixedExpiresAt: '2026-08-01T00:00:00+09:00',
+    fixedExpiresAt: '2026-08-04T13:00:00+09:00',
     tradeable: false,
     sellPrice: 1,
-    description: '투자한 모든 스킬포인트를 회수합니다. 2026년 7월 31일 이후 사라집니다.'
+    description: '투자한 모든 스킬포인트를 회수합니다. 2026년 8월 4일 13시 이후 사라집니다.'
   },
   hunting_time_180m: {
     id: 'hunting_time_180m',
