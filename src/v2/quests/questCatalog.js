@@ -50,8 +50,16 @@ function quest(id, title, type, targetId, targetName, required, dialogue, exp, m
   });
 }
 
-function npc(id, name, mapId, icon, x, quests) {
-  return Object.freeze({ id, name, mapId, icon, x, quests: Object.freeze(quests) });
+function npc(id, name, mapId, icon, x, quests, options = {}) {
+  return Object.freeze({
+    id,
+    name,
+    mapId,
+    icon,
+    x,
+    quests: Object.freeze(quests),
+    ...options
+  });
 }
 
 const BASE_NPC_CATALOG = Object.freeze([
@@ -83,7 +91,14 @@ const BASE_NPC_CATALOG = Object.freeze([
   npc('facility_kim', '렌치를 잃은 김부장', 'facility_engine', '🔧', 69, [quest('kim_battery', '예비 배터리 확보', 'collect', 'monster_loot_facility_drone', '방전된 배터리', 150, '방전됐어도 부품은 쓸 수 있지. 드론 배터리를 모아오게.', 4800, 6000, { huntingMinutes: 180 })]),
   npc('quality_neo', '불량표를 붙이는 정과장', 'quality_lab', '✅', 30, [quest('ineo_spider', '전수 품질검사', 'kill', 'quality_spider', '품질검사 거미', 400, '표본검사는 불안해요. 이번만큼은 사백 마리 전수검사로 갑시다.', 5600, 7000, { items: [item('grilled_eel', '장어구이', 200)] })]),
   npc('logistics_jjor', '송장을 접어 날리는 몬드', 'logistics_warehouse', '📦', 76, [quest('jjor_boar', '파손 배송 추적', 'kill', 'warehouse_boar', '물류창고 멧돼지', 400, '멧돼지가 송장을 등에 붙이고 달아났어요. 배송 완료 처리 전에 찾아주세요.', 6500, 8000, { items: [item('experience_coupon_2x_15m', '경험치 2배 쿠폰 (15분)', 6)] })]),
-  npc('overtime_winter', '퇴근을 봉인한 겨부장', 'overtime_depths', '🌙', 18, [quest('winter_hwang', '미쳐버린 회의실의 주인', 'boss', 'mad_hwang_manager', '야근하다 미쳐버린 황과장', 1, '영업여우 접선로 안쪽 히든 회의실의 황과장을 막아야 모두 퇴근할 수 있다. 살아서 돌아오게.', 12000, 20000, { items: [item('scroll_gloves_공격력_60', '장갑 공격력 주문서 60%', 1)] })])
+  npc('overtime_winter', '퇴근을 봉인한 겨부장', 'overtime_depths', '🌙', 18, [quest('winter_hwang', '미쳐버린 회의실의 주인', 'boss', 'mad_hwang_manager', '야근하다 미쳐버린 황과장', 1, '영업여우 접선로 안쪽 히든 회의실의 황과장을 막아야 모두 퇴근할 수 있다. 살아서 돌아오게.', 12000, 20000, { items: [item('scroll_gloves_공격력_60', '장갑 공격력 주문서 60%', 1)] })]),
+  npc('dispatch_bus_guide', '신대륙 출장 안내원', 'company_bus_stop', '🚌', 72, []),
+  npc('bus_ticket_vendor', '출장 승차권 판매원', 'company_bus_stop', '🎫', 40, [], { action: 'bus-ticket-vendor' }),
+  npc('peach_route_bus', '피치전자행 버스', 'company_bus_stop', '🚌', 84, [], { action: 'bus-board' }),
+  npc('company_bus_driver', '버스기사 아저씨', 'company_bus_waiting_room', '🧑‍✈️', 12, [], { action: 'bus-exit' }),
+  npc('peach_ticket_vendor', '피치전자 승차권 판매원', 'peach_bus_stop', '🎫', 40, [], { action: 'bus-ticket-vendor' }),
+  npc('company_route_bus', '호이상사행 버스', 'peach_bus_stop', '🚌', 84, [], { action: 'bus-board' }),
+  npc('peach_bus_driver', '버스기사 아저씨', 'peach_bus_waiting_room', '🧑‍✈️', 12, [], { action: 'bus-exit' })
 ]);
 
 const NPC_NAME_OVERRIDES = Object.freeze({

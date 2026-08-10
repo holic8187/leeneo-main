@@ -167,6 +167,7 @@ function buildDerivedStats({
   const magic = roundStat(
     Math.max(4, finite(effectiveStats.workKnowledge))
     + sumLoadoutStat(loadout, 'magic', 'magicAttack')
+    + finite(skillEffects.magicAttackIncrease)
   );
 
   return {
@@ -186,6 +187,11 @@ function buildDerivedStats({
       100
       + sumLoadoutStat(loadout, 'movementSpeed')
       + finite(skillEffects.movementSpeedIncrease)
+    ),
+    jumpPower: roundStat(
+      100
+      + sumLoadoutStat(loadout, 'jump')
+      + finite(skillEffects.jumpIncrease)
     ),
     criticalChance: Math.max(0, Math.min(100, finite(skillEffects.criticalChance))),
     criticalDamagePercent: Math.max(100, finite(skillEffects.criticalDamagePercent) || 200),
