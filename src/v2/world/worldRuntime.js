@@ -1852,6 +1852,36 @@ function applyRaidResourceCrash(player, boss, now = Date.now()) {
   };
 }
 
+function applyRaidResourceCrash(player, boss, now = Date.now()) {
+  if (!player || now < Number(player.invulnerableUntil || 0)) return null;
+  const dodged = Math.random() * 100 < Number(player.combatProfile?.dodgeChance || 0);
+  const previousHp = Math.max(1, Number(player.currentHp) || 1);
+  const previousMp = Math.max(0, Number(player.currentMp) || 0);
+  if (!dodged) {
+    player.currentHp = 1;
+    player.currentMp = 1;
+  }
+  player.invulnerableUntil = now + CONTACT_INVULNERABILITY_MS;
+  return {
+    userId: player.userId,
+    damage: dodged ? 0 : Math.max(0, previousHp - 1),
+    totalDamage: dodged ? 0 : Math.max(0, previousHp - 1),
+    mpDamage: dodged ? 0 : Math.max(0, previousMp - 1),
+    blocked: false,
+    dodged,
+    resistedKnockback: true,
+    reflectedDamage: 0,
+    monsterId: boss.id,
+    source: 'raid-resource-crash',
+    currentHp: player.currentHp,
+    currentMp: player.currentMp,
+    maxHp: player.maxHp,
+    x: player.x,
+    floor: player.floor,
+    invulnerableUntil: player.invulnerableUntil
+  };
+}
+
 function startGammamNeoPattern(runtime, boss, pattern, config, now) {
   const durationMs = Math.max(0, Math.floor(Number(config.castMs) || 0));
   const resolvesAt = now + durationMs;
@@ -2464,6 +2494,97 @@ function applyPlayerBuffDrain(runtime, now = Date.now()) {
     });
   }
   return events;
+}
+
+function queueRaidContactEvents(runtime, events, now = Date.now()) {
+  if (!(runtime?.raidContactEventsByUser instanceof Map)) {
+    runtime.raidContactEventsByUser = new Map();
+  }
+  for (const event of events || []) {
+    const userId = String(event?.userId || '');
+    if (!userId) continue;
+    if (!Number.isFinite(Number(event.createdAt))) event.createdAt = now;
+    const queue = runtime.raidContactEventsByUser.get(userId) || [];
+    queue.push(event);
+    if (queue.length > RAID_CONTACT_EVENT_QUEUE_LIMIT) {
+      queue.splice(0, queue.length - RAID_CONTACT_EVENT_QUEUE_LIMIT);
+    }
+    runtime.raidContactEventsByUser.set(userId, queue);
+  }
+}
+
+function takeRaidContactEvents(runtime, userId) {
+  const userKey = String(userId || '');
+  const queue = runtime?.raidContactEventsByUser?.get(userKey) || [];
+  runtime?.raidContactEventsByUser?.delete(userKey);
+  return queue;
+}
+
+function requeueRaidBossRewardEvent(mapId, event) {
+  const runtime = activeMaps.get(String(mapId || ''));
+  if (!runtime || !event) return false;
+  const eventId = String(event.id || '');
+  if (eventId && runtime.raidBossRewards.some((entry) => String(entry.id || '') === eventId)) {
+    return true;
+  }
+  runtime.raidBossRewards.unshift(event);
+  return true;
+}
+
+function tickRaidMapSimulation(mapId, now = Date.now()) {
+  const resolvedMapId = String(mapId || '');
+  const runtime = activeMaps.get(resolvedMapId);
+  if (!runtime || !getWorldMap(resolvedMapId)?.raidBossId) return null;
+  const contactEvents = tickRuntime(runtime, now);
+  queueRaidContactEvents(runtime, contactEvents, now);
+  return {
+    mapId: resolvedMapId,
+    contactEventCount: contactEvents.length,
+    completed: Boolean(runtime.raidState?.completed)
+  };
+}
+
+function stopRaidMapSimulation(mapId) {
+  const resolvedMapId = String(mapId || '');
+  const state = raidMapSimulationTimers.get(resolvedMapId);
+  if (!state) return false;
+  clearInterval(state.timer);
+  raidMapSimulationTimers.delete(resolvedMapId);
+  return true;
+}
+
+function startRaidMapSimulation(mapId, now = Date.now()) {
+  const resolvedMapId = String(mapId || '');
+  const map = getWorldMap(resolvedMapId);
+  if (!map?.raidBossId) return false;
+  if (!activeMaps.has(resolvedMapId)) {
+    activeMaps.set(resolvedMapId, createMapRuntime(resolvedMapId, now));
+  }
+  if (raidMapSimulationTimers.has(resolvedMapId)) return true;
+
+  const state = { idleSince: 0, lastCleanupAt: now, timer: null };
+  state.timer = setInterval(() => {
+    const tickNow = Date.now();
+    if (tickNow - state.lastCleanupAt >= 5_000) {
+      cleanupInactiveMaps(tickNow);
+      state.lastCleanupAt = tickNow;
+    }
+    const result = tickRaidMapSimulation(resolvedMapId, tickNow);
+    const runtime = activeMaps.get(resolvedMapId);
+    if (!result || result.completed) {
+      stopRaidMapSimulation(resolvedMapId);
+      return;
+    }
+    if (runtime?.players.size) {
+      state.idleSince = 0;
+      return;
+    }
+    if (!state.idleSince) state.idleSince = tickNow;
+    if (tickNow - state.idleSince >= 30_000) stopRaidMapSimulation(resolvedMapId);
+  }, RAID_MAP_TICK_INTERVAL_MS);
+  state.timer.unref?.();
+  raidMapSimulationTimers.set(resolvedMapId, state);
+  return true;
 }
 
 function queueRaidContactEvents(runtime, events, now = Date.now()) {

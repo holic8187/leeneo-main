@@ -479,6 +479,19 @@ const SKILL_DEFINITIONS = Object.freeze({
         }
       }];
     }
+    if (id === RESURRECTION_SKILL_ID) {
+      return [id, {
+        ...definition,
+        description: 'MP 40, 같은 맵에서 사망한 파티원 1명을 HP 50%, MP는 사망 당시 수치로 부활. 쿨타임 57분 → 10분',
+        effect: 'resurrection',
+        values: {
+          ...(definition.values || {}),
+          hpCost: 0,
+          reviveHpPercent: 50,
+          cooldownSeconds: [57 * 60, 10 * 60]
+        }
+      }];
+    }
     if (id === WORK_REDUCTION_SKILL_ID) {
       return [id, {
         ...definition,
