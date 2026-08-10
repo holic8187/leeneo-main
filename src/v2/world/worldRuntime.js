@@ -4600,6 +4600,40 @@ function useSkillOnMonsters(options = {}) {
       drops.push(extraDrop);
       additionalMiscDropped = true;
     }
+    const componentsDropped = totalDamage > 0
+      && Number(componentDropChance) > 0
+      && Math.random() * 100 < Number(componentDropChance)
+      ? 1
+      : 0;
+    let additionalMiscDropped = false;
+    const alreadyGrantedMisc = Boolean(monster.additionalMiscGrantedByUser?.[userKey]);
+    if (
+      totalDamage > 0
+      && monster.lootItemId
+      && Number(additionalMiscDropChance) > 0
+      && (!additionalMiscDropOncePerMonster || !alreadyGrantedMisc)
+      && Math.random() * 100 < Number(additionalMiscDropChance)
+    ) {
+      if (!monster.additionalMiscGrantedByUser) monster.additionalMiscGrantedByUser = {};
+      monster.additionalMiscGrantedByUser[userKey] = true;
+      const extraDrop = {
+        id: crypto.randomUUID(),
+        kind: 'item',
+        itemId: monster.lootItemId,
+        quantity: 1,
+        icon: monster.lootIcon || '',
+        name: monster.lootName || monster.lootItemId,
+        category: 'misc',
+        userId: userKey,
+        x: clamp(monster.x, 8, 86),
+        floor: monster.floor,
+        createdAt: now,
+        collectAt: getLootCollectionTime(runtime, now)
+      };
+      runtime.groundLoot.push(extraDrop);
+      drops.push(extraDrop);
+      additionalMiscDropped = true;
+    }
     outcomes.push({
       monsterId: monster.id,
       speciesId: monster.speciesId,
