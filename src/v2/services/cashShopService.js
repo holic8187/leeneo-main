@@ -48,6 +48,18 @@ const CASH_SHOP_PRODUCTS = Object.freeze([
     itemId: 'inventory_expansion_ticket',
     quantity: 1,
     price: 300
+  }),
+  Object.freeze({
+    id: 'stat_reset_coupon',
+    itemId: 'stat_reset_coupon',
+    quantity: 1,
+    price: 700
+  }),
+  Object.freeze({
+    id: 'skill_reset_coupon',
+    itemId: 'skill_reset_coupon',
+    quantity: 1,
+    price: 700
   })
 ]);
 

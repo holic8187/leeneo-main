@@ -50,7 +50,28 @@ test('cash purchases deduct points and add the configured product quantity', () 
   assert.equal(purchase.inventory.items.find((item) => item.id === 'hot_six')?.quantity, 10);
   const view = getCashShopView(character);
   assert.equal(view.cashPoints, 450);
-  assert.deepEqual(view.products.map((item) => item.price), [1500, 500, 700, 350, 300]);
+  assert.deepEqual(
+    view.products.map((item) => item.price),
+    [1500, 500, 700, 350, 300, 700, 700]
+  );
+});
+
+test('cash shop sells stat and skill reset coupons for seven hundred points each', () => {
+  const character = characterFixture();
+  grantCashPoints(character, 1_400);
+
+  purchaseCashProduct(character, 'stat_reset_coupon');
+  const purchase = purchaseCashProduct(character, 'skill_reset_coupon');
+
+  assert.equal(purchase.cashPoints, 0);
+  assert.equal(
+    purchase.inventory.items.find((item) => item.id === 'stat_reset_coupon')?.quantity,
+    1
+  );
+  assert.equal(
+    purchase.inventory.items.find((item) => item.id === 'skill_reset_coupon')?.quantity,
+    1
+  );
 });
 
 test('auto-hunting subscription grants one 90-minute item per Korean calendar day', () => {
