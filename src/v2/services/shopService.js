@@ -14,6 +14,7 @@ const SHOP_PRICE_MULTIPLIERS = Object.freeze({
   headquarters: 1,
   personnel_annex: 0.97,
   sales_outpost: 1.04,
+  peach_convenience: 1.05,
   scroll_vendor: 1
 });
 
@@ -110,7 +111,15 @@ function rechargeThrowingStarStack(character, stackId) {
   if (item?.itemType !== 'ammunition' || item?.ammunitionType !== 'throwing-star') {
     throw new Error('표창 묶음만 충전할 수 있습니다.');
   }
-  const maximum = Math.max(1, Math.floor(Number(item.maxStack) || 1));
+  const { getActiveSkillEffects } = require('../skills/skillService');
+  const throwingStarCapacityIncrease = Math.max(
+    0,
+    Math.floor(Number(getActiveSkillEffects(character).throwingStarCapacityIncrease) || 0)
+  );
+  const maximum = Math.max(
+    1,
+    Math.floor(Number(item.maxStack) || 1) + throwingStarCapacityIncrease
+  );
   const current = Math.max(0, Math.floor(Number(stack.quantity) || 0));
   if (current >= maximum) throw new Error('이미 표창이 가득 충전되어 있습니다.');
   const money = getMoney(character);
