@@ -21,7 +21,7 @@ const QUICK_SLOT_RESOURCES = Object.freeze({
   hp: 'hp',
   mp: 'mp'
 });
-const MANUAL_CONSUMABLE_SLOT_COUNT = 3;
+const MANUAL_CONSUMABLE_SLOT_COUNT = 4;
 const MANUAL_CONSUMABLE_ITEM_TYPES = Object.freeze([
   'potion',
   'return-scroll',
@@ -33,6 +33,11 @@ const EQUIPMENT_SLOT_ALIASES = Object.freeze({
   mantle: 'cape',
   earring: 'earrings'
 });
+const EQUIPMENT_SLOT_STORAGE_KEYS = Object.freeze({
+  cape: Object.freeze(['cape', 'cloak', 'mantle']),
+  earrings: Object.freeze(['earrings', 'earring'])
+});
+const COMMON_EQUIPMENT_LEVELS = Object.freeze([20, 40, 60, 80, 100, 120, 140]);
 
 function normalizeEquipmentSlot(slot = 'weapon') {
   const normalized = String(slot || 'weapon').trim();
@@ -41,7 +46,7 @@ function normalizeEquipmentSlot(slot = 'weapon') {
 
 function getStoredEquipmentSlot(loadout = {}, requestedSlot = 'weapon') {
   const slot = normalizeEquipmentSlot(requestedSlot);
-  const aliases = slot === 'cape' ? ['cape', 'cloak', 'mantle'] : [slot];
+  const aliases = EQUIPMENT_SLOT_STORAGE_KEYS[slot] || [slot];
   return aliases.find((key) => {
     const equipped = loadout?.[key];
     return equipped && typeof equipped === 'object'
@@ -55,18 +60,19 @@ function resolveEquippedItemDefinition(equipped, slot = '') {
   const direct = getItemDefinition(storedId);
   if (direct) return direct;
 
-  // Early V2 capes were saved under job-specific ids that were retired when
-  // capes became shared equipment. Recover them by their original level.
-  if (normalizeEquipmentSlot(slot) !== 'cape') return null;
+  // Early V2 capes and earrings used job-specific ids. Recover retired
+  // definitions as their same-level shared item so they can be replaced safely.
+  const normalizedSlot = normalizeEquipmentSlot(slot);
+  if (!['cape', 'earrings'].includes(normalizedSlot)) return null;
+  const idLevel = storedId.match(/_(\d+)$/)?.[1];
   const nameLevel = String(equipped.name || '').match(/(\d+)\s*제/)?.[1];
   const requiredLevel = Math.max(1, Math.floor(Number(
-    equipped.requiredLevel ?? equipped.requirements?.level ?? nameLevel
+    equipped.requiredLevel ?? equipped.requirements?.level ?? idLevel ?? nameLevel
   ) || 1));
-  const capeLevels = [20, 40, 60, 80, 100, 120, 140];
-  const closestLevel = capeLevels.reduce((closest, level) => (
+  const closestLevel = COMMON_EQUIPMENT_LEVELS.reduce((closest, level) => (
     Math.abs(level - requiredLevel) < Math.abs(closest - requiredLevel) ? level : closest
-  ), capeLevels[0]);
-  return getItemDefinition(`drop_common_cape_${closestLevel}`);
+  ), COMMON_EQUIPMENT_LEVELS[0]);
+  return getItemDefinition(`drop_common_${normalizedSlot}_${closestLevel}`);
 }
 
 function buildEquippedInstanceData(equipped) {
@@ -116,6 +122,17 @@ function getMaxStackSize(item) {
   return Math.max(1, Math.floor(Number(item.maxStack) || DEFAULT_STACK_SIZE));
 }
 
+function getCharacterMaxStackSize(character, item) {
+  const baseMaximum = getMaxStackSize(item);
+  if (item?.ammunitionType !== 'throwing-star') return baseMaximum;
+  const { getActiveSkillEffects } = require('../skills/skillService');
+  const bonus = Math.max(
+    0,
+    Math.floor(Number(getActiveSkillEffects(character).throwingStarCapacityIncrease) || 0)
+  );
+  return baseMaximum + bonus;
+}
+
 function isManualConsumableQuickItem(item) {
   return Boolean(
     item
@@ -158,8 +175,20 @@ function normalizeInventoryStacks(character) {
     const quantity = Math.max(0, Math.floor(Number(entry?.quantity) || 0));
     const item = getItemDefinition(itemId);
     let expiresAt = entry?.expiresAt ? new Date(entry.expiresAt) : null;
-    if ((item?.expiresAfterSeconds || item?.fixedExpiresAt) && !expiresAt) {
-      expiresAt = getDefaultExpiry(item);
+    const defaultExpiry = item?.expiresAfterSeconds || item?.fixedExpiresAt
+      ? getDefaultExpiry(item)
+      : null;
+    const shouldExtendFixedExpiry = Boolean(
+      item?.fixedExpiresAt
+      && defaultExpiry
+      && (
+        !expiresAt
+        || !Number.isFinite(expiresAt.getTime())
+        || expiresAt.getTime() < defaultExpiry.getTime()
+      )
+    );
+    if (shouldExtendFixedExpiry || (defaultExpiry && !expiresAt)) {
+      expiresAt = defaultExpiry;
       changed = true;
     }
     if (expiresAt && expiresAt.getTime() <= Date.now()) {
@@ -211,9 +240,23 @@ function normalizeInventoryStacks(character) {
 function purgeExpiredEquippedItems(character, now = Date.now()) {
   if (!character.loadout || typeof character.loadout !== 'object') return 0;
   let removed = 0;
+  let changed = false;
   for (const [slot, equipped] of Object.entries(character.loadout)) {
     if (!equipped?.itemId) continue;
     const definition = getItemDefinition(equipped.itemId);
+    const configuredExpiry = definition?.fixedExpiresAt
+      ? new Date(definition.fixedExpiresAt).getTime()
+      : NaN;
+    const equippedExpiry = equipped.expiresAt
+      ? new Date(equipped.expiresAt).getTime()
+      : NaN;
+    if (
+      Number.isFinite(configuredExpiry)
+      && (!Number.isFinite(equippedExpiry) || equippedExpiry < configuredExpiry)
+    ) {
+      equipped.expiresAt = new Date(configuredExpiry).toISOString();
+      changed = true;
+    }
     const expiryValue = equipped.expiresAt || definition?.fixedExpiresAt;
     if (!expiryValue) continue;
     const expiresAt = new Date(expiryValue).getTime();
@@ -221,7 +264,7 @@ function purgeExpiredEquippedItems(character, now = Date.now()) {
     character.loadout[slot] = null;
     removed += 1;
   }
-  if (removed) markInventoryModified(character);
+  if (removed || changed) markInventoryModified(character);
   return removed;
 }
 
@@ -265,6 +308,14 @@ function ensureInventory(character) {
   }
   if (typeof inventory.quickSlots.hp !== 'string') inventory.quickSlots.hp = '';
   if (typeof inventory.quickSlots.mp !== 'string') inventory.quickSlots.mp = '';
+  inventory.quickSlots.hpAssignedAt = Math.max(
+    0,
+    Number(inventory.quickSlots.hpAssignedAt) || 0
+  );
+  inventory.quickSlots.mpAssignedAt = Math.max(
+    0,
+    Number(inventory.quickSlots.mpAssignedAt) || 0
+  );
   if (!Array.isArray(inventory.quickSlots.consumables)) inventory.quickSlots.consumables = [];
   inventory.quickSlots.consumables = Array.from({ length: MANUAL_CONSUMABLE_SLOT_COUNT }, (_, index) => (
     typeof inventory.quickSlots.consumables[index] === 'string'
@@ -421,6 +472,21 @@ function consumeInventoryStack(character, stackId, quantity = 1) {
   return { itemId: String(stack.itemId), quantity: consumed, data };
 }
 
+function removeInventoryStack(character, stackId) {
+  const inventory = ensureInventory(character);
+  const index = inventory.items.findIndex(
+    (entry) => String(entry.stackId) === String(stackId)
+  );
+  if (index < 0) return null;
+  const [stack] = inventory.items.splice(index, 1);
+  markInventoryModified(character);
+  return {
+    itemId: String(stack.itemId),
+    quantity: Math.max(0, Math.floor(Number(stack.quantity) || 0)),
+    data: stack.data && typeof stack.data === 'object' ? { ...stack.data } : null
+  };
+}
+
 function equipInventoryEquipment(character, stackId) {
   const inventory = ensureInventory(character);
   const stack = inventory.items.find(
@@ -496,9 +562,19 @@ function unequipInventoryEquipment(character, requestedSlot = 'weapon') {
 const equipInventoryWeapon = equipInventoryEquipment;
 const unequipInventoryWeapon = (character) => unequipInventoryEquipment(character, 'weapon');
 
-function assignPotionQuickSlot(character, slot, itemId) {
+function assignPotionQuickSlot(character, slot, itemId, requestedAt = Date.now() * 1000) {
   const expectedResource = QUICK_SLOT_RESOURCES[String(slot || '')];
   if (!expectedResource) throw new Error('올바르지 않은 포션 슬롯입니다.');
+  const inventory = ensureInventory(character);
+  const versionKey = expectedResource === 'hp' ? 'hpAssignedAt' : 'mpAssignedAt';
+  const maximumRequestedAt = (Date.now() + 5 * 60 * 1000) * 1000 + 999;
+  const normalizedRequestedAt = Math.max(
+    1,
+    Math.min(maximumRequestedAt, Math.floor(Number(requestedAt) || Date.now() * 1000))
+  );
+  if (normalizedRequestedAt < Number(inventory.quickSlots[versionKey] || 0)) {
+    return getItemDefinition(inventory.quickSlots[slot]);
+  }
   const item = getItemDefinition(itemId);
   if (!item || item.itemType !== 'potion') throw new Error('포션을 찾을 수 없습니다.');
   const supportedResources = item.resource === 'both'
@@ -511,7 +587,8 @@ function assignPotionQuickSlot(character, slot, itemId) {
   }
   const stack = getItemStack(character, item.id);
   if (!stack || Number(stack.quantity) <= 0) throw new Error('해당 포션을 보유하고 있지 않습니다.');
-  ensureInventory(character).quickSlots[slot] = item.id;
+  inventory.quickSlots[slot] = item.id;
+  inventory.quickSlots[versionKey] = normalizedRequestedAt;
   markInventoryModified(character);
   return item;
 }
@@ -726,7 +803,7 @@ function buildInventoryView(character) {
           instanceData: entry.data && typeof entry.data === 'object' ? { ...entry.data } : null,
           enhancement: getEquipmentEnhancement(item, entry.data),
           stats: { ...(entry.data?.stats || item.stats || {}) },
-          maxStack: getMaxStackSize(item),
+          maxStack: getCharacterMaxStackSize(character, item),
           expiresAt: entry.expiresAt || null
         }
         : null;
@@ -818,13 +895,17 @@ function serializeMail(mail) {
     message: String(mail.message || ''),
     createdAt: mail.createdAt || null,
     expiresAt: getMailExpiry(mail),
+    money: Math.max(0, Math.floor(Number(mail.money) || 0)),
     attachments: (Array.isArray(mail.attachments) ? mail.attachments : []).map((attachment) => {
       const item = getItemDefinition(attachment.itemId);
       return {
         itemId: String(attachment.itemId || ''),
         name: item?.name || String(attachment.itemId || ''),
         icon: item?.icon || '📦',
-        quantity: Math.max(0, Math.floor(Number(attachment.quantity) || 0))
+        quantity: Math.max(0, Math.floor(Number(attachment.quantity) || 0)),
+        data: attachment.data && typeof attachment.data === 'object'
+          ? { ...attachment.data }
+          : null
       };
     })
   };
@@ -869,7 +950,7 @@ function assertAttachmentsFit(character, attachments) {
   for (const attachment of attachments || []) {
     const item = getItemDefinition(attachment.itemId);
     if (item?.itemType === 'hunting-time') continue;
-    addInventoryItem(simulated, attachment.itemId, attachment.quantity);
+    addInventoryItem(simulated, attachment.itemId, attachment.quantity, attachment.data || null);
   }
 }
 
@@ -877,7 +958,7 @@ function applyMailAttachment(character, attachment) {
   const item = getItemDefinition(attachment.itemId);
   const quantity = Math.max(1, Math.floor(Number(attachment.quantity) || 1));
   if (item?.itemType !== 'hunting-time') {
-    addInventoryItem(character, attachment.itemId, quantity);
+    addInventoryItem(character, attachment.itemId, quantity, attachment.data || null);
     return null;
   }
   if (!character.huntingTime || typeof character.huntingTime !== 'object') {
@@ -914,9 +995,15 @@ function claimMail(character, mailId) {
   const directEffects = (mail.attachments || [])
     .map((attachment) => applyMailAttachment(character, attachment))
     .filter(Boolean);
+  const money = Math.max(0, Math.floor(Number(mail.money) || 0));
+  if (money > 0) {
+    if (!character.economy || typeof character.economy !== 'object') character.economy = {};
+    character.economy.money = Math.max(0, Math.floor(Number(character.economy.money) || 0)) + money;
+    if (typeof character.markModified === 'function') character.markModified('economy');
+  }
   mail.claimedAt = new Date();
   markInventoryModified(character);
-  return { ...serializeMail(mail), directEffects };
+  return { ...serializeMail(mail), directEffects, moneyClaimed: money };
 }
 
 function claimAllMail(character) {
@@ -925,6 +1012,38 @@ function claimAllMail(character) {
   assertAttachmentsFit(character, attachments);
   for (const mail of pending) claimMail(character, mail.id || mail._id);
   return pending.length;
+}
+
+function createRewardMail({
+  sender = '보스 원정대',
+  title = '원정대 보상',
+  message = '',
+  money = 0,
+  attachments = []
+} = {}) {
+  const normalizedAttachments = (Array.isArray(attachments) ? attachments : []).map((attachment) => {
+    const item = getItemDefinition(attachment?.itemId);
+    if (!item) throw new Error('지급할 보상 아이템을 찾을 수 없습니다.');
+    return {
+      itemId: item.id,
+      quantity: Math.max(1, Math.floor(Number(attachment.quantity) || 1)),
+      data: attachment.data && typeof attachment.data === 'object'
+        ? { ...attachment.data }
+        : null
+    };
+  });
+  const createdAt = new Date();
+  return {
+    id: crypto.randomUUID(),
+    sender: String(sender || '보스 원정대').slice(0, 40),
+    title: String(title || '원정대 보상').slice(0, 80),
+    message: String(message || '').trim().slice(0, 500),
+    money: Math.max(0, Math.floor(Number(money) || 0)),
+    attachments: normalizedAttachments,
+    createdAt,
+    expiresAt: new Date(createdAt.getTime() + MAIL_TTL_MS),
+    claimedAt: null
+  };
 }
 
 function mergeNonExpiringConsumableStacks(character) {
@@ -1040,6 +1159,7 @@ module.exports = {
   addInventoryItem,
   consumeInventoryItem,
   consumeInventoryStack,
+  removeInventoryStack,
   equipInventoryEquipment,
   unequipInventoryEquipment,
   equipInventoryWeapon,
@@ -1053,6 +1173,7 @@ module.exports = {
   useInventoryExpansionTicket,
   buildInventoryView,
   createAdminMail,
+  createRewardMail,
   serializeMail,
   purgeExpiredMail,
   getPendingMail,
