@@ -181,9 +181,23 @@ const EQUIPMENT_SCROLL_GROUPS = (() => {
   )));
 })();
 
-function getScrollsForMonster(monsterId) {
+function stableHash(value) {
   let hash = 0;
-  for (const character of String(monsterId)) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  for (const character of String(value || '')) {
+    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  }
+  return hash;
+}
+
+function getScrollDropChanceForMonsterLevel(level) {
+  const safeLevel = Math.max(1, Math.min(150, Math.floor(Number(level) || 1)));
+  const progress = (safeLevel - 1) / 149;
+  const baseChance = 0.00002 + (0.00008 - 0.00002) * progress;
+  return Number((baseChance * EQUIPMENT_SCROLL_DROP_MULTIPLIER).toFixed(10));
+}
+
+function getInitialScrollsForMonster(monsterId, level = 1) {
+  const hash = stableHash(monsterId);
   const count = 1 + hash % 3;
   const selected = [];
   const usedIndexes = new Set();
@@ -194,16 +208,85 @@ function getScrollsForMonster(monsterId) {
     }
     usedIndexes.add(scrollIndex);
     const scroll = EQUIPMENT_SCROLLS[scrollIndex];
-    const chance = (0.00002 + ((hash + index) % 7) * 0.00001) * EQUIPMENT_SCROLL_DROP_MULTIPLIER;
     selected.push({
       itemId: scroll.id,
       name: scroll.name,
       icon: scroll.icon,
       quantity: 1,
-      chance
+      chance: getScrollDropChanceForMonsterLevel(level)
     });
   }
   return selected;
+}
+
+function buildScrollDropsForMonsters(monsters = []) {
+  const normalizedMonsters = monsters
+    .map((monster) => ({
+      id: String(monster?.id || ''),
+      level: Math.max(1, Math.floor(Number(monster?.level) || 1)),
+      eligibleForCoverage: monster?.eligibleForCoverage !== false
+    }))
+    .filter((monster) => monster.id);
+  const eligibleMonsters = normalizedMonsters.filter((monster) => monster.eligibleForCoverage);
+  const eligibleIds = new Set(eligibleMonsters.map((monster) => monster.id));
+  const scrollIdsByMonster = new Map(
+    normalizedMonsters.map((monster) => [monster.id, new Set()])
+  );
+  const assignmentCounts = new Map(normalizedMonsters.map((monster) => [monster.id, 0]));
+
+  for (const monster of normalizedMonsters) {
+    for (const drop of getInitialScrollsForMonster(monster.id, monster.level)) {
+      if (!scrollIdsByMonster.get(monster.id).has(drop.itemId)) {
+        scrollIdsByMonster.get(monster.id).add(drop.itemId);
+        assignmentCounts.set(monster.id, assignmentCounts.get(monster.id) + 1);
+      }
+    }
+  }
+
+  for (const scroll of EQUIPMENT_SCROLLS) {
+    const eligibleAssignments = new Set(
+      normalizedMonsters
+        .filter((monster) => (
+          eligibleIds.has(monster.id)
+          && scrollIdsByMonster.get(monster.id).has(scroll.id)
+        ))
+        .map((monster) => monster.id)
+    );
+
+    while (eligibleAssignments.size < Math.min(2, eligibleMonsters.length)) {
+      const candidate = eligibleMonsters
+        .filter((monster) => !eligibleAssignments.has(monster.id))
+        .sort((left, right) => {
+          const loadDifference = assignmentCounts.get(left.id) - assignmentCounts.get(right.id);
+          if (loadDifference) return loadDifference;
+          const leftHash = stableHash(`${scroll.id}:${left.id}`);
+          const rightHash = stableHash(`${scroll.id}:${right.id}`);
+          return leftHash - rightHash || left.id.localeCompare(right.id);
+        })[0];
+      if (!candidate) break;
+      scrollIdsByMonster.get(candidate.id).add(scroll.id);
+      eligibleAssignments.add(candidate.id);
+      assignmentCounts.set(candidate.id, assignmentCounts.get(candidate.id) + 1);
+    }
+  }
+
+  return Object.freeze(Object.fromEntries(normalizedMonsters.map((monster) => [
+    monster.id,
+    Object.freeze([...scrollIdsByMonster.get(monster.id)].map((scrollId) => {
+      const scroll = EQUIPMENT_SCROLLS.find((entry) => entry.id === scrollId);
+      return Object.freeze({
+        itemId: scroll.id,
+        name: scroll.name,
+        icon: scroll.icon,
+        quantity: 1,
+        chance: getScrollDropChanceForMonsterLevel(monster.level)
+      });
+    }))
+  ])));
+}
+
+function getScrollsForMonster(monsterId, level = 1) {
+  return getInitialScrollsForMonster(monsterId, level);
 }
 
 function isScrollApplicable(scroll, equipment) {
@@ -230,6 +313,8 @@ module.exports = {
   EQUIPMENT_SCROLL_DROP_MULTIPLIER,
   EQUIPMENT_SCROLLS,
   STAT_LABELS,
+  buildScrollDropsForMonsters,
+  getScrollDropChanceForMonsterLevel,
   getScrollsForMonster,
   getDefaultUpgradeSlots,
   isScrollApplicable,
