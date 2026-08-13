@@ -518,6 +518,21 @@ function removeInventoryStack(character, stackId) {
   };
 }
 
+function removeInventoryStack(character, stackId) {
+  const inventory = ensureInventory(character);
+  const index = inventory.items.findIndex(
+    (entry) => String(entry.stackId) === String(stackId)
+  );
+  if (index < 0) return null;
+  const [stack] = inventory.items.splice(index, 1);
+  markInventoryModified(character);
+  return {
+    itemId: String(stack.itemId),
+    quantity: Math.max(0, Math.floor(Number(stack.quantity) || 0)),
+    data: stack.data && typeof stack.data === 'object' ? { ...stack.data } : null
+  };
+}
+
 function equipInventoryEquipment(character, stackId) {
   const inventory = ensureInventory(character);
   const stack = inventory.items.find(
