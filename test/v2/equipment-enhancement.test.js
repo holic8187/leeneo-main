@@ -3,7 +3,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { getItemDefinition } = require('../../src/v2/items/itemCatalog');
-const { EQUIPMENT_SCROLLS } = require('../../src/v2/items/scrollCatalog');
+const {
+  EQUIPMENT_SCROLLS,
+  getScrollDropChanceForMonsterLevel
+} = require('../../src/v2/items/scrollCatalog');
 const {
   enhanceEquippedItem,
   normalizeEnhancement
@@ -37,18 +40,34 @@ function makeCharacter(scrollId) {
   };
 }
 
-test('all monsters receive one to three scroll drops at two thirds equipment rates', () => {
+test('every scroll drops from at least two obtainable monsters at a level-scaled rate', () => {
   const { MONSTER_CATALOG } = require('../../src/v2/world/monsterCatalog');
+  const sourcesByScroll = new Map(EQUIPMENT_SCROLLS.map((scroll) => [scroll.id, new Set()]));
   for (const monster of MONSTER_CATALOG) {
     assert.ok(monster.dropTable.scrolls.length >= 1);
-    assert.ok(monster.dropTable.scrolls.length <= 3);
     for (const drop of monster.dropTable.scrolls) {
-      const epsilon = Number.EPSILON;
-      assert.ok(drop.chance + epsilon >= 0.00002 * 2 / 3);
-      assert.ok(drop.chance - epsilon <= 0.00008 * 2 / 3);
+      assert.equal(drop.chance, getScrollDropChanceForMonsterLevel(monster.level));
       assert.ok(getItemDefinition(drop.itemId));
+      if (monster.id !== 'executive_lion') sourcesByScroll.get(drop.itemId).add(monster.id);
     }
   }
+  for (const scroll of EQUIPMENT_SCROLLS) {
+    assert.ok(
+      sourcesByScroll.get(scroll.id).size >= 2,
+      `${scroll.name} must have at least two obtainable monster sources`
+    );
+  }
+});
+
+test('scroll drop rates rise with monster level without leaving the previous rate band', () => {
+  const lowLevelChance = getScrollDropChanceForMonsterLevel(1);
+  const midLevelChance = getScrollDropChanceForMonsterLevel(75);
+  const highLevelChance = getScrollDropChanceForMonsterLevel(150);
+  const epsilon = 1e-10;
+  assert.ok(lowLevelChance < midLevelChance);
+  assert.ok(midLevelChance < highLevelChance);
+  assert.ok(lowLevelChance + epsilon >= 0.00002 * 2 / 3);
+  assert.ok(highLevelChance - epsilon <= 0.00008 * 2 / 3);
 });
 
 test('a successful scroll permanently updates equipped stats and enhancement history', () => {
