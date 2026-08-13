@@ -3194,6 +3194,23 @@ function buildVisualChannelHitResults(hitResults = []) {
   });
 }
 
+function orderFollowUpHitResults(hitResults = []) {
+  const primaryHits = hitResults.filter((hit) => !hit.bonusAttack);
+  const followUpHits = hitResults.filter((hit) => hit.followUpAttack);
+  const otherBonusHits = hitResults.filter(
+    (hit) => hit.bonusAttack && !hit.followUpAttack
+  );
+  if (!followUpHits.length) return [...hitResults];
+  const ordered = [];
+  const pairedCount = Math.max(primaryHits.length, followUpHits.length);
+  for (let index = 0; index < pairedCount; index += 1) {
+    if (primaryHits[index]) ordered.push(primaryHits[index]);
+    if (followUpHits[index]) ordered.push(followUpHits[index]);
+  }
+  ordered.push(...otherBonusHits);
+  return ordered;
+}
+
 async function playChanneledSkillMotion(channel = {}, kind, runId, activityLabel = '') {
   if (!isRunActive(kind, runId)) return;
   const character = $('fieldCharacter');

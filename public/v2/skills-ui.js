@@ -803,6 +803,27 @@ async function playFollowUpSkillHits(combat = {}, kind, runId) {
   }
 }
 
+async function playFollowUpSkillHits(combat = {}, kind, runId) {
+  const hitResults = (combat.outcomes || []).flatMap(
+    (outcome) => outcome.hitResults || []
+  );
+  if (!hitResults.length) {
+    applySkillCombat(combat);
+    return;
+  }
+  const orderedHits = typeof orderFollowUpHitResults === 'function'
+    ? orderFollowUpHitResults(hitResults)
+    : hitResults;
+  for (const [index, hit] of orderedHits.entries()) {
+    if (!isRunActive(kind, runId)) break;
+    if (hit.followUpAttack && typeof playFollowUpSummonHitMotion === 'function') {
+      playFollowUpSummonHitMotion(hit, combat.followUpSummon);
+    }
+    applyChannelSkillHit({ ...hit, hitIndex: index });
+    if (index < orderedHits.length - 1) await sleep(hit.followUpAttack ? 140 : 70);
+  }
+}
+
 window.applyChannelSkillHit = applyChannelSkillHit;
 
 function prepareProgressivePiercingTarget(skill = {}) {
