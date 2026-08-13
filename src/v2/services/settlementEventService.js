@@ -9,7 +9,7 @@ const {
 
 const EVENT_ID = 'settlement-support-2026';
 const EVENT_START_AT = new Date('2026-07-06T00:00:00+09:00');
-const EVENT_END_AT = new Date('2026-08-01T00:00:00+09:00');
+const EVENT_END_AT = new Date('2026-08-04T13:00:00+09:00');
 const EVENT_COIN_ID = 'settlement_event_coin';
 const DAILY_COIN_LIMIT = 200;
 const COIN_DROP_CHANCE = 0.15;
@@ -23,7 +23,7 @@ const EVENT_SHOP_ITEMS = Object.freeze([
     coinPrice: 0,
     dailyLimit: 0,
     lifetimeLimit: 1,
-    description: '계정당 한 번 무료 수령할 수 있습니다. 교환 불가이며 2026년 7월 31일 이후 사라집니다.'
+    description: '계정당 한 번 무료 수령할 수 있습니다. 교환 불가이며 2026년 8월 4일 13시 이후 사라집니다.'
   }),
   Object.freeze({
     key: 'exp-coupon',
@@ -59,7 +59,7 @@ const EVENT_SHOP_ITEMS = Object.freeze([
     quantity: 1,
     coinPrice: 100,
     dailyLimit: 0,
-    description: '2026년 7월 31일 이후 사라집니다.'
+    description: '2026년 8월 4일 13시 이후 사라집니다.'
   }),
   Object.freeze({
     key: 'skill-reset',
@@ -68,7 +68,7 @@ const EVENT_SHOP_ITEMS = Object.freeze([
     quantity: 1,
     coinPrice: 100,
     dailyLimit: 0,
-    description: '투자한 스킬포인트를 모두 돌려받습니다. 2026년 7월 31일 이후 사라집니다.'
+    description: '투자한 스킬포인트를 모두 돌려받습니다. 2026년 8월 4일 13시 이후 사라집니다.'
   }),
   Object.freeze({
     key: 'marshmallow-bundle',

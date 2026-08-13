@@ -2,19 +2,36 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const {
   PLAYER_CONTACT_KNOCKBACK_DISTANCE,
+  PLAYER_TIMEOUT_MS,
+  ONLINE_SESSION_TIMEOUT_MS,
+  RAID_CORPSE_RETENTION_MS,
+  RAID_SUMMON_MAXIMUM,
+  EXECUTE_FIXED_DAMAGE,
   buildMonsterStats,
   buildFieldBossRewardEvent,
   getFieldBossDefinition,
   claimWorldControl,
+  getWorldControlStatus,
   hasWorldControl,
   hasRecentWorldControl,
+  listRecentWorldControllerIds,
   releaseWorldControl,
+  touchOnlineSession,
+  clearOnlineSession,
   updatePresence,
+  startRaidMapSimulation,
+  stopRaidMapSimulation,
+  tickRaidMapSimulation,
   attackMonster,
   useSkillOnMonsters,
+  applyRaidResourceCrash,
   updatePlayerResources,
+  getPlayerResourceState,
+  listActivePlayers,
   spawnBonusMonster,
   setPlayerStealth,
   publishGlobalShout,
@@ -23,8 +40,290 @@ const {
   resetWorldRuntime
 } = require('../../src/v2/world/worldRuntime');
 const { calculateMagicDamageAfterDefense } = require('../../src/v2/combat/combatFormulas');
+const { WORLD_MAPS, getWorldMap } = require('../../src/v2/world/mapDefinitions');
+const { getRaidBossDefinition } = require('../../src/v2/world/raidBossDefinitions');
 
 test.beforeEach(() => resetWorldRuntime());
+
+test('every regular hunting map spawns monsters on its first presence tick', () => {
+  const huntingMaps = WORLD_MAPS.filter((map) => (
+    !map.safeZone && !map.fieldBossId && !map.raidBossId
+  ));
+  assert.ok(huntingMaps.length > 0);
+
+  for (const map of huntingMaps) {
+    resetWorldRuntime();
+    const state = updatePresence({
+      userId: `spawn-probe-${map.id}`,
+      nickname: 'spawn-probe',
+      mapId: map.id,
+      x: 50,
+      floor: 0,
+      currentHp: 100,
+      maxHp: 100,
+      currentMp: 100,
+      maxMp: 100,
+      now: 100_000
+    });
+    assert.ok(state.monsters.length > 0, `${map.id} did not spawn a monster`);
+  }
+});
+
+test('monster extra-drop resolution is declared only once in the combat loop', () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, '../../src/v2/world/worldRuntime.js'),
+    'utf8'
+  );
+
+  assert.equal((source.match(/const componentDropCount\s*=/g) || []).length, 1);
+  assert.equal((source.match(/let additionalMiscDropGranted\s*=/g) || []).length, 1);
+});
+
+test('dead raid players remain as resurrectable corpses for ten minutes', () => {
+  const mapId = 'boss_bald_kim_arena@corpse-retention';
+  const startedAt = Date.now();
+  updatePresence({
+    userId: 'fallen-raider',
+    nickname: 'fallen-raider',
+    mapId,
+    x: 35,
+    floor: 0,
+    currentHp: 10_000,
+    maxHp: 10_000,
+    currentMp: 1_000,
+    maxMp: 1_000,
+    now: startedAt
+  });
+  updatePlayerResources('fallen-raider', { currentHp: 0 });
+
+  const retained = listActivePlayers(
+    mapId,
+    startedAt + RAID_CORPSE_RETENTION_MS - 1_000
+  );
+  assert.equal(retained.length, 1);
+  assert.equal(retained[0].isDead, true);
+
+  const expired = listActivePlayers(
+    mapId,
+    startedAt + RAID_CORPSE_RETENTION_MS + 1_000
+  );
+  assert.equal(expired.length, 0);
+});
+
+test('raid resource crash can be dodged and grants invulnerability after resolution', () => {
+  const boss = { id: 'bald-kim' };
+  const player = {
+    userId: 'raid-user',
+    currentHp: 9_000,
+    maxHp: 9_000,
+    currentMp: 2_500,
+    x: 50,
+    floor: 0,
+    invulnerableUntil: 0,
+    combatProfile: { dodgeChance: 100 }
+  };
+
+  const dodged = applyRaidResourceCrash(player, boss, 1_000);
+  assert.equal(dodged.dodged, true);
+  assert.equal(player.currentHp, 9_000);
+  assert.equal(player.currentMp, 2_500);
+  assert.equal(player.invulnerableUntil, 3_000);
+  assert.equal(applyRaidResourceCrash(player, boss, 2_000), null);
+
+  player.invulnerableUntil = 0;
+  player.combatProfile.dodgeChance = 0;
+  const hit = applyRaidResourceCrash(player, boss, 4_000);
+  assert.equal(hit.dodged, false);
+  assert.equal(player.currentHp, 1);
+  assert.equal(player.currentMp, 1);
+  assert.equal(player.invulnerableUntil, 6_000);
+});
+
+test('Bald Kim spawns after a ten-second raid countdown and advances through three phases', () => {
+  const mapId = 'boss_bald_kim_arena@test-raid';
+  const presence = (now) => updatePresence({
+    userId: 'raid-user',
+    nickname: 'raid-user',
+    mapId,
+    x: 50,
+    floor: 0,
+    activity: 'idle',
+    currentHp: 999_999,
+    maxHp: 999_999,
+    currentMp: 99_999,
+    maxMp: 99_999,
+    playerLevel: 125,
+    stealth: 1,
+    now
+  });
+  let state = presence(1_000);
+  assert.equal(state.monsters.length, 0);
+  assert.equal(state.raidState.countdownRemainingMs, 10_000);
+  state = presence(10_999);
+  assert.equal(state.monsters.length, 0);
+  state = presence(11_000);
+  assert.equal(state.monsters.length, 1);
+  assert.equal(state.monsters[0].name, '대머리 김부장');
+  assert.equal(state.monsters[0].phase, 1);
+  assert.equal(state.monsters[0].maxHp, 6_666_666);
+  assert.equal(state.monsters[0].hideHpNumbers, true);
+
+  const first = attackMonster({
+    userId: 'raid-user', mapId, monsterId: state.monsters[0].id,
+    damage: 100_000_000, rangePx: 500, accuracy: null, playerLevel: 125, now: 11_100
+  });
+  assert.equal(first.defeated, false);
+  assert.equal(first.raidPhaseChanged, true);
+  assert.equal(first.monster.phase, 2);
+  assert.equal(first.monster.maxHp, 9_333_334);
+
+  const second = attackMonster({
+    userId: 'raid-user', mapId, monsterId: state.monsters[0].id,
+    damage: 100_000_000, rangePx: 500, accuracy: null, playerLevel: 125, now: 11_200
+  });
+  assert.equal(second.monster.phase, 3);
+  assert.equal(second.monster.maxHp, 12_000_000);
+
+  const third = attackMonster({
+    userId: 'raid-user', mapId, monsterId: state.monsters[0].id,
+    damage: 100_000_000, rangePx: 500, accuracy: null, playerLevel: 125, now: 11_300
+  });
+  assert.equal(third.defeated, true);
+  state = presence(11_301);
+  assert.equal(state.raidState.completed, true);
+  assert.deepEqual(state.raidBossRewards.map((event) => event.expReward), [
+    1_500_000, 3_000_000, 13_000_000
+  ]);
+});
+
+test('Bald Kim map timer advances once and delivers damage only to each affected player', () => {
+  const mapId = 'boss_bald_kim_arena@map-timer';
+  const presence = (userId, x, now) => updatePresence({
+    userId,
+    nickname: userId,
+    mapId,
+    x,
+    floor: 0,
+    activity: 'idle',
+    currentHp: 999_999,
+    maxHp: 999_999,
+    currentMp: 99_999,
+    maxMp: 99_999,
+    playerLevel: 125,
+    simulationMode: 'map-timer',
+    now
+  });
+
+  assert.equal(startRaidMapSimulation(mapId, 1_000), true);
+  presence('raid-target', 50, 1_000);
+  presence('raid-observer', 6, 1_000);
+
+  let state = presence('raid-target', 50, 11_000);
+  assert.equal(state.monsters.length, 0);
+  assert.equal(state.contactEvents.length, 0);
+
+  const tick = tickRaidMapSimulation(mapId, 11_000);
+  assert.equal(tick.contactEventCount, 1);
+
+  state = presence('raid-target', 50, 11_001);
+  assert.equal(state.monsters.length, 1);
+  assert.equal(state.monsters[0].raidBoss, true);
+  assert.equal(state.contactEvents.length, 1);
+  assert.equal(state.contactEvents[0].userId, 'raid-target');
+  assert.equal(state.contactEvents[0].source, 'raid-boss-contact');
+  assert.equal(state.contactEvents[0].monsterName, '대머리 김부장');
+  assert.equal(state.contactEvents[0].createdAt, 11_000);
+  assert.equal(presence('raid-target', 50, 11_002).contactEvents.length, 0);
+  assert.equal(presence('raid-observer', 6, 11_002).contactEvents.length, 0);
+  assert.equal(stopRaidMapSimulation(mapId), true);
+});
+
+test('Bald Kim phase three caps summoned staff monsters for the whole raid map', () => {
+  const mapId = 'boss_bald_kim_arena@summon-cap';
+  const presence = (now) => updatePresence({
+    userId: 'summon-cap-raider',
+    nickname: 'summon-cap-raider',
+    mapId,
+    x: 50,
+    floor: 0,
+    activity: 'idle',
+    currentHp: 999_999,
+    maxHp: 999_999,
+    currentMp: 99_999,
+    maxMp: 99_999,
+    playerLevel: 125,
+    stealth: 1,
+    simulationMode: 'map-timer',
+    now
+  });
+  presence(1_000);
+  tickRaidMapSimulation(mapId, 11_000);
+  const boss = presence(11_001).monsters.find((monster) => monster.raidBoss);
+  assert.ok(boss);
+  attackMonster({
+    userId: 'summon-cap-raider', mapId, monsterId: boss.id,
+    damage: 100_000_000, rangePx: 500, accuracy: null, playerLevel: 125, now: 11_100
+  });
+  attackMonster({
+    userId: 'summon-cap-raider', mapId, monsterId: boss.id,
+    damage: 100_000_000, rangePx: 500, accuracy: null, playerLevel: 125, now: 11_200
+  });
+
+  const originalRandom = Math.random;
+  try {
+    Math.random = () => 0.6;
+    for (const now of [14_200, 17_200, 17_201, 20_201, 20_202, 23_202]) {
+      tickRaidMapSimulation(mapId, now);
+    }
+  } finally {
+    Math.random = originalRandom;
+  }
+
+  const state = presence(23_203);
+  const summons = state.monsters.filter((monster) => !monster.raidBoss);
+  assert.equal(summons.length, RAID_SUMMON_MAXIMUM);
+  assert.equal(RAID_SUMMON_MAXIMUM, 12);
+});
+
+test('potion resource updates are timestamped so stale raid damage cannot rewind healing', () => {
+  const mapId = 'boss_bald_kim_arena@potion-order';
+  updatePresence({
+    userId: 'potion-raider',
+    nickname: 'potion-raider',
+    mapId,
+    x: 5,
+    floor: 0,
+    currentHp: 2_000,
+    maxHp: 10_000,
+    currentMp: 500,
+    maxMp: 2_000,
+    simulationMode: 'map-timer',
+    now: 1_000
+  });
+
+  updatePlayerResources(
+    'potion-raider',
+    { currentHp: 8_000, currentMp: 1_500 },
+    { reason: 'potion', now: 2_000 }
+  );
+  assert.deepEqual(getPlayerResourceState('potion-raider', mapId), {
+    currentHp: 8_000,
+    maxHp: 10_000,
+    currentMp: 1_500,
+    maxMp: 2_000,
+    lastPotionAt: 2_000,
+    backgroundHunting: false
+  });
+});
+
+test('Bald Kim uses the reduced wig, silence, and physical immunity pattern values', () => {
+  const definition = getRaidBossDefinition('bald_kim_manager');
+  assert.equal(definition.patterns.wigRain.zoneWidthPx, 210);
+  assert.equal(definition.patterns.wigRain.castMs, 3_000);
+  assert.equal(definition.patterns.oilSilence.silenceMs, 7_000);
+  assert.equal(definition.patterns.physicalIgnore.durationMs, 24_000);
+  assert.equal(definition.patterns.physicalIgnore.chance, 0.105);
+});
 
 test('Hwang manager guarantees randomized elixir pools for every EXP-eligible participant', () => {
   const originalRandom = Math.random;
@@ -99,6 +398,8 @@ test('Gammam Neo rewards split money and guaranteed drops across participants', 
         fieldBoss: true,
         fieldBossId: 'gammam_neo',
         name: '감맘 네오',
+        x: 64,
+        floor: 1,
         expReward: 1_500_000,
         contributors: { 'dealer-a': 200, 'dealer-b': 100 }
       },
@@ -112,6 +413,8 @@ test('Gammam Neo rewards split money and guaranteed drops across participants', 
 
   assert.ok(event.respawnAt >= 1_000 + 30 * 60 * 1000);
   assert.ok(event.respawnAt <= 1_000 + 120 * 60 * 1000);
+  assert.equal(event.bossX, 64);
+  assert.equal(event.bossFloor, 1);
   assert.deepEqual(event.rewards.map((reward) => reward.money), [90_000, 90_000]);
   const totalQuantity = (itemId) => event.rewards.reduce((sum, reward) => (
     sum + (reward.items.find((item) => item.itemId === itemId)?.quantity || 0)
@@ -135,7 +438,7 @@ test('an occupied map lazily spawns test monsters with configured combat stats',
     now: 1_000
   });
   assert.equal(state.players.length, 1);
-  assert.equal(state.monsters.length, 4);
+  assert.equal(state.monsters.length, 9);
   assert.equal(state.monsters[0].level, 3);
   assert.equal(state.monsters[0].maxHp, 30);
   assert.equal(state.monsters[0].contactDamage, 10);
@@ -143,6 +446,83 @@ test('an occupied map lazily spawns test monsters with configured combat stats',
   assert.equal(state.monsters[0].magicDefense, 1);
   assert.equal(state.monsters[0].expReward, 5);
   assert.equal(state.monsters[0].spawnedAt, 1_000);
+});
+
+test('monster waves respect the map cap and each platform spawn capacity', () => {
+  const map = getWorldMap('newcomer_training');
+  let state;
+  for (const now of [1_000, 9_000, 17_000, 25_000]) {
+    state = updatePresence({
+      userId: 'layout-user',
+      nickname: 'layout-user',
+      mapId: map.id,
+      x: 1,
+      floor: 0,
+      activity: 'idle',
+      currentHp: 999_999,
+      maxHp: 999_999,
+      stealth: 1,
+      now
+    });
+  }
+
+  assert.equal(state.monsters.length, map.layout.maxMonsters);
+  const byPlatform = new Map();
+  for (const monster of state.monsters) {
+    const platform = map.layout.platforms.find((entry) => entry.id === monster.platformId);
+    assert.ok(platform);
+    assert.equal(platform.spawnEnabled, true);
+    assert.equal(monster.floor, platform.floor);
+    assert.ok(monster.x >= platform.x);
+    assert.ok(monster.x <= platform.x + platform.width);
+    byPlatform.set(platform.id, (byPlatform.get(platform.id) || 0) + 1);
+  }
+  for (const platform of map.layout.platforms.filter((entry) => entry.spawnEnabled)) {
+    assert.ok((byPlatform.get(platform.id) || 0) <= platform.spawnSlots);
+  }
+  assert.ok(byPlatform.size >= 3);
+});
+
+test('frozen dispatch waves spawn four level-specific monsters per floor', () => {
+  let state = updatePresence({
+    userId: 'dispatch-layout-user',
+    nickname: '출장 준비 사원',
+    mapId: 'frozen_dispatch_yard',
+    x: 10,
+    floor: 0,
+    activity: 'idle',
+    currentHp: 999_999,
+    maxHp: 999_999,
+    stealth: 1,
+    now: 1_000
+  });
+  assert.equal(state.monsters.length, 8);
+  assert.equal(state.monsters.filter((monster) => monster.floor === 0).length, 4);
+  assert.equal(state.monsters.filter((monster) => monster.floor === 1).length, 4);
+  assert.ok(state.monsters
+    .filter((monster) => monster.floor === 0)
+    .every((monster) => monster.speciesId === 'overtime_reaper' && monster.level === 131));
+  assert.ok(state.monsters
+    .filter((monster) => monster.floor === 1)
+    .every((monster) => monster.speciesId === 'deadline_dragon' && monster.level === 140));
+
+  for (const now of [9_000, 17_000]) {
+    state = updatePresence({
+      userId: 'dispatch-layout-user',
+      nickname: '출장 준비 사원',
+      mapId: 'frozen_dispatch_yard',
+      x: 10,
+      floor: 0,
+      activity: 'idle',
+      currentHp: 999_999,
+      maxHp: 999_999,
+      stealth: 1,
+      now
+    });
+  }
+  assert.equal(state.monsters.length, 18);
+  assert.equal(state.monsters.filter((monster) => monster.floor === 0).length, 9);
+  assert.equal(state.monsters.filter((monster) => monster.floor === 1).length, 9);
 });
 
 test('players in the same map see one another and an empty map is discarded', () => {
@@ -165,6 +545,7 @@ test('players in the same map see one another and an empty map is discarded', ()
     now: 1_100
   });
   assert.deepEqual(shared.players.map((player) => player.nickname).sort(), ['사원A', '사원B']);
+  assert.ok(shared.players.every((player) => Array.isArray(player.statusEffects)));
   leaveWorld('user-a');
   leaveWorld('user-b');
   const fresh = updatePresence({
@@ -177,6 +558,29 @@ test('players in the same map see one another and an empty map is discarded', ()
     now: 2_000
   });
   assert.equal(fresh.players.length, 1);
+});
+
+test('moving maps removes the previous presence through the player map index', () => {
+  updatePresence({
+    userId: 'indexed-user',
+    nickname: '이동 사원',
+    mapId: 'newcomer_training',
+    x: 20,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_000
+  });
+  updatePresence({
+    userId: 'indexed-user',
+    nickname: '이동 사원',
+    mapId: 'main_lobby',
+    x: 30,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_100
+  });
+  assert.equal(listActivePlayers('newcomer_training', 1_100).length, 0);
+  assert.equal(listActivePlayers('main_lobby', 1_100).length, 1);
 });
 
 test('jump and flash-jump events are serialized once for remote players', () => {
@@ -408,13 +812,34 @@ test('a chain augment transfers single-target damage to the next monster behind 
     chainDamagePercent: 75,
     now: 17_000
   });
-  const floorGroups = [0, 1]
+  state = updatePresence({
+    userId: 'chain-user',
+    nickname: 'chain-user',
+    mapId: 'newcomer_training',
+    x: 1,
+    floor: 0,
+    currentHp: 999_999,
+    maxHp: 999_999,
+    stealth: 1,
+    chainChance: 100,
+    chainDamagePercent: 75,
+    now: 25_000
+  });
+  const floorGroups = [0, 1, 2]
     .map((floor) => state.monsters.filter((monster) => monster.floor === floor)
       .sort((left, right) => left.x - right.x))
     .sort((left, right) => right.length - left.length);
   const monsters = floorGroups[0];
   assert.ok(monsters.length >= 2);
-  const [front] = monsters;
+  const chainPair = monsters
+    .slice(0, -1)
+    .map((monster, index) => ({
+      source: monster,
+      distance: Number(monsters[index + 1].x) - Number(monster.x)
+    }))
+    .find((pair) => pair.distance > 0.05 && pair.distance <= 42);
+  assert.ok(chainPair);
+  const front = chainPair.source;
   updatePresence({
     userId: 'chain-user',
     nickname: '연쇄 사원',
@@ -523,6 +948,7 @@ test('an offline auto-hunter remains visible but is marked offline', () => {
     autoHuntRemainingSeconds: 600,
     now: 1_000
   });
+  clearOnlineSession('offline-hunter');
   const state = updatePresence({
     userId: 'offline-hunter',
     nickname: '야근사원',
@@ -853,7 +1279,7 @@ test('monster stats keep the level three baseline and scale for higher levels', 
 });
 
 
-test('an occupied map replenishes four monsters every eight seconds up to ten', () => {
+test('an occupied compact map replenishes nine monsters every eight seconds up to twenty-one', () => {
   const heartbeat = (now) => updatePresence({
     userId: 'spawn-user',
     nickname: 'spawn-user',
@@ -867,12 +1293,12 @@ test('an occupied map replenishes four monsters every eight seconds up to ten', 
     now
   });
 
-  assert.equal(heartbeat(1_000).monsters.length, 4);
-  assert.equal(heartbeat(8_999).monsters.length, 4);
-  assert.equal(heartbeat(9_000).monsters.length, 8);
-  assert.equal(heartbeat(17_000).monsters.length, 10);
-  assert.equal(heartbeat(25_000).monsters.length, 10);
-  assert.equal(heartbeat(33_000).monsters.length, 10);
+  assert.equal(heartbeat(1_000).monsters.length, 9);
+  assert.equal(heartbeat(8_999).monsters.length, 9);
+  assert.equal(heartbeat(9_000).monsters.length, 18);
+  assert.equal(heartbeat(17_000).monsters.length, 21);
+  assert.equal(heartbeat(25_000).monsters.length, 21);
+  assert.equal(heartbeat(33_000).monsters.length, 21);
 });
 
 test('a map contains at most two level-appropriate monster species', () => {
@@ -891,18 +1317,22 @@ test('a map contains at most two level-appropriate monster species', () => {
 
 test('only the most recently claimed client controls one character', () => {
   claimWorldControl('user-a', 'pc', 1_000);
+  assert.deepEqual(getWorldControlStatus('user-a', 'pc'), { claimed: true, matches: true });
   assert.equal(hasWorldControl('user-a', 'pc'), true);
   claimWorldControl('user-a', 'mobile', 1_100);
   assert.equal(hasWorldControl('user-a', 'pc'), false);
   assert.equal(hasWorldControl('user-a', 'mobile'), true);
   assert.equal(releaseWorldControl('user-a', 'pc'), false);
   assert.equal(releaseWorldControl('user-a', 'mobile'), true);
+  assert.deepEqual(getWorldControlStatus('user-a', 'mobile'), { claimed: false, matches: false });
 });
 
 test('a recently claimed world client temporarily excludes its character from offline work', () => {
   claimWorldControl('online-user', 'browser', 1_000);
   assert.equal(hasRecentWorldControl('online-user', 13_000), true);
+  assert.deepEqual(listRecentWorldControllerIds(13_000), ['online-user']);
   assert.equal(hasRecentWorldControl('online-user', 13_001), false);
+  assert.deepEqual(listRecentWorldControllerIds(13_001), []);
 });
 
 test('contact damage uses the reduced knockback and grants 2 seconds of invulnerability', () => {
@@ -945,7 +1375,15 @@ test('contact damage uses the reduced knockback and grants 2 seconds of invulner
   assert.equal(firstHit.contactEvents[0].damageCalculation.type, 'physical-contact');
   assert.ok(firstHit.contactEvents[0].damageCalculation.standardPdd > 0);
   assert.ok(firstHit.contactEvents[0].x > firstMonster.x);
-  assert.equal(firstHit.contactEvents[0].x, Math.min(94, firstMonster.x + 2.56));
+  assert.equal(
+    firstHit.contactEvents[0].x,
+    Math.min(
+      94,
+      firstMonster.x
+        + PLAYER_CONTACT_KNOCKBACK_DISTANCE * 760
+          / getWorldMap('newcomer_training').layout.worldWidth
+    )
+  );
   assert.equal(firstHit.contactEvents[0].invulnerableUntil, 3_100);
 
   const duringInvulnerability = updatePresence({
@@ -1028,9 +1466,18 @@ test('contact knockback always pushes the player away from the monster', () => {
     now: 5_100
   });
   assert.equal(hitFromBehind.contactEvents.length, 1);
+  const platform = getWorldMap('newcomer_training').layout.platforms.find(
+    (entry) => entry.id === monster.platformId
+  );
   assert.equal(
     hitFromBehind.contactEvents[0].x,
-    Math.min(94, playerX + PLAYER_CONTACT_KNOCKBACK_DISTANCE)
+    Math.min(
+      94,
+      Number(platform?.x) + Number(platform?.width) - 1.5,
+      playerX
+        + PLAYER_CONTACT_KNOCKBACK_DISTANCE * 760
+          / getWorldMap('newcomer_training').layout.worldWidth
+    )
   );
 });
 
@@ -1122,7 +1569,96 @@ test('passive dodge prevents contact damage and knockback', () => {
   assert.equal(state.contactEvents[0].dodged, true);
   assert.equal(state.contactEvents[0].damage, 0);
   assert.equal(state.contactEvents[0].currentHp, 120);
-  assert.equal(state.contactEvents[0].x, monster.x);
+  assert.equal(state.contactEvents[0].x, Math.min(94, monster.x));
+  assert.equal(state.contactEvents[0].invulnerableUntil, 3_100);
+
+  const protectedState = updatePresence({
+    userId: 'dodge-user',
+    nickname: 'dodge-user',
+    mapId: 'newcomer_training',
+    x: monster.x,
+    floor: 0,
+    activity: 'idle',
+    facingLeft: false,
+    currentHp: 120,
+    maxHp: 120,
+    dodgeChance: 0,
+    now: 2_500
+  });
+  assert.equal(protectedState.contactEvents.length, 0);
+});
+
+test('level 50+ monsters retaliate against the character who damaged them', () => {
+  const mapId = 'peach_loading_dock';
+  const initial = updatePresence({
+    userId: 'retaliation-user',
+    nickname: 'retaliation-user',
+    mapId,
+    x: 10,
+    floor: 0,
+    activity: 'idle',
+    currentHp: 100_000,
+    maxHp: 100_000,
+    currentMp: 10_000,
+    maxMp: 10_000,
+    dodgeChance: 100,
+    now: 1_000
+  });
+  const monster = initial.monsters.find((entry) => entry.counterAttackType === 'projectile');
+  assert.ok(monster);
+  const targetX = monster.x < 50
+    ? Math.min(92, monster.x + 8)
+    : Math.max(8, monster.x - 8);
+
+  updatePresence({
+    userId: 'retaliation-user',
+    nickname: 'retaliation-user',
+    mapId,
+    x: targetX,
+    floor: monster.floor,
+    activity: 'idle',
+    currentHp: 100_000,
+    maxHp: 100_000,
+    currentMp: 10_000,
+    maxMp: 10_000,
+    dodgeChance: 100,
+    now: 1_010
+  });
+  const attack = attackMonster({
+    userId: 'retaliation-user',
+    mapId,
+    monsterId: monster.id,
+    damage: 1,
+    rangePx: 1_000,
+    piercing: true,
+    now: 1_020
+  });
+  assert.equal(attack.success, true);
+  assert.ok(Number(attack.monster.counterAttackReadyAt) > 1_020);
+
+  const retaliation = updatePresence({
+    userId: 'retaliation-user',
+    nickname: 'retaliation-user',
+    mapId,
+    x: targetX,
+    floor: monster.floor,
+    activity: 'idle',
+    currentHp: 100_000,
+    maxHp: 100_000,
+    currentMp: 10_000,
+    maxMp: 10_000,
+    dodgeChance: 100,
+    now: Number(attack.monster.counterAttackReadyAt) + 1
+  });
+  const counterEvent = retaliation.contactEvents.find((event) => (
+    event.monsterId === monster.id
+      && ['monster-projectile', 'monster-swing'].includes(event.source)
+  ));
+  assert.ok(counterEvent);
+  assert.equal(counterEvent.userId, 'retaliation-user');
+  assert.equal(counterEvent.dodged, true);
+  assert.equal(counterEvent.damage, 0);
+  assert.equal(counterEvent.invulnerableUntil, counterEvent.createdAt + 2_000);
 });
 
 test('moving across a monster applies swept contact damage instead of tunneling through it', () => {
@@ -1240,6 +1776,106 @@ test('multi-target skills use the same forty-percent knockback threshold', () =>
   assert.ok(result.outcomes.some((outcome) => outcome.knockedBack));
 });
 
+test('ice skills freeze susceptible monsters and serialize the freeze timer', () => {
+  const state = updatePresence({
+    userId: 'freeze-user',
+    nickname: 'freeze-user',
+    mapId: 'newcomer_training',
+    x: 50,
+    floor: 0,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_000
+  });
+  const target = state.monsters.find((monster) => monster.floor === 0);
+  const result = useSkillOnMonsters({
+    userId: 'freeze-user',
+    mapId: 'newcomer_training',
+    targetId: target.id,
+    baseDamage: 10,
+    rangePx: 10_000,
+    maxTargets: 1,
+    damageType: 'magic',
+    element: 'ice',
+    freezeSeconds: 4,
+    ignoreDefense: true,
+    leaveAtOneHp: true,
+    casterX: target.x,
+    casterFloor: target.floor,
+    now: 1_100
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.outcomes[0].frozen, true);
+  assert.equal(result.outcomes[0].monster.frozenUntil, 5_100);
+  assert.equal(result.outcomes[0].monster.state, 'stunned');
+});
+
+test('background hunting keeps a player online while session heartbeats continue', () => {
+  claimWorldControl('background-user', 'browser', 1_000);
+  updatePresence({
+    userId: 'background-user',
+    nickname: 'background-user',
+    mapId: 'newcomer_training',
+    x: 20,
+    floor: 0,
+    currentHp: 120,
+    maxHp: 120,
+    autoHunting: true,
+    autoHuntRemainingSeconds: 600,
+    now: 1_000
+  });
+  assert.equal(releaseWorldControl('background-user', 'browser', { preservePlayer: true }), true);
+  assert.equal(
+    getPlayerResourceState('background-user', 'newcomer_training').backgroundHunting,
+    true
+  );
+  touchOnlineSession('background-user', 30_000);
+
+  const online = listActivePlayers('newcomer_training', 30_000 + ONLINE_SESSION_TIMEOUT_MS - 1);
+  assert.equal(online[0].online, true);
+
+  const expired = listActivePlayers('newcomer_training', 30_000 + ONLINE_SESSION_TIMEOUT_MS + 1);
+  assert.equal(expired[0].online, false);
+  assert.equal(expired[0].autoHunting, true);
+});
+
+test('multi-target three-hit skills hit every selected target three times', () => {
+  for (const targetCount of [1, 2, 3]) {
+    resetWorldRuntime();
+    const state = updatePresence({
+      userId: `three-hit-user-${targetCount}`,
+      nickname: `three-hit-user-${targetCount}`,
+      mapId: 'newcomer_training',
+      x: 50,
+      floor: 0,
+      currentHp: 120,
+      maxHp: 120,
+      now: 1_000
+    });
+    const result = useSkillOnMonsters({
+      userId: `three-hit-user-${targetCount}`,
+      mapId: 'newcomer_training',
+      targetId: state.monsters[0].id,
+      baseDamage: 100,
+      skillPercent: 450,
+      rangePx: 10_000,
+      maxTargets: targetCount,
+      hits: 3,
+      splitDamageAcrossHits: true,
+      ignoreDefense: true,
+      leaveAtOneHp: true,
+      verticalFloorRange: 1,
+      now: 1_100
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(result.outcomes.length, targetCount);
+    assert.ok(result.outcomes.every((outcome) => outcome.hitResults.length === 3));
+    assert.ok(result.outcomes.every((outcome) => outcome.damage === 450));
+  }
+});
+
 test('progressive piercing attacks travel forward and increase damage for every target', () => {
   const originalRandom = Math.random;
   let state;
@@ -1259,6 +1895,18 @@ test('progressive piercing attacks travel forward and increase damage for every 
   } finally {
     Math.random = originalRandom;
   }
+  state = updatePresence({
+    userId: 'piercing-user',
+    nickname: 'piercing-user',
+    mapId: 'newcomer_training',
+    x: 2,
+    floor: 0,
+    facingLeft: false,
+    currentHp: 999_999,
+    maxHp: 999_999,
+    stealth: 1,
+    now: 9_000
+  });
   const target = [...state.monsters].sort((left, right) => left.x - right.x)[0];
   const result = useSkillOnMonsters({
     userId: 'piercing-user',
@@ -1283,7 +1931,7 @@ test('progressive piercing attacks travel forward and increase damage for every 
   assert.ok(result.outcomes.length >= 3);
   assert.deepEqual(
     result.outcomes.map((outcome) => outcome.piercingDamagePercent),
-    [250, 370, 490, 610].slice(0, result.outcomes.length)
+    result.outcomes.map((_, index) => Math.min(850, 250 + index * 120))
   );
   assert.deepEqual(
     result.outcomes.map((outcome) => outcome.piercingIndex),
@@ -1386,6 +2034,66 @@ test('progressive piercing uses the latest caster coordinates supplied with the 
   assert.equal(result.facingLeft, true);
   assert.ok(result.outcomes.length > 1);
   assert.ok(result.outcomes.every((outcome) => outcome.targetX < 92));
+});
+
+test('multi-hit skills report all six hits against one surviving target', () => {
+  const state = updatePresence({
+    userId: 'six-hit-user',
+    nickname: '시설 사원',
+    mapId: 'newcomer_training',
+    x: 50,
+    floor: 0,
+    currentHp: 999_999,
+    maxHp: 999_999,
+    now: 1_000
+  });
+  const target = state.monsters[0];
+  const result = useSkillOnMonsters({
+    userId: 'six-hit-user',
+    mapId: 'newcomer_training',
+    targetId: target.id,
+    baseDamage: 100,
+    skillPercent: 100,
+    rangePx: 10_000,
+    maxTargets: 1,
+    hits: 6,
+    ignoreDefense: true,
+    leaveAtOneHp: true,
+    now: 1_100
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.outcomes[0].hitResults.length, 6);
+});
+
+test('zero error deals displayed 199999 execute damage to a normal monster', () => {
+  const state = updatePresence({
+    userId: 'zero-error-user',
+    nickname: '회계 사원',
+    mapId: 'newcomer_training',
+    x: 50,
+    floor: 0,
+    currentHp: 999_999,
+    maxHp: 999_999,
+    now: 1_000
+  });
+  const target = state.monsters[0];
+  const result = useSkillOnMonsters({
+    userId: 'zero-error-user',
+    mapId: 'newcomer_training',
+    targetId: target.id,
+    baseDamage: 1,
+    skillPercent: 100,
+    rangePx: 10_000,
+    maxTargets: 1,
+    instantKillNormalMonster: true,
+    now: 1_100
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.outcomes[0].executed, true);
+  assert.equal(result.outcomes[0].displayDamage, EXECUTE_FIXED_DAMAGE);
+  assert.equal(result.outcomes[0].hitResults[0].displayDamage, EXECUTE_FIXED_DAMAGE);
 });
 
 test('decoy summons pull normal monster aggro and receive contact damage first', () => {
@@ -1597,7 +2305,7 @@ test('field boss ranged attacks prioritize an active decoy over players', () => 
 
 test('Gammam Neo telegraphs close blast before applying damage', () => {
   const definition = getFieldBossDefinition('gammam_neo');
-  updatePresence({
+  const initialState = updatePresence({
     userId: 'neo-target',
     nickname: '네오 대상',
     mapId: 'hidden_hwang_overtime',
@@ -1612,11 +2320,13 @@ test('Gammam Neo telegraphs close blast before applying damage', () => {
     playerLevel: 120,
     now: 1_000
   });
-  const castState = updatePresence({
+  const bossX = initialState.monsters[0].x;
+  const farTargetX = bossX <= 50 ? 94 : 0;
+  const waitingState = updatePresence({
     userId: 'neo-target',
     nickname: '네오 대상',
     mapId: 'hidden_hwang_overtime',
-    x: 40,
+    x: farTargetX,
     floor: 0,
     activity: 'idle',
     facingLeft: false,
@@ -1626,6 +2336,25 @@ test('Gammam Neo telegraphs close blast before applying damage', () => {
     maxMp: 0,
     playerLevel: 120,
     now: 8_001
+  });
+  const waitingBossX = waitingState.monsters[0].x;
+  const targetX = waitingBossX <= 50
+    ? Math.min(94, waitingBossX + 28)
+    : Math.max(0, waitingBossX - 28);
+  const castState = updatePresence({
+    userId: 'neo-target',
+    nickname: '네오 대상',
+    mapId: 'hidden_hwang_overtime',
+    x: targetX,
+    floor: 0,
+    activity: 'idle',
+    facingLeft: false,
+    currentHp: 10_000,
+    maxHp: 10_000,
+    currentMp: 0,
+    maxMp: 0,
+    playerLevel: 120,
+    now: 9_001
   });
 
   assert.equal(castState.monsters[0].fieldBossId, 'gammam_neo');
@@ -1642,7 +2371,7 @@ test('Gammam Neo telegraphs close blast before applying damage', () => {
     userId: 'neo-target',
     nickname: '네오 대상',
     mapId: 'hidden_hwang_overtime',
-    x: 40,
+    x: targetX,
     floor: 0,
     activity: 'idle',
     facingLeft: false,
@@ -1651,7 +2380,7 @@ test('Gammam Neo telegraphs close blast before applying damage', () => {
     currentMp: 0,
     maxMp: 0,
     playerLevel: 120,
-    now: 9_001
+    now: 10_001
   });
   const damageEvent = hitState.contactEvents.find((event) => (
     event.source === 'field-boss-close-blast'
@@ -1848,6 +2577,143 @@ test('channeled skills can carry follow-up passive hits', () => {
   assert.equal(result.outcomes.some((outcome) => outcome.doubleStrike), true);
 });
 
+test('follow-up summons repeat every skill hit and its on-hit effects', () => {
+  const originalRandom = Math.random;
+  let state;
+  try {
+    Math.random = () => 0.9;
+    state = updatePresence({
+      userId: 'sales-follow-up-user',
+      nickname: 'sales-follow-up-user',
+      mapId: 'newcomer_training',
+      x: 50,
+      floor: 0,
+      currentHp: 120,
+      maxHp: 120,
+      now: 1_000
+    });
+  } finally {
+    Math.random = originalRandom;
+  }
+  const monster = state.monsters.find((entry) => entry.floor === 0);
+  updatePresence({
+    userId: 'sales-follow-up-user',
+    nickname: 'sales-follow-up-user',
+    mapId: 'newcomer_training',
+    x: monster.x,
+    floor: 0,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_050
+  });
+
+  let result;
+  try {
+    Math.random = () => 0;
+    result = useSkillOnMonsters({
+      userId: 'sales-follow-up-user',
+      mapId: 'newcomer_training',
+      targetId: monster.id,
+      baseDamage: 1,
+      skillPercent: 100,
+      rangePx: 1_000,
+      hits: 3,
+      ignoreDefense: true,
+      bonusAttacks: [{
+        percent: 50,
+        source: 'follow-up-summon',
+        repeatEffects: true
+      }],
+      poisonChance: 100,
+      poisonAttack: 10,
+      poisonDurationSeconds: 10,
+      poisonMaxStacks: 3,
+      stunChance: 100,
+      stunSeconds: 1,
+      now: 1_100
+    });
+  } finally {
+    Math.random = originalRandom;
+  }
+
+  const outcome = result.outcomes[0];
+  assert.equal(result.success, true);
+  assert.equal(outcome.hitResults.length, 6);
+  assert.equal(outcome.hitResults.filter((hit) => hit.followUpAttack).length, 3);
+  assert.ok(outcome.hitResults.slice(0, 3).every((hit) => !hit.followUpAttack));
+  assert.ok(outcome.hitResults.slice(3).every((hit) => hit.followUpAttack));
+  assert.equal(outcome.followUpAttack, true);
+  assert.equal(outcome.poisonApplications, 2);
+  assert.equal(outcome.stunApplications, 2);
+});
+
+test('multi-hit skills and follow-up summons roll criticals independently per visible hit', () => {
+  const originalRandom = Math.random;
+  let state;
+  try {
+    Math.random = () => 0.9;
+    state = updatePresence({
+      userId: 'sales-critical-user',
+      nickname: 'sales-critical-user',
+      mapId: 'newcomer_training',
+      x: 50,
+      floor: 0,
+      currentHp: 120,
+      maxHp: 120,
+      now: 1_000
+    });
+  } finally {
+    Math.random = originalRandom;
+  }
+  const monster = state.monsters.find((entry) => entry.floor === 0);
+  updatePresence({
+    userId: 'sales-critical-user',
+    nickname: 'sales-critical-user',
+    mapId: 'newcomer_training',
+    x: monster.x,
+    floor: 0,
+    currentHp: 120,
+    maxHp: 120,
+    now: 1_050
+  });
+
+  const rolls = [0, 0.1, 0.9, 0.1, 0.9, 0.1, 0.9];
+  let result;
+  try {
+    Math.random = () => rolls.shift() ?? 0.9;
+    result = useSkillOnMonsters({
+      userId: 'sales-critical-user',
+      mapId: 'newcomer_training',
+      targetId: monster.id,
+      baseDamage: 1,
+      skillPercent: 100,
+      rangePx: 1_000,
+      hits: 3,
+      ignoreDefense: true,
+      leaveAtOneHp: true,
+      criticalChance: 50,
+      criticalDamagePercent: 200,
+      rollCriticalPerHit: true,
+      bonusAttacks: [{
+        percent: 50,
+        source: 'follow-up-summon',
+        repeatEffects: true
+      }],
+      now: 1_100
+    });
+  } finally {
+    Math.random = originalRandom;
+  }
+
+  const hits = result.outcomes[0].hitResults;
+  assert.equal(hits.length, 6);
+  assert.deepEqual(hits.map((hit) => hit.critical), [
+    true, false, true, false, true, false
+  ]);
+  assert.ok(hits.slice(0, 3).every((hit) => !hit.followUpAttack));
+  assert.ok(hits.slice(3).every((hit) => hit.followUpAttack));
+});
+
 test('skill hits can trigger close-range execution passives', () => {
   const originalRandom = Math.random;
   let state;
@@ -1903,9 +2769,68 @@ test('skill hits can trigger close-range execution passives', () => {
   assert.equal(result.success, true);
   assert.equal(result.outcomes[0].closeRangeTriggered, true);
   assert.equal(result.outcomes[0].executed, true);
+  assert.equal(result.outcomes[0].damage, EXECUTE_FIXED_DAMAGE);
+  assert.equal(result.outcomes[0].displayDamage, EXECUTE_FIXED_DAMAGE);
+  assert.equal(result.outcomes[0].executeDamage, EXECUTE_FIXED_DAMAGE);
   assert.equal(firstHit.closeRangeTriggered, true);
   assert.equal(firstHit.executed, true);
+  assert.equal(firstHit.damage, EXECUTE_FIXED_DAMAGE);
+  assert.equal(firstHit.displayDamage, EXECUTE_FIXED_DAMAGE);
   assert.equal(result.outcomes[0].defeated, true);
+});
+
+test('execution passive deals fixed max damage without instantly defeating a field boss', () => {
+  const initial = updatePresence({
+    userId: 'execute-boss-user',
+    nickname: 'execute-boss-user',
+    mapId: 'hidden_hwang_overtime',
+    x: 40,
+    floor: 0,
+    currentHp: 10_000,
+    maxHp: 10_000,
+    playerLevel: 120,
+    now: 1_000
+  });
+  const boss = initial.monsters.find((monster) => monster.fieldBossId === 'gammam_neo');
+  updatePresence({
+    userId: 'execute-boss-user',
+    nickname: 'execute-boss-user',
+    mapId: 'hidden_hwang_overtime',
+    x: boss.x,
+    floor: boss.floor,
+    currentHp: 10_000,
+    maxHp: 10_000,
+    playerLevel: 120,
+    now: 1_050
+  });
+
+  const originalRandom = Math.random;
+  let result;
+  try {
+    Math.random = () => 0;
+    result = attackMonster({
+      userId: 'execute-boss-user',
+      mapId: 'hidden_hwang_overtime',
+      monsterId: boss.id,
+      damage: 1,
+      rangePx: 1_000,
+      closeRangeChance: 100,
+      closeRangeDamagePercent: 100,
+      executeThresholdPercent: 100,
+      executeChance: 100,
+      now: 1_100
+    });
+  } finally {
+    Math.random = originalRandom;
+  }
+
+  assert.equal(result.success, true);
+  assert.equal(result.executed, true);
+  assert.equal(result.displayDamage, EXECUTE_FIXED_DAMAGE);
+  assert.equal(result.executeDamage, EXECUTE_FIXED_DAMAGE);
+  assert.equal(result.defeated, false);
+  assert.equal(result.damage, EXECUTE_FIXED_DAMAGE);
+  assert.equal(result.monster.hp, boss.maxHp - EXECUTE_FIXED_DAMAGE);
 });
 
 test('channeled projectiles retarget the next front monster after a kill', () => {
@@ -1955,17 +2880,9 @@ test('channeled projectiles retarget the next front monster after a kill', () =>
     firstMonsterId
   ]);
   assert.notEqual(secondMonsterId, firstMonsterId);
-  assert.deepEqual(hitResults.slice(4).map((hit) => hit.monsterId), [
-    secondMonsterId,
-    secondMonsterId,
-    secondMonsterId,
-    secondMonsterId,
-    secondMonsterId,
-    secondMonsterId
-  ]);
+  assert.ok(hitResults.slice(4).every((hit) => hit.monsterId !== firstMonsterId));
   assert.equal(hitResults[3].defeated, true);
   assert.equal(hitResults[4].remainingHp, hitResults[4].maxHp - 8);
-  assert.equal(hitResults[9].remainingHp, hitResults[9].maxHp - 48);
 });
 
 test('channeled projectiles turn around when only rear monsters remain', () => {
@@ -2012,7 +2929,7 @@ test('channeled projectiles turn around when only rear monsters remain', () => {
   assert.ok(hits.some((hit) => hit.facingLeft === false));
 });
 
-test('vertical floor range allows a genesis-style skill to hit one floor above', () => {
+test('pixel vertical range overrides floor count for large area skills', () => {
   const originalRandom = Math.random;
   let state;
   try {
@@ -2032,15 +2949,33 @@ test('vertical floor range allows a genesis-style skill to hit one floor above',
   }
   const upper = state.monsters.find((entry) => entry.floor === 1);
   assert.ok(upper);
-  const result = useSkillOnMonsters({
+  const tooShort = useSkillOnMonsters({
     userId: 'vertical-user',
     mapId: 'newcomer_training',
     targetId: upper.id,
     baseDamage: 10,
     rangePx: 10_000,
-    maxTargets: 15,
+    maxTargets: 12,
     verticalFloorRange: 1,
+    verticalRangePx: 100,
     now: 1_100
+  });
+  assert.equal(tooShort.success, true);
+  assert.equal(
+    tooShort.outcomes.some((outcome) => outcome.monsterId === upper.id),
+    false
+  );
+
+  const result = useSkillOnMonsters({
+    userId: 'vertical-user',
+    mapId: 'newcomer_training',
+    targetId: upper.id,
+    baseDamage: 10,
+    rangePx: 540,
+    maxTargets: 12,
+    verticalFloorRange: 0,
+    verticalRangePx: 459,
+    now: 1_200
   });
   assert.equal(result.success, true);
   assert.ok(result.outcomes.some((outcome) => outcome.monsterId === upper.id));
@@ -2081,6 +3016,63 @@ test('work reduction applies its outgoing damage debuff to normal monsters', () 
   assert.equal(result.success, true);
   assert.equal(result.outcomes[0].debuffApplied, true);
   assert.equal(result.outcomes[0].monster.outgoingDamageReductionPercent, 50);
+});
+
+test('war cry applies all three monster debuffs and increases later incoming damage', () => {
+  const state = updatePresence({
+    userId: 'war-cry-user',
+    nickname: 'war-cry-user',
+    mapId: 'newcomer_training',
+    x: 50,
+    floor: 0,
+    currentHp: 999_999,
+    maxHp: 999_999,
+    stealth: 1,
+    now: 1_000
+  });
+  const monster = state.monsters.find((entry) => entry.floor === 0);
+  assert.ok(monster);
+
+  const debuff = useSkillOnMonsters({
+    userId: 'war-cry-user',
+    mapId: 'newcomer_training',
+    targetId: monster.id,
+    baseDamage: 0,
+    rangePx: 10_000,
+    maxTargets: 1,
+    dealDamage: false,
+    outgoingDamageReductionPercent: 10,
+    incomingDamageIncreasePercent: 7,
+    monsterAccuracyReductionPercent: 10,
+    debuffSkillId: 'war_cry',
+    debuffName: '고함',
+    debuffChance: 100,
+    debuffDurationSeconds: 60,
+    now: 1_100
+  });
+  assert.equal(debuff.success, true);
+  assert.equal(debuff.outcomes[0].debuffApplied, true);
+  assert.equal(debuff.outcomes[0].monster.outgoingDamageReductionPercent, 10);
+  assert.equal(debuff.outcomes[0].monster.incomingDamageIncreasePercent, 7);
+  assert.equal(debuff.outcomes[0].monster.monsterAccuracyReductionPercent, 10);
+  assert.equal(debuff.outcomes[0].monster.combatDebuffSkillId, 'war_cry');
+  assert.equal(debuff.outcomes[0].monster.combatDebuffUntil, 61_100);
+
+  const hit = useSkillOnMonsters({
+    userId: 'war-cry-user',
+    mapId: 'newcomer_training',
+    targetId: monster.id,
+    baseDamage: 100,
+    skillPercent: 100,
+    rangePx: 10_000,
+    maxTargets: 1,
+    ignoreDefense: true,
+    leaveAtOneHp: true,
+    playerLevel: monster.level,
+    now: 1_200
+  });
+  assert.equal(hit.success, true);
+  assert.equal(hit.outcomes[0].damage, 107);
 });
 
 
@@ -2193,4 +3185,134 @@ test('strong mind schedules MP recovery every ten seconds', () => {
   assert.deepEqual(updatePresence({ ...base, now: 1_000 }).recoveryEvents, []);
   const recovered = updatePresence({ ...base, now: 11_000 });
   assert.equal(recovered.recoveryEvents[0].mpAmount, 30);
+});
+
+test('skill runtime applies defense, movement, seal, reward, weakness, and dot effects', () => {
+  const now = 50_000;
+  const state = updatePresence({
+    userId: 'effect-user',
+    nickname: 'effect-user',
+    mapId: 'newcomer_training',
+    x: 20,
+    floor: 0,
+    currentHp: 5_000,
+    maxHp: 5_000,
+    currentMp: 2_000,
+    maxMp: 2_000,
+    playerLevel: 150,
+    now
+  });
+  const target = state.monsters[0];
+  const result = useSkillOnMonsters({
+    userId: 'effect-user',
+    mapId: 'newcomer_training',
+    targetId: target.id,
+    baseDamage: 1,
+    skillPercent: 100,
+    rangePx: 2_000,
+    maxTargets: 1,
+    accuracy: 999,
+    playerLevel: 150,
+    enemyPhysicalDefenseReductionPercent: 30,
+    enemyDefenseIncreasePercent: 20,
+    outgoingDamageReductionPercent: 18,
+    movementSpeedReduction: 40,
+    skillSealChance: 100,
+    skillSealSeconds: 10,
+    experienceIncreasePercent: 25,
+    dropRateIncreasePercent: 35,
+    debuffChance: 100,
+    debuffDurationSeconds: 20,
+    temporaryWeaknessElement: 'fire',
+    temporaryWeaknessMultiplier: 1.5,
+    temporaryWeaknessSeconds: 12,
+    dotChance: 100,
+    dotDurationSeconds: 4,
+    dotDamagePercentOfHit: 20,
+    dotIntervalSeconds: 1,
+    dotNonlethal: true,
+    now
+  });
+  assert.equal(result.success, true);
+  const monster = result.outcomes[0].monster;
+  assert.equal(monster.physicalDefenseReductionPercent, 30);
+  assert.equal(monster.defenseIncreasePercent, 20);
+  assert.equal(monster.outgoingDamageReductionPercent, 18);
+  assert.equal(monster.movementSpeedReduction, 40);
+  assert.ok(monster.skillSealedUntil > now);
+  assert.equal(monster.temporaryWeaknessElement, 'fire');
+  assert.equal(monster.dotActive, true);
+});
+
+test('chain attacks keep the requested target first and spread to nearby monsters', () => {
+  const now = 65_000;
+  const state = updatePresence({
+    userId: 'chain-user',
+    nickname: 'chain-user',
+    mapId: 'newcomer_training',
+    x: 40,
+    floor: 0,
+    currentHp: 5_000,
+    maxHp: 5_000,
+    currentMp: 2_000,
+    maxMp: 2_000,
+    playerLevel: 150,
+    now
+  });
+  const target = state.monsters[1] || state.monsters[0];
+  const result = useSkillOnMonsters({
+    userId: 'chain-user',
+    mapId: 'newcomer_training',
+    targetId: target.id,
+    baseDamage: 1,
+    skillPercent: 100,
+    rangePx: 2_000,
+    maxTargets: 3,
+    chainFromPrimaryTarget: true,
+    accuracy: 999,
+    playerLevel: 150,
+    now
+  });
+  assert.equal(result.success, true);
+  assert.equal(result.outcomes[0].monsterId, target.id);
+  assert.ok(result.outcomes.length >= 2);
+  assert.ok(result.outcomes.length <= 3);
+});
+
+test('physical-only reduction, status immunity, and smoke damage immunity reach world combat', () => {
+  const now = 80_000;
+  const state = updatePresence({
+    userId: 'defense-user',
+    nickname: 'defense-user',
+    mapId: 'newcomer_training',
+    x: 20,
+    floor: 0,
+    currentHp: 5_000,
+    maxHp: 5_000,
+    currentMp: 2_000,
+    maxMp: 2_000,
+    physicalDamageReductionPercent: 30,
+    statusImmunity: 1,
+    damageImmunity: 1,
+    now
+  });
+  assert.equal(state.players[0].currentHp, 5_000);
+  const next = updatePresence({
+    userId: 'defense-user',
+    nickname: 'defense-user',
+    mapId: 'newcomer_training',
+    x: state.monsters[0].x,
+    floor: state.monsters[0].floor,
+    currentHp: 5_000,
+    maxHp: 5_000,
+    currentMp: 2_000,
+    maxMp: 2_000,
+    physicalDamageReductionPercent: 30,
+    statusImmunity: 1,
+    damageImmunity: 1,
+    now: now + 10
+  });
+  const contact = next.contactEvents.find((event) => event.userId === 'defense-user');
+  assert.ok(contact);
+  assert.equal(contact.damage, 0);
 });
