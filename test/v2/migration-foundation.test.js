@@ -2,6 +2,9 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const mongoose = require('mongoose');
 const {
   SNAPSHOT_FIELDS,
   buildLegacyPayload,
@@ -13,15 +16,57 @@ const {
 const {
   registerV2Routes,
   validateSignupPayload,
+  shouldRollSkillCriticalPerHit,
+  buildProfileMagicDamageRange,
   MARKETPLACE_LISTING_HOURS,
   getMarketplaceListingExpiresAt,
   getMarketplaceArchetypeItemIds
 } = require('../../src/v2/registerV2Routes');
 const { getItemDefinition } = require('../../src/v2/items/itemCatalog');
+const V2Character = require('../../src/v2/models/V2Character');
 const {
   getIncompleteMigrationIds,
   getOrphanedDeletedIds
 } = require('../../src/v2/services/automaticMigrationService');
+
+test('multi-hit and follow-up skill attacks request independent critical rolls', () => {
+  assert.equal(shouldRollSkillCriticalPerHit({
+    effect: 'damage',
+    hitCount: 3,
+    hasFollowUpAttack: true
+  }), true);
+  assert.equal(shouldRollSkillCriticalPerHit({
+    effect: 'damage',
+    hitCount: 1,
+    hasFollowUpAttack: true
+  }), true);
+  assert.equal(shouldRollSkillCriticalPerHit({
+    effect: 'damage',
+    hitCount: 1
+  }), false);
+  assert.equal(shouldRollSkillCriticalPerHit({
+    effect: 'fixed-damage',
+    hitCount: 6,
+    hasFollowUpAttack: true
+  }), false);
+});
+
+test('skill-specific magic mastery overrides equipment mastery for its damage range', () => {
+  const profile = {
+    derivedStats: {
+      magic: 500,
+      weaponMastery: 10,
+      effectiveStats: { workKnowledge: 400 }
+    }
+  };
+  const levelOneRange = buildProfileMagicDamageRange(profile, 100, 35);
+  const masterLevelRange = buildProfileMagicDamageRange(profile, 100, 80);
+
+  assert.equal(levelOneRange.mastery, 0.35);
+  assert.equal(masterLevelRange.mastery, 0.8);
+  assert.ok(masterLevelRange.minimum > levelOneRange.minimum);
+  assert.equal(masterLevelRange.maximum, levelOneRange.maximum);
+});
 
 function createLegacyUser(overrides = {}) {
   return {
@@ -138,7 +183,19 @@ test('V2 character response supplies provisional resources, EXP target, and empt
   assert.equal(response.inventory.categories.cash.capacity, 20);
   assert.deepEqual(response.inventory.quickSlots, { hp: null, mp: null });
   assert.equal(response.pendingMailCount, 0);
-  assert.deepEqual(response.worldState, { mapId: 'main_lobby', x: 8, floor: 0 });
+  assert.deepEqual(response.worldState, {
+    mapId: 'main_lobby',
+    x: 8,
+    floor: 0,
+    returnMapId: '',
+    raidBossId: '',
+    raidPartyNumber: 0,
+    raidStartedAt: 0,
+    raidDeadAt: 0,
+    busDepartureAt: 0,
+    busOriginMapId: '',
+    busDestinationMapId: ''
+  });
   assert.equal(response.equipmentLoadout.weapon, null);
   assert.equal(response.equipmentLoadout.earrings, null);
 });
@@ -186,6 +243,60 @@ test('V2 signup fields require matching passwords and a signup code', () => {
   }).valid, false);
 });
 
+test('characters saved on upper map floors remain valid login documents', () => {
+  const character = new V2Character({
+    userId: new mongoose.Types.ObjectId(),
+    displayName: '다층맵사원',
+    worldState: { mapId: 'peach_factory_core', x: 50, floor: 3 },
+    migration: {
+      sourceSnapshotId: new mongoose.Types.ObjectId(),
+      sourceLevel: 150
+    }
+  });
+  assert.equal(character.validateSync(), undefined);
+});
+
+test('existing V2 characters do not rerun the full legacy migration during login', () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, '../../src/v2/registerV2Routes.js'),
+    'utf8'
+  );
+  const loginRoute = source.slice(
+    source.indexOf("app.post('/api/v2/login'"),
+    source.indexOf("app.post('/api/v2/presence/heartbeat'")
+  );
+  assert.equal((loginRoute.match(/ensureV2MigrationForUser\(sourceUser\)/g) || []).length, 1);
+  assert.match(loginRoute, /else \{\s*await ensureV2CharacterFoundation\(character\);/);
+});
+
+test('V2 signup treats visually identical normalized passwords as matching', () => {
+  const composed = 'café비밀번호';
+  const decomposed = composed.normalize('NFD');
+  const result = validateSignupPayload({
+    username: 'employee_02',
+    password: composed,
+    passwordConfirm: decomposed,
+    signupCode: 'HOI2026',
+    nickname: '정규화사원'
+  });
+
+  assert.equal(result.valid, true);
+  assert.equal(result.password, composed.normalize('NFC'));
+});
+
+test('V2 signup reports short matching passwords as too short, not mismatched', () => {
+  const result = validateSignupPayload({
+    username: 'employee_03',
+    password: '1',
+    passwordConfirm: '1',
+    signupCode: 'HOI2026',
+    nickname: '길이검사'
+  });
+
+  assert.equal(result.valid, false);
+  assert.equal(result.message, '비밀번호는 6~72자로 입력해주세요.');
+});
+
 test('V2 marketplace listings stay active for sixty hours', () => {
   const baseTime = Date.UTC(2026, 6, 28, 0, 0, 0);
   assert.equal(MARKETPLACE_LISTING_HOURS, 60);
@@ -227,9 +338,14 @@ test('V2 router exposes the current migration, world, inventory, and shop endpoi
     'POST /api/v2/signup/validate-code',
     'POST /api/v2/signup',
     'POST /api/v2/login',
+    'POST /api/v2/presence/heartbeat',
     'GET /api/v2/migration/preview',
     'POST /api/v2/migration/prepare',
     'GET /api/v2/world/maps',
+    'GET /api/v2/bus/status',
+    'POST /api/v2/bus/ticket/purchase',
+    'POST /api/v2/bus/board',
+    'POST /api/v2/bus/exit',
     'GET /api/v2/quests',
     'GET /api/v2/npcs/:npcId',
     'GET /api/v2/daily-augment',
@@ -250,6 +366,9 @@ test('V2 router exposes the current migration, world, inventory, and shop endpoi
     'GET /api/v2/inventory',
     'POST /api/v2/inventory/sort',
     'POST /api/v2/inventory/quick-slot',
+    'GET /api/v2/storage',
+    'POST /api/v2/storage/deposit',
+    'POST /api/v2/storage/withdraw',
     'POST /api/v2/inventory/consumable-quick-slot',
     'POST /api/v2/inventory/use-consumable-slot',
     'POST /api/v2/inventory/auto-potion',
@@ -262,6 +381,8 @@ test('V2 router exposes the current migration, world, inventory, and shop endpoi
     'POST /api/v2/inventory/use-stat-reset',
     'GET /api/v2/event/settlement-support',
     'POST /api/v2/event/settlement-support/buy',
+    'GET /api/v2/event/late-summer-yard',
+    'POST /api/v2/event/late-summer-yard/open',
     'GET /api/v2/marketplace',
     'POST /api/v2/marketplace/list',
     'POST /api/v2/marketplace/buy',
@@ -271,6 +392,8 @@ test('V2 router exposes the current migration, world, inventory, and shop endpoi
     'POST /api/v2/shop/buy',
     'POST /api/v2/shop/sell',
     'POST /api/v2/shop/recharge-throwing-star',
+    'GET /api/v2/special-actions/crafting',
+    'POST /api/v2/special-actions/crafting/craft',
     'POST /api/v2/special-actions/salary-lupin',
     'POST /api/v2/special-actions/shout',
     'GET /api/v2/cash-shop',
@@ -303,6 +426,14 @@ test('V2 router exposes the current migration, world, inventory, and shop endpoi
     'POST /api/v2/world/revive',
     'POST /api/v2/world/leave',
     'GET /api/v2/admin/grant-items',
+    'GET /api/v2/boss-expeditions',
+    'POST /api/v2/boss-expeditions/slot',
+    'POST /api/v2/boss-expeditions/leadership',
+    'POST /api/v2/boss-expeditions/parties',
+    'POST /api/v2/boss-expeditions/start',
+    'POST /api/v2/boss-expeditions/respond',
+    'POST /api/v2/boss-raids/leave',
+    'POST /api/v2/boss-raids/abandon',
     'POST /api/v2/admin/cash/grant',
     'POST /api/v2/admin/mail/send',
     'POST /api/v2/admin/account/delete',
@@ -311,6 +442,24 @@ test('V2 router exposes the current migration, world, inventory, and shop endpoi
     'GET /api/v2/admin/migration-summary',
     'POST /api/v2/admin/snapshot-batch'
   ]);
+});
+
+test('mail claims refresh the mutable world cache after saving rewards', () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, '../../src/v2/registerV2Routes.js'),
+    'utf8'
+  );
+  const singleStart = source.indexOf("app.post('/api/v2/mail/claim'");
+  const allStart = source.indexOf("app.post('/api/v2/mail/claim-all'");
+  const nextRoute = source.indexOf("app.post('/api/v2/world/claim-control'", allStart);
+  assert.match(
+    source.slice(singleStart, allStart),
+    /await character\.save\(\);\s*cacheWorldProfile\(character\);/
+  );
+  assert.match(
+    source.slice(allStart, nextRoute),
+    /await character\.save\(\);\s*cacheWorldProfile\(character\);/
+  );
 });
 
 

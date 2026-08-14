@@ -3026,6 +3026,7 @@ app.get('/index.html', (req, res, next) => {
 });
 
 app.get(['/v2', '/v2/'], (req, res) => {
+  res.set('Cache-Control', 'no-store');
   res.sendFile(path.join(__dirname, 'public', 'v2', 'index.html'));
 });
 
@@ -3040,6 +3041,18 @@ mongoose.connect(MONGO_URI)
     console.log(`MongoDB connected (APP_MODE=${APP_MODE})`);
     if (IS_V2_MODE) {
       console.log('V2 cutover mode enabled: V1 APIs and V1 weekly jobs are disabled.');
+      const V2Character = require('./src/v2/models/V2Character');
+      V2Character.updateMany(
+        { 'inventory.items.itemId': 'settlement_event_coin' },
+        {
+          $pull: {
+            'inventory.items': { itemId: 'settlement_event_coin' }
+          },
+          $set: { 'events.settlementSupport.dailyCoinCount': 0 }
+        }
+      ).then((result) => {
+        console.log(`Retired settlement event coins removed: ${result.modifiedCount || 0}`);
+      }).catch((err) => console.error('Settlement event coin cleanup error:', err));
       setImmediate(() => {
         const { runAutomaticV2Migration } = require('./src/v2/services/automaticMigrationService');
         runAutomaticV2Migration({ User, batchSize: 50, concurrency: 5 })

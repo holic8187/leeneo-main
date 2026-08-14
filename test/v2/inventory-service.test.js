@@ -13,6 +13,7 @@ const {
   purgeExpiredEquippedItems,
   buildInventoryView,
   createAdminMail,
+  createRewardMail,
   purgeExpiredMail,
   getPendingMail,
   claimMail,
@@ -31,6 +32,7 @@ const {
   rechargeThrowingStarStack
 } = require('../../src/v2/services/shopService');
 const { getItemDefinition, listShopItems } = require('../../src/v2/items/itemCatalog');
+const V2Character = require('../../src/v2/models/V2Character');
 
 function characterFixture() {
   return {
@@ -54,7 +56,7 @@ test('all four inventory categories start at twenty slots', () => {
   );
 });
 
-test('expired event equipment disappears even while equipped', () => {
+test('existing event equipment is extended before it expires while equipped', () => {
   const character = characterFixture();
   character.loadout = {
     ring: {
@@ -64,9 +66,36 @@ test('expired event equipment disappears even while equipped', () => {
   };
   assert.equal(
     purgeExpiredEquippedItems(character, new Date('2026-08-01T00:00:01+09:00').getTime()),
+    0
+  );
+  assert.equal(
+    new Date(character.loadout.ring.expiresAt).toISOString(),
+    '2026-08-04T04:00:00.000Z'
+  );
+  assert.equal(
+    purgeExpiredEquippedItems(character, new Date('2026-08-04T13:00:01+09:00').getTime()),
     1
   );
   assert.equal(character.loadout.ring, null);
+});
+
+test('existing event inventory stacks receive the extended fixed expiry', (t) => {
+  t.mock.method(Date, 'now', () => new Date('2026-08-04T12:00:00+09:00').getTime());
+  const character = characterFixture();
+  character.inventory.items.push({
+    stackId: 'old-event-coupon',
+    itemId: 'event_stat_reset_coupon',
+    quantity: 1,
+    expiresAt: new Date('2026-08-01T00:00:00+09:00'),
+    data: null
+  });
+
+  buildInventoryView(character);
+
+  assert.equal(
+    new Date(character.inventory.items[0].expiresAt).toISOString(),
+    '2026-08-04T04:00:00.000Z'
+  );
 });
 
 test('legacy potion stacks migrate into the consumable inventory', () => {
@@ -129,6 +158,25 @@ test('configured auto potions use buffed resource caps and handle both slots', (
   assert.equal(buildInventoryView(character).quickSlots.mp.quantity, 0);
 });
 
+test('a late stale potion assignment cannot replace the newest configured potion', () => {
+  const character = characterFixture();
+  character.resources.currentHp = 20;
+  addInventoryItem(character, 'hard_candy', 1);
+  addInventoryItem(character, 'white_potion', 1);
+  assignPotionQuickSlot(character, 'hp', 'hard_candy', 1_000);
+  assignPotionQuickSlot(character, 'hp', 'white_potion', 3_000);
+  assignPotionQuickSlot(character, 'hp', 'hard_candy', 2_000);
+  setPotionAutoThreshold(character, 'hp', 100);
+
+  const uses = useConfiguredAutoPotions(character, 100, { hp: 120, mp: 80 });
+
+  assert.equal(uses.length, 1);
+  assert.equal(uses[0].item.id, 'white_potion');
+  assert.equal(buildInventoryView(character).quickSlots.hp.id, 'white_potion');
+  assert.equal(buildInventoryView(character).categories.consumable.items
+    .find((item) => item.id === 'hard_candy').quantity, 1);
+});
+
 test('potions and cash use items split into stacks of one hundred', () => {
   const character = characterFixture();
   addInventoryItem(character, 'hard_candy', 250);
@@ -164,7 +212,7 @@ test('inventory sorting never merges timed consumables into permanent stacks', (
       stackId: 'timed',
       itemId: 'hard_candy',
       quantity: 40,
-      expiresAt: new Date('2026-08-01T00:00:00.000Z')
+      expiresAt: new Date('2099-08-01T00:00:00.000Z')
     }
   ];
 
@@ -191,11 +239,14 @@ test('manual consumable quick slots accept usable consumables and reject ammunit
 
   assignConsumableQuickSlot(character, 0, 'safe_zone_return_scroll');
   assignConsumableQuickSlot(character, 1, 'chunsik_blessing_potion');
+  assignConsumableQuickSlot(character, 3, 'chunsik_blessing_potion');
   assert.throws(() => assignConsumableQuickSlot(character, 2, 'basic_arrow'), /소비 아이템/);
 
   const view = buildInventoryView(character);
+  assert.equal(view.consumableQuickSlots.length, 4);
   assert.equal(view.consumableQuickSlots[0].id, 'safe_zone_return_scroll');
   assert.equal(view.consumableQuickSlots[1].id, 'chunsik_blessing_potion');
+  assert.equal(view.consumableQuickSlots[3].id, 'chunsik_blessing_potion');
   assert.equal(view.manualConsumables.some((item) => item.id === 'basic_arrow'), false);
 
   assignConsumableQuickSlot(character, 1, '');
@@ -239,10 +290,16 @@ test('Chunsik blessing potion is monster-only and sells for fifty won', () => {
   const item = getItemDefinition('chunsik_blessing_potion');
   assert.equal(item.name, '춘식이의 축복의 물약');
   assert.equal(item.itemType, 'cleanse-potion');
-  assert.equal(item.maxStack, 100);
+  assert.equal(item.maxStack, 150);
   assert.equal(item.sellPrice, 50);
   assert.equal(item.buyPrice, 0);
   assert.equal(listShopItems('headquarters').some((shopItem) => shopItem.id === item.id), false);
+
+  const character = characterFixture();
+  addInventoryItem(character, item.id, 151);
+  const stacks = buildInventoryView(character).categories.consumable.items
+    .filter((inventoryItem) => inventoryItem.id === item.id);
+  assert.deepEqual(stacks.map((stack) => stack.quantity), [150, 1]);
 });
 
 test('an expansion ticket adds four slots to the chosen tab and stops at sixty-four', () => {
@@ -267,6 +324,30 @@ test('claiming admin mail transfers its attachment once', () => {
   assert.equal(buildInventoryView(character).categories.cash.items[0].quantity, 7);
 });
 
+test('level-up coupons and trial claws survive admin mail creation and claiming', () => {
+  const character = characterFixture();
+  const couponMail = createAdminMail({ itemId: 'level_up_coupon', quantity: 2 });
+  const clawMail = createAdminMail({ itemId: 'event_claw', quantity: 1 });
+  character.mailbox.push(couponMail, clawMail);
+
+  assert.deepEqual(
+    getPendingMail(character).map((mail) => mail.attachments[0].itemId),
+    ['level_up_coupon', 'event_claw']
+  );
+  claimMail(character, couponMail.id);
+  claimMail(character, clawMail.id);
+
+  const inventory = buildInventoryView(character);
+  assert.equal(
+    inventory.categories.cash.items.find((item) => item.id === 'level_up_coupon')?.quantity,
+    2
+  );
+  assert.equal(
+    inventory.categories.equipment.items.find((item) => item.id === 'event_claw')?.quantity,
+    1
+  );
+});
+
 test('claiming hunting time mail applies it immediately instead of creating a cash stack', () => {
   const character = characterFixture();
   character.huntingTime = { remainingSeconds: 0, enabled: false };
@@ -279,6 +360,27 @@ test('claiming hunting time mail applies it immediately instead of creating a ca
   assert.equal(character.huntingTime.remainingSeconds, 180 * 60);
   assert.equal(buildInventoryView(character).items.some((item) => item.id === 'hunting_time_180m'), false);
   assert.equal(claimed.directEffects[0].appliedDirectly, true);
+});
+
+test('claiming a boss reward mail preserves equipment rolls and grants money', () => {
+  const character = characterFixture();
+  const wigData = {
+    stats: { grit: 18, processingSpeed: 12, defense: 155, evasion: 25 },
+    enhancement: { level: 0, maximum: 10, remaining: 10, bonusStats: {} },
+    untradeable: true
+  };
+  character.mailbox.push(createRewardMail({
+    sender: '대머리 김부장 원정대',
+    money: 400_000,
+    attachments: [{ itemId: 'kim_manager_wig', quantity: 1, data: wigData }]
+  }));
+
+  const claimed = claimMail(character, character.mailbox[0].id);
+  const wig = buildInventoryView(character).categories.equipment.items[0];
+  assert.equal(claimed.moneyClaimed, 400_000);
+  assert.equal(character.economy.money, 401_000);
+  assert.deepEqual(wig.instanceData.stats, wigData.stats);
+  assert.equal(wig.instanceData.enhancement.remaining, 10);
 });
 
 test('unclaimed admin mail disappears after twenty-four hours', () => {
@@ -329,6 +431,14 @@ test('regional shops vary prices within five percent and sell ammunition bundles
   const returnScroll = buyShopItem(sales, 'safe_zone_return_scroll', 1, 'sales_outpost');
   assert.equal(returnScroll.quantity, 1);
   assert.equal(returnScroll.totalPrice, 832);
+
+  const peachItems = listShopItems('peach_convenience');
+  assert.ok(peachItems.some((item) => item.id === 'reindeer_milk'));
+  assert.ok(peachItems.some((item) => item.id === 'sunset_dew'));
+  assert.ok(peachItems.some((item) => item.id === 'safe_zone_return_scroll'));
+  assert.ok(peachItems.every((item) => (
+    ['potion', 'return-scroll', 'ammunition'].includes(item.itemType)
+  )));
 });
 
 test('an empty throwing-star stack remains in inventory and refills for a flat 4,000 won', () => {
@@ -344,6 +454,56 @@ test('an empty throwing-star stack remains in inventory and refills for a flat 4
   assert.equal(recharge.quantity, empty.maxStack);
   assert.equal(recharge.rechargeCost, 4_000);
   assert.equal(recharge.money, 6_000);
+});
+
+test('throwing-star recharge changes only the selected inventory stack', () => {
+  const character = characterFixture();
+  character.economy.money = 10_000;
+  addInventoryItem(character, 'crude_throwing_star', 700);
+  const before = buildInventoryView(character).categories.consumable.items.filter(
+    (item) => item.id === 'crude_throwing_star'
+  );
+  const partial = before.find((item) => item.quantity === 100);
+  const full = before.find((item) => item.quantity === 600);
+  rechargeThrowingStarStack(character, partial.stackId);
+  const after = buildInventoryView(character).categories.consumable.items.filter(
+    (item) => item.id === 'crude_throwing_star'
+  );
+  assert.equal(after.length, 2);
+  assert.equal(after.find((item) => item.stackId === partial.stackId)?.quantity, 600);
+  assert.equal(after.find((item) => item.stackId === full.stackId)?.quantity, 600);
+});
+
+test('selling a throwing-star stack removes its whole slot for one won', () => {
+  const character = characterFixture();
+  addInventoryItem(character, 'executive_approval_star', 20);
+  const stack = buildInventoryView(character).categories.consumable.items.find(
+    (item) => item.id === 'executive_approval_star'
+  );
+  const sale = sellInventoryStack(character, stack.stackId, 7);
+  assert.equal(sale.quantity, 20);
+  assert.equal(sale.totalPrice, 1);
+  assert.equal(sale.money, 1_001);
+  assert.equal(
+    sale.inventory.categories.consumable.items.some(
+      (item) => item.stackId === stack.stackId
+    ),
+    false
+  );
+  assert.equal(getItemDefinition('crude_throwing_star').sellPrice, 1);
+});
+
+test('selling an empty throwing-star stack still clears its inventory slot', () => {
+  const character = characterFixture();
+  addInventoryItem(character, 'crude_throwing_star', 1);
+  const stack = buildInventoryView(character).categories.consumable.items.find(
+    (item) => item.id === 'crude_throwing_star'
+  );
+  consumeInventoryStack(character, stack.stackId, 1);
+  const sale = sellInventoryStack(character, stack.stackId, 1);
+  assert.equal(sale.quantity, 0);
+  assert.equal(sale.totalPrice, 1);
+  assert.equal(sale.inventory.categories.consumable.items.length, 0);
 });
 
 test('an empty arrow stack is removed from inventory', () => {
@@ -406,6 +566,82 @@ test('admin event weapons occupy one slot and can be equipped and returned', () 
   unequipInventoryWeapon(character);
   assert.equal(character.loadout.weapon, null);
   assert.equal(buildInventoryView(character).categories.equipment.items[0].id, 'event_spear');
+});
+
+test('an HR manager with an empty Mongoose loadout can equip a mailed two-handed sword', () => {
+  const character = new V2Character({
+    userId: '507f191e810c19729de860ea',
+    displayName: '신규 인재매니저',
+    progression: { level: 30 },
+    job: { departmentId: 'hr', advancementTier: 2 },
+    stats: { grit: 40, processingSpeed: 40, workKnowledge: 4, awareness: 4 },
+    loadout: { weapon: null, shield: null },
+    mailbox: []
+  });
+  character.mailbox.push(createAdminMail({
+    itemId: 'event_two_handed_sword',
+    quantity: 1,
+    message: '체험용 두손검'
+  }));
+
+  claimMail(character, character.mailbox[0].id);
+  const stack = buildInventoryView(character).categories.equipment.items[0];
+  const equipped = equipInventoryEquipment(character, stack.stackId);
+
+  assert.equal(equipped.equipped.id, 'event_two_handed_sword');
+  assert.equal(character.loadout.weapon.weaponType, 'twoHandedSword');
+});
+
+test('an accounting archer Mongoose character can equip common earrings', () => {
+  const character = new V2Character({
+    userId: '507f191e810c19729de860eb',
+    displayName: '신궁 확인',
+    progression: { level: 140 },
+    job: { departmentId: 'accounting', advancementTier: 4 },
+    stats: { grit: 200, processingSpeed: 500, workKnowledge: 4, awareness: 4 },
+    loadout: { weapon: null, earrings: null }
+  });
+  addInventoryItem(character, 'drop_common_earrings_140', 1);
+
+  const stack = buildInventoryView(character).categories.equipment.items[0];
+  const equipped = equipInventoryEquipment(character, stack.stackId);
+
+  assert.equal(equipped.slot, 'earrings');
+  assert.equal(character.loadout.earrings.id, 'drop_common_earrings_140');
+});
+
+test('common earrings replace a retired job-specific earring without blocking the equip', () => {
+  const character = new V2Character({
+    userId: '507f191e810c19729de860ec',
+    displayName: '재무총괄 구형 귀걸이 확인',
+    progression: { level: 153 },
+    job: { departmentId: 'accounting', advancementTier: 4 },
+    stats: { grit: 200, processingSpeed: 500, workKnowledge: 4, awareness: 4 },
+    loadout: {
+      earrings: {
+        id: 'drop_archer_earrings_40',
+        itemId: 'drop_archer_earrings_40',
+        name: '정산 40제 귀걸이',
+        itemType: 'accessory',
+        equipmentSlot: 'earrings',
+        requiredLevel: 40,
+        stats: { defense: 7, processingSpeed: 1 }
+      }
+    }
+  });
+  addInventoryItem(character, 'drop_common_earrings_140', 1, {
+    stats: { magicDefense: 42, accuracy: 8 }
+  });
+
+  const newEarrings = buildInventoryView(character).categories.equipment.items[0];
+  const equipped = equipInventoryEquipment(character, newEarrings.stackId);
+  const returned = buildInventoryView(character).categories.equipment.items[0];
+
+  assert.equal(equipped.slot, 'earrings');
+  assert.equal(character.loadout.earrings.itemId, 'drop_common_earrings_140');
+  assert.deepEqual(character.loadout.earrings.stats, { magicDefense: 42, accuracy: 8 });
+  assert.equal(returned.id, 'drop_common_earrings_40');
+  assert.deepEqual(returned.instanceData.stats, { defense: 7, processingSpeed: 1 });
 });
 
 test('legacy capes with id-only data can be unequipped without item loss', () => {
