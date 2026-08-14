@@ -167,6 +167,7 @@ function buildNpcView(character, npcId, now = new Date()) {
     mapId: npc.mapId,
     icon: npc.icon,
     x: npc.x,
+    action: npc.action || '',
     quests: npc.quests
       .filter((definition) => isQuestEligible(character, {
         ...definition, npcId: npc.id, mapId: npc.mapId
@@ -406,7 +407,13 @@ function claimQuest(character, questId, random = Math.random, now = new Date()) 
 }
 
 function getPublicNpcsForMap(mapId) {
-  return getNpcsForMap(mapId).map(({ id, name, icon, x }) => ({ id, name, icon, x }));
+  return getNpcsForMap(mapId).map(({ id, name, icon, x, action = '' }) => ({
+    id,
+    name,
+    icon,
+    x,
+    action
+  }));
 }
 
 module.exports = {

@@ -2,6 +2,12 @@
 
 const HUNTING_TIME_CACHE_KEY = 'v2HuntingTime';
 const WORLD_HEARTBEAT_INTERVAL_MS = 1000;
+const SESSION_HEARTBEAT_INTERVAL_MS = 30_000;
+const BIG_BANG_VISUAL_SKILL_IDS = new Set([
+  'extended_b517ab1d69',
+  'extended_2e29f80103',
+  'extended_72b5477b43'
+]);
 const DEFAULT_HUNTING_TIME = Object.freeze({
   remainingSeconds: 0,
   maximumSeconds: 24000,
@@ -48,11 +54,13 @@ const state = {
   maps: [],
   questJournal: { active: [], completedCount: 0 },
   currentNpc: null,
+  busTransport: null,
   startMapId: 'main_lobby',
   currentMapId: localStorage.getItem('v2CurrentMapId') || '',
   autoCombat: localStorage.getItem('v2AutoCombat') === 'true',
   huntingTime: readCachedHuntingTime(),
   huntingTimeLoaded: false,
+  huntingTimeSyncedAt: Date.now(),
   huntingTickCounter: 0,
   huntingSyncBusy: false,
   moving: false,
@@ -70,12 +78,17 @@ const state = {
   signupValidationRequest: 0,
   signupCodeTimer: null,
   worldPresenceRunId: 0,
+  sessionPresenceRunId: 0,
   worldHeartbeatBusy: false,
   worldHeartbeatQueued: false,
+  potionAssignmentSequence: 0,
+  potionAssignmentQueues: {},
   worldClientId: sessionStorage.getItem('v2WorldClientId')
     || globalThis.crypto?.randomUUID?.()
     || `world-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   worldControlActive: false,
+  backgroundHunting: false,
+  backgroundHuntingHandoffBusy: false,
   worldStateEpoch: 0,
   reviving: false,
   selfUserId: '',
@@ -83,22 +96,35 @@ const state = {
   pendingCombatVisualMonsterIds: new Set(),
   lastWorldSnapshotReceivedAt: 0,
   recentlyCollectedLootIds: new Map(),
+  playedFieldBossRewardIds: new Set(),
   combatTargetId: '',
   rallyPoint: null,
   worldServerTime: 0,
+  worldRemotePlayers: [],
+  partyMemberIds: new Set(),
+  partyMembers: [],
+  worldCameraX: 0,
+  worldCameraY: 0,
+  worldCameraFrame: 0,
+  worldCameraLastFrameAt: 0,
+  remotePlayerElements: new Map(),
+  monsterElements: new Map(),
+  partyHudElements: new Map(),
   invulnerableUntil: 0,
   invulnerabilityTimer: null,
   lastContactDamageKey: '',
+  playedMonsterCounterEvents: new Map(),
   lastGlobalShoutId: '',
   globalShoutTimer: null,
   dead: false,
   deathExpLost: 0,
+  deathExpProtectedByItem: false,
   inventory: {
     items: [],
     categories: {},
     potions: [],
     quickSlots: { hp: null, mp: null },
-    consumableQuickSlots: [null, null, null],
+    consumableQuickSlots: [null, null, null, null],
     manualConsumables: [],
     autoUsePercent: { hp: 0, mp: 0 },
     limits: { defaultCapacity: 20, maximumCapacity: 64, expansionSize: 4 }
@@ -122,10 +148,15 @@ const state = {
   activeFeature: '',
   autoPotionBusy: { hp: false, mp: false },
   potionUseBusy: false,
+  consumableUseBusy: false,
+  manualPotionRequestsInFlight: 0,
+  potionRequestSequence: 0,
+  potionResponseSequence: 0,
   autoPotionCheckRunning: false,
   manualSkillPriority: false,
   manualSkillQueue: [],
   manualSkillQueueRunning: false,
+  skillPresetUpdateQueue: Promise.resolve(),
   characterPhysics: {
     airborne: false,
     offsetY: 0,
@@ -134,6 +165,7 @@ const state = {
     frameId: 0,
     airJumpsUsed: 0,
     flashJumpPending: false,
+    flashJumpMovementPauseUntil: 0,
     jumpSequence: 0,
     lastJumpKind: '',
     lastJumpStartedAt: 0
@@ -143,15 +175,33 @@ const state = {
   autoSkillOwnerKey: '',
   autoSkillIds: new Set(),
   autoSkillRotationIndex: 0,
+  autoCombatLoopRunId: 0,
+  autoCombatLastCycleAt: 0,
+  autoCombatRestartTimer: null,
   shop: { money: 0, buyItems: [], tab: 'consumable', shopId: '' },
+  storage: { items: [], capacity: 4, usedSlots: 0, loaded: false },
+  sideJobCrafting: { recipes: [], loaded: false, lastResult: null },
   partyState: { party: null, invitation: null, nearbyPlayers: [] },
   lastPartyInvitationId: '',
+  bossExpedition: {
+    definitions: [],
+    queues: [],
+    selectedBossId: '',
+    registeredBossId: '',
+    canRegister: false,
+    pendingEntry: null,
+    leadershipTransferOpen: false
+  },
+  bossExpeditionPollTimer: null,
+  bossPartyDraft: null,
+  bossConfirmationTimer: null,
   tradeState: { request: null, session: null, nearbyPlayers: [] },
   lastTradeRequestId: '',
   ranking: { all: [], online: [], tab: 'all' },
   enhancementSlot: '',
   enhancementScrollStackId: '',
   eventState: null,
+  eventOpenResult: null,
   marketplace: { listings: [], mine: [], rules: {}, search: '', archetype: 'all' },
   pendingPatchNotes: null,
   patchNotesHistory: [],
@@ -168,9 +218,29 @@ const state = {
 };
 sessionStorage.setItem('v2WorldClientId', state.worldClientId);
 
-function applyHuntingTime(value, { persist = true } = {}) {
-  state.huntingTime = normalizeHuntingTime(value, state.huntingTime);
+function getProjectedHuntingTimeRemaining(now = Date.now()) {
+  const elapsedSeconds = state.huntingTime.enabled
+    ? Math.max(0, Math.floor((now - state.huntingTimeSyncedAt) / 1000))
+    : 0;
+  return Math.max(0, Number(state.huntingTime.remainingSeconds) - elapsedSeconds);
+}
+
+function applyHuntingTime(value, { persist = true, allowIncrease = true } = {}) {
+  const normalized = normalizeHuntingTime(value, state.huntingTime);
+  if (
+    !allowIncrease
+    && state.huntingTimeLoaded
+    && state.huntingTime.enabled
+    && normalized.enabled
+  ) {
+    normalized.remainingSeconds = Math.min(
+      normalized.remainingSeconds,
+      getProjectedHuntingTimeRemaining()
+    );
+  }
+  state.huntingTime = normalized;
   state.huntingTimeLoaded = true;
+  state.huntingTimeSyncedAt = Date.now();
   if (persist) {
     localStorage.setItem(HUNTING_TIME_CACHE_KEY, JSON.stringify({
       remainingSeconds: state.huntingTime.remainingSeconds,
@@ -210,6 +280,16 @@ async function request(url, options = {}) {
   return data;
 }
 
+async function requestWithTimeout(url, options = {}, timeoutMs = 5_000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Math.max(250, Number(timeoutMs) || 5_000));
+  try {
+    return await request(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function ratio(current, maximum) {
   const max = Math.max(0, Number(maximum) || 0);
   if (!max) return 0;
@@ -225,17 +305,33 @@ function setResource(prefix, current, maximum, pendingLabel = '준비 중') {
   $(`${prefix}Bar`).style.width = `${ratio(currentValue, maximumValue)}%`;
 }
 
+function setExperienceText(compactText, fullText) {
+  const text = $('expText');
+  const row = $('experienceResourceRow');
+  const compact = document.createElement('span');
+  const full = document.createElement('span');
+  compact.className = 'exp-compact';
+  compact.textContent = compactText;
+  full.className = 'exp-full';
+  full.textContent = fullText;
+  text.replaceChildren(compact, full);
+  row?.setAttribute('aria-label', `경험치 ${fullText}. 눌러서 상세 표시 전환`);
+}
+
 function setExperience(progression = {}) {
   const level = Math.max(1, Number(progression.level) || 1);
   const current = Math.max(0, Number(progression.exp) || 0);
   const required = Math.max(0, Number(progression.expToNextLevel) || 0);
   if (level >= 200 || !required) {
-    $('expText').textContent = 'MAX';
+    setExperienceText('MAX', '최대 레벨');
     $('expBar').style.width = '100%';
     return;
   }
   const percentage = ratio(current, required);
-  $('expText').textContent = `${formatNumber(current)} / ${formatNumber(required)} · ${percentage.toFixed(2)}%`;
+  setExperienceText(
+    `${percentage.toFixed(2)}%`,
+    `${formatNumber(current)} / ${formatNumber(required)} · ${percentage.toFixed(2)}%`
+  );
   $('expBar').style.width = `${percentage}%`;
 }
 
@@ -377,9 +473,8 @@ function renderGame(data) {
   const resources = character.resources || {};
   const actionPoints = character.actionPoints || {};
   const job = character.job || {};
-  const migration = character.migration || {};
   if (character.huntingTime && typeof character.huntingTime === 'object') {
-    applyHuntingTime(character.huntingTime);
+    applyHuntingTime(character.huntingTime, { allowIncrease: false });
   }
   state.autoCombat = state.huntingTime.enabled && state.huntingTime.remainingSeconds > 0;
   localStorage.setItem('v2AutoCombat', String(state.autoCombat));
@@ -393,19 +488,11 @@ function renderGame(data) {
   $('unspentStats').textContent = `${formatNumber(progression.unspentStatPoints)} P`;
   $('unspentSkills').textContent = `${formatNumber(progression.unspentSkillPoints)} SP`;
   $('advancementTier').textContent = `${formatNumber(job.advancementTier)}차`;
-  $('migrationStatus').textContent = migration.status === 'prepared' ? '준비 완료' : (migration.status || '확인 중');
-  $('combatMotionLabel').textContent = `전투 모션 · ${character.combatPresentation?.label || '연습용 베기'}`;
 
   setResource('hp', resources.currentHp, resources.maxHp);
   setResource('mp', resources.currentMp, resources.maxMp);
   setExperience(progression);
   setResource('ap', actionPoints.current, actionPoints.max, '-');
-
-  const prepared = Boolean(state.character);
-  $('migrationStateLabel').textContent = prepared ? 'V2 자동 이관 완료' : '자동 이관 확인 중';
-  $('prepareStatus').textContent = prepared
-    ? `원본 스냅샷 연결 완료 · 변환 상태 ${migration.status || 'prepared'}`
-    : '서버가 누락된 이관 데이터를 자동으로 준비하고 있습니다.';
 
   if (character.inventory) setInventoryData(character.inventory);
   renderSkillQuickbar();
@@ -431,16 +518,19 @@ async function loadMeta() {
 }
 
 async function loadUserWorkspace() {
-  const [data, world, inventoryData, mailData] = await Promise.all([
+  const [data, world, inventoryData, mailData, eventData] = await Promise.all([
     request('/api/v2/migration/preview'),
     request('/api/v2/world/maps'),
     request('/api/v2/inventory'),
-    request('/api/v2/mail')
+    request('/api/v2/mail'),
+    request('/api/v2/event/late-summer-yard').catch(() => ({ event: null }))
   ]);
   state.maps = world.maps || [];
   state.startMapId = world.startMapId || 'main_lobby';
   setInventoryData(inventoryData.inventory);
   setMailboxData(mailData);
+  state.eventState = eventData.event || null;
+  $('eventButton')?.classList.toggle('hidden', !state.eventState?.active);
   const controlData = await request('/api/v2/world/claim-control', {
     method: 'POST',
     body: JSON.stringify({ clientId: state.worldClientId })
@@ -767,7 +857,7 @@ async function deleteAdminAccount(event) {
   event.preventDefault();
   const target = $('adminDeleteAccountTarget')?.value?.trim() || '';
   if (!target) return;
-  if (!window.confirm(`${target} V2 계정과 캐릭터를 영구 삭제할까요? V1 원본은 보존되지만 이후 자동 이관에서 영구 제외됩니다.`)) return;
+  if (!window.confirm(`${target} V2 계정과 캐릭터를 영구 삭제할까요? V1 원본은 보존되며 삭제한 V2 계정은 자동 복구되지 않습니다.`)) return;
   const button = event.currentTarget.querySelector('button[type="submit"]');
   button.disabled = true;
   $('adminDeleteAccountStatus').textContent = 'V2 계정 삭제 처리 중입니다.';
@@ -777,26 +867,13 @@ async function deleteAdminAccount(event) {
       body: JSON.stringify({ target })
     });
     $('adminDeleteAccountTarget').value = '';
-    $('adminDeleteAccountStatus').textContent = `${data.deleted?.displayName || target} 계정을 영구 삭제하고 자동 이관에서 제외했습니다.`;
-    await loadAdminSummary();
+    $('adminDeleteAccountStatus').textContent = `${data.deleted?.displayName || target} 계정을 영구 삭제했습니다.`;
+    await Promise.all([loadAdminSignupCode(), loadAdminGrantItems()]);
   } catch (err) {
     $('adminDeleteAccountStatus').textContent = err.message;
   } finally {
     button.disabled = false;
   }
-}
-
-async function loadAdminSummary() {
-  const data = await request('/api/v2/admin/migration-summary');
-  $('adminSummary').innerHTML = [
-    `전체 유저 ${formatNumber(data.totalUsers)}명`,
-    `영구 삭제 제외 ${formatNumber(data.deletedAccountCount || 0)}명`,
-    `V2 계정 ${formatNumber(data.accountCount)}명`,
-    `스냅샷 ${formatNumber(data.snapshotCount)}명`,
-    `V2 캐릭터 ${formatNumber(data.characterCount)}명`,
-    `기존 레벨 ${formatNumber(data.sourceLevelStats.min)}~${formatNumber(data.sourceLevelStats.max)}`,
-    `중앙 레벨 ${formatNumber(data.sourceLevelStats.median)}`
-  ].map((text) => `<span>${text}</span>`).join('');
 }
 
 function storeLoginState() {
@@ -824,27 +901,30 @@ async function enterWorkspace() {
 
   if (state.isAdmin) {
     $('adminWorkspace').classList.remove('hidden');
-    await Promise.all([loadAdminSummary(), loadAdminSignupCode(), loadAdminGrantItems()]);
+    await Promise.all([loadAdminSignupCode(), loadAdminGrantItems()]);
   } else {
     $('userWorkspace').classList.remove('hidden');
     await loadUserWorkspace();
   }
 }
 
+function normalizePasswordInput(value = '') {
+  return window.V2SignupValidation.normalizePasswordInput(value);
+}
+
 function updateSignupButtonState() {
-  const password = $('signupPassword').value;
-  const confirmation = $('signupPasswordConfirm').value;
-  const passwordsMatch = password.length >= 6 && password === confirmation;
-  $('passwordMatchState').textContent = passwordsMatch
-    ? '비밀번호가 일치합니다.'
-    : (confirmation ? '비밀번호가 일치하지 않습니다.' : '비밀번호 확인을 입력해주세요.');
-  $('passwordMatchState').classList.toggle('is-valid', passwordsMatch);
+  const passwordState = window.V2SignupValidation.getPasswordValidationState(
+    $('signupPassword').value,
+    $('signupPasswordConfirm').value
+  );
+  $('passwordMatchState').textContent = passwordState.message;
+  $('passwordMatchState').classList.toggle('is-valid', passwordState.valid);
   $('signupCodeState').classList.toggle('is-valid', state.signupCodeValid);
 
   const fieldsValid = /^[A-Za-z0-9_]{3,24}$/.test($('signupUsername').value.trim())
     && $('signupNickname').value.trim().length >= 2
     && $('signupNickname').value.trim().length <= 12;
-  $('signupSubmitButton').disabled = !(fieldsValid && passwordsMatch && state.signupCodeValid);
+  $('signupSubmitButton').disabled = !(fieldsValid && passwordState.valid && state.signupCodeValid);
 }
 
 async function validateSignupCode() {
@@ -911,8 +991,8 @@ async function signup(event) {
       body: JSON.stringify({
         username: $('signupUsername').value.trim(),
         nickname: $('signupNickname').value.trim(),
-        password: $('signupPassword').value,
-        passwordConfirm: $('signupPasswordConfirm').value,
+        password: normalizePasswordInput($('signupPassword').value),
+        passwordConfirm: normalizePasswordInput($('signupPasswordConfirm').value),
         signupCode: $('signupCode').value.trim()
       })
     });
@@ -930,7 +1010,7 @@ async function signup(event) {
 
 async function login(event) {
   event.preventDefault();
-  $('loginStatus').textContent = '계정을 확인하고 자동 이관 상태를 점검하는 중입니다.';
+  $('loginStatus').textContent = '계정을 확인하는 중입니다.';
   try {
     const data = await request('/api/v2/login', {
       method: 'POST',
@@ -955,9 +1035,18 @@ async function restoreLogin() {
   try {
     await enterWorkspace();
   } catch (err) {
-    clearLoginState();
     state.moveRunId += 1;
     state.combatRunId += 1;
+    if (![401, 403, 410].includes(Number(err.status))) {
+      $('workspace').classList.remove('hidden');
+      $('userWorkspace').classList.toggle('hidden', state.isAdmin);
+      $('adminWorkspace').classList.toggle('hidden', !state.isAdmin);
+      $('logoutButton').classList.remove('hidden');
+      $('loginPanel').classList.add('hidden');
+      setWorldActivity(`캐릭터 정보를 불러오지 못했습니다. 새로고침 후 다시 시도해주세요. (${err.message})`);
+      return;
+    }
+    clearLoginState();
     $('workspace').classList.add('hidden');
     $('userWorkspace').classList.add('hidden');
     $('adminWorkspace').classList.add('hidden');
@@ -967,38 +1056,20 @@ async function restoreLogin() {
   }
 }
 
-async function snapshotAllUsers() {
-  const button = $('snapshotAllButton');
-  button.disabled = true;
-  let afterId = '';
-  let processed = 0;
-  try {
-    do {
-      const data = await request('/api/v2/admin/snapshot-batch', {
-        method: 'POST',
-        body: JSON.stringify({ afterId, limit: 50 })
-      });
-      processed += data.processed;
-      afterId = data.nextAfterId;
-      $('adminStatus').textContent = `${formatNumber(processed)}명 재검사 완료`;
-      if (data.complete) break;
-    } while (afterId);
-    $('adminStatus').textContent = `전체 ${formatNumber(processed)}명의 V2 이관 상태를 확인했습니다.`;
-    await loadAdminSummary();
-  } catch (err) {
-    $('adminStatus').textContent = err.message;
-  } finally {
-    button.disabled = false;
-  }
-}
-
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 const CHARACTER_MOVEMENT_TIME_SCALE = 3;
-const CHARACTER_BASE_MOVEMENT_PX_PER_SECOND = 115 / CHARACTER_MOVEMENT_TIME_SCALE;
+const CHARACTER_BASE_MOVEMENT_MULTIPLIER = 1.2;
+const CHARACTER_BASE_MOVEMENT_PX_PER_SECOND = (
+  115 * CHARACTER_BASE_MOVEMENT_MULTIPLIER / CHARACTER_MOVEMENT_TIME_SCALE
+);
+const CHARACTER_FIELD_MOVE_MIN_MS = 220 / CHARACTER_BASE_MOVEMENT_MULTIPLIER;
+const CHARACTER_COMBAT_MOVE_MIN_MS = 840 / CHARACTER_BASE_MOVEMENT_MULTIPLIER;
+const CHARACTER_MOVE_MAX_MS = 7_200 / CHARACTER_BASE_MOVEMENT_MULTIPLIER;
 const CHARACTER_GRAVITY_PX_PER_SECOND_SQUARED = 1_180;
 // 304px/s keeps the same gravity while reducing the apex to half of the former jump.
 const CHARACTER_JUMP_VELOCITY_PX_PER_SECOND = 304;
 const CHARACTER_KNOCKBACK_LIFT_PX_PER_SECOND = 235;
+const CHARACTER_FLASH_JUMP_LIFT_PX_PER_SECOND = 72;
 const RALLY_POINT_STORAGE_KEY = 'v2RallyPoint';
 const CHARACTER_MOTION_CLASSES = [
   'is-walking',
@@ -1019,16 +1090,384 @@ const CHARACTER_MOTION_CLASSES = [
   'is-cast',
   'is-dead'
 ];
-const PORTAL_POSITIONS = [
-  { left: '4%', side: 'left', characterX: 8 },
-  { left: '82%', side: 'right', characterX: 78 },
-  { left: '61%', side: 'upper', characterX: 61 },
-  { left: '32%', side: 'left', characterX: 34 },
-  { left: '46%', side: 'upper', characterX: 46 }
-];
-
 function getMap(mapId) {
-  return state.maps.find((map) => map.id === mapId) || null;
+  const requestedId = String(mapId || '');
+  const baseId = requestedId.split('@')[0];
+  const map = state.maps.find((entry) => entry.id === baseId) || null;
+  return map && requestedId !== baseId ? { ...map, id: requestedId, baseMapId: baseId } : map;
+}
+
+function mapHasStorageNpc(map) {
+  return Boolean(
+    map?.safeZone
+    && map?.shopId
+    && !map?.transportOnly
+    && !map?.features?.includes('bus-stop')
+    && !map?.features?.includes('bus-interior')
+  );
+}
+
+const FALLBACK_MAP_LAYOUT = Object.freeze({
+  id: 'fallback',
+  worldWidth: 760,
+  worldHeight: 390,
+  maxMonsters: 14,
+  spawnPerWave: 6,
+  platforms: Object.freeze([
+    Object.freeze({
+      id: 'ground',
+      floor: 0,
+      x: 0,
+      width: 100,
+      bottom: 42,
+      spawnEnabled: true,
+      spawnSlots: 14
+    })
+  ]),
+  connectors: Object.freeze([])
+});
+
+function getMapLayout(map = getMap(state.currentMapId)) {
+  return map?.layout || FALLBACK_MAP_LAYOUT;
+}
+
+function getWorldWidth(map = getMap(state.currentMapId)) {
+  return Math.max(760, Number(getMapLayout(map).worldWidth) || 760);
+}
+
+function getWorldHeight(map = getMap(state.currentMapId)) {
+  return Math.max(300, Number(getMapLayout(map).worldHeight) || 390);
+}
+
+function getFloorPlatforms(floor, map = getMap(state.currentMapId)) {
+  return getMapLayout(map).platforms.filter(
+    (platform) => Number(platform.floor) === Math.max(0, Math.floor(Number(floor) || 0))
+  );
+}
+
+function getPlatformAt(floor, worldX = 50, map = getMap(state.currentMapId)) {
+  const platforms = getFloorPlatforms(floor, map);
+  if (!platforms.length) return getMapLayout(map).platforms[0] || FALLBACK_MAP_LAYOUT.platforms[0];
+  const x = Number(worldX) || 0;
+  return platforms.find((platform) => (
+    x >= Number(platform.x)
+    && x <= Number(platform.x) + Number(platform.width)
+  )) || [...platforms].sort((left, right) => {
+    const leftCenter = Number(left.x) + Number(left.width) / 2;
+    const rightCenter = Number(right.x) + Number(right.width) / 2;
+    return Math.abs(leftCenter - x) - Math.abs(rightCenter - x);
+  })[0];
+}
+
+function getFloorBottom(floor, worldX = 50, map = getMap(state.currentMapId)) {
+  return Math.max(42, Number(getPlatformAt(floor, worldX, map)?.bottom) || 42);
+}
+
+function clampToPlatform(worldX, floor, map = getMap(state.currentMapId)) {
+  const platform = getPlatformAt(floor, worldX, map);
+  const minimum = Math.max(1, Number(platform.x) + 1);
+  const maximum = Math.min(96, Number(platform.x) + Number(platform.width) - 1);
+  return Math.max(minimum, Math.min(maximum, Number(worldX) || minimum));
+}
+
+function setCharacterFloor(floor, worldX = getCharacterX()) {
+  const character = $('fieldCharacter');
+  if (!character) return;
+  const resolvedFloor = Math.max(0, Math.floor(Number(floor) || 0));
+  character.dataset.floor = String(resolvedFloor);
+  character.style.bottom = `${getFloorBottom(resolvedFloor, worldX)}px`;
+}
+
+function getConnectorBetweenFloors(fromFloor, toFloor, worldX = getCharacterX()) {
+  return getMapLayout().connectors
+    .filter((connector) => (
+      (
+        Number(connector.fromFloor) === Number(fromFloor)
+        && Number(connector.toFloor) === Number(toFloor)
+      ) || (
+        Number(connector.fromFloor) === Number(toFloor)
+        && Number(connector.toFloor) === Number(fromFloor)
+      )
+    ))
+    .sort((left, right) => (
+      Math.abs(Number(left.x) - Number(worldX))
+      - Math.abs(Number(right.x) - Number(worldX))
+    ))[0] || null;
+}
+
+function renderWorldDecorations(map) {
+  const layer = $('worldDecorationLayer');
+  if (!layer) return;
+  if (map?.features?.includes('bus-stop')) {
+    layer.innerHTML = `
+      <div class="bus-stop-shelter"><i></i><b>BUS</b><span>피치전자 노선 · 15분 간격</span></div>
+      <div class="bus-stop-sign"><i></i><strong>정류장</strong></div>
+      <div class="road-lane-mark lane-a"></div><div class="road-lane-mark lane-b"></div>`;
+    return;
+  }
+  if (map?.features?.includes('bus-interior')) {
+    layer.innerHTML = `
+      <div class="bus-cabin-window window-a"><i></i></div>
+      <div class="bus-cabin-window window-b"><i></i></div>
+      <div class="bus-cabin-window window-c"><i></i></div>
+      <div class="bus-cabin-seat seat-a"></div><div class="bus-cabin-seat seat-b"></div>
+      <div class="bus-cabin-seat seat-c"></div><div class="bus-cabin-seat seat-d"></div>
+      <div class="bus-cabin-handle handle-a"></div><div class="bus-cabin-handle handle-b"></div>
+      <div class="bus-cabin-handle handle-c"></div>`;
+    return;
+  }
+  if (map?.features?.includes('peach-electronics')) {
+    layer.innerHTML = `
+      <div class="peach-company-sign"><i>PEACH</i><b>피치전자</b></div>
+      <div class="peach-light-strip strip-a"></div><div class="peach-light-strip strip-b"></div>
+      <div class="peach-machine machine-a"><i></i></div><div class="peach-machine machine-b"><i></i></div>
+      <div class="peach-cable cable-a"></div><div class="peach-cable cable-b"></div>`;
+    return;
+  }
+  const layout = getMapLayout(map);
+  const count = Math.max(8, Math.round(getWorldWidth(map) / 150));
+  const props = Array.from({ length: count }, (_, index) => {
+    const left = (index * 19 + Number(layout.variant || 0) * 13) % 96;
+    const bottom = 54 + (index % 3) * 98;
+    return `<i class="world-prop prop-${index % 4}" style="left:${left}%;bottom:${bottom}px"></i>`;
+  }).join('');
+  const iceCrystals = map?.features?.includes('ice')
+    ? '<i class="ice-crystal crystal-a"></i><i class="ice-crystal crystal-b"></i><i class="ice-crystal crystal-c"></i>'
+    : '';
+  layer.innerHTML = props + iceCrystals;
+}
+
+function renderTerrain(map) {
+  const scene = $('worldScene');
+  const layer = $('terrainLayer');
+  if (!scene || !layer) return;
+  const layout = getMapLayout(map);
+  scene.style.width = `${getWorldWidth(map)}px`;
+  scene.style.height = `${getWorldHeight(map)}px`;
+  scene.dataset.layout = String(layout.id || 'fallback');
+  scene.dataset.variant = String(layout.variant || 0);
+  const platformMarkup = layout.platforms.map((platform) => (
+    `<div class="terrain-platform${platform.spawnEnabled === false ? ' is-quiet' : ''}" `
+    + `data-platform-id="${escapeHtml(platform.id)}" data-floor="${Number(platform.floor) || 0}" `
+    + `style="left:${Number(platform.x) || 0}%;width:${Number(platform.width) || 0}%;bottom:${Number(platform.bottom) || 42}px">`
+    + '<i></i><b></b></div>'
+  )).join('');
+  const connectorMarkup = layout.connectors.map((connector) => {
+    const fromBottom = getFloorBottom(connector.fromFloor, connector.x, map);
+    const toBottom = getFloorBottom(connector.toFloor, connector.x, map);
+    const lowerBottom = Math.min(fromBottom, toBottom) + 8;
+    const height = Math.max(54, Math.abs(toBottom - fromBottom) - 4);
+    return `<div class="terrain-connector is-${connector.type === 'jump' ? 'jump' : 'ladder'}" `
+      + `data-connector-id="${escapeHtml(connector.id)}" `
+      + `style="left:${Number(connector.x) || 0}%;bottom:${lowerBottom}px;height:${height}px">`
+      + '<i></i><i></i><i></i><i></i><i></i></div>';
+  }).join('');
+  layer.innerHTML = platformMarkup + connectorMarkup;
+  renderWorldDecorations(map);
+}
+
+function getMinimapPointBottom(floor, worldX, map = getMap(state.currentMapId)) {
+  return getFloorBottom(floor, worldX, map) / getWorldHeight(map) * 100;
+}
+
+function updateMinimapRallyMarker() {
+  const marker = $('worldMinimapCanvas')?.querySelector('[data-minimap-target]');
+  if (!marker) return;
+  const point = state.rallyPoint;
+  const visible = Boolean(point && point.mapId === state.currentMapId);
+  marker.classList.toggle('hidden', !visible);
+  if (!visible) return;
+  marker.style.left = `${Math.max(0, Math.min(100, Number(point.x) || 0))}%`;
+  marker.style.bottom = `${getMinimapPointBottom(point.floor, point.x)}%`;
+}
+
+function renderWorldMinimap(players = state.worldRemotePlayers) {
+  const canvas = $('worldMinimapCanvas');
+  const map = getMap(state.currentMapId);
+  if (!canvas || !map) return;
+  const layout = getMapLayout(map);
+  const partyIds = new Set(
+    state.partyState?.party?.members?.map((member) => String(member.userId))
+    || Array.from(state.partyMemberIds)
+  );
+  state.partyMemberIds = partyIds;
+  const terrain = layout.platforms.map((platform) => (
+    `<i class="minimap-platform" style="left:${Number(platform.x) || 0}%;`
+    + `width:${Number(platform.width) || 0}%;bottom:${getMinimapPointBottom(platform.floor, Number(platform.x) + Number(platform.width) / 2, map)}%"></i>`
+  )).join('');
+  const connectors = layout.connectors.map((connector) => {
+    const from = getMinimapPointBottom(connector.fromFloor, connector.x, map);
+    const to = getMinimapPointBottom(connector.toFloor, connector.x, map);
+    return `<i class="minimap-connector" style="left:${Number(connector.x) || 0}%;`
+      + `bottom:${Math.min(from, to)}%;height:${Math.max(3, Math.abs(to - from))}%"></i>`;
+  }).join('');
+  const portals = map.connections.map((connection, index) => {
+    const position = getPortalPlacement(map, index);
+    return `<i class="minimap-landmark is-portal" title="포탈" style="left:${position.left};`
+      + `bottom:${getMinimapPointBottom(position.floor, position.characterX, map)}%"></i>`;
+  }).join('');
+  const npcEntries = [
+    ...(map.npcs || []).map((npc) => ({ x: Number(npc.x) || 50, floor: 0 })),
+    ...(map.shopId ? [{ x: 86, floor: 0 }] : []),
+    ...(map.scrollShopId ? [{ x: 74, floor: 0 }] : []),
+    ...(mapHasStorageNpc(map) ? [{ x: 64, floor: 0 }] : [])
+  ];
+  const npcs = npcEntries.map((npc) => (
+    `<i class="minimap-landmark is-npc" title="NPC" style="left:${npc.x}%;`
+    + `bottom:${getMinimapPointBottom(npc.floor, npc.x, map)}%"></i>`
+  )).join('');
+  if (canvas.dataset.mapId !== map.id) {
+    canvas.dataset.mapId = map.id;
+    canvas.innerHTML = terrain + connectors + portals + npcs
+      + '<b class="minimap-target-marker hidden" data-minimap-target></b>'
+      + '<b class="minimap-dot is-self" data-minimap-self></b>';
+  }
+  const visibleIds = new Set();
+  for (const player of players || []) {
+    const userId = String(player.userId);
+    if (!userId || userId === String(state.selfUserId)) continue;
+    visibleIds.add(userId);
+    let dot = [...canvas.querySelectorAll('[data-minimap-user]')].find(
+      (entry) => entry.dataset.minimapUser === userId
+    );
+    if (!dot) {
+      dot = document.createElement('b');
+      dot.className = 'minimap-dot';
+      dot.dataset.minimapUser = userId;
+      canvas.appendChild(dot);
+    }
+    dot.classList.toggle('is-party', partyIds.has(userId));
+    dot.classList.toggle('is-other', !partyIds.has(userId));
+    dot.style.left = `${Math.max(0, Math.min(100, Number(player.x) || 0))}%`;
+    dot.style.bottom = `${getMinimapPointBottom(player.floor, player.x, map)}%`;
+    const jumpSequence = Math.max(0, Math.floor(Number(player.jumpEvent?.sequence) || 0));
+    if (jumpSequence && dot.dataset.jumpSequence !== String(jumpSequence)) {
+      dot.dataset.jumpSequence = String(jumpSequence);
+      dot.classList.remove('is-jumping', 'is-flash-jumping');
+      void dot.offsetWidth;
+      const jumpClass = player.jumpEvent?.kind === 'flash-jump'
+        ? 'is-flash-jumping'
+        : 'is-jumping';
+      dot.classList.add(jumpClass);
+      setTimeout(() => {
+        if (dot.dataset.jumpSequence === String(jumpSequence)) dot.classList.remove(jumpClass);
+      }, jumpClass === 'is-flash-jumping' ? 420 : 560);
+    }
+  }
+  canvas.querySelectorAll('[data-minimap-user]').forEach((dot) => {
+    if (!visibleIds.has(dot.dataset.minimapUser)) dot.remove();
+  });
+  $('worldMinimapName').textContent = map.name;
+  updateSelfMinimapDot();
+  updateMinimapRallyMarker();
+}
+
+function updateSelfMinimapDot(characterX = null) {
+  const dot = $('worldMinimapCanvas')?.querySelector('[data-minimap-self]');
+  if (!dot) return;
+  const x = Number.isFinite(characterX) ? characterX : getCharacterX();
+  dot.style.left = `${x}%`;
+  dot.style.bottom = `${getMinimapPointBottom(getCharacterFloor(), x)}%`;
+}
+
+function renderPartyCombatHud() {
+  const hud = $('partyCombatHud');
+  if (!hud) return;
+  const members = Array.isArray(state.partyMembers) ? state.partyMembers : [];
+  const visible = Boolean(state.partyState?.party && members.length);
+  hud.classList.toggle('hidden', !visible);
+  if (!visible) {
+    hud.replaceChildren();
+    state.partyHudElements.clear();
+    return;
+  }
+  const visibleIds = new Set();
+  members.forEach((member) => {
+    const userId = String(member.userId || '');
+    if (!userId) return;
+    visibleIds.add(userId);
+    let refs = state.partyHudElements.get(userId);
+    if (!refs?.element?.isConnected) {
+      const element = document.createElement('div');
+      const name = document.createElement('b');
+      const status = document.createElement('small');
+      const hp = document.createElement('i');
+      element.className = 'party-combat-member';
+      element.append(name, status, hp);
+      hud.appendChild(element);
+      refs = { element, name, status, hp };
+      state.partyHudElements.set(userId, refs);
+    }
+    const sameMap = member.isSelf || member.sameMap === true || member.mapId === state.currentMapId;
+    const currentHp = sameMap ? Math.max(0, Number(member.currentHp) || 0) : 1;
+    const maxHp = sameMap ? Math.max(1, Number(member.maxHp) || 1) : 1;
+    const hpPercent = sameMap ? Math.max(0, Math.min(100, currentHp / maxHp * 100)) : 100;
+    const statusText = !member.online ? 'OFF' : (sameMap ? `${Math.round(hpPercent)}%` : '다른 맵');
+    refs.name.textContent = member.nickname || '파티원';
+    refs.status.textContent = statusText;
+    refs.hp.style.setProperty('--party-hp', `${hpPercent}%`);
+    refs.element.classList.toggle('is-self', Boolean(member.isSelf));
+    refs.element.classList.toggle('is-offline', !member.online);
+    refs.element.classList.toggle('is-away', !sameMap);
+  });
+  for (const [userId, refs] of state.partyHudElements) {
+    if (visibleIds.has(userId)) continue;
+    refs.element.remove();
+    state.partyHudElements.delete(userId);
+  }
+}
+
+const MOBILE_WORLD_CAMERA_FRAME_INTERVAL_MS = 1000 / 30;
+const worldCameraFrameIntervalMs = globalThis.matchMedia?.('(pointer: coarse)').matches
+  ? MOBILE_WORLD_CAMERA_FRAME_INTERVAL_MS
+  : 0;
+
+function runWorldCameraFrame(frameTime = 0) {
+  if (
+    worldCameraFrameIntervalMs
+    && frameTime - state.worldCameraLastFrameAt < worldCameraFrameIntervalMs
+  ) {
+    state.worldCameraFrame = requestAnimationFrame(runWorldCameraFrame);
+    return;
+  }
+  state.worldCameraLastFrameAt = frameTime;
+  const stage = $('worldStage');
+  const scene = $('worldScene');
+  const character = $('fieldCharacter');
+  if (stage && scene && character && stage.clientWidth > 0) {
+    const sceneWidth = scene.offsetWidth;
+    const sceneHeight = scene.offsetHeight;
+    const characterBottom = Number.parseFloat(character.style.bottom)
+      || getFloorBottom(getCharacterFloor(), getCharacterX());
+    const characterCenterX = character.offsetLeft + character.offsetWidth / 2;
+    const characterX = sceneWidth > 0 ? character.offsetLeft / sceneWidth * 100 : null;
+    const characterCenterY = sceneHeight - characterBottom - character.offsetHeight / 4;
+    const maximumX = Math.max(0, sceneWidth - stage.clientWidth);
+    const maximumY = Math.max(0, sceneHeight - stage.clientHeight);
+    const targetX = Math.max(0, Math.min(maximumX, characterCenterX - stage.clientWidth * .5));
+    const targetY = Math.max(0, Math.min(maximumY, characterCenterY - stage.clientHeight * .58));
+    const cameraEase = worldCameraFrameIntervalMs ? .26 : .14;
+    state.worldCameraX += (targetX - state.worldCameraX) * cameraEase;
+    state.worldCameraY += (targetY - state.worldCameraY) * cameraEase;
+    if (Math.abs(targetX - state.worldCameraX) < .1) state.worldCameraX = targetX;
+    if (Math.abs(targetY - state.worldCameraY) < .1) state.worldCameraY = targetY;
+    scene.style.transform = `translate3d(${-state.worldCameraX}px, ${-state.worldCameraY}px, 0)`;
+    updateSelfMinimapDot(characterX);
+  }
+  state.worldCameraFrame = requestAnimationFrame(runWorldCameraFrame);
+}
+
+function startWorldCamera({ reset = false } = {}) {
+  if (reset) {
+    state.worldCameraX = 0;
+    state.worldCameraY = 0;
+    state.worldCameraLastFrameAt = 0;
+    const scene = $('worldScene');
+    if (scene) scene.style.transform = 'translate3d(0, 0, 0)';
+  }
+  if (!state.worldCameraFrame) {
+    state.worldCameraFrame = requestAnimationFrame(runWorldCameraFrame);
+  }
 }
 
 function getCharacterLevel() {
@@ -1121,27 +1560,38 @@ async function triggerCharacterFlashJump() {
   const physics = state.characterPhysics;
   const skill = getLearnedFlashJumpSkill();
   const character = $('fieldCharacter');
-  if (!skill || !character || physics.flashJumpPending) return false;
+  if (!skill || !character) return false;
   const mpCost = Math.max(0, Number(skill.values?.mpCost) || 0);
   if (Number(state.character?.resources?.currentMp) < mpCost) {
     setWorldActivity('플래시 점프를 사용할 정신력이 부족합니다.');
     return false;
   }
   const distancePx = Math.max(1, Math.min(320, Number(skill.values?.distance) || skill.range || 320));
-  const facingLeft = character.classList.contains('facing-left');
-  const direction = facingLeft ? -1 : 1;
+  const direction = getSkillTravelDirection();
+  const facingLeft = direction < 0;
+  character.classList.toggle('facing-left', facingLeft);
   const currentX = getCharacterX();
-  const nextX = Math.max(0, Math.min(94, currentX + direction * distancePx / 760 * 100));
+  const nextX = window.V2CombatTargeting?.resolveTravelDestination?.({
+    currentX,
+    direction,
+    distancePx,
+    worldWidth: getWorldWidth()
+  }) ?? Math.max(
+    0,
+    Math.min(94, currentX + direction * distancePx / getWorldWidth() * 100)
+  );
 
   physics.flashJumpPending = true;
+  physics.flashJumpMovementPauseUntil = Date.now() + 280;
   physics.airJumpsUsed += 1;
-  physics.velocityY = Math.max(physics.velocityY, 72);
+  physics.velocityY = CHARACTER_FLASH_JUMP_LIFT_PX_PER_SECOND;
   character.classList.add('is-flash-jumping');
   character.style.transitionDuration = '120ms';
   character.style.left = `${nextX}%`;
   registerLocalJumpEvent('flash-jump');
+  const localJumpSequence = physics.jumpSequence;
   setTimeout(() => {
-    character.style.transitionDuration = '';
+    if (!state.moving) character.style.transitionDuration = '';
     character.classList.remove('is-flash-jumping');
   }, 260);
   setWorldActivity(`${skill.name} 사용`);
@@ -1170,7 +1620,12 @@ async function triggerCharacterFlashJump() {
     }
     if (data.questJournal) applyQuestJournalUpdate(data.questJournal);
     const serverJump = data.combat?.flashJump;
-    if (serverJump && character) {
+    if (
+      serverJump
+      && character
+      && !state.moving
+      && physics.jumpSequence === localJumpSequence
+    ) {
       character.style.left = `${Math.max(0, Math.min(94, Number(serverJump.x) || nextX))}%`;
     }
     return true;
@@ -1216,7 +1671,7 @@ function triggerCharacterJump({ knockback = false } = {}) {
   physics.airborne = true;
   physics.velocityY = knockback
     ? Math.max(physics.velocityY, CHARACTER_KNOCKBACK_LIFT_PX_PER_SECOND)
-    : CHARACTER_JUMP_VELOCITY_PX_PER_SECOND;
+    : CHARACTER_JUMP_VELOCITY_PX_PER_SECOND * getJumpPowerPercent() / 100;
   physics.lastFrameAt = 0;
   $('fieldCharacter').classList.add('is-physics-airborne');
   registerLocalJumpEvent('jump');
@@ -1250,17 +1705,18 @@ function endManualSkillPriority() {
 }
 
 function getCharacterFloor() {
-  return (Number.parseFloat($('fieldCharacter').style.bottom) || 42) > 60 ? 1 : 0;
+  return Math.max(0, Math.floor(Number($('fieldCharacter')?.dataset.floor) || 0));
 }
 
 function getCharacterX() {
   const character = $('fieldCharacter');
-  const stage = $('worldStage');
+  const scene = $('worldScene');
+  if (!character || !scene) return 0;
   const renderedLeftPx = Number.parseFloat(getComputedStyle(character).left);
-  const renderedPercent = stage.clientWidth > 0 && Number.isFinite(renderedLeftPx)
-    ? renderedLeftPx / stage.clientWidth * 100
+  const renderedPercent = scene.clientWidth > 0 && Number.isFinite(renderedLeftPx)
+    ? renderedLeftPx / scene.clientWidth * 100
     : Number.parseFloat(character.style.left);
-  return Math.max(0, Math.min(94, Number(renderedPercent) || 0));
+  return Math.max(0, Math.min(100, Number(renderedPercent) || 0));
 }
 
 function stopCharacterMovementAtCurrentPosition() {
@@ -1280,7 +1736,7 @@ function stopCharacterMovementAtCurrentPosition() {
 }
 
 function getPortalFloor(portal) {
-  return portal?.side === 'upper' ? 1 : 0;
+  return Math.max(0, Math.floor(Number(portal?.floor) || 0));
 }
 
 function isCharacterTouchingPortal(portal) {
@@ -1296,12 +1752,13 @@ function loadStoredRallyPoint() {
       parsed
       && typeof parsed.mapId === 'string'
       && Number.isFinite(Number(parsed.x))
-      && [0, 1].includes(Number(parsed.floor))
+      && Number.isFinite(Number(parsed.floor))
     ) {
       return {
         mapId: parsed.mapId,
         x: Math.max(2, Math.min(92, Number(parsed.x))),
-        floor: Number(parsed.floor)
+        floor: Math.max(0, Math.floor(Number(parsed.floor) || 0)),
+        platformId: String(parsed.platformId || '')
       };
     }
   } catch (_) {}
@@ -1314,16 +1771,20 @@ function renderRallyPoint() {
   if (!marker) return;
   const visible = Boolean(point && point.mapId === state.currentMapId);
   marker.classList.toggle('hidden', !visible);
-  if (!visible) return;
-  marker.style.left = `${point.x}%`;
-  marker.style.bottom = point.floor === 1
-    ? `${getUpperPlatformBottom()}px`
-    : '42px';
+  if (visible) {
+    marker.style.left = `${point.x}%`;
+    marker.style.bottom = `${getFloorBottom(point.floor, point.x)}px`;
+  }
+  updateMinimapRallyMarker();
 }
 
 function setRallyPoint(point) {
-  state.rallyPoint = point;
-  localStorage.setItem(RALLY_POINT_STORAGE_KEY, JSON.stringify(point));
+  const platform = getPlatformAt(point.floor, point.x);
+  state.rallyPoint = {
+    ...point,
+    platformId: String(point.platformId || platform?.id || '')
+  };
+  localStorage.setItem(RALLY_POINT_STORAGE_KEY, JSON.stringify(state.rallyPoint));
   renderRallyPoint();
 }
 
@@ -1336,34 +1797,60 @@ function clearRallyPoint(removeStored = true) {
 function getNearestWalkablePoint(clientX, clientY) {
   const stage = $('worldStage');
   const stageRect = stage.getBoundingClientRect();
-  const clickX = Math.max(0, Math.min(stageRect.width, clientX - stageRect.left));
-  const clickY = Math.max(0, Math.min(stageRect.height, clientY - stageRect.top));
-  const candidates = [{
-    xPx: Math.max(stageRect.width * .02, Math.min(stageRect.width * .92, clickX)),
-    yPx: stageRect.height - 42,
-    floor: 0
-  }];
-  const ladder = $('worldRope');
-  const upper = stage.querySelector('.platform-upper');
-  if (upper && ladder && !ladder.classList.contains('hidden')) {
-    const upperRect = upper.getBoundingClientRect();
-    const upperLeft = upperRect.left - stageRect.left;
-    const upperRight = upperRect.right - stageRect.left;
-    candidates.push({
-      xPx: Math.max(upperLeft, Math.min(upperRight, clickX)),
-      yPx: upperRect.top - stageRect.top,
-      floor: 1
-    });
-  }
+  const map = getMap(state.currentMapId);
+  const worldWidth = getWorldWidth(map);
+  const worldHeight = getWorldHeight(map);
+  const clickX = Math.max(0, Math.min(worldWidth, clientX - stageRect.left + state.worldCameraX));
+  const clickY = Math.max(0, Math.min(worldHeight, clientY - stageRect.top + state.worldCameraY));
+  const candidates = getMapLayout(map).platforms.map((platform) => {
+    const left = Number(platform.x) / 100 * worldWidth;
+    const right = (Number(platform.x) + Number(platform.width)) / 100 * worldWidth;
+    return {
+      xPx: Math.max(left + 8, Math.min(right - 8, clickX)),
+      yPx: worldHeight - Number(platform.bottom),
+      floor: Math.max(0, Math.floor(Number(platform.floor) || 0)),
+      platformId: String(platform.id || '')
+    };
+  });
   const selected = candidates.sort((left, right) => (
     Math.hypot(left.xPx - clickX, left.yPx - clickY)
       - Math.hypot(right.xPx - clickX, right.yPx - clickY)
   ))[0];
   return {
     mapId: state.currentMapId,
-    x: Math.max(2, Math.min(92, selected.xPx / stageRect.width * 100)),
-    floor: selected.floor
+    x: Math.max(1, Math.min(99, selected.xPx / worldWidth * 100)),
+    floor: selected.floor,
+    platformId: selected.platformId
   };
+}
+
+function getNearestMinimapWalkablePoint(clientX, clientY) {
+  const canvas = $('worldMinimapCanvas');
+  const map = getMap(state.currentMapId);
+  if (!canvas || !map) return null;
+  const rect = canvas.getBoundingClientRect();
+  const clickX = Math.max(0, Math.min(100, (clientX - rect.left) / Math.max(1, rect.width) * 100));
+  const clickBottom = Math.max(
+    0,
+    Math.min(100, (rect.bottom - clientY) / Math.max(1, rect.height) * 100)
+  );
+  const candidates = getMapLayout(map).platforms.map((platform) => {
+    const minimum = Number(platform.x) || 0;
+    const maximum = minimum + (Number(platform.width) || 0);
+    const x = Math.max(minimum + 1, Math.min(maximum - 1, clickX));
+    const bottom = getMinimapPointBottom(platform.floor, x, map);
+    return {
+      mapId: state.currentMapId,
+      x,
+      floor: Math.max(0, Math.floor(Number(platform.floor) || 0)),
+      platformId: String(platform.id || ''),
+      distance: Math.hypot(x - clickX, (bottom - clickBottom) * 1.35)
+    };
+  });
+  const selected = candidates.sort((left, right) => left.distance - right.distance)[0];
+  if (!selected) return null;
+  delete selected.distance;
+  return selected;
 }
 
 function isAtRallyPoint(point = state.rallyPoint) {
@@ -1402,6 +1889,41 @@ function getMovementSpeedPercent() {
   return Math.max(10, Number(state.character?.derivedStats?.movementSpeed) || 100);
 }
 
+function getJumpPowerPercent() {
+  return Math.max(10, Number(state.character?.derivedStats?.jumpPower) || 100);
+}
+
+function getSkillTravelDirection() {
+  const character = $('fieldCharacter');
+  const currentX = getCharacterX();
+  const combatTarget = state.worldMonsters.find(
+    (monster) => String(monster.id) === String(state.combatTargetId || '')
+  );
+  const fallbackDirection = character?.classList.contains('facing-left') ? -1 : 1;
+  return window.V2CombatTargeting?.resolveTravelDirection?.({
+    currentX,
+    activeMoveTargetX: state.activeMoveTargetX,
+    combatTargetX: combatTarget?.x,
+    fallbackDirection
+  }) ?? fallbackDirection;
+}
+
+window.getSkillTravelDirection = getSkillTravelDirection;
+
+function isStealthActive(now = Date.now()) {
+  const activeBuffs = Array.isArray(state.character?.skillTree?.activeBuffs)
+    ? state.character.skillTree.activeBuffs
+    : [];
+  const stealthBuffs = activeBuffs.filter((buff) => Number(buff?.effects?.stealth) > 0);
+  if (stealthBuffs.length) {
+    return stealthBuffs.some((buff) => {
+      const expiresAt = new Date(buff.expiresAt || 0).getTime();
+      return !Number.isFinite(expiresAt) || expiresAt <= 0 || expiresAt > now;
+    });
+  }
+  return Number(state.character?.skillEffects?.stealth) > 0;
+}
+
 function getScaledMovementDuration(baseDuration) {
   return Math.max(
     1,
@@ -1432,13 +1954,15 @@ function showFloatingDamageAtPoint(point, amount, kind = 'outgoing', sequence = 
 
 function getWorldStagePoint(worldX, floor = 0) {
   const stage = $('worldStage');
-  if (!stage) return null;
+  const scene = $('worldScene');
+  if (!stage || !scene) return null;
   const stageRect = stage.getBoundingClientRect();
+  const sceneRect = scene.getBoundingClientRect();
   const normalizedX = Math.max(0, Math.min(100, Number(worldX) || 0));
-  const bottom = Number(floor) === 1 ? getUpperPlatformBottom() + 1 : 43;
+  const bottom = getFloorBottom(floor, normalizedX) + 1;
   return {
-    x: stageRect.width * normalizedX / 100,
-    y: Math.max(24, stageRect.height - bottom - 18)
+    x: sceneRect.left - stageRect.left + scene.offsetWidth * normalizedX / 100,
+    y: Math.max(24, sceneRect.top - stageRect.top + scene.offsetHeight - bottom - 18)
   };
 }
 
@@ -1544,6 +2068,42 @@ function playSummonAttackMotion(combat = {}) {
   });
 }
 
+function playFollowUpSummonHitMotion(hit = {}, summon = {}) {
+  const companion = Array.from(document.querySelectorAll('.field-companion')).find(
+    (entry) => entry.dataset.summonSkillId === String(summon.skillId || '')
+  ) || $('fieldCompanion');
+  const stage = $('worldStage');
+  if (!companion || !stage) return;
+  const target = Array.from($('monsterLayer')?.children || []).find(
+    (node) => node.dataset.monsterId === String(hit.monsterId || '')
+  );
+  companion.classList.remove('is-attacking');
+  void companion.offsetWidth;
+  companion.classList.add('is-attacking');
+  setTimeout(() => companion.classList.remove('is-attacking'), 360);
+  if (!target) return;
+
+  const visual = summon.attackVisual || {};
+  const stageRect = stage.getBoundingClientRect();
+  const sourceRect = companion.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  const sourceX = sourceRect.left - stageRect.left + sourceRect.width / 2;
+  const sourceY = sourceRect.top - stageRect.top + sourceRect.height / 2;
+  const targetX = targetRect.left - stageRect.left + targetRect.width / 2;
+  const targetY = targetRect.top - stageRect.top + targetRect.height / 2;
+  const projectile = document.createElement('span');
+  projectile.className = `summon-projectile is-${String(visual.style || 'energy-bolt')}`;
+  projectile.textContent = String(visual.projectile || '◆');
+  projectile.style.left = `${sourceX}px`;
+  projectile.style.top = `${sourceY}px`;
+  projectile.style.color = String(visual.color || '#ffcf67');
+  projectile.style.setProperty('--summon-travel-x', `${targetX - sourceX}px`);
+  projectile.style.setProperty('--summon-travel-y', `${targetY - sourceY}px`);
+  stage.appendChild(projectile);
+  projectile.addEventListener('animationend', () => projectile.remove(), { once: true });
+  setTimeout(() => projectile.remove(), 850);
+}
+
 function classifySkillVisual(skill = {}) {
   const id = String(skill.id || '').toLowerCase();
   const effect = String(skill.effect || '').toLowerCase();
@@ -1577,24 +2137,30 @@ function getSkillEffectAnchor(combat = {}) {
   return $('fieldCharacter');
 }
 
-function playSkillChargeEffect(skill = {}, durationMs = 1500) {
-  if (
+function isBigBangVisualSkill(skill = {}) {
+  return BIG_BANG_VISUAL_SKILL_IDS.has(String(skill.id || ''));
+}
+
+function playSkillChargeEffect(skill = {}, durationMs = 1000) {
+  const progressivePiercing = (
     String(skill.id || '') !== 'extended_cd94045605'
     && String(skill.effect || '') !== 'progressive-piercing-damage'
-  ) return;
+  ) === false;
+  const bigBang = isBigBangVisualSkill(skill);
+  if (!progressivePiercing && !bigBang) return;
   const stage = $('worldStage');
   const caster = $('fieldCharacter');
   if (!stage || !caster) return;
   const stageRect = stage.getBoundingClientRect();
   const casterRect = caster.getBoundingClientRect();
   const charge = document.createElement('span');
-  charge.className = 'piercing-charge-effect is-sustained';
+  charge.className = `piercing-charge-effect is-sustained${bigBang ? ' is-big-bang' : ''}`;
   charge.style.left = `${casterRect.left - stageRect.left + casterRect.width / 2}px`;
   charge.style.top = `${casterRect.top - stageRect.top + casterRect.height * .46}px`;
   charge.style.setProperty('--piercing-charge-duration', `${Math.max(1, durationMs)}ms`);
   stage.appendChild(charge);
   const gauge = document.createElement('span');
-  gauge.className = 'piercing-charge-gauge';
+  gauge.className = `piercing-charge-gauge${bigBang ? ' is-big-bang' : ''}`;
   gauge.setAttribute('aria-hidden', 'true');
   gauge.style.left = `${casterRect.left - stageRect.left + casterRect.width / 2}px`;
   gauge.style.top = `${Math.max(8, casterRect.top - stageRect.top - 14)}px`;
@@ -1605,6 +2171,83 @@ function playSkillChargeEffect(skill = {}, durationMs = 1500) {
   gauge.addEventListener('animationend', () => gauge.remove(), { once: true });
   setTimeout(() => charge.remove(), Math.max(1, durationMs) + 250);
   setTimeout(() => gauge.remove(), Math.max(1, durationMs) + 250);
+}
+
+function playBigBangVisual(skill = {}, combat = {}, { onImpact = null } = {}) {
+  const stage = $('worldStage');
+  const caster = $('fieldCharacter');
+  const outcomes = (combat.outcomes || []).slice(0, 3);
+  const pulseCount = Math.max(
+    1,
+    Math.floor(Number(skill.values?.hits) || 3),
+    ...outcomes.map((outcome) => (outcome.hitResults || []).length)
+  );
+  const resolveHitOutcome = (outcome, pulseIndex) => {
+    const hitResults = Array.isArray(outcome.hitResults) ? outcome.hitResults : [];
+    if (!hitResults.length) return pulseIndex === 0 ? outcome : null;
+    const hit = hitResults[pulseIndex];
+    if (!hit) return null;
+    const defeated = Boolean(hit.defeated) || Number(hit.remainingHp) <= 0;
+    return {
+      ...outcome,
+      damage: Number(hit.damage) || 0,
+      displayDamage: hit.displayDamage ?? hit.damage,
+      missed: Boolean(hit.missed),
+      knockedBack: pulseIndex === hitResults.length - 1 && outcome.knockedBack,
+      defeated,
+      hitResults: [hit],
+      monster: defeated
+        ? null
+        : {
+          ...(outcome.monster || {}),
+          hp: Number(hit.remainingHp),
+          maxHp: Number(hit.maxHp) || Number(outcome.monster?.maxHp) || 1
+        }
+    };
+  };
+  const applyPulse = (pulseIndex) => {
+    outcomes.forEach((outcome) => {
+      const hitOutcome = resolveHitOutcome(outcome, pulseIndex);
+      if (!hitOutcome || typeof onImpact !== 'function') return;
+      const impactPoint = typeof getWorldStagePoint === 'function'
+        ? getWorldStagePoint(outcome.targetX, outcome.targetFloor)
+        : null;
+      onImpact(hitOutcome, pulseIndex, impactPoint);
+    });
+  };
+  if (!stage || !caster) {
+    for (let pulseIndex = 0; pulseIndex < pulseCount; pulseIndex += 1) {
+      applyPulse(pulseIndex);
+    }
+    return Promise.resolve();
+  }
+  const stageRect = stage.getBoundingClientRect();
+  const casterRect = caster.getBoundingClientRect();
+  const center = {
+    x: casterRect.left - stageRect.left + casterRect.width / 2,
+    y: casterRect.top - stageRect.top + casterRect.height * .5
+  };
+  const radius = Math.max(1, Number(skill.values?.range ?? skill.range) || 150);
+  const diameter = Math.max(55, stageRect.width * radius / 760);
+  const pulseIntervalMs = 150;
+
+  for (let pulseIndex = 0; pulseIndex < pulseCount; pulseIndex += 1) {
+    setTimeout(() => {
+      const explosion = document.createElement('span');
+      explosion.className = 'big-bang-explosion-effect';
+      explosion.style.left = `${center.x}px`;
+      explosion.style.top = `${center.y}px`;
+      explosion.style.setProperty('--big-bang-size', `${diameter}px`);
+      explosion.style.setProperty('--big-bang-pulse', `"${pulseIndex + 1}"`);
+      stage.appendChild(explosion);
+      applyPulse(pulseIndex);
+      explosion.addEventListener('animationend', () => explosion.remove(), { once: true });
+      setTimeout(() => explosion.remove(), 650);
+    }, pulseIndex * pulseIntervalMs);
+  }
+
+  const totalDuration = pulseCount * pulseIntervalMs + 520;
+  return new Promise((resolve) => setTimeout(resolve, totalDuration));
 }
 
 function playProgressivePiercingVisual(skill = {}, combat = {}, { onImpact = null } = {}) {
@@ -1783,8 +2426,8 @@ function playSkillVisualEffect(skill = {}, combat = {}) {
   setTimeout(() => effect.remove(), duration + 420);
 }
 
-function getLootBottom(floor) {
-  return Number(floor) === 1 ? `${getUpperPlatformBottom() + 3}px` : '44px';
+function getLootBottom(floor, worldX = 50) {
+  return `${getFloorBottom(floor, worldX) + 2}px`;
 }
 
 function pruneCollectedLootIds(now = Date.now()) {
@@ -1849,7 +2492,7 @@ function showGroundLoot(drops = []) {
     element.className = `field-loot is-${drop.kind}`;
     element.dataset.lootId = lootId;
     element.style.left = `${drop.x}%`;
-    element.style.bottom = getLootBottom(drop.floor);
+    element.style.bottom = getLootBottom(drop.floor, drop.x);
     element.innerHTML = `<span>${escapeHtml(drop.icon || '📦')}</span><small>${escapeHtml(drop.name || '')}</small>`;
     layer.appendChild(element);
     scheduleGroundLootExpiry(element, getGroundLootExpiresAt(drop, now));
@@ -1890,7 +2533,7 @@ function collectGroundLoot(collections = []) {
       element.className = `field-loot is-${loot.kind}`;
       element.dataset.lootId = lootId;
       element.style.left = `${Math.max(5, Math.min(88, Number(loot.x) || 8))}%`;
-      element.style.bottom = getLootBottom(loot.floor);
+      element.style.bottom = getLootBottom(loot.floor, loot.x);
       element.innerHTML = `<span>${escapeHtml(loot.icon || '📦')}</span>`;
       layer.appendChild(element);
       elements = [element];
@@ -1902,7 +2545,7 @@ function collectGroundLoot(collections = []) {
       setTimeout(() => element.remove(), 520);
     });
   });
-  if (collections.length) {
+  if (collections.length && !collections.every((loot) => loot.silentCollection)) {
     const money = collections
       .filter((loot) => loot.kind === 'money')
       .reduce((sum, loot) => sum + Number(loot.amount || 0), 0);
@@ -1915,7 +2558,9 @@ function collectGroundLoot(collections = []) {
 
 function updateFieldControls() {
   const button = $('autoCombatButton');
-  const safeZone = Boolean(getMap(state.currentMapId)?.safeZone);
+  const currentMap = getMap(state.currentMapId);
+  const safeZone = Boolean(currentMap?.safeZone);
+  const townMap = Boolean(currentMap?.safeZone && currentMap.returnDestination !== false);
   button.textContent = state.autoCombat ? '자동 전투 ON' : '자동 전투 OFF';
   button.setAttribute('aria-pressed', String(state.autoCombat));
   button.classList.toggle('is-on', state.autoCombat);
@@ -1930,16 +2575,59 @@ function updateFieldControls() {
   });
   if ($('jumpButton')) $('jumpButton').disabled = state.dead;
   document.querySelectorAll('.desk-action, #questButton, #mailButton, #eventButton').forEach((control) => {
-    control.disabled = state.dead;
+    const marketplaceOnly = control.dataset.feature === 'marketplace';
+    const bossTownOnly = control.dataset.feature === 'boss';
+    control.disabled = state.dead || (marketplaceOnly && !safeZone) || (bossTownOnly && !townMap);
+    if (marketplaceOnly) {
+      control.title = safeZone ? '' : '거래소는 안전지대에서만 이용할 수 있습니다.';
+      control.setAttribute(
+        'aria-label',
+        safeZone ? '거래소' : '거래소 - 안전지대에서만 사용 가능'
+      );
+    }
+    if (bossTownOnly) {
+      control.title = townMap ? '' : '보스 원정대는 마을에서만 등록할 수 있습니다.';
+      control.setAttribute(
+        'aria-label',
+        townMap ? '보스 원정대' : '보스 원정대 - 마을에서만 등록 가능'
+      );
+    }
   });
-  $('combatMotionLabel').textContent = `전투 모션 · ${getCombatPresentation().label}`;
+}
+
+function getPortalPlacement(map, index = 0) {
+  const platforms = getMapLayout(map).platforms;
+  const ground = platforms.filter((platform) => Number(platform.floor) === 0);
+  const elevated = platforms.filter((platform) => Number(platform.floor) > 0);
+  let platform;
+  let characterX;
+  if (index === 0) {
+    platform = ground[0] || platforms[0];
+    characterX = Number(platform.x) + Math.min(8, Number(platform.width) * .22);
+  } else if (index === 1) {
+    platform = ground.at(-1) || platforms.at(-1);
+    characterX = Number(platform.x) + Number(platform.width)
+      - Math.min(10, Number(platform.width) * .24);
+  } else {
+    platform = elevated[(index - 2) % Math.max(1, elevated.length)]
+      || ground[index % Math.max(1, ground.length)]
+      || platforms[0];
+    characterX = Number(platform.x) + Number(platform.width) / 2;
+  }
+  const floor = Math.max(0, Math.floor(Number(platform?.floor) || 0));
+  return {
+    left: `${clampToPlatform(characterX - 2.5, floor, map)}%`,
+    side: floor > 0 ? 'upper' : (characterX < 50 ? 'left' : 'right'),
+    characterX: clampToPlatform(characterX, floor, map),
+    floor
+  };
 }
 
 function renderPortals(map) {
   $('portalLayer').innerHTML = map.connections.map((connection, index) => {
     const target = getMap(connection.targetId);
-    const position = PORTAL_POSITIONS[index] || PORTAL_POSITIONS[1];
-    return `<div class="world-portal portal-${position.side}" style="left:${position.left}">
+    const position = getPortalPlacement(map, index);
+    return `<div class="world-portal portal-${position.side}" data-floor="${position.floor}" style="left:${position.left};bottom:${getFloorBottom(position.floor, position.characterX, map) + 2}px">
       <i></i><span>PORTAL</span><small>${escapeHtml(target?.name || connection.targetId)}</small>
     </div>`;
   }).join('');
@@ -1948,15 +2636,22 @@ function renderPortals(map) {
 function renderMapNpcs(map) {
   const layer = $('npcLayer');
   if (!layer) return;
-  layer.innerHTML = (map.npcs || []).map((npc) => (
-    `<button class="field-quest-npc" type="button" data-npc-id="${escapeHtml(npc.id)}" style="left:${Math.max(5, Math.min(90, Number(npc.x) || 50))}%">
+  const visibleNpcs = (map.npcs || []).filter((npc) => (
+    npc.action !== 'bus-board' || Boolean(state.busTransport?.boardingOpen)
+  ));
+  layer.innerHTML = visibleNpcs.map((npc) => (
+    `<button class="field-quest-npc" type="button" data-npc-id="${escapeHtml(npc.id)}" data-npc-action="${escapeHtml(npc.action || '')}" style="left:${clampToPlatform(Number(npc.x) || 50, 0, map)}%;bottom:${getFloorBottom(0, Number(npc.x) || 50, map) + 2}px">
       <span>${escapeHtml(npc.icon || '🧑‍💼')}</span><strong>${escapeHtml(npc.name)}</strong><small>대화</small>
     </button>`
   )).join('');
   layer.querySelectorAll('[data-npc-id]').forEach((button) => {
     button.addEventListener('click', (event) => {
       event.stopPropagation();
-      openNpcDialogue(button.dataset.npcId);
+      if (button.dataset.npcAction === 'raid-abandon') {
+        openRaidAbandonPrompt();
+      } else {
+        openNpcDialogue(button.dataset.npcId);
+      }
     });
   });
 }
@@ -1971,7 +2666,7 @@ function renderPartyPortals(portals = []) {
     button.className = 'world-portal party-return-portal';
     button.dataset.partyPortalId = portal.id;
     button.style.left = `${Math.max(3, Math.min(88, Number(portal.x) || 8))}%`;
-    button.style.bottom = Number(portal.floor) === 1 ? '176px' : '44px';
+    button.style.bottom = `${getFloorBottom(portal.floor, portal.x) + 2}px`;
     button.innerHTML = `<i></i><span>PARTY</span><small>${escapeHtml(portal.label)}</small>`;
     button.addEventListener('click', async (event) => {
       event.stopPropagation();
@@ -1991,7 +2686,7 @@ function renderPartyPortals(portals = []) {
         renderWorldMap(data.destination.mapId, 0);
         const character = $('fieldCharacter');
         character.style.left = `${data.destination.x}%`;
-        character.style.bottom = data.destination.floor === 1 ? `${getUpperPlatformBottom()}px` : '42px';
+        setCharacterFloor(data.destination.floor, data.destination.x);
         setWorldActivity(`${data.map.name}(으)로 포탈 이동했습니다.`);
       } catch (err) {
         setWorldActivity(err.message);
@@ -2001,9 +2696,16 @@ function renderPartyPortals(portals = []) {
   });
 }
 
-function renderWorldMap(mapId, arrivalPortalIndex = 0) {
+function renderWorldMap(
+  mapId,
+  arrivalPortalIndex = 0,
+  explicitArrivalX = null,
+  explicitArrivalFloor = null
+) {
   const map = getMap(mapId) || getMap(state.startMapId) || state.maps[0];
   if (!map) return;
+  const mapChanged = Boolean(state.currentMapId && state.currentMapId !== map.id);
+  if (mapChanged) state.worldStateEpoch += 1;
   state.lastWorldSnapshotReceivedAt = 0;
   $('worldStage')?.style.removeProperty('--world-snapshot-transition');
   state.currentMapId = map.id;
@@ -2027,16 +2729,22 @@ function renderWorldMap(mapId, arrivalPortalIndex = 0) {
   $('mapRegion').textContent = `MAP / ${map.region}`;
   $('mapName').textContent = map.name;
   $('mapLevelRange').textContent = map.safeZone ? 'SAFE ZONE' : 'FIELD';
-  $('currentLocation').textContent = map.name;
   $('worldStage').dataset.theme = map.theme;
-  $('shopNpc')?.classList.toggle('hidden', !map.safeZone || !map.shopId);
+  $('worldStage').dataset.layout = getMapLayout(map).id || 'fallback';
+  const shopNpc = $('shopNpc');
+  shopNpc?.classList.toggle('hidden', !map.safeZone || !map.shopId);
+  if (shopNpc) {
+    const peachPotionShop = map.shopId === 'peach_convenience';
+    const icon = shopNpc.querySelector('span');
+    const name = shopNpc.querySelector('strong');
+    const label = shopNpc.querySelector('small');
+    if (icon) icon.textContent = peachPotionShop ? '🧪' : '🧑‍💼';
+    if (name) name.textContent = peachPotionShop ? '피치 포션 판매원' : '보급 담당자';
+    if (label) label.textContent = peachPotionShop ? 'POTION' : '상점';
+  }
   $('scrollShopNpc')?.classList.toggle('hidden', !map.safeZone || !map.scrollShopId);
-  const needsUpperRoute = map.connections.length > 2;
-  $('worldRope').classList.toggle('is-ladder', map.features.includes('ladder') || needsUpperRoute);
-  $('worldRope').classList.toggle(
-    'hidden',
-    !needsUpperRoute && !map.features.some((feature) => feature === 'rope' || feature === 'ladder')
-  );
+  $('storageNpc')?.classList.toggle('hidden', !mapHasStorageNpc(map));
+  renderTerrain(map);
   renderPortals(map);
   renderMapNpcs(map);
   renderRallyPoint();
@@ -2049,20 +2757,36 @@ function renderWorldMap(mapId, arrivalPortalIndex = 0) {
     }).catch(() => {});
   }
   $('lootLayer').replaceChildren();
+  $('monsterLayer').replaceChildren();
+  $('remotePlayerLayer').replaceChildren();
+  state.monsterElements.clear();
+  state.remotePlayerElements.clear();
+  state.worldMonsters = [];
+  state.combatTargetId = '';
+  renderFieldBossTopBar([]);
 
   const character = $('fieldCharacter');
   resetCharacterPhysics();
-  const arrival = PORTAL_POSITIONS[arrivalPortalIndex] || PORTAL_POSITIONS[0];
+  const arrival = getPortalPlacement(map, arrivalPortalIndex);
+  if (Number.isFinite(Number(explicitArrivalX))) {
+    arrival.characterX = Math.max(1, Math.min(96, Number(explicitArrivalX)));
+  }
+  if (Number.isFinite(Number(explicitArrivalFloor))) {
+    arrival.floor = Math.max(0, Math.floor(Number(explicitArrivalFloor)));
+  }
   character.style.transitionDuration = '0ms';
   character.style.left = `${arrival.characterX}%`;
-  character.style.bottom = arrival.side === 'upper' ? `${getUpperPlatformBottom()}px` : '42px';
+  setCharacterFloor(arrival.floor, arrival.characterX);
   character.classList.toggle('facing-left', arrival.characterX > 50);
   setCharacterMotion(null);
   character.classList.toggle('is-dead', state.dead);
   void character.offsetWidth;
   character.style.transitionDuration = '';
+  renderWorldMinimap([]);
+  startWorldCamera({ reset: mapChanged });
   setWorldActivity(map.safeZone ? '안전지대에서는 자동전투를 사용할 수 없습니다.' : (state.autoCombat ? '자동 전투 준비 중' : '명령 대기 중'));
   updateFieldControls();
+  if (mapChanged) queueWorldHeartbeat();
 }
 
 function isRunActive(kind, runId) {
@@ -2090,6 +2814,15 @@ async function moveCharacter(left, duration, runId) {
       state.activeMoveDeadlineAt += Date.now() - pausedAt;
       continue;
     }
+    const flashJumpPauseMs = Number(
+      state.characterPhysics?.flashJumpMovementPauseUntil
+    ) - Date.now();
+    if (flashJumpPauseMs > 0) {
+      const pausedAt = Date.now();
+      await sleep(Math.min(40, flashJumpPauseMs));
+      state.activeMoveDeadlineAt += Date.now() - pausedAt;
+      continue;
+    }
     if (Math.abs(left - getCharacterX()) <= 0.35) break;
     const remainingDuration = getScaledMovementDuration(getFieldMoveDuration(left));
     character.style.transitionDuration = `${remainingDuration}ms`;
@@ -2110,30 +2843,31 @@ async function moveCharacter(left, duration, runId) {
 }
 
 function getFieldMoveDuration(targetX) {
-  const stage = $('worldStage');
-  const distance = Math.abs(targetX - getCharacterX()) / 100 * stage.clientWidth;
+  const distance = Math.abs(targetX - getCharacterX()) / 100 * getWorldWidth();
   return Math.max(
-    220,
+    CHARACTER_FIELD_MOVE_MIN_MS,
     Math.min(
-      7200,
+      CHARACTER_MOVE_MAX_MS,
       distance / (CHARACTER_BASE_MOVEMENT_PX_PER_SECOND * getMovementSpeedPercent() / 100) * 1000
     )
   );
 }
 
 function getLadderCharacterX() {
-  const stage = $('worldStage');
-  const ladder = $('worldRope');
-  const character = $('fieldCharacter');
-  if (!stage.clientWidth) return 55;
-  return ((ladder.offsetLeft + (ladder.offsetWidth / 2) - (character.offsetWidth / 2)) / stage.clientWidth) * 100;
+  const floor = getCharacterFloor();
+  const connector = getMapLayout().connectors
+    .filter((entry) => (
+      Number(entry.fromFloor) === floor || Number(entry.toFloor) === floor
+    ))
+    .sort((left, right) => (
+      Math.abs(Number(left.x) - getCharacterX())
+      - Math.abs(Number(right.x) - getCharacterX())
+    ))[0];
+  return Number(connector?.x) || getCharacterX();
 }
 
 function getUpperPlatformBottom() {
-  const stage = $('worldStage');
-  const platform = stage.querySelector('.platform-upper');
-  if (!platform) return 176;
-  return Math.max(42, stage.clientHeight - platform.offsetTop);
+  return getFloorBottom(1, getCharacterX());
 }
 
 async function climbToUpperPlatform(runId) {
@@ -2144,7 +2878,7 @@ async function climbToUpperPlatform(runId) {
   setWorldActivity('사다리를 타고 위층으로 이동 중');
   setCharacterMotion('climb');
   character.style.transitionDuration = `${duration}ms`;
-  character.style.bottom = `${getUpperPlatformBottom()}px`;
+  setCharacterFloor(1, getCharacterX());
   await sleep(duration + 20);
   if (isRunActive('move', runId)) setCharacterMotion(null);
   return isRunActive('move', runId);
@@ -2158,7 +2892,7 @@ async function climbToLowerPlatform(runId) {
   setWorldActivity('사다리를 타고 아래층으로 이동 중');
   setCharacterMotion('climb');
   character.style.transitionDuration = `${duration}ms`;
-  character.style.bottom = '42px';
+  setCharacterFloor(0, getCharacterX());
   await sleep(duration + 20);
   if (isRunActive('move', runId)) setCharacterMotion(null);
   return isRunActive('move', runId);
@@ -2167,16 +2901,70 @@ async function climbToLowerPlatform(runId) {
 async function walkToFieldPoint(point, runId) {
   if (!isRunActive('move', runId)) return false;
   const character = $('fieldCharacter');
-  if (getCharacterFloor() !== point.floor) {
-    const ladderX = getLadderCharacterX();
-    character.classList.toggle('facing-left', ladderX < getCharacterX());
-    if (!await moveCharacter(ladderX, getFieldMoveDuration(ladderX), runId)) return false;
-    if (point.floor === 1) {
-      if (!await climbToUpperPlatform(runId)) return false;
-    } else if (!await climbToLowerPlatform(runId)) return false;
+  const targetFloor = Math.max(0, Math.floor(Number(point.floor) || 0));
+  while (getCharacterFloor() !== targetFloor) {
+    const currentFloor = getCharacterFloor();
+    const nextFloor = currentFloor + Math.sign(targetFloor - currentFloor);
+    const connector = getConnectorBetweenFloors(currentFloor, nextFloor);
+    const dropPoint = nextFloor < currentFloor
+      ? getNearestDropPoint(currentFloor, nextFloor, getCharacterX())
+      : null;
+    if (dropPoint && (!connector
+      || Math.abs(dropPoint.x - getCharacterX()) <= Math.abs(Number(connector.x) - getCharacterX()))) {
+      character.classList.toggle('facing-left', dropPoint.x < getCharacterX());
+      if (!await moveCharacter(dropPoint.x, getFieldMoveDuration(dropPoint.x), runId)) return false;
+      const duration = getScaledMovementDuration(520);
+      setWorldActivity('가까운 발판 아래로 내려가는 중');
+      setCharacterMotion('jump');
+      character.style.transitionDuration = `${duration}ms`;
+      setCharacterFloor(nextFloor, dropPoint.x);
+      await sleep(duration + 20);
+      if (!isRunActive('move', runId)) return false;
+      setCharacterMotion(null);
+      continue;
+    }
+    if (!connector) return false;
+    const connectorX = clampToPlatform(connector.x, currentFloor);
+    if (getPlatformAt(currentFloor, getCharacterX())?.id
+      !== getPlatformAt(currentFloor, connectorX)?.id) {
+      triggerCharacterJump();
+    }
+    character.classList.toggle('facing-left', connectorX < getCharacterX());
+    if (!await moveCharacter(connectorX, getFieldMoveDuration(connectorX), runId)) return false;
+    const duration = getScaledMovementDuration(connector.type === 'jump' ? 680 : 1100);
+    character.classList.remove('facing-left');
+    setCharacterMotion(connector.type === 'jump' ? 'jump' : 'climb');
+    character.style.transitionDuration = `${duration}ms`;
+    setCharacterFloor(nextFloor, connector.x);
+    await sleep(duration + 20);
+    if (!isRunActive('move', runId)) return false;
+    setCharacterMotion(null);
   }
-  character.classList.toggle('facing-left', point.x < getCharacterX());
-  return moveCharacter(point.x, getFieldMoveDuration(point.x), runId);
+  const targetX = clampToPlatform(point.x, targetFloor);
+  const currentPlatform = getPlatformAt(targetFloor, getCharacterX());
+  const targetPlatform = getPlatformAt(targetFloor, targetX);
+  if (currentPlatform?.id !== targetPlatform?.id) {
+    triggerCharacterJump();
+  }
+  character.classList.toggle('facing-left', targetX < getCharacterX());
+  return moveCharacter(targetX, getFieldMoveDuration(targetX), runId);
+}
+
+function getNearestDropPoint(fromFloor, toFloor, worldX) {
+  if (Number(toFloor) >= Number(fromFloor)) return null;
+  const currentPlatform = getPlatformAt(fromFloor, worldX);
+  if (!currentPlatform) return null;
+  const minimum = Number(currentPlatform.x) || 0;
+  const maximum = minimum + (Number(currentPlatform.width) || 0);
+  const edgeCandidates = [minimum + 1, maximum - 1];
+  const lowerPlatforms = getFloorPlatforms(toFloor);
+  return edgeCandidates
+    .filter((x) => lowerPlatforms.some((platform) => (
+      x >= Number(platform.x) + 1
+      && x <= Number(platform.x) + Number(platform.width) - 1
+    )))
+    .map((x) => ({ x, distance: Math.abs(x - Number(worldX)) }))
+    .sort((left, right) => left.distance - right.distance)[0] || null;
 }
 
 async function commandFieldPoint(point, returning = false) {
@@ -2199,7 +2987,7 @@ function handleWorldStagePoint(event) {
   if (
     event.button !== 0
     || state.dead
-    || event.target.closest('.field-shop-npc, .combat-buff-tray, .rally-point')
+    || event.target.closest('.field-shop-npc, .combat-buff-tray, .rally-point, .world-minimap')
   ) return;
   const point = getNearestWalkablePoint(event.clientX, event.clientY);
   setRallyPoint(point);
@@ -2212,16 +3000,75 @@ function handleWorldStagePoint(event) {
 function getCombatTarget() {
   const characterX = getCharacterX();
   const floor = getCharacterFloor();
-  const candidates = state.worldMonsters.filter((monster) => monster.floor === floor && monster.hp > 0);
-  if (!candidates.length) return null;
-  const selected = candidates.sort(
-    (a, b) => Math.abs(a.x - characterX) - Math.abs(b.x - characterX)
-  )[0];
+  const candidates = state.worldMonsters
+    .filter((monster) => monster.hp > 0)
+    .map((monster) => ({
+      ...monster,
+      platformId: String(
+        monster.platformId
+        || getPlatformAt(monster.floor, monster.x)?.id
+        || ''
+      )
+    }));
+  if (!candidates.length) {
+    state.combatTargetId = '';
+    return null;
+  }
+  const activeRallyPoint = state.rallyPoint?.mapId === state.currentMapId
+    ? state.rallyPoint
+    : null;
+  const rallyPlatformId = activeRallyPoint
+    ? String(
+      activeRallyPoint.platformId
+      || getPlatformAt(activeRallyPoint.floor, activeRallyPoint.x)?.id
+      || ''
+    )
+    : '';
+  const currentPlatformId = String(getPlatformAt(floor, characterX)?.id || '');
+  const context = {
+    currentX: characterX,
+    currentFloor: floor,
+    currentPlatformId,
+    rallyPlatformId,
+    worldWidth: getWorldWidth(),
+    connectors: getMapLayout().connectors
+  };
+  const selected = window.V2CombatTargeting?.selectCombatTarget(candidates, context)
+    || candidates
+      .filter((monster) => !rallyPlatformId || monster.platformId === rallyPlatformId)
+      .sort((left, right) => (
+        Math.abs(Number(left.floor) - floor) * 500
+        + Math.abs(Number(left.x) - characterX) / 100 * getWorldWidth()
+        - (
+          Math.abs(Number(right.floor) - floor) * 500
+          + Math.abs(Number(right.x) - characterX) / 100 * getWorldWidth()
+        )
+      ))[0]
+    || null;
+  if (!selected) {
+    state.combatTargetId = '';
+    return null;
+  }
   state.combatTargetId = selected.id;
   return selected;
 }
 
+function handleWorldMinimapPoint(event) {
+  if (event.button !== 0 || state.dead) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const point = getNearestMinimapWalkablePoint(event.clientX, event.clientY);
+  if (!point) return;
+  setRallyPoint(point);
+  commandFieldPoint(point).catch((err) => {
+    console.error('V2 minimap movement error:', err);
+    setWorldActivity('미니맵 이동 지점을 다시 선택해주세요.');
+  });
+}
+
 function getCombatTargetElement() {
+  const cached = state.monsterElements.get(String(state.combatTargetId || ''));
+  if (cached?.isConnected) return cached;
   return Array.from($('monsterLayer').children).find(
     (element) => element.dataset.monsterId === state.combatTargetId
   ) || null;
@@ -2302,7 +3149,11 @@ async function playWorldMotion(motion, kind, runId, activityLabel = '') {
   if (isRunActive(kind, runId)) setCharacterMotion(null);
 }
 
-function launchChannelProjectile(targetId = '', projectileSpeedMultiplier = 1) {
+function launchChannelProjectile(
+  targetId = '',
+  projectileSpeedMultiplier = 1,
+  targetWorldPosition = null
+) {
   const stage = $('worldStage');
   const character = $('fieldCharacter');
   const monster = targetId
@@ -2310,18 +3161,33 @@ function launchChannelProjectile(targetId = '', projectileSpeedMultiplier = 1) {
       (node) => node.dataset.monsterId === String(targetId)
     )
     : getCombatTargetElement();
-  if (!stage || !character) return;
+  if (!stage || !character) return Promise.resolve(null);
   const stageRect = stage.getBoundingClientRect();
   const characterRect = character.getBoundingClientRect();
   const monsterRect = monster?.getBoundingClientRect();
+  const fallbackImpactPoint = !monsterRect
+    && Number.isFinite(Number(targetWorldPosition?.x))
+    ? getWorldStagePoint(targetWorldPosition.x, targetWorldPosition.floor)
+    : null;
   const startX = characterRect.left + characterRect.width * .55 - stageRect.left;
   const startY = characterRect.top + characterRect.height * .42 - stageRect.top;
   const targetX = monsterRect
     ? monsterRect.left + monsterRect.width * .5 - stageRect.left
-    : startX + (character.classList.contains('facing-left') ? -260 : 260);
+    : (fallbackImpactPoint?.x
+      ?? startX + (character.classList.contains('facing-left') ? -260 : 260));
   const targetY = monsterRect
     ? monsterRect.top + monsterRect.height * .72 - stageRect.top
-    : startY;
+    : (fallbackImpactPoint?.y ?? startY);
+  const impactPoint = monsterRect
+    ? {
+      x: monsterRect.left + monsterRect.width * .5 - stageRect.left,
+      y: monsterRect.top + 4 - stageRect.top
+    }
+    : (fallbackImpactPoint || { x: targetX, y: targetY });
+  const durationMs = Math.max(
+    60,
+    Math.round(200 / Math.max(0.1, Number(projectileSpeedMultiplier) || 1))
+  );
   const projectile = document.createElement('span');
   projectile.className = 'attack-projectile is-channel-shot';
   projectile.style.left = `${startX}px`;
@@ -2331,13 +3197,58 @@ function launchChannelProjectile(targetId = '', projectileSpeedMultiplier = 1) {
   projectile.style.setProperty('--projectile-y', `${targetY - startY}px`);
   projectile.style.setProperty(
     '--channel-projectile-duration',
-    `${Math.max(60, Math.round(200 / Math.max(0.1, Number(projectileSpeedMultiplier) || 1)))}ms`
+    `${durationMs}ms`
   );
   stage.appendChild(projectile);
-  monster?.classList.add('is-hit');
-  setTimeout(() => monster?.classList.remove('is-hit'), 110);
-  projectile.addEventListener('animationend', () => projectile.remove(), { once: true });
-  setTimeout(() => projectile.remove(), 500);
+  return new Promise((resolve) => {
+    let settled = false;
+    const completeImpact = () => {
+      if (settled) return;
+      settled = true;
+      monster?.classList.add('is-hit');
+      setTimeout(() => monster?.classList.remove('is-hit'), 110);
+      projectile.remove();
+      resolve(impactPoint);
+    };
+    projectile.addEventListener('animationend', completeImpact, { once: true });
+    setTimeout(completeImpact, durationMs + 80);
+  });
+}
+
+function orderFollowUpHitResults(hitResults = []) {
+  const primaryHits = hitResults.filter((hit) => !hit.bonusAttack);
+  const followUpHits = hitResults.filter((hit) => hit.followUpAttack);
+  const otherBonusHits = hitResults.filter(
+    (hit) => hit.bonusAttack && !hit.followUpAttack
+  );
+  if (!followUpHits.length) return [...hitResults];
+  const ordered = [];
+  const pairedCount = Math.max(primaryHits.length, followUpHits.length);
+  for (let index = 0; index < pairedCount; index += 1) {
+    if (primaryHits[index]) ordered.push(primaryHits[index]);
+    if (followUpHits[index]) ordered.push(followUpHits[index]);
+  }
+  ordered.push(...otherBonusHits);
+  return ordered;
+}
+
+function buildVisualChannelHitResults(hitResults = []) {
+  const remainingHpByMonster = new Map();
+  return orderFollowUpHitResults(hitResults).map((hit) => {
+    const monsterId = String(hit.monsterId || '');
+    const damage = hit.missed ? 0 : Math.max(0, Number(hit.damage) || 0);
+    const maxHp = Math.max(1, Number(hit.maxHp) || 1);
+    const initialHp = Math.min(
+      maxHp,
+      Math.max(0, Number(hit.remainingHp) || 0) + damage
+    );
+    const previousHp = remainingHpByMonster.has(monsterId)
+      ? remainingHpByMonster.get(monsterId)
+      : initialHp;
+    const visualRemainingHp = Math.max(0, previousHp - damage);
+    remainingHpByMonster.set(monsterId, visualRemainingHp);
+    return { ...hit, visualRemainingHp };
+  });
 }
 
 async function playChanneledSkillMotion(channel = {}, kind, runId, activityLabel = '') {
@@ -2345,14 +3256,20 @@ async function playChanneledSkillMotion(channel = {}, kind, runId, activityLabel
   const character = $('fieldCharacter');
   if (!character) return;
   const durationMs = Math.max(1, Number(channel.durationMs) || 3000);
-  const intervalMs = Math.max(1, Number(channel.intervalMs) || 180);
   const hitCount = Math.max(1, Math.floor(Number(channel.hitCount) || 1));
-  const hitResults = Array.isArray(channel.hitResults) ? channel.hitResults : [];
+  const hitResults = buildVisualChannelHitResults(
+    Array.isArray(channel.hitResults) ? channel.hitResults : []
+  );
+  const requestedIntervalMs = Math.max(1, Number(channel.intervalMs) || 180);
+  const intervalMs = hitResults.some((hit) => hit.followUpAttack)
+    ? Math.max(40, Math.min(requestedIntervalMs, durationMs / hitCount))
+    : requestedIntervalMs;
   const projectileSpeedMultiplier = Math.max(
     0.1,
     Number(channel.projectileSpeedMultiplier) || 1
   );
   const startedAt = performance.now();
+  const pendingImpacts = [];
   setWorldActivity(activityLabel || '연속 공격 중');
   for (let hit = 0; hit < hitCount; hit += 1) {
     if (!isRunActive(kind, runId)) break;
@@ -2360,21 +3277,41 @@ async function playChanneledSkillMotion(channel = {}, kind, runId, activityLabel
     if (typeof hitResult?.facingLeft === 'boolean') {
       character.classList.toggle('facing-left', hitResult.facingLeft);
     }
-    setCharacterMotion(null);
-    void character.offsetWidth;
-    setCharacterMotion('shoot');
-    launchChannelProjectile(hitResult?.monsterId, projectileSpeedMultiplier);
-    if (hitResult) window.applyChannelSkillHit?.(hitResult);
+    if (hitResult?.followUpAttack && channel.followUpSummon) {
+      playFollowUpSummonHitMotion(hitResult, channel.followUpSummon);
+      window.applyChannelSkillHit?.(hitResult);
+    } else {
+      setCharacterMotion(null);
+      void character.offsetWidth;
+      setCharacterMotion(String(channel.motion || 'shoot'));
+      const impact = launchChannelProjectile(
+        hitResult?.monsterId,
+        projectileSpeedMultiplier,
+        { x: hitResult?.targetX, floor: hitResult?.targetFloor }
+      ).then((impactPoint) => {
+        if (hitResult) window.applyChannelSkillHit?.(hitResult, impactPoint);
+      });
+      pendingImpacts.push(impact);
+    }
     const nextAt = startedAt + Math.min(durationMs, (hit + 1) * intervalMs);
     await sleep(Math.max(0, nextAt - performance.now()));
   }
+  await Promise.allSettled(pendingImpacts);
   const remainingMs = durationMs - (performance.now() - startedAt);
   if (remainingMs > 0) await sleep(remainingMs);
   if (isRunActive(kind, runId)) setCharacterMotion(null);
 }
 
+function getMapEntryBlockMessage(target, now = Date.now()) {
+  if (!target) return '존재하지 않는 맵입니다.';
+  if (String(target.fieldBossId || '') !== 'gammam_neo') return '';
+  const lockoutUntil = Number(state.character?.fieldBossLockouts?.gammam_neo) || 0;
+  if (lockoutUntil <= now) return '';
+  return '감맘 네오 처치 후 24시간 동안 해당 히든스트리트에 입장할 수 없습니다.';
+}
+
 function canEnterMap(target) {
-  return Boolean(target);
+  return Boolean(target && !getMapEntryBlockMessage(target));
 }
 
 function movementSelectionBody() {
@@ -2382,11 +3319,12 @@ function movementSelectionBody() {
   if (!map) return '<div class="empty-ledger"><b>현재 맵 정보를 찾을 수 없습니다.</b></div>';
   const destinations = map.connections.map((connection, index) => {
     const target = getMap(connection.targetId);
+    const blockMessage = getMapEntryBlockMessage(target);
     const accessible = canEnterMap(target);
-    return `<button class="move-destination" type="button" data-target-map="${escapeHtml(connection.targetId)}" ${accessible ? '' : 'disabled'}>
+    return `<button class="move-destination" type="button" data-target-map="${escapeHtml(connection.targetId)}" ${accessible ? '' : `disabled title="${escapeHtml(blockMessage)}"`}>
       <b>${String(index + 1).padStart(2, '0')}</b>
       <span><strong>${escapeHtml(target?.name || connection.targetId)}</strong><small>${escapeHtml(connection.portalName)}</small></span>
-      <i>${accessible ? '이동' : '레벨 부족'}</i>
+      <i>${accessible ? '이동' : '입장 제한'}</i>
     </button>`;
   }).join('');
   return `<div class="movement-sheet">
@@ -2471,30 +3409,26 @@ async function performMapMoveStep(targetMapId, runId) {
   const map = getMap(state.currentMapId);
   const connection = map?.connections.find((entry) => entry.targetId === targetMapId);
   const target = getMap(targetMapId);
-  if (!connection || !canEnterMap(target) || !isRunActive('move', runId)) return false;
+  if (!connection || !isRunActive('move', runId)) return false;
+  const blockMessage = getMapEntryBlockMessage(target);
+  if (blockMessage) {
+    setWorldActivity(blockMessage);
+    return false;
+  }
 
   const portalIndex = Math.max(0, map.connections.findIndex(
     (entry) => entry.targetId === targetMapId
   ));
-  const portal = PORTAL_POSITIONS[portalIndex] || PORTAL_POSITIONS[1];
-  const character = $('fieldCharacter');
+  const portal = getPortalPlacement(map, portalIndex);
 
   if (map.features.includes('hazard')) {
     await playWorldMotion('jump', 'move', runId);
   }
-  if (portal.side === 'upper') {
-    const ladderX = getLadderCharacterX();
-    const currentX = Number.parseFloat(character.style.left) || 38;
-    character.classList.toggle('facing-left', ladderX < currentX);
-    if (!await moveCharacter(ladderX, 1050, runId)) return false;
-    if (!await climbToUpperPlatform(runId)) return false;
-    character.classList.toggle('facing-left', portal.characterX < ladderX);
-    if (!await moveCharacter(portal.characterX, 650, runId)) return false;
-  } else {
-    const currentX = Number.parseFloat(character.style.left) || 38;
-    character.classList.toggle('facing-left', portal.characterX < currentX);
-    if (!await moveCharacter(portal.characterX, 1700, runId)) return false;
-  }
+  if (!await walkToFieldPoint({
+    mapId: state.currentMapId,
+    x: portal.characterX,
+    floor: portal.floor
+  }, runId)) return false;
   if (!await ensureCharacterTouchesPortal(portal, runId)) {
     setWorldActivity('포탈에 도착하지 못해 이동을 중단했습니다.');
     return false;
@@ -2538,7 +3472,7 @@ async function commandMove(targetMapId) {
   return commandTravelTo(targetMapId);
 }
 
-async function approachMonsterForCombat(runId) {
+async function approachMonsterForCombatLegacy(runId, requestedRangePx = null) {
   if (!isRunActive('combat', runId)) return false;
   const target = getCombatTarget();
   const monster = getCombatTargetElement();
@@ -2570,8 +3504,12 @@ async function approachMonsterForCombat(runId) {
   const stageRect = stage.getBoundingClientRect();
   const characterRect = character.getBoundingClientRect();
   const monsterRect = monster.getBoundingClientRect();
-  const rangePx = Math.max(30, Number(getCombatPresentation().rangePx
-    || state.character?.derivedStats?.attackRange) || 55);
+  const rangePx = Math.max(
+    30,
+    Number(requestedRangePx)
+      || Number(getCombatPresentation().rangePx || state.character?.derivedStats?.attackRange)
+      || 55
+  );
   const characterCenter = characterRect.left + characterRect.width / 2;
   const monsterCenter = monsterRect.left + monsterRect.width / 2;
   const characterIsLeft = characterCenter <= monsterCenter;
@@ -2589,13 +3527,103 @@ async function approachMonsterForCombat(runId) {
   const travelDistance = Math.abs(clampedLeftPx - (characterRect.left - stageRect.left));
   const movementSpeed = getMovementSpeedPercent();
   const duration = Math.max(
-    840,
+    CHARACTER_COMBAT_MOVE_MIN_MS,
     Math.min(
-      7200,
+      CHARACTER_MOVE_MAX_MS,
       travelDistance / (CHARACTER_BASE_MOVEMENT_PX_PER_SECOND * movementSpeed / 100) * 1000
     )
   );
   setWorldActivity(`몬스터에게 접근 중 · 사거리 ${Math.round(rangePx)}`);
+  setCharacterMotion('walking');
+  character.style.transitionDuration = `${duration}ms`;
+  character.style.left = `${targetPercent}%`;
+  await sleep(duration);
+  if (isRunActive('combat', runId)) setCharacterMotion(null);
+  return isRunActive('combat', runId);
+}
+
+async function approachMonsterForCombat(runId, requestedRangePx = null) {
+  if (!isRunActive('combat', runId)) return false;
+  const target = getCombatTarget();
+  if (!target || !getCombatTargetElement()) return false;
+  const character = $('fieldCharacter');
+  const targetFloor = Math.max(0, Math.floor(Number(target.floor) || 0));
+
+  while (getCharacterFloor() !== targetFloor) {
+    const currentFloor = getCharacterFloor();
+    const nextFloor = currentFloor + Math.sign(targetFloor - currentFloor);
+    const connector = getConnectorBetweenFloors(currentFloor, nextFloor);
+    if (!connector) return false;
+    const connectorX = clampToPlatform(connector.x, currentFloor);
+    if (getPlatformAt(currentFloor, getCharacterX())?.id
+      !== getPlatformAt(currentFloor, connectorX)?.id) {
+      triggerCharacterJump();
+    }
+    const approachDuration = getScaledMovementDuration(getFieldMoveDuration(connectorX));
+    character.classList.toggle('facing-left', connectorX < getCharacterX());
+    setCharacterMotion('walking');
+    character.style.transitionDuration = `${approachDuration}ms`;
+    character.style.left = `${connectorX}%`;
+    await sleep(approachDuration + 20);
+    if (!isRunActive('combat', runId)) return false;
+
+    const climbDuration = getScaledMovementDuration(connector.type === 'jump' ? 680 : 1050);
+    character.classList.remove('facing-left');
+    setCharacterMotion(connector.type === 'jump' ? 'jump' : 'climb');
+    character.style.transitionDuration = `${climbDuration}ms`;
+    setCharacterFloor(nextFloor, connector.x);
+    await sleep(climbDuration + 20);
+    if (!isRunActive('combat', runId)) return false;
+  }
+
+  const currentPlatform = getPlatformAt(targetFloor, getCharacterX());
+  const targetPlatform = getPlatformAt(targetFloor, target.x);
+
+  const rangePx = Math.max(
+    30,
+    Number(requestedRangePx)
+      || Number(getCombatPresentation().rangePx || state.character?.derivedStats?.attackRange)
+      || 55
+  );
+  const worldWidth = getWorldWidth();
+  const currentX = getCharacterX();
+  const characterIsLeft = currentX <= Number(target.x);
+  const gapPx = Math.max(
+    0,
+    Math.abs(Number(target.x) - currentX) / 100 * worldWidth - 30
+  );
+  character.classList.toggle('facing-left', !characterIsLeft);
+  if (gapPx <= rangePx) {
+    setCharacterMotion(null);
+    return true;
+  }
+  const shouldJump = window.V2CombatTargeting?.shouldJumpForCombatApproach?.({
+    currentPlatformId: currentPlatform?.id,
+    targetPlatformId: targetPlatform?.id,
+    gapPx,
+    rangePx
+  }) ?? (
+    currentPlatform?.id
+    && targetPlatform?.id
+    && currentPlatform.id !== targetPlatform.id
+  );
+  if (shouldJump) triggerCharacterJump();
+
+  const distancePercent = (rangePx + 24) / worldWidth * 100;
+  const targetPercent = clampToPlatform(
+    Number(target.x) + (characterIsLeft ? -distancePercent : distancePercent),
+    targetFloor
+  );
+  const travelDistance = Math.abs(targetPercent - currentX) / 100 * worldWidth;
+  const duration = Math.max(
+    CHARACTER_COMBAT_MOVE_MIN_MS,
+    Math.min(
+      CHARACTER_MOVE_MAX_MS,
+      travelDistance
+        / (CHARACTER_BASE_MOVEMENT_PX_PER_SECOND * getMovementSpeedPercent() / 100)
+        * 1000
+    )
+  );
   setCharacterMotion('walking');
   character.style.transitionDuration = `${duration}ms`;
   character.style.left = `${targetPercent}%`;
@@ -2633,7 +3661,21 @@ function getWeaponMotionImpactDelay(motion = '') {
 
 async function runAutoCombat(runId) {
   while (isRunActive('combat', runId) && state.token && !state.isAdmin && !state.dead) {
+    state.autoCombatLastCycleAt = Date.now();
+    if (isStealthActive()) {
+      setWorldActivity('은신 상태 유지 중');
+      await sleep(250);
+      continue;
+    }
     if (state.manualSkillPriority) {
+      if (
+        !state.manualSkillQueueRunning
+        && !state.manualSkillQueue.length
+        && !state.skillUseBusy
+      ) {
+        endManualSkillPriority();
+        return;
+      }
       await sleep(50);
       continue;
     }
@@ -2652,11 +3694,14 @@ async function runAutoCombat(runId) {
       await sleep(650);
       continue;
     }
-    if (!await approachMonsterForCombat(runId)) {
+    const autoSkill = getNextAutoSkillForCombat();
+    const autoSkillRange = ['enemy', 'enemies'].includes(autoSkill?.target)
+      ? Number(autoSkill.values?.range ?? autoSkill.range) || null
+      : null;
+    if (!await approachMonsterForCombat(runId, autoSkillRange)) {
       await sleep(350);
       continue;
     }
-    const autoSkill = getNextAutoSkillForCombat();
     if (autoSkill) {
       const used = await useActiveSkill(autoSkill.id, { automatic: true });
       if (used) {
@@ -2691,11 +3736,27 @@ async function runAutoCombat(runId) {
         })
       });
       if (result.targetId) state.combatTargetId = String(result.targetId);
-      showFloatingDamage(
-        getCombatTargetElement(),
-        result.missed ? 'MISS' : result.damage,
-        result.critical ? 'critical' : 'outgoing'
-      );
+      const hitResults = Array.isArray(result.hitResults) ? result.hitResults : [];
+      if (result.followUpSummon && hitResults.length > 1) {
+        for (const [hitIndex, hit] of hitResults.entries()) {
+          if (hit.followUpAttack) {
+            playFollowUpSummonHitMotion(hit, result.followUpSummon);
+          }
+          showFloatingDamage(
+            getCombatTargetElement(),
+            hit.missed ? 'MISS' : (hit.displayDamage ?? hit.damage),
+            !hit.missed && hit.critical ? 'critical' : 'outgoing',
+            hitIndex
+          );
+          if (hitIndex < hitResults.length - 1) await sleep(110);
+        }
+      } else {
+        showFloatingDamage(
+          getCombatTargetElement(),
+          result.missed ? 'MISS' : (result.displayDamage ?? result.damage),
+          result.critical ? 'critical' : 'outgoing'
+        );
+      }
       applyAttackResult(result);
       showGroundLoot(result.drops || []);
       if (result.fieldBossRewardResult) {
@@ -2725,13 +3786,63 @@ async function runAutoCombat(runId) {
   }
 }
 
+const AUTO_COMBAT_STALL_RECOVERY_MS = 12_000;
+
+function shouldRunForegroundAutoCombat() {
+  return Boolean(
+    state.autoCombat
+    && !state.moving
+    && !state.dead
+    && state.worldControlActive
+    && !state.backgroundHunting
+    && state.token
+    && !state.isAdmin
+    && !isStealthActive()
+    && !getMap(state.currentMapId)?.safeZone
+  );
+}
+
+function scheduleAutoCombatRecovery(delayMs = 80) {
+  if (state.autoCombatRestartTimer || !shouldRunForegroundAutoCombat()) return;
+  state.autoCombatRestartTimer = setTimeout(() => {
+    state.autoCombatRestartTimer = null;
+    ensureAutoCombatRunning();
+  }, Math.max(0, Number(delayMs) || 0));
+}
+
+function ensureAutoCombatRunning() {
+  if (!shouldRunForegroundAutoCombat()) return false;
+  const loopIsCurrent = state.autoCombatLoopRunId > 0
+    && state.autoCombatLoopRunId === state.combatRunId;
+  const loopIsResponsive = Date.now() - Number(state.autoCombatLastCycleAt || 0)
+    <= AUTO_COMBAT_STALL_RECOVERY_MS;
+  if (loopIsCurrent && (loopIsResponsive || state.skillUseBusy || state.manualSkillPriority)) {
+    return false;
+  }
+  if (loopIsCurrent) state.combatRunId += 1;
+  startAutoCombat();
+  return true;
+}
+
 function startAutoCombat() {
-  if (!state.autoCombat || state.moving || state.dead || getMap(state.currentMapId)?.safeZone) return;
+  if (!shouldRunForegroundAutoCombat()) return;
+  if (
+    state.autoCombatLoopRunId > 0
+    && state.autoCombatLoopRunId === state.combatRunId
+  ) return;
   const runId = ++state.combatRunId;
-  runAutoCombat(runId).catch((err) => {
-    console.error('V2 auto combat error:', err);
-    setWorldActivity('자동 전투를 다시 준비하고 있습니다.');
-  });
+  state.autoCombatLoopRunId = runId;
+  state.autoCombatLastCycleAt = Date.now();
+  runAutoCombat(runId)
+    .catch((err) => {
+      console.error('V2 auto combat error:', err);
+      setWorldActivity('자동 전투를 다시 준비하고 있습니다.');
+    })
+    .finally(() => {
+      if (state.autoCombatLoopRunId !== runId) return;
+      state.autoCombatLoopRunId = 0;
+      scheduleAutoCombatRecovery();
+    });
 }
 
 function formatDuration(seconds) {
@@ -2742,7 +3853,8 @@ function formatDuration(seconds) {
 }
 
 function renderHuntingTime() {
-  $('huntingTimeLabel').textContent = `남은 자동사냥시간 ${formatDuration(state.huntingTime.remainingSeconds)} / ${formatDuration(state.huntingTime.maximumSeconds)}`;
+  const remainingSeconds = getProjectedHuntingTimeRemaining();
+  $('huntingTimeLabel').textContent = `남은 자동사냥시간 ${formatDuration(remainingSeconds)} / ${formatDuration(state.huntingTime.maximumSeconds)}`;
 }
 
 async function syncHuntingTime(active = state.autoCombat) {
@@ -2753,7 +3865,7 @@ async function syncHuntingTime(active = state.autoCombat) {
       method: 'POST',
       body: JSON.stringify({ active })
     });
-    applyHuntingTime(data.huntingTime);
+    applyHuntingTime(data.huntingTime, { allowIncrease: false });
     if (!state.huntingTime.enabled || state.huntingTime.remainingSeconds <= 0) {
       state.autoCombat = false;
       localStorage.setItem('v2AutoCombat', 'false');
@@ -2805,6 +3917,7 @@ async function toggleAutoCombat() {
     setWorldActivity('명령 대기 중');
   }
   renderHuntingTime();
+  updateBackgroundHuntingHandoff();
 }
 
 function activityLabel(activity) {
@@ -2812,21 +3925,43 @@ function activityLabel(activity) {
   return activity === 'moving' ? '이동 중' : (activity === 'combat' ? '전투 중' : '대기 중');
 }
 
+function renderPlayerStatusIndicator(element, player = {}, now = Date.now()) {
+  const indicator = element?._v2Refs?.statusIndicator
+    || element?.querySelector('.character-status-indicator');
+  if (!indicator) return;
+  const activeStatuses = (Array.isArray(player.statusEffects) ? player.statusEffects : [])
+    .filter((status) => Number(status?.expiresAt || 0) > now);
+  if (!activeStatuses.length && Number(player.silencedUntil || 0) > now) {
+    activeStatuses.push({ id: 'silence', name: '침묵', icon: '🔒' });
+  }
+  indicator.textContent = activeStatuses.map((status) => status.icon || '⚠').join('');
+  indicator.title = activeStatuses.map((status) => status.name || '상태이상').join(' · ');
+  indicator.dataset.status = activeStatuses.map((status) => status.id || 'debuff').join(' ');
+  indicator.classList.toggle('is-visible', activeStatuses.length > 0);
+}
+
 function ensureRemotePlayerElement(player) {
-  let element = Array.from($('remotePlayerLayer').children).find(
-    (entry) => entry.dataset.userId === player.userId
-  );
-  if (element) return element;
+  const userId = String(player.userId || '');
+  let element = state.remotePlayerElements.get(userId);
+  if (element?.isConnected) return element;
   element = document.createElement('div');
   element.className = 'remote-player';
   element.dataset.userId = player.userId;
   element.innerHTML = `
+    <span class="character-status-indicator" aria-hidden="true"></span>
     <span class="remote-player-tag"><b></b><small></small></span>
     <span class="remote-skill-use"></span>
     <i class="remote-head"></i><i class="remote-body"></i>
     <i class="remote-arm remote-arm-left"></i><i class="remote-arm remote-arm-right"></i>
     <i class="remote-leg remote-leg-left"></i><i class="remote-leg remote-leg-right"></i>`;
+  element._v2Refs = {
+    statusIndicator: element.querySelector('.character-status-indicator'),
+    name: element.querySelector('b'),
+    activity: element.querySelector('small'),
+    skillLabel: element.querySelector('.remote-skill-use')
+  };
   $('remotePlayerLayer').appendChild(element);
+  state.remotePlayerElements.set(userId, element);
   return element;
 }
 
@@ -2844,22 +3979,24 @@ function playRemoteJumpEvent(element, jumpEvent) {
 }
 
 function renderRemotePlayers(players = []) {
+  state.worldRemotePlayers = players;
   const visibleIds = new Set();
   players.filter((player) => player.userId !== state.selfUserId).forEach((player) => {
-    visibleIds.add(player.userId);
+    visibleIds.add(String(player.userId));
     const element = ensureRemotePlayerElement(player);
-    element.querySelector('b').textContent = player.nickname;
-    element.querySelector('small').textContent = player.online === false
+    const refs = element._v2Refs;
+    refs.name.textContent = player.nickname;
+    refs.activity.textContent = player.online === false
       ? `${activityLabel(player.activity)} · 오프라인`
       : activityLabel(player.activity);
-    const skillLabel = element.querySelector('.remote-skill-use');
+    const skillLabel = refs.skillLabel;
     if (skillLabel) {
       skillLabel.textContent = '';
       skillLabel.classList.remove('is-visible');
     }
     element.dataset.skillKey = '';
     element.style.left = `${player.x}%`;
-    element.style.bottom = player.floor === 1 ? `${getUpperPlatformBottom()}px` : '42px';
+    element.style.bottom = `${getFloorBottom(player.floor, player.x)}px`;
     element.classList.toggle('facing-left', Boolean(player.facingLeft));
     element.classList.toggle('is-walking', player.activity === 'moving');
     element.classList.toggle('is-combat', player.activity === 'combat');
@@ -2869,18 +4006,73 @@ function renderRemotePlayers(players = []) {
       'is-invulnerable',
       Number(player.invulnerableUntil) > state.worldServerTime
     );
+    renderPlayerStatusIndicator(element, player, state.worldServerTime);
     playRemoteJumpEvent(element, player.jumpEvent);
   });
-  Array.from($('remotePlayerLayer').children).forEach((element) => {
-    if (!visibleIds.has(element.dataset.userId)) element.remove();
-  });
+  for (const [userId, element] of state.remotePlayerElements) {
+    if (visibleIds.has(userId)) continue;
+    element.remove();
+    state.remotePlayerElements.delete(userId);
+  }
+  renderWorldMinimap(players);
+}
+
+function playMonsterCounterAttackEffect(event, monsterElement) {
+  const stage = $('worldStage');
+  if (!stage || !monsterElement?.isConnected) return;
+  const eventKey = [
+    event.source,
+    event.monsterId,
+    event.userId,
+    event.createdAt
+  ].join(':');
+  if (state.playedMonsterCounterEvents.has(eventKey)) return;
+  const now = Date.now();
+  state.playedMonsterCounterEvents.set(eventKey, now);
+  for (const [key, playedAt] of state.playedMonsterCounterEvents) {
+    if (now - playedAt > 10_000) state.playedMonsterCounterEvents.delete(key);
+  }
+
+  const targetElement = String(event.userId || '') === String(state.selfUserId || '')
+    ? $('fieldCharacter')
+    : state.remotePlayerElements.get(String(event.userId || ''));
+  if (!targetElement?.isConnected) return;
+  const stageRect = stage.getBoundingClientRect();
+  const sourceRect = monsterElement.getBoundingClientRect();
+  const targetRect = targetElement.getBoundingClientRect();
+  const sourceX = sourceRect.left - stageRect.left + sourceRect.width / 2;
+  const sourceY = sourceRect.top - stageRect.top + sourceRect.height * .55;
+  const targetX = targetRect.left - stageRect.left + targetRect.width / 2;
+  const targetY = targetRect.top - stageRect.top + targetRect.height * .45;
+
+  if (event.source === 'monster-projectile') {
+    const projectile = document.createElement('span');
+    projectile.className = 'monster-counter-projectile';
+    projectile.setAttribute('aria-hidden', 'true');
+    projectile.style.left = `${sourceX}px`;
+    projectile.style.top = `${sourceY}px`;
+    projectile.style.setProperty('--monster-shot-x', `${targetX - sourceX}px`);
+    projectile.style.setProperty('--monster-shot-y', `${targetY - sourceY}px`);
+    stage.appendChild(projectile);
+    projectile.addEventListener('animationend', () => projectile.remove(), { once: true });
+    setTimeout(() => projectile.remove(), 850);
+    return;
+  }
+
+  const swing = document.createElement('span');
+  swing.className = `monster-counter-swing${targetX < sourceX ? ' facing-left' : ''}`;
+  swing.setAttribute('aria-hidden', 'true');
+  swing.style.left = `${sourceX}px`;
+  swing.style.top = `${sourceY}px`;
+  stage.appendChild(swing);
+  swing.addEventListener('animationend', () => swing.remove(), { once: true });
+  setTimeout(() => swing.remove(), 650);
 }
 
 function ensureMonsterElement(monster) {
-  let element = Array.from($('monsterLayer').children).find(
-    (entry) => entry.dataset.monsterId === monster.id
-  );
-  if (element) return element;
+  const monsterId = String(monster.id || '');
+  let element = state.monsterElements.get(monsterId);
+  if (element?.isConnected) return element;
   element = document.createElement('div');
   const spawnAge = state.worldServerTime - Number(monster.spawnedAt);
   const shouldAnimateSpawn = Number.isFinite(spawnAge) && spawnAge >= 0 && spawnAge <= 2_000;
@@ -2889,9 +4081,21 @@ function ensureMonsterElement(monster) {
   element.innerHTML = `
     <span class="monster-name"></span><span class="monster-level"></span>
     <span class="monster-cast-label"></span>
+    <span class="raid-boss-buff hidden"></span>
+    <span class="monster-debuff-marker hidden"></span>
     <pre>(╬ಠ益ಠ)</pre>
     <div class="monster-hp"><i></i></div>`;
+  element._v2Refs = {
+    name: element.querySelector('.monster-name'),
+    level: element.querySelector('.monster-level'),
+    icon: element.querySelector('pre'),
+    hp: element.querySelector('.monster-hp i'),
+    castLabel: element.querySelector('.monster-cast-label'),
+    raidBuff: element.querySelector('.raid-boss-buff'),
+    debuffMarker: element.querySelector('.monster-debuff-marker')
+  };
   $('monsterLayer').appendChild(element);
+  state.monsterElements.set(monsterId, element);
   if (shouldAnimateSpawn) {
     setTimeout(() => element.classList.remove('is-spawning'), 850);
   }
@@ -2916,7 +4120,10 @@ function releaseCombatVisualTargets(monsterIds = []) {
       releasedIds.has(monsterId)
       && !liveIds.has(monsterId)
       && !state.pendingCombatVisualMonsterIds.has(monsterId)
-    ) element.remove();
+    ) {
+      element.remove();
+      state.monsterElements.delete(monsterId);
+    }
   });
 }
 
@@ -2944,16 +4151,19 @@ function renderMonsters(monsters = []) {
   state.worldMonsters = monsters;
   const visibleIds = new Set();
   monsters.forEach((monster) => {
-    visibleIds.add(monster.id);
+    visibleIds.add(String(monster.id));
     const element = ensureMonsterElement(monster);
+    const refs = element._v2Refs;
     element.dataset.floor = String(monster.floor);
-    element.querySelector('.monster-name').textContent = monster.name;
-    element.querySelector('.monster-level').textContent = `Lv.${monster.level}`;
-    element.querySelector('pre').textContent = monster.icon || '(•̀ᴗ•́)';
-    element.querySelector('.monster-hp i').style.width = `${ratio(monster.hp, monster.maxHp)}%`;
+    refs.name.textContent = monster.name;
+    refs.level.textContent = `Lv.${monster.level}`;
+    refs.icon.textContent = monster.icon || '(•̀ᴗ•́)';
+    if (!state.pendingCombatVisualMonsterIds.has(String(monster.id))) {
+      refs.hp.style.width = `${ratio(monster.hp, monster.maxHp)}%`;
+    }
     const currentCast = monster.currentCast || null;
     const castPattern = String(currentCast?.pattern || '');
-    const castLabel = element.querySelector('.monster-cast-label');
+    const castLabel = refs.castLabel;
     if (castLabel) {
       castLabel.textContent = currentCast
         ? getFieldBossPatternLabel(castPattern, currentCast.skillName)
@@ -2965,20 +4175,53 @@ function renderMonsters(monsters = []) {
       element.classList.toggle(`is-casting-${pattern}`, castPattern === pattern);
     });
     element.classList.toggle('is-field-boss', Boolean(monster.fieldBoss));
+    element.classList.toggle('is-raid-boss', Boolean(monster.raidBoss));
+    const raidBuff = refs.raidBuff;
+    const physicalImmune = Number(monster.physicalImmuneUntil) > Number(state.worldServerTime || Date.now());
+    if (raidBuff) {
+      raidBuff.textContent = physicalImmune ? '🛡️ 물리 공격 무시' : '';
+      raidBuff.classList.toggle('hidden', !physicalImmune);
+    }
+    const debuffMarker = refs.debuffMarker;
+    const worldNow = Number(state.worldServerTime || Date.now());
+    const debuffLabels = [];
+    if (Number(monster.combatDebuffUntil) > worldNow) {
+      debuffLabels.push(monster.combatDebuffName || '약화');
+    }
+    if (Number(monster.movementSpeedDebuffUntil) > worldNow) debuffLabels.push('이동 저하');
+    if (Number(monster.skillSealedUntil) > worldNow) debuffLabels.push('스킬 봉쇄');
+    if (Number(monster.physicalDefenseReductionUntil) > worldNow) {
+      debuffLabels.push('물리 방어 약화');
+    }
+    if (Number(monster.temporaryWeaknessUntil) > worldNow) {
+      const weaknessNames = { fire: '화염', ice: '빙결', lightning: '번개' };
+      debuffLabels.push(`${weaknessNames[monster.temporaryWeaknessElement] || '속성'} 약점`);
+    }
+    if (debuffMarker) {
+      debuffMarker.textContent = debuffLabels.length ? `⚠ ${debuffLabels.join(' · ')}` : '';
+      debuffMarker.classList.toggle('hidden', !debuffLabels.length);
+    }
+    element.classList.toggle(
+      'is-frozen',
+      Number(monster.frozenUntil) > Number(state.worldServerTime || Date.now())
+    );
     element.style.setProperty('--monster-scale', String(Math.max(0.5, 0.5 * (Number(monster.visualScale) || 1))));
     element.style.left = `${monster.x}%`;
-    element.style.bottom = monster.floor === 1 ? `${getUpperPlatformBottom() + 1}px` : '43px';
+    element.style.bottom = `${getFloorBottom(monster.floor, monster.x) + 1}px`;
     element.classList.toggle('facing-left', monster.direction < 0);
     element.classList.toggle('is-moving', ['walk-left', 'walk-right', 'chase'].includes(monster.state));
     element.classList.toggle('is-chasing', monster.state === 'chase');
     element.classList.toggle('is-falling', monster.state === 'fall');
   });
-  Array.from($('monsterLayer').children).forEach((element) => {
+  for (const [monsterId, element] of state.monsterElements) {
     if (
-      !visibleIds.has(element.dataset.monsterId)
-      && !state.pendingCombatVisualMonsterIds.has(String(element.dataset.monsterId || ''))
-    ) element.remove();
-  });
+      !visibleIds.has(monsterId)
+      && !state.pendingCombatVisualMonsterIds.has(monsterId)
+    ) {
+      element.remove();
+      state.monsterElements.delete(monsterId);
+    }
+  }
   renderFieldBossTopBar(monsters);
 }
 
@@ -2989,8 +4232,117 @@ function renderFieldBossTopBar(monsters = state.worldMonsters || []) {
   bar.classList.toggle('hidden', !boss);
   if (!boss) return;
   $('fieldBossTopName').textContent = boss.name || 'FIELD BOSS';
-  $('fieldBossTopText').textContent = `${formatNumber(boss.hp)} / ${formatNumber(boss.maxHp)}`;
+  $('fieldBossTopText').textContent = boss.hideHpNumbers ? '' : `${formatNumber(boss.hp)} / ${formatNumber(boss.maxHp)}`;
   $('fieldBossTopFill').style.width = `${ratio(boss.hp, boss.maxHp)}%`;
+  bar.dataset.raidPhaseColor = boss.raidBoss ? String(boss.phaseColor || 'red') : '';
+  bar.dataset.raidPhase = boss.raidBoss ? String(boss.phase || '') : '';
+}
+
+function renderRaidCombatState(data = {}) {
+  const countdown = $('raidCountdown');
+  const remainingMs = Math.max(0, Number(data.raidState?.countdownRemainingMs) || 0);
+  if (countdown) {
+    countdown.textContent = remainingMs > 0 ? String(Math.max(1, Math.ceil(remainingMs / 1000))) : '';
+    countdown.classList.toggle('hidden', remainingMs <= 0);
+  }
+
+  const telegraphLayer = $('raidTelegraphLayer');
+  if (telegraphLayer) {
+    const now = Number(data.serverTime) || Date.now();
+    const wigCast = [...(data.raidEvents || [])].reverse().find((event) => (
+      event.type === 'cast'
+      && event.pattern === 'wig-rain'
+      && Number(event.resolvesAt) > now
+    ));
+    if (!wigCast) {
+      telegraphLayer.replaceChildren();
+    } else {
+      const widthPercent = Math.max(3, Number(wigCast.zoneWidthPx || 300) / getWorldWidth() * 100);
+      telegraphLayer.innerHTML = (wigCast.zones || []).map((zone, index) => (
+        `<i class="raid-wig-zone" style="left:${Number(zone.x)}%;width:${widthPercent}%" data-zone="${index}"></i>`
+      )).join('');
+    }
+  }
+
+  if (data.bossRaidEjected?.mapId) {
+    $('bossRaidClearModal')?.classList.add('hidden');
+    renderWorldMap(data.bossRaidEjected.mapId, 0, 8);
+    setWorldActivity('사망 후 10분이 지나 안전지대로 복귀했습니다.');
+  }
+  if (data.bossRaidClear) showBossRaidClear(data.bossRaidClear);
+}
+
+function showBossRaidClear(clear = {}) {
+  const modal = $('bossRaidClearModal');
+  if (!modal || !clear?.bossId) return;
+  modal.dataset.bossId = clear.bossId;
+  $('bossRaidClearTitle').textContent = `${clear.bossName || '보스'} 클리어`;
+  $('bossRaidClearSummary').textContent = clear.isLeader
+    ? '공용 보상은 원정대장 우편함으로 지급되었습니다.'
+    : '공용 보상은 원정대장 우편함으로 지급되었습니다. 개인 보상은 아래에서 확인할 수 있습니다.';
+  const rewards = [
+    ...(clear.commonRewards || []).map((reward) => ({ ...reward, common: true })),
+    ...(clear.personalRewards || []).map((reward) => ({ ...reward, common: false }))
+  ];
+  $('bossRaidClearRewards').innerHTML = rewards.length
+    ? rewards.map((reward) => `<div class="boss-raid-clear-reward">
+      <span>${escapeHtml(reward.icon || (reward.kind === 'money' ? '💰' : '📦'))}</span>
+      <strong>${escapeHtml(reward.name || (reward.kind === 'money' ? '원정대 보상금' : reward.itemId || '보상'))}</strong>
+      <em>${formatNumber(reward.amount || reward.quantity || 0)}${reward.common ? ' · 원정대장 우편' : ' · 개인 지급'}</em>
+    </div>`).join('')
+    : '<p>획득한 개인 보상은 없습니다.</p>';
+  modal.classList.remove('hidden');
+  document.body.classList.add('modal-open');
+}
+
+function closeRaidAbandonPrompt() {
+  $('bossRaidAbandonModal')?.classList.add('hidden');
+  document.body.classList.remove('modal-open');
+}
+
+function openRaidAbandonPrompt() {
+  if (!getMap(state.currentMapId)?.raidBossId) return;
+  $('bossRaidAbandonModal')?.classList.remove('hidden');
+  document.body.classList.add('modal-open');
+}
+
+async function abandonBossRaid() {
+  const button = $('bossRaidAbandonAccept');
+  if (!button || button.disabled) return;
+  button.disabled = true;
+  try {
+    const data = await request('/api/v2/boss-raids/abandon', {
+      method: 'POST',
+      body: JSON.stringify({ clientId: state.worldClientId })
+    });
+    closeRaidAbandonPrompt();
+    state.autoCombat = false;
+    state.huntingTime.enabled = false;
+    state.moving = false;
+    state.moveRunId += 1;
+    state.combatRunId += 1;
+    localStorage.setItem('v2AutoCombat', 'false');
+    if (data.character) state.character = data.character;
+    renderWorldMap(data.mapId, 0, 8);
+    setWorldActivity('보스 원정대를 포기하고 마을로 복귀했습니다.');
+    await sendWorldHeartbeat();
+  } catch (error) {
+    setWorldActivity(error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function leaveClearedBossRaid() {
+  try {
+    const data = await request('/api/v2/boss-raids/leave', { method: 'POST', body: '{}' });
+    $('bossRaidClearModal')?.classList.add('hidden');
+    document.body.classList.remove('modal-open');
+    if (data.character) state.character = data.character;
+    renderWorldMap(data.mapId, 0, 8);
+  } catch (error) {
+    setWorldActivity(error.message);
+  }
 }
 
 function applyAttackResult(result = {}) {
@@ -3015,7 +4367,11 @@ function applyAttackResult(result = {}) {
         ...monster,
         hp: result.monster.hp,
         maxHp: result.monster.maxHp,
-        state: result.monster.state
+        state: result.monster.state,
+        frozenUntil: result.monster.frozenUntil,
+        phase: result.monster.phase,
+        phaseColor: result.monster.phaseColor,
+        physicalImmuneUntil: result.monster.physicalImmuneUntil
       }
       : monster
   ));
@@ -3052,11 +4408,12 @@ function syncInvulnerabilityVisual(invulnerableUntil, serverTime) {
   }, remaining);
 }
 
-function showDeathState(expLost = 0) {
+function showDeathState(expLost = 0, protectedByItem = false) {
   if (!state.dead) {
     state.dead = true;
     state.worldStateEpoch += 1;
     state.deathExpLost = Math.max(0, Number(expLost) || 0);
+    state.deathExpProtectedByItem = Boolean(protectedByItem);
     state.autoCombat = false;
     localStorage.setItem('v2AutoCombat', 'false');
     state.moving = false;
@@ -3069,10 +4426,14 @@ function showDeathState(expLost = 0) {
     updateFieldControls();
   } else {
     state.deathExpLost = Math.max(state.deathExpLost, Number(expLost) || 0);
+    state.deathExpProtectedByItem = state.deathExpProtectedByItem
+      || Boolean(protectedByItem);
   }
-  $('deathExpLoss').textContent = state.deathExpLost > 0
-    ? `사망 페널티로 경험치 ${formatNumber(state.deathExpLost)}을 잃었습니다.`
-    : '현재 경험치가 부족하여 차감된 경험치는 없습니다.';
+  $('deathExpLoss').textContent = state.deathExpProtectedByItem
+    ? '겨부장의 피 1개가 사라지며 경험치 감소를 막았습니다.'
+    : state.deathExpLost > 0
+      ? `사망 페널티로 경험치 ${formatNumber(state.deathExpLost)}을 잃었습니다.`
+      : '현재 경험치가 부족하여 차감된 경험치는 없습니다.';
   $('deathModal').classList.remove('hidden');
   document.body.classList.add('modal-open');
 }
@@ -3105,6 +4466,58 @@ function playFieldBossCastVisual(event = {}) {
   }, durationMs + 220);
 }
 
+function playFieldBossRewardLoot(bossReward = {}, ownReward = {}) {
+  const visualId = [
+    String(bossReward.bossId || 'field-boss'),
+    String(bossReward.defeatedAt || ''),
+    String(state.selfUserId || '')
+  ].join(':');
+  if (state.playedFieldBossRewardIds.has(visualId)) return;
+  state.playedFieldBossRewardIds.add(visualId);
+  if (state.playedFieldBossRewardIds.size > 50) {
+    state.playedFieldBossRewardIds.delete(state.playedFieldBossRewardIds.values().next().value);
+  }
+
+  const originX = Math.max(5, Math.min(88, Number(bossReward.bossX) || 50));
+  const floor = Math.max(0, Math.floor(Number(bossReward.bossFloor) || 0));
+  const rewardDrops = [];
+  const money = Math.max(0, Math.floor(Number(ownReward.money) || 0));
+  if (money > 0) {
+    rewardDrops.push({
+      kind: 'money',
+      amount: money,
+      name: `${formatNumber(money)}원`,
+      icon: '💰'
+    });
+  }
+  (ownReward.items || [])
+    .filter((item) => item.stored)
+    .forEach((item) => {
+      const quantity = Math.max(1, Math.floor(Number(item.quantity) || 1));
+      rewardDrops.push({
+        kind: 'item',
+        itemId: item.itemId,
+        quantity,
+        name: `${item.name || item.itemId} x${formatNumber(quantity)}`,
+        icon: item.icon || '📦'
+      });
+    });
+  const center = (rewardDrops.length - 1) / 2;
+  const drops = rewardDrops.map((drop, index) => ({
+    ...drop,
+    id: `boss-reward-${visualId}-${index}`,
+    x: Math.max(5, Math.min(88, originX + (index - center) * 5)),
+    floor,
+    collectAt: Date.now() + 900,
+    silentCollection: true,
+    stored: true,
+    grounded: true
+  }));
+  if (!drops.length) return;
+  showGroundLoot(drops);
+  setTimeout(() => collectGroundLoot(drops), 900);
+}
+
 function handleFieldBossEvents(data = {}) {
   (data.fieldBossStatusEvents || [])
     .filter((event) => event.type === 'cast')
@@ -3121,7 +4534,9 @@ function handleFieldBossEvents(data = {}) {
     event.targetUserId === state.selfUserId
   ));
   const ownSkillName = getFieldBossPatternLabel(ownStatus?.pattern, ownStatus?.skillName);
-  if (ownStatus?.type === 'silence') {
+  if (ownStatus?.dodged) {
+    setWorldActivity(`${ownStatus.bossName || '필드보스'}의 ${ownSkillName} 회피 · 2초 무적`);
+  } else if (ownStatus?.type === 'silence') {
     setWorldActivity(`${ownStatus.bossName || '필드보스'}의 ${ownSkillName}에 걸렸습니다.`);
   } else if (ownStatus?.type === 'ranged') {
     setWorldActivity(`${ownStatus.bossName || '필드보스'}의 ${ownSkillName}에 피격되었습니다.`);
@@ -3140,6 +4555,7 @@ function handleFieldBossEvents(data = {}) {
   ));
   if (!bossReward) return;
   const ownReward = (bossReward.rewards || []).find((reward) => reward.userId === state.selfUserId);
+  playFieldBossRewardLoot(bossReward, ownReward);
   const itemText = (ownReward?.items || [])
     .filter((item) => item.stored)
     .map((item) => `${item.name || item.itemId} x${formatNumber(item.quantity || 1)}`)
@@ -3167,6 +4583,7 @@ async function revivePlayer() {
     });
     state.dead = false;
     state.deathExpLost = 0;
+    state.deathExpProtectedByItem = false;
     $('deathModal').classList.add('hidden');
     document.body.classList.remove('modal-open');
     state.character = data.character;
@@ -3200,9 +4617,22 @@ function syncWorldSelfResources(data = {}, skipAutoPotionCheck = false) {
     const ownDeath = (data.contactEvents || []).find(
       (event) => event.userId === state.selfUserId && Number(event.currentHp) <= 0
     );
-    showDeathState(ownDeath?.expLost || 0);
-  } else if (!skipAutoPotionCheck) {
-    maybeUseAutoPotions();
+    showDeathState(
+      ownDeath?.expLost || 0,
+      ownDeath?.deathExpProtectedByItem === true
+    );
+  } else {
+    if (state.dead) {
+      state.dead = false;
+      state.deathExpLost = 0;
+      state.deathExpProtectedByItem = false;
+      $('deathModal')?.classList.add('hidden');
+      document.body.classList.remove('modal-open');
+      setCharacterMotion(null);
+      updateFieldControls();
+      setWorldActivity('복직 지원으로 부활했습니다.');
+    }
+    if (!skipAutoPotionCheck) maybeUseAutoPotions();
   }
 }
 
@@ -3234,6 +4664,9 @@ function renderWorldEntities(data = {}) {
     $('worldStage')?.style.setProperty('--world-snapshot-transition', `${transitionMs}ms`);
   }
   state.lastWorldSnapshotReceivedAt = receivedAt;
+  if (Array.isArray(data.partyMemberIds)) {
+    state.partyMemberIds = new Set(data.partyMemberIds.map(String));
+  }
   if (data.partyState) {
     state.partyState = { ...state.partyState, ...data.partyState };
     const invitation = data.partyState.invitation;
@@ -3266,7 +4699,20 @@ function renderWorldEntities(data = {}) {
     }
   }
   state.worldServerTime = Number(data.serverTime) || Date.now();
+  if (data.busTransport) {
+    const previousBoardingOpen = Boolean(state.busTransport?.boardingOpen);
+    const previousStage = String(state.busTransport?.stage || '');
+    state.busTransport = data.busTransport;
+    if (
+      previousBoardingOpen !== Boolean(data.busTransport.boardingOpen)
+      || previousStage !== String(data.busTransport.stage || '')
+    ) renderMapNpcs(getMap(state.currentMapId));
+  }
+  if (Number.isFinite(Number(data.pendingMailCount))) {
+    updateMailButton(Number(data.pendingMailCount));
+  }
   if (data.self?.userId) state.selfUserId = data.self.userId;
+  renderPlayerStatusIndicator($('fieldCharacter'), data.self, state.worldServerTime);
   if (data.self && state.character?.skillTree) {
     state.character.skillTree.summon = data.self.summon || null;
     state.character.skillTree.decoySummon = data.self.decoySummon || null;
@@ -3276,18 +4722,31 @@ function renderWorldEntities(data = {}) {
     ].filter(Boolean);
     renderCompanion();
   }
+  if (data.bossExpeditionEntry) enterBossExpeditionMap(data.bossExpeditionEntry);
+  if (Array.isArray(data.partyMembers)) state.partyMembers = data.partyMembers;
+  renderPartyCombatHud();
   showGlobalShout(data.globalShout);
   renderRemotePlayers(data.players || []);
   renderMonsters(data.monsters || []);
+  for (const event of data.contactEvents || []) {
+    const monster = state.monsterElements.get(String(event.monsterId || ''));
+    if (!monster) continue;
+    if (event.source === 'monster-projectile' || event.source === 'monster-swing') {
+      playMonsterCounterAttackEffect(event, monster);
+    }
+    monster.classList.remove('is-attacking');
+    void monster.offsetWidth;
+    monster.classList.add('is-attacking');
+    setTimeout(() => monster.classList.remove('is-attacking'), 380);
+  }
+  renderRaidCombatState(data);
   renderPartyPortals(data.partyPortals || []);
   const ownContact = (data.contactEvents || []).find((event) => event.userId === state.selfUserId);
   if (ownContact) {
     const character = $('fieldCharacter');
     character.style.transitionDuration = '0ms';
     character.style.left = `${ownContact.x}%`;
-    character.style.bottom = Number(ownContact.floor) === 1
-      ? `${getUpperPlatformBottom()}px`
-      : '42px';
+    setCharacterFloor(ownContact.floor, ownContact.x);
     void character.offsetWidth;
     if (!ownContact.dodged && !ownContact.blocked && Number(ownContact.damage) > 0) {
       triggerCharacterJump({ knockback: true });
@@ -3314,10 +4773,21 @@ function renderWorldEntities(data = {}) {
     }
     syncInvulnerabilityVisual(ownContact.invulnerableUntil, state.worldServerTime);
     if (Number(ownContact.currentHp) > 0) {
+      const resourceCrash = ownContact.source === 'raid-resource-crash';
+      const raidBossContact = ownContact.source === 'raid-boss-contact';
+      const contactLabel = ownContact.source === 'monster-projectile'
+        ? `${ownContact.monsterName || '몬스터'} 투사체`
+        : ownContact.source === 'monster-swing'
+          ? `${ownContact.monsterName || '몬스터'} 휘두르기`
+          : raidBossContact
+            ? `${ownContact.monsterName || '보스'} 몸박`
+            : '몸박';
       setWorldActivity(
         ownContact.dodged
-          ? '패시브 회피 성공 · 1초 무적'
-          : `몸박 피해 -${formatNumber(ownContact.damage)} · 2초 무적`
+          ? `${resourceCrash ? '자원 감축' : contactLabel} 회피 성공 · 2초 무적`
+          : resourceCrash
+            ? `자원 감축 피격 · HP/정신력 1 · 2초 무적`
+            : `${contactLabel} 피해 -${formatNumber(ownContact.damage)} · 2초 무적`
       );
     }
   }
@@ -3399,7 +4869,6 @@ function queueWorldHeartbeat() {
 async function sendWorldHeartbeat() {
   if (
     state.worldHeartbeatBusy
-    || state.dead
     || state.reviving
     || !state.worldControlActive
     || !state.token
@@ -3407,6 +4876,7 @@ async function sendWorldHeartbeat() {
     || !state.currentMapId
   ) return;
   const requestEpoch = state.worldStateEpoch;
+  const potionResponseSequenceAtStart = state.potionResponseSequence;
   state.worldHeartbeatBusy = true;
   try {
     const character = $('fieldCharacter');
@@ -3433,9 +4903,38 @@ async function sendWorldHeartbeat() {
       })
     });
     if (requestEpoch === state.worldStateEpoch) {
+      if (
+        data.self
+        && state.potionResponseSequence > potionResponseSequenceAtStart
+        && state.character?.resources
+      ) {
+        const resources = state.character.resources;
+        data.self = {
+          ...data.self,
+          currentHp: resources.currentHp,
+          maxHp: resources.maxHp,
+          currentMp: resources.currentMp,
+          maxMp: resources.maxMp,
+          isDead: Number(resources.currentHp) <= 0
+        };
+      }
       const lootCollections = Array.isArray(data.lootCollections)
         ? data.lootCollections
         : [];
+      if (data.fieldBossLockouts && state.character) {
+        state.character.fieldBossLockouts = { ...data.fieldBossLockouts };
+      }
+      if (data.mapId && data.mapId !== state.currentMapId) {
+        state.moving = false;
+        state.moveRunId += 1;
+        state.combatRunId += 1;
+        renderWorldMap(data.mapId, 0, data.self?.x);
+        const fieldCharacter = $('fieldCharacter');
+        if (fieldCharacter && data.self) {
+          fieldCharacter.style.left = `${Number(data.self.x) || 8}%`;
+          setCharacterFloor(data.self.floor, data.self.x);
+        }
+      }
       if (lootCollections.length) collectGroundLoot(lootCollections);
       state.worldServerTime = Number(data.serverTime) || Date.now();
       if (data.self?.userId) state.selfUserId = data.self.userId;
@@ -3456,13 +4955,27 @@ async function sendWorldHeartbeat() {
       }
     }
   } catch (err) {
-    if (err.code === 'WORLD_CONTROL_LOST') {
+    if (err.code === 'WORLD_CONTROL_LOST' || err.code === 'WORLD_CONTROL_UNCLAIMED') {
+      const expectedBackgroundRelease = requestEpoch !== state.worldStateEpoch
+        || state.backgroundHunting
+        || state.backgroundHuntingHandoffBusy
+        || !state.worldControlActive;
+      if (expectedBackgroundRelease) return;
+      if (err.code === 'WORLD_CONTROL_UNCLAIMED') {
+        state.worldControlActive = false;
+        state.backgroundHunting = true;
+        if (document.visibilityState === 'visible') {
+          queueMicrotask(recoverVisibleWorldSession);
+        }
+        return;
+      }
       disconnectSupersededWorld();
       return;
     }
     console.error('V2 world heartbeat error:', err);
   } finally {
     state.worldHeartbeatBusy = false;
+    ensureAutoCombatRunning();
     if (state.worldHeartbeatQueued) {
       state.worldHeartbeatQueued = false;
       queueMicrotask(() => sendWorldHeartbeat());
@@ -3481,7 +4994,160 @@ async function runWorldPresence(runId) {
 
 function startWorldPresence() {
   const runId = ++state.worldPresenceRunId;
+  ensureBossExpeditionPolling();
   runWorldPresence(runId).catch((err) => console.error('V2 world presence error:', err));
+}
+
+async function runSessionPresence(runId) {
+  while (runId === state.sessionPresenceRunId && state.token && !state.isAdmin) {
+    try {
+      await request('/api/v2/presence/heartbeat', {
+        method: 'POST',
+        body: JSON.stringify({})
+      });
+    } catch (err) {
+      console.error('V2 session presence error:', err);
+    }
+    await sleep(SESSION_HEARTBEAT_INTERVAL_MS);
+  }
+}
+
+function startSessionPresence() {
+  const runId = ++state.sessionPresenceRunId;
+  runSessionPresence(runId).catch((err) => console.error('V2 session presence loop error:', err));
+}
+
+function shouldUseBackgroundHunting() {
+  return Boolean(
+    state.token
+    && !state.isAdmin
+    && state.autoCombat
+    && !state.dead
+    && !getMap(state.currentMapId)?.safeZone
+    && document.visibilityState !== 'visible'
+  );
+}
+
+async function leaveWorldControlForBackgroundHunting() {
+  if (!state.worldControlActive || state.backgroundHuntingHandoffBusy) return;
+  state.backgroundHuntingHandoffBusy = true;
+  state.worldStateEpoch += 1;
+  state.backgroundHunting = true;
+  state.worldControlActive = false;
+  state.worldPresenceRunId += 1;
+  state.combatRunId += 1;
+  state.moveRunId += 1;
+  state.moving = false;
+  try {
+    await requestWithTimeout('/api/v2/world/leave', {
+      method: 'POST',
+      keepalive: true,
+      body: JSON.stringify({
+        clientId: state.worldClientId,
+        mapId: state.currentMapId,
+        x: getCharacterX(),
+        floor: getCharacterFloor(),
+        backgroundHunting: true
+      })
+    }, 1_500);
+  } catch (err) {
+    console.error('V2 background hunting handoff error:', err);
+    // The request may have reached the server even when the browser aborted it.
+    // Reclaiming on the next visible frame is safe for both outcomes.
+    state.backgroundHunting = true;
+    state.worldControlActive = false;
+  } finally {
+    state.backgroundHuntingHandoffBusy = false;
+    if (!shouldUseBackgroundHunting()) queueMicrotask(updateBackgroundHuntingHandoff);
+  }
+}
+
+async function resumeWorldControlFromBackgroundHunting() {
+  if (!state.backgroundHunting || state.backgroundHuntingHandoffBusy || !state.token) return;
+  state.backgroundHuntingHandoffBusy = true;
+  try {
+    const controlData = await requestWithTimeout('/api/v2/world/claim-control', {
+      method: 'POST',
+      body: JSON.stringify({ clientId: state.worldClientId })
+    }, 5_000);
+    state.worldStateEpoch += 1;
+    state.worldControlActive = true;
+    state.backgroundHunting = false;
+    if (controlData.character) {
+      renderGame({
+        preview: state.preview,
+        character: controlData.character,
+        displayName: state.displayName
+      });
+    } else if (controlData.huntingTime) {
+      applyHuntingTime(controlData.huntingTime);
+    }
+    resumeWorldSimulation(controlData.character?.worldState);
+  } catch (err) {
+    console.error('V2 background hunting resume error:', err);
+    state.backgroundHunting = true;
+  } finally {
+    state.backgroundHuntingHandoffBusy = false;
+    if (shouldUseBackgroundHunting() && state.worldControlActive) {
+      queueMicrotask(updateBackgroundHuntingHandoff);
+    } else if (!shouldUseBackgroundHunting() && state.backgroundHunting) {
+      setTimeout(updateBackgroundHuntingHandoff, 1_000);
+    }
+  }
+}
+
+function updateBackgroundHuntingHandoff() {
+  if (!state.token || state.isAdmin) return;
+  if (shouldUseBackgroundHunting()) {
+    void leaveWorldControlForBackgroundHunting();
+  } else if (state.backgroundHunting) {
+    void resumeWorldControlFromBackgroundHunting();
+  }
+}
+
+function resumeWorldSimulation(persistedWorld = state.character?.worldState || {}) {
+  const savedMapId = String(persistedWorld?.mapId || '');
+  if (!state.currentMapId || !savedMapId || savedMapId !== state.currentMapId) {
+    startWorldSimulation();
+    return;
+  }
+  state.moveRunId += 1;
+  state.combatRunId += 1;
+  state.moving = false;
+  state.activeMoveTargetX = null;
+  const character = $('fieldCharacter');
+  if (character) {
+    const x = Math.max(0, Math.min(94, Number(persistedWorld.x) || getCharacterX() || 8));
+    character.style.transitionDuration = '0ms';
+    character.style.left = `${x}%`;
+    setCharacterFloor(persistedWorld.floor, x);
+    setCharacterMotion(null);
+  }
+  startWorldPresence();
+  startSessionPresence();
+  queueWorldHeartbeat();
+  ensureAutoCombatRunning();
+}
+
+function recoverVisibleWorldSession() {
+  if (
+    document.visibilityState !== 'visible'
+    || !state.token
+    || state.isAdmin
+    || !state.character
+    || !state.maps.length
+  ) return;
+  if (state.backgroundHunting) {
+    void resumeWorldControlFromBackgroundHunting();
+    return;
+  }
+  if (!state.worldControlActive && !state.backgroundHuntingHandoffBusy) {
+    state.backgroundHunting = true;
+    void resumeWorldControlFromBackgroundHunting();
+    return;
+  }
+  queueWorldHeartbeat();
+  ensureAutoCombatRunning();
 }
 
 function startWorldSimulation() {
@@ -3499,13 +5165,13 @@ function startWorldSimulation() {
   if (startMap.id === persistedWorld.mapId) {
     const character = $('fieldCharacter');
     character.style.left = `${Math.max(0, Math.min(94, Number(persistedWorld.x) || 8))}%`;
-    character.style.bottom = Number(persistedWorld.floor) === 1
-      ? `${getUpperPlatformBottom()}px`
-      : '42px';
+    setCharacterFloor(persistedWorld.floor, persistedWorld.x);
   }
   if (Number(state.character?.resources?.currentHp) <= 0) showDeathState(0);
   startWorldPresence();
+  startSessionPresence();
   if (state.autoCombat && !state.dead) startAutoCombat();
+  updateBackgroundHuntingHandoff();
 }
 
 function setInventoryData(inventory = {}) {
@@ -3519,7 +5185,7 @@ function setInventoryData(inventory = {}) {
       hp: inventory.quickSlots?.hp || null,
       mp: inventory.quickSlots?.mp || null
     },
-    consumableQuickSlots: Array.from({ length: 3 }, (_, index) => (
+    consumableQuickSlots: Array.from({ length: 4 }, (_, index) => (
       Array.isArray(inventory.consumableQuickSlots)
         ? inventory.consumableQuickSlots[index] || null
         : null
@@ -3561,7 +5227,7 @@ function setFloatingButtonsMinimized(minimized) {
     button.textContent = state.floatingButtonsMinimized ? '+' : '−';
     button.setAttribute(
       'aria-label',
-      state.floatingButtonsMinimized ? '우편/이벤트 버튼 펼치기' : '우편/이벤트 버튼 최소화'
+      state.floatingButtonsMinimized ? '알림 버튼 펼치기' : '알림 버튼 최소화'
     );
   }
 }
@@ -3574,7 +5240,7 @@ function renderPotionQuickbar() {
   const quickbar = $('consumableQuickbar');
   if (quickbar) {
     const slots = state.inventory.consumableQuickSlots || [];
-    quickbar.innerHTML = Array.from({ length: 3 }, (_, index) => {
+    quickbar.innerHTML = Array.from({ length: 4 }, (_, index) => {
       const item = slots[index] || null;
       const hasItem = Boolean(item);
       const quantity = Math.max(0, Number(item?.quantity) || 0);
@@ -3589,7 +5255,11 @@ function renderPotionQuickbar() {
         <span>ITEM SLOT</span><strong>등록</strong>
       </button>`;
     quickbar.querySelectorAll('[data-use-consumable-slot]').forEach((button) => {
-      button.addEventListener('click', () => useConsumableQuickSlot(Number(button.dataset.useConsumableSlot)));
+      const slot = Number(button.dataset.useConsumableSlot);
+      const item = slots[slot];
+      const handler = () => useConsumableQuickSlot(slot);
+      if (isPriorityManualConsumable(item)) bindImmediatePotionButton(button, handler);
+      else button.addEventListener('click', handler);
     });
     quickbar.querySelectorAll('[data-empty-consumable-slot]').forEach((button) => {
       button.addEventListener('click', () => openFeature('potion-config'));
@@ -3620,22 +5290,89 @@ function animateResourceRestore(resource) {
   setTimeout(() => track.classList.remove('is-restored'), 520);
 }
 
-async function useQuickPotion(slot, automatic = false) {
-  if (state.dead || state.autoPotionBusy[slot] || state.potionUseBusy) return;
-  state.potionUseBusy = true;
-  state.autoPotionBusy[slot] = true;
+function isPriorityManualConsumable(item) {
+  return ['potion', 'cleanse-potion'].includes(String(item?.itemType || ''));
+}
+
+function bindImmediatePotionButton(button, handler) {
+  if (!button) return;
+  button.addEventListener('pointerdown', (event) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    event.preventDefault();
+    handler();
+  });
+  button.addEventListener('click', (event) => {
+    if (event.detail !== 0) {
+      event.preventDefault();
+      return;
+    }
+    handler();
+  });
+}
+
+async function submitManualPotionUse(usePotion) {
+  if (state.dead) return;
+  state.manualPotionRequestsInFlight += 1;
+  try {
+    await usePotion();
+  } finally {
+    state.manualPotionRequestsInFlight = Math.max(0, state.manualPotionRequestsInFlight - 1);
+  }
+}
+
+function applyPotionUseResult(data = {}, requestSequence = 0) {
+  if (requestSequence > 0 && requestSequence < state.potionResponseSequence) return false;
+  if (requestSequence > 0) state.potionResponseSequence = requestSequence;
+  if (data.character) {
+    state.character = {
+      ...(state.character || {}),
+      resources: { ...(data.character.resources || {}) },
+      inventory: data.character.inventory || state.character?.inventory,
+      worldState: data.character.worldState || state.character?.worldState
+    };
+    const resources = state.character.resources || {};
+    setResource('hp', resources.currentHp, resources.maxHp);
+    setResource('mp', resources.currentMp, resources.maxMp);
+  }
+  if (data.inventory) setInventoryData(data.inventory);
+  return true;
+}
+
+function applyReturnScrollMap(data = {}) {
+  if (!data.map?.id) return false;
+  const destination = data.character?.worldState || {};
+  const x = Number.isFinite(Number(destination.x))
+    ? Math.max(0, Math.min(94, Number(destination.x)))
+    : 8;
+  const floor = Number.isFinite(Number(destination.floor))
+    ? Math.max(0, Math.floor(Number(destination.floor)))
+    : 0;
+  state.worldStateEpoch += 1;
+  state.moveRunId += 1;
+  state.combatRunId += 1;
+  state.autoCombat = false;
+  localStorage.setItem('v2AutoCombat', 'false');
+  renderWorldMap(data.map.id, 0, x, floor);
+  return true;
+}
+
+async function performQuickPotion(slot, automatic = false) {
+  if (state.dead) return;
+  if (automatic && (
+    state.autoPotionBusy[slot]
+    || state.potionUseBusy
+  )) return;
+  const requestSequence = ++state.potionRequestSequence;
+  if (automatic) {
+    state.potionUseBusy = true;
+    state.autoPotionBusy[slot] = true;
+  }
   try {
     const data = await request('/api/v2/inventory/use-potion', {
       method: 'POST',
       body: JSON.stringify({ slot })
     });
-    state.character = data.character;
-    setInventoryData(data.inventory);
-    renderGame({
-      preview: state.preview,
-      character: data.character,
-      displayName: state.displayName
-    });
+    if (!applyPotionUseResult(data, requestSequence)) return;
     const restored = data.used.restoredByResource || { [slot]: data.used.restored };
     const restorationLabels = [];
     for (const resource of ['hp', 'mp']) {
@@ -3647,52 +5384,62 @@ async function useQuickPotion(slot, automatic = false) {
   } catch (err) {
     if (!automatic) setWorldActivity(err.message);
   } finally {
-    state.autoPotionBusy[slot] = false;
-    state.potionUseBusy = false;
+    if (automatic) {
+      state.autoPotionBusy[slot] = false;
+      state.potionUseBusy = false;
+    }
   }
 }
 
-async function useConsumableQuickSlot(slot) {
-  if (state.dead || state.potionUseBusy) return;
-  state.potionUseBusy = true;
+function useQuickPotion(slot, automatic = false) {
+  if (automatic) return performQuickPotion(slot, true);
+  return submitManualPotionUse(() => performQuickPotion(slot, false));
+}
+
+async function performConsumableQuickSlot(slot, priorityPotion = false) {
+  if (state.dead || (!priorityPotion && state.consumableUseBusy)) return;
+  const requestSequence = priorityPotion ? ++state.potionRequestSequence : 0;
+  if (!priorityPotion) state.consumableUseBusy = true;
   try {
     const data = await request('/api/v2/inventory/use-consumable-slot', {
       method: 'POST',
       body: JSON.stringify({ slot, mapId: state.currentMapId })
     });
-    state.character = data.character;
-    setInventoryData(data.inventory);
-    renderGame({
-      preview: state.preview,
-      character: data.character,
-      displayName: state.displayName
-    });
+    if (!applyPotionUseResult(data, requestSequence)) return;
     const restored = data.used?.restoredByResource || {};
     for (const resource of ['hp', 'mp']) {
       if (Number(restored[resource]) > 0) animateResourceRestore(resource);
     }
-    if (data.map) {
-      state.worldStateEpoch += 1;
-      state.moveRunId += 1;
-      state.combatRunId += 1;
-      state.autoCombat = false;
-      localStorage.setItem('v2AutoCombat', 'false');
-      renderWorldMap(data.map.id, 0);
-    }
+    applyReturnScrollMap(data);
     if (state.activeFeature === 'potion-config') {
       $('featureBody').innerHTML = potionConfigurationBody();
       bindPotionControls();
+    }
+    if (data.cleansed) {
+      renderPlayerStatusIndicator($('fieldCharacter'), {}, Date.now());
     }
     setWorldActivity(data.message);
   } catch (err) {
     setWorldActivity(err.message);
   } finally {
-    state.potionUseBusy = false;
+    if (!priorityPotion) state.consumableUseBusy = false;
   }
 }
 
+function useConsumableQuickSlot(slot) {
+  const item = state.inventory.consumableQuickSlots?.[slot];
+  if (isPriorityManualConsumable(item)) {
+    return submitManualPotionUse(() => performConsumableQuickSlot(slot, true));
+  }
+  return performConsumableQuickSlot(slot, false);
+}
+
 async function maybeUseAutoPotions() {
-  if (state.dead || !state.character?.resources || state.autoPotionCheckRunning) return;
+  if (
+    state.dead
+    || !state.character?.resources
+    || state.autoPotionCheckRunning
+  ) return;
   state.autoPotionCheckRunning = true;
   try {
     for (const slot of ['hp', 'mp']) {
@@ -3791,6 +5538,9 @@ function equipmentTooltipHtml(item) {
     .filter(([, value]) => Number(value))
     .map(([key, value]) => `${ITEM_STAT_LABELS[key] || key} +${formatNumber(value)}`)
     .join(' · ');
+  const tradeStatus = item.tradeable === false
+    ? '거래불가'
+    : (item.bindOnEquip ? '장착 시 교환 불가' : '교환 가능');
   return `<div class="equipment-tooltip-spec">
     <span><b>장비명</b>${escapeHtml(displayName)}</span>
     <span><b>장착 부위</b>${escapeHtml(ITEM_SLOT_LABELS[item.equipmentSlot] || item.equipmentSlot || '미지정')}</span>
@@ -3798,6 +5548,7 @@ function equipmentTooltipHtml(item) {
     <span><b>착용가능 직업</b>${escapeHtml(availableJobs)}</span>
     <span><b>착용에 필요한 스탯</b>${escapeHtml(`레벨 ${requiredLevel}${requiredStats ? ` · ${requiredStats}` : ' · 추가 요구 없음'}`)}</span>
     <span><b>장비 스탯</b>${escapeHtml(stats || '없음')}</span>
+    <span><b>거래 상태</b>${escapeHtml(tradeStatus)}</span>
     <span><b>업그레이드</b>${formatNumber(item.enhancement?.remaining ?? item.upgradeSlots ?? 0)}회 남음 / 총 ${formatNumber(item.enhancement?.maximum ?? item.upgradeSlots ?? 0)}회</span>
   </div>`;
 }
@@ -3811,7 +5562,7 @@ function inventorySlotBody(item, slotNumber, locked = false) {
   }
   let usable = '';
   const directlyUsableItem = (
-    ['return-scroll', 'experience-buff', 'hunting-time', 'hunting-capacity', 'level-up', 'skill-reset', 'mastery-book', 'action-point', 'cash-point', 'shout-pass', 'cleanse-potion'].includes(item.itemType)
+    ['return-scroll', 'experience-buff', 'hunting-time', 'hunting-capacity', 'level-up', 'skill-reset', 'mastery-book', 'action-point', 'cash-point', 'shout-pass', 'cleanse-potion', 'boss-entry-ticket'].includes(item.itemType)
     || item.id === 'level_up_coupon'
   );
   if (item.itemType === 'inventory-expansion') {
@@ -4048,7 +5799,7 @@ async function useInventoryItem(itemId) {
   try {
     const data = await request('/api/v2/inventory/use-item', {
       method: 'POST',
-      body: JSON.stringify({ itemId })
+      body: JSON.stringify({ itemId, mapId: state.currentMapId })
     });
     if (typeof mergeAppliedBuffIntoCharacter === 'function') {
       mergeAppliedBuffIntoCharacter(data.character, data.appliedBuff);
@@ -4060,14 +5811,7 @@ async function useInventoryItem(itemId) {
       renderHuntingTime();
     }
     setInventoryData(data.inventory);
-    if (data.map) {
-      state.worldStateEpoch += 1;
-      state.moveRunId += 1;
-      state.combatRunId += 1;
-      state.autoCombat = false;
-      localStorage.setItem('v2AutoCombat', 'false');
-      renderWorldMap(data.map.id, 0);
-    }
+    applyReturnScrollMap(data);
     rerenderInventory();
     setWorldActivity(data.message);
     if (data.masteryResult) showMasteryBookResult(data.masteryResult);
@@ -4189,7 +5933,7 @@ function potionConfigurationBody() {
       return `<article>
         <div><strong>${escapeHtml(item.icon || '')} ${escapeHtml(item.name)}</strong><small>${escapeHtml(item.description || '')} · ${formatNumber(item.quantity)}개 보유</small></div>
         <div class="potion-slot-actions">
-          ${Array.from({ length: 3 }, (_, index) => `<button type="button" data-assign-consumable="${escapeHtml(item.id)}" data-consumable-slot="${index}">
+          ${Array.from({ length: 4 }, (_, index) => `<button type="button" data-assign-consumable="${escapeHtml(item.id)}" data-consumable-slot="${index}">
             ${registeredIndex === index ? '등록됨' : `${index + 1}번 등록`}
           </button>`).join('')}
         </div>
@@ -4241,10 +5985,14 @@ async function saveAutoPotionThreshold(slot, percent) {
 }
 
 async function assignQuickPotion(slot, itemId) {
-  try {
+  const slotKey = slot === 'mp' ? 'mp' : 'hp';
+  const requestedAt = Date.now() * 1000 + (++state.potionAssignmentSequence % 1000);
+  const previous = state.potionAssignmentQueues[slotKey] || Promise.resolve();
+  const assignment = previous.catch(() => {}).then(async () => {
+    try {
     const data = await request('/api/v2/inventory/quick-slot', {
       method: 'POST',
-      body: JSON.stringify({ slot, itemId })
+      body: JSON.stringify({ slot: slotKey, itemId, requestedAt })
     });
     setInventoryData(data.inventory);
     $('featureBody').innerHTML = potionConfigurationBody();
@@ -4252,6 +6000,12 @@ async function assignQuickPotion(slot, itemId) {
     setWorldActivity('포션 퀵슬롯을 변경했습니다.');
   } catch (err) {
     setWorldActivity(err.message);
+  }
+  });
+  state.potionAssignmentQueues[slotKey] = assignment;
+  await assignment;
+  if (state.potionAssignmentQueues[slotKey] === assignment) {
+    delete state.potionAssignmentQueues[slotKey];
   }
 }
 
@@ -4265,8 +6019,8 @@ async function assignConsumableQuickSlot(slot, itemId = '') {
     $('featureBody').innerHTML = potionConfigurationBody();
     bindPotionControls();
     setWorldActivity(itemId ? '소비 아이템 단축 슬롯을 변경했습니다.' : '소비 아이템 단축 슬롯을 해제했습니다.');
-  } catch (err) {
-    setWorldActivity(err.message);
+    } catch (err) {
+      setWorldActivity(err.message);
   }
 }
 
@@ -4310,7 +6064,9 @@ async function refreshMailStatus() {
 
 function startMailPolling() {
   if (state.mailPollTimer) clearInterval(state.mailPollTimer);
-  state.mailPollTimer = setInterval(refreshMailStatus, 10_000);
+  state.mailPollTimer = setInterval(() => {
+    if (!state.worldControlActive) refreshMailStatus();
+  }, 30_000);
 }
 
 async function claimMailItem(mailId) {
@@ -4395,6 +6151,10 @@ function isZeroPriceSellableAmmunition(item) {
   return item?.itemType === 'ammunition' && item?.ammunitionType === 'arrow';
 }
 
+function isThrowingStarItem(item) {
+  return item?.itemType === 'ammunition' && item?.ammunitionType === 'throwing-star';
+}
+
 function getShopSellPriceForView(item) {
   if (isZeroPriceSellableAmmunition(item)) return 0;
   return Math.max(0, Math.floor(Number(item?.sellPrice) || 0));
@@ -4419,7 +6179,7 @@ function shopBody() {
     <div class="field-shop-columns">
       <section>
         <h3>구매</h3>
-        <div class="shop-item-list">
+        <div class="shop-item-list" data-shop-list="buy">
           ${(state.shop.buyItems || []).map((item) => `<article>
             <span>${escapeHtml(item.icon)}</span>
             <div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.description)}</small><b>${formatNumber(item.buyPrice)}원</b></div>
@@ -4433,22 +6193,48 @@ function shopBody() {
         <div class="shop-inventory-tabs">
           ${INVENTORY_TAB_ORDER.map((key) => `<button type="button" data-shop-tab="${key}" class="${key === state.shop.tab ? 'is-active' : ''}">${escapeHtml(state.inventory.categories[key]?.label || key)}</button>`).join('')}
         </div>
-        <div class="shop-item-list">
+        <div class="shop-item-list" data-shop-list="sell">
           ${sellable.length ? sellable.map((item) => `<article>
             <span>${escapeHtml(item.icon)}</span>
-            <div><strong>${escapeHtml(item.name)}</strong><small>${formatNumber(item.quantity)}개 보유</small><b>개당 ${formatNumber(getShopSellPriceForView(item))}원</b></div>
-            ${item.itemType === 'ammunition' && item.ammunitionType === 'throwing-star' && Number(item.quantity) < Number(item.maxStack)
-              ? `<span class="shop-recharge-note">${formatNumber(item.quantity)} / ${formatNumber(item.maxStack)} · 4,000원</span>
-                 <button type="button" data-shop-recharge-star="${escapeHtml(item.stackId)}">충전</button>`
-              : `<input type="number" min="1" max="${Number(item.quantity) || 1}" value="1" inputmode="numeric" data-shop-sell-quantity="${escapeHtml(item.stackId)}">`}
-            ${item.itemType === 'ammunition' && item.ammunitionType === 'throwing-star' && Number(item.quantity) < Number(item.maxStack)
-              ? ''
-              : `<button type="button" data-shop-sell="${escapeHtml(item.stackId)}">판매</button>`}
+            <div><strong>${escapeHtml(item.name)}</strong><small>${formatNumber(item.quantity)}개 보유</small><b>${isThrowingStarItem(item) ? `묶음 판매 ${formatNumber(getShopSellPriceForView(item))}원` : `개당 ${formatNumber(getShopSellPriceForView(item))}원`}</b></div>
+            <div class="shop-item-actions ${item.ammunitionType === 'throwing-star' ? 'is-throwing-star' : ''}">
+              ${isThrowingStarItem(item)
+                ? `<span class="shop-recharge-note">${formatNumber(item.quantity)} / ${formatNumber(item.maxStack)} · 4,000원</span>
+                   <button type="button" data-shop-recharge-star="${escapeHtml(item.stackId)}" ${Number(item.quantity) >= Number(item.maxStack) ? 'disabled' : ''}>${Number(item.quantity) >= Number(item.maxStack) ? '충전 완료' : '이 슬롯 충전'}</button>`
+                : ''}
+              ${isThrowingStarItem(item)
+                ? `<button class="shop-star-sell-button" type="button" data-shop-sell="${escapeHtml(item.stackId)}">표창 칸 판매</button>`
+                : isShopInventorySellable(item) && Number(item.quantity) > 0
+                ? `<input type="number" min="1" max="${Number(item.quantity)}" value="${Number(item.quantity)}" inputmode="numeric" data-shop-sell-quantity="${escapeHtml(item.stackId)}">
+                   <button type="button" data-shop-sell="${escapeHtml(item.stackId)}">판매</button>`
+                : ''}
+            </div>
           </article>`).join('') : '<div class="empty-ledger"><b>판매할 수 있는 아이템이 없습니다.</b></div>'}
         </div>
       </section>
     </div>
   </div>`;
+}
+
+function captureFieldShopScroll() {
+  const body = $('featureBody');
+  return {
+    body: Number(body?.scrollTop) || 0,
+    buy: Number(body?.querySelector('[data-shop-list="buy"]')?.scrollTop) || 0,
+    sell: Number(body?.querySelector('[data-shop-list="sell"]')?.scrollTop) || 0
+  };
+}
+
+function rerenderFieldShop(scroll = null) {
+  const body = $('featureBody');
+  body.innerHTML = shopBody();
+  bindShopControls();
+  if (!scroll) return;
+  body.scrollTop = scroll.body;
+  const buyList = body.querySelector('[data-shop-list="buy"]');
+  const sellList = body.querySelector('[data-shop-list="sell"]');
+  if (buyList) buyList.scrollTop = scroll.buy;
+  if (sellList) sellList.scrollTop = scroll.sell;
 }
 
 async function openFieldShop(shopId = '') {
@@ -4488,10 +6274,10 @@ async function sellFieldShopItem(stackId) {
       method: 'POST',
       body: JSON.stringify({ stackId, quantity: input?.value })
     });
+    const scroll = captureFieldShopScroll();
     state.shop.money = Number(data.money) || 0;
     setInventoryData(data.inventory);
-    $('featureBody').innerHTML = shopBody();
-    bindShopControls();
+    rerenderFieldShop(scroll);
   } catch (err) {
     setWorldActivity(err.message);
   }
@@ -4529,6 +6315,98 @@ function bindShopControls() {
   });
   document.querySelectorAll('[data-shop-recharge-star]').forEach((button) => {
     button.addEventListener('click', () => rechargeThrowingStar(button.dataset.shopRechargeStar));
+  });
+}
+
+function setStorageData(storage = {}) {
+  state.storage = {
+    items: Array.isArray(storage.items) ? storage.items : [],
+    capacity: Math.max(4, Number(storage.capacity) || 4),
+    usedSlots: Math.max(0, Number(storage.usedSlots) || 0),
+    maximumCapacity: Math.max(4, Number(storage.maximumCapacity) || 200),
+    loaded: true
+  };
+}
+
+function storageItemRow(item, action) {
+  const maximum = Math.max(1, Number(item.quantity) || 1);
+  const label = action === 'deposit' ? '보관' : '찾기';
+  const tooltip = equipmentTooltipHtml(item);
+  return `<article class="storage-item-row">
+    <span>${escapeHtml(item.icon || '📦')}</span>
+    <div><strong>${escapeHtml(item.name)}</strong><small>${formatNumber(item.quantity)}개</small>${tooltip}</div>
+    <input type="number" min="1" max="${maximum}" value="${maximum}" inputmode="numeric"
+      data-storage-quantity="${escapeHtml(action)}:${escapeHtml(item.stackId)}">
+    <button type="button" data-storage-${action}="${escapeHtml(item.stackId)}">${label}</button>
+  </article>`;
+}
+
+function storageBody() {
+  if (!state.storage.loaded) {
+    return '<div class="empty-ledger"><b>창고 장부를 불러오는 중입니다.</b></div>';
+  }
+  const inventoryItems = (state.inventory.items || []).filter((item) => Number(item.quantity) > 0);
+  return `<div class="storage-sheet">
+    <header><div><span>PERSONAL STORAGE</span><strong>사내 개인 창고</strong></div>
+      <b>${formatNumber(state.storage.usedSlots)} / ${formatNumber(state.storage.capacity)}칸</b></header>
+    <div class="storage-columns">
+      <section><h3>창고</h3><div class="storage-item-list">
+        ${state.storage.items.length
+          ? state.storage.items.map((item) => storageItemRow(item, 'withdraw')).join('')
+          : '<div class="storage-empty">보관 중인 아이템이 없습니다.</div>'}
+      </div></section>
+      <section><h3>내 아이템</h3><div class="storage-item-list">
+        ${inventoryItems.length
+          ? inventoryItems.map((item) => storageItemRow(item, 'deposit')).join('')
+          : '<div class="storage-empty">보관할 아이템이 없습니다.</div>'}
+      </div></section>
+    </div>
+  </div>`;
+}
+
+function rerenderStorage() {
+  if (state.activeFeature !== 'storage') return;
+  $('featureBody').innerHTML = storageBody();
+  bindStorageControls();
+}
+
+async function openStorage() {
+  try {
+    state.storage.loaded = false;
+    openFeature('storage');
+    const data = await request('/api/v2/storage');
+    setStorageData(data.storage);
+    setInventoryData(data.inventory);
+    rerenderStorage();
+  } catch (err) {
+    closeFeature();
+    setWorldActivity(err.message);
+  }
+}
+
+async function transferStorageItem(action, stackId) {
+  const input = document.querySelector(`[data-storage-quantity="${CSS.escape(`${action}:${stackId}`)}"]`);
+  try {
+    const data = await request(`/api/v2/storage/${action}`, {
+      method: 'POST',
+      body: JSON.stringify({ stackId, quantity: input?.value })
+    });
+    if (data.character) state.character = data.character;
+    setStorageData(data.storage);
+    setInventoryData(data.inventory);
+    rerenderStorage();
+    setWorldActivity(data.message);
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+function bindStorageControls() {
+  document.querySelectorAll('[data-storage-deposit]').forEach((button) => {
+    button.addEventListener('click', () => transferStorageItem('deposit', button.dataset.storageDeposit));
+  });
+  document.querySelectorAll('[data-storage-withdraw]').forEach((button) => {
+    button.addEventListener('click', () => transferStorageItem('withdraw', button.dataset.storageWithdraw));
   });
 }
 
@@ -4738,6 +6616,7 @@ const featureMeta = {
   equipment: { code: '03 / EQUIPMENT', title: '장비' },
   skills: { code: '04 / SKILLS', title: '스킬' },
   shop: { code: '05 / SUPPLY', title: '상점' },
+  storage: { code: 'STORAGE / PERSONAL', title: '사내 창고' },
   cash: { code: '06 / CASH SHOP', title: '캐쉬상점' },
   company: { code: '07 / COMPANY', title: '회사 운영' },
   boss: { code: '08 / RAID', title: '보스' },
@@ -4751,12 +6630,13 @@ const featureMeta = {
   'patch-notes': { code: '15 / PATCH NOTES', title: '패치노트' },
   'general-quests': { code: '16 / QUESTS', title: '진행 중인 퀘스트' },
   'special-actions': { code: '17 / SPECIAL ACTIONS', title: '특수행동' },
+  'side-job': { code: 'SIDE JOB / CRAFT', title: '부업 제작' },
   'npc-dialog': { code: 'NPC / DIALOG', title: 'NPC 대화' },
   'trade-invite': { code: 'TRADE / INVITE', title: '교환 요청' },
   quest: { code: 'QUEST / HR', title: '전직 퀘스트' },
   move: { code: 'MAP / MOVE', title: '이동 목적지' },
   mail: { code: 'ADMIN / MAIL', title: '우편함' },
-  event: { code: 'EVENT / SETTLEMENT', title: '정착 지원 이벤트' },
+  event: { code: 'EVENT / LATE SUMMER', title: '늦여름 야르한 이벤트' },
   enhancement: { code: 'EQUIPMENT / ENHANCE', title: '장비 강화' },
   'potion-config': { code: 'QUICK / ITEM', title: '소비 슬롯 설정' }
 };
@@ -5064,7 +6944,8 @@ function statBody() {
     ['마력', roundedAbility(derived.magic)],
     ['명중률', roundedAbility(derived.accuracy)],
     ['회피율', roundedAbility(derived.evasion)],
-    ['이동속도', `${roundedAbility(derived.movementSpeed || 100)}%`]
+    ['이동속도', `${roundedAbility(derived.movementSpeed || 100)}%`],
+    ['점프력', `${roundedAbility(derived.jumpPower || 100)}%`]
   ];
   return `
     <div class="stat-overview">
@@ -5205,11 +7086,12 @@ function bindRankingControls() {
 
 async function refreshSettlementEvent(openAfter = false) {
   try {
-    const data = await request('/api/v2/event/settlement-support');
+    const data = await request('/api/v2/event/late-summer-yard');
     state.eventState = data.event;
+    $('eventButton')?.classList.toggle('hidden', !state.eventState?.active);
     if (data.inventory) setInventoryData(data.inventory);
     if (openAfter) openFeature('event');
-    else if (!$('featureModal').classList.contains('hidden') && $('featureTitle').textContent === '정착 지원 이벤트') {
+    else if (state.activeFeature === 'event') {
       $('featureBody').innerHTML = eventBody();
       bindEventControls();
     }
@@ -5221,55 +7103,89 @@ async function refreshSettlementEvent(openAfter = false) {
 function eventBody() {
   const event = state.eventState;
   if (!event) return '<div class="empty-ledger"><b>이벤트 정보를 불러오는 중입니다.</b></div>';
+  const eventStartLabel = new Intl.DateTimeFormat('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).format(new Date(event.startsAt));
+  const eventEndLabel = new Intl.DateTimeFormat('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).format(new Date(new Date(event.endsAt).getTime() - 1_000));
+  const result = state.eventOpenResult;
+  const resultItems = Array.isArray(result?.items) ? result.items : [];
   return `<div class="event-sheet">
     <header>
-      <span>2026.07.06 - 2026.07.31</span>
-      <h3>기간제 정착 지원 이벤트</h3>
-      <p>79레벨까지는 자신의 레벨 기준 ±10 범위 몬스터, 80레벨부터는 70레벨 이상 몬스터를 처치하고 이벤트 코인을 모아 보상과 교환하세요.</p>
+      <span>${escapeHtml(eventStartLabel)} - ${escapeHtml(eventEndLabel)}</span>
+      <h3>늦여름 야르한 이벤트</h3>
+      <p>자신의 레벨 범위 몬스터를 처치해 왁뿌볼을 모으고 이벤트 창에서 한꺼번에 부숴보세요.</p>
     </header>
     <div class="event-balance">
-      <b>보유 코인 ${formatNumber(event.coins)}개</b>
-      <span>오늘 획득 ${formatNumber(event.dailyCoins)} / ${formatNumber(event.dailyCoinLimit)}</span>
+      <b>보유 왁뿌볼 ${formatNumber(event.balls)}개</b>
+      <span>${event.active ? '이벤트 진행 중' : '이벤트 종료'}</span>
     </div>
-    <div class="event-shop-list">
-      ${event.shopItems.map((item) => `<article>
-        <div><strong>${escapeHtml(item.name)}</strong><p>${escapeHtml(item.description)}</p></div>
-        <span>${item.coinPrice > 0 ? `🪙 ${formatNumber(item.coinPrice)}` : '무료'}</span>
-        <button type="button" data-event-buy="${escapeHtml(item.key)}"
-          ${item.remainingToday === 0 || item.remainingTotal === 0 || event.coins < item.coinPrice || !event.active ? 'disabled' : ''}>
-          ${item.remainingTotal === 0 ? '수령 완료' : (item.remainingToday === 0 ? '오늘 구매 완료' : (item.coinPrice > 0 ? '교환' : '무료 수령'))}
-        </button>
-      </article>`).join('')}
-    </div>
-    <p class="notice-line">이벤트 코인과 이벤트 전용 보상은 교환할 수 없습니다. 이벤트 코인 드랍 확률은 게임 화면에 공개되지 않습니다.</p>
+    <button class="event-open-button" type="button" data-event-open
+      ${!event.active || Number(event.balls) <= 0 ? 'disabled' : ''}>왁뿌볼 부수기!</button>
+    ${result ? `<section class="event-open-result">
+      <strong>왁뿌볼 ${formatNumber(result.opened)}개 결과</strong>
+      <div>${resultItems.map((item) => `<span>${escapeHtml(item.icon)} ${escapeHtml(item.name)} ${formatNumber(item.quantity)}개</span>`).join('')}
+        ${Number(result.money) > 0 ? `<span>💰 ${formatNumber(result.money)}원 획득</span>` : ''}
+        ${Number(result.nothingCount) > 0 ? `<span>아무 일도 일어나지 않음 ${formatNumber(result.nothingCount)}회</span>` : ''}
+      </div>
+    </section>` : ''}
+    <p class="notice-line">왁뿌볼과 이벤트 보상은 이벤트 종료 시 사라집니다.</p>
   </div>`;
 }
 
-async function buySettlementEventItem(key) {
+async function openLateSummerEventBalls() {
+  const maximum = Math.min(
+    Math.max(0, Number(state.eventState?.balls) || 0),
+    Math.max(1, Number(state.eventState?.maxOpenQuantity) || 1_000)
+  );
+  if (!maximum) return;
+  const raw = prompt(`부술 왁뿌볼 개수를 입력해주세요. (최대 ${formatNumber(maximum)}개)`, String(maximum));
+  if (raw == null) return;
+  const quantity = Math.floor(Number(raw));
+  if (!Number.isFinite(quantity) || quantity < 1 || quantity > maximum) {
+    setWorldActivity(`1개부터 ${formatNumber(maximum)}개 사이로 입력해주세요.`);
+    return;
+  }
   try {
-    const data = await request('/api/v2/event/settlement-support/buy', {
+    const data = await request('/api/v2/event/late-summer-yard/open', {
       method: 'POST',
-      body: JSON.stringify({ key })
+      body: JSON.stringify({ quantity })
     });
     state.eventState = data.event;
+    state.eventOpenResult = data.opened;
     state.character = data.character;
     setInventoryData(data.inventory);
     renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
     $('featureBody').innerHTML = eventBody();
     bindEventControls();
-    setWorldActivity(`${data.purchased.name} 교환 완료`);
+    setWorldActivity(`왁뿌볼 ${formatNumber(data.opened.opened)}개를 부쉈습니다.`);
   } catch (err) {
     setWorldActivity(err.message);
   }
 }
 
 function bindEventControls() {
-  document.querySelectorAll('[data-event-buy]').forEach((button) => {
-    button.addEventListener('click', () => buySettlementEventItem(button.dataset.eventBuy));
-  });
+  document.querySelector('[data-event-open]')?.addEventListener('click', openLateSummerEventBalls);
 }
 
 async function refreshMarketplace(openAfter = false) {
+  if (!getMap(state.currentMapId)?.safeZone) {
+    setWorldActivity('거래소는 안전지대에서만 이용할 수 있습니다.');
+    return;
+  }
   try {
     const params = new URLSearchParams();
     if (state.marketplace.search) params.set('search', state.marketplace.search);
@@ -5331,6 +7247,335 @@ function marketplaceEquipmentSpecHtml(listing) {
   </div>`;
 }
 
+function getSelectedBossExpedition() {
+  const bossId = state.bossExpedition.selectedBossId
+    || state.bossExpedition.registeredBossId
+    || state.bossExpedition.definitions[0]?.id
+    || '';
+  return {
+    definition: state.bossExpedition.definitions.find((entry) => entry.id === bossId) || null,
+    queue: state.bossExpedition.queues.find((entry) => entry.bossId === bossId) || null
+  };
+}
+
+function bossExpeditionBody() {
+  const { definition, queue } = getSelectedBossExpedition();
+  if (!definition || !queue) {
+    return '<div class="empty-ledger"><b>현재 입장 가능한 보스가 없습니다.</b><p>새로운 보스가 추가되면 이곳에 표시됩니다.</p></div>';
+  }
+  const canChooseSlot = state.bossExpedition.canRegister;
+  const confirmationActive = Boolean(queue.confirmation);
+  const transferableMembers = queue.slots.filter((member) => member && !member.isSelf);
+  const slots = queue.slots.map((member, index) => {
+    const disabled = Boolean(member && !member.isSelf)
+      || (!canChooseSlot && !member?.isSelf)
+      || (queue.isLeader && index !== 0);
+    const partyLabel = member?.partyNumber ? `${member.partyNumber}파티` : '파티 미배정';
+    return `<button class="boss-expedition-slot${member ? '' : ' is-empty'}${member?.isSelf ? ' is-self' : ''}"
+      type="button" data-boss-slot="${index}" ${disabled ? 'disabled' : ''}>
+      <b>${index === 0 ? '대장' : String(index + 1).padStart(2, '0')}</b>
+      <span>${member
+        ? `<strong>${escapeHtml(member.nickname)}</strong><small>Lv.${formatNumber(member.level)} · ${escapeHtml(member.jobName)}</small>`
+        : '<strong>참가 대기</strong><small>칸을 눌러 등록</small>'}</span>
+      <em>${member ? partyLabel : ''}</em>
+    </button>`;
+  }).join('');
+  return `<div class="boss-expedition-sheet">
+    <div class="boss-expedition-tabs">${state.bossExpedition.definitions.map((entry) => (
+      `<button type="button" data-boss-tab="${escapeHtml(entry.id)}" class="${entry.id === definition.id ? 'is-active' : ''}">
+        ${escapeHtml(entry.name)} · Lv.${formatNumber(entry.level)}</button>`
+    )).join('')}</div>
+    ${canChooseSlot || queue.viewerSlot >= 0
+      ? ''
+      : '<p class="boss-expedition-notice">보스 원정대 등록은 마을에서만 가능합니다.</p>'}
+    <div class="boss-expedition-slots">${slots}</div>
+    ${confirmationActive ? `<p class="boss-expedition-notice">입장 동의 진행 중 · ${queue.confirmation.acceptedCount}/${queue.confirmation.memberCount}</p>` : ''}
+    ${queue.isLeader ? `<div class="boss-expedition-actions">
+      <button class="secondary-action" type="button" data-boss-leadership-open ${confirmationActive || !transferableMembers.length ? 'disabled' : ''}>원정대장 양도</button>
+      <button class="secondary-action" type="button" data-boss-party-edit ${confirmationActive ? 'disabled' : ''}>파티 편집</button>
+      <button type="button" data-boss-entry-start ${!queue.allAssigned || confirmationActive ? 'disabled' : ''}>보스 입장</button>
+    </div>` : ''}
+    ${queue.isLeader && state.bossExpedition.leadershipTransferOpen ? `<section class="boss-leadership-transfer">
+      <header><div><b>원정대장 양도</b><small>새 원정대장을 선택하면 서로의 대기 슬롯이 바뀝니다.</small></div>
+        <button class="icon-action" type="button" data-boss-leadership-close aria-label="닫기">×</button></header>
+      <div>${transferableMembers.map((member) => `<button type="button" data-boss-leadership-user="${escapeHtml(member.userId)}">
+        <strong>${escapeHtml(member.nickname)}</strong><span>Lv.${formatNumber(member.level)} · ${escapeHtml(member.jobName)}</span>
+      </button>`).join('')}</div>
+    </section>` : ''}
+  </div>`;
+}
+
+function enterBossExpeditionMap(entry) {
+  if (!entry?.mapId || state.currentMapId === entry.mapId) return;
+  state.autoCombat = false;
+  state.huntingTime.enabled = false;
+  state.moving = false;
+  state.moveRunId += 1;
+  state.combatRunId += 1;
+  localStorage.setItem('v2AutoCombat', 'false');
+  $('bossEntryConfirm')?.classList.add('hidden');
+  $('bossPartyModal')?.classList.add('hidden');
+  closeFeature();
+  renderWorldMap(entry.mapId, 0, Number(entry.x) || 8);
+  setWorldActivity('원정대 전원이 보스 전투에 입장했습니다.');
+}
+
+function applyBossExpeditionData(data = {}) {
+  const selectedBossId = state.bossExpedition.selectedBossId;
+  state.bossExpedition = {
+    ...state.bossExpedition,
+    ...data,
+    selectedBossId: selectedBossId || data.registeredBossId || data.definitions?.[0]?.id || ''
+  };
+  if (!state.bossExpedition.definitions.some((entry) => entry.id === state.bossExpedition.selectedBossId)) {
+    state.bossExpedition.selectedBossId = data.registeredBossId || data.definitions?.[0]?.id || '';
+  }
+  enterBossExpeditionMap(data.pendingEntry);
+  renderBossEntryConfirmation();
+  if (state.activeFeature === 'boss') {
+    $('featureBody').innerHTML = bossExpeditionBody();
+    bindBossExpeditionControls();
+  }
+}
+
+async function refreshBossExpeditions(openAfter = false) {
+  try {
+    const data = await request('/api/v2/boss-expeditions');
+    applyBossExpeditionData(data);
+    if (openAfter) openFeature('boss');
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+async function bossExpeditionRequest(path, body = {}) {
+  try {
+    const data = await request(`/api/v2/boss-expeditions/${path}`, {
+      method: 'POST',
+      body: JSON.stringify(body)
+    });
+    if (data.entered) enterBossExpeditionMap(data);
+    else applyBossExpeditionData(data);
+    return data;
+  } catch (err) {
+    setWorldActivity(err.message);
+    throw err;
+  }
+}
+
+function bindBossExpeditionControls() {
+  document.querySelectorAll('[data-boss-tab]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.bossExpedition.selectedBossId = button.dataset.bossTab;
+      $('featureBody').innerHTML = bossExpeditionBody();
+      bindBossExpeditionControls();
+    });
+  });
+  document.querySelectorAll('[data-boss-slot]').forEach((button) => {
+    button.addEventListener('click', () => bossExpeditionRequest('slot', {
+      bossId: state.bossExpedition.selectedBossId,
+      slotIndex: Number(button.dataset.bossSlot)
+    }).catch(() => {}));
+  });
+  document.querySelector('[data-boss-party-edit]')?.addEventListener('click', openBossPartyEditor);
+  document.querySelector('[data-boss-leadership-open]')?.addEventListener('click', () => {
+    state.bossExpedition.leadershipTransferOpen = true;
+    $('featureBody').innerHTML = bossExpeditionBody();
+    bindBossExpeditionControls();
+  });
+  document.querySelector('[data-boss-leadership-close]')?.addEventListener('click', () => {
+    state.bossExpedition.leadershipTransferOpen = false;
+    $('featureBody').innerHTML = bossExpeditionBody();
+    bindBossExpeditionControls();
+  });
+  document.querySelectorAll('[data-boss-leadership-user]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.bossExpedition.leadershipTransferOpen = false;
+      bossExpeditionRequest('leadership', {
+        bossId: state.bossExpedition.selectedBossId,
+        newLeaderId: button.dataset.bossLeadershipUser
+      }).catch(() => {});
+    });
+  });
+  document.querySelector('[data-boss-entry-start]')?.addEventListener('click', () => (
+    bossExpeditionRequest('start', { bossId: state.bossExpedition.selectedBossId }).catch(() => {})
+  ));
+}
+
+function openBossPartyEditor() {
+  const { definition, queue } = getSelectedBossExpedition();
+  if (!definition || !queue?.isLeader) return;
+  const parties = [[], [], []];
+  const unassigned = [];
+  queue.slots.filter(Boolean).forEach((member) => {
+    const partyIndex = Math.floor(Number(member.partyNumber)) - 1;
+    if (partyIndex >= 0 && partyIndex < parties.length) parties[partyIndex].push(member);
+    else unassigned.push(member);
+  });
+  state.bossPartyDraft = {
+    bossId: definition.id,
+    parties,
+    unassigned,
+    selectedUserId: '',
+    status: ''
+  };
+  renderBossPartyEditor();
+  $('bossPartyModal').classList.remove('hidden');
+}
+
+function renderBossPartyEditor() {
+  const draft = state.bossPartyDraft;
+  const body = $('bossPartyBody');
+  if (!draft || !body) return;
+  const memberButton = (member, extraClass = '', attribute = '') => (
+    `<button type="button" class="boss-party-member ${extraClass}" ${attribute}>
+      <strong>${escapeHtml(member.nickname)}</strong>
+      <small>Lv.${formatNumber(member.level)} · ${escapeHtml(member.jobName)}</small>
+    </button>`
+  );
+  body.innerHTML = `<div class="boss-party-editor">
+    <div class="boss-party-groups">${draft.parties.map((members, index) => (
+      `<section class="boss-party-group" data-boss-party-target="${index}">
+        <h3>파티 ${index + 1} · ${members.length}/6</h3>
+        ${members.map((member) => memberButton(
+          member,
+          '',
+          `data-boss-party-unassign="${escapeHtml(member.userId)}"`
+        )).join('') || '<p>오른쪽에서 원정대원을 고른 뒤 이 영역을 누르세요.</p>'}
+      </section>`
+    )).join('')}</div>
+    <section class="boss-unassigned-roster">
+      <h3>참가 대기 · ${draft.unassigned.length}명</h3>
+      ${draft.unassigned.map((member) => memberButton(
+        member,
+        member.userId === draft.selectedUserId ? 'is-selected' : '',
+        `data-boss-party-select="${escapeHtml(member.userId)}"`
+      )).join('') || '<p>모든 원정대원이 파티에 배치되었습니다.</p>'}
+    </section>
+    <footer class="boss-party-footer">
+      <p>${escapeHtml(draft.status || (draft.unassigned.length ? '모든 원정대원을 파티에 배치해주세요.' : '구성이 완료되었습니다.'))}</p>
+      <button type="button" data-boss-party-save ${draft.unassigned.length ? 'disabled' : ''}>구성 확정</button>
+    </footer>
+  </div>`;
+  bindBossPartyEditorControls();
+}
+
+function bindBossPartyEditorControls() {
+  const draft = state.bossPartyDraft;
+  if (!draft) return;
+  document.querySelectorAll('[data-boss-party-select]').forEach((button) => {
+    button.addEventListener('click', () => {
+      draft.selectedUserId = draft.selectedUserId === button.dataset.bossPartySelect
+        ? ''
+        : button.dataset.bossPartySelect;
+      draft.status = draft.selectedUserId ? '넣을 파티를 선택해주세요.' : '';
+      renderBossPartyEditor();
+    });
+  });
+  document.querySelectorAll('[data-boss-party-target]').forEach((group) => {
+    group.addEventListener('click', (event) => {
+      if (event.target.closest('[data-boss-party-unassign]')) return;
+      const partyIndex = Number(group.dataset.bossPartyTarget);
+      const memberIndex = draft.unassigned.findIndex((member) => member.userId === draft.selectedUserId);
+      if (memberIndex < 0) {
+        draft.status = '오른쪽 목록에서 원정대원을 먼저 선택해주세요.';
+      } else if (draft.parties[partyIndex].length >= 6) {
+        draft.status = '한 파티에는 최대 6명까지 들어갈 수 있습니다.';
+      } else {
+        draft.parties[partyIndex].push(draft.unassigned.splice(memberIndex, 1)[0]);
+        draft.selectedUserId = '';
+        draft.status = '';
+      }
+      renderBossPartyEditor();
+    });
+  });
+  document.querySelectorAll('[data-boss-party-unassign]').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      for (const party of draft.parties) {
+        const index = party.findIndex((member) => member.userId === button.dataset.bossPartyUnassign);
+        if (index >= 0) {
+          draft.unassigned.push(party.splice(index, 1)[0]);
+          break;
+        }
+      }
+      draft.status = '빠진 원정대원을 다시 파티에 배치해주세요.';
+      renderBossPartyEditor();
+    });
+  });
+  document.querySelector('[data-boss-party-save]')?.addEventListener('click', saveBossPartyEditor);
+}
+
+async function saveBossPartyEditor() {
+  const draft = state.bossPartyDraft;
+  if (!draft) return;
+  if (draft.unassigned.length) {
+    draft.status = '배치되지 않은 원정대원이 남아 있어 닫을 수 없습니다.';
+    renderBossPartyEditor();
+    return;
+  }
+  try {
+    await bossExpeditionRequest('parties', {
+      bossId: draft.bossId,
+      parties: draft.parties.map((members) => ({ memberIds: members.map((member) => member.userId) }))
+    });
+    state.bossPartyDraft = null;
+    $('bossPartyModal').classList.add('hidden');
+  } catch (_) {}
+}
+
+function renderBossEntryConfirmation() {
+  const modal = $('bossEntryConfirm');
+  if (!modal) return;
+  const queue = state.bossExpedition.queues.find((entry) => (
+    entry.viewerSlot >= 0
+    && entry.confirmation
+    && entry.confirmation.viewerResponse === null
+  ));
+  if (!queue) {
+    modal.classList.add('hidden');
+    if (state.bossConfirmationTimer) clearInterval(state.bossConfirmationTimer);
+    state.bossConfirmationTimer = null;
+    return;
+  }
+  const definition = state.bossExpedition.definitions.find((entry) => entry.id === queue.bossId);
+  const seconds = Math.max(0, Math.ceil((Number(queue.confirmation.expiresAt) - Date.now()) / 1000));
+  $('bossEntryConfirmTitle').textContent = `${definition?.name || '보스'}에 입장하시겠습니까?`;
+  $('bossEntryConfirmTimer').textContent = `${seconds}초`;
+  modal.dataset.bossId = queue.bossId;
+  modal.dataset.confirmationId = queue.confirmation.id;
+  modal.classList.remove('hidden');
+  if (!state.bossConfirmationTimer) {
+    state.bossConfirmationTimer = setInterval(renderBossEntryConfirmation, 250);
+  }
+}
+
+async function respondBossEntry(accepted) {
+  const modal = $('bossEntryConfirm');
+  const bossId = modal?.dataset.bossId;
+  const confirmationId = modal?.dataset.confirmationId;
+  if (!bossId || !confirmationId) return;
+  $('bossEntryAccept').disabled = true;
+  $('bossEntryDecline').disabled = true;
+  try {
+    await bossExpeditionRequest('respond', { bossId, confirmationId, accepted });
+    modal.classList.add('hidden');
+  } catch (_) {
+    $('bossEntryAccept').disabled = false;
+    $('bossEntryDecline').disabled = false;
+  }
+}
+
+function ensureBossExpeditionPolling() {
+  if (state.bossExpeditionPollTimer) return;
+  refreshBossExpeditions(false);
+  state.bossExpeditionPollTimer = setInterval(() => {
+    if (state.activeFeature === 'boss' || state.bossExpedition.registeredBossId) {
+      refreshBossExpeditions(false);
+    }
+  }, 1_500);
+}
+
 function getMarketplaceListingArchetypes(listing = {}) {
   const allowed = listing.equipmentSpec?.requirements?.allowedArchetypes || [];
   return Array.isArray(allowed)
@@ -5381,7 +7626,7 @@ function marketplaceBody() {
       <h3>물품 등록</h3>
       <select data-market-stack>
         <option value="">등록할 아이템 선택</option>
-        ${registerable.map((item) => `<option value="${escapeHtml(item.stackId)}">${escapeHtml(equipmentDisplayName(item))} ×${formatNumber(item.quantity)}</option>`).join('')}
+        ${registerable.map((item) => `<option value="${escapeHtml(item.stackId)}" data-quantity="${Number(item.quantity)}" data-whole-slot="${isThrowingStarItem(item) ? 'true' : 'false'}">${escapeHtml(equipmentDisplayName(item))} ×${formatNumber(item.quantity)}</option>`).join('')}
       </select>
       <input data-market-quantity type="number" min="1" value="1" aria-label="등록 수량">
       <input data-market-price type="number" min="1" placeholder="개당 판매 가격" aria-label="개당 판매 가격">
@@ -5493,6 +7738,21 @@ async function settleMarketplace() {
 
 function bindMarketplaceControls() {
   document.querySelector('[data-market-register]')?.addEventListener('click', registerMarketplaceItem);
+  const stackSelect = document.querySelector('[data-market-stack]');
+  const quantityInput = document.querySelector('[data-market-quantity]');
+  const syncListingQuantity = () => {
+    const option = stackSelect?.selectedOptions?.[0];
+    const wholeSlot = option?.dataset.wholeSlot === 'true';
+    const maximum = Math.max(1, Number(option?.dataset.quantity) || 1);
+    if (!quantityInput) return;
+    quantityInput.max = String(maximum);
+    if (wholeSlot) quantityInput.value = String(maximum);
+    else quantityInput.value = String(Math.min(maximum, Math.max(1, Number(quantityInput.value) || 1)));
+    quantityInput.disabled = wholeSlot;
+    quantityInput.title = wholeSlot ? '표창은 선택한 묶음 전체가 등록됩니다.' : '';
+  };
+  stackSelect?.addEventListener('change', syncListingQuantity);
+  syncListingQuantity();
   document.querySelectorAll('[data-market-archetype-tab]').forEach((button) => {
     button.addEventListener('click', () => {
       const nextArchetype = button.dataset.marketArchetypeTab || 'all';
@@ -5817,6 +8077,7 @@ function generalQuestBody() {
 function npcDialogueBody() {
   const npc = state.currentNpc;
   if (!npc) return '<div class="empty-ledger"><b>NPC 정보를 불러오는 중입니다.</b></div>';
+  if (npc.action) return busNpcDialogueBody(npc);
   return `<div class="npc-dialog-sheet">
     <aside><span>${escapeHtml(npc.icon || '🧑‍💼')}</span><strong>${escapeHtml(npc.name)}</strong><small>QUEST NPC</small></aside>
     <section><h3>${escapeHtml(npc.name)}의 업무 요청</h3>
@@ -5825,6 +8086,88 @@ function npcDialogueBody() {
       <button class="npc-dialog-close" type="button" data-close-npc-dialog>대화 그만하기</button>
     </section>
   </div>`;
+}
+
+function formatBusTime(timestamp) {
+  const date = new Date(Number(timestamp) || 0);
+  if (!Number.isFinite(date.getTime())) return '--:--';
+  return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+function getBusCountdownText(timestamp) {
+  const remaining = Math.max(0, Number(timestamp) - Number(state.worldServerTime || Date.now()));
+  const minutes = Math.floor(remaining / 60_000);
+  const seconds = Math.floor(remaining % 60_000 / 1_000);
+  return `${minutes}분 ${String(seconds).padStart(2, '0')}초`;
+}
+
+function busNpcDialogueBody(npc) {
+  const bus = state.busTransport || {};
+  const ticketQuantity = Math.max(0, Number(bus.ticketQuantity) || 0);
+  if (npc.action === 'bus-ticket-vendor') {
+    return `<div class="npc-dialog-sheet transport-dialog">
+      <aside><span>${escapeHtml(npc.icon || '🎫')}</span><strong>${escapeHtml(npc.name)}</strong><small>TICKET</small></aside>
+      <section><h3>지역간 버스탑승권</h3>
+        <p>버스는 매시 00분, 15분, 30분, 45분에 출발합니다. 탑승은 출발 5분 전부터 가능합니다.</p>
+        <div class="transport-ticket-row"><span>🎫</span><strong>버스탑승권 1장</strong><b>${formatNumber(bus.ticketPrice || 10_000)}원</b></div>
+        <p class="transport-owned">보유 수량 ${formatNumber(ticketQuantity)}장</p>
+        <p class="quest-action-status hidden" data-general-quest-status role="status"></p>
+        <button class="npc-dialog-action" type="button" data-purchase-bus-ticket>1장 구매</button>
+        <button class="npc-dialog-close" type="button" data-close-npc-dialog>대화 그만하기</button>
+      </section></div>`;
+  }
+  if (npc.action === 'bus-board') {
+    const destinationName = String(bus.destinationName || '목적지');
+    return `<div class="npc-dialog-sheet transport-dialog">
+      <aside><span>🚌</span><strong>${escapeHtml(destinationName)}행</strong><small>BOARDING</small></aside>
+      <section><h3>${formatBusTime(bus.nextDepartureAt)} 출발 버스</h3>
+        <p>출발까지 ${getBusCountdownText(bus.nextDepartureAt)} 남았습니다. 목적지까지 10분이 걸립니다.</p>
+        <p class="transport-owned">보유 승차권 ${formatNumber(ticketQuantity)}장</p>
+        <p class="quest-action-status hidden" data-general-quest-status role="status"></p>
+        <button class="npc-dialog-action" type="button" data-board-bus ${bus.boardingOpen && ticketQuantity > 0 ? '' : 'disabled'}>버스 탑승</button>
+        <button class="npc-dialog-close" type="button" data-close-npc-dialog>취소</button>
+      </section></div>`;
+  }
+  return `<div class="npc-dialog-sheet transport-dialog">
+    <aside><span>${escapeHtml(npc.icon || '🧑‍✈️')}</span><strong>${escapeHtml(npc.name)}</strong><small>DRIVER</small></aside>
+    <section><h3>출발 전에 내리시겠습니까?</h3>
+      <p>출발까지 ${getBusCountdownText(bus.departureAt)} 남았습니다. 사용한 승차권은 반환되지 않습니다.</p>
+      <p class="quest-action-status hidden" data-general-quest-status role="status"></p>
+      <button class="npc-dialog-action" type="button" data-exit-bus>버스에서 내리기</button>
+      <button class="npc-dialog-close" type="button" data-close-npc-dialog>계속 기다리기</button>
+    </section></div>`;
+}
+
+async function refreshBusTransport() {
+  const data = await request('/api/v2/bus/status');
+  state.busTransport = data.busTransport || null;
+  renderMapNpcs(getMap(state.currentMapId));
+  return state.busTransport;
+}
+
+async function applyBusAction(url, successMessage) {
+  const data = await request(url, {
+    method: 'POST',
+    body: JSON.stringify({
+      clientId: state.worldClientId,
+      mapId: state.currentMapId,
+      x: getCharacterX(),
+      floor: getCharacterFloor()
+    })
+  });
+  if (data.character) state.character = data.character;
+  if (data.inventory) setInventoryData(data.inventory);
+  if (data.busTransport) state.busTransport = data.busTransport;
+  closeFeature();
+  if (data.mapId && data.mapId !== state.currentMapId) {
+    state.moving = false;
+    state.moveRunId += 1;
+    state.combatRunId += 1;
+    renderWorldMap(data.mapId, 0, data.character?.worldState?.x);
+  } else {
+    renderMapNpcs(getMap(state.currentMapId));
+  }
+  setWorldActivity(successMessage);
 }
 
 function refreshOpenStatsFeature() {
@@ -5874,6 +8217,9 @@ async function openNpcDialogue(npcId) {
   try {
     const data = await request(`/api/v2/npcs/${encodeURIComponent(npcId)}`);
     state.currentNpc = data.npc;
+    if (String(data.npc?.action || '').startsWith('bus-')) {
+      await refreshBusTransport().catch(() => null);
+    }
     openFeature('npc-dialog');
   } catch (err) {
     setWorldActivity(err.message);
@@ -5961,6 +8307,34 @@ function bindGeneralQuestControls() {
     });
   });
   document.querySelector('[data-close-npc-dialog]')?.addEventListener('click', closeFeature);
+  document.querySelector('[data-purchase-bus-ticket]')?.addEventListener('click', async (event) => {
+    event.currentTarget.disabled = true;
+    try {
+      await applyBusAction('/api/v2/bus/ticket/purchase', '버스탑승권 1장을 구매했습니다.');
+    } catch (err) {
+      setGeneralQuestActionStatus(err.message, true);
+      event.currentTarget.disabled = false;
+    }
+  });
+  document.querySelector('[data-board-bus]')?.addEventListener('click', async (event) => {
+    event.currentTarget.disabled = true;
+    try {
+      const destinationName = String(state.busTransport?.destinationName || '목적지');
+      await applyBusAction('/api/v2/bus/board', `${destinationName}행 버스에 탑승했습니다.`);
+    } catch (err) {
+      setGeneralQuestActionStatus(err.message, true);
+      event.currentTarget.disabled = false;
+    }
+  });
+  document.querySelector('[data-exit-bus]')?.addEventListener('click', async (event) => {
+    event.currentTarget.disabled = true;
+    try {
+      await applyBusAction('/api/v2/bus/exit', '출발 전에 버스에서 내렸습니다.');
+    } catch (err) {
+      setGeneralQuestActionStatus(err.message, true);
+      event.currentTarget.disabled = false;
+    }
+  });
 }
 
 function specialActionsBody() {
@@ -6013,16 +8387,17 @@ function specialActionsBody() {
           ${shoutRemainingSeconds > 0 ? '대기 중' : '전체 외치기'}
         </button>
       </article>
-      <article class="is-locked">
+      <article>
         <div class="special-action-icon">🧰</div>
-        <div><strong>부업</strong><p>잡템과 기타 아이템을 재료로 확률적인 아이템 제작을 진행하는 기능입니다.</p><small>행동력 4 · 추후 공개</small></div>
-        <button type="button" disabled>준비 중</button>
+        <div><strong>부업</strong><p>몬스터 전리품과 보스 재료로 152레벨 무기를 제작합니다.</p><small>행동력 4 · 기본 성공률 80%</small></div>
+        <button type="button" data-open-side-job>제작 목록</button>
       </article>
     </div>
   </div>`;
 }
 
 function bindSpecialActionControls() {
+  document.querySelector('[data-open-side-job]')?.addEventListener('click', () => openFeature('side-job'));
   document.querySelector('[data-special-action="salary-lupin"]')?.addEventListener('click', async (event) => {
     const button = event.currentTarget;
     button.disabled = true;
@@ -6076,6 +8451,89 @@ function bindSpecialActionControls() {
     if (event.key !== 'Enter' || event.isComposing) return;
     event.preventDefault();
     submitShout();
+  });
+}
+
+function craftingStatText(stats = {}) {
+  return Object.entries(stats)
+    .filter(([, value]) => Number(value))
+    .map(([key, value]) => `${ITEM_STAT_LABELS[key] || key} +${formatNumber(value)}`)
+    .join(' · ');
+}
+
+function sideJobCraftingBody() {
+  const crafting = state.sideJobCrafting;
+  if (!crafting.loaded) {
+    return '<div class="empty-ledger"><b>부업 제작 목록을 불러오는 중입니다.</b></div>';
+  }
+  const result = crafting.lastResult
+    ? `<div class="crafting-result is-${crafting.lastResult.success ? 'success' : 'failure'}">${escapeHtml(crafting.lastResult.message)}</div>`
+    : '';
+  return `<div class="side-job-sheet">
+    <header><div><span>SIDE JOB / WEAPON CRAFT</span><strong>152레벨 무기 제작</strong></div>
+      <div><b>행동력 ${formatNumber(crafting.actionPoints?.current)} / ${formatNumber(crafting.actionPoints?.max)}</b>
+      <small>보유 ${formatNumber(crafting.money)}원</small></div></header>
+    ${result}
+    <div class="crafting-recipe-list">${crafting.recipes.map((recipe) => {
+      const weapon = recipe.weapon || {};
+      const materials = recipe.materials.map((material) => (
+        `<li class="${material.enough ? 'is-ready' : 'is-short'}"><span>${escapeHtml(material.icon)} ${escapeHtml(material.name)}</span>`
+        + `<b>${formatNumber(material.owned)} / ${formatNumber(material.quantity)}</b></li>`
+      )).join('');
+      const moneyReady = Number(crafting.money) >= Number(recipe.moneyCost);
+      return `<article>
+        <header><span>${escapeHtml(weapon.icon || '⚔️')}</span><div><strong>${escapeHtml(weapon.name || '제작 무기')}</strong>
+          <small>Lv.${formatNumber(weapon.requiredLevel || 152)} · ${escapeHtml(craftingStatText(weapon.stats))}</small></div>
+          <b>${formatNumber(recipe.successRatePercent)}%</b></header>
+        <ul>${materials}<li class="${moneyReady ? 'is-ready' : 'is-short'}"><span>제작 비용</span><b>${formatNumber(crafting.money)} / ${formatNumber(recipe.moneyCost)}원</b></li></ul>
+        <button type="button" data-craft-weapon="${escapeHtml(weapon.id)}" ${recipe.canCraft ? '' : 'disabled'}>행동력 ${formatNumber(recipe.actionPointCost)} 사용</button>
+      </article>`;
+    }).join('')}</div>
+  </div>`;
+}
+
+async function loadSideJobCrafting() {
+  try {
+    const data = await request('/api/v2/special-actions/crafting');
+    state.sideJobCrafting = { ...data.crafting, loaded: true, lastResult: null };
+    if (state.activeFeature === 'side-job') {
+      $('featureBody').innerHTML = sideJobCraftingBody();
+      bindSideJobCraftingControls();
+    }
+  } catch (err) {
+    setWorldActivity(err.message);
+  }
+}
+
+async function craftSideJobWeaponRequest(weaponId, button) {
+  if (button) button.disabled = true;
+  try {
+    const data = await request('/api/v2/special-actions/crafting/craft', {
+      method: 'POST',
+      body: JSON.stringify({ weaponId })
+    });
+    state.character = data.character;
+    setInventoryData(data.inventory);
+    state.sideJobCrafting = {
+      ...data.crafting,
+      loaded: true,
+      lastResult: { success: Boolean(data.crafted), message: data.message }
+    };
+    renderGame({ preview: state.preview, character: data.character, displayName: state.displayName });
+    if (state.activeFeature === 'side-job') {
+      $('featureBody').innerHTML = sideJobCraftingBody();
+      bindSideJobCraftingControls();
+    }
+    setWorldActivity(data.message);
+  } catch (err) {
+    setWorldActivity(err.message);
+    if (button) button.disabled = false;
+  }
+}
+
+function bindSideJobCraftingControls() {
+  document.querySelectorAll('[data-craft-weapon]').forEach((button) => {
+    button.addEventListener('click', () => craftSideJobWeaponRequest(button.dataset.craftWeapon, button));
   });
 }
 
@@ -6195,7 +8653,9 @@ function featureBody(feature) {
   if (feature === 'potion-config') return potionConfigurationBody();
   if (feature === 'mail') return mailBody();
   if (feature === 'shop') return shopBody();
+  if (feature === 'storage') return storageBody();
   if (feature === 'party') return partyBody();
+  if (feature === 'boss') return bossExpeditionBody();
   if (feature === 'party-invite') return partyInviteBody();
   if (feature === 'trade') return tradeBody();
   if (feature === 'ranking') return rankingBody();
@@ -6207,6 +8667,7 @@ function featureBody(feature) {
   if (feature === 'npc-dialog') return npcDialogueBody();
   if (feature === 'trade-invite') return tradeInviteBody();
   if (feature === 'special-actions') return specialActionsBody();
+  if (feature === 'side-job') return sideJobCraftingBody();
   if (feature === 'cash') return cashShopBody();
   const messages = {
     shop: '물약, 탄환, 장비 보급품을 구매하는 사내 보급소입니다.',
@@ -6245,7 +8706,9 @@ function openFeature(feature) {
   if (feature === 'potion-config') bindPotionControls();
   if (feature === 'mail') bindMailControls();
   if (feature === 'shop') bindShopControls();
+  if (feature === 'storage') bindStorageControls();
   if (feature === 'party' || feature === 'party-invite') bindPartyControls();
+  if (feature === 'boss') bindBossExpeditionControls();
   if (feature === 'trade' || feature === 'trade-invite') bindTradeControls();
   if (feature === 'ranking') bindRankingControls();
   if (feature === 'event') bindEventControls();
@@ -6257,6 +8720,10 @@ function openFeature(feature) {
   }
   if (feature === 'general-quests' || feature === 'npc-dialog') bindGeneralQuestControls();
   if (feature === 'special-actions') bindSpecialActionControls();
+  if (feature === 'side-job') {
+    bindSideJobCraftingControls();
+    loadSideJobCrafting();
+  }
   if (feature === 'cash') {
     bindCashShopControls();
     loadCashShop();
@@ -6277,7 +8744,10 @@ function logout() {
   state.moveRunId += 1;
   state.combatRunId += 1;
   state.worldPresenceRunId += 1;
+  state.sessionPresenceRunId += 1;
   if (state.mailPollTimer) clearInterval(state.mailPollTimer);
+  if (state.bossExpeditionPollTimer) clearInterval(state.bossExpeditionPollTimer);
+  if (state.bossConfirmationTimer) clearInterval(state.bossConfirmationTimer);
   if (state.token && !state.isAdmin) {
     fetch('/api/v2/world/leave', {
       method: 'POST',
@@ -6290,7 +8760,8 @@ function logout() {
         clientId: state.worldClientId,
         mapId: state.currentMapId,
         x: getCharacterX(),
-        floor: getCharacterFloor()
+        floor: getCharacterFloor(),
+        backgroundHunting: false
       })
     }).catch(() => {});
   }
@@ -6298,7 +8769,6 @@ function logout() {
   window.location.reload();
 }
 
-$('loginForm').addEventListener('submit', login);
 $('openSignupButton').addEventListener('click', openSignup);
 $('signupForm').addEventListener('submit', signup);
 $('signupCodeForm').addEventListener('submit', saveAdminSignupCode);
@@ -6311,7 +8781,9 @@ $('adminGiftAll').addEventListener('change', () => {
   $('adminGiftTarget').placeholder = sendAll ? '전체 발송 선택됨' : '아이디 또는 닉네임';
 });
 ['signupUsername', 'signupNickname', 'signupPassword', 'signupPasswordConfirm'].forEach((id) => {
-  $(id).addEventListener('input', updateSignupButtonState);
+  ['input', 'change', 'keyup'].forEach((eventName) => {
+    $(id).addEventListener(eventName, updateSignupButtonState);
+  });
 });
 $('signupCode').addEventListener('input', () => {
   state.signupCodeValid = false;
@@ -6324,18 +8796,36 @@ $('signupCode').addEventListener('input', () => {
 document.querySelectorAll('[data-close-signup]').forEach((button) => {
   button.addEventListener('click', closeSignup);
 });
-$('snapshotAllButton').addEventListener('click', snapshotAllUsers);
 $('logoutButton').addEventListener('click', logout);
 $('questButton').addEventListener('click', () => openFeature('quest'));
 $('moveMapButton').addEventListener('click', () => openFeature('move'));
 $('autoCombatButton').addEventListener('click', toggleAutoCombat);
-$('jumpButton')?.addEventListener('click', () => triggerCharacterJump());
-$('hpPotionButton')?.addEventListener('click', () => useQuickPotion('hp'));
-$('mpPotionButton')?.addEventListener('click', () => useQuickPotion('mp'));
+const jumpButton = $('jumpButton');
+jumpButton?.addEventListener('click', () => triggerCharacterJump());
+jumpButton?.addEventListener('dblclick', (event) => event.preventDefault());
+const experienceResourceRow = $('experienceResourceRow');
+const setExperienceExpanded = (expanded) => {
+  experienceResourceRow?.classList.toggle('is-expanded', Boolean(expanded));
+  experienceResourceRow?.setAttribute('aria-expanded', String(Boolean(expanded)));
+};
+experienceResourceRow?.addEventListener('click', (event) => {
+  event.stopPropagation();
+  setExperienceExpanded(!experienceResourceRow.classList.contains('is-expanded'));
+});
+experienceResourceRow?.addEventListener('keydown', (event) => {
+  if (!['Enter', ' '].includes(event.key)) return;
+  event.preventDefault();
+  setExperienceExpanded(!experienceResourceRow.classList.contains('is-expanded'));
+});
+document.addEventListener('click', () => setExperienceExpanded(false));
+bindImmediatePotionButton($('hpPotionButton'), () => useQuickPotion('hp'));
+bindImmediatePotionButton($('mpPotionButton'), () => useQuickPotion('mp'));
 $('potionConfigButton')?.addEventListener('click', () => openFeature('potion-config'));
 $('shopNpc')?.addEventListener('click', () => openFieldShop());
 $('scrollShopNpc')?.addEventListener('click', () => openFieldShop('scroll_vendor'));
+$('storageNpc')?.addEventListener('click', () => openStorage());
 $('worldStage')?.addEventListener('click', handleWorldStagePoint);
+$('worldMinimapCanvas')?.addEventListener('click', handleWorldMinimapPoint);
 $('rallyPoint')?.addEventListener('click', (event) => {
   event.stopPropagation();
   clearRallyPoint();
@@ -6345,14 +8835,22 @@ $('rallyPoint')?.addEventListener('click', (event) => {
   }
   setWorldActivity('이동 기준점을 해제했습니다.');
 });
+$('bossPartyClose')?.addEventListener('click', saveBossPartyEditor);
+$('bossEntryAccept')?.addEventListener('click', () => respondBossEntry(true));
+$('bossEntryDecline')?.addEventListener('click', () => respondBossEntry(false));
+$('bossRaidClearConfirm')?.addEventListener('click', leaveClearedBossRaid);
+$('bossRaidAbandonAccept')?.addEventListener('click', abandonBossRaid);
+$('bossRaidAbandonCancel')?.addEventListener('click', closeRaidAbandonPrompt);
 $('mailButton').addEventListener('click', () => refreshMailbox(true));
-$('eventButton').addEventListener('click', () => refreshSettlementEvent(true));
+$('eventButton')?.addEventListener('click', () => refreshSettlementEvent(true));
 $('floatMinimizeButton')?.addEventListener('click', () => setFloatingButtonsMinimized(!state.floatingButtonsMinimized));
 $('reviveButton').addEventListener('click', revivePlayer);
 document.querySelectorAll('.desk-action').forEach((button) => {
   button.addEventListener('click', () => (
     button.dataset.feature === 'party'
         ? refreshParty(true)
+      : button.dataset.feature === 'boss'
+        ? refreshBossExpeditions(true)
       : button.dataset.feature === 'trade'
         ? refreshTrade(true)
       : button.dataset.feature === 'ranking'
@@ -6373,6 +8871,15 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && !state.dead) closeFeature();
 });
 
+document.addEventListener('visibilitychange', () => {
+  updateBackgroundHuntingHandoff();
+  if (document.visibilityState === 'visible') {
+    queueMicrotask(recoverVisibleWorldSession);
+  }
+});
+window.addEventListener('pageshow', recoverVisibleWorldSession);
+window.addEventListener('online', recoverVisibleWorldSession);
+
 async function boot() {
   try {
     setFloatingButtonsMinimized(state.floatingButtonsMinimized);
@@ -6387,10 +8894,17 @@ boot();
 
 setInterval(() => {
   if (!state.token || state.isAdmin || !state.autoCombat) return;
-  state.huntingTime.remainingSeconds = Math.max(0, state.huntingTime.remainingSeconds - 1);
   renderHuntingTime();
+  if (state.backgroundHunting) return;
   state.huntingTickCounter += 1;
-  if (state.huntingTickCounter >= 10 || state.huntingTime.remainingSeconds <= 0) {
+  const elapsedSeconds = Math.max(
+    0,
+    Math.floor((Date.now() - state.huntingTimeSyncedAt) / 1000)
+  );
+  if (
+    state.huntingTickCounter >= 10
+    || Number(state.huntingTime.remainingSeconds) - elapsedSeconds <= 0
+  ) {
     state.huntingTickCounter = 0;
     syncHuntingTime(true);
   }
