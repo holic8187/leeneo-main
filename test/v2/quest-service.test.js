@@ -100,6 +100,41 @@ test('random quest rewards resolve exactly one item from the configured pool', (
   assert.deepEqual(rewards.items, [{ itemId: 'second', name: '둘째', quantity: 1 }]);
 });
 
+test('the cat NPC offers one daily quest with exactly one random reward', () => {
+  const character = characterFixture();
+  const cat = NPC_CATALOG.find((npc) => npc.id === 'lobby_cat');
+  assert.equal(cat?.mapId, 'main_lobby');
+  assert.equal(cat?.quests[0]?.id, 'cat_daily_care');
+  assert.equal(cat?.quests[0]?.repeat, 'daily');
+
+  acceptQuest(character, 'cat_daily_care', new Date('2026-08-18T01:00:00.000Z'));
+  recordMonsterKills(character, Array(30).fill('any_monster'));
+  const ready = buildQuestJournal(character).active.find(
+    (quest) => quest.id === 'cat_daily_care'
+  );
+  assert.equal(ready.status, 'ready');
+  assert.equal(ready.rewards.randomRewards.length, 1);
+
+  const huntingReward = claimQuest(
+    character,
+    'cat_daily_care',
+    () => 0,
+    new Date('2026-08-18T01:01:00.000Z')
+  );
+  assert.equal(huntingReward.huntingMinutes, 30);
+  assert.deepEqual(huntingReward.items, []);
+  assert.deepEqual(huntingReward.randomRewardNames, ['자동사냥시간 30분']);
+});
+
+test('the dispatch guide is stationed at the company bus stop', () => {
+  const guide = NPC_CATALOG.find((npc) => npc.id === 'dispatch_bus_guide');
+  assert.equal(guide?.mapId, 'company_bus_stop');
+  assert.equal(guide?.name, '신대륙 출장 안내원');
+  assert.equal(NPC_CATALOG.some((npc) => (
+    npc.id === 'dispatch_bus_guide' && npc.mapId === 'frozen_dispatch_yard'
+  )), false);
+});
+
 test('special contract quest consumes fifty contracts and grants its selected glove scroll', () => {
   const character = characterFixture();
   acceptQuest(character, 'neo_contract');
@@ -171,34 +206,34 @@ test('skill unlock quests track every objective and expand the investment cap', 
 
 test('skill-use quests count every use and identify the unlocked skill in advance', () => {
   const character = characterFixture();
-  character.job = { departmentId: 'field_operations', advancementTier: 4 };
+  character.job = { departmentId: 'sales', advancementTier: 4 };
   character.skills = {
-    levels: { firm_will_hr: 10 }, activePreset: [], autoPreset: [],
+    levels: { extended_cbd5e90ff5: 10 }, activePreset: [], autoPreset: [],
     unlockedQuestSkills: [], unlockProgress: {}, unlockMigrationVersion: 0,
     activeBuffs: [], cooldowns: {}, summon: null, comboCount: 0
   };
-  character.quests.completedIds.push('skill_field_firm_will_10');
+  character.quests.completedIds.push('skill_sales_customer_push_10');
 
-  acceptQuest(character, 'skill_field_firm_will_20');
+  acceptQuest(character, 'skill_sales_customer_push_20');
   let quest = buildQuestJournal(character).active[0];
-  assert.match(quest.title, /^\[굳건한의지 Lv\.20 해금\]/);
+  assert.match(quest.title, /^\[고객 밀어내기 Lv\.20 해금\]/);
   assert.deepEqual(quest.skillUnlock, {
-    skillId: 'firm_will_hr',
-    departmentId: 'field_operations',
+    skillId: 'extended_cbd5e90ff5',
+    departmentId: 'sales',
     cap: 20,
-    skillName: '굳건한의지'
+    skillName: '고객 밀어내기'
   });
   assert.equal(quest.rewards, undefined);
 
   recordQuestEvent(character, {
-    type: 'skill-use', targetId: 'firm_will_hr', amount: 99
+    type: 'skill-use', targetId: 'extended_cbd5e90ff5', amount: 99
   });
   quest = buildQuestJournal(character).active[0];
   assert.equal(quest.objectives[0].progress, 99);
   assert.equal(quest.status, 'active');
 
   recordQuestEvent(character, {
-    type: 'skill-use', targetId: 'firm_will_hr', amount: 1
+    type: 'skill-use', targetId: 'extended_cbd5e90ff5', amount: 1
   });
   quest = buildQuestJournal(character).active[0];
   assert.equal(quest.objectives[0].progress, 100);
@@ -207,19 +242,19 @@ test('skill-use quests count every use and identify the unlocked skill in advanc
 
 test('skill-use quests accept canonical and requested skill ids as one use', () => {
   const character = characterFixture();
-  character.job = { departmentId: 'field_operations', advancementTier: 4 };
+  character.job = { departmentId: 'sales', advancementTier: 4 };
   character.skills = {
-    levels: { firm_will_hr: 10 }, activePreset: [], autoPreset: [],
+    levels: { extended_cbd5e90ff5: 10 }, activePreset: [], autoPreset: [],
     unlockedQuestSkills: [], unlockProgress: {}, unlockMigrationVersion: 0,
     activeBuffs: [], cooldowns: {}, summon: null, comboCount: 0
   };
-  character.quests.completedIds.push('skill_field_firm_will_10');
-  acceptQuest(character, 'skill_field_firm_will_20');
+  character.quests.completedIds.push('skill_sales_customer_push_10');
+  acceptQuest(character, 'skill_sales_customer_push_20');
 
   recordQuestEvent(character, {
     type: 'skill-use',
-    targetId: 'legacy_firm_will_alias',
-    targetIds: ['legacy_firm_will_alias', 'firm_will_hr'],
+    targetId: 'legacy_customer_push_alias',
+    targetIds: ['legacy_customer_push_alias', 'extended_cbd5e90ff5'],
     amount: 1
   });
 

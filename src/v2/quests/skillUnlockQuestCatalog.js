@@ -214,11 +214,11 @@ addQuest({
 });
 
 // 현장직
-addGenericChain({
-  prefix: 'skill_field_firm_will', npcId: 'production_morae', departmentId: 'field_operations',
-  skillId: 'firm_will_hr', baseTitle: '작업중 흔들림 금지',
-  baseObjectives: [objective('kill', '생산라인 몬스터 처치', 200, { mapIds: ['production_line'] })],
-  followUpTitles: ['안전모 고정 시험', '무진동 작업 인증']
+addQuest({
+  id: 'skill_field_firm_will_10', npcId: 'production_morae',
+  departmentId: 'field_operations', skillId: 'firm_will_hr', cap: 10,
+  title: '작업중 흔들림 금지',
+  objectives: [objective('kill', '생산라인 몬스터 처치', 200, { mapIds: ['production_line'] })]
 });
 addStagedChain({
   prefix: 'skill_field_blocked', npcId: 'facility_kim', departmentId: 'field_operations',
@@ -229,12 +229,13 @@ addStagedChain({
   stage30Title: '완전 차단',
   stage30Objectives: [objective('block', '막았죠?로 피해 차단', 300)]
 });
-addGenericChain({
-  prefix: 'skill_field_charge', npcId: 'production_morae', departmentId: 'field_operations',
-  skillId: 'charge_hr', baseTitle: '막힌 라인을 뚫어라',
-  baseObjectives: [objective('kill', '생산·물류 몬스터 처치', 400, {
+addQuest({
+  id: 'skill_field_charge_10', npcId: 'production_morae',
+  departmentId: 'field_operations', skillId: 'charge_hr', cap: 10,
+  title: '막힌 라인을 뚫어라',
+  objectives: [objective('kill', '생산·물류 몬스터 처치', 400, {
     mapIds: ['production_line', 'logistics_warehouse']
-  })], followUpTitles: ['공정 단축', '전 라인 관통']
+  })]
 });
 addStagedChain({
   prefix: 'skill_field_holy', npcId: 'facility_kim', departmentId: 'field_operations',
@@ -260,18 +261,19 @@ addQuest({
 });
 
 // 품질관리팀
-addGenericChain({
-  prefix: 'skill_quality_firm_will', npcId: 'quality_neo', departmentId: 'quality',
-  skillId: 'firm_will_quality', baseTitle: '불량률 0%의 자세',
-  baseObjectives: [objective('kill', '품질검사 거미 처치', 300, { targetIds: ['quality_spider'] })],
-  followUpTitles: ['재검사', '최종 승인']
+addQuest({
+  id: 'skill_quality_firm_will_10', npcId: 'quality_neo',
+  departmentId: 'quality', skillId: 'firm_will_quality', cap: 10,
+  title: '불량률 0%의 자세',
+  objectives: [objective('kill', '품질검사 거미 처치', 300, { targetIds: ['quality_spider'] })]
 });
-addGenericChain({
-  prefix: 'skill_quality_charge', npcId: 'quality_neo', departmentId: 'quality',
-  skillId: 'charge_quality', baseTitle: '검사 대기열 정리',
-  baseObjectives: [objective('kill', '물류·품질 몬스터 처치', 200, {
+addQuest({
+  id: 'skill_quality_charge_10', npcId: 'quality_neo',
+  departmentId: 'quality', skillId: 'charge_quality', cap: 10,
+  title: '검사 대기열 정리',
+  objectives: [objective('kill', '물류·품질 몬스터 처치', 200, {
     mapIds: ['quality_lab', 'logistics_warehouse']
-  })], followUpTitles: ['표본 회수', '전수검사']
+  })]
 });
 addQuest({
   id: 'skill_quality_firmness_10', npcId: 'quality_neo', departmentId: 'quality',
