@@ -124,3 +124,46 @@ test('earrings and capes are common equipment even when old data contains job re
     ''
   );
 });
+
+test('dagger shields require a dagger and block switching to a claw', () => {
+  const daggerShield = {
+    name: '임원실 잠입방패',
+    itemType: 'armor',
+    equipmentSlot: 'shield',
+    requiredLevel: 115,
+    requirements: {
+      level: 115,
+      stats: { awareness: 340 },
+      archetype: 'thief',
+      allowedArchetypes: ['thief'],
+      allowedWeaponTypes: ['dagger']
+    }
+  };
+  const daggerThief = {
+    progression: { level: 115 },
+    job: { departmentId: 'facilities' },
+    stats: { awareness: 340, processingSpeed: 155 },
+    loadout: {
+      weapon: { weaponType: 'dagger' }
+    }
+  };
+  const clawThief = {
+    ...daggerThief,
+    loadout: {
+      weapon: { weaponType: 'claw' }
+    }
+  };
+
+  assert.equal(getEquipmentEquipFailureReason(daggerThief, daggerShield), '');
+  assert.match(getEquipmentEquipFailureReason(clawThief, daggerShield), /단검/);
+
+  daggerThief.loadout.shield = daggerShield;
+  assert.match(
+    getWeaponEquipFailureReason(daggerThief, { weaponType: 'claw', requiredLevel: 115 }),
+    /단검/
+  );
+  assert.equal(
+    getWeaponEquipFailureReason(daggerThief, { weaponType: 'dagger', requiredLevel: 115 }),
+    ''
+  );
+});
