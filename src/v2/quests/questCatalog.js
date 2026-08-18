@@ -36,6 +36,16 @@ const RANDOM_REWARDS = Object.freeze({
   ))
 });
 
+const CAT_DAILY_REWARDS = Object.freeze({
+  name: '고양이가 골라주는 일일 보상 1종',
+  options: Object.freeze([
+    Object.freeze({ name: '자동사냥시간 30분', huntingMinutes: 30 }),
+    Object.freeze({ name: '엘릭서 10개', items: Object.freeze([item('elixir', '엘릭서', 10)]) }),
+    Object.freeze({ name: '순록의 우유 10개', items: Object.freeze([item('reindeer_milk', '순록의 우유', 10)]) }),
+    Object.freeze({ name: '황혼의 이슬 10개', items: Object.freeze([item('sunset_dew', '황혼의 이슬', 10)]) })
+  ])
+});
+
 function quest(id, title, type, targetId, targetName, required, dialogue, exp, money = 0, options = {}) {
   return Object.freeze({
     id, title, type, targetId, targetName, required, dialogue,
@@ -45,17 +55,40 @@ function quest(id, title, type, targetId, targetName, required, dialogue, exp, m
       money,
       items: Object.freeze(options.items || []),
       randomItems: Object.freeze(options.randomItems || []),
+      randomRewards: Object.freeze(options.randomRewards || []),
       huntingMinutes: Math.max(0, Number(options.huntingMinutes) || 0)
     })
   });
 }
 
-function npc(id, name, mapId, icon, x, quests) {
-  return Object.freeze({ id, name, mapId, icon, x, quests: Object.freeze(quests) });
+function npc(id, name, mapId, icon, x, quests, options = {}) {
+  return Object.freeze({
+    id,
+    name,
+    mapId,
+    icon,
+    x,
+    quests: Object.freeze(quests),
+    ...options
+  });
 }
 
 const BASE_NPC_CATALOG = Object.freeze([
   npc('lobby_peach', '출근 도장을 잃어버린 피치', 'main_lobby', '🍑', 24, [quest('peach_orientation', '첫 출근의 자세', 'visit', 'newcomer_training', '신입사원 연수원', 1, '신입사원 연수원에 다녀와 주세요. 회사에서 길을 잃지 않는 것도 중요한 능력이랍니다.', 30, 0, { items: [item('bacchus', '박카스', 50)] })]),
+  npc('lobby_cat', '복사기 위에서 졸고 있는 고양이', 'main_lobby', '🐈', 62, [
+    quest(
+      'cat_daily_care',
+      '고양이의 순찰 부탁',
+      'kill',
+      '',
+      '아무 몬스터',
+      30,
+      '오늘도 회사가 너무 시끄럽다냥. 아무 몬스터나 서른 마리만 조용히 시켜주면 내가 아껴둔 물건을 하나 주겠다냥.',
+      0,
+      0,
+      { repeat: 'daily', randomRewards: [CAT_DAILY_REWARDS] }
+    )
+  ]),
   npc('training_simsim', '훈련을 빼먹은 심심쓰', 'newcomer_training', '🐣', 72, [quest('simsim_dust', '서류 먼지 소탕', 'kill', 'paper_dust', '서류 먼지 뭉치', 40, '연수원 바닥에 서류 먼지가 너무 많아요. 마흔 뭉치만 정리해 주실래요?', 70, 3000, { items: [item('hard_candy', '알사탕', 50)] })]),
   npc('corridor_bishop', '월급루팡중인 비숍이', 'document_corridor', '🕊️', 38, [quest('bishop_memo', '사라진 결재 메모', 'collect', 'monster_loot_paper_dust', '구겨진 메모지', 50, '결재 메모가 바람에 날아갔어요. 구겨진 메모지 쉰 장이면 복원할 수 있을 거예요.', 90, 0, { items: [item('safe_zone_return_scroll', '안전지대 귀환서', 3)] })]),
   npc('pantry_winter', '냉장고를 지키는 겨부장', 'pantry_alley', '🧊', 64, [quest('winter_coffee', '식어버린 탕비실', 'kill', 'coffee_slime', '커피 얼룩 슬라임', 150, '누가 냉장고 안에 커피를 쏟았지? 슬라임이 되기 전에 치웠어야 하는데 말이야.', 160, 2500)]),
@@ -83,7 +116,14 @@ const BASE_NPC_CATALOG = Object.freeze([
   npc('facility_kim', '렌치를 잃은 김부장', 'facility_engine', '🔧', 69, [quest('kim_battery', '예비 배터리 확보', 'collect', 'monster_loot_facility_drone', '방전된 배터리', 150, '방전됐어도 부품은 쓸 수 있지. 드론 배터리를 모아오게.', 4800, 6000, { huntingMinutes: 180 })]),
   npc('quality_neo', '불량표를 붙이는 정과장', 'quality_lab', '✅', 30, [quest('ineo_spider', '전수 품질검사', 'kill', 'quality_spider', '품질검사 거미', 400, '표본검사는 불안해요. 이번만큼은 사백 마리 전수검사로 갑시다.', 5600, 7000, { items: [item('grilled_eel', '장어구이', 200)] })]),
   npc('logistics_jjor', '송장을 접어 날리는 몬드', 'logistics_warehouse', '📦', 76, [quest('jjor_boar', '파손 배송 추적', 'kill', 'warehouse_boar', '물류창고 멧돼지', 400, '멧돼지가 송장을 등에 붙이고 달아났어요. 배송 완료 처리 전에 찾아주세요.', 6500, 8000, { items: [item('experience_coupon_2x_15m', '경험치 2배 쿠폰 (15분)', 6)] })]),
-  npc('overtime_winter', '퇴근을 봉인한 겨부장', 'overtime_depths', '🌙', 18, [quest('winter_hwang', '미쳐버린 회의실의 주인', 'boss', 'mad_hwang_manager', '야근하다 미쳐버린 황과장', 1, '영업여우 접선로 안쪽 히든 회의실의 황과장을 막아야 모두 퇴근할 수 있다. 살아서 돌아오게.', 12000, 20000, { items: [item('scroll_gloves_공격력_60', '장갑 공격력 주문서 60%', 1)] })])
+  npc('overtime_winter', '퇴근을 봉인한 겨부장', 'overtime_depths', '🌙', 18, [quest('winter_hwang', '미쳐버린 회의실의 주인', 'boss', 'mad_hwang_manager', '야근하다 미쳐버린 황과장', 1, '영업여우 접선로 안쪽 히든 회의실의 황과장을 막아야 모두 퇴근할 수 있다. 살아서 돌아오게.', 12000, 20000, { items: [item('scroll_gloves_공격력_60', '장갑 공격력 주문서 60%', 1)] })]),
+  npc('dispatch_bus_guide', '신대륙 출장 안내원', 'company_bus_stop', '🚌', 72, []),
+  npc('bus_ticket_vendor', '출장 승차권 판매원', 'company_bus_stop', '🎫', 40, [], { action: 'bus-ticket-vendor' }),
+  npc('peach_route_bus', '피치전자행 버스', 'company_bus_stop', '🚌', 84, [], { action: 'bus-board' }),
+  npc('company_bus_driver', '버스기사 아저씨', 'company_bus_waiting_room', '🧑‍✈️', 12, [], { action: 'bus-exit' }),
+  npc('peach_ticket_vendor', '피치전자 승차권 판매원', 'peach_bus_stop', '🎫', 40, [], { action: 'bus-ticket-vendor' }),
+  npc('company_route_bus', '호이상사행 버스', 'peach_bus_stop', '🚌', 84, [], { action: 'bus-board' }),
+  npc('peach_bus_driver', '버스기사 아저씨', 'peach_bus_waiting_room', '🧑‍✈️', 12, [], { action: 'bus-exit' })
 ]);
 
 const NPC_NAME_OVERRIDES = Object.freeze({

@@ -18,6 +18,8 @@ const {
   getMasteryFailureCount
 } = require('../../src/v2/skills/skillService');
 const { SKILL_DEFINITIONS } = require('../../src/v2/skills/skillDefinitions');
+const { MASTERY_BOOK_SKILLS } = require('../../src/v2/skills/masteryBookConfig');
+const { SKILL_UNLOCK_QUESTS } = require('../../src/v2/quests/skillUnlockQuestCatalog');
 
 function characterFixture() {
   return {
@@ -41,7 +43,7 @@ test('mastery book 20 succeeds after level five and expands the cap', () => {
   const character = characterFixture();
   ensureSkillState(character);
   const validation = validateMasteryBookUse(character, masteryBook('firm_will_hr', 20));
-  assert.equal(validation.successRate, 90);
+  assert.equal(validation.successRate, 80);
   const result = resolveMasteryBookUse(character, validation, () => 0);
   assert.equal(result.success, true);
   assert.equal(
@@ -59,9 +61,9 @@ test('failed mastery books add one percentage point to the next attempt', () => 
     () => 0.99
   );
   assert.equal(first.success, false);
-  assert.equal(first.nextSuccessRate, 91);
+  assert.equal(first.nextSuccessRate, 81);
   assert.equal(getMasteryFailureCount(character, 'firm_will_hr', 20, 'hr'), 1);
-  assert.equal(validateMasteryBookUse(character, item).successRate, 91);
+  assert.equal(validateMasteryBookUse(character, item).successRate, 81);
 });
 
 test('mastery book 30 requires both cap twenty and skill level fifteen', () => {
@@ -71,7 +73,7 @@ test('mastery book 30 requires both cap twenty and skill level fifteen', () => {
   const item30 = masteryBook('firm_will_hr', 30);
   assert.throws(() => validateMasteryBookUse(character, item30));
   character.skills.levels.firm_will_hr = 15;
-  assert.equal(validateMasteryBookUse(character, item30).successRate, 70);
+  assert.equal(validateMasteryBookUse(character, item30).successRate, 60);
 });
 
 test('one common original-skill book unlocks the matching renamed department skill', () => {
@@ -92,13 +94,35 @@ test('one common original-skill book unlocks the matching renamed department ski
   );
 });
 
-test('level 110+ monsters split normal books at 0.0015 percent and exclude boss-only stages', () => {
+test('mastery book names are generated from in-game skill names', () => {
+  const storm30 = MASTERY_BOOK_ITEMS.find((item) => (
+    item.masteryOriginalSkillId === 'storm' && item.masteryStage === 30
+  ));
+  const dragonPulse20 = MASTERY_BOOK_ITEMS.find((item) => (
+    item.masteryOriginalSkillId === 'dragon_pulse' && item.masteryStage === 20
+  ));
+
+  assert.equal(
+    storm30.name,
+    `${SKILL_DEFINITIONS.extended_fc89f3cfc2.name} 마스터리북 30`
+  );
+  assert.equal(
+    dragonPulse20.name,
+    `${SKILL_DEFINITIONS.extended_2926a732db.name} / ${SKILL_DEFINITIONS.extended_2973270a08.name} 마스터리북 20`
+  );
+});
+
+test('level 110+ monsters split normal books and deadline dragon has genesis 30', () => {
   const eligibleMonsters = MONSTER_CATALOG.filter((monster) => monster.level >= 110);
   assert.ok(eligibleMonsters.length > 0);
   const drops = eligibleMonsters.flatMap((monster) => monster.dropTable.masteryBooks || []);
   assert.ok(drops.length > 0);
   assert.ok(drops.every((drop) => drop.chance === 0.000015));
   const droppedIds = new Set(drops.map((drop) => drop.itemId));
+  const genesis30 = MASTERY_BOOK_ITEMS.find((item) => (
+    item.masteryOriginalSkillId === 'genesis' && item.masteryStage === 30
+  ));
+  const deadlineDragon = MONSTER_CATALOG.find((monster) => monster.id === 'deadline_dragon');
   const piercing20 = MASTERY_BOOK_ITEMS.find((item) => (
     item.masteryOriginalSkillId === 'piercing' && item.masteryStage === 20
   ));
@@ -109,11 +133,13 @@ test('level 110+ monsters split normal books at 0.0015 percent and exclude boss-
   assert.ok(piercing30);
   assert.equal(piercing30.bossOnly, false);
   assert.ok(droppedIds.has(piercing30.id));
+  assert.ok(genesis30);
+  assert.ok(deadlineDragon.dropTable.masteryBooks.some((drop) => drop.itemId === genesis30.id));
   assert.ok(MASTERY_BOOK_ITEMS
     .filter((item) => item.dropEligible && !item.bossOnly)
     .every((item) => droppedIds.has(item.id)));
   assert.ok(MASTERY_BOOK_ITEMS
-    .filter((item) => item.dropEligible && item.bossOnly)
+    .filter((item) => item.dropEligible && item.bossOnly && item.id !== genesis30.id)
     .every((item) => !droppedIds.has(item.id)));
 });
 
@@ -149,11 +175,10 @@ test('Gammam Neo has the requested mastery-book chances', () => {
     ['piercing', 30, 0.004],
     ['spirit_javelin', 30, 0.004],
     ['boomerang_step', 30, 0.004],
-    ['fire_demon', 30, 0.003],
     ['crossbow_expert', 20, 0.003],
     ['brandish', 30, 0.003],
-    ['angel_ray', 30, 0.01],
-    ['ice_demon', 30, 0.01]
+    ['genesis', 30, 0.01],
+    ['maple_warrior', 20, 0.01]
   ]);
 });
 
@@ -166,15 +191,30 @@ test('support light is not tied to a mastery book', () => {
   )), false);
 });
 
-test('angel ray mastery books unlock strategic support line', () => {
-  const strategicLine = SKILL_DEFINITIONS.extended_7a0f825273;
-  const angelRay30 = MASTERY_BOOK_ITEMS.find((item) => (
-    item.masteryOriginalSkillId === 'angel_ray' && item.masteryStage === 30
+test('quest mastery stages never also create mastery books', () => {
+  const questUnlocks = new Set(SKILL_UNLOCK_QUESTS.flatMap((quest) => (
+    (quest.rewards.skillUnlocks || []).map((unlock) => (
+      `${unlock.departmentId}:${unlock.skillId}:${unlock.cap}`
+    ))
+  )));
+  const overlaps = MASTERY_BOOK_SKILLS.flatMap((rule) => (
+    rule.departments.flatMap((departmentId) => (
+      rule.stages
+        .map((stage) => `${departmentId}:${rule.skillId}:${stage}`)
+        .filter((key) => questUnlocks.has(key))
+    ))
   ));
+
+  assert.deepEqual(overlaps, []);
+});
+
+test('strategic support line, red-team infiltration, and cryogenic sample use quests only', () => {
+  const strategicLine = SKILL_DEFINITIONS.extended_7a0f825273;
   assert.equal(strategicLine.name, '전략 지원선');
   assert.equal(strategicLine.tier, 4);
-  assert.equal(angelRay30.masterySkillId, strategicLine.id);
-  assert.equal(angelRay30.bossOnly, true);
+  assert.equal(MASTERY_BOOK_ITEMS.some((item) => (
+    ['angel_ray', 'fire_demon', 'ice_demon'].includes(item.masteryOriginalSkillId)
+  )), false);
 });
 
 function getItemDefinitionForTest(itemId) {
