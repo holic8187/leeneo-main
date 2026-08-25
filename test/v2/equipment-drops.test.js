@@ -41,19 +41,31 @@ test('boss endgame weapons never enter the ordinary monster drop pool', () => {
   assert.ok(BOSS_ENDGAME_WEAPONS.every((item) => item.requiredLevel === 100));
 });
 
-test('warrior and mage shields keep source requirements and enter nearby drop pools', () => {
+test('warrior, mage, and dagger thief shields keep requirements and enter nearby drop pools', () => {
   assert.ok(SHIELD_ITEMS.some((item) => item.requirements.archetype === 'warrior'));
   assert.ok(SHIELD_ITEMS.some((item) => item.requirements.archetype === 'mage'));
+  assert.ok(SHIELD_ITEMS.some((item) => item.requirements.archetype === 'thief'));
   const warriorShield = SHIELD_ITEMS.find((item) => item.id === 'shield_warrior_110');
   const mageShield = SHIELD_ITEMS.find((item) => item.id === 'shield_mage_64');
+  const thiefShield = SHIELD_ITEMS.find((item) => item.id === 'shield_thief_dagger_115');
   assert.deepEqual(warriorShield.requirements.stats, { grit: 340 });
   assert.equal(warriorShield.stats.defense, 78);
   assert.equal(mageShield.stats.magicDefense, 51);
+  assert.deepEqual(thiefShield.requirements.allowedWeaponTypes, ['dagger']);
+  assert.equal(thiefShield.stats.evasion, 8);
   assert.equal(getItemDefinition(mageShield.id).upgradeSlots, 10);
   assert.ok(SHIELD_ITEMS.every((item) => item.buyPrice === 0));
   assert.ok(SHIELD_ITEMS.every((item) => item.shopTags.length === 0));
   assert.ok(SHIELD_ITEMS.every((item) => item.obtainMethods.includes('crafting')));
   assert.ok(getEquipmentDropsForMonsterLevel(66).some((drop) => drop.itemId === mageShield.id));
+  assert.ok(getEquipmentDropsForMonsterLevel(117).some((drop) => drop.itemId === thiefShield.id));
+});
+
+test('timeless through deimos thief shields stay reserved for future boss drops', () => {
+  assert.equal(SHIELD_ITEMS.some((item) => (
+    item.requirements.archetype === 'thief'
+    && /타임리스|피어리스|데이모스/.test(item.name)
+  )), false);
 });
 
 test('elixir drop rates follow their level curves without replacing other drop categories', () => {
@@ -109,7 +121,7 @@ test('every non-boss equipment item appears in an ordinary monster drop table', 
   const droppedIds = new Set(MONSTER_CATALOG.flatMap((monster) => (
     monster.dropTable.equipment.map((drop) => drop.itemId)
   )));
-  const ordinaryItems = EQUIPMENT_ITEMS.filter((item) => !item.bossDropOnly);
+  const ordinaryItems = EQUIPMENT_ITEMS.filter((item) => !item.bossDropOnly && !item.craftOnly);
   const missingItems = ordinaryItems
     .filter((item) => !droppedIds.has(item.id))
     .map((item) => `${item.id}:${item.name}`);

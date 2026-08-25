@@ -35,6 +35,7 @@ test('derived stats use equipped weapon, loadout totals, and base movement speed
   assert.equal(result.accuracy, 18.5);
   assert.equal(result.evasion, 12.25);
   assert.equal(result.movementSpeed, 105);
+  assert.equal(result.jumpPower, 100);
   assert.equal(result.weaponType, 'twoHandedSword');
   assert.equal(result.weaponConstant, 4.6);
   assert.equal(result.weaponMastery, 50);
@@ -117,6 +118,7 @@ test('level one base stats produce four attack, magic, defense, and evasion', ()
   assert.equal(result.defense, 4);
   assert.equal(result.evasion, 4);
   assert.equal(result.movementSpeed, 100);
+  assert.equal(result.jumpPower, 100);
   assert.equal(result.attackRange, 100);
   assert.equal(result.attackSpeedStage, 1);
 });
@@ -187,6 +189,66 @@ test('all-stat percentage buffs multiply base stats before equipment bonuses', (
     workKnowledge: 0,
     awareness: 0
   });
+});
+
+test('an equipped title contributes stats, resources, movement, and status resistance', () => {
+  const result = buildDerivedStats({
+    progression: { level: 30 },
+    stats: { grit: 4, processingSpeed: 4, workKnowledge: 4, awareness: 4 },
+    job: { departmentId: 'hr', advancementTier: 1 },
+    loadout: {
+      weapon: { weaponType: 'oneHandedSword', stats: {} },
+      title: {
+        stats: {
+          grit: 3,
+          processingSpeed: 3,
+          workKnowledge: 3,
+          awareness: 3,
+          maxHp: 80,
+          maxMp: 300,
+          attack: 5,
+          magic: 5,
+          defense: 30,
+          magicDefense: 50,
+          evasion: 35,
+          movementSpeed: 5,
+          jump: 5,
+          statusResistance: 5
+        }
+      }
+    }
+  });
+
+  assert.deepEqual(result.effectiveStats, {
+    grit: 7, processingSpeed: 7, workKnowledge: 7, awareness: 7
+  });
+  assert.equal(result.maxHpBonus, 80);
+  assert.equal(result.maxMpBonus, 300);
+  assert.equal(result.statusResistance, 5);
+  assert.equal(result.movementSpeed, 105);
+  assert.equal(result.jumpPower, 105);
+  assert.ok(result.attackMaximum > 0);
+  assert.equal(result.magic, 12);
+  assert.ok(result.defense >= 30);
+  assert.ok(result.magicDefense >= 50);
+  assert.ok(result.evasion >= 35);
+});
+
+test('equipment and haste buffs affect movement speed and jump power', () => {
+  const result = buildDerivedStats({
+    stats: { grit: 4, processingSpeed: 4, workKnowledge: 4, awareness: 4 },
+    job: { departmentId: 'sales' },
+    loadout: {
+      shoes: { stats: { movementSpeed: 5, jump: 7 } }
+    },
+    skillEffects: {
+      movementSpeedIncrease: 40,
+      jumpIncrease: 20
+    }
+  });
+
+  assert.equal(result.movementSpeed, 145);
+  assert.equal(result.jumpPower, 127);
 });
 
 test('mage accuracy includes its flat correction and active party-buff accuracy', () => {

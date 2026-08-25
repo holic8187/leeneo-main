@@ -167,6 +167,7 @@ function buildNpcView(character, npcId, now = new Date()) {
     mapId: npc.mapId,
     icon: npc.icon,
     x: npc.x,
+    action: npc.action || '',
     quests: npc.quests
       .filter((definition) => isQuestEligible(character, {
         ...definition, npcId: npc.id, mapId: npc.mapId
@@ -344,6 +345,8 @@ function recordBossKill(character, bossId, context = {}, now = new Date()) {
 
 function resolveQuestRewards(rewards = {}, random = Math.random) {
   const items = (rewards.items || []).map((entry) => ({ ...entry }));
+  let huntingMinutes = Math.max(0, Number(rewards.huntingMinutes) || 0);
+  const randomRewardNames = [];
   for (const pool of rewards.randomItems || []) {
     if (!Array.isArray(pool.options) || !pool.options.length) continue;
     const index = Math.min(
@@ -352,11 +355,23 @@ function resolveQuestRewards(rewards = {}, random = Math.random) {
     );
     items.push({ ...pool.options[index] });
   }
+  for (const pool of rewards.randomRewards || []) {
+    if (!Array.isArray(pool.options) || !pool.options.length) continue;
+    const index = Math.min(
+      pool.options.length - 1,
+      Math.max(0, Math.floor(Number(random()) * pool.options.length))
+    );
+    const selected = pool.options[index] || {};
+    items.push(...(selected.items || []).map((entry) => ({ ...entry })));
+    huntingMinutes += Math.max(0, Number(selected.huntingMinutes) || 0);
+    if (selected.name) randomRewardNames.push(String(selected.name));
+  }
   return {
     exp: Math.max(0, Number(rewards.exp) || 0),
     money: Math.max(0, Number(rewards.money) || 0),
     items,
-    huntingMinutes: Math.max(0, Number(rewards.huntingMinutes) || 0),
+    huntingMinutes,
+    randomRewardNames,
     skillUnlocks: (rewards.skillUnlocks || []).map((entry) => ({ ...entry }))
   };
 }
@@ -406,7 +421,13 @@ function claimQuest(character, questId, random = Math.random, now = new Date()) 
 }
 
 function getPublicNpcsForMap(mapId) {
-  return getNpcsForMap(mapId).map(({ id, name, icon, x }) => ({ id, name, icon, x }));
+  return getNpcsForMap(mapId).map(({ id, name, icon, x, action = '' }) => ({
+    id,
+    name,
+    icon,
+    x,
+    action
+  }));
 }
 
 module.exports = {

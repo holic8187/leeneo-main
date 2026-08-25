@@ -14,7 +14,7 @@ const { DEFAULT_WEAPON_RANGES } = require('./weaponMotion');
 
 const LOADOUT_SLOT_KEYS = Object.freeze([
   'weapon', 'shield', 'helmet', 'gloves', 'shoes', 'cape',
-  'top', 'bottom', 'necklace', 'ring', 'earrings'
+  'top', 'bottom', 'necklace', 'ring', 'earrings', 'title'
 ]);
 
 function finite(value) {
@@ -167,6 +167,7 @@ function buildDerivedStats({
   const magic = roundStat(
     Math.max(4, finite(effectiveStats.workKnowledge))
     + sumLoadoutStat(loadout, 'magic', 'magicAttack')
+    + finite(skillEffects.magicAttackIncrease)
   );
 
   return {
@@ -186,6 +187,15 @@ function buildDerivedStats({
       100
       + sumLoadoutStat(loadout, 'movementSpeed')
       + finite(skillEffects.movementSpeedIncrease)
+    ),
+    jumpPower: roundStat(
+      100
+      + sumLoadoutStat(loadout, 'jump')
+      + finite(skillEffects.jumpIncrease)
+    ),
+    statusResistance: Math.max(
+      0,
+      Math.min(100, sumLoadoutStat(loadout, 'statusResistance'))
     ),
     criticalChance: Math.max(0, Math.min(100, finite(skillEffects.criticalChance))),
     criticalDamagePercent: Math.max(100, finite(skillEffects.criticalDamagePercent) || 200),

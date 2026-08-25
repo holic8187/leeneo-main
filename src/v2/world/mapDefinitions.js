@@ -2,6 +2,265 @@
 
 const START_MAP_ID = 'main_lobby';
 
+const MAP_LAYOUT_PRESETS = Object.freeze({
+  safe: Object.freeze({
+    worldWidth: 920,
+    worldHeight: 390,
+    maxMonsters: 0,
+    spawnPerWave: 0,
+    platforms: Object.freeze([
+      Object.freeze({ id: 'ground', floor: 0, x: 0, width: 100, bottom: 42, spawnEnabled: false, spawnSlots: 0 })
+    ]),
+    connectors: Object.freeze([])
+  }),
+  tiny: Object.freeze({
+    worldWidth: 820,
+    worldHeight: 390,
+    maxMonsters: 15,
+    spawnPerWave: 8,
+    platforms: Object.freeze([
+      Object.freeze({ id: 'ground', floor: 0, x: 0, width: 100, bottom: 42, spawnEnabled: true, spawnSlots: 11 }),
+      Object.freeze({ id: 'jump-ledge', floor: 1, x: 37, width: 28, bottom: 172, spawnEnabled: true, spawnSlots: 5 })
+    ]),
+    connectors: Object.freeze([
+      Object.freeze({ id: 'jump-01', fromFloor: 0, toFloor: 1, x: 40, type: 'jump' })
+    ])
+  }),
+  compact: Object.freeze({
+    worldWidth: 1_080,
+    worldHeight: 470,
+    maxMonsters: 21,
+    spawnPerWave: 9,
+    platforms: Object.freeze([
+      Object.freeze({ id: 'ground-left', floor: 0, x: 0, width: 46, bottom: 42, spawnEnabled: true, spawnSlots: 8 }),
+      Object.freeze({ id: 'ground-right', floor: 0, x: 54, width: 46, bottom: 42, spawnEnabled: true, spawnSlots: 8 }),
+      Object.freeze({ id: 'jump-deck', floor: 1, x: 18, width: 26, bottom: 178, spawnEnabled: true, spawnSlots: 5 }),
+      Object.freeze({ id: 'quiet-deck', floor: 1, x: 60, width: 25, bottom: 178, spawnEnabled: false, spawnSlots: 0 }),
+      Object.freeze({ id: 'ladder-deck', floor: 2, x: 48, width: 27, bottom: 322, spawnEnabled: true, spawnSlots: 5 })
+    ]),
+    connectors: Object.freeze([
+      Object.freeze({ id: 'jump-01', fromFloor: 0, toFloor: 1, x: 22, type: 'jump' }),
+      Object.freeze({ id: 'ladder-12', fromFloor: 1, toFloor: 2, x: 63, type: 'ladder' })
+    ])
+  }),
+  wide: Object.freeze({
+    worldWidth: 1_560,
+    worldHeight: 520,
+    maxMonsters: 32,
+    spawnPerWave: 11,
+    platforms: Object.freeze([
+      Object.freeze({ id: 'ground', floor: 0, x: 0, width: 100, bottom: 42, spawnEnabled: true, spawnSlots: 14 }),
+      Object.freeze({ id: 'west-deck', floor: 1, x: 8, width: 28, bottom: 184, spawnEnabled: true, spawnSlots: 8 }),
+      Object.freeze({ id: 'center-rest', floor: 1, x: 42, width: 16, bottom: 184, spawnEnabled: false, spawnSlots: 0 }),
+      Object.freeze({ id: 'east-deck', floor: 1, x: 65, width: 28, bottom: 184, spawnEnabled: true, spawnSlots: 8 }),
+      Object.freeze({ id: 'high-deck', floor: 2, x: 34, width: 32, bottom: 342, spawnEnabled: true, spawnSlots: 8 })
+    ]),
+    connectors: Object.freeze([
+      Object.freeze({ id: 'jump-west', fromFloor: 0, toFloor: 1, x: 12, type: 'jump' }),
+      Object.freeze({ id: 'ladder-east', fromFloor: 0, toFloor: 1, x: 78, type: 'ladder' }),
+      Object.freeze({ id: 'ladder-high', fromFloor: 1, toFloor: 2, x: 50, type: 'ladder' })
+    ])
+  }),
+  tower: Object.freeze({
+    worldWidth: 1_240,
+    worldHeight: 700,
+    maxMonsters: 36,
+    spawnPerWave: 11,
+    platforms: Object.freeze([
+      Object.freeze({ id: 'ground', floor: 0, x: 0, width: 100, bottom: 42, spawnEnabled: true, spawnSlots: 11 }),
+      Object.freeze({ id: 'first-left', floor: 1, x: 6, width: 37, bottom: 190, spawnEnabled: true, spawnSlots: 8 }),
+      Object.freeze({ id: 'first-right', floor: 1, x: 55, width: 38, bottom: 190, spawnEnabled: true, spawnSlots: 8 }),
+      Object.freeze({ id: 'second-left', floor: 2, x: 18, width: 30, bottom: 354, spawnEnabled: false, spawnSlots: 0 }),
+      Object.freeze({ id: 'second-right', floor: 2, x: 60, width: 31, bottom: 354, spawnEnabled: true, spawnSlots: 8 }),
+      Object.freeze({ id: 'summit', floor: 3, x: 34, width: 34, bottom: 524, spawnEnabled: true, spawnSlots: 8 })
+    ]),
+    connectors: Object.freeze([
+      Object.freeze({ id: 'ladder-01', fromFloor: 0, toFloor: 1, x: 72, type: 'ladder' }),
+      Object.freeze({ id: 'jump-12', fromFloor: 1, toFloor: 2, x: 24, type: 'jump' }),
+      Object.freeze({ id: 'ladder-23', fromFloor: 2, toFloor: 3, x: 64, type: 'ladder' })
+    ])
+  }),
+  sprawling: Object.freeze({
+    worldWidth: 2_080,
+    worldHeight: 650,
+    maxMonsters: 47,
+    spawnPerWave: 14,
+    platforms: Object.freeze([
+      Object.freeze({ id: 'ground-west', floor: 0, x: 0, width: 31, bottom: 42, spawnEnabled: true, spawnSlots: 9 }),
+      Object.freeze({ id: 'ground-center', floor: 0, x: 35, width: 29, bottom: 42, spawnEnabled: true, spawnSlots: 9 }),
+      Object.freeze({ id: 'ground-east', floor: 0, x: 68, width: 32, bottom: 42, spawnEnabled: true, spawnSlots: 9 }),
+      Object.freeze({ id: 'lower-west', floor: 1, x: 6, width: 23, bottom: 190, spawnEnabled: true, spawnSlots: 8 }),
+      Object.freeze({ id: 'lower-center', floor: 1, x: 38, width: 24, bottom: 190, spawnEnabled: false, spawnSlots: 0 }),
+      Object.freeze({ id: 'lower-east', floor: 1, x: 72, width: 22, bottom: 190, spawnEnabled: true, spawnSlots: 8 }),
+      Object.freeze({ id: 'upper-west', floor: 2, x: 18, width: 25, bottom: 358, spawnEnabled: true, spawnSlots: 5 }),
+      Object.freeze({ id: 'upper-east', floor: 2, x: 58, width: 27, bottom: 358, spawnEnabled: true, spawnSlots: 5 })
+    ]),
+    connectors: Object.freeze([
+      Object.freeze({ id: 'jump-west', fromFloor: 0, toFloor: 1, x: 14, type: 'jump' }),
+      Object.freeze({ id: 'ladder-east', fromFloor: 0, toFloor: 1, x: 80, type: 'ladder' }),
+      Object.freeze({ id: 'ladder-upper-west', fromFloor: 1, toFloor: 2, x: 25, type: 'ladder' }),
+      Object.freeze({ id: 'jump-upper-east', fromFloor: 1, toFloor: 2, x: 67, type: 'jump' })
+    ])
+  }),
+  boss: Object.freeze({
+    worldWidth: 1_420,
+    worldHeight: 430,
+    maxMonsters: 1,
+    spawnPerWave: 1,
+    platforms: Object.freeze([
+      Object.freeze({ id: 'boss-arena', floor: 0, x: 0, width: 100, bottom: 42, spawnEnabled: true, spawnSlots: 1 }),
+      Object.freeze({ id: 'spectator-ledge', floor: 1, x: 37, width: 26, bottom: 198, spawnEnabled: false, spawnSlots: 0 })
+    ]),
+    connectors: Object.freeze([
+      Object.freeze({ id: 'arena-jump', fromFloor: 0, toFloor: 1, x: 40, type: 'jump' })
+    ])
+  }),
+  kim_boss: Object.freeze({
+    worldWidth: 1_420,
+    worldHeight: 500,
+    maxMonsters: 13,
+    spawnPerWave: 0,
+    platforms: Object.freeze([
+      Object.freeze({ id: 'kim-arena', floor: 0, x: 0, width: 100, bottom: 42, spawnEnabled: false, spawnSlots: 0 }),
+      Object.freeze({ id: 'kim-upper-route', floor: 1, x: 3, width: 94, bottom: 230, spawnEnabled: false, spawnSlots: 0 })
+    ]),
+    connectors: Object.freeze([
+      Object.freeze({ id: 'kim-ladder-left', fromFloor: 0, toFloor: 1, x: 5, type: 'ladder' }),
+      Object.freeze({ id: 'kim-ladder-right', fromFloor: 0, toFloor: 1, x: 95, type: 'ladder' })
+    ])
+  }),
+  frozen_dispatch: Object.freeze({
+    worldWidth: 825,
+    worldHeight: 430,
+    maxMonsters: 18,
+    spawnPerWave: 8,
+    platforms: Object.freeze([
+      Object.freeze({
+        id: 'lower-route',
+        floor: 0,
+        x: 0,
+        width: 100,
+        bottom: 42,
+        spawnEnabled: true,
+        spawnSlots: 9,
+        spawnPerWave: 4,
+        monsterIds: Object.freeze(['overtime_reaper'])
+      }),
+      Object.freeze({
+        id: 'upper-route',
+        floor: 1,
+        x: 7,
+        width: 86,
+        bottom: 214,
+        spawnEnabled: true,
+        spawnSlots: 9,
+        spawnPerWave: 4,
+        monsterIds: Object.freeze(['deadline_dragon'])
+      })
+    ]),
+    connectors: Object.freeze([
+      Object.freeze({ id: 'dispatch-ladder', fromFloor: 0, toFloor: 1, x: 76, type: 'ladder' })
+    ])
+  }),
+  bus_stop: Object.freeze({
+    worldWidth: 980,
+    worldHeight: 390,
+    maxMonsters: 0,
+    spawnPerWave: 0,
+    platforms: Object.freeze([
+      Object.freeze({ id: 'roadside', floor: 0, x: 0, width: 100, bottom: 42, spawnEnabled: false, spawnSlots: 0 })
+    ]),
+    connectors: Object.freeze([])
+  }),
+  bus_interior: Object.freeze({
+    worldWidth: 980,
+    worldHeight: 390,
+    maxMonsters: 0,
+    spawnPerWave: 0,
+    platforms: Object.freeze([
+      Object.freeze({ id: 'bus-floor', floor: 0, x: 0, width: 100, bottom: 42, spawnEnabled: false, spawnSlots: 0 })
+    ]),
+    connectors: Object.freeze([])
+  }),
+  peach_lobby: Object.freeze({
+    worldWidth: 1_080,
+    worldHeight: 430,
+    maxMonsters: 0,
+    spawnPerWave: 0,
+    platforms: Object.freeze([
+      Object.freeze({ id: 'peach-lobby-floor', floor: 0, x: 0, width: 100, bottom: 42, spawnEnabled: false, spawnSlots: 0 })
+    ]),
+    connectors: Object.freeze([])
+  }),
+  peach_factory: Object.freeze({
+    worldWidth: 3_200,
+    worldHeight: 600,
+    maxMonsters: 60,
+    spawnPerWave: 20,
+    platforms: Object.freeze([
+      Object.freeze({ id: 'factory-ground-left', floor: 0, x: 0, width: 46, bottom: 42, spawnEnabled: true, spawnSlots: 18 }),
+      Object.freeze({ id: 'factory-ground-right', floor: 0, x: 52, width: 48, bottom: 42, spawnEnabled: true, spawnSlots: 18 }),
+      Object.freeze({ id: 'factory-upper-left', floor: 1, x: 5, width: 38, bottom: 275, spawnEnabled: true, spawnSlots: 15 }),
+      Object.freeze({ id: 'factory-upper-right', floor: 1, x: 57, width: 38, bottom: 275, spawnEnabled: true, spawnSlots: 15 }),
+      Object.freeze({ id: 'factory-bridge', floor: 1, x: 45, width: 10, bottom: 170, spawnEnabled: false, spawnSlots: 2 })
+    ]),
+    connectors: Object.freeze([
+      Object.freeze({ id: 'factory-ladder-left', fromFloor: 0, toFloor: 1, x: 15, type: 'ladder' }),
+      Object.freeze({ id: 'factory-ladder-right', fromFloor: 0, toFloor: 1, x: 84, type: 'ladder' })
+    ])
+  }),
+  peach_circuit: Object.freeze({
+    worldWidth: 4_680,
+    worldHeight: 720,
+    maxMonsters: 72,
+    spawnPerWave: 24,
+    platforms: Object.freeze([
+      Object.freeze({ id: 'circuit-ground', floor: 0, x: 0, width: 100, bottom: 42, spawnEnabled: true, spawnSlots: 26 }),
+      Object.freeze({ id: 'circuit-upper-left', floor: 1, x: 3, width: 26, bottom: 290, spawnEnabled: true, spawnSlots: 16 }),
+      Object.freeze({ id: 'circuit-upper-center', floor: 1, x: 35, width: 30, bottom: 430, spawnEnabled: true, spawnSlots: 18 }),
+      Object.freeze({ id: 'circuit-upper-right', floor: 1, x: 71, width: 26, bottom: 290, spawnEnabled: true, spawnSlots: 16 }),
+      Object.freeze({ id: 'circuit-jump-pad', floor: 1, x: 29, width: 6, bottom: 170, spawnEnabled: false, spawnSlots: 1 })
+    ]),
+    connectors: Object.freeze([
+      Object.freeze({ id: 'circuit-ladder-left', fromFloor: 0, toFloor: 1, x: 14, type: 'ladder' }),
+      Object.freeze({ id: 'circuit-ladder-right', fromFloor: 0, toFloor: 1, x: 86, type: 'ladder' }),
+      Object.freeze({ id: 'circuit-jump-center', fromFloor: 0, toFloor: 1, x: 50, type: 'jump' })
+    ])
+  }),
+  peach_vertical: Object.freeze({
+    worldWidth: 3_720,
+    worldHeight: 820,
+    maxMonsters: 60,
+    spawnPerWave: 20,
+    platforms: Object.freeze([
+      Object.freeze({ id: 'vertical-ground', floor: 0, x: 0, width: 100, bottom: 42, spawnEnabled: true, spawnSlots: 20 }),
+      Object.freeze({ id: 'vertical-upper-left', floor: 1, x: 2, width: 28, bottom: 310, spawnEnabled: true, spawnSlots: 14 }),
+      Object.freeze({ id: 'vertical-upper-mid', floor: 1, x: 36, width: 28, bottom: 520, spawnEnabled: true, spawnSlots: 16 }),
+      Object.freeze({ id: 'vertical-upper-right', floor: 1, x: 70, width: 28, bottom: 310, spawnEnabled: true, spawnSlots: 14 }),
+      Object.freeze({ id: 'vertical-rest', floor: 1, x: 31, width: 5, bottom: 185, spawnEnabled: false, spawnSlots: 1 })
+    ]),
+    connectors: Object.freeze([
+      Object.freeze({ id: 'vertical-ladder-left', fromFloor: 0, toFloor: 1, x: 12, type: 'ladder' }),
+      Object.freeze({ id: 'vertical-ladder-right', fromFloor: 0, toFloor: 1, x: 88, type: 'ladder' }),
+      Object.freeze({ id: 'vertical-jump-mid', fromFloor: 0, toFloor: 1, x: 50, type: 'jump' })
+    ])
+  }),
+  peach_core: Object.freeze({
+    worldWidth: 2_400,
+    worldHeight: 560,
+    maxMonsters: 44,
+    spawnPerWave: 15,
+    platforms: Object.freeze([
+      Object.freeze({ id: 'core-ground', floor: 0, x: 0, width: 100, bottom: 42, spawnEnabled: true, spawnSlots: 24 }),
+      Object.freeze({ id: 'core-upper', floor: 1, x: 18, width: 64, bottom: 275, spawnEnabled: true, spawnSlots: 22 })
+    ]),
+    connectors: Object.freeze([
+      Object.freeze({ id: 'core-ladder-left', fromFloor: 0, toFloor: 1, x: 24, type: 'ladder' }),
+      Object.freeze({ id: 'core-ladder-right', fromFloor: 0, toFloor: 1, x: 76, type: 'ladder' })
+    ])
+  })
+});
+
 const MAP_DEFINITIONS = [
   { id: 'main_lobby', name: '호이상사 중앙로비', region: '본관 초입', minLevel: 1, maxLevel: 8, theme: 'lobby', features: ['elevator'], safeZone: true, shopId: 'headquarters' },
   { id: 'newcomer_training', name: '신입사원 연수원', region: '본관 초입', minLevel: 1, maxLevel: 10, theme: 'training', features: ['ladder'] },
@@ -39,6 +298,208 @@ const MAP_DEFINITIONS = [
 
   { id: 'overtime_depths', name: '무한야근 심층구역', region: '경영전략층', minLevel: 112, maxLevel: 145, theme: 'overtime', features: ['rope', 'hazard'] },
   { id: 'executive_strategy', name: '임원 전략회의층', region: '경영전략층', minLevel: 125, maxLevel: 160, theme: 'executive', features: ['elevator'] },
+  {
+    id: 'frozen_dispatch_yard',
+    name: '출장 준비 빙결통로',
+    region: '신대륙 출장로',
+    minLevel: 130,
+    maxLevel: 140,
+    theme: 'frozen-dispatch',
+    features: ['ladder', 'ice'],
+    monsterIds: ['overtime_reaper', 'deadline_dragon'],
+    layoutPreset: 'frozen_dispatch'
+  },
+  {
+    id: 'company_bus_stop',
+    name: '호이상사 정문 버스정류장',
+    region: '회사 외곽',
+    minLevel: 1,
+    maxLevel: 200,
+    theme: 'bus-stop',
+    features: ['bus-stop'],
+    safeZone: true,
+    returnDestination: false,
+    layoutPreset: 'bus_stop'
+  },
+  {
+    id: 'company_bus_waiting_room',
+    name: '피치전자행 버스 내부',
+    region: '출장 버스',
+    minLevel: 1,
+    maxLevel: 200,
+    theme: 'bus-interior',
+    features: ['bus-interior', 'bus-waiting'],
+    safeZone: true,
+    returnDestination: false,
+    transportOnly: true,
+    hidden: true,
+    layoutPreset: 'bus_interior'
+  },
+  {
+    id: 'company_bus_in_transit',
+    name: '피치전자행 운행 중',
+    region: '출장 버스',
+    minLevel: 1,
+    maxLevel: 200,
+    theme: 'bus-interior-moving',
+    features: ['bus-interior', 'bus-moving'],
+    safeZone: true,
+    returnDestination: false,
+    transportOnly: true,
+    hidden: true,
+    layoutPreset: 'bus_interior'
+  },
+  {
+    id: 'peach_bus_stop',
+    name: '피치전자 정문 버스정류장',
+    region: '피치전자',
+    minLevel: 1,
+    maxLevel: 200,
+    theme: 'peach-bus-stop',
+    features: ['bus-stop', 'peach-electronics'],
+    safeZone: true,
+    returnDestination: false,
+    layoutPreset: 'bus_stop'
+  },
+  {
+    id: 'peach_bus_waiting_room',
+    name: '호이상사행 버스 내부',
+    region: '출장 버스',
+    minLevel: 1,
+    maxLevel: 200,
+    theme: 'bus-interior',
+    features: ['bus-interior', 'bus-waiting'],
+    safeZone: true,
+    returnDestination: false,
+    transportOnly: true,
+    hidden: true,
+    layoutPreset: 'bus_interior'
+  },
+  {
+    id: 'peach_bus_in_transit',
+    name: '호이상사행 운행 중',
+    region: '출장 버스',
+    minLevel: 1,
+    maxLevel: 200,
+    theme: 'bus-interior-moving',
+    features: ['bus-interior', 'bus-moving'],
+    safeZone: true,
+    returnDestination: false,
+    transportOnly: true,
+    hidden: true,
+    layoutPreset: 'bus_interior'
+  },
+  {
+    id: 'peach_electronics_lobby',
+    name: '피치전자 방문자 로비',
+    region: '피치전자',
+    minLevel: 1,
+    maxLevel: 200,
+    theme: 'peach-lobby',
+    features: ['peach-electronics', 'bus-arrival'],
+    safeZone: true,
+    shopId: 'peach_convenience',
+    layoutPreset: 'peach_lobby'
+  },
+  {
+    id: 'peach_loading_dock',
+    name: '피치전자 하역장',
+    region: '피치전자',
+    minLevel: 130,
+    maxLevel: 134,
+    theme: 'peach-factory',
+    features: ['peach-electronics', 'conveyor', 'ladder'],
+    monsterIds: ['peach_gate_sentry', 'peach_parcel_bot'],
+    layoutPreset: 'peach_factory'
+  },
+  {
+    id: 'peach_parts_warehouse',
+    name: '피치전자 부품창고',
+    region: '피치전자',
+    minLevel: 133,
+    maxLevel: 137,
+    theme: 'peach-warehouse',
+    features: ['peach-electronics', 'boxes', 'ladder'],
+    monsterIds: ['peach_parcel_bot', 'peach_invoice_scanner'],
+    layoutPreset: 'peach_circuit'
+  },
+  {
+    id: 'peach_assembly_line_a',
+    name: '피치전자 조립라인 A',
+    region: '피치전자',
+    minLevel: 136,
+    maxLevel: 140,
+    theme: 'peach-factory',
+    features: ['peach-electronics', 'conveyor', 'ladder'],
+    monsterIds: ['peach_invoice_scanner', 'peach_solder_drone'],
+    layoutPreset: 'peach_factory'
+  },
+  {
+    id: 'peach_assembly_line_b',
+    name: '피치전자 조립라인 B',
+    region: '피치전자',
+    minLevel: 139,
+    maxLevel: 143,
+    theme: 'peach-factory',
+    features: ['peach-electronics', 'conveyor', 'jump'],
+    monsterIds: ['peach_solder_drone', 'peach_assembly_robot'],
+    layoutPreset: 'peach_circuit'
+  },
+  {
+    id: 'peach_quality_control',
+    name: '피치전자 품질관리동',
+    region: '피치전자',
+    minLevel: 142,
+    maxLevel: 145,
+    theme: 'peach-lab',
+    features: ['peach-electronics', 'laboratory', 'ladder'],
+    monsterIds: ['peach_assembly_robot', 'peach_quality_laser'],
+    layoutPreset: 'peach_vertical'
+  },
+  {
+    id: 'peach_circuit_lab',
+    name: '피치전자 회로연구동',
+    region: '피치전자',
+    minLevel: 145,
+    maxLevel: 147,
+    theme: 'peach-lab',
+    features: ['peach-electronics', 'laboratory', 'jump'],
+    monsterIds: ['peach_quality_laser', 'peach_circuit_specter'],
+    layoutPreset: 'peach_circuit'
+  },
+  {
+    id: 'peach_server_farm',
+    name: '피치전자 서버팜',
+    region: '피치전자',
+    minLevel: 147,
+    maxLevel: 149,
+    theme: 'peach-server',
+    features: ['peach-electronics', 'server', 'ladder'],
+    monsterIds: ['peach_circuit_specter', 'peach_overclock_server'],
+    layoutPreset: 'peach_vertical'
+  },
+  {
+    id: 'peach_executive_floor',
+    name: '피치전자 임원통제층',
+    region: '피치전자',
+    minLevel: 148,
+    maxLevel: 150,
+    theme: 'peach-executive',
+    features: ['peach-electronics', 'security', 'ladder'],
+    monsterIds: ['peach_executive_android', 'peach_overclock_server'],
+    layoutPreset: 'peach_circuit'
+  },
+  {
+    id: 'peach_core_chamber',
+    name: '피치전자 중앙코어실',
+    region: '피치전자',
+    minLevel: 150,
+    maxLevel: 150,
+    theme: 'peach-core',
+    features: ['peach-electronics', 'core', 'ladder'],
+    monsterIds: ['peach_mainframe_guardian'],
+    layoutPreset: 'peach_core'
+  },
 
   { id: 'memo_shredder_room', name: '파쇄기 문서더미실', region: '단일 사냥터', minLevel: 3, maxLevel: 8, theme: 'office', features: ['boxes'], monsterIds: ['paper_dust'] },
   { id: 'stapler_repair_bay', name: '스테이플러 수리대', region: '단일 사냥터', minLevel: 9, maxLevel: 14, theme: 'training', features: ['ladder'], monsterIds: ['runaway_stapler'] },
@@ -61,6 +522,26 @@ const MAP_DEFINITIONS = [
     features: ['hazard'],
     monsterIds: [],
     fieldBossId: 'mad_hwang_manager',
+    hidden: true
+  },
+  {
+    id: 'boss_bald_kim_arena',
+    name: '대머리 김부장 원정대 전투실',
+    region: '보스 원정대',
+    minLevel: 1,
+    maxLevel: 200,
+    theme: 'executive',
+    features: ['ladder', 'raid-boss'],
+    monsterIds: [],
+    raidBossId: 'bald_kim_manager',
+    raidExitNpc: Object.freeze({
+      id: 'bald_kim_retreat_manager',
+      name: '원정대 철수 담당자',
+      icon: '🚪',
+      x: 4,
+      action: 'raid-abandon'
+    }),
+    layoutPreset: 'kim_boss',
     hidden: true
   },
   {
@@ -133,6 +614,21 @@ const MAP_EDGES = [
   ['logistics_warehouse', 'overtime_depths', '야간배송 통로'],
   ['overtime_depths', 'executive_strategy', '최종보고 계단']
   ,
+  ['executive_strategy', 'frozen_dispatch_yard', '출장 준비 통로'],
+  ['frozen_dispatch_yard', 'company_bus_stop', '회사 정문 출구']
+  ,
+  ['peach_bus_stop', 'peach_electronics_lobby', '피치전자 정문'],
+  ['peach_electronics_lobby', 'peach_loading_dock', '방문자 출입 게이트'],
+  ['peach_loading_dock', 'peach_parts_warehouse', '부품 반입 통로'],
+  ['peach_parts_warehouse', 'peach_assembly_line_a', '조립라인 A 입구'],
+  ['peach_assembly_line_a', 'peach_assembly_line_b', '조립라인 연결로'],
+  ['peach_assembly_line_b', 'peach_quality_control', '품질검사 게이트'],
+  ['peach_quality_control', 'peach_circuit_lab', '연구동 보안문'],
+  ['peach_circuit_lab', 'peach_server_farm', '서버팜 승강기'],
+  ['peach_server_farm', 'peach_executive_floor', '임원통제 계단'],
+  ['peach_executive_floor', 'peach_core_chamber', '중앙코어 방화문'],
+  ['peach_quality_control', 'peach_server_farm', '긴급 점검 통로']
+  ,
   ['sales_fox_den', 'hidden_hwang_sales', '히든 영업 회의실'],
   ['overtime_depths', 'hidden_hwang_overtime', '히든 감맘 폐쇄실']
 ];
@@ -149,14 +645,84 @@ function buildMapGraph() {
   return Array.from(byId.values());
 }
 
+function stableMapNumber(mapId = '') {
+  return Array.from(String(mapId)).reduce(
+    (total, character) => (total * 31 + character.charCodeAt(0)) >>> 0,
+    17
+  );
+}
+
+function mirrorLayoutEntry(entry = {}) {
+  if (!Number.isFinite(Number(entry.x))) return { ...entry };
+  if (Number.isFinite(Number(entry.width))) {
+    return { ...entry, x: 100 - Number(entry.x) - Number(entry.width) };
+  }
+  return { ...entry, x: 100 - Number(entry.x) };
+}
+
+function chooseMapLayoutPreset(map, index) {
+  if (map.layoutPreset && MAP_LAYOUT_PRESETS[map.layoutPreset]) return map.layoutPreset;
+  if (map.safeZone) return 'safe';
+  if (map.fieldBossId) return 'boss';
+  if (map.id === 'newcomer_training') return 'compact';
+  if (map.region === '단일 사냥터') return index % 2 ? 'tiny' : 'compact';
+  if (map.features.includes('ladder') && map.features.includes('rope')) return 'tower';
+  if (map.features.includes('hazard') || map.connections.length >= 4) return 'sprawling';
+  return index % 3 === 0 ? 'wide' : 'compact';
+}
+
+function buildMapLayout(map, index = 0) {
+  const presetId = chooseMapLayoutPreset(map, index);
+  const preset = MAP_LAYOUT_PRESETS[presetId];
+  const seed = stableMapNumber(map.id);
+  const mirrored = seed % 2 === 1 && !map.safeZone;
+  const widthOffset = map.safeZone || map.fieldBossId || map.layoutPreset
+    ? 0
+    : (seed % 3 - 1) * 80;
+  const platforms = preset.platforms.map((platform) => (
+    mirrored ? mirrorLayoutEntry(platform) : { ...platform }
+  ));
+  const connectors = preset.connectors.map((connector) => (
+    mirrored ? mirrorLayoutEntry(connector) : { ...connector }
+  ));
+  return {
+    id: presetId,
+    variant: seed % 4,
+    mirrored,
+    worldWidth: Math.max(760, preset.worldWidth + widthOffset),
+    worldHeight: preset.worldHeight,
+    maxMonsters: preset.maxMonsters,
+    spawnPerWave: preset.spawnPerWave,
+    platforms,
+    connectors
+  };
+}
+
 const WORLD_MAPS = Object.freeze(buildMapGraph().map((map) => Object.freeze({
   ...map,
   features: Object.freeze([...map.features]),
-  connections: Object.freeze(map.connections.map((connection) => Object.freeze(connection)))
+  connections: Object.freeze(map.connections.map((connection) => Object.freeze(connection))),
+  layout: (() => {
+    const layout = buildMapLayout(map, MAP_DEFINITIONS.findIndex((entry) => entry.id === map.id));
+    return Object.freeze({
+      ...layout,
+      platforms: Object.freeze(layout.platforms.map((platform) => Object.freeze(platform))),
+      connectors: Object.freeze(layout.connectors.map((connector) => Object.freeze(connector)))
+    });
+  })()
 })));
 
+function getBaseWorldMapId(mapId) {
+  return String(mapId || '').split('@')[0];
+}
+
 function getWorldMap(mapId) {
-  return WORLD_MAPS.find((map) => map.id === mapId) || null;
+  const requestedId = String(mapId || '');
+  const baseId = getBaseWorldMapId(requestedId);
+  const map = WORLD_MAPS.find((entry) => entry.id === baseId) || null;
+  if (!map || requestedId === baseId) return map;
+  if (!map.raidBossId) return null;
+  return Object.freeze({ ...map, id: requestedId, instanceMapId: requestedId, baseMapId: baseId });
 }
 
 function findNearestSafeMap(mapId) {
@@ -178,11 +744,70 @@ function findNearestSafeMap(mapId) {
   return getWorldMap(START_MAP_ID);
 }
 
+function getMapCompanyId(mapOrId) {
+  const map = typeof mapOrId === 'string' ? getWorldMap(mapOrId) : mapOrId;
+  if (!map) return '';
+  if (
+    String(map.id || '').startsWith('peach_')
+    || String(map.region || '') === '피치전자'
+    || map.features?.includes('peach-electronics')
+  ) return 'peach-electronics';
+  if (map.transportOnly || map.features?.includes('bus-interior')) return '';
+  return 'hoi-company';
+}
+
+function findNearestReturnMap(mapId) {
+  const start = getWorldMap(mapId) || getWorldMap(START_MAP_ID);
+  if (!start) return null;
+  const companyId = getMapCompanyId(start);
+  const queue = [start];
+  const visited = new Set([start.id]);
+  while (queue.length) {
+    const current = queue.shift();
+    if (
+      current.safeZone
+      && current.returnDestination !== false
+      && (!companyId || getMapCompanyId(current) === companyId)
+    ) return current;
+    for (const connection of current.connections) {
+      if (visited.has(connection.targetId)) continue;
+      const next = getWorldMap(connection.targetId);
+      if (!next) continue;
+      const nextCompanyId = getMapCompanyId(next);
+      if (companyId && nextCompanyId && nextCompanyId !== companyId) continue;
+      visited.add(next.id);
+      queue.push(next);
+    }
+  }
+  return WORLD_MAPS.find((map) => (
+    map.safeZone
+    && map.returnDestination !== false
+    && (!companyId || getMapCompanyId(map) === companyId)
+  )) || getWorldMap(START_MAP_ID);
+}
+
+function hasStorageNpc(mapOrId) {
+  const map = typeof mapOrId === 'string' ? getWorldMap(mapOrId) : mapOrId;
+  return Boolean(
+    map?.safeZone
+    && map?.shopId
+    && !map?.transportOnly
+    && !map?.features?.includes('bus-stop')
+    && !map?.features?.includes('bus-interior')
+  );
+}
+
 module.exports = {
   START_MAP_ID,
   MAP_DEFINITIONS,
+  MAP_LAYOUT_PRESETS,
   MAP_EDGES,
   WORLD_MAPS,
+  buildMapLayout,
+  getBaseWorldMapId,
   getWorldMap,
-  findNearestSafeMap
+  getMapCompanyId,
+  findNearestSafeMap,
+  findNearestReturnMap,
+  hasStorageNpc
 };

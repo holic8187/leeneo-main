@@ -2,11 +2,15 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { getItemDefinition } = require('../../src/v2/items/itemCatalog');
 const { MONSTER_CATALOG } = require('../../src/v2/world/monsterCatalog');
 const {
   COIN_DROP_CHANCE,
+  EVENT_END_AT,
   getSettlementEventView,
+  isEventActive,
   isEventLevelRangeMonster,
   rollSettlementEventCoin,
   purchaseSettlementEventItem
@@ -28,6 +32,26 @@ function makeCharacter(level = 30) {
 }
 
 const eventDate = new Date('2026-07-10T12:00:00+09:00');
+
+test('the retired settlement event is replaced by the late-summer event button', () => {
+  const root = path.resolve(__dirname, '../..');
+  const index = fs.readFileSync(path.join(root, 'public/v2/index.html'), 'utf8');
+  const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+  assert.match(index, /id="eventButton"/);
+  assert.match(index, /늦여름 야르한/);
+  assert.match(server, /V2Character\.updateMany\(/);
+  assert.match(
+    server,
+    /\$pull:\s*\{[\s\S]*'inventory\.items':\s*\{ itemId: 'settlement_event_coin' \}/
+  );
+  assert.match(server, /'events\.settlementSupport\.dailyCoinCount': 0/);
+});
+
+test('the settlement event remains active until August fourth at one PM KST', () => {
+  assert.equal(EVENT_END_AT.toISOString(), '2026-08-04T04:00:00.000Z');
+  assert.equal(isEventActive(new Date('2026-08-04T12:59:59+09:00')), true);
+  assert.equal(isEventActive(new Date('2026-08-04T13:00:00+09:00')), false);
+});
 
 test('event coins only drop from monsters within ten levels and respect the daily cap', () => {
   const character = makeCharacter(30);
@@ -93,7 +117,7 @@ test('the blessed necklace is event-shop-only and costs three hundred coins', ()
   assert.ok(character.inventory.items.some((entry) => entry.itemId === necklace.id));
 });
 
-test('the settlement ring is free once per account and expires after July', () => {
+test('the settlement ring is free once per account and expires with the extended event', () => {
   const character = makeCharacter();
   const ring = getItemDefinition('settlement_support_ring');
 
@@ -110,7 +134,7 @@ test('the settlement ring is free once per account and expires after July', () =
   purchaseSettlementEventItem(character, 'settlement-ring', eventDate);
   const stack = character.inventory.items.find((entry) => entry.itemId === ring.id);
   assert.ok(stack);
-  assert.equal(new Date(stack.expiresAt).toISOString(), '2026-07-31T15:00:00.000Z');
+  assert.equal(new Date(stack.expiresAt).toISOString(), '2026-08-04T04:00:00.000Z');
   assert.throws(
     () => purchaseSettlementEventItem(character, 'settlement-ring', eventDate),
     /한 번/
