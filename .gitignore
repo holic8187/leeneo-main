@@ -1,1 +1,7 @@
+.env
 .env.v2
+tcg-desktop/node_modules/
+tcg-desktop/dist/
+tcg-desktop/release/
+tcg-desktop/.env*
+!tcg-desktop/.env.example

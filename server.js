@@ -11,8 +11,34 @@ const app = express();
 
 const MONGO_URI = process.env.MONGO_URI;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
+const TCG_JWT_SECRET = process.env.TCG_JWT_SECRET || JWT_SECRET;
 const APP_MODE = String(process.env.APP_MODE || 'v1').trim().toLowerCase() === 'v2' ? 'v2' : 'v1';
 const IS_V2_MODE = APP_MODE === 'v2';
+const IS_PRODUCTION = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
+const TRUST_PROXY_HOPS_RAW = String(process.env.TRUST_PROXY_HOPS || '').trim();
+const TRUST_PROXY_HOPS = Number.parseInt(TRUST_PROXY_HOPS_RAW, 10);
+
+if (IS_PRODUCTION) {
+  const productionSecrets = [
+    ['JWT_SECRET', process.env.JWT_SECRET],
+    ['TCG_JWT_SECRET', process.env.TCG_JWT_SECRET]
+  ];
+  for (const [name, value] of productionSecrets) {
+    if (typeof value !== 'string' || value.length < 32) {
+      throw new Error(`${name} must be set to at least 32 characters in production.`);
+    }
+  }
+  if (process.env.JWT_SECRET === process.env.TCG_JWT_SECRET) {
+    throw new Error('TCG_JWT_SECRET must be different from JWT_SECRET in production.');
+  }
+}
+
+if (TRUST_PROXY_HOPS_RAW && (!/^\d+$/.test(TRUST_PROXY_HOPS_RAW) || TRUST_PROXY_HOPS < 1)) {
+  throw new Error('TRUST_PROXY_HOPS must be a positive integer when configured.');
+}
+if (Number.isInteger(TRUST_PROXY_HOPS) && TRUST_PROXY_HOPS > 0) {
+  app.set('trust proxy', TRUST_PROXY_HOPS);
+}
 
 const ADMIN_USERNAME = 'dinguree';
 const ADMIN_PASSWORD = 'dinguree';
@@ -2996,6 +3022,7 @@ app.use((req, res, next) => {
     && req.path.startsWith('/api/')
     && req.path !== '/api/health'
     && !req.path.startsWith('/api/v2/')
+    && !req.path.startsWith('/api/tcg/')
   ) {
     return res.status(410).json({
       msg: '호이상사 V1 서비스가 종료되었습니다. V2에서 다시 이용해주세요.',
@@ -21694,6 +21721,7 @@ app.post('/api/admin/set-raid-boss', async (req, res) => {
 });
 
 const { registerV2Routes } = require('./src/v2/registerV2Routes');
+const { registerTcgRoutes } = require('./src/tcg/registerTcgRoutes');
 
 registerV2Routes({
   app,
@@ -21704,6 +21732,14 @@ registerV2Routes({
   adminUsername: ADMIN_USERNAME,
   adminPassword: ADMIN_PASSWORD,
   requireAdmin
+});
+
+registerTcgRoutes({
+  app,
+  bcrypt,
+  jwt,
+  jwtSecret: TCG_JWT_SECRET,
+  tokenExpiresIn: process.env.TCG_JWT_EXPIRES_IN || '7d'
 });
 
 const PORT = process.env.PORT || 5000;

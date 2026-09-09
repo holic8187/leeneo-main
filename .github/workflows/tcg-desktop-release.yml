@@ -1,0 +1,54 @@
+name: TCG Desktop Release
+
+on:
+  push:
+    tags:
+      - "tcg-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows-release:
+    runs-on: windows-latest
+    env:
+      VITE_TCG_API_BASE: ${{ vars.TCG_API_BASE }}
+    defaults:
+      run:
+        working-directory: tcg-desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: tcg-desktop/pnpm-lock.yaml
+      - name: Verify release tag and API URL
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $version = node -p "require('./package.json').version"
+          $expectedTag = "tcg-v$version"
+          if ($env:RELEASE_TAG -ne $expectedTag) {
+            throw "Release tag '$env:RELEASE_TAG' must exactly match '$expectedTag'."
+          }
+
+          if ([string]::IsNullOrWhiteSpace($env:VITE_TCG_API_BASE)) {
+            throw "Repository variable TCG_API_BASE is required."
+          }
+
+          $apiUri = $null
+          if (-not [Uri]::TryCreate($env:VITE_TCG_API_BASE, [UriKind]::Absolute, [ref]$apiUri) -or $apiUri.Scheme -ne 'https') {
+            throw "Repository variable TCG_API_BASE must be an absolute HTTPS URL."
+          }
+          if ($apiUri.AbsolutePath -ne '/' -or $apiUri.Query -or $apiUri.Fragment -or $apiUri.UserInfo) {
+            throw "Repository variable TCG_API_BASE must contain only the HTTPS origin, without a path, query, credentials, or fragment."
+          }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run publish:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

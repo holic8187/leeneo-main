@@ -8,7 +8,8 @@
     "start:v2-test": "node scripts/v2-test-server.js",
     "docs:v2-equipment": "node scripts/generate-v2-equipment-balance-doc.js",
     "docs:v2-monster-equipment": "node scripts/generate-v2-monster-equipment-drop-doc.js",
-    "test:v2": "node --test test/v2/*.test.js"
+    "test:v2": "node --test test/v2/*.test.js",
+    "test:tcg": "node --test test/tcg/*.test.js"
   },
   "keywords": [],
   "author": "",

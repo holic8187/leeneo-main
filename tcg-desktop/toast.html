@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>돌발 업무</title>
+  </head>
+  <body>
+    <section class="incident-toast" id="incident-toast" aria-label="돌발 업무 알림" tabindex="0">
+      <div class="incident-toast__top"><span id="incident-kind">돌발 업무</span><button id="toast-dismiss" type="button" aria-label="알림 닫기">×</button></div>
+      <button class="incident-toast__open" id="toast-open" type="button">
+        <strong id="incident-title">돌발 업무 도착</strong>
+        <span id="incident-body">카드부에서 확인해 주세요.</span>
+        <span class="incident-toast__action">게임 창에서 보기 ↗</span>
+      </button>
+      <div id="incident-choices" class="incident-toast__choices" aria-label="바로 선택하기"></div>
+      <p id="toast-status" class="incident-toast__status" role="status" aria-live="polite">게임을 열지 않고도 여기서 선택할 수 있어요.</p>
+    </section>
+    <script type="module" src="/src/toast.js"></script>
+  </body>
+</html>
