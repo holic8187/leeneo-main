@@ -49,6 +49,17 @@ jobs:
             throw "Repository variable TCG_API_BASE must contain only the HTTPS origin, without a path, query, credentials, or fragment."
           }
       - run: pnpm install --frozen-lockfile
+      - name: Prepare GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -ne 0) {
+            $version = node -p "require('./package.json').version"
+            gh release create $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --verify-tag --title $version --generate-notes
+          }
       - run: pnpm run publish:win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

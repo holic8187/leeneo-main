@@ -1,6 +1,14 @@
 'use strict';
 
 const DefaultTcgAccount = require('./models/TcgAccount');
+const DefaultTcgPersonalRaidDaily = require('./models/TcgPersonalRaidDaily');
+const {
+  PersonalRaidError,
+  dispatchPersonalRaid,
+  getPersonalRaidRanking,
+  getPersonalRaidState,
+  serializePersonalRaidState
+} = require('./services/personalRaidService');
 
 const TCG_TOKEN_KIND = 'tcg';
 const TCG_TOKEN_ISSUER = 'working-hoi-server';
@@ -212,9 +220,12 @@ function registerTcgRoutes({
   jwtSecret,
   tokenExpiresIn = DEFAULT_TOKEN_EXPIRES_IN,
   rateLimitOptions = {},
-  TcgAccount = DefaultTcgAccount
+  TcgAccount = DefaultTcgAccount,
+  TcgPersonalRaidDaily = DefaultTcgPersonalRaidDaily,
+  now = Date.now,
+  random = undefined
 }) {
-  if (!app || !bcrypt || !jwt || !jwtSecret || !TcgAccount) {
+  if (!app || !bcrypt || !jwt || !jwtSecret || !TcgAccount || !TcgPersonalRaidDaily) {
     throw new Error('TCG authentication dependencies are not configured.');
   }
   const availabilityRateLimit = createIpRateLimiter({
@@ -369,6 +380,110 @@ function registerTcgRoutes({
     const account = await requireTcgAccount(req, res);
     if (!account) return;
     return res.json({ account: serializeAccount(account) });
+  });
+
+  function sendPersonalRaidError(error, res) {
+    if (!(error instanceof PersonalRaidError)) return false;
+    if (error.code === 'RAID_COOLDOWN' && typeof res.set === 'function') {
+      res.set('Retry-After', String(Math.max(1, Math.ceil(Number(error.details?.remainingCooldownMs || 0) / 1000))));
+    }
+    const retryAfterSeconds = error.code === 'RAID_COOLDOWN'
+      ? Math.max(1, Math.ceil(Number(error.details?.remainingCooldownMs || 0) / 1000))
+      : 0;
+    res.status(error.status).json({
+      code: error.code,
+      msg: error.message,
+      ...(retryAfterSeconds ? { retryAfterSeconds } : {}),
+      ...error.details
+    });
+    return true;
+  }
+
+  async function loadPersonalRaidPayload(account, request = {}) {
+    const bossId = String(request.bossId || 'deadline-dragon-raid');
+    const currentTime = now();
+    const raidState = await getPersonalRaidState({
+      TcgPersonalRaidDaily,
+      account,
+      bossId,
+      now: currentTime
+    });
+    const ranking = await getPersonalRaidRanking({
+      TcgPersonalRaidDaily,
+      account,
+      bossId,
+      now: currentTime,
+      limit: request.limit,
+      ownRecord: raidState.record
+    });
+    return { state: raidState.state, ranking };
+  }
+
+  app.get('/api/tcg/raids/personal/state', async (req, res) => {
+    const account = await requireTcgAccount(req, res);
+    if (!account) return;
+    try {
+      return res.json(await loadPersonalRaidPayload(account, req.query || {}));
+    } catch (error) {
+      if (sendPersonalRaidError(error, res)) return;
+      console.error('TCG personal raid state error:', error);
+      return res.status(500).json({ code: 'RAID_STATE_FAILED', msg: '개인 레이드 정보를 불러오지 못했습니다.' });
+    }
+  });
+
+  app.get('/api/tcg/raids/personal/ranking', async (req, res) => {
+    const account = await requireTcgAccount(req, res);
+    if (!account) return;
+    try {
+      const bossId = String(req.query?.bossId || 'deadline-dragon-raid');
+      const ranking = await getPersonalRaidRanking({
+        TcgPersonalRaidDaily,
+        account,
+        bossId,
+        now: now(),
+        limit: req.query?.limit
+      });
+      return res.json({ ranking });
+    } catch (error) {
+      if (sendPersonalRaidError(error, res)) return;
+      console.error('TCG personal raid ranking error:', error);
+      return res.status(500).json({ code: 'RAID_RANKING_FAILED', msg: '오늘의 개인 레이드 랭킹을 불러오지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/tcg/raids/personal/dispatch', async (req, res) => {
+    const account = await requireTcgAccount(req, res);
+    if (!account) return;
+    try {
+      const currentTime = now();
+      const dispatched = await dispatchPersonalRaid({
+        TcgPersonalRaidDaily,
+        account,
+        bossId: req.body?.bossId,
+        squadScore: req.body?.squadScore,
+        now: currentTime,
+        ...(typeof random === 'function' ? { random } : {})
+      });
+      const state = serializePersonalRaidState(
+        dispatched.record,
+        account,
+        dispatched.boss,
+        dispatched.window,
+        currentTime
+      );
+      const ranking = await getPersonalRaidRanking({
+        TcgPersonalRaidDaily,
+        account,
+        bossId: dispatched.boss.id,
+        now: currentTime,
+        ownRecord: dispatched.record
+      });
+      return res.json({ result: dispatched.result, state, ranking });
+    } catch (error) {
+      if (sendPersonalRaidError(error, res)) return;
+      console.error('TCG personal raid dispatch error:', error);
+      return res.status(500).json({ code: 'RAID_DISPATCH_FAILED', msg: '개인 레이드 파견을 처리하지 못했습니다.' });
+    }
   });
 }
 

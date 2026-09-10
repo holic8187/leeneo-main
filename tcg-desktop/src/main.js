@@ -45,13 +45,15 @@ import { addCardsToCollection, openPack } from './core/packEngine.js';
 import { chooseIncident, nextIncidentDelay, resolveIncidentChoice } from './core/incidentEngine.js';
 import {
   calculateSquadScore,
+  cardExpeditionPower,
   expeditionProgress,
   settleExpedition,
   startExpedition,
 } from './core/expeditionEngine.js';
-import { createRaidState, dispatchRaid } from './core/raidEngine.js';
+import { createRaidState } from './core/raidEngine.js';
 import { appendActivity, createGameStore } from './core/gameState.js';
 import { createAuthSessionStore } from './core/authSession.js';
+import { availableRaidSquad, toggleSquadSelection } from './core/squadSelection.js';
 import { desktopBridge } from './services/desktopBridge.js';
 import {
   checkAccountAvailability,
@@ -60,6 +62,12 @@ import {
   loginTcgAccount,
   registerTcgAccount,
 } from './services/authGateway.js';
+import {
+  dispatchPersonalRaid,
+  isRaidGatewayConfigured,
+  loadPersonalRaid,
+  loadPersonalRaidRanking,
+} from './services/raidGateway.js';
 
 const app = document.querySelector('#app');
 const authSession = createAuthSessionStore();
@@ -99,7 +107,7 @@ const views = {
   dashboard: { label: '업무판', icon: 'briefcase' },
   collection: { label: '카드 도감', icon: 'library' },
   adventure: { label: '자동 모험', icon: 'map' },
-  raid: { label: '협동 레이드', icon: 'shield' },
+  raid: { label: '레이드', icon: 'shield' },
   link: { label: '호이상사 연동', icon: 'link-2' },
 };
 
@@ -113,6 +121,16 @@ const ui = {
   updateStatus: null,
   appVersion: '...',
   incidentScheduling: false,
+  raidMode: 'personal',
+  raidPanel: 'battle',
+  raid: {
+    loading: false,
+    dispatching: false,
+    error: '',
+    ranking: null,
+    lastLoadedAt: 0,
+    requestEpoch: 0,
+  },
   auth: {
     phase: 'restoring',
     mode: 'login',
@@ -181,7 +199,7 @@ function highestRarity(cards = []) {
 }
 
 function cardPower(card) {
-  return Math.max(0, Number(card?.combatPower) || Object.values(card?.stats || {}).reduce((sum, value) => sum + (Number(value) || 0), 0));
+  return cardExpeditionPower(card);
 }
 
 function cardDisplayName(card) {
@@ -427,6 +445,10 @@ function renderTopbar(state) {
         <button class="icon-button" type="button" data-action="open-settings" title="설정" aria-label="설정">
           <i data-lucide="settings"></i>
         </button>
+        <button class="quiet-button ${state.settings.payrollMode ? 'is-active' : ''}" type="button" data-action="toggle-payroll-mode" aria-pressed="${state.settings.payrollMode ? 'true' : 'false'}">
+          <i data-lucide="eye-off"></i>
+          <span>월급루팡 모드</span>
+        </button>
         <button class="quiet-button" type="button" data-action="hide-window">
           <i data-lucide="eye-off"></i>
           <span>자리 비우기</span>
@@ -655,15 +677,20 @@ function renderCollection(state) {
 
 function renderSquadPicker(state, context) {
   const ownedCards = ALL_CARDS.filter((card) => state.collection[card.id]);
+  const selectedIds = context === 'raid'
+    ? (state.selectedRaidSquad || [])
+    : (state.selectedExpeditionSquad || state.selectedSquad || []);
+  const unavailableIds = context === 'raid' ? new Set(state.expedition?.squad || []) : new Set();
   return `
     <div class="squad-picker" data-context="${context}">
       ${ownedCards.map((card) => {
-        const selected = state.selectedSquad.includes(card.id);
+        const selected = selectedIds.includes(card.id);
+        const unavailable = unavailableIds.has(card.id);
         return `
-          <button class="squad-card ${selected ? 'is-selected' : ''}" type="button" data-action="toggle-squad" data-card-id="${card.id}">
+          <button class="squad-card ${selected ? 'is-selected' : ''} ${unavailable ? 'is-unavailable' : ''}" type="button" data-action="toggle-squad" data-context="${context}" data-card-id="${card.id}" ${unavailable ? 'disabled' : ''} aria-pressed="${selected ? 'true' : 'false'}">
             <img src="${card.image}" alt="" />
-            <span><strong>${escapeHtml(cardDisplayName(card))}</strong><small>${rarityLabel(card.rarity)} · 전투력 ${formatNumber(cardPower(card))}</small></span>
-            <i data-lucide="${selected ? 'check' : 'users'}"></i>
+            <span><strong>${escapeHtml(cardDisplayName(card))}</strong><small><b>${rarityLabel(card.rarity)}</b><span class="squad-detail-copy">${unavailable ? ' · 모험 참여 중 · 레이드 사용 불가' : ` · 전투력 ${formatNumber(cardPower(card))}`}</span></small></span>
+            <i data-lucide="${unavailable ? 'lock' : (selected ? 'check' : 'users')}"></i>
           </button>
         `;
       }).join('')}
@@ -671,25 +698,35 @@ function renderSquadPicker(state, context) {
   `;
 }
 
+function missionMinimumPower(mission) {
+  return Math.max(0, Number(mission?.minimumPower ?? mission?.recommendedScore) || 0);
+}
+
 function renderAdventure(state) {
   const active = state.expedition;
   const activeMission = active ? expeditionById(active.missionId) : null;
   const selectedMission = expeditionById(ui.selectedMissionId) || EXPEDITIONS[0];
-  const score = calculateSquadScore(state.selectedSquad, state.collection, ALL_CARDS);
+  const expeditionSquad = state.selectedExpeditionSquad || state.selectedSquad || [];
+  const score = calculateSquadScore(expeditionSquad, state.collection, ALL_CARDS);
+  const minimumPower = missionMinimumPower(selectedMission);
+  const canStart = expeditionSquad.length >= selectedMission.requiredCards && score >= minimumPower;
 
   return `
     <div class="adventure-layout">
       <section class="mission-board" aria-labelledby="mission-title">
         <div class="section-heading">
           <div><span class="eyebrow">FIELD ASSIGNMENT</span><h2 id="mission-title">모험 목록</h2></div>
-          <span class="board-rule">동시 진행 1건</span>
+          <div class="board-rules">
+            <span class="board-rule">현재 진행중인 모험 ${active ? 1 : 0}개</span>
+            <span class="board-rule">현재 동시 진행 가능 모험 1회</span>
+          </div>
         </div>
         <div class="mission-list">
           ${EXPEDITIONS.map((mission) => `
             <button type="button" class="mission-row ${ui.selectedMissionId === mission.id ? 'is-selected' : ''}" data-action="select-mission" data-mission-id="${mission.id}" ${active ? 'disabled' : ''}>
               <span class="mission-index">${String(EXPEDITIONS.indexOf(mission) + 1).padStart(2, '0')}</span>
               <span class="mission-copy"><strong>${mission.name}</strong><small>${mission.location}</small></span>
-              <span class="mission-meta"><b>${formatDuration(mission.durationMs)}</b><small>권장 ${mission.recommendedScore}</small></span>
+              <span class="mission-meta"><b>${formatDuration(mission.durationMs)}</b><small>최소 합산 ${formatNumber(missionMinimumPower(mission))}</small></span>
               <i data-lucide="chevron-right"></i>
             </button>
           `).join('')}
@@ -707,7 +744,7 @@ function renderAdventure(state) {
           <div class="deployed-squad">
             ${active.squad.map((id) => {
               const card = cardById(id);
-              return `<div><img src="${card.image}" alt="" /><span>${escapeHtml(card.name)}</span></div>`;
+              return `<div><img src="${card.image}" alt="" /><span>${escapeHtml(card.name)}</span><small>${rarityLabel(card.rarity)}</small></div>`;
             }).join('')}
           </div>
           <button class="danger-text-button" type="button" data-action="cancel-expedition">작전 중단</button>
@@ -718,13 +755,19 @@ function renderAdventure(state) {
           </div>
           <p class="assignment-description">${selectedMission.description}</p>
           <div class="requirement-row">
-            <span>편성 전력 <strong class="${score >= selectedMission.recommendedScore ? 'positive' : ''}">${score}</strong></span>
-            <span>권장 전력 <strong>${selectedMission.recommendedScore}</strong></span>
+            <span>합산 전투력 <strong class="${score >= minimumPower ? 'positive' : 'negative'}">${formatNumber(score)}</strong></span>
+            <span>최소 합산 전투력 <strong>${formatNumber(minimumPower)}</strong></span>
             <span>최소 카드 <strong>${selectedMission.requiredCards}장</strong></span>
           </div>
-          <div class="subheading"><h3>파견 카드</h3><span>${state.selectedSquad.length} / 3</span></div>
+          <div class="mission-reward-preview">
+            <span><i data-lucide="coins"></i><small>기본 동전 범위</small><strong>${formatNumber(selectedMission.reward.coins[0])}~${formatNumber(selectedMission.reward.coins[1])}</strong></span>
+            <span><i data-lucide="package-open"></i><small>카드팩 발견 확률</small><strong>${Math.round(selectedMission.reward.packChance * 1000) / 10}%</strong></span>
+            <p>실제 보상은 매번 변동하며, 최소 전투력을 넘긴 정도에 따라 최대 ${Math.round((selectedMission.reward.powerBonusCap || 0.35) * 100)}% 증가합니다.</p>
+          </div>
+          ${score < minimumPower ? `<p class="requirement-warning"><i data-lucide="circle-alert"></i>최소 합산 전투력까지 ${formatNumber(minimumPower - score)}이 더 필요합니다.</p>` : ''}
+          <div class="subheading"><h3>파견 카드</h3><span>${expeditionSquad.length} / 3</span></div>
           ${renderSquadPicker(state, 'adventure')}
-          <button class="primary-button assignment-submit" type="button" data-action="start-expedition" ${state.selectedSquad.length < selectedMission.requiredCards ? 'disabled' : ''}>
+          <button class="primary-button assignment-submit" type="button" data-action="start-expedition" ${canStart ? '' : 'disabled'}>
             <i data-lucide="map"></i>
             자동 모험 시작
           </button>
@@ -734,12 +777,84 @@ function renderAdventure(state) {
   `;
 }
 
-function renderRaid(state) {
+function renderRaidModeTabs() {
+  return `
+    <div class="raid-mode-tabs" role="tablist" aria-label="레이드 종류">
+      <button type="button" role="tab" aria-selected="${ui.raidMode === 'personal'}" class="${ui.raidMode === 'personal' ? 'is-active' : ''}" data-action="switch-raid-mode" data-raid-mode="personal">
+        <i data-lucide="swords"></i><span><strong>개인 레이드</strong><small>내 카드로 매일 도전</small></span>
+      </button>
+      <button type="button" role="tab" aria-selected="${ui.raidMode === 'cooperative'}" class="${ui.raidMode === 'cooperative' ? 'is-active' : ''}" data-action="switch-raid-mode" data-raid-mode="cooperative">
+        <i data-lucide="users"></i><span><strong>협동 레이드</strong><small>실시간 파티 · 추후 구현</small></span>
+      </button>
+    </div>
+  `;
+}
+
+function renderCooperativeRaid() {
+  return `
+    <section class="coop-raid-placeholder" aria-labelledby="coop-raid-title">
+      <div class="coop-raid-symbol"><i data-lucide="users"></i></div>
+      <span class="eyebrow">REAL-TIME PARTY RAID</span>
+      <h2 id="coop-raid-title">협동 레이드 준비 중</h2>
+      <p>다른 사원들과 실시간 파티를 만들고 함께 보스를 공략하는 모드입니다. 파티 매칭과 동기화 서버를 갖춘 뒤 제공됩니다.</p>
+      <div class="coop-feature-list">
+        <span><i data-lucide="wifi"></i>실시간 파티 입장</span>
+        <span><i data-lucide="users"></i>공동 기여도 집계</span>
+        <span><i data-lucide="trophy"></i>파티 보상</span>
+      </div>
+      <button class="secondary-button" type="button" disabled>추후 업데이트 예정</button>
+    </section>
+  `;
+}
+
+function renderPersonalRaidRanking(state) {
+  const ranking = ui.raid.ranking || { entries: [], myRank: null, resetsAt: state.raid?.resetsAt || 0 };
+  const entries = ranking.entries || [];
+  const resetsAt = Number(ranking.resetsAt || state.raid?.resetsAt) || 0;
+  return `
+    <section class="contribution-table raid-ranking-panel" aria-labelledby="contribution-title">
+      <div class="section-heading section-heading--compact">
+        <div><span class="eyebrow">DAILY CONTRIBUTION</span><h2 id="contribution-title">오늘의 개인 합산 기여도</h2></div>
+        <button class="icon-button" type="button" data-action="refresh-raid-ranking" title="랭킹 새로고침" aria-label="랭킹 새로고침" ${ui.raid.loading ? 'disabled' : ''}><i data-lucide="refresh-cw"></i></button>
+      </div>
+      <div class="ranking-reset-line">
+        <span>매일 대한민국 시간 00:00 초기화</span>
+        ${resetsAt ? `<strong>초기화까지 <span data-countdown="${resetsAt}">${formatDuration(resetsAt - Date.now())}</span></strong>` : ''}
+      </div>
+      <div class="table-row table-head"><span>순위</span><span>사원</span><span>클리어</span><span>합산 기여도</span></div>
+      ${entries.length ? entries.map((entry) => `
+        <div class="table-row ${entry.isMe ? 'is-me' : ''}">
+          <span>${formatNumber(entry.rank)}</span>
+          <span>${escapeHtml(entry.nickname)}</span>
+          <span>${formatNumber(entry.clears)}회</span>
+          <strong>${formatNumber(entry.contribution)}</strong>
+        </div>
+      `).join('') : `
+        <div class="ranking-empty"><i data-lucide="trophy"></i><strong>오늘 기록된 기여도가 없습니다.</strong><span>개인 레이드에 파견하면 즉시 순위에 반영됩니다.</span></div>
+      `}
+      ${ranking.myRank ? `<div class="my-ranking-summary"><span>내 현재 순위</span><strong>${formatNumber(ranking.myRank)}위</strong></div>` : ''}
+      ${ui.raid.error ? `<p class="raid-sync-error"><i data-lucide="circle-alert"></i>${escapeHtml(ui.raid.error)}</p>` : ''}
+    </section>
+  `;
+}
+
+function renderPersonalRaidBattle(state) {
   const raid = state.raid || createRaidState(RAID_DEFINITION);
-  const score = calculateSquadScore(state.selectedSquad, state.collection, ALL_CARDS);
-  const hpRatio = Math.max(0, raid.hp / raid.maxHp);
-  const cooldown = Math.max(0, RAID_DEFINITION.dispatchCooldownMs - (Date.now() - raid.lastDispatchAt));
+  const selectedRaidSquad = availableRaidSquad(state.selectedRaidSquad, state.expedition);
+  const score = calculateSquadScore(selectedRaidSquad, state.collection, ALL_CARDS);
+  const maxHp = Math.max(1, Number(raid.maxHp) || RAID_DEFINITION.maxHp);
+  const hp = Math.min(maxHp, Math.max(0, Number(raid.hp) || 0));
+  const hpRatio = Math.max(0, hp / maxHp);
+  const cooldownMs = Math.max(0, Number(raid.cooldownMs) || RAID_DEFINITION.dispatchCooldownMs);
+  const cooldownEndsAt = Math.max(0, Number(raid.lastDispatchAt) || 0) + cooldownMs;
+  const cooldown = Math.max(0, cooldownEndsAt - Date.now());
+  const clears = Math.max(0, Number(raid.clears) || 0);
+  const maxClears = Math.max(1, Number(raid.maxClears) || RAID_DEFINITION.maxDailyClears || 2);
+  const dailyLocked = clears >= maxClears;
+  const online = !ui.auth.offline && isRaidGatewayConfigured();
+  const dispatchDisabled = !online || !selectedRaidSquad.length || cooldown > 0 || dailyLocked || ui.raid.dispatching;
   const boss = cardById('deadline-dragon');
+  const resetsAt = Number(raid.resetsAt) || 0;
 
   return `
     <div class="raid-layout">
@@ -748,41 +863,60 @@ function renderRaid(state) {
           <img src="${boss.image}" alt="${escapeHtml(RAID_DEFINITION.name)}" />
           <div class="raid-vignette"></div>
           <div class="raid-heading">
-            <span>${RAID_DEFINITION.subtitle}</span>
+            <span>개인 도전 · 일일 최대 ${maxClears}회 클리어</span>
             <h2 id="raid-title">${RAID_DEFINITION.name}</h2>
           </div>
         </div>
+        <div class="raid-dispatch-bar">
+          <div class="raid-power"><span>선택 카드 합산 전투력</span><strong>${formatNumber(score)}</strong></div>
+          <button class="alert-button raid-dispatch" type="button" data-action="dispatch-raid" ${dispatchDisabled ? 'disabled' : ''}>
+            <i data-lucide="zap"></i>
+            ${ui.raid.dispatching
+              ? '파견 처리 중'
+              : dailyLocked
+                ? '오늘의 클리어 제한 도달'
+                : cooldown > 0
+                  ? `<span data-raid-cooldown="${cooldownEndsAt}">재정비 ${Math.ceil(cooldown / 1000)}초</span>`
+                  : '개인 레이드 파견'}
+          </button>
+        </div>
         <div class="boss-health">
-          <div><span>잔여 업무량</span><strong>${formatNumber(raid.hp)} / ${formatNumber(raid.maxHp)}</strong></div>
+          <div><span>잔여 업무량</span><strong>${formatNumber(hp)} / ${formatNumber(maxHp)}</strong></div>
           <div class="boss-health-track"><span style="width:${Math.round(hpRatio * 100)}%"></span></div>
         </div>
         <div class="raid-stats">
-          <div><span>내 누적 기여</span><strong>${formatNumber(raid.contribution)}</strong></div>
-          <div><span>파견 횟수</span><strong>${formatNumber(raid.dispatches)}</strong></div>
-          <div><span>작전 종료</span><strong data-countdown="${raid.endsAt}">${formatDuration(raid.endsAt - Date.now())}</strong></div>
+          <div><span>오늘의 합산 기여</span><strong>${formatNumber(raid.totalContribution ?? raid.contribution)}</strong></div>
+          <div><span>오늘의 클리어</span><strong>${formatNumber(clears)} / ${formatNumber(maxClears)}</strong></div>
+          <div><span>일일 초기화</span><strong>${resetsAt ? `<span data-countdown="${resetsAt}">${formatDuration(resetsAt - Date.now())}</span>` : '매일 00:00'}</strong></div>
         </div>
+        ${!online ? '<p class="raid-sync-error"><i data-lucide="wifi"></i>개인 레이드와 실시간 랭킹은 온라인 연결이 필요합니다.</p>' : ''}
+        ${ui.raid.error ? `<p class="raid-sync-error"><i data-lucide="circle-alert"></i>${escapeHtml(ui.raid.error)}</p>` : ''}
       </section>
 
       <aside class="raid-command">
         <div class="section-heading section-heading--compact">
-          <div><span class="eyebrow">STRIKE TEAM</span><h2>파견 편성</h2></div>
-          <i data-lucide="swords"></i>
+          <div><span class="eyebrow">STRIKE TEAM</span><h2>파견 카드 선택</h2></div>
+          <span>${selectedRaidSquad.length} / 3</span>
         </div>
-        <div class="raid-power"><span>예상 전력</span><strong>${formatNumber(score)}</strong></div>
+        ${state.expedition ? `<p class="local-operation-note"><i data-lucide="lock"></i>모험에 참여 중인 ${state.expedition.squad.length}장의 카드는 레이드에 편성할 수 없습니다.</p>` : ''}
         ${renderSquadPicker(state, 'raid')}
-        <button class="alert-button raid-dispatch" type="button" data-action="dispatch-raid" ${!state.selectedSquad.length || cooldown > 0 ? 'disabled' : ''}>
-          <i data-lucide="zap"></i>
-          ${cooldown > 0 ? `<span data-raid-cooldown="${raid.lastDispatchAt + RAID_DEFINITION.dispatchCooldownMs}">재정비 ${Math.ceil(cooldown / 1000)}초</span>` : '레이드 파견'}
-        </button>
-        <p class="local-operation-note"><i data-lucide="circle-alert"></i>현재 작전 기록은 이 PC에 저장됩니다.</p>
+        <p class="local-operation-note"><i data-lucide="wifi"></i>기여도와 순위는 서버에 실시간으로 저장됩니다.</p>
       </aside>
     </div>
-    <section class="contribution-table" aria-labelledby="contribution-title">
-      <div class="section-heading section-heading--compact"><div><span class="eyebrow">CONTRIBUTION</span><h2 id="contribution-title">기여 현황</h2></div></div>
-      <div class="table-row table-head"><span>순위</span><span>사원</span><span>파견대</span><span>기여도</span></div>
-      <div class="table-row is-me"><span>1</span><span>${escapeHtml(state.profile.displayName)}</span><span>${state.selectedSquad.length}명</span><strong>${formatNumber(raid.contribution)}</strong></div>
-      <div class="table-row"><span>2</span><span>회계팀_야근자</span><span>3명</span><strong>${formatNumber(Math.floor(raid.maxHp * 0.031))}</strong></div>
-      <div class="table-row"><span>3</span><span>탕비실수호대</span><span>2명</span><strong>${formatNumber(Math.floor(raid.maxHp * 0.017))}</strong></div>
+  `;
+}
+
+function renderRaid(state) {
+  return `
+    <section class="raid-page">
+      ${renderRaidModeTabs()}
+      ${ui.raidMode === 'cooperative' ? renderCooperativeRaid() : `
+        <div class="raid-tab-list" role="tablist" aria-label="개인 레이드 메뉴">
+          <button type="button" role="tab" aria-selected="${ui.raidPanel === 'battle'}" class="${ui.raidPanel === 'battle' ? 'is-active' : ''}" data-action="switch-raid-panel" data-raid-panel="battle">레이드 진행</button>
+          <button type="button" role="tab" aria-selected="${ui.raidPanel === 'ranking'}" class="${ui.raidPanel === 'ranking' ? 'is-active' : ''}" data-action="switch-raid-panel" data-raid-panel="ranking">오늘의 랭킹</button>
+        </div>
+        ${ui.raidPanel === 'ranking' ? renderPersonalRaidRanking(state) : renderPersonalRaidBattle(state)}
+      `}
     </section>
   `;
 }
@@ -938,6 +1072,7 @@ function renderSettingsModal(state) {
         </div>
         <label class="toggle-row"><span><strong>돌발 업무 알림</strong><small>12~24분 뒤 새 업무가 발생합니다. 일반 92% · 특수 7% · 신화 1%</small></span><input type="checkbox" data-action="toggle-notifications" ${state.settings.incidentNotifications ? 'checked' : ''} /><i></i></label>
         <label class="toggle-row"><span><strong>은밀 근무 모드</strong><small>창 닫기 시 앱을 종료하지 않고 숨깁니다.</small></span><input type="checkbox" data-action="toggle-discreet" ${state.settings.discreetMode ? 'checked' : ''} /><i></i></label>
+        <label class="toggle-row"><span><strong>월급루팡 모드</strong><small>모든 카드 일러스트를 가리고 카드 이름과 등급만 표시합니다.</small></span><input type="checkbox" data-action="toggle-payroll-mode" ${state.settings.payrollMode ? 'checked' : ''} /><i></i></label>
         <div class="settings-footer"><span>버전 ${escapeHtml(ui.appVersion)}</span><button class="danger-text-button" type="button" data-action="reset-progress">로컬 기록 초기화</button></div>
       </section>
     </div>
@@ -963,7 +1098,7 @@ function render() {
   }
   const state = store.getState();
   app.innerHTML = `
-    <div class="app-shell">
+    <div class="app-shell ${state.settings.payrollMode ? 'payroll-mode' : ''}" data-payroll-mode="${state.settings.payrollMode ? 'true' : 'false'}">
       ${renderSidebar(state)}
       <main class="main-shell">
         ${renderTopbar(state)}
@@ -1024,19 +1159,19 @@ function buyStandardPack() {
   return true;
 }
 
-function toggleSquadCard(cardId) {
+function toggleSquadCard(cardId, context = 'adventure') {
   const state = store.getState();
   if (!state.collection[cardId]) return;
+  const unavailableIds = context === 'raid' ? (state.expedition?.squad || []) : [];
+  if (context === 'raid' && unavailableIds.includes(cardId)) {
+    showNotice('모험에 참여 중인 카드는 레이드에 편성할 수 없습니다.', 'warning');
+    return;
+  }
   store.update((draft) => {
-    if (draft.selectedSquad.includes(cardId)) {
-      draft.selectedSquad = draft.selectedSquad.filter((id) => id !== cardId);
-      return;
-    }
-    if (draft.selectedSquad.length >= 3) {
-      draft.selectedSquad.shift();
-    }
-    draft.selectedSquad.push(cardId);
+    const field = context === 'raid' ? 'selectedRaidSquad' : 'selectedExpeditionSquad';
+    draft[field] = toggleSquadSelection(draft[field], cardId, { unavailableIds });
   });
+  render();
 }
 
 function beginExpedition() {
@@ -1046,7 +1181,7 @@ function beginExpedition() {
   try {
     const expedition = startExpedition({
       mission,
-      cardIds: state.selectedSquad,
+      cardIds: state.selectedExpeditionSquad,
       collection: state.collection,
       catalog: ALL_CARDS,
     });
@@ -1080,36 +1215,102 @@ function completeExpeditionIfReady() {
   return true;
 }
 
-function sendRaidSquad() {
-  const state = store.getState();
-  const score = calculateSquadScore(state.selectedSquad, state.collection, ALL_CARDS);
+function currentRaidToken() {
+  return authSession.get()?.token || '';
+}
+
+function applyRaidPayload(payload) {
+  if (!payload?.state) return;
+  store.update((draft) => {
+    draft.raid = payload.state;
+  });
+  if (payload.ranking) ui.raid.ranking = payload.ranking;
+  ui.raid.lastLoadedAt = Date.now();
+}
+
+async function refreshPersonalRaid({ rankingOnly = false, silent = false } = {}) {
+  if (!store || ui.auth.phase !== 'authenticated' || ui.auth.offline || !isRaidGatewayConfigured() || ui.raid.loading || ui.raid.dispatching) return false;
+  const requestEpoch = ui.raid.requestEpoch;
+  ui.raid.loading = true;
+  if (!silent) {
+    ui.raid.error = '';
+    render();
+  }
   try {
-    const result = dispatchRaid({
-      raid: state.raid,
+    if (rankingOnly) {
+      const ranking = await loadPersonalRaidRanking(currentRaidToken());
+      if (requestEpoch !== ui.raid.requestEpoch) return false;
+      ui.raid.ranking = ranking;
+      ui.raid.lastLoadedAt = Date.now();
+    } else {
+      const payload = await loadPersonalRaid(currentRaidToken());
+      if (requestEpoch !== ui.raid.requestEpoch) return false;
+      applyRaidPayload(payload);
+    }
+    ui.raid.error = '';
+    return true;
+  } catch (error) {
+    ui.raid.error = error.message || '레이드 정보를 불러오지 못했습니다.';
+    return false;
+  } finally {
+    ui.raid.loading = false;
+    if (ui.view === 'raid' && ui.raidMode === 'personal') render();
+  }
+}
+
+async function sendRaidSquad() {
+  const state = store.getState();
+  const raidSquad = availableRaidSquad(state.selectedRaidSquad, state.expedition);
+  const score = calculateSquadScore(raidSquad, state.collection, ALL_CARDS);
+  if (!score) {
+    showNotice('레이드에 보낼 카드를 편성해 주세요.', 'warning');
+    return;
+  }
+  if (ui.auth.offline || !isRaidGatewayConfigured()) {
+    showNotice('개인 레이드는 온라인 연결이 필요합니다.', 'warning');
+    return;
+  }
+  if (ui.raid.dispatching) return;
+  ui.raid.requestEpoch += 1;
+  ui.raid.dispatching = true;
+  ui.raid.error = '';
+  render();
+  let followUpNotice = null;
+  try {
+    const payload = await dispatchPersonalRaid(currentRaidToken(), {
+      bossId: RAID_DEFINITION.id,
       squadScore: score,
-      definition: RAID_DEFINITION,
     });
-    const defeated = result.raid.hp <= 0;
+    const result = payload.result || {};
+    const damage = Math.max(0, Number(result.damage) || 0);
+    const cleared = Boolean(result.cleared);
+    const reward = cleared
+      ? { coins: Math.max(0, Number(result.reward?.coins) || 5000), packs: Math.max(0, Number(result.reward?.packs) || 1) }
+      : { coins: 0, packs: 0 };
     store.update((draft) => {
-      draft.raid = result.raid;
-      if (defeated) {
-        draft.wallet.coins += 5000;
-        draft.packs.standard += 1;
-      }
-      appendActivity(draft, `레이드 파견으로 ${formatNumber(result.damage)} 기여도를 기록했습니다.`, 'raid');
+      draft.raid = payload.state;
+      draft.wallet.coins += reward.coins;
+      draft.packs.standard += reward.packs;
+      appendActivity(draft, `개인 레이드 파견으로 ${formatNumber(damage)} 기여도를 기록했습니다.`, 'raid');
     });
-    if (defeated) {
+    if (payload.ranking) ui.raid.ranking = payload.ranking;
+    ui.raid.lastLoadedAt = Date.now();
+    if (cleared) {
       ui.modal = {
         type: 'result',
-        message: '마감기한 드래곤 작전을 완료했습니다.',
-        rewardText: rewardText({ coins: 5000, packs: 1 }),
+        message: `마감기한 드래곤을 오늘 ${formatNumber(payload.state.clears)}번째로 클리어했습니다.`,
+        rewardText: rewardText(reward),
       };
-      render();
     } else {
-      showNotice(`${formatNumber(result.damage)} 기여도를 기록했습니다.`, 'success');
+      followUpNotice = { message: `${formatNumber(damage)} 기여도를 기록했습니다.`, tone: 'success' };
     }
   } catch (error) {
-    showNotice(error.message, 'warning');
+    ui.raid.error = error.message || '레이드 파견을 처리하지 못했습니다.';
+    followUpNotice = { message: ui.raid.error, tone: 'warning' };
+  } finally {
+    ui.raid.dispatching = false;
+    if (followUpNotice) showNotice(followUpNotice.message, followUpNotice.tone);
+    else render();
   }
 }
 
@@ -1296,6 +1497,7 @@ function activateAuthenticatedSession(session, { offline = false } = {}) {
   ui.auth.account = account;
   ui.auth.form.password = '';
   ui.auth.form.passwordConfirm = '';
+  ui.raid = { loading: false, dispatching: false, error: '', ranking: null, lastLoadedAt: 0, requestEpoch: 0 };
   ui.view = 'dashboard';
   ui.modal = null;
   render();
@@ -1374,6 +1576,7 @@ async function logout() {
   ui.auth.offline = false;
   ui.auth.account = null;
   ui.auth.form = { username: '', nickname: '', password: '', passwordConfirm: '' };
+  ui.raid = { loading: false, dispatching: false, error: '', ranking: null, lastLoadedAt: 0, requestEpoch: 0 };
   resetAuthAvailability();
   ui.modal = null;
   render();
@@ -1417,10 +1620,12 @@ app.addEventListener('click', async (event) => {
     ui.view = button.dataset.view;
     ui.modal = null;
     render();
+    if (ui.view === 'raid' && ui.raidMode === 'personal') void refreshPersonalRaid({ silent: true });
   } else if (action === 'navigate-from-modal') {
     ui.view = button.dataset.view;
     ui.modal = null;
     render();
+    if (ui.view === 'raid' && ui.raidMode === 'personal') void refreshPersonalRaid({ silent: true });
   } else if (action === 'open-pack' || action === 'open-another-pack') {
     openStandardPack();
   } else if (action === 'buy-pack') {
@@ -1444,7 +1649,7 @@ app.addEventListener('click', async (event) => {
     ui.rarityFilter = button.dataset.rarity;
     render();
   } else if (action === 'toggle-squad') {
-    toggleSquadCard(button.dataset.cardId);
+    toggleSquadCard(button.dataset.cardId, button.dataset.context);
   } else if (action === 'select-mission') {
     ui.selectedMissionId = button.dataset.missionId;
     render();
@@ -1458,7 +1663,17 @@ app.addEventListener('click', async (event) => {
     });
     showNotice('모험을 중단했습니다.', 'warning');
   } else if (action === 'dispatch-raid') {
-    sendRaidSquad();
+    await sendRaidSquad();
+  } else if (action === 'switch-raid-mode') {
+    ui.raidMode = button.dataset.raidMode === 'cooperative' ? 'cooperative' : 'personal';
+    render();
+    if (ui.raidMode === 'personal') void refreshPersonalRaid({ silent: true });
+  } else if (action === 'switch-raid-panel') {
+    ui.raidPanel = button.dataset.raidPanel === 'ranking' ? 'ranking' : 'battle';
+    render();
+    if (ui.raidPanel === 'ranking') void refreshPersonalRaid({ rankingOnly: true, silent: true });
+  } else if (action === 'refresh-raid-ranking') {
+    await refreshPersonalRaid({ rankingOnly: true });
   } else if (action === 'open-incident') {
     openActiveIncident();
   } else if (action === 'resolve-incident') {
@@ -1485,6 +1700,13 @@ app.addEventListener('click', async (event) => {
     store.update((draft) => {
       draft.settings.discreetMode = button.checked;
     });
+  } else if (action === 'toggle-payroll-mode') {
+    const state = store.getState();
+    const nextValue = button.matches('input[type="checkbox"]') ? button.checked : !state.settings.payrollMode;
+    store.update((draft) => {
+      draft.settings.payrollMode = nextValue;
+    });
+    render();
   } else if (action === 'check-update') {
     ui.updateStatus = { status: 'checking' };
     render();
@@ -1572,3 +1794,7 @@ desktopBridge.getVersion().then((version) => {
 render();
 void restoreAuthentication();
 window.setInterval(updateLiveTimers, 1000);
+window.setInterval(() => {
+  if (ui.view !== 'raid' || ui.raidMode !== 'personal' || ui.auth.phase !== 'authenticated' || ui.auth.offline) return;
+  void refreshPersonalRaid({ rankingOnly: ui.raidPanel === 'ranking', silent: true });
+}, 10000);

@@ -6,7 +6,7 @@ const clone = (value) => JSON.parse(JSON.stringify(value));
 
 export function createDefaultState(now = Date.now()) {
   return {
-    version: 2,
+    version: 3,
     profile: {
       displayName: '익명 사원',
       rank: '대리석 책상',
@@ -27,7 +27,8 @@ export function createDefaultState(now = Date.now()) {
     pity: {
       standard: 0,
     },
-    selectedSquad: ['simsim-c', 'winter-c', 'kkamdung-c'],
+    selectedExpeditionSquad: ['simsim-c', 'winter-c', 'kkamdung-c'],
+    selectedRaidSquad: ['simsim-c', 'winter-c', 'kkamdung-c'],
     expedition: null,
     activeIncident: null,
     recentIncidentIds: [],
@@ -44,6 +45,7 @@ export function createDefaultState(now = Date.now()) {
     },
     settings: {
       discreetMode: true,
+      payrollMode: false,
       incidentNotifications: true,
     },
     activity: [
@@ -75,9 +77,22 @@ export function hydrateState(saved, now = Date.now()) {
 
   state.version = defaults.version;
 
-  state.selectedSquad = Array.isArray(saved.selectedSquad)
-    ? [...new Set(saved.selectedSquad)].filter((id) => state.collection[id]).slice(0, 3)
-    : defaults.selectedSquad;
+  const legacySquad = Array.isArray(saved.selectedSquad) ? saved.selectedSquad : null;
+  const hydrateSquad = (candidate, fallback) => (
+    Array.isArray(candidate)
+      ? [...new Set(candidate)].filter((id) => state.collection[id]).slice(0, 3)
+      : fallback
+  );
+  state.selectedExpeditionSquad = hydrateSquad(
+    saved.selectedExpeditionSquad || legacySquad,
+    defaults.selectedExpeditionSquad,
+  );
+  state.selectedRaidSquad = hydrateSquad(
+    saved.selectedRaidSquad || legacySquad,
+    defaults.selectedRaidSquad,
+  );
+  // Keep the legacy alias readable for older renderer code during migration.
+  state.selectedSquad = state.selectedExpeditionSquad;
   state.activity = Array.isArray(saved.activity) ? saved.activity.slice(0, 30) : defaults.activity;
 
   if (saved.activeIncident && typeof saved.activeIncident === 'object' && typeof saved.activeIncident.id === 'string') {

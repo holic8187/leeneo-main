@@ -141,15 +141,135 @@ export const PACK_DEFINITION = Object.freeze({
   }),
 });
 
+const MINUTE_MS = 60 * 1000;
+
+const expedition = ({
+  id,
+  name,
+  location,
+  durationMinutes,
+  minimumPower,
+  requiredCards,
+  powerBand,
+  description,
+  coins,
+  packChance,
+}) => Object.freeze({
+  id,
+  name,
+  location,
+  durationMs: durationMinutes * MINUTE_MS,
+  minimumPower,
+  // Keep the former field as an alias so existing saved clients and UI code
+  // can move to minimumPower without breaking during an update.
+  recommendedScore: minimumPower,
+  requiredCards,
+  powerBand,
+  description,
+  reward: Object.freeze({
+    coins: Object.freeze(coins),
+    packChance,
+    powerBonusRate: 0.22,
+    powerBonusCap: 0.35,
+  }),
+});
+
 export const EXPEDITIONS = Object.freeze([
-  { id: 'pantry-sweep', name: '탕비실 비품 회수', location: '호이상사 7층', durationMs: 60 * 1000, recommendedScore: 105, requiredCards: 1, description: '회의 전에 사라진 간식 상자를 조용히 회수합니다.', reward: { coins: [420, 620], packChance: 0.08 } },
-  { id: 'security-audit', name: '피치전자 야간 출입', location: '피치전자 보안동', durationMs: 5 * 60 * 1000, recommendedScore: 190, requiredCards: 2, description: '게이트 센트리의 교대 시간에 자료를 확보합니다.', reward: { coins: [1200, 1700], packChance: 0.22 } },
-  { id: 'deadline-rescue', name: '마감 직전 구조 작전', location: '프로덕션 대회의실', durationMs: 20 * 60 * 1000, recommendedScore: 290, requiredCards: 3, description: '불타는 일정표 속에서 최종 파일을 찾아냅니다.', reward: { coins: [3600, 5200], packChance: 0.55 } },
+  expedition({
+    id: 'pantry-sweep', name: '탕비실 번개 회수', location: '호이상사 7층', durationMinutes: 1,
+    minimumPower: 4000, requiredCards: 1, powerBand: 'starter', coins: [70, 110], packChance: 0.002,
+    description: '회의 시작 전에 사라진 간식 상자를 빠르게 회수합니다.',
+  }),
+  expedition({
+    id: 'executive-express', name: '임원실 특급 결재', location: '호이상사 임원층', durationMinutes: 1,
+    minimumPower: 20000, requiredCards: 2, powerBand: 'expert', coins: [200, 280], packChance: 0.006,
+    description: '단 1분 동안 결재 동선을 완벽하게 읽고 긴급 문서를 통과시킵니다.',
+  }),
+  expedition({
+    id: 'security-audit', name: '피치전자 야간 출입', location: '피치전자 보안동', durationMinutes: 5,
+    minimumPower: 6500, requiredCards: 1, powerBand: 'starter', coins: [280, 400], packChance: 0.01,
+    description: '게이트 센트리의 짧은 교대 시간에 자료를 확보합니다.',
+  }),
+  expedition({
+    id: 'firewall-counterattack', name: '심야 방화벽 역습', location: '피치전자 중앙 서버실', durationMinutes: 5,
+    minimumPower: 25000, requiredCards: 3, powerBand: 'expert', coins: [760, 1040], packChance: 0.025,
+    description: '숙련된 카드 셋으로 침입 신호를 추적하고 서버를 안정화합니다.',
+  }),
+  expedition({
+    id: 'lobby-lost-found', name: '로비 분실물 순찰', location: '호이상사 중앙 로비', durationMinutes: 15,
+    minimumPower: 8500, requiredCards: 2, powerBand: 'starter', coins: [700, 1000], packChance: 0.025,
+    description: '퇴근 인파가 빠진 로비를 돌며 중요한 분실물을 찾아냅니다.',
+  }),
+  expedition({
+    id: 'archive-breach', name: '봉인 문서고 잠입', location: '지하 기록보존실', durationMinutes: 15,
+    minimumPower: 30000, requiredCards: 3, powerBand: 'expert', coins: [1900, 2500], packChance: 0.06,
+    description: '복잡한 보안 장치 사이에서 봉인된 원본 장부를 회수합니다.',
+  }),
+  expedition({
+    id: 'deadline-rescue', name: '마감 직전 구조 작전', location: '프로덕션 대회의실', durationMinutes: 30,
+    minimumPower: 11000, requiredCards: 2, powerBand: 'starter', coins: [1250, 1750], packChance: 0.045,
+    description: '불타는 일정표 속에서 최종 파일과 지친 동료를 찾아냅니다.',
+  }),
+  expedition({
+    id: 'moonlight-procurement', name: '월광 비밀 조달', location: '야간 물류 터미널', durationMinutes: 30,
+    minimumPower: 34000, requiredCards: 3, powerBand: 'expert', coins: [3500, 4500], packChance: 0.1,
+    description: '달빛 아래에서 희귀 자재를 추적해 들키지 않고 반입합니다.',
+  }),
+  expedition({
+    id: 'branch-support', name: '외곽 지점 긴급 지원', location: '제3 영업지점', durationMinutes: 60,
+    minimumPower: 14000, requiredCards: 2, powerBand: 'starter', coins: [2300, 3300], packChance: 0.08,
+    description: '인력이 부족한 외곽 지점의 밀린 업무를 한 번에 정리합니다.',
+  }),
+  expedition({
+    id: 'executive-briefing', name: '이사회 극비 브리핑', location: '최상층 전략회의실', durationMinutes: 60,
+    minimumPower: 37000, requiredCards: 3, powerBand: 'expert', coins: [6300, 8100], packChance: 0.16,
+    description: '한 치의 실수도 허용되지 않는 극비 전략 보고를 완수합니다.',
+  }),
+  expedition({
+    id: 'market-survey', name: '신사업 상권 조사', location: '별빛 상업지구', durationMinutes: 120,
+    minimumPower: 17000, requiredCards: 3, powerBand: 'starter', coins: [4300, 6100], packChance: 0.13,
+    description: '거리 곳곳의 단서를 모아 다음 분기의 유망 사업을 발굴합니다.',
+  }),
+  expedition({
+    id: 'storm-data-center', name: '폭풍권 데이터센터', location: '해안 제2 전산기지', durationMinutes: 120,
+    minimumPower: 39000, requiredCards: 3, powerBand: 'expert', coins: [11400, 14600], packChance: 0.25,
+    description: '폭풍에 고립된 데이터센터로 진입해 핵심 기록을 보전합니다.',
+  }),
+  expedition({
+    id: 'warehouse-inventory', name: '대형 창고 전수 조사', location: '과수개발 물류창고', durationMinutes: 240,
+    minimumPower: 21000, requiredCards: 3, powerBand: 'starter', coins: [8000, 11200], packChance: 0.2,
+    description: '쌓여 있는 상자와 오래된 장부를 대조해 재고를 바로잡습니다.',
+  }),
+  expedition({
+    id: 'world-tree-contract', name: '세계수 정상의 계약', location: '미지의 세계수', durationMinutes: 240,
+    minimumPower: 41000, requiredCards: 3, powerBand: 'expert', coins: [21000, 27000], packChance: 0.36,
+    description: '강한 수호자들을 지나 정상에서 전설의 계약서를 체결합니다.',
+  }),
+  expedition({
+    id: 'overnight-observation', name: '설원 야간 관측', location: '설원기획실 관측소', durationMinutes: 480,
+    minimumPower: 25000, requiredCards: 3, powerBand: 'starter', coins: [14400, 20800], packChance: 0.28,
+    description: '밤새 설원과 별의 변화를 기록해 다음 계절을 예측합니다.',
+  }),
+  expedition({
+    id: 'aurora-migration', name: '오로라 서버 대이동', location: '극광 클라우드 기지', durationMinutes: 480,
+    minimumPower: 43000, requiredCards: 3, powerBand: 'expert', coins: [39000, 49000], packChance: 0.52,
+    description: '멈출 수 없는 핵심 서비스를 밤새 새 기지로 이전합니다.',
+  }),
+  expedition({
+    id: 'long-weekend-patrol', name: '연휴 무인 사옥 순찰', location: '호이상사 전 사옥', durationMinutes: 720,
+    minimumPower: 28000, requiredCards: 3, powerBand: 'starter', coins: [19800, 28200], packChance: 0.35,
+    description: '사람이 떠난 사옥을 반나절 동안 지키며 이상 신호를 점검합니다.',
+  }),
+  expedition({
+    id: 'starfall-contingency', name: '별똥별 비상 계획', location: '천문전략실 외우주 관제소', durationMinutes: 720,
+    minimumPower: 45000, requiredCards: 3, powerBand: 'expert', coins: [54000, 66000], packChance: 0.65,
+    description: '최정예 카드 셋으로 반나절에 걸친 별빛 재난을 막아냅니다.',
+  }),
 ]);
 
 export const RAID_DEFINITION = Object.freeze({
-  id: 'deadline-dragon-raid', name: '마감기한 드래곤', subtitle: '비동기 협동 시범 레이드',
-  maxHp: 2800000, durationMs: 24 * 60 * 60 * 1000, dispatchCooldownMs: 20 * 1000,
+  id: 'deadline-dragon-raid', name: '마감기한 드래곤', subtitle: '개인 일일 레이드',
+  maxHp: 2800000, durationMs: 24 * 60 * 60 * 1000, dispatchCooldownMs: 60 * 1000, maxDailyClears: 2,
 });
 
 export const cardById = (id) => ALL_CARDS.find((card) => card.id === id) || null;

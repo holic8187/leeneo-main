@@ -162,13 +162,13 @@ test('opened duplicates add to existing collection counts', () => {
 test('expedition uses normalized combat power and settles rewards after its timer', () => {
   const state = createDefaultState(1000);
   const mission = EXPEDITIONS[0];
-  const expectedScore = state.selectedSquad.reduce((sum, id) => (
-    sum + Math.round(cardById(id).combatPower / 40)
+  const expectedScore = state.selectedExpeditionSquad.reduce((sum, id) => (
+    sum + Math.round(cardById(id).combatPower)
   ), 0);
-  const score = calculateSquadScore(state.selectedSquad, state.collection, CARD_CATALOG);
+  const score = calculateSquadScore(state.selectedExpeditionSquad, state.collection, CARD_CATALOG);
   const expedition = startExpedition({
     mission,
-    cardIds: state.selectedSquad,
+    cardIds: state.selectedExpeditionSquad,
     collection: state.collection,
     catalog: CARD_CATALOG,
     now: 2000,
@@ -190,14 +190,14 @@ test('expedition uses normalized combat power and settles rewards after its time
   assert.equal(result.packs, 1);
 });
 
-test('legacy cards retain their original stat-total expedition score', () => {
+test('legacy cards are converted to the current combat-power scale', () => {
   const legacy = cardById('rookie-analyst');
   const score = calculateSquadScore(
     [legacy.id],
     { [legacy.id]: 1 },
     ALL_CARDS,
   );
-  assert.equal(score, Object.values(legacy.stats).reduce((sum, value) => sum + value, 0));
+  assert.equal(score, Object.values(legacy.stats).reduce((sum, value) => sum + value, 0) * 100);
 });
 
 test('raid dispatch records damage and enforces dispatch cooldown', () => {
@@ -234,10 +234,12 @@ test('saved state hydration preserves legacy squads and migrates incident fields
     resolvedIncidents: 3,
   }, 5000);
 
-  assert.equal(hydrated.version, 2);
+  assert.equal(hydrated.version, 3);
   assert.equal(hydrated.wallet.coins, 99);
   assert.equal(hydrated.wallet.linkPoints, 0);
   assert.deepEqual(hydrated.selectedSquad, ['pantry-cat']);
+  assert.deepEqual(hydrated.selectedExpeditionSquad, ['pantry-cat']);
+  assert.deepEqual(hydrated.selectedRaidSquad, ['pantry-cat']);
   assert.deepEqual(hydrated.activeIncident, {
     id: 'coffee-order',
     instanceId: 'legacy-coffee-order-4000',
