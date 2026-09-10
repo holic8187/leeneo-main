@@ -36,7 +36,7 @@ body,
 }
 
 body {
-  min-width: 900px;
+  min-width: 320px;
   background: var(--paper);
 }
 
@@ -677,6 +677,14 @@ svg {
 
 .quiet-button:hover {
   background: #244334;
+}
+
+.quiet-button.is-active,
+.quiet-button[aria-pressed="true"] {
+  border-color: #e1bd5b;
+  color: #fff7dc;
+  background: #355e4b;
+  box-shadow: inset 0 -2px #e1bd5b;
 }
 
 .update-chip {
@@ -1777,6 +1785,12 @@ svg {
   text-align: center;
 }
 
+.deployed-squad small {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 800;
+}
+
 .raid-layout {
   display: grid;
   grid-template-columns: minmax(520px, 1.35fr) minmax(310px, 0.65fr);
@@ -1789,7 +1803,7 @@ svg {
 
 .raid-art {
   position: relative;
-  height: 340px;
+  height: clamp(230px, 36vh, 340px);
   overflow: hidden;
   background: #242927;
 }
@@ -2951,6 +2965,1003 @@ svg {
 
   .pack-result-grid {
     grid-template-columns: repeat(5, minmax(112px, 1fr));
+  }
+}
+
+/* Shared building blocks for the raid mode switcher and the always-reachable
+   dispatch controls. These are intentionally layout-only so new raid markup can
+   reuse them without changing the desktop visual language. */
+.raid-mode-tabs,
+.raid-tab-list {
+  display: flex;
+  min-width: 0;
+  gap: 6px;
+  margin-bottom: 18px;
+  padding: 4px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--paper-bright);
+  scrollbar-width: thin;
+}
+
+.raid-mode-tabs button,
+.raid-tab-list button {
+  min-width: max-content;
+  min-height: 38px;
+  flex: 1 0 auto;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 3px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.raid-mode-tabs button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  text-align: left;
+}
+
+.raid-mode-tabs button > svg {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+}
+
+.raid-mode-tabs button span {
+  display: grid;
+  gap: 2px;
+}
+
+.raid-mode-tabs button strong,
+.raid-mode-tabs button small {
+  color: inherit;
+}
+
+.raid-mode-tabs button small {
+  font-size: 9px;
+  font-weight: 600;
+  opacity: 0.75;
+}
+
+.raid-mode-tabs button:hover:not(:disabled),
+.raid-tab-list button:hover:not(:disabled) {
+  background: #edf1eb;
+}
+
+.raid-mode-tabs button.is-active,
+.raid-mode-tabs button[aria-selected="true"],
+.raid-tab-list button.is-active,
+.raid-tab-list button[aria-selected="true"] {
+  color: #fff;
+  background: var(--forest-soft);
+}
+
+.raid-command-sticky,
+.raid-dispatch-bar,
+.raid-action-bar {
+  position: sticky;
+  z-index: 6;
+  top: 0;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--forest);
+  background: rgb(255 253 247 / 97%);
+  box-shadow: 0 7px 18px rgb(31 41 35 / 10%);
+}
+
+.raid-dispatch-bar .raid-dispatch,
+.raid-action-bar .raid-dispatch {
+  margin-top: 0;
+}
+
+.raid-page {
+  min-width: 0;
+}
+
+.raid-dispatch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.raid-dispatch-bar .raid-power {
+  min-width: 190px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.raid-dispatch-bar .raid-dispatch {
+  width: min(330px, 48%);
+  flex: 0 1 330px;
+}
+
+.board-rules {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.requirement-row strong.negative {
+  color: var(--red);
+}
+
+.requirement-warning,
+.raid-sync-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid rgb(174 74 61 / 22%);
+  border-radius: 4px;
+  color: var(--red);
+  background: rgb(174 74 61 / 7%);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.requirement-warning svg,
+.raid-sync-error svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+}
+
+.mission-reward-preview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.mission-reward-preview > span {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 2px 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: #f6f5ef;
+}
+
+.mission-reward-preview svg {
+  grid-row: 1 / span 2;
+  width: 17px;
+  height: 17px;
+  color: var(--gold);
+}
+
+.mission-reward-preview small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.mission-reward-preview strong {
+  color: var(--forest);
+  font-size: 12px;
+}
+
+.mission-reward-preview p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.squad-card.is-unavailable {
+  cursor: not-allowed;
+  opacity: 0.5;
+  filter: grayscale(0.75);
+}
+
+.coop-raid-placeholder {
+  min-height: min(560px, calc(100vh - 220px));
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 15px;
+  padding: clamp(28px, 7vw, 80px);
+  border: 1px solid var(--line);
+  border-top: 4px solid var(--forest-soft);
+  border-radius: 6px;
+  text-align: center;
+  background: var(--paper-bright);
+}
+
+.coop-raid-symbol {
+  width: 68px;
+  height: 68px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  background: var(--forest-soft);
+}
+
+.coop-raid-symbol svg {
+  width: 30px;
+  height: 30px;
+}
+
+.coop-raid-placeholder h2,
+.coop-raid-placeholder p {
+  margin: 0;
+}
+
+.coop-raid-placeholder p {
+  max-width: 570px;
+  color: var(--muted);
+  line-height: 1.8;
+}
+
+.coop-feature-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.coop-feature-list span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--forest-soft);
+  background: #f4f6f1;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.coop-feature-list svg {
+  width: 13px;
+  height: 13px;
+}
+
+.ranking-reset-line,
+.my-ranking-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px;
+  color: var(--muted);
+  background: #f4f6f1;
+  font-size: 10px;
+}
+
+.ranking-reset-line strong,
+.my-ranking-summary strong {
+  color: var(--forest);
+}
+
+.ranking-empty {
+  min-height: 190px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.ranking-empty svg {
+  width: 28px;
+  height: 28px;
+}
+
+.ranking-empty span {
+  font-size: 10px;
+}
+
+/* Payroll mode keeps the game usable while replacing character and boss art
+   with quiet record-card surfaces. The class may live on body, #app, or the
+   app shell because all selectors are descendant based. */
+:is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"])
+  :is(.card-art, .result-card__art:not(.is-face-down), .detail-card-art, .pack-preview, .raid-art) {
+  background:
+    linear-gradient(135deg, rgb(255 255 255 / 36%), transparent 54%),
+    repeating-linear-gradient(0deg, rgb(37 55 46 / 5%) 0 1px, transparent 1px 8px),
+    color-mix(in srgb, var(--rarity-color, var(--forest)) 9%, #edf0eb);
+}
+
+:is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"])
+  :is(.card-art, .result-card__art, .detail-card-art, .pack-preview, .raid-art) img {
+  visibility: hidden !important;
+}
+
+:is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"])
+  :is(.collection-card .card-art, .result-card .result-card__art:not(.is-face-down), .card-detail-modal .detail-card-art)::before {
+  z-index: 0;
+  inset: 0;
+  background:
+    linear-gradient(135deg, rgb(255 255 255 / 32%), transparent 55%),
+    repeating-linear-gradient(0deg, rgb(37 55 46 / 5%) 0 1px, transparent 1px 8px);
+  content: "";
+  opacity: 1 !important;
+  filter: none;
+  animation: none;
+  transform: none;
+}
+
+:is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"])
+  :is(.rarity-stamp, .result-card__art > span, .detail-card-art > span, .selection-check) {
+  z-index: 3;
+}
+
+:is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"]) .card-art,
+:is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"]) .result-card__art:not(.is-face-down) {
+  min-height: 64px;
+  aspect-ratio: auto;
+}
+
+:is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"]) .detail-card-art {
+  min-height: 82px;
+  aspect-ratio: auto;
+}
+
+:is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"])
+  :is(.card-power, .card-stats, .card-copy > span, .card-copy > small, .result-card__copy > small, .result-card__copy > span) {
+  display: none;
+}
+
+:is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"])
+  :is(.card-copy, .result-card__copy) {
+  min-height: 0;
+  padding: 10px 12px;
+}
+
+:is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"])
+  :is(.card-copy strong, .result-card__copy strong) {
+  min-height: 0;
+  margin: 0;
+}
+
+:is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"])
+  :is(.detail-card-copy > .eyebrow, .detail-card-copy > p, .detail-stats, .trait-box, .owned-line) {
+  display: none;
+}
+
+:is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"]) .card-detail-modal {
+  grid-template-columns: 118px minmax(0, 1fr);
+}
+
+:is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"]) .detail-card-copy {
+  align-self: center;
+}
+
+:is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"]) .detail-card-copy h2 {
+  margin: 0;
+}
+
+:is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"]) .squad-card {
+  grid-template-columns: minmax(0, 1fr) 22px;
+}
+
+:is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"]) .squad-card img,
+:is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"]) .deployed-squad img {
+  display: none;
+}
+
+:is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"]) .squad-detail-copy {
+  display: none;
+}
+
+:is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"]) .deployed-squad div {
+  min-height: 44px;
+  align-content: center;
+  padding: 8px;
+  border: 1px solid var(--line);
+  background: #f2f3ee;
+}
+
+:is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"]) .raid-art {
+  height: 150px;
+}
+
+:is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"]) .raid-vignette {
+  height: 100%;
+  background: linear-gradient(0deg, rgb(21 32 26 / 82%), rgb(38 58 48 / 18%));
+}
+
+/* Let nested views shrink before they overflow. */
+.app-shell,
+.main-shell,
+.topbar,
+.top-actions,
+.view-host,
+.dashboard-grid,
+.lower-grid,
+.adventure-layout,
+.raid-layout,
+.link-layout,
+.pack-stage,
+.collection-grid,
+.mission-board,
+.assignment-sheet,
+.raid-stage,
+.raid-command,
+.contribution-table,
+.modal-sheet,
+.card-detail-modal {
+  min-width: 0;
+}
+
+.section-heading,
+.collection-header,
+.operation-banner,
+.filter-bar,
+.top-actions,
+.modal-actions,
+.settings-footer {
+  flex-wrap: wrap;
+}
+
+.contribution-table {
+  overflow-x: auto;
+}
+
+.contribution-table .table-row {
+  min-width: 500px;
+}
+
+@media (max-width: 860px) {
+  .auth-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow: auto;
+  }
+
+  .auth-intro {
+    min-height: 190px;
+    padding: 26px clamp(24px, 7vw, 52px);
+  }
+
+  .auth-intro-copy {
+    margin: 25px 0 0;
+  }
+
+  .auth-intro-copy h1 {
+    margin: 9px 0;
+    font-size: clamp(25px, 7vw, 38px);
+  }
+
+  .auth-security-note {
+    display: none;
+  }
+
+  .auth-panel {
+    justify-content: flex-start;
+    padding: 30px clamp(24px, 8vw, 60px);
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .adventure-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .mission-board,
+  .assignment-sheet {
+    min-height: 0;
+  }
+
+  .pack-stage {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .pack-actions {
+    width: min(100%, 430px);
+    margin: 0 auto;
+  }
+
+  .pack-result-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(132px, 100%), 1fr));
+  }
+
+  .card-detail-modal {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .detail-card-art {
+    width: min(100%, 280px);
+    margin: 0 auto;
+  }
+
+  :is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"]) .card-detail-modal {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  :is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"]) .detail-card-art {
+    width: 100%;
+  }
+}
+
+@media (max-width: 700px) {
+  .app-shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  .main-shell {
+    grid-row: 1;
+    grid-column: 1;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .sidebar {
+    grid-row: 2;
+    grid-column: 1;
+    min-height: 60px;
+    flex-direction: row;
+    align-items: center;
+    padding: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-top: 1px solid #26352e;
+    border-right: 0;
+  }
+
+  .brand-block,
+  .sidebar-status {
+    display: none;
+  }
+
+  .primary-nav {
+    display: flex;
+    width: 100%;
+    min-width: max-content;
+    flex: 1 0 auto;
+    gap: 4px;
+    margin: 0;
+  }
+
+  .nav-button {
+    width: auto;
+    min-width: 54px;
+    height: 46px;
+    flex: 1 0 54px;
+  }
+
+  .nav-button.is-active::before {
+    top: auto;
+    right: 10px;
+    bottom: -7px;
+    left: 10px;
+    width: auto;
+    height: 3px;
+  }
+
+  .topbar {
+    min-height: 64px;
+    gap: 8px;
+    padding: 9px 12px;
+  }
+
+  .page-heading {
+    min-width: 0;
+  }
+
+  .page-heading h1 {
+    overflow: hidden;
+    font-size: 17px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .top-actions {
+    flex: 0 0 auto;
+    gap: 4px;
+  }
+
+  .account-button,
+  .icon-button,
+  .quiet-button {
+    width: 34px;
+    height: 34px;
+    min-height: 34px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .quiet-button span,
+  .account-button span {
+    display: none;
+  }
+
+  .update-chip {
+    top: 100%;
+    right: 12px;
+    bottom: auto;
+  }
+
+  .view-host {
+    padding: 20px 16px 28px;
+  }
+
+  .dashboard-grid,
+  .lower-grid,
+  .raid-layout,
+  .link-layout {
+    gap: 16px;
+  }
+
+  .pack-desk,
+  .daily-ledger,
+  .operation-panel,
+  .incident-panel,
+  .activity-panel,
+  .mission-board,
+  .assignment-sheet,
+  .raid-command,
+  .contribution-table,
+  .link-sheet,
+  .benefit-ledger {
+    padding: 18px 16px;
+  }
+
+  .collection-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+    gap: 12px;
+  }
+
+  .filter-bar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .search-field,
+  .segmented-control {
+    width: 100%;
+    max-width: none;
+  }
+
+  .segmented-control {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+  }
+
+  .segmented-control button {
+    flex: 1 0 auto;
+  }
+
+  .raid-art {
+    height: clamp(210px, 54vw, 300px);
+  }
+
+  :is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"]) .raid-art {
+    height: 130px;
+  }
+
+  .raid-heading {
+    right: 16px;
+    bottom: 17px;
+    left: 16px;
+  }
+
+  .raid-heading h2 {
+    font-size: clamp(21px, 7vw, 27px);
+  }
+
+  .raid-stats,
+  .requirement-row,
+  .detail-stats {
+    overflow-x: auto;
+  }
+
+  .raid-stats > div,
+  .requirement-row > span,
+  .detail-stats > div {
+    min-width: 92px;
+  }
+
+  .raid-mode-tabs,
+  .raid-tab-list {
+    margin-bottom: 14px;
+  }
+
+  .raid-command-sticky,
+  .raid-dispatch-bar,
+  .raid-action-bar {
+    padding: 10px;
+  }
+
+  .link-sheet,
+  .benefit-ledger {
+    min-height: 0;
+  }
+
+  .modal-backdrop {
+    align-items: start;
+    padding: 10px;
+    overflow: auto;
+  }
+
+  .modal-sheet {
+    max-height: calc(100dvh - 20px);
+    padding: 22px 18px;
+  }
+
+  .modal-actions > button {
+    min-width: min(100%, 180px);
+    flex: 1 1 180px;
+  }
+
+  .app-notice {
+    right: 12px;
+    bottom: 74px;
+    left: 12px;
+    max-width: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .auth-shell {
+    display: block;
+    overflow: auto;
+  }
+
+  .auth-intro {
+    display: none;
+  }
+
+  .auth-panel {
+    min-height: 100%;
+    padding: 26px 18px;
+  }
+
+  .auth-password-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .page-kicker {
+    display: none;
+  }
+
+  .collection-header {
+    min-height: 0;
+    gap: 12px;
+  }
+
+  .collection-progress {
+    justify-items: start;
+  }
+
+  .section-heading,
+  .collection-header,
+  .operation-banner {
+    align-items: flex-start;
+  }
+
+  .pack-stage {
+    min-height: 0;
+  }
+
+  .pack-stack {
+    width: min(100%, 300px);
+    height: 210px;
+  }
+
+  .pack-preview,
+  .pack-sleeve {
+    width: 116px;
+    height: 174px;
+  }
+
+  .pack-preview--1 { transform: translateX(-115%) rotate(-8deg); }
+  .pack-preview--2 { transform: translateX(-74%) rotate(-3deg); }
+  .pack-preview--3 { transform: translateX(-32%) rotate(6deg); }
+  .pack-sleeve { transform: translateX(20%) rotate(2deg); }
+
+  .pack-sleeve {
+    padding: 18px 12px;
+  }
+
+  .pack-sleeve strong {
+    font-size: 17px;
+  }
+
+  .mission-row {
+    grid-template-columns: 26px minmax(0, 1fr) auto;
+    gap: 8px;
+    padding-right: 6px;
+    padding-left: 6px;
+  }
+
+  .mission-row > svg {
+    display: none;
+  }
+
+  .mission-copy strong {
+    overflow-wrap: anywhere;
+  }
+
+  .deployed-squad {
+    gap: 7px;
+  }
+
+  .raid-mode-tabs button,
+  .raid-tab-list button {
+    min-height: 36px;
+    padding: 0 12px;
+  }
+
+  .raid-mode-tabs,
+  .raid-tab-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+  }
+
+  .raid-mode-tabs button,
+  .raid-tab-list button {
+    width: 100%;
+    min-width: 0;
+    padding-right: 6px;
+    padding-left: 6px;
+  }
+
+  .raid-mode-tabs button {
+    gap: 5px;
+  }
+
+  .raid-mode-tabs button small {
+    font-size: 8px;
+  }
+
+  .boss-health > div:first-child,
+  .raid-power,
+  .reward-line,
+  .settings-footer {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .incident-choices {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-account,
+  .account-summary-card,
+  .benefit-row {
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+
+  .settings-account > :last-child,
+  .account-summary-card > :last-child,
+  .benefit-row > :last-child {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+
+@media (max-width: 380px) {
+  .topbar {
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .page-heading h1 {
+    font-size: 15px;
+  }
+
+  .account-button,
+  .icon-button,
+  .quiet-button {
+    width: 32px;
+    height: 32px;
+    min-height: 32px;
+  }
+
+  .view-host {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .pack-desk,
+  .daily-ledger,
+  .operation-panel,
+  .incident-panel,
+  .activity-panel,
+  .mission-board,
+  .assignment-sheet,
+  .raid-command,
+  .contribution-table,
+  .link-sheet,
+  .benefit-ledger {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .modal-backdrop {
+    padding: 6px;
+  }
+
+  .modal-sheet {
+    max-height: calc(100dvh - 12px);
+    padding: 20px 14px;
+  }
+
+  .modal-heading {
+    padding-right: 38px;
+  }
+
+  .modal-heading h2,
+  .incident-modal h2,
+  .compact-modal h2,
+  .settings-modal h2 {
+    font-size: 19px;
+  }
+
+  .table-row {
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+}
+
+@media (max-height: 620px) {
+  .topbar {
+    min-height: 56px;
+    padding-top: 7px;
+    padding-bottom: 7px;
+  }
+
+  .view-host {
+    padding-top: 18px;
+    padding-bottom: 24px;
+  }
+
+  .raid-art {
+    height: 230px;
+  }
+
+  :is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"]) .raid-art {
+    height: 116px;
+  }
+
+  .modal-backdrop {
+    align-items: start;
+    overflow: auto;
+  }
+}
+
+@media (max-width: 600px) {
+  .raid-dispatch-bar {
+    position: static;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .raid-dispatch-bar .raid-power,
+  .raid-dispatch-bar .raid-dispatch {
+    width: 100%;
+    min-width: 0;
+    flex-basis: auto;
+  }
+
+  .mission-reward-preview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mission-reward-preview p {
+    grid-column: 1;
   }
 }
 

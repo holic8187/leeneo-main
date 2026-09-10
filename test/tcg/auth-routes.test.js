@@ -160,7 +160,7 @@ test('registration validation canonicalizes case and enforces nickname and bcryp
 
 test('all four TCG authentication routes are registered', () => {
   const harness = createRouteHarness(createFakeAccountModel());
-  assert.deepEqual([...harness.routes.keys()], [
+  assert.deepEqual([...harness.routes.keys()].filter((route) => route.includes('/api/tcg/auth/')), [
     'POST /api/tcg/auth/check-availability',
     'POST /api/tcg/auth/register',
     'POST /api/tcg/auth/login',

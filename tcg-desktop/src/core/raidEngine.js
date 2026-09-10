@@ -6,8 +6,12 @@ export function createRaidState(definition, now = Date.now()) {
     startedAt: now,
     endsAt: now + definition.durationMs,
     contribution: 0,
+    totalContribution: 0,
     lastDispatchAt: 0,
     dispatches: 0,
+    clears: 0,
+    maxClears: Math.max(1, Number(definition.maxDailyClears) || 2),
+    cooldownMs: Math.max(0, Number(definition.dispatchCooldownMs) || 60000),
   };
 }
 
@@ -32,6 +36,7 @@ export function dispatchRaid({ raid, squadScore, definition, now = Date.now(), r
       ...raid,
       hp: raid.hp - appliedDamage,
       contribution: raid.contribution + appliedDamage,
+      totalContribution: Number(raid.totalContribution || raid.contribution || 0) + appliedDamage,
       lastDispatchAt: now,
       dispatches: raid.dispatches + 1,
     },
