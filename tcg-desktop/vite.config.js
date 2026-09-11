@@ -1,8 +1,14 @@
 import { fileURLToPath, URL } from 'node:url';
+import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vite';
+
+const packageMetadata = JSON.parse(readFileSync(fileURLToPath(new URL('./package.json', import.meta.url)), 'utf8'));
 
 export default defineConfig({
   base: './',
+  define: {
+    __APP_VERSION__: JSON.stringify(packageMetadata.version),
+  },
   build: {
     outDir: 'dist',
     emptyOutDir: true,

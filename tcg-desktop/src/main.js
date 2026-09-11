@@ -1913,7 +1913,31 @@ function updateCloudUi(status = {}) {
   if (previousPhase === 'active' && ui.cloud.phase !== 'active') {
     void desktopBridge.cancelIncident().catch(() => {});
   }
-  if (ui.auth.phase === 'authenticated' && store) render();
+  if (ui.auth.phase === 'authenticated' && store) {
+    try {
+      render();
+    } catch (error) {
+      console.error('Could not render the restored cloud state:', error);
+      ui.cloud = {
+        ...ui.cloud,
+        phase: 'connection-error',
+        code: 'CLIENT_RENDER_FAILED',
+        message: '불러온 기록을 화면에 표시하지 못했습니다. 다시 연결해 주세요.',
+      };
+      app.innerHTML = `
+        <section class="cloud-session-gate" role="dialog" aria-modal="true" aria-live="assertive">
+          <div class="cloud-session-card">
+            <div class="cloud-session-mark" aria-hidden="true"><i data-lucide="wifi"></i></div>
+            <span class="eyebrow">CONNECTION PAUSED</span>
+            <h2>게임 화면을 여는 중 문제가 생겼어요.</h2>
+            <p>${escapeHtml(ui.cloud.message)}</p>
+            <button class="primary-button" type="button" data-action="cloud-retry">다시 연결</button>
+            <button class="cloud-session-logout" type="button" data-action="logout">로그아웃</button>
+          </div>
+        </section>`;
+      try { refreshIcons(); } catch {}
+    }
+  }
 }
 
 function disposeCloudSession() {
@@ -2002,6 +2026,13 @@ async function activateAuthenticatedSession(session, { newAccount = false } = {}
     await finishCloudActivation();
   } catch (error) {
     console.warn('Could not activate cloud play session:', error);
+    if (ui.cloud.phase === 'connecting' || ui.cloud.phase === 'taking-over') {
+      updateCloudUi({
+        phase: 'connection-error',
+        message: error.message || '클라우드 기록을 불러오지 못했습니다.',
+        code: error.code || 'CLOUD_ACTIVATION_FAILED',
+      });
+    }
   }
 }
 

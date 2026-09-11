@@ -333,7 +333,7 @@ async function openPlaySession({
     const updated = await TcgPlayerState.findOneAndUpdate(
       snapshotFilter(snapshot),
       update,
-      { new: true, runValidators: true }
+      { returnDocument: 'after', runValidators: true }
     );
     if (updated) return serializePlayerState(updated, nowMs);
   }
@@ -381,7 +381,7 @@ async function takeoverPlaySession({
     const updated = await TcgPlayerState.findOneAndUpdate(
       snapshotFilter(snapshot),
       { $set: { activeLease: lease } },
-      { new: true, runValidators: true }
+      { returnDocument: 'after', runValidators: true }
     );
     if (updated) return serializePlayerState(updated, nowMs);
   }
@@ -430,7 +430,7 @@ async function heartbeatPlaySession({
         'activeLease.expiresAt': new Date(nowMs + PLAYER_LEASE_DURATION_MS)
       }
     },
-    { new: true, runValidators: true }
+    { returnDocument: 'after', runValidators: true }
   );
   if (updated) return serializePlayerState(updated, nowMs);
   throw sessionLost(await findPlayerState(TcgPlayerState, accountId), nowMs);
@@ -463,7 +463,7 @@ async function releasePlaySession({
           activeLease: emptyLease(currentLease.generation + 1, nowMs)
         }
       },
-      { new: true, runValidators: true }
+      { returnDocument: 'after', runValidators: true }
     );
     if (updated) return serializePlayerState(updated, nowMs);
   }
@@ -493,7 +493,7 @@ async function saveGameState({
       },
       $inc: { revision: 1 }
     },
-    { new: true, runValidators: true }
+    { returnDocument: 'after', runValidators: true }
   );
   if (updated) return serializePlayerState(updated, nowMs);
 
