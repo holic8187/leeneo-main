@@ -1,6 +1,7 @@
 import { INCIDENTS, incidentById } from '../data/incidentCatalog.js';
 
 export const INCIDENT_TIMING = Object.freeze({ minimumMs: 12 * 60 * 1000, maximumMs: 24 * 60 * 1000 });
+export const INCIDENT_ACTIVE_DURATION_MS = 10 * 60 * 1000;
 export const INCIDENT_TIER_CHANCES = Object.freeze({ ordinary: 0.92, special: 0.07, mythic: 0.01 });
 export const INCIDENT_REPEAT_WINDOW = 5;
 
@@ -13,6 +14,20 @@ function unitRoll(random) {
 export function nextIncidentDelay(random = Math.random) {
   return INCIDENT_TIMING.minimumMs
     + Math.floor(unitRoll(random) * (INCIDENT_TIMING.maximumMs - INCIDENT_TIMING.minimumMs + 1));
+}
+
+export function incidentExpiresAt(arrivedAt = Date.now()) {
+  const timestamp = Number(arrivedAt);
+  return (Number.isFinite(timestamp) ? timestamp : Date.now()) + INCIDENT_ACTIVE_DURATION_MS;
+}
+
+export function isIncidentExpired(activeIncident, now = Date.now()) {
+  if (!activeIncident || typeof activeIncident !== 'object') return false;
+  const expiresAt = Number(activeIncident.expiresAt);
+  if (Number.isFinite(expiresAt)) return expiresAt <= Number(now);
+  const arrivedAt = Number(activeIncident.arrivedAt);
+  return Number.isFinite(arrivedAt)
+    && arrivedAt + INCIDENT_ACTIVE_DURATION_MS <= Number(now);
 }
 
 /** Recent IDs are ordered newest first. Repetition filtering preserves tier odds. */

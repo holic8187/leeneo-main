@@ -31,6 +31,10 @@ export const desktopBridge = {
     browserTimer = null;
     return true;
   },
+  async setIncidentNotifications(enabled) {
+    if (desktop?.setIncidentNotifications) return desktop.setIncidentNotifications(enabled === true);
+    return enabled === true;
+  },
   onIncident(handler) {
     if (desktop?.onIncident) return desktop.onIncident(handler);
     browserListeners.add(handler);

@@ -50,7 +50,7 @@ pnpm dist:win
 
 ## 자동 업데이트
 
-`tcg-v0.4.0`처럼 `tcg-v*` 형식의 태그를 GitHub에 푸시하면 `.github/workflows/tcg-desktop-release.yml`이 Windows 설치 파일과 업데이트 메타데이터를 GitHub Releases에 게시합니다. 태그는 `package.json`의 버전과 정확히 일치해야 하며, 다르면 배포가 중단됩니다. 설치된 앱은 실행할 때마다 새 릴리스를 확인합니다. 새 버전이 있으면 자동으로 내려받고, 진행 기록을 디스크에 저장한 뒤 업데이트를 설치하여 앱을 다시 실행합니다.
+`tcg-v0.4.1`처럼 `tcg-v*` 형식의 태그를 GitHub에 푸시하면 `.github/workflows/tcg-desktop-release.yml`이 Windows 설치 파일과 업데이트 메타데이터를 GitHub Releases에 게시합니다. 태그는 `package.json`의 버전과 정확히 일치해야 하며, 다르면 배포가 중단됩니다. 설치된 앱은 실행할 때마다 새 릴리스를 확인합니다. 새 버전이 있으면 자동으로 내려받고, 진행 기록을 디스크에 저장한 뒤 업데이트를 설치하여 앱을 다시 실행합니다.
 
 GitHub 배포 전에 Repository Variable `TCG_API_BASE`를 실제 인증 서버의 HTTPS origin으로 등록해야 합니다. Actions가 만드는 Release에는 설치 파일, blockmap, `latest.yml`이 함께 올라갑니다. 전체 준비 및 배포 순서는 [GitHub 배포 가이드](docs/GITHUB_RELEASE_GUIDE.md)를 참고하세요.
 

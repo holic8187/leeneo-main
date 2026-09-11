@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('hoiDesktop', {
   hideWindow: () => ipcRenderer.invoke('window:hide'),
   scheduleIncident: (incident) => ipcRenderer.invoke('incident:schedule', incident),
   cancelIncident: () => ipcRenderer.invoke('incident:cancel'),
+  setIncidentNotifications: (enabled) => ipcRenderer.invoke('incident:notifications', enabled === true),
   clearActiveIncident: (instanceId, options) => ipcRenderer.invoke('incident:clear', { instanceId, keepToast: options?.keepToast === true }),
   openIncident: (incident) => ipcRenderer.send('toast:open', incident),
   chooseIncident: (payload) => ipcRenderer.invoke('toast:choose', payload),

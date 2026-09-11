@@ -3,7 +3,13 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { randomUUID } = require('node:crypto');
 const { autoUpdater } = require('electron-updater');
-const { normalizeIncident, createIncidentCoordinator, createUpdateCoordinator, toastBounds } = require('./desktop-coordinator.cjs');
+const {
+  normalizeIncident,
+  createIncidentCoordinator,
+  createIncidentDeliveryCoordinator,
+  createUpdateCoordinator,
+  toastBounds,
+} = require('./desktop-coordinator.cjs');
 
 const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL || '';
 let mainWindow = null;
@@ -117,6 +123,14 @@ const updates = createUpdateCoordinator({
     catch (error) { isQuitting = false; throw error; }
   },
 });
+const incidentDelivery = createIncidentDeliveryCoordinator({
+  activate: (incident) => incidents.activate(incident),
+  sendToMain(incident) {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('incident:triggered', incident);
+  },
+  showToast: (incident) => showIncidentToast(incident),
+  closeToast: () => closeToast(),
+});
 
 autoUpdater.on('error', () => { isQuitting = false; });
 
@@ -130,10 +144,9 @@ function positionToast() {
   toastWindow.setBounds(toastBounds(screen.getPrimaryDisplay().workArea, incidents.active?.choices.length || 2), false);
 }
 
-function showIncidentToast(payload) {
+function showIncidentToast(incident) {
   closeToast();
-  const incident = incidents.activate(payload);
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('incident:triggered', incident);
+  if (!incident) return;
   const window = new BrowserWindow({
     ...toastBounds(screen.getPrimaryDisplay().workArea, incident.choices.length),
     frame: false, transparent: false, resizable: false, movable: false,
@@ -163,7 +176,7 @@ function scheduleIncident(payload) {
   if (!incident) return { scheduled: false, reason: 'invalid-incident' };
   if (incidentTimer) clearTimeout(incidentTimer);
   const delayMs = Math.min(2147483647, Math.max(1000, Number(payload.delayMs) || 60000));
-  incidentTimer = setTimeout(() => { incidentTimer = null; showIncidentToast(incident); }, delayMs);
+  incidentTimer = setTimeout(() => { incidentTimer = null; incidentDelivery.deliver(incident); }, delayMs);
   return { scheduled: true, delayMs, instanceId: incident.instanceId };
 }
 
@@ -176,8 +189,12 @@ function registerIpc() {
     if (incidentTimer) clearTimeout(incidentTimer);
     incidentTimer = null;
     closeToast();
+    if (incidents.active) incidents.clear(incidents.active.instanceId);
     return true;
   });
+  ipcMain.handle('incident:notifications', (event, enabled) => (
+    isSender(event, mainWindow) ? incidentDelivery.setNotificationsEnabled(enabled) : false
+  ));
   ipcMain.handle('incident:clear', (event, payload) => {
     if (!isSender(event, mainWindow)) return false;
     const cleared = incidents.clear(payload?.instanceId);

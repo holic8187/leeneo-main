@@ -1,7 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { INCIDENTS, incidentById } from '../src/data/incidentCatalog.js';
-import { chooseIncident, INCIDENT_TIMING, INCIDENT_TIER_CHANCES, nextIncidentDelay, resolveIncidentChoice } from '../src/core/incidentEngine.js';
+import {
+  chooseIncident,
+  INCIDENT_ACTIVE_DURATION_MS,
+  INCIDENT_TIMING,
+  INCIDENT_TIER_CHANCES,
+  incidentExpiresAt,
+  isIncidentExpired,
+  nextIncidentDelay,
+  resolveIncidentChoice,
+} from '../src/core/incidentEngine.js';
 
 function rolls(...values) {
   let index = 0;
@@ -54,6 +63,16 @@ test('cooldown cannot fall outside the twelve-to-twenty-four-minute window', () 
   assert.equal(nextIncidentDelay(() => Infinity), INCIDENT_TIMING.minimumMs);
   assert.equal(nextIncidentDelay(() => NaN), INCIDENT_TIMING.minimumMs);
   assert.equal(nextIncidentDelay(() => 0.5), 18 * 60 * 1000);
+});
+
+test('an arrived incident remains actionable for ten minutes', () => {
+  const arrivedAt = Date.parse('2026-09-10T08:00:00.000Z');
+  const expiresAt = incidentExpiresAt(arrivedAt);
+  assert.equal(INCIDENT_ACTIVE_DURATION_MS, 10 * 60 * 1000);
+  assert.equal(expiresAt, arrivedAt + INCIDENT_ACTIVE_DURATION_MS);
+  assert.equal(isIncidentExpired({ arrivedAt, expiresAt }, expiresAt - 1), false);
+  assert.equal(isIncidentExpired({ arrivedAt, expiresAt }, expiresAt), true);
+  assert.equal(isIncidentExpired({ arrivedAt }, expiresAt), true, 'legacy incidents use arrivedAt');
 });
 
 test('recent five events are excluded without changing tier odds', () => {
