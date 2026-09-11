@@ -3,6 +3,7 @@ import {
   checkAndroidRelease,
   isTrustedAndroidReleaseAssetUrl,
 } from './androidUpdateGateway.js';
+import { withDeadline } from '../core/promiseDeadline.js';
 
 const browserListeners = new Set();
 const mobileUpdateListeners = new Set();
@@ -11,8 +12,34 @@ let androidUpdater = null;
 let androidUpdaterListenerPromise = null;
 let currentAndroidUpdateUrl = '';
 
+const APP_VERSION_TIMEOUT_MS = 2500;
+const BUILD_APP_VERSION = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '0.0.0';
+
 const desktop = globalThis.hoiDesktop;
 const platform = detectClientPlatform(globalThis);
+
+export async function readAppVersionWithFallback(
+  readVersion,
+  {
+    fallbackVersion = BUILD_APP_VERSION,
+    timeoutMs = APP_VERSION_TIMEOUT_MS,
+    setTimeoutImpl = globalThis.setTimeout,
+    clearTimeoutImpl = globalThis.clearTimeout,
+  } = {},
+) {
+  const fallback = String(fallbackVersion || '0.0.0');
+  try {
+    const value = await withDeadline(readVersion, {
+      timeoutMs,
+      setTimeoutImpl,
+      clearTimeoutImpl,
+      timeoutError: () => Object.assign(new Error('앱 버전 확인 시간이 초과되었습니다.'), { code: 'VERSION_TIMEOUT' }),
+    });
+    return String(value || fallback);
+  } catch {
+    return fallback;
+  }
+}
 
 async function capacitorApp() {
   if (platform !== 'android' && platform !== 'ios') return null;
@@ -60,10 +87,15 @@ export const desktopBridge = {
   isMobile: platform === 'android' || platform === 'ios',
   platform,
   async getVersion() {
-    if (desktop?.getVersion) return desktop.getVersion();
-    const App = await capacitorApp();
-    if (App) return String((await App.getInfo()).version || '0.0.0');
-    return 'web-preview';
+    const fallbackVersion = platform === 'android' || platform === 'ios'
+      ? BUILD_APP_VERSION
+      : 'web-preview';
+    return readAppVersionWithFallback(async () => {
+      if (desktop?.getVersion) return desktop.getVersion();
+      const App = await capacitorApp();
+      if (App) return (await App.getInfo()).version;
+      return fallbackVersion;
+    }, { fallbackVersion });
   },
   async hideWindow() {
     if (desktop?.hideWindow) return desktop.hideWindow();

@@ -1,3 +1,5 @@
+import { withDeadline } from '../core/promiseDeadline.js';
+
 const DEFAULT_TIMEOUT_MS = 12000;
 
 const RESERVED_ERROR_FIELDS = new Set(['name', 'message', 'stack', 'status', 'code', 'details', 'payload']);
@@ -66,26 +68,31 @@ export function createPlaySessionGateway({
     }
 
     const controller = new AbortController();
-    const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const response = await fetchImpl(`${base}${path}`, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(body || {}),
-        signal: controller.signal,
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new PlaySessionGatewayError(errorMessage(payload, '플레이 세션 요청을 처리하지 못했습니다.'), {
-          status: response.status,
-          code: payload?.code,
-          payload,
+      return await withDeadline(async () => {
+        const response = await fetchImpl(`${base}${path}`, {
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(body || {}),
+          signal: controller.signal,
         });
-      }
-      return normalizePlaySessionPayload(payload);
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new PlaySessionGatewayError(errorMessage(payload, '플레이 세션 요청을 처리하지 못했습니다.'), {
+            status: response.status,
+            code: payload?.code,
+            payload,
+          });
+        }
+        return normalizePlaySessionPayload(payload);
+      }, {
+        timeoutMs,
+        onTimeout: () => controller.abort(),
+        timeoutError: () => new PlaySessionGatewayError('서버 응답이 늦어 연결을 중단했습니다.', { code: 'TIMEOUT' }),
+      });
     } catch (error) {
       if (error?.name === 'AbortError') {
         throw new PlaySessionGatewayError('서버 응답이 늦어 연결을 중단했습니다.', { code: 'TIMEOUT' });
@@ -94,8 +101,6 @@ export function createPlaySessionGateway({
       throw new PlaySessionGatewayError('클라우드 저장 서버에 연결할 수 없습니다. 인터넷 연결을 확인해 주세요.', {
         code: 'NETWORK_ERROR',
       });
-    } finally {
-      globalThis.clearTimeout(timeout);
     }
   }
 

@@ -13,6 +13,7 @@ import {
   findLatestAndroidRelease,
   isTrustedAndroidReleaseAssetUrl,
 } from '../src/services/androidUpdateGateway.js';
+import { readAppVersionWithFallback } from '../src/services/desktopBridge.js';
 
 const releaseUrl = (version, channel = 'release') => (
   `https://github.com/holic8187/leeneo-main/releases/download/tcg-android-v${version}/Hoi-Card-Desk-${version}-android-${channel}.apk`
@@ -38,6 +39,33 @@ test('device identity is generated once and platform labels match the takeover m
   assert.equal(shouldBootstrapCloudState({ platform: 'pc', hasPersistedState: false }), false);
   assert.equal(shouldBootstrapCloudState({ platform: 'android', hasPersistedState: true }), false);
   assert.equal(shouldBootstrapCloudState({ platform: 'android', newAccount: true }), true);
+});
+
+test('a stalled native version lookup falls back so cloud login can continue', async () => {
+  let timeoutScheduled = false;
+  const version = await readAppVersionWithFallback(
+    () => new Promise(() => {}),
+    {
+      fallbackVersion: '0.5.1',
+      timeoutMs: 2500,
+      setTimeoutImpl(callback, delay) {
+        timeoutScheduled = delay === 2500;
+        callback();
+        return 1;
+      },
+      clearTimeoutImpl() {},
+    },
+  );
+  assert.equal(timeoutScheduled, true);
+  assert.equal(version, '0.5.1');
+});
+
+test('a working native version lookup keeps the native app version', async () => {
+  const version = await readAppVersionWithFallback(
+    async () => '1.2.3',
+    { fallbackVersion: '0.5.1' },
+  );
+  assert.equal(version, '1.2.3');
 });
 
 test('Android update discovery selects the newest public APK release', async () => {

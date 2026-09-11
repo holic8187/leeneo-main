@@ -90,3 +90,18 @@ test('nested lease and game-state responses are normalized', () => {
   assert.equal(normalized.revision, 9);
   assert.deepEqual(normalized.state, { packs: { standard: 4 } });
 });
+
+test('play session timeout completes even when the platform fetch ignores abort', async () => {
+  const gateway = createPlaySessionGateway({
+    apiBase: 'https://cards.example.com',
+    fetchImpl: () => new Promise(() => {}),
+    timeoutMs: 5,
+  });
+
+  await assert.rejects(
+    gateway.open('token', { deviceId: 'device-123456789', platform: 'android', appVersion: '0.5.1' }),
+    (error) => error instanceof PlaySessionGatewayError
+      && error.code === 'TIMEOUT'
+      && /응답이 늦어/.test(error.message),
+  );
+});
