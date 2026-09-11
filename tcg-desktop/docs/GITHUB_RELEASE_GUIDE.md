@@ -121,11 +121,11 @@ VITE_HOI_API_BASE=
 
 ## 5. 버전 결정과 사전 검증
 
-앱 버전의 기준은 `tcg-desktop/package.json`의 `version`입니다. 현재 개인 레이드와 모험 개편 배포 버전은 `0.4.0`입니다.
+앱 버전의 기준은 `tcg-desktop/package.json`의 `version`입니다. 현재 돌발 업무·카드 공개·개인 레이드 수정 배포 버전은 `0.4.1`입니다.
 
 이후 수정 배포는 다음처럼 항상 더 높은 버전을 사용합니다.
 
-- 버그 수정: `0.4.0` → `0.4.1`
+- 버그 수정: `0.4.1` → `0.4.2`
 - 호환되는 기능 추가: `0.4.1` → `0.5.0`
 - 큰 호환성 변경: 안정화 이후 주 버전 증가 검토
 
@@ -143,12 +143,12 @@ pnpm -C tcg-desktop dist:win
 모두 성공한 뒤 `tcg-desktop/release`에서 다음 파일을 확인합니다.
 
 ```text
-Hoi-Card-Desk-0.4.0-x64.exe
-Hoi-Card-Desk-0.4.0-x64.exe.blockmap
+Hoi-Card-Desk-0.4.1-x64.exe
+Hoi-Card-Desk-0.4.1-x64.exe.blockmap
 latest.yml
 ```
 
-`latest.yml`의 `version`도 `0.4.0`이어야 합니다. 로컬 `release` 폴더는 확인용이며 Git에 추가하지 않습니다.
+`latest.yml`의 `version`도 `0.4.1`이어야 합니다. 로컬 `release` 폴더는 확인용이며 Git에 추가하지 않습니다.
 
 ## 6. 변경사항 커밋과 병합
 
@@ -196,7 +196,7 @@ git tag -a "tcg-v$tcgVersion" -m "Hoi Card Desk $tcgVersion"
 git push origin "tcg-v$tcgVersion"
 ```
 
-버전이 `0.4.0`이면 만들어지는 태그는 정확히 `tcg-v0.4.0`이어야 합니다. `v0.4.0`, `tcg-0.4.0`, `tcg-v0.4`는 사용하지 않습니다.
+버전이 `0.4.1`이면 만들어지는 태그는 정확히 `tcg-v0.4.1`이어야 합니다. `v0.4.1`, `tcg-0.4.1`, `tcg-v0.4`는 사용하지 않습니다.
 
 워크플로와 electron-builder 모두 `tcg-v` 접두사를 사용합니다. 태그와 `package.json` 버전이 다르면 워크플로의 검증 단계가 설치 파일을 만들기 전에 실패합니다.
 
@@ -204,7 +204,7 @@ git push origin "tcg-v$tcgVersion"
 
 1. GitHub 저장소에서 **Actions**를 선택합니다.
 2. 왼쪽에서 **TCG Desktop Release**를 선택합니다.
-3. 방금 올린 `tcg-v0.4.0` 실행을 엽니다.
+3. 방금 올린 `tcg-v0.4.1` 실행을 엽니다.
 4. `windows-release` 작업이 녹색 체크로 끝날 때까지 기다립니다.
 5. 실패했다면 붉게 표시된 첫 단계를 열어 오류를 확인합니다.
 
@@ -223,11 +223,11 @@ git push origin "tcg-v$tcgVersion"
 
 ## 9. GitHub Release 검증과 배포
 
-Actions가 성공하면 저장소의 **Releases**에서 `tcg-v0.4.0` Release를 엽니다. 다음 세 파일이 모두 있어야 합니다.
+Actions가 성공하면 저장소의 **Releases**에서 `tcg-v0.4.1` Release를 엽니다. 다음 세 파일이 모두 있어야 합니다.
 
 ```text
-Hoi-Card-Desk-0.4.0-x64.exe
-Hoi-Card-Desk-0.4.0-x64.exe.blockmap
+Hoi-Card-Desk-0.4.1-x64.exe
+Hoi-Card-Desk-0.4.1-x64.exe.blockmap
 latest.yml
 ```
 

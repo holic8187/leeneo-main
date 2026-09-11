@@ -14,6 +14,12 @@ import {
 } from '../src/data/cardCatalog.js';
 import { addCardsToCollection, openPack, rollWeightedRarity } from '../src/core/packEngine.js';
 import {
+  cardsForPendingPack,
+  createPendingPackOpening,
+  revealPendingPackCard,
+  unrevealedPackCardCount,
+} from '../src/core/packOpeningSession.js';
+import {
   calculateSquadScore,
   settleExpedition,
   startExpedition,
@@ -221,6 +227,55 @@ test('raid dispatch records damage and enforces dispatch cooldown', () => {
   }), /재정비/);
 });
 
+test('a premium pack reveal survives persistence and resumes without duplicate flips', () => {
+  const cards = [
+    ...CARD_CATALOG.filter((card) => card.rarity === 'c').slice(0, 3),
+    ...CARD_CATALOG.filter((card) => card.rarity === 'sr').slice(0, 2),
+  ];
+  const requiresReveal = (card) => RARITY_ORDER.indexOf(card.rarity) >= RARITY_ORDER.indexOf('sr');
+  const opening = createPendingPackOpening({
+    cards,
+    pityTriggered: true,
+    highestRarity: 'sr',
+    openedAt: 1234,
+    id: 'pack-resume-test',
+  });
+  const firstReveal = revealPendingPackCard(opening, 3, cards, requiresReveal);
+  assert.equal(firstReveal.changed, true);
+  assert.equal(firstReveal.completed, false);
+  assert.equal(unrevealedPackCardCount(firstReveal.opening, cards, requiresReveal), 1);
+
+  const storage = new Map();
+  const adapter = {
+    getItem: (key) => storage.get(key) || null,
+    setItem: (key, value) => storage.set(key, value),
+  };
+  const store = createGameStore(adapter);
+  store.update((draft) => { draft.pendingPackOpening = firstReveal.opening; });
+  const restored = createGameStore(adapter).getState().pendingPackOpening;
+  assert.deepEqual(restored.revealedIndices, [3]);
+  assert.deepEqual(cardsForPendingPack(restored, cardById).map((card) => card.id), cards.map((card) => card.id));
+
+  const completed = revealPendingPackCard(restored, 4, cards, requiresReveal);
+  assert.equal(completed.completed, true);
+  assert.deepEqual(completed.opening.revealedIndices, [3, 4]);
+  const duplicate = revealPendingPackCard(completed.opening, 4, cards, requiresReveal);
+  assert.equal(duplicate.changed, false);
+});
+
+test('expired incidents are removed during saved-state hydration so scheduling can resume', () => {
+  const hydrated = hydrateState({
+    activeIncident: { id: 'coffee-order', instanceId: 'expired', arrivedAt: 1000 },
+    pendingIncident: { id: 'boss-footsteps', scheduledAt: 5000 },
+    nextIncidentAt: 5000,
+    incidentScheduled: true,
+  }, 601000);
+  assert.equal(hydrated.activeIncident, null);
+  assert.equal(hydrated.pendingIncident, null);
+  assert.equal(hydrated.nextIncidentAt, null);
+  assert.equal(hydrated.incidentScheduled, false);
+});
+
 test('saved state hydration preserves legacy squads and migrates incident fields', () => {
   const hydrated = hydrateState({
     version: 1,
@@ -234,7 +289,7 @@ test('saved state hydration preserves legacy squads and migrates incident fields
     resolvedIncidents: 3,
   }, 5000);
 
-  assert.equal(hydrated.version, 3);
+  assert.equal(hydrated.version, 4);
   assert.equal(hydrated.wallet.coins, 99);
   assert.equal(hydrated.wallet.linkPoints, 0);
   assert.deepEqual(hydrated.selectedSquad, ['pantry-cat']);
@@ -244,6 +299,7 @@ test('saved state hydration preserves legacy squads and migrates incident fields
     id: 'coffee-order',
     instanceId: 'legacy-coffee-order-4000',
     arrivedAt: 4000,
+    expiresAt: 604000,
   });
   assert.deepEqual(hydrated.completedIncidentInstanceIds, ['done-1']);
   assert.deepEqual(hydrated.recentIncidentIds, ['coffee-order', 'boss-footsteps']);

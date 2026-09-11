@@ -42,7 +42,13 @@ import {
 } from './data/cardCatalog.js';
 import { incidentById } from './data/incidentCatalog.js';
 import { addCardsToCollection, openPack } from './core/packEngine.js';
-import { chooseIncident, nextIncidentDelay, resolveIncidentChoice } from './core/incidentEngine.js';
+import {
+  chooseIncident,
+  incidentExpiresAt,
+  isIncidentExpired,
+  nextIncidentDelay,
+  resolveIncidentChoice,
+} from './core/incidentEngine.js';
 import {
   calculateSquadScore,
   cardExpeditionPower,
@@ -52,6 +58,12 @@ import {
 } from './core/expeditionEngine.js';
 import { createRaidState } from './core/raidEngine.js';
 import { appendActivity, createGameStore } from './core/gameState.js';
+import {
+  cardsForPendingPack,
+  createPendingPackOpening,
+  revealPendingPackCard,
+  unrevealedPackCardCount,
+} from './core/packOpeningSession.js';
 import { createAuthSessionStore } from './core/authSession.js';
 import { availableRaidSquad, toggleSquadSelection } from './core/squadSelection.js';
 import { desktopBridge } from './services/desktopBridge.js';
@@ -113,6 +125,7 @@ const views = {
 
 const ui = {
   view: 'dashboard',
+  renderedView: null,
   modal: null,
   selectedMissionId: EXPEDITIONS[0].id,
   rarityFilter: 'all',
@@ -121,6 +134,7 @@ const ui = {
   updateStatus: null,
   appVersion: '...',
   incidentScheduling: false,
+  incidentExpiring: false,
   raidMode: 'personal',
   raidPanel: 'battle',
   raid: {
@@ -200,6 +214,10 @@ function highestRarity(cards = []) {
 
 function cardPower(card) {
   return cardExpeditionPower(card);
+}
+
+function requiresPackReveal(card) {
+  return rarityRank(card?.rarity) >= PACK_FLIP_THRESHOLD;
 }
 
 function cardDisplayName(card) {
@@ -461,6 +479,7 @@ function renderTopbar(state) {
 
 function renderDashboard(state) {
   const pack = PACK_DEFINITION.standard;
+  const pendingPackOpening = state.pendingPackOpening;
   const featured = [CARD_CATALOG.at(-1), CARD_CATALOG.at(-3), CARD_CATALOG.find((card) => card.rarity === 'sr')];
   const expedition = state.expedition;
   const mission = expedition ? expeditionById(expedition.missionId) : null;
@@ -475,7 +494,7 @@ function renderDashboard(state) {
             <span class="eyebrow">TODAY'S FILE</span>
             <h2 id="pack-title">${pack.name}</h2>
           </div>
-          <span class="pity-label">SR 이상 확정까지 ${Math.max(1, pack.pityPacks - state.pity.standard)}팩</span>
+          <span class="pity-label">${pendingPackOpening ? '미확인 특별 카드가 있습니다' : `SR 이상 확정까지 ${Math.max(1, pack.pityPacks - state.pity.standard)}팩`}</span>
         </div>
         <div class="pack-stage">
           <div class="pack-stack" aria-hidden="true">
@@ -495,9 +514,9 @@ function renderDashboard(state) {
               <span>미개봉</span>
               <strong>${formatNumber(state.packs.standard)}<small>팩</small></strong>
             </div>
-            <button class="primary-button" type="button" data-action="open-pack" ${state.packs.standard <= 0 ? 'disabled' : ''}>
-              <i data-lucide="package-open"></i>
-              5장 개봉
+            <button class="primary-button" type="button" data-action="${pendingPackOpening ? 'resume-pack-opening' : 'open-pack'}" ${!pendingPackOpening && state.packs.standard <= 0 ? 'disabled' : ''}>
+              <i data-lucide="${pendingPackOpening ? 'sparkles' : 'package-open'}"></i>
+              ${pendingPackOpening ? '미확인 카드 이어보기' : '5장 개봉'}
             </button>
             <button class="secondary-button" type="button" data-action="buy-pack" ${state.wallet.coins < pack.coinPrice ? 'disabled' : ''}>
               <i data-lucide="coins"></i>
@@ -573,7 +592,11 @@ function renderDashboard(state) {
           return `
             <div class="incident-copy">
               <span class="incident-pulse"></span>
-              <div><strong>${escapeHtml(incident.title)}</strong><span>${escapeHtml(incident.summary)}</span></div>
+              <div>
+                <strong>${escapeHtml(incident.title)}</strong>
+                <span>${escapeHtml(incident.summary)}</span>
+                <span class="incident-expiry" data-incident-countdown="${state.activeIncident.expiresAt}">남은 시간 ${formatDuration(state.activeIncident.expiresAt - Date.now())}</span>
+              </div>
             </div>
             <button class="alert-button" type="button" data-action="open-incident">즉시 확인</button>
           `;
@@ -961,6 +984,9 @@ function renderPackModal(cards, pityTriggered, state, modal) {
   const highest = modal.highestRarity || highestRarity(cards);
   const premiumPack = rarityRank(highest) >= PACK_FLIP_THRESHOLD;
   const revealedCards = new Set(modal.revealedCards || []);
+  const unrevealedCount = cards.reduce((count, card, index) => (
+    count + (premiumPack && requiresPackReveal(card) && !revealedCards.has(index) ? 1 : 0)
+  ), 0);
   return `
     <div class="modal-backdrop pack-backdrop rarity-${highest}" data-action="close-modal">
       <section class="modal-sheet pack-opening-modal" role="dialog" aria-modal="true" aria-labelledby="pack-result-title" data-modal-panel>
@@ -975,7 +1001,7 @@ function renderPackModal(cards, pityTriggered, state, modal) {
             return `
             <article class="result-card rarity-${card.rarity} ${revealClass}" style="--reveal-delay:${index * 90}ms">
               <div class="result-card__art ${revealClass}">
-                ${faceDown ? `<button class="result-card__reveal" type="button" data-action="reveal-pack-card" data-card-index="${index}" aria-label="${rarityLabel(card.rarity)} 카드 뒤집기"><span class="card-back-mark">HC</span><strong>카드 봉인</strong><small>눌러서 공개</small></button>` : `<img src="${card.image}" alt="${escapeHtml(cardDisplayName(card))}" /><span>${rarityLabel(card.rarity)}</span><b class="card-power">전투력 ${formatNumber(cardPower(card))}</b>`}
+                ${faceDown ? `<button class="result-card__reveal" type="button" data-action="reveal-pack-card" data-opening-id="${escapeHtml(modal.openingId || '')}" data-card-index="${index}" aria-label="${rarityLabel(card.rarity)} 카드 뒤집기"><span class="card-back-mark">HC</span><strong>카드 봉인</strong><small>눌러서 공개</small></button>` : `<img src="${card.image}" alt="${escapeHtml(cardDisplayName(card))}" /><span>${rarityLabel(card.rarity)}</span><b class="card-power">전투력 ${formatNumber(cardPower(card))}</b>`}
               </div>
               <div class="result-card__copy">${faceDown ? '<small>특수 공개 대기</small><strong>잠긴 카드</strong><span>카드를 눌러 내용을 확인하세요.</span>' : `<small>${escapeHtml(card.department)}</small><strong>${escapeHtml(cardDisplayName(card))}</strong><span>${escapeHtml(card.trait)}</span>`}</div>
             </article>
@@ -983,7 +1009,9 @@ function renderPackModal(cards, pityTriggered, state, modal) {
         </div>
         <div class="modal-actions">
           <button class="secondary-button" type="button" data-action="navigate-from-modal" data-view="collection">도감 보기</button>
-          ${hasPack ? `
+          ${unrevealedCount > 0 ? `
+            <button class="primary-button" type="button" disabled>봉인 카드 ${formatNumber(unrevealedCount)}장 먼저 공개</button>
+          ` : hasPack ? `
             <button class="primary-button" type="button" data-action="open-another-pack">한 팩 더 개봉 · ${formatNumber(state.packs.standard)}팩 보유</button>
           ` : `
             <button class="secondary-button" type="button" disabled>미개봉 카드팩 없음</button>
@@ -1043,7 +1071,7 @@ function renderIncidentModal(incident) {
   `;
 }
 
-function renderResultModal(result) {
+function renderResultModal(result, state) {
   return `
     <div class="modal-backdrop" data-action="close-modal">
       <section class="modal-sheet compact-modal" role="dialog" aria-modal="true" aria-labelledby="result-title" data-modal-panel>
@@ -1052,7 +1080,12 @@ function renderResultModal(result) {
         <h2 id="result-title">처리 완료</h2>
         <p>${escapeHtml(result.message)}</p>
         <div class="reward-line">${result.rewardText}</div>
-        <button class="primary-button" type="button" data-action="close-modal">확인</button>
+        ${state.pendingPackOpening ? `
+          <div class="modal-actions">
+            <button class="secondary-button" type="button" data-action="close-modal">나중에 확인</button>
+            <button class="primary-button" type="button" data-action="resume-pack-opening">미확인 카드 계속 보기</button>
+          </div>
+        ` : '<button class="primary-button" type="button" data-action="close-modal">확인</button>'}
       </section>
     </div>
   `;
@@ -1070,7 +1103,7 @@ function renderSettingsModal(state) {
           <span><strong>${escapeHtml(account?.nickname || state.profile.displayName)}</strong><small>@${escapeHtml(account?.username || '')} · ${ui.auth.offline ? '오프라인 진행 중' : '로그인됨'}</small></span>
           <button class="secondary-button" type="button" data-action="logout">로그아웃</button>
         </div>
-        <label class="toggle-row"><span><strong>돌발 업무 알림</strong><small>12~24분 뒤 새 업무가 발생합니다. 일반 92% · 특수 7% · 신화 1%</small></span><input type="checkbox" data-action="toggle-notifications" ${state.settings.incidentNotifications ? 'checked' : ''} /><i></i></label>
+        <label class="toggle-row"><span><strong>데스크톱 팝업 알림</strong><small>꺼도 돌발 업무는 계속 발생하며 업무판에서 10분간 유지됩니다.</small></span><input type="checkbox" data-action="toggle-notifications" ${state.settings.incidentNotifications ? 'checked' : ''} /><i></i></label>
         <label class="toggle-row"><span><strong>은밀 근무 모드</strong><small>창 닫기 시 앱을 종료하지 않고 숨깁니다.</small></span><input type="checkbox" data-action="toggle-discreet" ${state.settings.discreetMode ? 'checked' : ''} /><i></i></label>
         <label class="toggle-row"><span><strong>월급루팡 모드</strong><small>모든 카드 일러스트를 가리고 카드 이름과 등급만 표시합니다.</small></span><input type="checkbox" data-action="toggle-payroll-mode" ${state.settings.payrollMode ? 'checked' : ''} /><i></i></label>
         <div class="settings-footer"><span>버전 ${escapeHtml(ui.appVersion)}</span><button class="danger-text-button" type="button" data-action="reset-progress">로컬 기록 초기화</button></div>
@@ -1084,13 +1117,18 @@ function renderModal(state) {
   if (ui.modal.type === 'pack') return renderPackModal(ui.modal.cards, ui.modal.pityTriggered, state, ui.modal);
   if (ui.modal.type === 'card') return renderCardModal(cardById(ui.modal.cardId), state);
   if (ui.modal.type === 'incident') return renderIncidentModal(ui.modal.incident);
-  if (ui.modal.type === 'result') return renderResultModal(ui.modal);
+  if (ui.modal.type === 'result') return renderResultModal(ui.modal, state);
   if (ui.modal.type === 'settings') return renderSettingsModal(state);
   return '';
 }
 
-function render() {
+function render({ preserveViewScroll = ui.renderedView === ui.view } = {}) {
+  const currentViewHost = preserveViewScroll ? app.querySelector('.view-host') : null;
+  const savedViewScroll = currentViewHost
+    ? { top: currentViewHost.scrollTop, left: currentViewHost.scrollLeft }
+    : null;
   if (ui.auth.phase !== 'authenticated' || !store) {
+    ui.renderedView = null;
     app.innerHTML = renderAuthScreen();
     refreshIcons();
     syncAuthFormControls();
@@ -1108,7 +1146,15 @@ function render() {
       ${renderModal(state)}
     </div>
   `;
+  ui.renderedView = ui.view;
   refreshIcons();
+  if (savedViewScroll) {
+    const nextViewHost = app.querySelector('.view-host');
+    if (nextViewHost) {
+      nextViewHost.scrollTop = savedViewScroll.top;
+      nextViewHost.scrollLeft = savedViewScroll.left;
+    }
+  }
 }
 
 function rewardText(reward = {}) {
@@ -1119,7 +1165,75 @@ function rewardText(reward = {}) {
   return parts.join('') || '<span>기록 갱신</span>';
 }
 
+function showPackOpeningModal(opening, cards, { renderNow = true } = {}) {
+  ui.modal = {
+    type: 'pack',
+    cards,
+    pityTriggered: opening.pityTriggered,
+    highestRarity: highestRarity(cards),
+    revealedCards: opening.revealedIndices,
+    openingId: opening.id,
+    pendingOpening: true,
+  };
+  if (renderNow) render();
+}
+
+function addPendingPackToCollection(draft, opening, cards) {
+  if (draft.pendingPackOpening?.id !== opening.id) return false;
+  draft.collection = addCardsToCollection(draft.collection, cards);
+  draft.pendingPackOpening = null;
+  appendActivity(draft, `공개를 마친 카드 ${cards.length}장을 인사기록에 등록했습니다.`, 'pack');
+  return true;
+}
+
+function resumePendingPackOpening() {
+  const opening = store.getState().pendingPackOpening;
+  if (!opening) return false;
+  const cards = cardsForPendingPack(opening, cardById);
+  if (!cards) {
+    showNotice('저장된 카드팩 결과를 아직 복원하지 못했습니다. 기록은 안전하게 보존됩니다.', 'warning');
+    return true;
+  }
+  const remaining = unrevealedPackCardCount(opening, cards, requiresPackReveal);
+  if (remaining === 0) {
+    store.update((draft) => { addPendingPackToCollection(draft, opening, cards); });
+    ui.modal = {
+      type: 'pack', cards, pityTriggered: opening.pityTriggered,
+      highestRarity: highestRarity(cards),
+      revealedCards: opening.revealedIndices, openingId: opening.id, pendingOpening: false,
+    };
+    render();
+    return true;
+  }
+  showPackOpeningModal(opening, cards);
+  return true;
+}
+
+function revealPackCardAtIndex(cardIndex, openingId) {
+  const current = store.getState().pendingPackOpening;
+  if (!current || current.id !== openingId || ui.modal?.openingId !== openingId) return false;
+  const cards = cardsForPendingPack(current, cardById);
+  if (!cards) return false;
+  let nextOpening = current;
+  let finalized = false;
+  store.update((draft) => {
+    const opening = draft.pendingPackOpening;
+    if (!opening || opening.id !== openingId) return;
+    const result = revealPendingPackCard(opening, cardIndex, cards, requiresPackReveal);
+    if (!result.changed) return;
+    nextOpening = result.opening;
+    if (result.completed) finalized = addPendingPackToCollection(draft, result.opening, cards);
+    else draft.pendingPackOpening = result.opening;
+  });
+  if (nextOpening === current) return false;
+  ui.modal.revealedCards = nextOpening.revealedIndices;
+  ui.modal.pendingOpening = !finalized;
+  render();
+  return true;
+}
+
 function openStandardPack() {
+  if (resumePendingPackOpening()) return;
   const state = store.getState();
   if (state.packs.standard <= 0) {
     showNotice('미개봉 카드팩이 없습니다.', 'warning');
@@ -1130,15 +1244,28 @@ function openStandardPack() {
     definition: PACK_DEFINITION.standard,
     pity: state.pity.standard,
   });
+  const highest = highestRarity(result.cards);
+  const premiumPack = rarityRank(highest) >= PACK_FLIP_THRESHOLD;
+  const opening = premiumPack ? createPendingPackOpening({
+    cards: result.cards,
+    pityTriggered: result.pityTriggered,
+    highestRarity: highest,
+  }) : null;
   store.update((draft) => {
     draft.packs.standard -= 1;
     draft.pity.standard = result.nextPity;
-    draft.collection = addCardsToCollection(draft.collection, result.cards);
-    appendActivity(draft, `인물 파일에서 카드 ${result.cards.length}장을 발견했습니다.`, 'pack');
+    if (opening) {
+      draft.pendingPackOpening = opening;
+      appendActivity(draft, '인물 파일에서 특별 카드 봉인을 발견했습니다.', 'pack');
+    } else {
+      draft.collection = addCardsToCollection(draft.collection, result.cards);
+      appendActivity(draft, `인물 파일에서 카드 ${result.cards.length}장을 발견했습니다.`, 'pack');
+    }
   });
   ui.modal = {
     type: 'pack', cards: result.cards, pityTriggered: result.pityTriggered,
-    highestRarity: highestRarity(result.cards), revealedCards: [],
+    highestRarity: highest, revealedCards: [],
+    openingId: opening?.id || '', pendingOpening: Boolean(opening),
   };
   render();
 }
@@ -1171,7 +1298,7 @@ function toggleSquadCard(cardId, context = 'adventure') {
     const field = context === 'raid' ? 'selectedRaidSquad' : 'selectedExpeditionSquad';
     draft[field] = toggleSquadSelection(draft[field], cardId, { unavailableIds });
   });
-  render();
+  render({ preserveViewScroll: true });
 }
 
 function beginExpedition() {
@@ -1373,7 +1500,7 @@ async function resolveActiveIncident({ choiceId, instanceId = null, incidentId =
 async function scheduleNextIncident() {
   if (!store || ui.auth.phase !== 'authenticated') return false;
   const state = store.getState();
-  if (ui.incidentScheduling || state.activeIncident || !state.settings.incidentNotifications) return;
+  if (ui.incidentScheduling || state.activeIncident) return false;
   ui.incidentScheduling = true;
   try {
     const now = Date.now();
@@ -1417,8 +1544,14 @@ function handleIncidentArrived(incident) {
   if (!canonical) return;
   const current = store.getState().activeIncident;
   if (current) return;
+  const arrivedAt = Date.now();
   store.update((draft) => {
-    draft.activeIncident = { id: incident.id, instanceId: incident.instanceId, arrivedAt: Date.now() };
+    draft.activeIncident = {
+      id: incident.id,
+      instanceId: incident.instanceId,
+      arrivedAt,
+      expiresAt: incidentExpiresAt(arrivedAt),
+    };
     draft.recentIncidentIds = [incident.id, ...(draft.recentIncidentIds || []).filter((id) => id !== incident.id)].slice(0, 5);
     draft.pendingIncident = null;
     draft.nextIncidentAt = null;
@@ -1426,6 +1559,47 @@ function handleIncidentArrived(incident) {
     appendActivity(draft, `돌발 업무 도착: ${canonical.title}`, 'incident');
   });
   showNotice('새 돌발 업무가 도착했습니다.', 'warning');
+}
+
+async function expireActiveIncidentIfNeeded() {
+  if (!store || ui.auth.phase !== 'authenticated' || ui.incidentExpiring) return false;
+  const active = store.getState().activeIncident;
+  if (!isIncidentExpired(active)) return false;
+  ui.incidentExpiring = true;
+  const canonical = incidentById(active.id);
+  try {
+    store.update((draft) => {
+      if (draft.activeIncident?.instanceId !== active.instanceId) return;
+      draft.activeIncident = null;
+      draft.pendingIncident = null;
+      draft.nextIncidentAt = null;
+      draft.incidentScheduled = false;
+      appendActivity(draft, `돌발 업무 만료: ${canonical?.title || active.id}`, 'incident');
+    });
+    if (ui.modal?.type === 'incident'
+      && ui.modal.incident?.id === active.id) ui.modal = null;
+    showNotice('돌발 업무의 10분 제한 시간이 끝났습니다.', 'warning');
+    try {
+      await desktopBridge.clearActiveIncident(active.instanceId);
+    } catch (error) {
+      console.warn('Could not clear an expired incident notification:', error);
+    }
+  } finally {
+    ui.incidentExpiring = false;
+  }
+  await scheduleNextIncident();
+  return true;
+}
+
+async function startIncidentRuntime() {
+  if (!store || ui.auth.phase !== 'authenticated') return;
+  try {
+    await desktopBridge.setIncidentNotifications(store.getState().settings.incidentNotifications);
+  } catch (error) {
+    console.warn('Could not sync the desktop incident notification setting:', error);
+  }
+  if (await expireActiveIncidentIfNeeded()) return;
+  await scheduleNextIncident();
 }
 
 function resetAuthAvailability(field = null) {
@@ -1501,7 +1675,7 @@ function activateAuthenticatedSession(session, { offline = false } = {}) {
   ui.view = 'dashboard';
   ui.modal = null;
   render();
-  void scheduleNextIncident();
+  void startIncidentRuntime();
 }
 
 async function submitLogin(form) {
@@ -1626,7 +1800,7 @@ app.addEventListener('click', async (event) => {
     ui.modal = null;
     render();
     if (ui.view === 'raid' && ui.raidMode === 'personal') void refreshPersonalRaid({ silent: true });
-  } else if (action === 'open-pack' || action === 'open-another-pack') {
+  } else if (action === 'open-pack' || action === 'open-another-pack' || action === 'resume-pack-opening') {
     openStandardPack();
   } else if (action === 'buy-pack') {
     buyStandardPack();
@@ -1636,8 +1810,7 @@ app.addEventListener('click', async (event) => {
     if (ui.modal?.type !== 'pack') return;
     const index = Number(button.dataset.cardIndex);
     if (!Number.isInteger(index) || index < 0 || index >= ui.modal.cards.length) return;
-    ui.modal.revealedCards = [...new Set([...(ui.modal.revealedCards || []), index])];
-    render();
+    revealPackCardAtIndex(index, button.dataset.openingId);
   } else if (action === 'open-card') {
     ui.modal = { type: 'card', cardId: button.dataset.cardId };
     render();
@@ -1690,12 +1863,14 @@ app.addEventListener('click', async (event) => {
   } else if (action === 'toggle-notifications') {
     store.update((draft) => {
       draft.settings.incidentNotifications = button.checked;
-      draft.pendingIncident = null;
-      draft.nextIncidentAt = null;
-      draft.incidentScheduled = false;
     });
-    if (button.checked) await scheduleNextIncident();
-    else await desktopBridge.cancelIncident();
+    await desktopBridge.setIncidentNotifications(button.checked);
+    showNotice(
+      button.checked
+        ? '데스크톱 팝업 알림을 켰습니다.'
+        : '데스크톱 팝업만 껐습니다. 돌발 업무는 업무판에 계속 표시됩니다.',
+      'success',
+    );
   } else if (action === 'toggle-discreet') {
     store.update((draft) => {
       draft.settings.discreetMode = button.checked;
@@ -1744,9 +1919,16 @@ app.addEventListener('input', (event) => {
 
 function updateLiveTimers() {
   if (!store || ui.auth.phase !== 'authenticated') return;
+  if (isIncidentExpired(store.getState().activeIncident)) {
+    void expireActiveIncidentIfNeeded();
+    return;
+  }
   if (completeExpeditionIfReady()) return;
   document.querySelectorAll('[data-countdown]').forEach((node) => {
     node.textContent = formatDuration(Number(node.dataset.countdown) - Date.now());
+  });
+  document.querySelectorAll('[data-incident-countdown]').forEach((node) => {
+    node.textContent = `남은 시간 ${formatDuration(Number(node.dataset.incidentCountdown) - Date.now())}`;
   });
   const state = store.getState();
   if (state.expedition) {

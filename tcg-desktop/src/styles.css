@@ -1785,6 +1785,12 @@ svg {
   text-align: center;
 }
 
+.incident-copy .incident-expiry {
+  color: #b74839;
+  font-family: Consolas, monospace;
+  font-weight: 800;
+}
+
 .deployed-squad small {
   color: var(--muted);
   font-size: 9px;
@@ -2620,6 +2626,14 @@ svg {
 .compact-modal .primary-button {
   min-width: 110px;
   margin-top: 22px;
+}
+
+.compact-modal .modal-actions {
+  justify-content: center;
+}
+
+.compact-modal .modal-actions .primary-button {
+  margin-top: 0;
 }
 
 .reward-line {

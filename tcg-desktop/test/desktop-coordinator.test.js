@@ -6,7 +6,13 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 
 const require = createRequire(import.meta.url);
-const { normalizeIncident, createIncidentCoordinator, createUpdateCoordinator, toastBounds } = require('../electron/desktop-coordinator.cjs');
+const {
+  normalizeIncident,
+  createIncidentCoordinator,
+  createIncidentDeliveryCoordinator,
+  createUpdateCoordinator,
+  toastBounds,
+} = require('../electron/desktop-coordinator.cjs');
 const sourceIncident = { id: 'lucky-box', title: '상자 발견', summary: '확인해 볼까요?', choices: [{ id: 'open', label: '열기', reward: { packs: 999 } }, { id: 'pass', label: '지나가기' }] };
 const deferred = () => {
   let resolve;
@@ -74,6 +80,30 @@ test('a delayed reply for a resolved popup cannot clear a newly active event', a
   await choosing;
   assert.equal(manager.active.instanceId, 'new');
   assert.equal(manager.clear('old'), false);
+});
+
+test('desktop popup preference never suppresses delivery to the main game', () => {
+  const delivered = [];
+  const toasts = [];
+  let closedToasts = 0;
+  const delivery = createIncidentDeliveryCoordinator({
+    activate: (incident) => incident,
+    sendToMain: (incident) => delivered.push(incident),
+    showToast: (incident) => toasts.push(incident),
+    closeToast: () => { closedToasts += 1; },
+  });
+  const quietIncident = normalizeIncident(sourceIncident, 'quiet');
+  delivery.setNotificationsEnabled(false);
+  delivery.deliver(quietIncident);
+  assert.deepEqual(delivered, [quietIncident]);
+  assert.deepEqual(toasts, []);
+  assert.equal(closedToasts, 1);
+
+  const notifiedIncident = normalizeIncident(sourceIncident, 'notified');
+  delivery.setNotificationsEnabled(true);
+  delivery.deliver(notifiedIncident);
+  assert.deepEqual(delivered, [quietIncident, notifiedIncident]);
+  assert.deepEqual(toasts, [notifiedIncident]);
 });
 
 test('popup bounds remain inside offset and small display work areas', () => {
@@ -190,4 +220,17 @@ test('preload converts renderer persistence exceptions to failure acknowledgemen
   await tick();
   assert.equal(sent[0][1].ok, false);
   assert.equal(sent[0][1].message, 'disk full');
+});
+
+test('preload exposes the desktop popup preference independently from incident cancellation', async () => {
+  const ipc = new EventEmitter();
+  const invoked = [];
+  ipc.invoke = async (...args) => { invoked.push(args); return true; };
+  ipc.send = () => {};
+  let bridge;
+  runInNewContext(readFileSync(new URL('../electron/preload.cjs', import.meta.url), 'utf8'), {
+    require: () => ({ ipcRenderer: ipc, contextBridge: { exposeInMainWorld: (_name, value) => { bridge = value; } } }),
+  });
+  await bridge.setIncidentNotifications(false);
+  assert.deepEqual(invoked, [['incident:notifications', false]]);
 });

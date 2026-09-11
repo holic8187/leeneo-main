@@ -48,6 +48,25 @@ function createIncidentCoordinator({ resolveChoice }) {
   };
 }
 
+function createIncidentDeliveryCoordinator({ activate, sendToMain, showToast, closeToast }) {
+  let notificationsEnabled = true;
+  return {
+    get notificationsEnabled() { return notificationsEnabled; },
+    setNotificationsEnabled(enabled) {
+      notificationsEnabled = enabled !== false;
+      if (!notificationsEnabled) closeToast();
+      return notificationsEnabled;
+    },
+    deliver(incident) {
+      const active = activate(incident);
+      if (!active) return null;
+      sendToMain(active);
+      if (notificationsEnabled) showToast(active);
+      return active;
+    },
+  };
+}
+
 function createUpdateCoordinator({ updater, isPackaged, prepareInstall, install, emit }) {
   let checking = null;
   let installing = null;
@@ -112,4 +131,10 @@ function toastBounds(workArea, choiceCount) {
   };
 }
 
-module.exports = { normalizeIncident, createIncidentCoordinator, createUpdateCoordinator, toastBounds };
+module.exports = {
+  normalizeIncident,
+  createIncidentCoordinator,
+  createIncidentDeliveryCoordinator,
+  createUpdateCoordinator,
+  toastBounds,
+};

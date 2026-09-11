@@ -147,7 +147,7 @@ async function findDailyRecord(TcgPersonalRaidDaily, key) {
   return resolveLean(TcgPersonalRaidDaily.findOne(key));
 }
 
-async function ensureDailyRecord(TcgPersonalRaidDaily, key, account, boss, nowDate) {
+async function ensureDailyRecord(TcgPersonalRaidDaily, key, account, boss) {
   try {
     await TcgPersonalRaidDaily.updateOne(key, {
       $setOnInsert: {
@@ -160,9 +160,7 @@ async function ensureDailyRecord(TcgPersonalRaidDaily, key, account, boss, nowDa
         lastDispatchAt: null,
         lastDamage: 0,
         lastSquadScore: 0,
-        revision: 0,
-        createdAt: nowDate,
-        updatedAt: nowDate
+        revision: 0
       }
     }, { upsert: true });
   } catch (error) {
@@ -213,7 +211,7 @@ async function dispatchPersonalRaid({
   const key = { accountId, dayKey: window.dayKey, bossId: boss.id };
   const rolledDamage = calculatePersonalRaidDamage(score, boss, random);
 
-  await ensureDailyRecord(TcgPersonalRaidDaily, key, account, boss, nowDate);
+  await ensureDailyRecord(TcgPersonalRaidDaily, key, account, boss);
 
   for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {
     const snapshot = await findDailyRecord(TcgPersonalRaidDaily, key);

@@ -65,8 +65,15 @@ function createFakeRaidModel(seed = []) {
     static async updateOne(query, update, options = {}) {
       const existing = records.find((record) => matches(record, query));
       if (existing || !options.upsert) return { acknowledged: true, matchedCount: existing ? 1 : 0 };
+      if (Object.hasOwn(update.$setOnInsert || {}, 'updatedAt')) {
+        const error = new Error("Updating the path 'updatedAt' would create a conflict at 'updatedAt'");
+        error.code = 40;
+        throw error;
+      }
       const inserted = {
         _id: `daily-${nextId++}`,
+        createdAt: new Date(),
+        updatedAt: new Date(),
         ...clone(update.$setOnInsert || {})
       };
       records.push(inserted);
