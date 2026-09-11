@@ -10,6 +10,7 @@ const PERSONAL_RAID_MAX_SQUAD_SCORE = 60_000;
 const DEFAULT_RANKING_LIMIT = 50;
 const MAX_RANKING_LIMIT = 100;
 const MAX_CAS_ATTEMPTS = 5;
+const PERSONAL_RAID_CLEAR_REWARD = Object.freeze({ coins: 5_000, packs: 1 });
 
 const PERSONAL_RAID_BOSSES = Object.freeze({
   'deadline-dragon-raid': Object.freeze({
@@ -127,6 +128,11 @@ function serializePersonalRaidState(record, account, boss, window, now = Date.no
     totalContribution: Math.max(0, Number(record?.contribution) || 0),
     dispatches: Math.max(0, Number(record?.dispatchCount) || 0),
     clears,
+    rewardKey: `${window.dayKey}:${boss.id}`,
+    earnedRewards: {
+      coins: clears * PERSONAL_RAID_CLEAR_REWARD.coins,
+      packs: clears * PERSONAL_RAID_CLEAR_REWARD.packs
+    },
     maxClears: boss.maxDailyClears,
     maxDailyClears: boss.maxDailyClears,
     cooldownMs: boss.cooldownMs,
@@ -197,7 +203,8 @@ async function dispatchPersonalRaid({
   bossId = 'deadline-dragon-raid',
   squadScore,
   now = Date.now(),
-  random = secureRandom
+  random = secureRandom,
+  validateSession = null
 }) {
   const boss = getPersonalRaidBoss(bossId);
   if (!boss) {
@@ -211,6 +218,7 @@ async function dispatchPersonalRaid({
   const key = { accountId, dayKey: window.dayKey, bossId: boss.id };
   const rolledDamage = calculatePersonalRaidDamage(score, boss, random);
 
+  if (typeof validateSession === 'function') await validateSession();
   await ensureDailyRecord(TcgPersonalRaidDaily, key, account, boss);
 
   for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {
@@ -228,6 +236,9 @@ async function dispatchPersonalRaid({
     const revision = Math.max(0, Number(snapshot.revision) || 0);
     const lastDispatchAt = snapshot.lastDispatchAt ? new Date(snapshot.lastDispatchAt) : null;
 
+    // The lease can move to another device while damage is being calculated.
+    // Recheck immediately before the raid row is committed.
+    if (typeof validateSession === 'function') await validateSession();
     const updated = await TcgPersonalRaidDaily.findOneAndUpdate({
       _id: snapshot._id,
       revision,
@@ -264,8 +275,8 @@ async function dispatchPersonalRaid({
         cleared,
         clearNumber: cleared ? clearsAfter : null,
         reward: {
-          coins: cleared ? 5_000 : 0,
-          packs: cleared ? 1 : 0
+          coins: cleared ? PERSONAL_RAID_CLEAR_REWARD.coins : 0,
+          packs: cleared ? PERSONAL_RAID_CLEAR_REWARD.packs : 0
         }
       }
     };
@@ -383,6 +394,7 @@ module.exports = {
   KST_OFFSET_MS,
   MAX_RANKING_LIMIT,
   PERSONAL_RAID_BOSSES,
+  PERSONAL_RAID_CLEAR_REWARD,
   PERSONAL_RAID_COOLDOWN_MS,
   PERSONAL_RAID_MAX_DAILY_CLEARS,
   PERSONAL_RAID_MAX_SQUAD_SCORE,

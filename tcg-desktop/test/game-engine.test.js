@@ -343,7 +343,7 @@ test('saved state hydration preserves legacy squads and migrates incident fields
     resolvedIncidents: 3,
   }, 5000);
 
-  assert.equal(hydrated.version, 4);
+  assert.equal(hydrated.version, 5);
   assert.equal(hydrated.wallet.coins, 99);
   assert.equal(hydrated.wallet.linkPoints, 0);
   assert.deepEqual(hydrated.selectedSquad, ['pantry-cat']);

@@ -21739,7 +21739,7 @@ registerTcgRoutes({
   bcrypt,
   jwt,
   jwtSecret: TCG_JWT_SECRET,
-  tokenExpiresIn: process.env.TCG_JWT_EXPIRES_IN || '7d'
+  tokenExpiresIn: process.env.TCG_JWT_EXPIRES_IN || null
 });
 
 const PORT = process.env.PORT || 5000;

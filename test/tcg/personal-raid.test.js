@@ -191,6 +191,13 @@ test('dispatch enforces a 60-second cooldown and two deadline-dragon clears per 
   assert.deepEqual(first.result.reward, { coins: 5_000, packs: 1 });
   assert.equal(first.record.clearCount, 1);
   assert.equal(first.record.currentHp, 2_800_000, 'the second daily attempt is prepared after a clear');
+  const firstState = await getPersonalRaidState({
+    TcgPersonalRaidDaily: RaidDaily,
+    account,
+    now: firstAt
+  });
+  assert.equal(firstState.state.rewardKey, '2026-09-10:deadline-dragon-raid');
+  assert.deepEqual(firstState.state.earnedRewards, { coins: 5_000, packs: 1 });
 
   await assert.rejects(() => dispatchPersonalRaid({
     TcgPersonalRaidDaily: RaidDaily,
@@ -210,6 +217,12 @@ test('dispatch enforces a 60-second cooldown and two deadline-dragon clears per 
   assert.equal(second.record.clearCount, 2);
   assert.equal(second.record.currentHp, 0);
   assert.equal(second.record.contribution, 5_600_000);
+  const secondState = await getPersonalRaidState({
+    TcgPersonalRaidDaily: RaidDaily,
+    account,
+    now: firstAt + PERSONAL_RAID_COOLDOWN_MS
+  });
+  assert.deepEqual(secondState.state.earnedRewards, { coins: 10_000, packs: 2 });
 
   await assert.rejects(() => dispatchPersonalRaid({
     TcgPersonalRaidDaily: RaidDaily,
@@ -233,6 +246,29 @@ test('optimistic atomic revision permits only one concurrent dispatch', async ()
   assert.equal(rejected.reason.code, 'RAID_COOLDOWN');
   assert.equal(RaidDaily.records[0].dispatchCount, 1);
   assert.equal(RaidDaily.records[0].contribution, 123_250);
+});
+
+test('dispatch revalidates an attached play session immediately before committing damage', async () => {
+  const RaidDaily = createFakeRaidModel();
+  const account = createAccount('session-race-account');
+  let checks = 0;
+  await assert.rejects(() => dispatchPersonalRaid({
+    TcgPersonalRaidDaily: RaidDaily,
+    account,
+    squadScore: 1_000,
+    now: Date.parse('2026-09-10T05:30:00.000Z'),
+    random: () => 0,
+    validateSession: async () => {
+      checks += 1;
+      if (checks === 2) {
+        throw new PersonalRaidError('PLAY_SESSION_LOST_FOR_TEST', 'session moved', 409);
+      }
+    }
+  }), (error) => error.code === 'PLAY_SESSION_LOST_FOR_TEST');
+  assert.equal(checks, 2);
+  assert.equal(RaidDaily.records.length, 1);
+  assert.equal(RaidDaily.records[0].dispatchCount, 0);
+  assert.equal(RaidDaily.records[0].contribution, 0);
 });
 
 test('a new KST day gets a fresh raid state even when yesterday reached its limit', async () => {
@@ -283,13 +319,14 @@ test('daily ranking returns top contributors, tie ranks, and the requesting acco
   assert.equal(ranking.resetsAt, Date.parse('2026-09-10T15:00:00.000Z'));
 });
 
-function createRaidRouteHarness({ now, random = () => 0 } = {}) {
+function createRaidRouteHarness({ now, random = () => 0, TcgPlayerState } = {}) {
   const account = createAccount('route-account', 'API검증');
   const RaidDaily = createFakeRaidModel();
   const routes = new Map();
   const app = {
     post(path, handler) { routes.set(`POST ${path}`, handler); },
-    get(path, handler) { routes.set(`GET ${path}`, handler); }
+    get(path, handler) { routes.set(`GET ${path}`, handler); },
+    put(path, handler) { routes.set(`PUT ${path}`, handler); }
   };
   const TcgAccount = {
     async findById(id) { return String(id) === String(account._id) ? account : null; },
@@ -303,6 +340,7 @@ function createRaidRouteHarness({ now, random = () => 0 } = {}) {
     jwtSecret: TEST_SECRET,
     TcgAccount,
     TcgPersonalRaidDaily: RaidDaily,
+    ...(TcgPlayerState ? { TcgPlayerState } : {}),
     now,
     random
   });
@@ -312,6 +350,7 @@ function createRaidRouteHarness({ now, random = () => 0 } = {}) {
     expiresIn: '1h'
   });
   return {
+    RaidDaily,
     routes,
     token,
     async request(method, path, { body = {}, query = {}, authorized = true } = {}) {
@@ -349,6 +388,8 @@ test('personal raid routes require auth and return state, ranking, cooldown meta
   assert.equal(initial.payload.state.id, 'deadline-dragon-raid');
   assert.equal(initial.payload.state.hp, 2_800_000);
   assert.equal(initial.payload.state.totalContribution, 0);
+  assert.equal(initial.payload.state.rewardKey, '2026-09-10:deadline-dragon-raid');
+  assert.deepEqual(initial.payload.state.earnedRewards, { coins: 0, packs: 0 });
   assert.equal(initial.payload.state.maxClears, 2);
   assert.equal(initial.payload.state.lastDispatchAt, 0);
   assert.equal(typeof initial.payload.state.resetsAt, 'number');
@@ -371,6 +412,67 @@ test('personal raid routes require auth and return state, ranking, cooldown meta
   assert.equal(cooldown.payload.remainingCooldownMs, 45_000);
   assert.equal(cooldown.payload.retryAfterSeconds, 45);
   assert.equal(cooldown.headers['Retry-After'], '45');
+});
+
+test('leased raid dispatch is rejected when another device takes over before the raid write', async () => {
+  const currentTime = Date.parse('2026-09-10T07:00:00.000Z');
+  const playerState = {
+    _id: 'player-state-route-account',
+    accountId: 'route-account',
+    initialized: true,
+    revision: 4,
+    state: { wallet: { coins: 100 } },
+    activeLease: {
+      leaseId: 'pc-lease',
+      deviceId: 'pc-device',
+      platform: 'pc',
+      generation: 3,
+      heartbeatAt: new Date(currentTime),
+      expiresAt: new Date(currentTime + 45_000),
+      appVersion: '0.5.0'
+    }
+  };
+  class SwitchingPlayerState {
+    static exactChecks = 0;
+
+    static async findOne(query) {
+      if (Object.prototype.hasOwnProperty.call(query, 'activeLease.leaseId')) {
+        this.exactChecks += 1;
+        if (this.exactChecks === 1) return clone(playerState);
+        playerState.activeLease = {
+          leaseId: 'android-lease',
+          deviceId: 'android-device',
+          platform: 'android',
+          generation: 4,
+          heartbeatAt: new Date(currentTime),
+          expiresAt: new Date(currentTime + 45_000),
+          appVersion: '0.5.0'
+        };
+        return null;
+      }
+      return clone(playerState);
+    }
+  }
+
+  const harness = createRaidRouteHarness({
+    now: () => currentTime,
+    TcgPlayerState: SwitchingPlayerState
+  });
+  const response = await harness.request('POST', '/api/tcg/raids/personal/dispatch', {
+    body: {
+      bossId: 'deadline-dragon-raid',
+      squadScore: 1_000,
+      leaseId: 'pc-lease',
+      deviceId: 'pc-device',
+      generation: 3
+    }
+  });
+  assert.equal(response.statusCode, 409);
+  assert.equal(response.payload.code, 'PLAY_SESSION_LOST');
+  assert.equal(response.payload.activePlatform, 'android');
+  assert.equal(SwitchingPlayerState.exactChecks, 2);
+  assert.equal(harness.RaidDaily.records[0].dispatchCount, 0);
+  assert.equal(harness.RaidDaily.records[0].contribution, 0);
 });
 
 test('state is account scoped and exposes a null rank before first contribution', async () => {

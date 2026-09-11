@@ -1,5 +1,6 @@
 import { INCIDENT_ACTIVE_DURATION_MS } from './incidentEngine.js';
 import { hydratePendingPackOpening } from './packOpeningSession.js';
+import { hydrateRaidRewardClaims } from './raidRewards.js';
 
 export const STORAGE_KEY = 'hoi-card-desk-state-v1';
 export const ACCOUNT_STORAGE_PREFIX = 'hoi-card-desk-state-v2:';
@@ -9,7 +10,7 @@ const clone = (value) => JSON.parse(JSON.stringify(value));
 
 export function createDefaultState(now = Date.now()) {
   return {
-    version: 4,
+    version: 5,
     profile: {
       displayName: '익명 사원',
       rank: '대리석 책상',
@@ -42,6 +43,7 @@ export function createDefaultState(now = Date.now()) {
     resolvedIncidents: 0,
     incidentScheduled: false,
     raid: null,
+    raidRewardClaims: {},
     link: {
       status: 'unlinked',
       hoiNickname: null,
@@ -126,6 +128,7 @@ export function hydrateState(saved, now = Date.now()) {
   }
 
   state.pendingPackOpening = hydratePendingPackOpening(saved.pendingPackOpening);
+  state.raidRewardClaims = hydrateRaidRewardClaims(saved.raidRewardClaims, saved.raid);
 
   state.recentIncidentIds = Array.isArray(saved.recentIncidentIds)
     ? [...new Set(saved.recentIncidentIds.filter((id) => typeof id === 'string' && id))].slice(0, 12)
@@ -157,6 +160,19 @@ export function storageKeyForUser(userId) {
   const normalized = String(userId || '').trim();
   if (!normalized) return STORAGE_KEY;
   return `${ACCOUNT_STORAGE_PREFIX}${encodeURIComponent(normalized)}`;
+}
+
+export function hasStoredGameState(storage = globalThis.localStorage, userId = '') {
+  try {
+    if (storage?.getItem?.(storageKeyForUser(userId))) return true;
+    if (!userId || storage?.getItem?.(LEGACY_MIGRATION_KEY)) return false;
+    const legacy = storage?.getItem?.(STORAGE_KEY);
+    if (!legacy) return false;
+    const parsed = JSON.parse(legacy);
+    return Boolean(parsed && typeof parsed === 'object' && !Array.isArray(parsed));
+  } catch {
+    return false;
+  }
 }
 
 function readInitialState(storage, storageKey, userId) {

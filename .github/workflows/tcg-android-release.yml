@@ -1,0 +1,173 @@
+name: TCG Android Build
+
+on:
+  push:
+    tags:
+      - "tcg-android-v*"
+  pull_request:
+    paths:
+      - "tcg-desktop/**"
+      - ".github/workflows/tcg-android-release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tcg-android-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  android-build:
+    runs-on: ubuntu-latest
+    env:
+      VITE_TCG_API_BASE: ${{ vars.TCG_API_BASE }}
+    defaults:
+      run:
+        working-directory: tcg-desktop
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: tcg-desktop/pnpm-lock.yaml
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;35.0.0"
+
+      - name: Verify version and API URL
+        shell: bash
+        run: |
+          app_version="$(node -p "require('./package.json').version")"
+          echo "APP_VERSION=$app_version" >> "$GITHUB_ENV"
+
+          if [[ "$GITHUB_REF" == refs/tags/tcg-android-v* ]]; then
+            expected_tag="tcg-android-v$app_version"
+            if [[ "$GITHUB_REF_NAME" != "$expected_tag" ]]; then
+              echo "Tag '$GITHUB_REF_NAME' must exactly match '$expected_tag'." >&2
+              exit 1
+            fi
+          fi
+
+          if [[ -n "$VITE_TCG_API_BASE" ]]; then
+            node -e "const value = process.env.VITE_TCG_API_BASE; const url = new URL(value); if (url.protocol !== 'https:' || url.pathname !== '/' || url.search || url.hash || url.username || url.password) throw new Error('TCG_API_BASE must be an HTTPS origin without a path, query, credentials, or fragment.');"
+          elif [[ "$GITHUB_REF" == refs/tags/tcg-android-v* ]]; then
+            echo "TCG_API_BASE is required for tagged Android releases." >&2
+            exit 1
+          else
+            echo "::warning::TCG_API_BASE is empty. The test APK will build, but server login will be unavailable."
+          fi
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm run android:sync
+
+      - name: Build debug and unsigned release artifacts
+        shell: bash
+        run: |
+          chmod +x android/gradlew
+          cd android
+          ./gradlew --no-daemon assembleDebug assembleRelease bundleRelease
+
+      - name: Stage test artifacts
+        shell: bash
+        run: |
+          output="$RUNNER_TEMP/android-test-artifacts"
+          mkdir -p "$output"
+          cp android/app/build/outputs/apk/debug/app-debug.apk "$output/Hoi-Card-Desk-$APP_VERSION-android-debug.apk"
+          cp android/app/build/outputs/apk/release/app-release-unsigned.apk "$output/Hoi-Card-Desk-$APP_VERSION-android-release-unsigned.apk"
+          cp android/app/build/outputs/bundle/release/app-release.aab "$output/Hoi-Card-Desk-$APP_VERSION-android-release-unsigned.aab"
+
+      - name: Upload test artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: hoi-card-desk-${{ env.APP_VERSION }}-android-test
+          path: ${{ runner.temp }}/android-test-artifacts/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Configure optional release signing
+        shell: bash
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: |
+          if [[ -n "$RELEASE_KEYSTORE_BASE64" && -n "$RELEASE_KEYSTORE_PASSWORD" && -n "$RELEASE_KEY_ALIAS" && -n "$RELEASE_KEY_PASSWORD" ]]; then
+            keystore_file="$RUNNER_TEMP/hoi-card-desk-release.jks"
+            printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$keystore_file"
+            keytool -list -keystore "$keystore_file" -storepass "$RELEASE_KEYSTORE_PASSWORD" -alias "$RELEASE_KEY_ALIAS" > /dev/null
+            echo "ANDROID_SIGNING_READY=true" >> "$GITHUB_ENV"
+          else
+            echo "ANDROID_SIGNING_READY=false" >> "$GITHUB_ENV"
+            echo "::notice::Android signing secrets are incomplete. Debug and unsigned test artifacts are still available."
+          fi
+
+      - name: Build signed release APK and AAB
+        if: env.ANDROID_SIGNING_READY == 'true'
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/hoi-card-desk-release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: |
+          cd android
+          ./gradlew --no-daemon clean assembleRelease bundleRelease
+
+      - name: Stage signed release artifacts
+        if: env.ANDROID_SIGNING_READY == 'true'
+        shell: bash
+        run: |
+          output="$RUNNER_TEMP/android-signed-artifacts"
+          mkdir -p "$output"
+          cp android/app/build/outputs/apk/release/app-release.apk "$output/Hoi-Card-Desk-$APP_VERSION-android-release.apk"
+          cp android/app/build/outputs/bundle/release/app-release.aab "$output/Hoi-Card-Desk-$APP_VERSION-android-release.aab"
+
+      - name: Upload signed release artifacts
+        if: env.ANDROID_SIGNING_READY == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: hoi-card-desk-${{ env.APP_VERSION }}-android-signed
+          path: ${{ runner.temp }}/android-signed-artifacts/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish Android GitHub Release assets
+        if: startsWith(github.ref, 'refs/tags/tcg-android-v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ! gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            if [[ "$ANDROID_SIGNING_READY" == "true" ]]; then
+              gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --title "Android $APP_VERSION" --generate-notes
+            else
+              gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease --title "Android $APP_VERSION test APK" --notes "테스트용 debug APK입니다. 정식 배포 서명키를 등록한 뒤 release APK로 교체됩니다."
+            fi
+          fi
+          if [[ "$ANDROID_SIGNING_READY" == "true" ]]; then
+            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --prerelease=false --title "Android $APP_VERSION"
+            gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP"/android-signed-artifacts/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP"/android-test-artifacts/*-android-debug.apk --repo "$GITHUB_REPOSITORY" --clobber
+          fi

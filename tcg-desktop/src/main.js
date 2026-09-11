@@ -47,6 +47,7 @@ import {
   incidentExpiresAt,
   isIncidentExpired,
   nextIncidentDelay,
+  pendingIncidentWindow,
   resolveIncidentChoice,
 } from './core/incidentEngine.js';
 import {
@@ -58,7 +59,8 @@ import {
   startExpedition,
 } from './core/expeditionEngine.js';
 import { createRaidState } from './core/raidEngine.js';
-import { appendActivity, createGameStore } from './core/gameState.js';
+import { reconcileRaidRewards } from './core/raidRewards.js';
+import { appendActivity, createGameStore, hasStoredGameState } from './core/gameState.js';
 import {
   cardsForPendingPack,
   createPendingPackOpening,
@@ -66,6 +68,12 @@ import {
   unrevealedPackCardCount,
 } from './core/packOpeningSession.js';
 import { createAuthSessionStore } from './core/authSession.js';
+import { createCloudPlaySession } from './core/cloudPlaySession.js';
+import {
+  getOrCreateDeviceId,
+  platformLabel,
+  shouldBootstrapCloudState,
+} from './core/deviceIdentity.js';
 import { availableRaidSquad, toggleSquadSelection } from './core/squadSelection.js';
 import { desktopBridge } from './services/desktopBridge.js';
 import {
@@ -81,10 +89,28 @@ import {
   loadPersonalRaid,
   loadPersonalRaidRanking,
 } from './services/raidGateway.js';
+import {
+  heartbeatPlaySession,
+  openPlaySession,
+  releasePlaySession,
+  saveCloudGameState,
+  takeoverPlaySession,
+} from './services/playSessionGateway.js';
 
 const app = document.querySelector('#app');
 const authSession = createAuthSessionStore();
+const deviceId = getOrCreateDeviceId();
+const clientPlatform = desktopBridge.platform;
 let store = null;
+let cloudPlay = null;
+let unsubscribeCloudStore = null;
+let applyingRemoteState = false;
+let cloudBootstrapAllowed = false;
+let updateCheckPromise = null;
+let updateInstallPromise = null;
+let autoUpdateAttemptedVersion = '';
+let appVersionPromise = null;
+let authenticationRestorePromise = null;
 
 const iconSet = {
   ArrowRight,
@@ -134,6 +160,13 @@ const ui = {
   notice: null,
   updateStatus: null,
   appVersion: '...',
+  cloud: {
+    phase: 'idle',
+    message: '',
+    code: '',
+    activePlatform: '',
+    generation: 0,
+  },
   incidentScheduling: false,
   incidentExpiring: false,
   raidMode: 'personal',
@@ -165,6 +198,49 @@ const ui = {
     },
   },
 };
+
+const cloudGateway = {
+  open: openPlaySession,
+  takeover: takeoverPlaySession,
+  heartbeat: heartbeatPlaySession,
+  release: releasePlaySession,
+  saveState: saveCloudGameState,
+};
+
+function activeCloudLeaseKey() {
+  if (ui.cloud.phase !== 'active') return '';
+  const lease = cloudPlay?.getSnapshot().lease;
+  return lease?.leaseId ? `${lease.leaseId}:${lease.generation}` : '';
+}
+
+function hasPersistedAccountState() {
+  const accountId = ui.auth.account?.id;
+  if (!accountId) return false;
+  return hasStoredGameState(globalThis.localStorage, accountId);
+}
+
+function flushLocalGameCache() {
+  if (!store) return null;
+  if (!cloudBootstrapAllowed && ui.cloud.phase !== 'active' && !hasPersistedAccountState()) return null;
+  return store.flush();
+}
+
+async function flushCloudStateOrThrow() {
+  if (!cloudPlay) return { revision: 0, pending: false, conflict: false };
+  const result = await cloudPlay.flush();
+  const snapshot = cloudPlay.getSnapshot();
+  if (result?.conflict || snapshot.hasSaveConflict) {
+    const error = new Error('서로 다른 진행 기록을 먼저 확인해 주세요.');
+    error.code = 'CLOUD_SAVE_CONFLICT';
+    throw error;
+  }
+  if (result?.pending || snapshot.hasPendingState) {
+    const error = new Error('아직 서버에 저장되지 않은 진행 기록이 있습니다. 연결을 확인한 뒤 다시 시도해 주세요.');
+    error.code = 'PENDING_SAVE';
+    throw error;
+  }
+  return result;
+}
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -307,7 +383,7 @@ function renderAuthScreen() {
         <div class="auth-intro-copy">
           <span class="eyebrow">PERSONNEL ARCHIVE</span>
           <h1>당신만의 인물 파일을<br />새 책상에서 이어가세요.</h1>
-          <p>계정마다 카드, 동전, 모험 기록을 이 PC에 따로 보관합니다.</p>
+          <p>카드, 동전, 모험 기록을 클라우드에 안전하게 보관하고 PC와 모바일에서 이어서 플레이합니다.</p>
         </div>
         <div class="auth-security-note"><i data-lucide="lock"></i><span><strong>독립 카드부 계정</strong><small>호이상사 본편 계정 연동은 추후 제공됩니다.</small></span></div>
       </section>
@@ -412,10 +488,10 @@ function renderSidebar(state) {
       </div>
       <nav class="primary-nav" aria-label="주 메뉴">${nav}</nav>
       <div class="sidebar-status">
-        <span class="status-dot ${ui.auth.offline ? 'is-offline' : ''}"></span>
+        <span class="status-dot ${ui.cloud.phase === 'active' ? '' : 'is-offline'}"></span>
         <div>
           <strong>${escapeHtml(ui.auth.account?.nickname || state.profile.displayName)}</strong>
-          <span>${ui.auth.offline ? '오프라인 진행' : `온라인 · v${escapeHtml(ui.appVersion)}`}</span>
+          <span>${ui.cloud.phase === 'active' ? `클라우드 연결 · v${escapeHtml(ui.appVersion)}` : '클라우드 연결 확인 중'}</span>
         </div>
       </div>
     </aside>
@@ -429,6 +505,7 @@ function renderTopbar(state) {
     available: '새 버전 발견',
     downloading: `받는 중 ${ui.updateStatus?.detail || 0}%`,
     saving: '진행 기록 저장 중',
+    'permission-required': '설치 권한 필요',
     installing: '업데이트 적용 중',
     current: '최신 버전',
     development: '개발 버전',
@@ -468,12 +545,12 @@ function renderTopbar(state) {
           <i data-lucide="eye-off"></i>
           <span>월급루팡 모드</span>
         </button>
-        <button class="quiet-button" type="button" data-action="hide-window">
+        ${desktopBridge.isDesktop ? `<button class="quiet-button" type="button" data-action="hide-window">
           <i data-lucide="eye-off"></i>
           <span>자리 비우기</span>
-        </button>
+        </button>` : ''}
       </div>
-      ${updateText ? `<div class="update-chip">${escapeHtml(updateText)}</div>` : ''}
+      ${updateText ? `<div class="update-chip" title="${escapeHtml(ui.updateStatus?.message || '')}">${escapeHtml(updateText)}${ui.updateStatus?.downloadUrl && ['available', 'permission-required', 'error'].includes(ui.updateStatus?.status) ? `<button type="button" data-action="download-update">업데이트 받기</button>` : ''}</div>` : ''}
     </header>
   `;
 }
@@ -1104,6 +1181,10 @@ function renderResultModal(result, state) {
 
 function renderSettingsModal(state) {
   const account = ui.auth.account;
+  const notificationLabel = desktopBridge.isDesktop ? '데스크톱 팝업 알림' : '모바일 알림';
+  const desktopOnlySettings = desktopBridge.isDesktop
+    ? `<label class="toggle-row"><span><strong>은밀 근무 모드</strong><small>창 닫기 시 앱을 종료하지 않고 숨깁니다.</small></span><input type="checkbox" data-action="toggle-discreet" ${state.settings.discreetMode ? 'checked' : ''} /><i></i></label>`
+    : '';
   return `
     <div class="modal-backdrop" data-action="close-modal">
       <section class="modal-sheet settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" data-modal-panel>
@@ -1111,13 +1192,14 @@ function renderSettingsModal(state) {
         <span class="eyebrow">PREFERENCES</span><h2 id="settings-title">설정</h2>
         <div class="settings-account">
           <i data-lucide="users"></i>
-          <span><strong>${escapeHtml(account?.nickname || state.profile.displayName)}</strong><small>@${escapeHtml(account?.username || '')} · ${ui.auth.offline ? '오프라인 진행 중' : '로그인됨'}</small></span>
+          <span><strong>${escapeHtml(account?.nickname || state.profile.displayName)}</strong><small>@${escapeHtml(account?.username || '')} · ${ui.cloud.phase === 'active' ? '클라우드 연결됨' : '연결 확인 중'}</small></span>
           <button class="secondary-button" type="button" data-action="logout">로그아웃</button>
         </div>
-        <label class="toggle-row"><span><strong>데스크톱 팝업 알림</strong><small>꺼도 돌발 업무는 계속 발생하며 업무판에서 10분간 유지됩니다.</small></span><input type="checkbox" data-action="toggle-notifications" ${state.settings.incidentNotifications ? 'checked' : ''} /><i></i></label>
-        <label class="toggle-row"><span><strong>은밀 근무 모드</strong><small>창 닫기 시 앱을 종료하지 않고 숨깁니다.</small></span><input type="checkbox" data-action="toggle-discreet" ${state.settings.discreetMode ? 'checked' : ''} /><i></i></label>
+        <label class="toggle-row"><span><strong>${notificationLabel}</strong><small>꺼도 돌발 업무는 계속 발생하며 업무판에서 10분간 유지됩니다.</small></span><input type="checkbox" data-action="toggle-notifications" ${state.settings.incidentNotifications ? 'checked' : ''} /><i></i></label>
+        ${desktopOnlySettings}
         <label class="toggle-row"><span><strong>월급루팡 모드</strong><small>모든 카드 일러스트를 가리고 카드 이름과 등급만 표시합니다.</small></span><input type="checkbox" data-action="toggle-payroll-mode" ${state.settings.payrollMode ? 'checked' : ''} /><i></i></label>
-        <div class="settings-footer"><span>버전 ${escapeHtml(ui.appVersion)}</span><button class="danger-text-button" type="button" data-action="reset-progress">로컬 기록 초기화</button></div>
+        ${ui.updateStatus?.downloadUrl ? '<button class="primary-button settings-update-button" type="button" data-action="download-update">새 Android 버전 받기</button>' : ''}
+        <div class="settings-footer"><span>버전 ${escapeHtml(ui.appVersion)}</span><button class="danger-text-button" type="button" data-action="reset-progress">클라우드 진행 기록 초기화</button></div>
       </section>
     </div>
   `;
@@ -1131,6 +1213,65 @@ function renderModal(state) {
   if (ui.modal.type === 'result') return renderResultModal(ui.modal, state);
   if (ui.modal.type === 'settings') return renderSettingsModal(state);
   return '';
+}
+
+function renderCloudGate() {
+  const phase = ui.cloud.phase;
+  if (phase === 'active' || phase === 'idle' || phase === 'released') return '';
+
+  let eyebrow = 'CLOUD ARCHIVE';
+  let title = '클라우드 기록을 불러오는 중이에요.';
+  let description = 'PC와 모바일에서 같은 진행 상황을 이어가기 위해 서버 기록을 확인하고 있습니다.';
+  let action = '';
+
+  if (phase === 'playing-elsewhere') {
+    const otherPlatform = platformLabel(ui.cloud.activePlatform);
+    eyebrow = 'PLAY SESSION MOVED';
+    title = `${otherPlatform}로 플레이 중이에요!`;
+    description = '게임 진행은 한 기기에서만 가능합니다. 이 기기에서 계속하면 다른 기기의 게임 화면이 잠깁니다.';
+    action = '<button class="primary-button" type="button" data-action="cloud-takeover">다시 여기서 플레이하기</button>';
+  } else if (phase === 'migration-required') {
+    eyebrow = 'CLOUD SAVE MIGRATION';
+    title = '기존 PC 기록을 먼저 옮겨주세요.';
+    description = '최신 PC 버전으로 한 번 로그인하면 현재 카드와 재화가 클라우드에 저장됩니다. 그다음 모바일에서 그대로 이어갈 수 있습니다.';
+    action = '<button class="secondary-button" type="button" data-action="cloud-retry">다시 확인</button>';
+  } else if (phase === 'save-conflict') {
+    eyebrow = 'SAVE RECORD CHECK';
+    title = '서로 다른 진행 기록 두 개를 발견했어요.';
+    description = '앱이 종료되기 전에 남은 이 기기의 기록과 서버 기록이 모두 보존되어 있습니다. 이어서 사용할 기록을 골라 주세요.';
+    action = `
+      <div class="cloud-conflict-actions">
+        <button class="primary-button" type="button" data-action="cloud-conflict-local">이 기기 기록 이어쓰기</button>
+        <button class="secondary-button" type="button" data-action="cloud-conflict-server">서버 기록 불러오기</button>
+      </div>`;
+  } else if (phase === 'connection-error') {
+    eyebrow = 'CONNECTION PAUSED';
+    title = '게임 서버와 연결이 끊어졌어요.';
+    description = '기록 충돌을 막기 위해 연결이 복구될 때까지 게임 화면을 잠시 가렸습니다.';
+    action = '<button class="primary-button" type="button" data-action="cloud-retry">다시 연결</button>';
+  } else if (phase === 'taking-over') {
+    eyebrow = 'MOVING PLAY SESSION';
+    title = '이 기기로 플레이를 옮기고 있어요.';
+    description = '최신 진행 기록을 불러오면 바로 이어서 플레이할 수 있습니다.';
+  } else if (phase === 'releasing' || phase === 'updating') {
+    eyebrow = 'SAVING TO CLOUD';
+    title = phase === 'updating' ? '업데이트 파일을 여는 중이에요.' : '클라우드 기록을 저장하고 있어요.';
+    description = '저장이 끝날 때까지 잠시만 기다려 주세요.';
+  }
+
+  return `
+    <section class="cloud-session-gate" role="dialog" aria-modal="true" aria-live="assertive">
+      <div class="cloud-session-card">
+        <div class="cloud-session-mark" aria-hidden="true"><i data-lucide="wifi"></i></div>
+        <span class="eyebrow">${eyebrow}</span>
+        <h2>${escapeHtml(title)}</h2>
+        <p>${escapeHtml(description)}</p>
+        ${ui.cloud.message && phase === 'connection-error' ? `<small>${escapeHtml(ui.cloud.message)}</small>` : ''}
+        ${action || '<div class="cloud-session-loader" aria-hidden="true"><span></span></div>'}
+        <button class="cloud-session-logout" type="button" data-action="logout">로그아웃</button>
+      </div>
+    </section>
+  `;
 }
 
 function render({ preserveViewScroll = ui.renderedView === ui.view } = {}) {
@@ -1155,6 +1296,7 @@ function render({ preserveViewScroll = ui.renderedView === ui.view } = {}) {
       </main>
       ${ui.notice ? `<div class="app-notice app-notice--${ui.notice.tone}">${escapeHtml(ui.notice.message)}</div>` : ''}
       ${renderModal(state)}
+      ${renderCloudGate()}
     </div>
   `;
   ui.renderedView = ui.view;
@@ -1334,6 +1476,7 @@ function beginExpedition() {
 }
 
 function completeExpeditionIfReady() {
+  if (!store || ui.cloud.phase !== 'active') return false;
   const state = store.getState();
   const mission = expeditionById(state.expedition?.missionId);
   const completion = completeDueExpedition({ state, mission });
@@ -1358,18 +1501,27 @@ function currentRaidToken() {
   return authSession.get()?.token || '';
 }
 
-function applyRaidPayload(payload) {
-  if (!payload?.state) return;
+function applyRaidPayload(payload, { activityMessage = '' } = {}) {
+  if (ui.cloud.phase !== 'active' || !payload?.state) return;
+  let reward = { coins: 0, packs: 0 };
   store.update((draft) => {
     draft.raid = payload.state;
+    reward = reconcileRaidRewards(draft, payload.state);
+    if (activityMessage) appendActivity(draft, activityMessage, 'raid');
+    else if (reward.coins || reward.packs) {
+      appendActivity(draft, `개인 레이드 미수령 보상을 동기화했습니다. (${plainRewardText(reward)})`, 'raid');
+    }
   });
   if (payload.ranking) ui.raid.ranking = payload.ranking;
   ui.raid.lastLoadedAt = Date.now();
+  return reward;
 }
 
 async function refreshPersonalRaid({ rankingOnly = false, silent = false } = {}) {
   if (!store || ui.auth.phase !== 'authenticated' || ui.auth.offline || !isRaidGatewayConfigured() || ui.raid.loading || ui.raid.dispatching) return false;
   const requestEpoch = ui.raid.requestEpoch;
+  const leaseKey = activeCloudLeaseKey();
+  if (!leaseKey) return false;
   ui.raid.loading = true;
   if (!silent) {
     ui.raid.error = '';
@@ -1378,12 +1530,12 @@ async function refreshPersonalRaid({ rankingOnly = false, silent = false } = {})
   try {
     if (rankingOnly) {
       const ranking = await loadPersonalRaidRanking(currentRaidToken());
-      if (requestEpoch !== ui.raid.requestEpoch) return false;
+      if (requestEpoch !== ui.raid.requestEpoch || activeCloudLeaseKey() !== leaseKey) return false;
       ui.raid.ranking = ranking;
       ui.raid.lastLoadedAt = Date.now();
     } else {
       const payload = await loadPersonalRaid(currentRaidToken());
-      if (requestEpoch !== ui.raid.requestEpoch) return false;
+      if (requestEpoch !== ui.raid.requestEpoch || activeCloudLeaseKey() !== leaseKey) return false;
       applyRaidPayload(payload);
     }
     ui.raid.error = '';
@@ -1411,29 +1563,30 @@ async function sendRaidSquad() {
   }
   if (ui.raid.dispatching) return;
   ui.raid.requestEpoch += 1;
+  const requestEpoch = ui.raid.requestEpoch;
+  const leaseKey = activeCloudLeaseKey();
+  if (!leaseKey) return;
   ui.raid.dispatching = true;
   ui.raid.error = '';
   render();
   let followUpNotice = null;
   try {
+    const lease = cloudPlay?.getSnapshot().lease;
+    if (!lease?.leaseId) return;
     const payload = await dispatchPersonalRaid(currentRaidToken(), {
       bossId: RAID_DEFINITION.id,
       squadScore: score,
+      leaseId: lease.leaseId,
+      deviceId,
+      generation: lease.generation,
     });
+    if (requestEpoch !== ui.raid.requestEpoch || activeCloudLeaseKey() !== leaseKey) return;
     const result = payload.result || {};
     const damage = Math.max(0, Number(result.damage) || 0);
     const cleared = Boolean(result.cleared);
-    const reward = cleared
-      ? { coins: Math.max(0, Number(result.reward?.coins) || 5000), packs: Math.max(0, Number(result.reward?.packs) || 1) }
-      : { coins: 0, packs: 0 };
-    store.update((draft) => {
-      draft.raid = payload.state;
-      draft.wallet.coins += reward.coins;
-      draft.packs.standard += reward.packs;
-      appendActivity(draft, `개인 레이드 파견으로 ${formatNumber(damage)} 기여도를 기록했습니다.`, 'raid');
+    const reward = applyRaidPayload(payload, {
+      activityMessage: `개인 레이드 파견으로 ${formatNumber(damage)} 기여도를 기록했습니다.`,
     });
-    if (payload.ranking) ui.raid.ranking = payload.ranking;
-    ui.raid.lastLoadedAt = Date.now();
     if (cleared) {
       ui.modal = {
         type: 'result',
@@ -1444,6 +1597,10 @@ async function sendRaidSquad() {
       followUpNotice = { message: `${formatNumber(damage)} 기여도를 기록했습니다.`, tone: 'success' };
     }
   } catch (error) {
+    if (requestEpoch !== ui.raid.requestEpoch || activeCloudLeaseKey() !== leaseKey) return;
+    if (error?.code === 'PLAY_SESSION_LOST' || error?.code === 'PLAYING_ELSEWHERE') {
+      void retryCloudConnection();
+    }
     ui.raid.error = error.message || '레이드 파견을 처리하지 못했습니다.';
     followUpNotice = { message: ui.raid.error, tone: 'warning' };
   } finally {
@@ -1471,6 +1628,7 @@ function plainRewardText(reward = {}) {
 }
 
 async function resolveActiveIncident({ choiceId, instanceId = null, incidentId = null, fromToast = false }) {
+  if (ui.cloud.phase !== 'active') throw new Error('클라우드 연결을 확인한 뒤 다시 선택해 주세요.');
   const state = store.getState();
   const active = state.activeIncident;
   const targetInstanceId = instanceId || active?.instanceId;
@@ -1510,16 +1668,19 @@ async function resolveActiveIncident({ choiceId, instanceId = null, incidentId =
 }
 
 async function scheduleNextIncident() {
-  if (!store || ui.auth.phase !== 'authenticated') return false;
+  if (!store || ui.auth.phase !== 'authenticated' || ui.cloud.phase !== 'active') return false;
   const state = store.getState();
   if (ui.incidentScheduling || state.activeIncident) return false;
   ui.incidentScheduling = true;
+  const leaseKey = activeCloudLeaseKey();
+  let restartForCurrentSession = false;
   try {
     const now = Date.now();
     const savedIncident = state.pendingIncident ? incidentById(state.pendingIncident.id) : null;
     const incident = savedIncident || chooseIncident({ recentIds: state.recentIncidentIds });
-    const scheduledAt = savedIncident && Number(state.nextIncidentAt) > now
-      ? Number(state.nextIncidentAt)
+    const persistedScheduledAt = Number(state.pendingIncident?.scheduledAt ?? state.nextIncidentAt);
+    const scheduledAt = savedIncident && persistedScheduledAt > now
+      ? persistedScheduledAt
       : now + nextIncidentDelay();
     const delayMs = Math.max(1000, scheduledAt - now);
     store.update((draft) => {
@@ -1528,6 +1689,11 @@ async function scheduleNextIncident() {
       draft.incidentScheduled = true;
     });
     const scheduled = await desktopBridge.scheduleIncident(incident, delayMs);
+    if (activeCloudLeaseKey() !== leaseKey) {
+      await desktopBridge.cancelIncident().catch(() => {});
+      restartForCurrentSession = ui.cloud.phase === 'active';
+      return false;
+    }
     if (!scheduled?.scheduled) {
       store.update((draft) => {
         draft.pendingIncident = null;
@@ -1537,32 +1703,97 @@ async function scheduleNextIncident() {
     }
   } catch (error) {
     // Keep the pending incident so the next startup/retry can schedule it again.
-    try {
-      store.update((draft) => { draft.incidentScheduled = false; });
-    } catch (storeError) {
-      console.warn('Could not persist incident retry state:', storeError);
+    if (ui.cloud.phase === 'active' && activeCloudLeaseKey() === leaseKey) {
+      try {
+        store.update((draft) => { draft.incidentScheduled = false; });
+      } catch (storeError) {
+        console.warn('Could not persist incident retry state:', storeError);
+      }
     }
     console.warn('Could not schedule the next incident:', error);
     return false;
   } finally {
     ui.incidentScheduling = false;
+    if (restartForCurrentSession) void scheduleNextIncident();
   }
 }
 
+function restorePendingIncidentIfDue(now = Date.now()) {
+  if (!store || ui.auth.phase !== 'authenticated' || ui.cloud.phase !== 'active') return 'none';
+  const state = store.getState();
+  if (state.activeIncident) return 'none';
+  const pending = state.pendingIncident;
+  if (!pending) return 'none';
+  const canonical = incidentById(pending.id);
+  const window = pendingIncidentWindow(pending, now);
+  if (window?.status === 'scheduled') return 'scheduled';
+
+  if (!canonical || !window || window.status === 'expired') {
+    store.update((draft) => {
+      if (draft.pendingIncident?.id !== pending.id) return;
+      draft.pendingIncident = null;
+      draft.nextIncidentAt = null;
+      draft.incidentScheduled = false;
+      if (canonical && window) {
+        appendActivity(draft, `돌발 업무 만료: ${canonical.title}`, 'incident', window.expiresAt);
+      }
+    });
+    return 'expired';
+  }
+
+  const instanceId = typeof pending.instanceId === 'string' && pending.instanceId
+    ? pending.instanceId
+    : `scheduled-${pending.id}-${window.scheduledAt}`;
+  store.update((draft) => {
+    if (draft.activeIncident || draft.pendingIncident?.id !== pending.id) return;
+    draft.activeIncident = {
+      id: pending.id,
+      instanceId,
+      arrivedAt: window.scheduledAt,
+      expiresAt: window.expiresAt,
+    };
+    draft.recentIncidentIds = [pending.id, ...(draft.recentIncidentIds || []).filter((id) => id !== pending.id)].slice(0, 5);
+    draft.pendingIncident = null;
+    draft.nextIncidentAt = null;
+    draft.incidentScheduled = false;
+    appendActivity(draft, `돌발 업무 도착: ${canonical.title}`, 'incident', window.scheduledAt);
+  });
+  showNotice('앱을 비운 사이 도착한 돌발 업무가 있습니다.', 'warning');
+  return 'active';
+}
+
 function handleIncidentArrived(incident) {
-  if (!store || ui.auth.phase !== 'authenticated') return;
+  if (!store || ui.auth.phase !== 'authenticated' || ui.cloud.phase !== 'active') return;
   if (!incident?.id || !incident?.instanceId) return;
   const canonical = incidentById(incident.id);
   if (!canonical) return;
-  const current = store.getState().activeIncident;
+  const state = store.getState();
+  const current = state.activeIncident;
   if (current) return;
-  const arrivedAt = Date.now();
+  const now = Date.now();
+  const persistedWindow = state.pendingIncident?.id === incident.id
+    ? pendingIncidentWindow(state.pendingIncident, now)
+    : null;
+  if (persistedWindow?.status === 'expired') {
+    store.update((draft) => {
+      if (draft.pendingIncident?.id !== incident.id) return;
+      draft.pendingIncident = null;
+      draft.nextIncidentAt = null;
+      draft.incidentScheduled = false;
+      appendActivity(draft, `돌발 업무 만료: ${canonical.title}`, 'incident', persistedWindow.expiresAt);
+    });
+    void scheduleNextIncident();
+    return;
+  }
+  const arrivedAt = persistedWindow?.status === 'active' ? persistedWindow.scheduledAt : now;
   store.update((draft) => {
     draft.activeIncident = {
       id: incident.id,
       instanceId: incident.instanceId,
       arrivedAt,
-      expiresAt: incidentExpiresAt(arrivedAt),
+      expiresAt: persistedWindow?.status === 'active'
+        ? persistedWindow.expiresAt
+        : incidentExpiresAt(arrivedAt),
     };
     draft.recentIncidentIds = [incident.id, ...(draft.recentIncidentIds || []).filter((id) => id !== incident.id)].slice(0, 5);
     draft.pendingIncident = null;
@@ -1574,7 +1805,7 @@ function handleIncidentArrived(incident) {
 }
 
 async function expireActiveIncidentIfNeeded() {
-  if (!store || ui.auth.phase !== 'authenticated' || ui.incidentExpiring) return false;
+  if (!store || ui.auth.phase !== 'authenticated' || ui.cloud.phase !== 'active' || ui.incidentExpiring) return false;
   const active = store.getState().activeIncident;
   if (!isIncidentExpired(active)) return false;
   ui.incidentExpiring = true;
@@ -1604,13 +1835,14 @@ async function expireActiveIncidentIfNeeded() {
 }
 
 async function startIncidentRuntime() {
-  if (!store || ui.auth.phase !== 'authenticated') return;
+  if (!store || ui.auth.phase !== 'authenticated' || ui.cloud.phase !== 'active') return;
   try {
     await desktopBridge.setIncidentNotifications(store.getState().settings.incidentNotifications);
   } catch (error) {
     console.warn('Could not sync the desktop incident notification setting:', error);
   }
   if (await expireActiveIncidentIfNeeded()) return;
+  if (restorePendingIncidentIfDue() === 'active') return;
   await scheduleNextIncident();
 }
 
@@ -1667,29 +1899,110 @@ async function checkAuthAvailability(field) {
   }
 }
 
-function activateAuthenticatedSession(session, { offline = false } = {}) {
+function updateCloudUi(status = {}) {
+  const previousPhase = ui.cloud.phase;
+  ui.cloud = {
+    ...ui.cloud,
+    phase: status.phase || ui.cloud.phase,
+    message: String(status.message || status.error?.message || ''),
+    code: String(status.code || status.error?.code || ''),
+    activePlatform: String(status.activePlatform || status.error?.activePlatform || ''),
+    generation: Math.max(0, Number(status.generation ?? status.lease?.generation ?? ui.cloud.generation) || 0),
+  };
+  ui.auth.offline = ui.cloud.phase !== 'active';
+  if (previousPhase === 'active' && ui.cloud.phase !== 'active') {
+    void desktopBridge.cancelIncident().catch(() => {});
+  }
+  if (ui.auth.phase === 'authenticated' && store) render();
+}
+
+function disposeCloudSession() {
+  unsubscribeCloudStore?.();
+  unsubscribeCloudStore = null;
+  cloudPlay?.dispose();
+  cloudPlay = null;
+}
+
+function applyRemoteGameState(nextState) {
+  if (!store || !nextState) return;
+  applyingRemoteState = true;
+  try {
+    store.replace(nextState);
+  } finally {
+    applyingRemoteState = false;
+  }
+}
+
+async function finishCloudActivation() {
+  if (ui.cloud.phase !== 'active' || !store) return;
+  const current = store.getState();
+  if (current.profile.displayName !== ui.auth.account?.nickname
+    || !current.raid
+    || current.raid.id !== RAID_DEFINITION.id) {
+    store.update((draft) => {
+      draft.profile.displayName = ui.auth.account?.nickname || draft.profile.displayName;
+      if (!draft.raid || draft.raid.id !== RAID_DEFINITION.id) {
+        draft.raid = createRaidState(RAID_DEFINITION);
+      }
+    });
+  }
+  // Expeditions use an absolute end timestamp, so an overdue run is settled
+  // immediately after the authoritative cloud record is restored.
+  if (!completeExpeditionIfReady()) render();
+  await startIncidentRuntime();
+  await refreshPersonalRaid({ silent: true });
+  render();
+}
+
+async function activateAuthenticatedSession(session, { newAccount = false } = {}) {
   const account = session.account;
+  disposeCloudSession();
+  const hadPersistedState = hasStoredGameState(globalThis.localStorage, account.id);
   store = createGameStore(globalThis.localStorage, { userId: account.id });
-  store.update((draft) => {
-    draft.profile.displayName = account.nickname;
-    if (!draft.raid || draft.raid.id !== RAID_DEFINITION.id) {
-      draft.raid = createRaidState(RAID_DEFINITION);
-    }
-  });
   ui.auth.phase = 'authenticated';
   ui.auth.pending = false;
   ui.auth.error = '';
-  ui.auth.offline = offline;
+  ui.auth.offline = true;
   ui.auth.account = account;
   ui.auth.form.password = '';
   ui.auth.form.passwordConfirm = '';
   ui.raid = { loading: false, dispatching: false, error: '', ranking: null, lastLoadedAt: 0, requestEpoch: 0 };
   ui.view = 'dashboard';
   ui.modal = null;
-  // Expeditions use an absolute end timestamp, so an overdue run is settled
-  // immediately when the saved account is restored after the app was closed.
-  if (!completeExpeditionIfReady()) render();
-  void startIncidentRuntime();
+  ui.cloud = { phase: 'connecting', message: '', code: '', activePlatform: '', generation: 0 };
+  render();
+
+  if (ui.appVersion === '...') {
+    ui.appVersion = await desktopBridge.getVersion().catch(() => '0.0.0');
+  }
+  cloudBootstrapAllowed = shouldBootstrapCloudState({
+    platform: clientPlatform,
+    newAccount,
+    hasPersistedState: hadPersistedState,
+  });
+  cloudPlay = createCloudPlaySession({
+    gateway: cloudGateway,
+    token: session.token,
+    accountId: account.id,
+    deviceId,
+    platform: clientPlatform,
+    appVersion: ui.appVersion,
+    onPhase: updateCloudUi,
+    onRemoteState: applyRemoteGameState,
+  });
+  unsubscribeCloudStore = store.subscribe((nextState) => {
+    if (!applyingRemoteState) cloudPlay?.queueState(nextState);
+  });
+
+  try {
+    await cloudPlay.open({
+      bootstrapState: cloudBootstrapAllowed ? store.getState() : null,
+      allowBootstrap: cloudBootstrapAllowed,
+    });
+    await finishCloudActivation();
+  } catch (error) {
+    console.warn('Could not activate cloud play session:', error);
+  }
 }
 
 async function submitLogin(form) {
@@ -1710,7 +2023,7 @@ async function submitLogin(form) {
       password: normalizedAuthValue('password'),
     });
     authSession.save(session);
-    activateAuthenticatedSession(session);
+    await activateAuthenticatedSession(session);
   } catch (error) {
     ui.auth.pending = false;
     ui.auth.error = error.message || '로그인하지 못했습니다.';
@@ -1739,7 +2052,7 @@ async function submitSignup(form) {
       passwordConfirm: normalizedAuthValue('passwordConfirm'),
     });
     authSession.save(session);
-    activateAuthenticatedSession(session);
+    await activateAuthenticatedSession(session, { newAccount: true });
   } catch (error) {
     ui.auth.pending = false;
     ui.auth.error = error.message || '회원가입하지 못했습니다.';
@@ -1750,11 +2063,34 @@ async function submitSignup(form) {
 
 async function logout() {
   try {
-    store?.flush();
-    await desktopBridge.cancelIncident();
+    flushLocalGameCache();
   } catch (error) {
-    console.warn('Could not finish logout cleanup:', error);
+    console.warn('Could not persist the local cache before logout:', error);
+    showNotice(error.message || '진행 기록을 저장하지 못해 로그아웃을 중단했습니다.', 'warning');
+    return false;
   }
+  try {
+    await flushCloudStateOrThrow();
+  } catch (error) {
+    console.warn('Could not flush cloud state before logout:', error);
+    if (error.code !== 'CLOUD_SAVE_CONFLICT') {
+      updateCloudUi({
+        phase: 'connection-error',
+        message: error.message || '저장되지 않은 진행 기록이 있어 로그아웃하지 않았습니다. 연결을 확인한 뒤 다시 시도해 주세요.',
+        code: error.code || 'PENDING_SAVE',
+      });
+    }
+    return false;
+  }
+  try {
+    await cloudPlay?.release({ flushPending: false });
+  } catch (error) {
+    console.warn('Could not release cloud session during logout:', error);
+  }
+  await desktopBridge.cancelIncident().catch((error) => {
+    console.warn('Could not cancel the incident during logout:', error);
+  });
+  disposeCloudSession();
   authSession.clear();
   store = null;
   ui.auth.phase = 'signedOut';
@@ -1767,7 +2103,9 @@ async function logout() {
   ui.raid = { loading: false, dispatching: false, error: '', ranking: null, lastLoadedAt: 0, requestEpoch: 0 };
   resetAuthAvailability();
   ui.modal = null;
+  ui.cloud = { phase: 'idle', message: '', code: '', activePlatform: '', generation: 0 };
   render();
+  return true;
 }
 
 async function restoreAuthentication() {
@@ -1778,9 +2116,10 @@ async function restoreAuthentication() {
     return;
   }
   try {
-    const account = await loadCurrentTcgAccount(saved.token);
-    const refreshed = authSession.save({ token: saved.token, account });
-    activateAuthenticatedSession(refreshed);
+    const restored = await loadCurrentTcgAccount(saved.token);
+    const account = restored.account || restored;
+    const refreshed = authSession.save({ token: restored.token || saved.token, account });
+    await activateAuthenticatedSession(refreshed);
   } catch (error) {
     if ([401, 403, 410].includes(Number(error.status))) {
       authSession.clear();
@@ -1789,8 +2128,117 @@ async function restoreAuthentication() {
       render();
       return;
     }
-    activateAuthenticatedSession(saved, { offline: true });
+    await activateAuthenticatedSession(saved);
   }
+}
+
+async function retryCloudConnection() {
+  if (!cloudPlay || !store) return;
+  const connected = await cloudPlay.resume({
+    bootstrapState: cloudBootstrapAllowed ? store.getState() : null,
+    allowBootstrap: cloudBootstrapAllowed,
+  });
+  if (connected) await finishCloudActivation();
+}
+
+async function takeOverCloudSession() {
+  if (!cloudPlay) return;
+  try {
+    await cloudPlay.takeover({ expectedGeneration: ui.cloud.generation || undefined });
+    await finishCloudActivation();
+  } catch (error) {
+    console.warn('Could not take over cloud play session:', error);
+  }
+}
+
+async function resolveCloudSaveConflict(strategy) {
+  if (!cloudPlay) return false;
+  try {
+    const resolved = await cloudPlay.resolveConflict(strategy);
+    if (resolved) await finishCloudActivation();
+    return resolved;
+  } catch (error) {
+    updateCloudUi({
+      phase: 'connection-error',
+      message: error.message || '선택한 진행 기록을 저장하지 못했습니다.',
+      code: error.code || 'CONFLICT_RESOLUTION_FAILED',
+    });
+    return false;
+  }
+}
+
+async function checkForAppUpdates({ autoInstall = clientPlatform === 'android' } = {}) {
+  if (updateCheckPromise) return updateCheckPromise;
+  updateCheckPromise = (async () => {
+    ui.updateStatus = { status: 'checking' };
+    render();
+    const result = await desktopBridge.checkForUpdates();
+    if (result?.status && !['denied'].includes(result.status)) {
+      ui.updateStatus = result;
+      render();
+    }
+    if (
+      autoInstall
+      && result?.status === 'available'
+      && result.latestVersion
+      && result.latestVersion !== autoUpdateAttemptedVersion
+    ) {
+      autoUpdateAttemptedVersion = result.latestVersion;
+      await downloadAndroidUpdate();
+    }
+    return result;
+  })().finally(() => {
+    updateCheckPromise = null;
+  });
+  return updateCheckPromise;
+}
+
+async function downloadAndroidUpdate() {
+  if (updateInstallPromise) return updateInstallPromise;
+  const downloadUrl = ui.updateStatus?.downloadUrl;
+  if (!downloadUrl) return false;
+  updateInstallPromise = (async () => {
+    let releasedCloudSession = false;
+    try {
+      await authenticationRestorePromise?.catch(() => {});
+      flushLocalGameCache();
+      await flushCloudStateOrThrow();
+      if (cloudPlay?.getSnapshot().lease) {
+        await cloudPlay.release({ flushPending: false });
+        releasedCloudSession = true;
+      }
+      await desktopBridge.cancelIncident();
+      ui.cloud = { ...ui.cloud, phase: 'updating', message: '', code: '' };
+      ui.updateStatus = { ...ui.updateStatus, status: 'saving', downloadUrl };
+      render();
+
+      if (clientPlatform === 'android') {
+        const result = await desktopBridge.installAndroidUpdate(downloadUrl);
+        ui.updateStatus = { ...ui.updateStatus, ...result, downloadUrl };
+        render();
+        return true;
+      }
+
+      const opened = await desktopBridge.openExternal(downloadUrl);
+      if (!opened) throw new Error('업데이트 파일 주소를 열지 못했습니다.');
+      return true;
+    } catch (error) {
+      console.warn('Could not prepare the Android update:', error);
+      const hasSaveConflict = error.code === 'CLOUD_SAVE_CONFLICT' || cloudPlay?.getSnapshot().hasSaveConflict;
+      if (!hasSaveConflict) {
+        updateCloudUi({
+          phase: 'connection-error',
+          message: error.message || '클라우드 저장을 마치지 못해 업데이트를 열지 않았습니다.',
+          code: error.code || 'UPDATE_PREPARE_FAILED',
+        });
+      }
+      if (releasedCloudSession && ui.auth.phase === 'authenticated') await retryCloudConnection();
+      return false;
+    } finally {
+      updateInstallPromise = null;
+    }
+  })();
+  return updateInstallPromise;
 }
 
 app.addEventListener('click', async (event) => {
@@ -1798,12 +2246,34 @@ app.addEventListener('click', async (event) => {
   if (!button) return;
   const action = button.dataset.action;
 
+  const actionsAllowedWhileCloudBlocked = new Set([
+    'cloud-takeover',
+    'cloud-retry',
+    'cloud-conflict-local',
+    'cloud-conflict-server',
+    'download-update',
+    'logout',
+  ]);
+  if (ui.auth.phase === 'authenticated'
+    && ui.cloud.phase !== 'active'
+    && !actionsAllowedWhileCloudBlocked.has(action)) return;
+
   if (action === 'switch-auth-mode') {
     switchAuthMode(button.dataset.mode);
   } else if (action === 'check-auth-availability') {
     await checkAuthAvailability(button.dataset.field);
   } else if (action === 'logout') {
     await logout();
+  } else if (action === 'cloud-takeover') {
+    await takeOverCloudSession();
+  } else if (action === 'cloud-retry') {
+    await retryCloudConnection();
+  } else if (action === 'cloud-conflict-local') {
+    await resolveCloudSaveConflict('local');
+  } else if (action === 'cloud-conflict-server') {
+    await resolveCloudSaveConflict('server');
+  } else if (action === 'download-update') {
+    await downloadAndroidUpdate();
   } else if (action === 'navigate') {
     ui.view = button.dataset.view;
     ui.modal = null;
@@ -1875,14 +2345,15 @@ app.addEventListener('click', async (event) => {
     ui.modal = { type: 'settings' };
     render();
   } else if (action === 'toggle-notifications') {
+    const notificationKind = desktopBridge.isDesktop ? '데스크톱 팝업' : '모바일';
     store.update((draft) => {
       draft.settings.incidentNotifications = button.checked;
     });
     await desktopBridge.setIncidentNotifications(button.checked);
     showNotice(
       button.checked
-        ? '데스크톱 팝업 알림을 켰습니다.'
-        : '데스크톱 팝업만 껐습니다. 돌발 업무는 업무판에 계속 표시됩니다.',
+        ? `${notificationKind} 알림을 켰습니다.`
+        : `${notificationKind} 알림만 껐습니다. 돌발 업무는 업무판에 계속 표시됩니다.`,
       'success',
     );
   } else if (action === 'toggle-discreet') {
@@ -1897,11 +2368,9 @@ app.addEventListener('click', async (event) => {
     });
     render();
   } else if (action === 'check-update') {
-    ui.updateStatus = { status: 'checking' };
-    render();
-    await desktopBridge.checkForUpdates();
+    await checkForAppUpdates();
   } else if (action === 'reset-progress') {
-    if (window.confirm('이 PC에 저장된 카드부 진행 기록을 초기화할까요?')) {
+    if (window.confirm('클라우드에 저장된 카드부 진행 기록을 초기화할까요?')) {
       store.reset();
       ui.modal = null;
       render();
@@ -1932,7 +2401,7 @@ app.addEventListener('input', (event) => {
 });
 
 function updateLiveTimers() {
-  if (!store || ui.auth.phase !== 'authenticated') return;
+  if (!store || ui.auth.phase !== 'authenticated' || ui.cloud.phase !== 'active') return;
   if (isIncidentExpired(store.getState().activeIncident)) {
     void expireActiveIncidentIfNeeded();
     return;
@@ -1959,12 +2428,12 @@ function updateLiveTimers() {
 
 desktopBridge.onIncident(handleIncidentArrived);
 desktopBridge.onOpenIncident((incident) => {
-  if (!store || ui.auth.phase !== 'authenticated') return;
+  if (!store || ui.auth.phase !== 'authenticated' || ui.cloud.phase !== 'active') return;
   const active = store.getState().activeIncident;
   if (active?.id === incident?.id && active?.instanceId === incident?.instanceId) openActiveIncident();
 });
 desktopBridge.onIncidentChoice(async ({ incidentId, instanceId, choiceId }) => {
-  if (!store || ui.auth.phase !== 'authenticated') {
+  if (!store || ui.auth.phase !== 'authenticated' || ui.cloud.phase !== 'active') {
     return { ok: false, message: '카드부에 로그인한 뒤 다시 선택해 주세요.' };
   }
   try {
@@ -1974,23 +2443,66 @@ desktopBridge.onIncidentChoice(async ({ incidentId, instanceId, choiceId }) => {
   }
 });
 desktopBridge.onBeforeUpdate(async () => {
-  store?.flush();
-  return true;
+  try {
+    flushLocalGameCache();
+    await flushCloudStateOrThrow();
+    await cloudPlay?.release({ flushPending: false });
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, message: error.message || '클라우드 저장을 마치지 못했습니다.' };
+  }
 });
 desktopBridge.onUpdateStatus((status) => {
-  ui.updateStatus = status;
+  ui.updateStatus = { ...ui.updateStatus, ...status };
   render();
+  if (status?.status === 'error' && ui.cloud.phase === 'updating' && ui.auth.phase === 'authenticated') {
+    void retryCloudConnection();
+  }
 });
 
-desktopBridge.getVersion().then((version) => {
-  ui.appVersion = version;
-  render();
+desktopBridge.onAppStateChange((isActive) => {
+  if (!isActive) {
+    try {
+      flushLocalGameCache();
+    } catch (error) {
+      console.warn('Could not persist local cache before backgrounding:', error);
+    }
+    void cloudPlay?.flush().catch(() => {});
+    return;
+  }
+  if (ui.auth.phase === 'authenticated') void retryCloudConnection();
+  if (clientPlatform === 'android') {
+    if (['permission-required', 'installing'].includes(ui.updateStatus?.status) && ui.updateStatus?.downloadUrl) {
+      ui.updateStatus = {
+        ...ui.updateStatus,
+        status: 'available',
+        message: '업데이트가 아직 설치되지 않았다면 업데이트 받기를 다시 눌러 주세요.',
+      };
+      render();
+    }
+    window.setTimeout(() => { void checkForAppUpdates(); }, 750);
+  }
 });
 
 render();
-void restoreAuthentication();
+appVersionPromise = desktopBridge.getVersion()
+  .then((version) => {
+    ui.appVersion = version;
+    render();
+    return version;
+  })
+  .catch(() => {
+    ui.appVersion = '0.0.0';
+    render();
+    return ui.appVersion;
+  });
+authenticationRestorePromise = restoreAuthentication();
+if (clientPlatform === 'android') {
+  void Promise.allSettled([appVersionPromise, authenticationRestorePromise])
+    .then(() => checkForAppUpdates());
+}
 window.setInterval(updateLiveTimers, 1000);
 window.setInterval(() => {
-  if (ui.view !== 'raid' || ui.raidMode !== 'personal' || ui.auth.phase !== 'authenticated' || ui.auth.offline) return;
+  if (ui.view !== 'raid' || ui.raidMode !== 'personal' || ui.auth.phase !== 'authenticated' || ui.cloud.phase !== 'active') return;
   void refreshPersonalRaid({ rankingOnly: ui.raidPanel === 'ranking', silent: true });
 }, 10000);
