@@ -21,6 +21,7 @@ import {
 } from '../src/core/packOpeningSession.js';
 import {
   calculateSquadScore,
+  completeDueExpedition,
   settleExpedition,
   startExpedition,
 } from '../src/core/expeditionEngine.js';
@@ -184,7 +185,7 @@ test('expedition uses normalized combat power and settles rewards after its time
   assert.equal(expedition.score, expectedScore);
   assert.equal(expedition.endsAt, 2000 + mission.durationMs);
 
-  const rolls = [0, 0.5, 0];
+  const rolls = [0.5, 0];
   const result = settleExpedition({
     expedition,
     mission,
@@ -194,6 +195,59 @@ test('expedition uses normalized combat power and settles rewards after its time
   assert.equal(result.success, true);
   assert.ok(result.coins >= mission.reward.coins[0]);
   assert.equal(result.packs, 1);
+});
+
+test('an expedition keeps its original end time and settles only once after reopening', () => {
+  const memory = new Map();
+  const storage = {
+    getItem: (key) => memory.get(key) || null,
+    setItem: (key, value) => memory.set(key, value),
+  };
+  const mission = EXPEDITIONS[0];
+  const startedAt = Date.UTC(2026, 8, 10, 23, 58);
+  const originalStore = createGameStore(storage);
+  const originalState = originalStore.getState();
+  const expedition = startExpedition({
+    mission,
+    cardIds: originalState.selectedExpeditionSquad,
+    collection: originalState.collection,
+    catalog: CARD_CATALOG,
+    now: startedAt,
+  });
+  originalStore.update((draft) => { draft.expedition = expedition; });
+
+  const reopenedNextDay = createGameStore(storage).getState().expedition;
+  assert.equal(reopenedNextDay.endsAt, startedAt + mission.durationMs);
+
+  const restoredState = createGameStore(storage).getState();
+  assert.equal(completeDueExpedition({
+    state: restoredState,
+    mission,
+    now: expedition.endsAt - 1,
+    random: () => 0,
+  }), null);
+
+  const completion = completeDueExpedition({
+    state: restoredState,
+    mission,
+    now: startedAt + (24 * 60 * 60 * 1000),
+    random: () => 0,
+  });
+  assert.equal(completion.completedAt, expedition.endsAt);
+  assert.equal(completion.result.success, true);
+  assert.ok(completion.result.coins >= mission.reward.coins[0]);
+  assert.equal(completion.state.expedition, null);
+  assert.equal(
+    completion.state.wallet.coins,
+    restoredState.wallet.coins + completion.result.coins,
+  );
+  assert.equal(restoredState.expedition.endsAt, expedition.endsAt);
+  assert.equal(completeDueExpedition({
+    state: completion.state,
+    mission,
+    now: startedAt + (24 * 60 * 60 * 1000),
+    random: () => 0,
+  }), null);
 });
 
 test('legacy cards are converted to the current combat-power scale', () => {

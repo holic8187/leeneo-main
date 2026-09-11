@@ -68,7 +68,7 @@ export function expeditionProgress(expedition, now = Date.now()) {
   return Math.min(1, Math.max(0, (now - expedition.startedAt) / duration));
 }
 
-function savedExpeditionPower(expedition) {
+export function expeditionEffectivePower(expedition) {
   const combatPower = Number(expedition?.combatPower);
   if (Number.isFinite(combatPower) && combatPower >= 0) return combatPower;
 
@@ -85,11 +85,9 @@ export function settleExpedition({ expedition, mission, now = Date.now(), random
   if (!expedition || !mission) throw new Error('완료할 모험이 없습니다.');
   if (now < expedition.endsAt) throw new Error('아직 모험이 끝나지 않았습니다.');
 
-  const effectivePower = savedExpeditionPower(expedition);
+  const effectivePower = expeditionEffectivePower(expedition);
   const minimumPower = Math.max(1, missionMinimumPower(mission));
   const scoreRatio = effectivePower / minimumPower;
-  const successChance = Math.min(0.98, Math.max(0.5, 0.88 + ((scoreRatio - 1) * 0.07)));
-  const success = random() < successChance;
   const [minimum, maximum] = mission.reward.coins;
   const roll = Math.min(0.999999, Math.max(0, random()));
   const baseCoins = Math.floor(minimum + ((maximum - minimum + 1) * roll));
@@ -100,19 +98,43 @@ export function settleExpedition({ expedition, mission, now = Date.now(), random
     Math.max(0, scoreRatio - 1) * Math.max(0, bonusRate),
   );
   const scaledCoins = Math.round(baseCoins * powerMultiplier);
-  const coins = success ? scaledCoins : Math.max(20, Math.floor(scaledCoins * 0.35));
+  const coins = Math.max(minimum, scaledCoins);
   const packChance = Math.min(
     1,
     Math.max(0, Number(mission.reward.packChance) || 0) * Math.min(1.3, powerMultiplier),
   );
-  const packs = success && random() < packChance ? 1 : 0;
+  const packs = random() < packChance ? 1 : 0;
 
   return {
-    success,
+    success: true,
     coins,
     packs,
-    successChance,
+    successChance: 1,
     effectivePower,
     powerMultiplier,
+  };
+}
+
+export function completeDueExpedition({ state, mission, now = Date.now(), random = Math.random }) {
+  const expedition = state?.expedition;
+  const completedAt = Number(expedition?.endsAt);
+  if (!expedition || !Number.isFinite(completedAt) || now < completedAt) return null;
+
+  const result = settleExpedition({ expedition, mission, now, random });
+  return {
+    completedAt,
+    result,
+    state: {
+      ...state,
+      wallet: {
+        ...(state.wallet || {}),
+        coins: Math.max(0, Number(state.wallet?.coins) || 0) + result.coins,
+      },
+      packs: {
+        ...(state.packs || {}),
+        standard: Math.max(0, Number(state.packs?.standard) || 0) + result.packs,
+      },
+      expedition: null,
+    },
   };
 }

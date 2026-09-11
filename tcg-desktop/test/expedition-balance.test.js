@@ -129,19 +129,19 @@ test('settlement varies its roll and grants a capped bonus for excess squad powe
     expedition: atMinimum,
     mission,
     now: 1000,
-    random: sequence(0, 0.1, 1),
+    random: sequence(0.1, 1),
   });
   const highRoll = settleExpedition({
     expedition: atMinimum,
     mission,
     now: 1000,
-    random: sequence(0, 0.9, 1),
+    random: sequence(0.9, 1),
   });
   const powerResult = settleExpedition({
     expedition: overpowered,
     mission,
     now: 1000,
-    random: sequence(0, 0.1, 1),
+    random: sequence(0.1, 1),
   });
 
   assert.ok(highRoll.coins > lowRoll.coins);
@@ -150,13 +150,37 @@ test('settlement varies its roll and grants a capped bonus for excess squad powe
   assert.equal(powerResult.powerMultiplier, 1.22);
 });
 
+test('every expedition always completes and guarantees its displayed minimum', () => {
+  for (const mission of EXPEDITIONS) {
+    for (const combatPower of [mission.minimumPower, mission.minimumPower * 100]) {
+      for (const rewardRoll of [0, 0.999999]) {
+        const result = settleExpedition({
+          expedition: {
+            endsAt: 1000,
+            score: combatPower,
+            combatPower,
+            powerScale: 'combat-power-v1',
+          },
+          mission,
+          now: 1000,
+          random: sequence(rewardRoll, 1),
+        });
+
+        assert.equal(result.success, true, mission.id);
+        assert.equal(result.successChance, 1, mission.id);
+        assert.ok(result.coins >= mission.reward.coins[0], mission.id);
+      }
+    }
+  }
+});
+
 test('an in-progress expedition saved by the previous score scale still settles sensibly', () => {
   const mission = EXPEDITIONS[0];
   const result = settleExpedition({
     expedition: { endsAt: 1000, score: 100 },
     mission,
     now: 1000,
-    random: sequence(0, 0.5, 1),
+    random: sequence(0.5, 1),
   });
 
   assert.equal(result.effectivePower, 4000);

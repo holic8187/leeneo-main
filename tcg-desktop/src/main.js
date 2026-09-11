@@ -52,8 +52,9 @@ import {
 import {
   calculateSquadScore,
   cardExpeditionPower,
+  completeDueExpedition,
+  expeditionEffectivePower,
   expeditionProgress,
-  settleExpedition,
   startExpedition,
 } from './core/expeditionEngine.js';
 import { createRaidState } from './core/raidEngine.js';
@@ -733,6 +734,9 @@ function renderAdventure(state) {
   const score = calculateSquadScore(expeditionSquad, state.collection, ALL_CARDS);
   const minimumPower = missionMinimumPower(selectedMission);
   const canStart = expeditionSquad.length >= selectedMission.requiredCards && score >= minimumPower;
+  const actionMission = active ? activeMission : selectedMission;
+  const actionScore = active ? expeditionEffectivePower(active) : score;
+  const actionMinimumPower = missionMinimumPower(actionMission);
 
   return `
     <div class="adventure-layout">
@@ -743,6 +747,17 @@ function renderAdventure(state) {
             <span class="board-rule">현재 진행중인 모험 ${active ? 1 : 0}개</span>
             <span class="board-rule">현재 동시 진행 가능 모험 1회</span>
           </div>
+        </div>
+        <div class="adventure-start-bar">
+          <div class="adventure-start-summary">
+            <span>${active ? '현재 진행 중' : '선택한 모험'}</span>
+            <strong>${escapeHtml(actionMission.name)}</strong>
+            <small>합산 전투력 ${formatNumber(actionScore)} / 최소 ${formatNumber(actionMinimumPower)}</small>
+          </div>
+          <button class="primary-button assignment-submit" type="button" data-action="start-expedition" ${active || !canStart ? 'disabled' : ''}>
+            <i data-lucide="map"></i>
+            ${active ? '모험 진행 중' : '자동 모험 시작'}
+          </button>
         </div>
         <div class="mission-list">
           ${EXPEDITIONS.map((mission) => `
@@ -785,15 +800,11 @@ function renderAdventure(state) {
           <div class="mission-reward-preview">
             <span><i data-lucide="coins"></i><small>기본 동전 범위</small><strong>${formatNumber(selectedMission.reward.coins[0])}~${formatNumber(selectedMission.reward.coins[1])}</strong></span>
             <span><i data-lucide="package-open"></i><small>카드팩 발견 확률</small><strong>${Math.round(selectedMission.reward.packChance * 1000) / 10}%</strong></span>
-            <p>실제 보상은 매번 변동하며, 최소 전투력을 넘긴 정도에 따라 최대 ${Math.round((selectedMission.reward.powerBonusCap || 0.35) * 100)}% 증가합니다.</p>
+            <p>모험은 항상 완료되며 최소 ${formatNumber(selectedMission.reward.coins[0])} 동전을 보장합니다. 실제 보상은 매번 변동하고, 최소 전투력을 넘긴 정도에 따라 최대 ${Math.round((selectedMission.reward.powerBonusCap || 0.35) * 100)}% 증가합니다.</p>
           </div>
           ${score < minimumPower ? `<p class="requirement-warning"><i data-lucide="circle-alert"></i>최소 합산 전투력까지 ${formatNumber(minimumPower - score)}이 더 필요합니다.</p>` : ''}
           <div class="subheading"><h3>파견 카드</h3><span>${expeditionSquad.length} / 3</span></div>
           ${renderSquadPicker(state, 'adventure')}
-          <button class="primary-button assignment-submit" type="button" data-action="start-expedition" ${canStart ? '' : 'disabled'}>
-            <i data-lucide="map"></i>
-            자동 모험 시작
-          </button>
         `}
       </section>
     </div>
@@ -1324,19 +1335,20 @@ function beginExpedition() {
 
 function completeExpeditionIfReady() {
   const state = store.getState();
-  if (!state.expedition || Date.now() < state.expedition.endsAt) return false;
-  const mission = expeditionById(state.expedition.missionId);
-  const result = settleExpedition({ expedition: state.expedition, mission });
-  store.update((draft) => {
-    draft.wallet.coins += result.coins;
-    draft.packs.standard += result.packs;
-    draft.expedition = null;
-    appendActivity(draft, `${mission.name} ${result.success ? '완료' : '부분 완료'}: ${formatNumber(result.coins)} 동전 획득`, 'adventure');
-  });
+  const mission = expeditionById(state.expedition?.missionId);
+  const completion = completeDueExpedition({ state, mission });
+  if (!completion) return false;
+  appendActivity(
+    completion.state,
+    `${mission.name} 완료: ${formatNumber(completion.result.coins)} 동전 획득`,
+    'adventure',
+    completion.completedAt,
+  );
+  store.replace(completion.state);
   ui.modal = {
     type: 'result',
-    message: result.success ? `${mission.name} 임무를 무사히 마쳤습니다.` : `${mission.name}에서 일부 자료만 회수했습니다.`,
-    rewardText: rewardText({ coins: result.coins, packs: result.packs }),
+    message: `${mission.name} 임무를 무사히 마쳤습니다.`,
+    rewardText: rewardText({ coins: completion.result.coins, packs: completion.result.packs }),
   };
   render();
   return true;
@@ -1674,7 +1686,9 @@ function activateAuthenticatedSession(session, { offline = false } = {}) {
   ui.raid = { loading: false, dispatching: false, error: '', ranking: null, lastLoadedAt: 0, requestEpoch: 0 };
   ui.view = 'dashboard';
   ui.modal = null;
-  render();
+  // Expeditions use an absolute end timestamp, so an overdue run is settled
+  // immediately when the saved account is restored after the app was closed.
+  if (!completeExpeditionIfReady()) render();
   void startIncidentRuntime();
 }
 
