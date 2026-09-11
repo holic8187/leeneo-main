@@ -1,12 +1,20 @@
 const DEFAULT_TIMEOUT_MS = 10000;
 
 export class RaidGatewayError extends Error {
-  constructor(message, { status = 0, code = '', retryAfterSeconds = 0 } = {}) {
+  constructor(message, {
+    status = 0,
+    code = '',
+    retryAfterSeconds = 0,
+    activePlatform = '',
+    generation = 0,
+  } = {}) {
     super(message);
     this.name = 'RaidGatewayError';
     this.status = Number(status) || 0;
     this.code = String(code || '');
     this.retryAfterSeconds = Math.max(0, Number(retryAfterSeconds) || 0);
+    this.activePlatform = String(activePlatform || '');
+    this.generation = Math.max(0, Number(generation) || 0);
   }
 }
 
@@ -30,18 +38,26 @@ function normalizeRanking(value) {
 function normalizeState(value) {
   if (!value || typeof value !== 'object') return null;
   const maxHp = Math.max(1, Number(value.maxHp) || 0);
+  const clears = Math.max(0, Number(value.clears) || 0);
+  const id = String(value.id || value.bossId || '');
+  const dayKey = String(value.dayKey || '');
   return {
-    id: String(value.id || value.bossId || ''),
+    id,
     hp: Math.min(maxHp, Math.max(0, Number(value.hp) || 0)),
     maxHp,
     contribution: Math.max(0, Number(value.contribution ?? value.totalContribution) || 0),
     totalContribution: Math.max(0, Number(value.totalContribution ?? value.contribution) || 0),
     lastDispatchAt: Math.max(0, Number(value.lastDispatchAt) || 0),
     dispatches: Math.max(0, Number(value.dispatches) || 0),
-    clears: Math.max(0, Number(value.clears) || 0),
+    clears,
     maxClears: Math.max(1, Number(value.maxClears) || 2),
     cooldownMs: Math.max(0, Number(value.cooldownMs) || 60000),
-    dayKey: String(value.dayKey || ''),
+    dayKey,
+    rewardKey: String(value.rewardKey || (dayKey && id ? `${dayKey}:${id}` : '')),
+    earnedRewards: {
+      coins: Math.max(0, Number(value.earnedRewards?.coins) || clears * 5000),
+      packs: Math.max(0, Number(value.earnedRewards?.packs) || clears),
+    },
     resetsAt: Number(value.resetsAt) || 0,
   };
 }
@@ -80,6 +96,8 @@ export function createRaidGateway({
           status: response.status,
           code: payload?.code,
           retryAfterSeconds: payload?.retryAfterSeconds,
+          activePlatform: payload?.activePlatform,
+          generation: payload?.generation,
         });
       }
       return payload;
@@ -109,11 +127,11 @@ export function createRaidGateway({
       const payload = await request('/api/tcg/raids/personal/ranking', { token });
       return normalizeRanking(payload?.ranking || payload);
     },
-    async dispatch(token, { bossId, squadScore }) {
+    async dispatch(token, { bossId, squadScore, leaseId, deviceId, generation }) {
       return normalizePayload(await request('/api/tcg/raids/personal/dispatch', {
         method: 'POST',
         token,
-        body: { bossId, squadScore },
+        body: { bossId, squadScore, leaseId, deviceId, generation },
       }));
     },
   };

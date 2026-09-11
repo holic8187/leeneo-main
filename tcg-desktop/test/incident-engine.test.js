@@ -9,6 +9,7 @@ import {
   incidentExpiresAt,
   isIncidentExpired,
   nextIncidentDelay,
+  pendingIncidentWindow,
   resolveIncidentChoice,
 } from '../src/core/incidentEngine.js';
 
@@ -73,6 +74,19 @@ test('an arrived incident remains actionable for ten minutes', () => {
   assert.equal(isIncidentExpired({ arrivedAt, expiresAt }, expiresAt - 1), false);
   assert.equal(isIncidentExpired({ arrivedAt, expiresAt }, expiresAt), true);
   assert.equal(isIncidentExpired({ arrivedAt }, expiresAt), true, 'legacy incidents use arrivedAt');
+});
+
+test('a scheduled incident keeps its original ten-minute window across an app restart', () => {
+  const scheduledAt = Date.parse('2026-09-10T08:00:00.000Z');
+  const pending = { id: 'coffee-order', scheduledAt };
+  assert.deepEqual(pendingIncidentWindow(pending, scheduledAt - 1), {
+    scheduledAt,
+    expiresAt: scheduledAt + INCIDENT_ACTIVE_DURATION_MS,
+    status: 'scheduled',
+  });
+  assert.equal(pendingIncidentWindow(pending, scheduledAt + 1).status, 'active');
+  assert.equal(pendingIncidentWindow(pending, scheduledAt + INCIDENT_ACTIVE_DURATION_MS).status, 'expired');
+  assert.equal(pendingIncidentWindow({ id: 'coffee-order' }, scheduledAt), null);
 });
 
 test('recent five events are excluded without changing tier odds', () => {

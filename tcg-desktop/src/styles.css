@@ -35,6 +35,14 @@ body,
   overflow: hidden;
 }
 
+@supports (height: 100dvh) {
+  html,
+  body,
+  #app {
+    height: 100dvh;
+  }
+}
+
 body {
   min-width: 320px;
   background: var(--paper);
@@ -699,6 +707,25 @@ svg {
   background: var(--paper-bright);
   font-size: 10px;
   box-shadow: 0 5px 14px rgb(25 35 30 / 10%);
+}
+
+.update-chip:has(button) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 5px 4px 9px;
+}
+
+.update-chip button {
+  min-height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 2px;
+  color: #fff;
+  background: var(--forest-soft);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 800;
 }
 
 .view-host {
@@ -2824,6 +2851,117 @@ svg {
   font-size: 9px;
 }
 
+.settings-update-button {
+  width: 100%;
+  margin-top: 16px;
+}
+
+.cloud-session-gate {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: max(24px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+  color: #eef4ef;
+  background: #121a16;
+}
+
+.cloud-session-card {
+  display: grid;
+  width: min(100%, 470px);
+  justify-items: center;
+  padding: clamp(30px, 7vw, 54px);
+  border: 1px solid #405247;
+  border-radius: 8px;
+  background: #18231d;
+  text-align: center;
+  box-shadow: 0 24px 70px rgb(0 0 0 / 34%);
+}
+
+.cloud-session-mark {
+  display: grid;
+  width: 62px;
+  height: 62px;
+  margin-bottom: 22px;
+  place-items: center;
+  border: 1px solid #d8b858;
+  border-radius: 50%;
+  color: #17211c;
+  background: #d8b858;
+}
+
+.cloud-session-mark svg {
+  width: 27px;
+  height: 27px;
+}
+
+.cloud-session-card h2 {
+  margin: 9px 0 11px;
+  color: #fffdf7;
+  font-size: clamp(22px, 6vw, 30px);
+}
+
+.cloud-session-card p {
+  max-width: 390px;
+  margin: 0 0 24px;
+  color: #aab8b0;
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.cloud-session-card > small {
+  max-width: 390px;
+  margin: -12px 0 20px;
+  color: #e3a18f;
+  overflow-wrap: anywhere;
+}
+
+.cloud-session-card .primary-button,
+.cloud-session-card .secondary-button {
+  min-width: min(100%, 260px);
+  min-height: 48px;
+}
+
+.cloud-conflict-actions {
+  display: grid;
+  gap: 10px;
+  width: min(100%, 360px);
+  margin: 0 auto;
+}
+
+.cloud-session-logout {
+  margin-top: 22px;
+  padding: 7px 12px;
+  border: 0;
+  color: #8fa098;
+  background: transparent;
+  cursor: pointer;
+  font-size: 11px;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.cloud-session-loader {
+  width: min(100%, 260px);
+  height: 3px;
+  overflow: hidden;
+  background: #314038;
+}
+
+.cloud-session-loader span {
+  display: block;
+  width: 45%;
+  height: 100%;
+  background: #d8b858;
+  animation: cloud-loader 1100ms ease-in-out infinite alternate;
+}
+
+@keyframes cloud-loader {
+  from { transform: translateX(-20%); }
+  to { transform: translateX(140%); }
+}
+
 .app-notice {
   position: fixed;
   z-index: 150;
@@ -3574,7 +3712,7 @@ svg {
     min-height: 60px;
     flex-direction: row;
     align-items: center;
-    padding: 6px;
+    padding: 6px max(6px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left));
     overflow-x: auto;
     overflow-y: hidden;
     border-top: 1px solid #26352e;
@@ -3614,7 +3752,7 @@ svg {
   .topbar {
     min-height: 64px;
     gap: 8px;
-    padding: 9px 12px;
+    padding: max(9px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 9px max(12px, env(safe-area-inset-left));
   }
 
   .page-heading {
@@ -3772,6 +3910,23 @@ svg {
     bottom: 74px;
     left: 12px;
     max-width: none;
+  }
+}
+
+@media (pointer: coarse) {
+  .primary-button,
+  .secondary-button,
+  .alert-button,
+  .quiet-button,
+  .mission-row,
+  .squad-card {
+    min-height: 44px;
+  }
+
+  .icon-button,
+  .account-button {
+    min-width: 40px;
+    min-height: 40px;
   }
 }
 

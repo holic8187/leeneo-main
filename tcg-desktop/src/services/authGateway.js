@@ -122,7 +122,14 @@ export function createAuthGateway({
       if (!account) {
         throw new AuthGatewayError('계정 확인 응답이 올바르지 않습니다.', { code: 'INVALID_RESPONSE' });
       }
-      return account;
+      const refreshedToken = String(payload?.token || payload?.accessToken || '').trim();
+      // Keep the account fields at the top level for older callers while also
+      // exposing the refreshed token/session shape used by mobile restoration.
+      return {
+        ...account,
+        account,
+        ...(refreshedToken ? { token: refreshedToken } : {}),
+      };
     },
   };
 }

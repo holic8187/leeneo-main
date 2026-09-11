@@ -10,6 +10,7 @@ import {
   LEGACY_MIGRATION_KEY,
   STORAGE_KEY,
   createGameStore,
+  hasStoredGameState,
   storageKeyForUser,
 } from '../src/core/gameState.js';
 import {
@@ -92,7 +93,10 @@ test('auth gateway sends registration, login, availability, and bearer requests 
     if (url.endsWith('/login')) {
       return jsonResponse({ token: 'login-token', account: { id: 'a1', username: 'employee01', nickname: '카드대리' } });
     }
-    return jsonResponse({ account: { id: 'a1', username: 'employee01', nickname: '카드대리' } });
+    return jsonResponse({
+      token: 'refreshed-token',
+      account: { id: 'a1', username: 'employee01', nickname: '카드대리' },
+    });
   };
   const gateway = createAuthGateway({ apiBase: 'https://cards.example.com/', fetchImpl });
 
@@ -106,7 +110,10 @@ test('auth gateway sends registration, login, availability, and bearer requests 
   assert.equal(registered.token, 'register-token');
   assert.equal(registered.account.nickname, '카드대리');
   assert.equal((await gateway.login({ username: 'employee01', password: 'secret12' })).token, 'login-token');
-  assert.equal((await gateway.me('login-token')).username, 'employee01');
+  const restored = await gateway.me('login-token');
+  assert.equal(restored.username, 'employee01');
+  assert.equal(restored.account.nickname, '카드대리');
+  assert.equal(restored.token, 'refreshed-token');
 
   assert.equal(calls[0].url, 'https://cards.example.com/api/tcg/auth/check-availability');
   assert.deepEqual(JSON.parse(calls[0].options.body), {
@@ -167,4 +174,15 @@ test('game progress is isolated by account and legacy progress migrates only onc
   assert.equal(createGameStore(storage, { userId: 'account-B' }).getState().wallet.coins, 3333);
   assert.equal(storage.getItem(LEGACY_MIGRATION_KEY), 'account/A');
   assert.equal(storageKeyForUser('account/A'), `${ACCOUNT_STORAGE_PREFIX}account%2FA`);
+});
+
+test('cloud bootstrap detection includes valid legacy progress before account migration', () => {
+  const storage = createMemoryStorage({
+    [STORAGE_KEY]: JSON.stringify({ wallet: { coins: 4567 } }),
+  });
+  assert.equal(hasStoredGameState(storage, 'legacy-owner'), true);
+  createGameStore(storage, { userId: 'legacy-owner' });
+  assert.equal(hasStoredGameState(storage, 'legacy-owner'), true);
+  assert.equal(hasStoredGameState(storage, 'another-account'), false);
+  assert.equal(hasStoredGameState(createMemoryStorage({ [STORAGE_KEY]: '{broken' }), 'broken-owner'), false);
 });

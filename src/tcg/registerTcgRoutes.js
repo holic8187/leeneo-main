@@ -2,6 +2,7 @@
 
 const DefaultTcgAccount = require('./models/TcgAccount');
 const DefaultTcgPersonalRaidDaily = require('./models/TcgPersonalRaidDaily');
+const DefaultTcgPlayerState = require('./models/TcgPlayerState');
 const {
   PersonalRaidError,
   dispatchPersonalRaid,
@@ -9,11 +10,20 @@ const {
   getPersonalRaidState,
   serializePersonalRaidState
 } = require('./services/personalRaidService');
+const {
+  PlayerStateError,
+  assertActivePlaySession,
+  heartbeatPlaySession,
+  openPlaySession,
+  releasePlaySession,
+  saveGameState,
+  takeoverPlaySession
+} = require('./services/playerStateService');
 
 const TCG_TOKEN_KIND = 'tcg';
 const TCG_TOKEN_ISSUER = 'working-hoi-server';
 const TCG_TOKEN_AUDIENCE = 'hoi-card-desk';
-const DEFAULT_TOKEN_EXPIRES_IN = '7d';
+const DEFAULT_TOKEN_EXPIRES_IN = null;
 const MAX_RATE_LIMIT_KEYS = 10_000;
 const DEFAULT_RATE_LIMITS = Object.freeze({
   availability: Object.freeze({ windowMs: 60_000, max: 60 }),
@@ -201,16 +211,19 @@ function getMongoDuplicateFields(error) {
 }
 
 function signAccountToken(account, jwt, jwtSecret, expiresIn) {
+  const options = {
+    algorithm: 'HS256',
+    issuer: TCG_TOKEN_ISSUER,
+    audience: TCG_TOKEN_AUDIENCE
+  };
+  if (expiresIn !== null && expiresIn !== undefined && String(expiresIn).trim()) {
+    options.expiresIn = expiresIn;
+  }
   return jwt.sign({
     sub: String(account._id || account.id),
     kind: TCG_TOKEN_KIND,
     tokenVersion: Math.max(0, Number(account.tokenVersion) || 0)
-  }, jwtSecret, {
-    algorithm: 'HS256',
-    expiresIn,
-    issuer: TCG_TOKEN_ISSUER,
-    audience: TCG_TOKEN_AUDIENCE
-  });
+  }, jwtSecret, options);
 }
 
 function registerTcgRoutes({
@@ -222,10 +235,11 @@ function registerTcgRoutes({
   rateLimitOptions = {},
   TcgAccount = DefaultTcgAccount,
   TcgPersonalRaidDaily = DefaultTcgPersonalRaidDaily,
+  TcgPlayerState = DefaultTcgPlayerState,
   now = Date.now,
   random = undefined
 }) {
-  if (!app || !bcrypt || !jwt || !jwtSecret || !TcgAccount || !TcgPersonalRaidDaily) {
+  if (!app || !bcrypt || !jwt || !jwtSecret || !TcgAccount || !TcgPersonalRaidDaily || !TcgPlayerState) {
     throw new Error('TCG authentication dependencies are not configured.');
   }
   const availabilityRateLimit = createIpRateLimiter({
@@ -379,8 +393,77 @@ function registerTcgRoutes({
   app.get('/api/tcg/auth/me', async (req, res) => {
     const account = await requireTcgAccount(req, res);
     if (!account) return;
-    return res.json({ account: serializeAccount(account) });
+    const token = signAccountToken(account, jwt, jwtSecret, tokenExpiresIn);
+    return res.json({ token, account: serializeAccount(account) });
   });
+
+  function sendPlayerStateError(error, res) {
+    if (!(error instanceof PlayerStateError)) return false;
+    res.status(error.status).json({
+      code: error.code,
+      msg: error.message,
+      ...error.details
+    });
+    return true;
+  }
+
+  async function runPlayerStateAction(req, res, action, fallback) {
+    const account = await requireTcgAccount(req, res);
+    if (!account) return;
+    try {
+      const payload = await action({
+        TcgPlayerState,
+        accountId: account._id || account.id,
+        request: req.body || {},
+        now: now()
+      });
+      return res.json(payload);
+    } catch (error) {
+      if (sendPlayerStateError(error, res)) return;
+      console.error(`TCG ${fallback.operation} error:`, error);
+      return res.status(500).json({ code: fallback.code, msg: fallback.message });
+    }
+  }
+
+  app.post('/api/tcg/play-session/open', async (req, res) => (
+    runPlayerStateAction(req, res, openPlaySession, {
+      operation: 'play session open',
+      code: 'PLAY_SESSION_OPEN_FAILED',
+      message: '플레이 기록을 연결하지 못했습니다.'
+    })
+  ));
+
+  app.post('/api/tcg/play-session/takeover', async (req, res) => (
+    runPlayerStateAction(req, res, takeoverPlaySession, {
+      operation: 'play session takeover',
+      code: 'PLAY_SESSION_TAKEOVER_FAILED',
+      message: '이 기기로 플레이를 전환하지 못했습니다.'
+    })
+  ));
+
+  app.post('/api/tcg/play-session/heartbeat', async (req, res) => (
+    runPlayerStateAction(req, res, heartbeatPlaySession, {
+      operation: 'play session heartbeat',
+      code: 'PLAY_SESSION_HEARTBEAT_FAILED',
+      message: '플레이 연결 상태를 확인하지 못했습니다.'
+    })
+  ));
+
+  app.post('/api/tcg/play-session/release', async (req, res) => (
+    runPlayerStateAction(req, res, releasePlaySession, {
+      operation: 'play session release',
+      code: 'PLAY_SESSION_RELEASE_FAILED',
+      message: '플레이 연결을 종료하지 못했습니다.'
+    })
+  ));
+
+  app.put('/api/tcg/game-state', async (req, res) => (
+    runPlayerStateAction(req, res, saveGameState, {
+      operation: 'game state save',
+      code: 'GAME_STATE_SAVE_FAILED',
+      message: '게임 진행 기록을 저장하지 못했습니다.'
+    })
+  ));
 
   function sendPersonalRaidError(error, res) {
     if (!(error instanceof PersonalRaidError)) return false;
@@ -455,13 +538,25 @@ function registerTcgRoutes({
     const account = await requireTcgAccount(req, res);
     if (!account) return;
     try {
+      const request = req.body || {};
+      const usesPlaySessionLease = ['leaseId', 'deviceId', 'generation']
+        .some((field) => Object.prototype.hasOwnProperty.call(request, field));
+      const validateSession = usesPlaySessionLease
+        ? () => assertActivePlaySession({
+          TcgPlayerState,
+          accountId: account._id || account.id,
+          request,
+          now: now()
+        })
+        : null;
       const currentTime = now();
       const dispatched = await dispatchPersonalRaid({
         TcgPersonalRaidDaily,
         account,
-        bossId: req.body?.bossId,
-        squadScore: req.body?.squadScore,
+        bossId: request.bossId,
+        squadScore: request.squadScore,
         now: currentTime,
+        validateSession,
         ...(typeof random === 'function' ? { random } : {})
       });
       const state = serializePersonalRaidState(
@@ -480,6 +575,7 @@ function registerTcgRoutes({
       });
       return res.json({ result: dispatched.result, state, ranking });
     } catch (error) {
+      if (sendPlayerStateError(error, res)) return;
       if (sendPersonalRaidError(error, res)) return;
       console.error('TCG personal raid dispatch error:', error);
       return res.status(500).json({ code: 'RAID_DISPATCH_FAILED', msg: '개인 레이드 파견을 처리하지 못했습니다.' });

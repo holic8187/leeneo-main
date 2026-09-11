@@ -25,10 +25,22 @@ test('raid gateway sends bearer-authenticated state, ranking, and dispatch reque
 
   assert.equal((await gateway.state('token')).state.hp, 100);
   assert.equal((await gateway.ranking('token')).entries[0].nickname, '호이');
-  const dispatched = await gateway.dispatch('token', { bossId: 'deadline-dragon-raid', squadScore: 12000 });
+  const dispatched = await gateway.dispatch('token', {
+    bossId: 'deadline-dragon-raid',
+    squadScore: 12000,
+    leaseId: 'lease-1',
+    deviceId: 'device-1',
+    generation: 7,
+  });
   assert.equal(dispatched.state.totalContribution, 50);
   assert.equal(calls[0].options.headers.Authorization, 'Bearer token');
-  assert.deepEqual(JSON.parse(calls[2].options.body), { bossId: 'deadline-dragon-raid', squadScore: 12000 });
+  assert.deepEqual(JSON.parse(calls[2].options.body), {
+    bossId: 'deadline-dragon-raid',
+    squadScore: 12000,
+    leaseId: 'lease-1',
+    deviceId: 'device-1',
+    generation: 7,
+  });
 });
 
 test('raid gateway exposes server limits and rejects missing authentication', async () => {

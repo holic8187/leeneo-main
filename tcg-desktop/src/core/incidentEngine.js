@@ -21,6 +21,24 @@ export function incidentExpiresAt(arrivedAt = Date.now()) {
   return (Number.isFinite(timestamp) ? timestamp : Date.now()) + INCIDENT_ACTIVE_DURATION_MS;
 }
 
+/**
+ * Classify a persisted incident that was scheduled before the app was
+ * backgrounded or closed. The scheduled timestamp is the real arrival time,
+ * so reopening the app cannot extend the ten-minute response window.
+ */
+export function pendingIncidentWindow(pendingIncident, now = Date.now()) {
+  if (!pendingIncident || typeof pendingIncident !== 'object' || typeof pendingIncident.id !== 'string') return null;
+  const scheduledAt = Number(pendingIncident.scheduledAt);
+  const currentTime = Number(now);
+  if (!Number.isFinite(scheduledAt) || !Number.isFinite(currentTime)) return null;
+  const expiresAt = incidentExpiresAt(scheduledAt);
+  return {
+    scheduledAt,
+    expiresAt,
+    status: scheduledAt > currentTime ? 'scheduled' : (expiresAt <= currentTime ? 'expired' : 'active'),
+  };
+}
+
 export function isIncidentExpired(activeIncident, now = Date.now()) {
   if (!activeIncident || typeof activeIncident !== 'object') return false;
   const expiresAt = Number(activeIncident.expiresAt);

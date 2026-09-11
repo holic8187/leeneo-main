@@ -95,6 +95,9 @@ function createRouteHarness(TcgAccount, options = {}) {
     },
     get(path, handler) {
       routes.set(`GET ${path}`, handler);
+    },
+    put(path, handler) {
+      routes.set(`PUT ${path}`, handler);
     }
   };
   registerTcgRoutes({

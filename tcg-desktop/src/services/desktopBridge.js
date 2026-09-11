@@ -1,12 +1,69 @@
-const browserListeners = new Set();
-let browserTimer = null;
+import { detectClientPlatform } from '../core/deviceIdentity.js';
+import {
+  checkAndroidRelease,
+  isTrustedAndroidReleaseAssetUrl,
+} from './androidUpdateGateway.js';
 
-const desktop = window.hoiDesktop;
+const browserListeners = new Set();
+const mobileUpdateListeners = new Set();
+let browserTimer = null;
+let androidUpdater = null;
+let androidUpdaterListenerPromise = null;
+let currentAndroidUpdateUrl = '';
+
+const desktop = globalThis.hoiDesktop;
+const platform = detectClientPlatform(globalThis);
+
+async function capacitorApp() {
+  if (platform !== 'android' && platform !== 'ios') return null;
+  try {
+    return (await import('@capacitor/app')).App;
+  } catch {
+    return null;
+  }
+}
+
+async function capacitorAndroidUpdater() {
+  if (platform !== 'android') return null;
+  if (androidUpdater) return androidUpdater;
+  try {
+    const { registerPlugin } = await import('@capacitor/core');
+    androidUpdater = registerPlugin('AndroidUpdater');
+    return androidUpdater;
+  } catch {
+    return null;
+  }
+}
+
+async function ensureAndroidUpdaterListener() {
+  if (platform !== 'android') return null;
+  if (!androidUpdaterListenerPromise) {
+    androidUpdaterListenerPromise = (async () => {
+      const updater = await capacitorAndroidUpdater();
+      if (!updater) return null;
+      return updater.addListener('updateStatus', (status) => {
+        const payload = currentAndroidUpdateUrl
+          ? { ...status, downloadUrl: currentAndroidUpdateUrl }
+          : status;
+        for (const listener of mobileUpdateListeners) listener(payload);
+      });
+    })().catch(() => {
+      androidUpdaterListenerPromise = null;
+      return null;
+    });
+  }
+  return androidUpdaterListenerPromise;
+}
 
 export const desktopBridge = {
   isDesktop: Boolean(desktop?.isDesktop),
+  isMobile: platform === 'android' || platform === 'ios',
+  platform,
   async getVersion() {
-    return desktop?.getVersion ? desktop.getVersion() : 'web-preview';
+    if (desktop?.getVersion) return desktop.getVersion();
+    const App = await capacitorApp();
+    if (App) return String((await App.getInfo()).version || '0.0.0');
+    return 'web-preview';
   },
   async hideWindow() {
     if (desktop?.hideWindow) return desktop.hideWindow();
@@ -58,10 +115,63 @@ export const desktopBridge = {
   },
   onUpdateStatus(handler) {
     if (desktop?.onUpdateStatus) return desktop.onUpdateStatus(handler);
-    return () => {};
+    if (platform !== 'android') return () => {};
+    mobileUpdateListeners.add(handler);
+    void ensureAndroidUpdaterListener();
+    return () => mobileUpdateListeners.delete(handler);
   },
   async checkForUpdates() {
     if (desktop?.checkForUpdates) return desktop.checkForUpdates();
+    if (platform === 'android') {
+      return checkAndroidRelease({ currentVersion: await this.getVersion() });
+    }
     return { status: 'web-preview' };
+  },
+  async installAndroidUpdate(downloadUrl) {
+    if (platform !== 'android') return { status: 'unsupported' };
+    if (!isTrustedAndroidReleaseAssetUrl(downloadUrl)) {
+      const error = new Error('공식 GitHub Android 배포 파일만 설치할 수 있습니다.');
+      error.code = 'UPDATE_URL_NOT_ALLOWED';
+      throw error;
+    }
+    currentAndroidUpdateUrl = String(downloadUrl);
+    await ensureAndroidUpdaterListener();
+    const updater = await capacitorAndroidUpdater();
+    if (!updater) {
+      const error = new Error('Android 업데이트 기능을 불러오지 못했습니다.');
+      error.code = 'UPDATE_PLUGIN_UNAVAILABLE';
+      throw error;
+    }
+    return updater.downloadAndInstall({ url: downloadUrl });
+  },
+  onAppStateChange(handler) {
+    let removed = false;
+    let handle = null;
+    void capacitorApp().then(async (App) => {
+      if (!App || removed) return;
+      handle = await App.addListener('appStateChange', ({ isActive }) => handler(Boolean(isActive)));
+      if (removed) await handle.remove();
+    });
+    return () => {
+      removed = true;
+      void handle?.remove?.();
+    };
+  },
+  async openExternal(url) {
+    const safeUrl = String(url || '');
+    if (!/^https:\/\//i.test(safeUrl)) return false;
+    if (platform === 'android' || platform === 'ios') {
+      try {
+        const { Browser } = await import('@capacitor/browser');
+        await Browser.open({ url: safeUrl });
+        return true;
+      } catch {
+        // Fall back to the WebView/browser behavior if the native plugin is not
+        // available in an older installation.
+      }
+    }
+    const opened = globalThis.open?.(safeUrl, '_blank', 'noopener,noreferrer');
+    if (!opened && globalThis.location) globalThis.location.href = safeUrl;
+    return true;
   },
 };
