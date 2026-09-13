@@ -5,7 +5,7 @@ import {
   ENHANCEMENT_TOTAL_BONUSES,
   MAX_ENHANCEMENT,
   SYNTHESIS_MATERIAL_COUNT,
-  SYNTHESIS_SUCCESS_RATE,
+  SYNTHESIS_SUCCESS_RATES,
   attemptCardEnhancement,
   attemptCardSynthesis,
   autoSelectSynthesisMaterials,
@@ -16,6 +16,7 @@ import {
   expeditionCardLocks,
   lockedEnhancementCounts,
   normalizeCardEnhancements,
+  synthesisSuccessRateForRarity,
 } from '../src/core/cardManagement.js';
 import { calculateSquadScore, startExpedition } from '../src/core/expeditionEngine.js';
 import { createDefaultState, hydrateState } from '../src/core/gameState.js';
@@ -40,7 +41,20 @@ test('enhancement constants preserve the requested rates and cumulative power cu
   assert.deepEqual(ENHANCEMENT_SUCCESS_RATES, [1, 0.86, 0.72, 0.58, 0.44]);
   assert.deepEqual(ENHANCEMENT_TOTAL_BONUSES, [0, 0.04, 0.10, 0.18, 0.28, 0.40]);
   assert.equal(SYNTHESIS_MATERIAL_COUNT, 5);
-  assert.equal(SYNTHESIS_SUCCESS_RATE, 0.6);
+  assert.deepEqual(SYNTHESIS_SUCCESS_RATES, {
+    c: 0.60,
+    u: 0.50,
+    r: 0.40,
+    rr: 0.30,
+    rrr: 0.20,
+    sr: 0.10,
+    hr: 0.10,
+    ur: 0.10,
+  });
+  assert.deepEqual(
+    rarityOrder.slice(0, -1).map(synthesisSuccessRateForRarity),
+    [0.60, 0.50, 0.40, 0.30, 0.20, 0.10, 0.10, 0.10],
+  );
   assert.deepEqual(
     ENHANCEMENT_TOTAL_BONUSES.map((_, stage) => enhancedCardPower(1000, stage)),
     [1000, 1040, 1100, 1180, 1280, 1400],
@@ -79,6 +93,21 @@ test('enhancement consumes one same-card material and promotes the target on suc
   assert.equal(result.resultStage, 1);
   assert.deepEqual(result.collection, { 'alpha-c': 1 });
   assert.deepEqual(result.cardEnhancements, { 'alpha-c': { 1: 1 } });
+});
+
+test('synthesis uses the selected source rarity rate by default', () => {
+  const result = attemptCardSynthesis({
+    collection: { 'alpha-u': 5 },
+    cardEnhancements: {},
+    materials: Array(5).fill(null).map(() => ({ cardId: 'alpha-u', enhancement: 0 })),
+    catalog,
+    rarityOrder,
+    random: sequence(0.50, 0),
+  });
+
+  assert.equal(result.success, false);
+  assert.equal(result.successRate, 0.50);
+  assert.equal(result.resultRarity, 'u');
 });
 
 test('failed enhancement keeps the target stage while still consuming its material', () => {
@@ -227,6 +256,7 @@ test('successful synthesis consumes five same-rarity cards and returns one next-
   });
 
   assert.equal(result.success, true);
+  assert.equal(result.successRate, 0.60);
   assert.equal(result.resultRarity, 'u');
   assert.equal(result.outputCard.id, 'beta-u');
   assert.equal(result.collection['alpha-c'], 0);
