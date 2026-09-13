@@ -1,12 +1,16 @@
 'use strict';
 
 const crypto = require('crypto');
+const CARD_COMBAT_POWER = Object.freeze(require('../data/cardCombatPower.json'));
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const PERSONAL_RAID_COOLDOWN_MS = 60 * 1000;
 const PERSONAL_RAID_MAX_DAILY_CLEARS = 2;
 const PERSONAL_RAID_MIN_SQUAD_SCORE = 1;
-const PERSONAL_RAID_MAX_SQUAD_SCORE = 60_000;
+const PERSONAL_RAID_MAX_SQUAD_SCORE = 100_000;
+const PERSONAL_RAID_MAX_SQUAD_SIZE = 3;
+const MAX_CARD_ENHANCEMENT = 5;
+const ENHANCEMENT_TOTAL_BONUSES = Object.freeze([0, 0.04, 0.10, 0.18, 0.28, 0.40]);
 const DEFAULT_RANKING_LIMIT = 50;
 const MAX_RANKING_LIMIT = 100;
 const MAX_CAS_ATTEMPTS = 5;
@@ -81,6 +85,179 @@ function parseSquadScore(value) {
     );
   }
   return score;
+}
+
+function positiveInteger(value) {
+  const count = Math.floor(Number(value));
+  return Number.isFinite(count) && count > 0 ? count : 0;
+}
+
+function enhancementCountsForCard(collection, cardEnhancements, cardId) {
+  const counts = Array(MAX_CARD_ENHANCEMENT + 1).fill(0);
+  let remaining = positiveInteger(collection?.[cardId]);
+  const saved = cardEnhancements?.[cardId];
+  for (let stage = MAX_CARD_ENHANCEMENT; stage >= 1; stage -= 1) {
+    const requested = Array.isArray(saved)
+      ? positiveInteger(saved[stage])
+      : positiveInteger(saved?.[stage]);
+    counts[stage] = Math.min(requested, remaining);
+    remaining -= counts[stage];
+  }
+  counts[0] = remaining;
+  return counts;
+}
+
+function activeExpeditionLocks(playerState, now = Date.now()) {
+  const expedition = playerState?.expedition;
+  if (!expedition || typeof expedition !== 'object') return {};
+  const endsAt = Number(expedition.endsAt);
+  if (Number.isFinite(endsAt) && endsAt <= toTimestamp(now)) return {};
+
+  const collection = playerState?.collection || {};
+  const cardEnhancements = playerState?.cardEnhancements || {};
+  const locks = {};
+  for (const rawCardId of Array.isArray(expedition.squad) ? expedition.squad : []) {
+    const cardId = String(rawCardId || '').trim();
+    if (!cardId) continue;
+    const owned = enhancementCountsForCard(collection, cardEnhancements, cardId);
+    const locked = locks[cardId] || Array(MAX_CARD_ENHANCEMENT + 1).fill(0);
+    const rawSavedStage = expedition.enhancementStages?.[cardId];
+    const savedStage = rawSavedStage == null ? -1 : Number(rawSavedStage);
+    if (Number.isSafeInteger(savedStage)
+      && savedStage >= 0
+      && savedStage <= MAX_CARD_ENHANCEMENT
+      && owned[savedStage] > locked[savedStage]) {
+      locked[savedStage] += 1;
+      locks[cardId] = locked;
+      continue;
+    }
+    for (let stage = MAX_CARD_ENHANCEMENT; stage >= 0; stage -= 1) {
+      if (owned[stage] > locked[stage]) {
+        locked[stage] += 1;
+        locks[cardId] = locked;
+        break;
+      }
+    }
+  }
+  return locks;
+}
+
+function enhancedCardPower(basePower, enhancement) {
+  return Math.round(basePower * (1 + ENHANCEMENT_TOTAL_BONUSES[enhancement]));
+}
+
+function invalidRaidSquad(message, details = {}) {
+  return new PersonalRaidError('INVALID_RAID_SQUAD', message, 400, details);
+}
+
+function validatePersonalRaidSquad({
+  playerState,
+  squad,
+  submittedScore,
+  allowImplicitEnhancement = false,
+  skipUnavailable = false,
+  now = Date.now()
+} = {}) {
+  if (!playerState || typeof playerState !== 'object' || Array.isArray(playerState)) {
+    throw new PersonalRaidError(
+      'RAID_PLAYER_STATE_UNAVAILABLE',
+      '클라우드에 저장된 카드 정보를 불러온 뒤 다시 시도해 주세요.',
+      409
+    );
+  }
+  if (!Array.isArray(squad) || squad.length < 1 || squad.length > PERSONAL_RAID_MAX_SQUAD_SIZE) {
+    throw invalidRaidSquad(`개인 레이드에는 서로 다른 카드를 1~${PERSONAL_RAID_MAX_SQUAD_SIZE}장 편성해 주세요.`, {
+      maximumSquadSize: PERSONAL_RAID_MAX_SQUAD_SIZE
+    });
+  }
+
+  const collection = playerState.collection;
+  if (!collection || typeof collection !== 'object' || Array.isArray(collection)) {
+    throw new PersonalRaidError(
+      'RAID_PLAYER_STATE_UNAVAILABLE',
+      '클라우드 카드 보유 정보를 불러온 뒤 다시 시도해 주세요.',
+      409
+    );
+  }
+  const cardEnhancements = playerState.cardEnhancements || {};
+  const locks = activeExpeditionLocks(playerState, now);
+  const seen = new Set();
+  const verifiedSquad = [];
+  let squadScore = 0;
+
+  for (const rawDescriptor of squad) {
+    const descriptor = typeof rawDescriptor === 'string'
+      ? { cardId: rawDescriptor }
+      : rawDescriptor;
+    if (!descriptor || typeof descriptor !== 'object' || Array.isArray(descriptor)) {
+      throw invalidRaidSquad('레이드 카드 편성 정보가 올바르지 않습니다.');
+    }
+    const cardId = String(descriptor.cardId || '').trim();
+    const hasClaimedEnhancement = Object.prototype.hasOwnProperty.call(descriptor, 'enhancement');
+    const enhancement = hasClaimedEnhancement ? Number(descriptor.enhancement) : null;
+    if (!cardId || (!allowImplicitEnhancement && !hasClaimedEnhancement)
+      || (hasClaimedEnhancement && (!Number.isSafeInteger(enhancement)
+        || enhancement < 0 || enhancement > MAX_CARD_ENHANCEMENT))) {
+      throw invalidRaidSquad('레이드 카드 또는 강화 단계 정보가 올바르지 않습니다.');
+    }
+    if (seen.has(cardId)) {
+      throw invalidRaidSquad('같은 종류의 카드는 강화 단계가 달라도 한 덱에 중복 편성할 수 없습니다.', {
+        cardId
+      });
+    }
+    seen.add(cardId);
+
+    const basePower = Number(CARD_COMBAT_POWER[cardId]);
+    if (!Number.isSafeInteger(basePower) || basePower < 1) {
+      if (skipUnavailable) continue;
+      throw invalidRaidSquad('현재 레이드에서 사용할 수 없는 카드가 포함되어 있습니다.', { cardId });
+    }
+    const owned = enhancementCountsForCard(collection, cardEnhancements, cardId);
+    const locked = locks[cardId] || [];
+    let expectedEnhancement = -1;
+    for (let stage = MAX_CARD_ENHANCEMENT; stage >= 0; stage -= 1) {
+      if (owned[stage] > (locked[stage] || 0)) {
+        expectedEnhancement = stage;
+        break;
+      }
+    }
+    if (expectedEnhancement < 0) {
+      if (skipUnavailable) continue;
+      throw new PersonalRaidError(
+        'RAID_CARD_UNAVAILABLE',
+        '보유하지 않았거나 모험에 참여 중인 카드는 레이드에 편성할 수 없습니다.',
+        409,
+        { cardId }
+      );
+    }
+    if (hasClaimedEnhancement && enhancement !== expectedEnhancement) {
+      throw new PersonalRaidError(
+        'RAID_CARD_STAGE_MISMATCH',
+        '카드 강화 정보가 클라우드 기록과 일치하지 않습니다. 잠시 후 다시 시도해 주세요.',
+        409,
+        { cardId, expectedEnhancement }
+      );
+    }
+
+    const power = enhancedCardPower(basePower, expectedEnhancement);
+    squadScore += power;
+    verifiedSquad.push({ cardId, enhancement: expectedEnhancement, power });
+  }
+
+  if (!verifiedSquad.length) {
+    throw invalidRaidSquad('개인 레이드에 사용할 수 있는 카드를 1장 이상 편성해 주세요.');
+  }
+  squadScore = parseSquadScore(squadScore);
+  if (submittedScore !== undefined && submittedScore !== null
+    && parseSquadScore(submittedScore) !== squadScore) {
+    throw new PersonalRaidError(
+      'RAID_SQUAD_SCORE_MISMATCH',
+      '전투력이 클라우드 카드 기록과 일치하지 않습니다. 최신 기록을 불러온 뒤 다시 시도해 주세요.',
+      409,
+      { verifiedSquadScore: squadScore }
+    );
+  }
+  return { squad: verifiedSquad, squadScore };
 }
 
 function secureRandom() {
@@ -210,7 +387,23 @@ async function dispatchPersonalRaid({
   if (!boss) {
     throw new PersonalRaidError('UNKNOWN_RAID_BOSS', '개인 레이드 보스 정보를 찾을 수 없습니다.', 404);
   }
-  const score = parseSquadScore(squadScore);
+  let score = null;
+  async function validateDispatchRequest() {
+    const validation = typeof validateSession === 'function' ? await validateSession() : null;
+    const candidate = validation && Object.prototype.hasOwnProperty.call(validation, 'squadScore')
+      ? validation.squadScore
+      : squadScore;
+    const verifiedScore = parseSquadScore(candidate);
+    if (score !== null && verifiedScore !== score) {
+      throw new PersonalRaidError(
+        'RAID_SQUAD_CHANGED',
+        '레이드 처리 중 카드 편성이 변경되었습니다. 다시 시도해 주세요.',
+        409
+      );
+    }
+    score = verifiedScore;
+  }
+  await validateDispatchRequest();
   const nowMs = toTimestamp(now);
   const nowDate = new Date(nowMs);
   const window = getKstDayWindow(nowMs);
@@ -218,7 +411,6 @@ async function dispatchPersonalRaid({
   const key = { accountId, dayKey: window.dayKey, bossId: boss.id };
   const rolledDamage = calculatePersonalRaidDamage(score, boss, random);
 
-  if (typeof validateSession === 'function') await validateSession();
   await ensureDailyRecord(TcgPersonalRaidDaily, key, account, boss);
 
   for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {
@@ -238,7 +430,7 @@ async function dispatchPersonalRaid({
 
     // The lease can move to another device while damage is being calculated.
     // Recheck immediately before the raid row is committed.
-    if (typeof validateSession === 'function') await validateSession();
+    await validateDispatchRequest();
     const updated = await TcgPersonalRaidDaily.findOneAndUpdate({
       _id: snapshot._id,
       revision,
@@ -397,6 +589,7 @@ module.exports = {
   PERSONAL_RAID_CLEAR_REWARD,
   PERSONAL_RAID_COOLDOWN_MS,
   PERSONAL_RAID_MAX_DAILY_CLEARS,
+  PERSONAL_RAID_MAX_SQUAD_SIZE,
   PERSONAL_RAID_MAX_SQUAD_SCORE,
   PERSONAL_RAID_MIN_SQUAD_SCORE,
   PersonalRaidError,
@@ -410,5 +603,6 @@ module.exports = {
   getRemainingCooldownMs,
   normalizeRankingLimit,
   parseSquadScore,
-  serializePersonalRaidState
+  serializePersonalRaidState,
+  validatePersonalRaidSquad
 };

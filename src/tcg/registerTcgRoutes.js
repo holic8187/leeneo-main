@@ -8,7 +8,8 @@ const {
   dispatchPersonalRaid,
   getPersonalRaidRanking,
   getPersonalRaidState,
-  serializePersonalRaidState
+  serializePersonalRaidState,
+  validatePersonalRaidSquad
 } = require('./services/personalRaidService');
 const {
   PlayerStateError,
@@ -539,17 +540,27 @@ function registerTcgRoutes({
     if (!account) return;
     try {
       const request = req.body || {};
-      const usesPlaySessionLease = ['leaseId', 'deviceId', 'generation']
-        .some((field) => Object.prototype.hasOwnProperty.call(request, field));
-      const validateSession = usesPlaySessionLease
-        ? () => assertActivePlaySession({
+      const currentTime = now();
+      const validateSession = async () => {
+        const player = await assertActivePlaySession({
           TcgPlayerState,
           accountId: account._id || account.id,
           request,
-          now: now()
-        })
-        : null;
-      const currentTime = now();
+          now: currentTime
+        });
+        const hasExplicitSquad = Array.isArray(request.squad);
+        const squad = hasExplicitSquad
+          ? request.squad
+          : (player.state?.selectedRaidSquad || player.state?.selectedSquad || []);
+        return validatePersonalRaidSquad({
+          playerState: player.state,
+          squad,
+          submittedScore: hasExplicitSquad ? request.squadScore : undefined,
+          allowImplicitEnhancement: !hasExplicitSquad,
+          skipUnavailable: !hasExplicitSquad,
+          now: currentTime
+        });
+      };
       const dispatched = await dispatchPersonalRaid({
         TcgPersonalRaidDaily,
         account,

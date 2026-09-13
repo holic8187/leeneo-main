@@ -27,7 +27,7 @@ test('raid gateway sends bearer-authenticated state, ranking, and dispatch reque
   assert.equal((await gateway.ranking('token')).entries[0].nickname, '호이');
   const dispatched = await gateway.dispatch('token', {
     bossId: 'deadline-dragon-raid',
-    squadScore: 12000,
+    squad: [{ cardId: 'winter-r', enhancement: 2 }],
     leaseId: 'lease-1',
     deviceId: 'device-1',
     generation: 7,
@@ -36,7 +36,7 @@ test('raid gateway sends bearer-authenticated state, ranking, and dispatch reque
   assert.equal(calls[0].options.headers.Authorization, 'Bearer token');
   assert.deepEqual(JSON.parse(calls[2].options.body), {
     bossId: 'deadline-dragon-raid',
-    squadScore: 12000,
+    squad: [{ cardId: 'winter-r', enhancement: 2 }],
     leaseId: 'lease-1',
     deviceId: 'device-1',
     generation: 7,
@@ -49,7 +49,7 @@ test('raid gateway exposes server limits and rejects missing authentication', as
     fetchImpl: async () => response({ code: 'RAID_COOLDOWN', msg: '재정비 중입니다.', retryAfterSeconds: 30 }, 429),
   });
   await assert.rejects(
-    gateway.dispatch('token', { bossId: 'deadline-dragon-raid', squadScore: 1 }),
+    gateway.dispatch('token', { bossId: 'deadline-dragon-raid', squad: [] }),
     (error) => error instanceof RaidGatewayError
       && error.code === 'RAID_COOLDOWN'
       && error.retryAfterSeconds === 30,

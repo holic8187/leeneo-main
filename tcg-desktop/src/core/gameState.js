@@ -1,4 +1,5 @@
 import { INCIDENT_ACTIVE_DURATION_MS } from './incidentEngine.js';
+import { normalizeCardEnhancements } from './cardManagement.js';
 import { hydratePendingPackOpening } from './packOpeningSession.js';
 import { hydrateRaidRewardClaims } from './raidRewards.js';
 
@@ -10,7 +11,7 @@ const clone = (value) => JSON.parse(JSON.stringify(value));
 
 export function createDefaultState(now = Date.now()) {
   return {
-    version: 5,
+    version: 6,
     profile: {
       displayName: '익명 사원',
       rank: '대리석 책상',
@@ -28,6 +29,7 @@ export function createDefaultState(now = Date.now()) {
       'winter-c': 1,
       'kkamdung-c': 1,
     },
+    cardEnhancements: {},
     pity: {
       standard: 0,
     },
@@ -82,12 +84,13 @@ export function hydrateState(saved, now = Date.now()) {
   };
 
   state.version = defaults.version;
+  state.cardEnhancements = normalizeCardEnhancements(saved.cardEnhancements, state.collection);
 
   const legacySquad = Array.isArray(saved.selectedSquad) ? saved.selectedSquad : null;
   const hydrateSquad = (candidate, fallback) => (
     Array.isArray(candidate)
       ? [...new Set(candidate)].filter((id) => state.collection[id]).slice(0, 3)
-      : fallback
+      : fallback.filter((id) => state.collection[id])
   );
   state.selectedExpeditionSquad = hydrateSquad(
     saved.selectedExpeditionSquad || legacySquad,

@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 224 110" role="img">
+  <title>RRR rarity emblem</title>
+  <defs>
+    <linearGradient id="rrr-metal" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#fff5ff"/>
+      <stop offset=".2" stop-color="#ff86ef"/>
+      <stop offset=".43" stop-color="#ffe8ff"/>
+      <stop offset=".66" stop-color="#c648d7"/>
+      <stop offset=".84" stop-color="#ff9ef2"/>
+      <stop offset="1" stop-color="#8631a8"/>
+    </linearGradient>
+    <filter id="rrr-glow" x="-45%" y="-45%" width="190%" height="190%">
+      <feDropShadow dx="0" dy="0" stdDeviation="6" flood-color="#ff61ec" flood-opacity=".78"/>
+      <feDropShadow dx="0" dy="5" stdDeviation="4" flood-color="#32103d" flood-opacity=".78"/>
+    </filter>
+  </defs>
+  <path d="M18 12h168l34 43-34 43H18L4 55z" fill="#43134f" stroke="url(#rrr-metal)" stroke-width="6" filter="url(#rrr-glow)"/>
+  <path d="M26 21h155l26 34-26 34H26L15 55z" fill="none" stroke="#ffd8fb" stroke-opacity=".6" stroke-width="2"/>
+  <g fill="none" stroke="url(#rrr-metal)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M38 87V24h25c16 0 24 8 24 21s-8 21-24 21H39m27 0 21 21"/>
+    <path d="M89 87V24h25c16 0 24 8 24 21s-8 21-24 21H90m27 0 21 21"/>
+    <path d="M140 87V24h25c16 0 24 8 24 21s-8 21-24 21h-24m27 0 21 21"/>
+  </g>
+  <path d="m20 47 8 8-8 8-8-8zm184 0 8 8-8 8-8-8z" fill="#ffb9f5"/>
+  <path d="M96 9h32M104 101h16" stroke="#fff" stroke-opacity=".7" stroke-width="2" stroke-linecap="round"/>
+</svg>
