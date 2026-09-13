@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 206 116" role="img">
+  <title>UR rarity emblem</title>
+  <defs>
+    <linearGradient id="ur-prism" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#efffff"/>
+      <stop offset=".18" stop-color="#67f7ff"/>
+      <stop offset=".38" stop-color="#b1c7ff"/>
+      <stop offset=".58" stop-color="#74ffe2"/>
+      <stop offset=".78" stop-color="#55a6ff"/>
+      <stop offset="1" stop-color="#dbffff"/>
+    </linearGradient>
+    <filter id="ur-glow" x="-55%" y="-55%" width="210%" height="210%">
+      <feDropShadow dx="0" dy="0" stdDeviation="8" flood-color="#4defff" flood-opacity=".9"/>
+      <feDropShadow dx="0" dy="5" stdDeviation="4" flood-color="#051f42" flood-opacity=".84"/>
+    </filter>
+  </defs>
+  <path d="m15 19 30-6L63 3l21 14 24-12 22 13 31-5 15 23 25 21-24 22-16 25-30-6-23 14-24-13-21 14-19-11-29-6L4 58z" fill="#092a4f" stroke="url(#ur-prism)" stroke-width="5" filter="url(#ur-glow)"/>
+  <path d="M42 28v31c0 19 11 28 33 28s33-9 33-28V28" fill="none" stroke="url(#ur-prism)" stroke-width="12" stroke-linecap="round"/>
+  <path d="M122 87V29h27c18 0 27 8 27 21s-9 21-27 21h-26m29 0 24 16" fill="none" stroke="url(#ur-prism)" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m24 42 9 16-9 16-9-16zm160 0 9 16-9 16-9-16z" fill="#b9ffff"/>
+  <path d="m99 9 8-6 8 6-8 7zM94 106l13-8 13 8-13 7z" fill="#d9ffff" fill-opacity=".82"/>
+</svg>

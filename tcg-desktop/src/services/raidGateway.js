@@ -127,11 +127,11 @@ export function createRaidGateway({
       const payload = await request('/api/tcg/raids/personal/ranking', { token });
       return normalizeRanking(payload?.ranking || payload);
     },
-    async dispatch(token, { bossId, squadScore, leaseId, deviceId, generation }) {
+    async dispatch(token, { bossId, squad, leaseId, deviceId, generation }) {
       return normalizePayload(await request('/api/tcg/raids/personal/dispatch', {
         method: 'POST',
         token,
-        body: { bossId, squadScore, leaseId, deviceId, generation },
+        body: { bossId, squad, leaseId, deviceId, generation },
       }));
     },
   };

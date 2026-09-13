@@ -62,6 +62,21 @@ import { createRaidState } from './core/raidEngine.js';
 import { reconcileRaidRewards } from './core/raidRewards.js';
 import { appendActivity, createGameStore, hasStoredGameState } from './core/gameState.js';
 import {
+  ENHANCEMENT_SUCCESS_RATES,
+  MAX_ENHANCEMENT,
+  SYNTHESIS_MATERIAL_COUNT,
+  SYNTHESIS_SUCCESS_RATE,
+  attemptCardEnhancement,
+  attemptCardSynthesis,
+  autoSelectSynthesisMaterials,
+  bestAvailableEnhancementForCard,
+  bestEnhancementForCard,
+  enhancementCountsForCard,
+  enhancedCardPower,
+  expeditionCardLocks,
+  lockedEnhancementCounts,
+} from './core/cardManagement.js';
+import {
   cardsForPendingPack,
   createPendingPackOpening,
   revealPendingPackCard,
@@ -145,6 +160,7 @@ const iconSet = {
 const views = {
   dashboard: { label: '업무판', icon: 'briefcase' },
   collection: { label: '카드 도감', icon: 'library' },
+  management: { label: '카드 관리', icon: 'sparkles' },
   adventure: { label: '자동 모험', icon: 'map' },
   raid: { label: '레이드', icon: 'shield' },
   link: { label: '호이상사 연동', icon: 'link-2' },
@@ -157,6 +173,12 @@ const ui = {
   selectedMissionId: EXPEDITIONS[0].id,
   rarityFilter: 'all',
   collectionQuery: '',
+  managementPanel: 'enhance',
+  enhanceCardId: '',
+  enhanceTargetStage: null,
+  enhanceMaterialStage: null,
+  synthesisRarity: 'c',
+  synthesisMaterials: [],
   notice: null,
   updateStatus: null,
   appVersion: '...',
@@ -276,6 +298,15 @@ function rarityLabel(rarity) {
   return RARITY_META[rarity]?.label || rarity;
 }
 
+function rarityEmblem(rarity, { hidden = false, compact = false } = {}) {
+  if (hidden) return '<span class="rarity-emblem-fallback">???</span>';
+  const label = rarityLabel(rarity);
+  if (!RARITY_META[rarity]) {
+    return `<span class="rarity-emblem-fallback ${compact ? 'is-compact' : ''}">${escapeHtml(label)}</span>`;
+  }
+  return `<img class="rarity-emblem ${compact ? 'rarity-emblem--compact' : ''}" src="./assets/ui/rarity-${rarity}.svg" alt="${escapeHtml(label)} 등급" />`;
+}
+
 const PACK_FLIP_THRESHOLD = RARITY_ORDER.indexOf('sr');
 
 function rarityRank(rarity) {
@@ -289,8 +320,18 @@ function highestRarity(cards = []) {
   ), RARITY_ORDER[0]);
 }
 
-function cardPower(card) {
-  return cardExpeditionPower(card);
+function cardEnhancement(card, state) {
+  if (!card || !state) return 0;
+  return bestEnhancementForCard(state.collection, state.cardEnhancements, card.id);
+}
+
+function cardPower(card, state = null, enhancement = null) {
+  const stage = Number.isInteger(enhancement) ? enhancement : cardEnhancement(card, state);
+  return enhancedCardPower(cardExpeditionPower(card), stage);
+}
+
+function enhancementLabel(stage) {
+  return `+${Math.max(0, Math.min(MAX_ENHANCEMENT, Number(stage) || 0))}`;
 }
 
 function requiresPackReveal(card) {
@@ -311,7 +352,7 @@ function showNotice(message, tone = 'neutral') {
   window.clearTimeout(showNotice.timer);
   showNotice.timer = window.setTimeout(() => {
     ui.notice = null;
-    render();
+    app.querySelector('.app-notice')?.remove();
   }, 3200);
 }
 
@@ -712,19 +753,21 @@ function renderCard(card, count, options = {}) {
   const hidden = !count;
   const selectable = options.selectable && count;
   const selected = options.selected;
+  const state = options.state || null;
+  const enhancement = hidden ? 0 : cardEnhancement(card, state);
   return `
     <article class="collection-card rarity-${card.rarity} ${hidden ? 'is-hidden' : ''} ${selected ? 'is-selected' : ''}">
       <button class="card-hitbox" type="button" data-action="${selectable ? 'toggle-squad' : 'open-card'}" data-card-id="${card.id}" ${hidden ? 'disabled' : ''}>
         <div class="card-art">
-          <img src="${card.image}" alt="${hidden ? '미발견 카드' : escapeHtml(cardDisplayName(card))}" loading="lazy" />
-          <span class="rarity-stamp">${hidden ? '???' : rarityLabel(card.rarity)}</span>
-          ${hidden ? '' : `<span class="card-power">전투력 ${formatNumber(cardPower(card))}</span>`}
+          <img class="card-illustration" src="${card.image}" alt="${hidden ? '미발견 카드' : escapeHtml(cardDisplayName(card))}" loading="lazy" />
+          <span class="rarity-stamp">${rarityEmblem(card.rarity, { hidden })}</span>
+          ${hidden ? '' : `<span class="card-power">전투력 ${formatNumber(cardPower(card, state))}</span><span class="enhancement-badge">${enhancementLabel(enhancement)}</span>`}
           ${selected ? '<span class="selection-check"><i data-lucide="check"></i></span>' : ''}
         </div>
         <div class="card-copy">
           <span>${hidden ? '미발견' : escapeHtml(card.department)}</span>
           <strong>${hidden ? '기록 없음' : escapeHtml(cardDisplayName(card))}</strong>
-          <small>${hidden ? '카드팩에서 발견할 수 있습니다.' : `${escapeHtml(card.category)} · ${formatNumber(count)}장 보유`}</small>
+          <small>${hidden ? '카드팩에서 발견할 수 있습니다.' : `${escapeHtml(card.category)} · ${formatNumber(count)}장 보유 · 최고 ${enhancementLabel(enhancement)}`}</small>
         </div>
         <div class="card-stats" aria-label="카드 능력치">
           <span><b>업무</b>${hidden ? '-' : card.stats.work}</span>
@@ -770,9 +813,275 @@ function renderCollection(state) {
     </div>
     <div class="collection-grid">
       ${cards.length
-        ? cards.map((card) => renderCard(card, state.collection[card.id] || 0)).join('')
+        ? cards.map((card) => renderCard(card, state.collection[card.id] || 0, { state })).join('')
         : '<div class="empty-results"><i data-lucide="search"></i><strong>조건에 맞는 기록이 없습니다.</strong></div>'}
     </div>
+  `;
+}
+
+function activeExpeditionCardLocks(state) {
+  return expeditionCardLocks(state.expedition);
+}
+
+function availableEnhancementCounts(state, cardId) {
+  const owned = enhancementCountsForCard(state.collection, state.cardEnhancements, cardId);
+  const locked = lockedEnhancementCounts(
+    state.collection,
+    state.cardEnhancements,
+    activeExpeditionCardLocks(state),
+  )[cardId] || [];
+  return owned.map((count, stage) => Math.max(0, count - (locked[stage] || 0)));
+}
+
+function syncEnhancementSelection(state) {
+  const cards = ALL_CARDS.filter((card) => Number(state.collection[card.id]) > 0);
+  if (!cards.some((card) => card.id === ui.enhanceCardId)) {
+    ui.enhanceCardId = cards[0]?.id || '';
+  }
+  const card = cardById(ui.enhanceCardId);
+  if (!card) {
+    ui.enhanceTargetStage = null;
+    ui.enhanceMaterialStage = null;
+    return null;
+  }
+
+  const available = availableEnhancementCounts(state, card.id);
+  const targetStages = available
+    .map((count, stage) => ({ count, stage }))
+    .filter(({ count, stage }) => count > 0 && stage < MAX_ENHANCEMENT)
+    .map(({ stage }) => stage);
+  if (!targetStages.includes(Number(ui.enhanceTargetStage))) {
+    ui.enhanceTargetStage = targetStages.at(-1) ?? null;
+  }
+  const materialStages = available
+    .map((count, stage) => ({
+      stage,
+      count: count - (stage === ui.enhanceTargetStage ? 1 : 0),
+    }))
+    .filter(({ count }) => count > 0)
+    .map(({ stage }) => stage);
+  if (!materialStages.includes(Number(ui.enhanceMaterialStage))) {
+    ui.enhanceMaterialStage = materialStages[0] ?? null;
+  }
+  return card;
+}
+
+function renderEnhancementPanel(state) {
+  const selectedCard = syncEnhancementSelection(state);
+  const ownedCards = ALL_CARDS.filter((card) => Number(state.collection[card.id]) > 0);
+  if (!selectedCard) {
+    return '<div class="management-empty"><i data-lucide="library"></i><strong>강화할 카드가 없습니다.</strong><span>카드팩에서 카드를 먼저 획득해 주세요.</span></div>';
+  }
+
+  const counts = enhancementCountsForCard(state.collection, state.cardEnhancements, selectedCard.id);
+  const available = availableEnhancementCounts(state, selectedCard.id);
+  const locked = counts.map((count, stage) => Math.max(0, count - available[stage]));
+  const targetStage = Number(ui.enhanceTargetStage);
+  const materialStage = Number(ui.enhanceMaterialStage);
+  const hasTarget = Number.isInteger(targetStage) && targetStage >= 0 && targetStage < MAX_ENHANCEMENT;
+  const availableMaterials = hasTarget
+    ? available.map((count, stage) => Math.max(0, count - (stage === targetStage ? 1 : 0)))
+    : Array(MAX_ENHANCEMENT + 1).fill(0);
+  const hasMaterial = Number.isInteger(materialStage) && availableMaterials[materialStage] > 0;
+  const successRate = hasTarget ? ENHANCEMENT_SUCCESS_RATES[targetStage] : 0;
+  const currentPower = hasTarget ? cardPower(selectedCard, state, targetStage) : cardPower(selectedCard, state);
+  const nextPower = hasTarget ? cardPower(selectedCard, state, targetStage + 1) : currentPower;
+
+  return `
+    <div class="management-workspace enhancement-workspace">
+      <aside class="management-inventory" aria-label="강화 카드 목록">
+        <div class="management-list-heading"><strong>보유 카드</strong><span>${formatNumber(ownedCards.length)}종</span></div>
+        <div class="management-card-list">
+          ${ownedCards.map((card) => {
+            const best = cardEnhancement(card, state);
+            const reserved = availableEnhancementCounts(state, card.id).reduce((sum, value) => sum + value, 0) === 0;
+            return `
+              <button type="button" class="management-card-choice rarity-${card.rarity} ${card.id === selectedCard.id ? 'is-selected' : ''}" data-action="select-enhance-card" data-card-id="${card.id}" aria-pressed="${card.id === selectedCard.id}">
+                <img src="${card.image}" alt="" loading="lazy" />
+                <span><strong>${escapeHtml(cardDisplayName(card))}</strong><small>${rarityLabel(card.rarity)} · ${formatNumber(state.collection[card.id])}장</small></span>
+                <b>${reserved ? '모험 중' : enhancementLabel(best)}</b>
+              </button>`;
+          }).join('')}
+        </div>
+      </aside>
+
+      <section class="management-console" aria-labelledby="enhancement-card-title">
+        <div class="enhancement-focus rarity-${selectedCard.rarity}">
+          <div class="enhancement-focus__art">
+            <img class="card-illustration" src="${selectedCard.image}" alt="${escapeHtml(cardDisplayName(selectedCard))}" />
+            <span class="rarity-stamp">${rarityEmblem(selectedCard.rarity)}</span>
+            <span class="enhancement-badge">${enhancementLabel(hasTarget ? targetStage : cardEnhancement(selectedCard, state))}</span>
+          </div>
+          <div class="enhancement-focus__copy">
+            <span class="eyebrow">${escapeHtml(selectedCard.department)} / ${rarityLabel(selectedCard.rarity)}</span>
+            <h3 id="enhancement-card-title">${escapeHtml(cardDisplayName(selectedCard))}</h3>
+            <p>동일한 카드를 재료로 사용해 전투력과 향후 고유 스킬의 강화 단계를 올립니다.</p>
+            <div class="enhancement-power-preview">
+              <span><small>현재 전투력</small><strong>${formatNumber(currentPower)}</strong></span>
+              <i data-lucide="arrow-right"></i>
+              <span><small>성공 시 전투력</small><strong>${formatNumber(nextPower)}</strong></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="enhancement-step-section">
+          <div class="subheading"><h3>강화 대상 단계</h3><span>보유 복사본 선택</span></div>
+          <div class="enhancement-stage-grid">
+            ${counts.map((count, stage) => `
+              <button type="button" class="enhancement-stage ${stage === targetStage ? 'is-selected' : ''}" data-action="select-enhance-target" data-enhancement="${stage}" ${stage >= MAX_ENHANCEMENT || available[stage] <= 0 ? 'disabled' : ''}>
+                <strong>${enhancementLabel(stage)}</strong><span>${formatNumber(count)}장${locked[stage] ? ` · 모험 ${formatNumber(locked[stage])}` : ''}</span>
+              </button>
+            `).join('')}
+          </div>
+        </div>
+
+        <div class="enhancement-step-section">
+          <div class="subheading"><h3>소모할 동일 카드</h3><span>강화 단계와 무관하게 1장 소모</span></div>
+          <div class="enhancement-stage-grid is-material">
+            ${counts.map((count, stage) => `
+              <button type="button" class="enhancement-stage ${stage === materialStage ? 'is-selected' : ''}" data-action="select-enhance-material" data-enhancement="${stage}" ${availableMaterials[stage] <= 0 ? 'disabled' : ''}>
+                <strong>${enhancementLabel(stage)}</strong><span>사용 가능 ${formatNumber(availableMaterials[stage])}장</span>
+              </button>
+            `).join('')}
+          </div>
+        </div>
+
+        <div class="management-action-bar">
+          <div><span>성공 확률</span><strong>${Math.round(successRate * 100)}%</strong><small>실패해도 대상 단계는 유지되며 재료는 소모됩니다.</small></div>
+          <button class="primary-button" type="button" data-action="enhance-card" ${hasTarget && hasMaterial ? '' : 'disabled'}><i data-lucide="sparkles"></i>${hasTarget ? `${enhancementLabel(targetStage + 1)} 강화 시도` : '강화 가능한 카드 없음'}</button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function synthesisSelectionCount(cardId, enhancement) {
+  return ui.synthesisMaterials.filter((material) => (
+    material.cardId === cardId && Number(material.enhancement) === Number(enhancement)
+  )).length;
+}
+
+function sanitizeSynthesisSelection(state) {
+  const locks = lockedEnhancementCounts(
+    state.collection,
+    state.cardEnhancements,
+    activeExpeditionCardLocks(state),
+  );
+  const selected = [];
+  const used = {};
+  let rarity = '';
+  for (const raw of Array.isArray(ui.synthesisMaterials) ? ui.synthesisMaterials : []) {
+    const card = cardById(raw.cardId);
+    const stage = Math.floor(Number(raw.enhancement));
+    if (!card || !RARITY_META[card.rarity] || stage < 0 || stage > MAX_ENHANCEMENT) continue;
+    if (!rarity) rarity = card.rarity;
+    if (card.rarity !== rarity) continue;
+    const key = `${card.id}:${stage}`;
+    const counts = enhancementCountsForCard(state.collection, state.cardEnhancements, card.id);
+    const available = Math.max(0, counts[stage] - (locks[card.id]?.[stage] || 0));
+    if ((used[key] || 0) >= available) continue;
+    used[key] = (used[key] || 0) + 1;
+    selected.push({ cardId: card.id, enhancement: stage });
+    if (selected.length === SYNTHESIS_MATERIAL_COUNT) break;
+  }
+  ui.synthesisMaterials = selected;
+  if (rarity && selected.length) ui.synthesisRarity = rarity;
+  if (!RARITY_ORDER.slice(0, -1).includes(ui.synthesisRarity)) ui.synthesisRarity = RARITY_ORDER[0];
+  return locks;
+}
+
+function renderSynthesisPanel(state) {
+  const locks = sanitizeSynthesisSelection(state);
+  const selectedRarity = ui.synthesisMaterials.length
+    ? cardById(ui.synthesisMaterials[0].cardId)?.rarity
+    : ui.synthesisRarity;
+  const resultRarity = RARITY_ORDER[RARITY_ORDER.indexOf(selectedRarity) + 1];
+  const selectedCards = ui.synthesisMaterials.map((material) => ({
+    ...material,
+    card: cardById(material.cardId),
+  }));
+  const candidates = CARD_CATALOG.filter((card) => (
+    card.rarity === selectedRarity && Number(state.collection[card.id]) > 0
+  ));
+  const containsEnhancedCard = selectedCards.some(({ enhancement }) => Number(enhancement) > 0);
+
+  return `
+    <div class="synthesis-workspace">
+      <section class="synthesis-machine" aria-labelledby="synthesis-title">
+        <div class="section-heading section-heading--compact">
+          <div><span class="eyebrow">FIVE INTO ONE</span><h3 id="synthesis-title">합성 재료 5장</h3></div>
+          <button class="secondary-button compact-button" type="button" data-action="clear-synthesis-materials" ${selectedCards.length ? '' : 'disabled'}>선택 초기화</button>
+        </div>
+        <div class="synthesis-slots">
+          ${Array.from({ length: SYNTHESIS_MATERIAL_COUNT }, (_, index) => {
+            const material = selectedCards[index];
+            if (!material?.card) return '<div class="synthesis-slot is-empty"><span>+</span><small>재료 카드</small></div>';
+            return `
+              <button type="button" class="synthesis-slot rarity-${material.card.rarity}" data-action="remove-synthesis-material" data-material-index="${index}" title="선택 해제">
+                <img src="${material.card.image}" alt="" />
+                <span>${enhancementLabel(material.enhancement)}</span>
+                <strong>${escapeHtml(material.card.characterName || material.card.name)}</strong>
+              </button>`;
+          }).join('')}
+        </div>
+        <div class="synthesis-outcome">
+          <div class="synthesis-orbit" aria-hidden="true"><i data-lucide="sparkles"></i></div>
+          <span class="rarity-preview rarity-${resultRarity}">${rarityEmblem(resultRarity)}</span>
+          <div><small>성공 시 다음 등급 랜덤 카드</small><strong>${rarityLabel(selectedRarity)} → ${rarityLabel(resultRarity)}</strong><span>실패 시 ${rarityLabel(selectedRarity)} 랜덤 카드 1장 반환</span></div>
+        </div>
+        ${containsEnhancedCard ? '<p class="material-warning"><i data-lucide="circle-alert"></i>강화된 카드가 포함되어 있습니다. 합성하면 강화 단계도 함께 사라집니다.</p>' : ''}
+        <div class="management-action-bar synthesis-action-bar">
+          <div><span>합성 성공 확률</span><strong>${Math.round(SYNTHESIS_SUCCESS_RATE * 100)}%</strong><small>성공과 실패 모두 선택한 5장을 소모합니다.</small></div>
+          <button class="primary-button" type="button" data-action="synthesize-cards" ${selectedCards.length === SYNTHESIS_MATERIAL_COUNT ? '' : 'disabled'}><i data-lucide="sparkles"></i>카드 합성</button>
+        </div>
+      </section>
+
+      <aside class="synthesis-inventory">
+        <div class="synthesis-toolbar">
+          <div class="segmented-control synthesis-rarity-tabs" role="tablist" aria-label="합성 등급">
+            ${RARITY_ORDER.slice(0, -1).map((rarity) => `
+              <button type="button" class="${selectedRarity === rarity ? 'is-active' : ''}" data-action="select-synthesis-rarity" data-rarity="${rarity}" ${ui.synthesisMaterials.length && selectedRarity !== rarity ? 'disabled' : ''}>${rarityLabel(rarity)}</button>
+            `).join('')}
+          </div>
+          <button class="secondary-button" type="button" data-action="auto-fill-synthesis"><i data-lucide="refresh-cw"></i>+0 낮은 등급 자동 넣기</button>
+        </div>
+        <p class="synthesis-rule">같은 등급 카드만 함께 넣을 수 있습니다. 모험에 참여 중인 복사본은 자동으로 보호됩니다.</p>
+        <div class="synthesis-card-list">
+          ${candidates.length ? candidates.map((card) => {
+            const counts = enhancementCountsForCard(state.collection, state.cardEnhancements, card.id);
+            return `
+              <article class="synthesis-card-row rarity-${card.rarity}">
+                <img src="${card.image}" alt="" loading="lazy" />
+                <div class="synthesis-card-copy"><strong>${escapeHtml(cardDisplayName(card))}</strong><small>${formatNumber(state.collection[card.id])}장 보유</small></div>
+                <div class="synthesis-stage-actions">
+                  ${counts.map((count, stage) => {
+                    if (!count) return '';
+                    const selectedCount = synthesisSelectionCount(card.id, stage);
+                    const available = Math.max(0, count - (locks[card.id]?.[stage] || 0));
+                    return `<span class="synthesis-stage-control"><b>${enhancementLabel(stage)}</b><small>${selectedCount}/${available}</small><button type="button" data-action="add-synthesis-material" data-card-id="${card.id}" data-enhancement="${stage}" ${selectedCards.length >= SYNTHESIS_MATERIAL_COUNT || selectedCount >= available ? 'disabled' : ''} aria-label="${escapeHtml(cardDisplayName(card))} ${enhancementLabel(stage)} 합성 재료 추가">+</button></span>`;
+                  }).join('')}
+                </div>
+              </article>`;
+          }).join('') : '<div class="management-empty compact"><i data-lucide="library"></i><strong>이 등급의 보유 카드가 없습니다.</strong></div>'}
+        </div>
+      </aside>
+    </div>
+  `;
+}
+
+function renderManagement(state) {
+  return `
+    <section class="management-page">
+      <div class="management-tabs" role="tablist" aria-label="카드 관리 메뉴">
+        <button type="button" role="tab" aria-selected="${ui.managementPanel === 'enhance'}" class="${ui.managementPanel === 'enhance' ? 'is-active' : ''}" data-action="switch-management-panel" data-management-panel="enhance"><i data-lucide="zap"></i><span><strong>카드 강화</strong><small>동일 카드로 +5까지 성장</small></span></button>
+        <button type="button" role="tab" aria-selected="${ui.managementPanel === 'synthesis'}" class="${ui.managementPanel === 'synthesis' ? 'is-active' : ''}" data-action="switch-management-panel" data-management-panel="synthesis"><i data-lucide="sparkles"></i><span><strong>카드 합성</strong><small>같은 등급 5장을 1장으로</small></span></button>
+      </div>
+      <div class="management-intro">
+        <div><span class="eyebrow">CARD LABORATORY</span><h2>${ui.managementPanel === 'enhance' ? '같은 카드를 모아 전력을 높이세요.' : '남는 카드를 새로운 한 장으로 바꾸세요.'}</h2></div>
+        <p>${ui.managementPanel === 'enhance' ? '강화 단계별 전투력 증가는 누적 4% · 10% · 18% · 28% · 40%입니다.' : `합성 성공률은 ${Math.round(SYNTHESIS_SUCCESS_RATE * 100)}%이며, 실패해도 같은 등급 카드 1장을 돌려받습니다.`}</p>
+      </div>
+      ${ui.managementPanel === 'synthesis' ? renderSynthesisPanel(state) : renderEnhancementPanel(state)}
+    </section>
   `;
 }
 
@@ -781,16 +1090,24 @@ function renderSquadPicker(state, context) {
   const selectedIds = context === 'raid'
     ? (state.selectedRaidSquad || [])
     : (state.selectedExpeditionSquad || state.selectedSquad || []);
-  const unavailableIds = context === 'raid' ? new Set(state.expedition?.squad || []) : new Set();
+  const expeditionLocks = context === 'raid' ? activeExpeditionCardLocks(state) : [];
   return `
     <div class="squad-picker" data-context="${context}">
       ${ownedCards.map((card) => {
         const selected = selectedIds.includes(card.id);
-        const unavailable = unavailableIds.has(card.id);
+        const availableStage = context === 'raid'
+          ? bestAvailableEnhancementForCard(
+            state.collection,
+            state.cardEnhancements,
+            card.id,
+            expeditionLocks,
+          )
+          : cardEnhancement(card, state);
+        const unavailable = availableStage < 0;
         return `
-          <button class="squad-card ${selected ? 'is-selected' : ''} ${unavailable ? 'is-unavailable' : ''}" type="button" data-action="toggle-squad" data-context="${context}" data-card-id="${card.id}" ${unavailable ? 'disabled' : ''} aria-pressed="${selected ? 'true' : 'false'}">
-            <img src="${card.image}" alt="" />
-            <span><strong>${escapeHtml(cardDisplayName(card))}</strong><small><b>${rarityLabel(card.rarity)}</b><span class="squad-detail-copy">${unavailable ? ' · 모험 참여 중 · 레이드 사용 불가' : ` · 전투력 ${formatNumber(cardPower(card))}`}</span></small></span>
+          <button class="squad-card rarity-${card.rarity} ${selected ? 'is-selected' : ''} ${unavailable ? 'is-unavailable' : ''}" type="button" data-action="toggle-squad" data-context="${context}" data-card-id="${card.id}" ${unavailable ? 'disabled' : ''} aria-pressed="${selected ? 'true' : 'false'}">
+            <img class="squad-card__art" src="${card.image}" alt="" />
+            <span><strong>${escapeHtml(cardDisplayName(card))}</strong><small><b>${rarityLabel(card.rarity)} · ${enhancementLabel(Math.max(0, availableStage))}</b><span class="squad-detail-copy">${unavailable ? ' · 모든 복사본이 모험 참여 중 · 레이드 사용 불가' : ` · 전투력 ${formatNumber(cardPower(card, state, availableStage))}`}</span></small></span>
             <i data-lucide="${unavailable ? 'lock' : (selected ? 'check' : 'users')}"></i>
           </button>
         `;
@@ -808,7 +1125,7 @@ function renderAdventure(state) {
   const activeMission = active ? expeditionById(active.missionId) : null;
   const selectedMission = expeditionById(ui.selectedMissionId) || EXPEDITIONS[0];
   const expeditionSquad = state.selectedExpeditionSquad || state.selectedSquad || [];
-  const score = calculateSquadScore(expeditionSquad, state.collection, ALL_CARDS);
+  const score = calculateSquadScore(expeditionSquad, state.collection, ALL_CARDS, state.cardEnhancements);
   const minimumPower = missionMinimumPower(selectedMission);
   const canStart = expeditionSquad.length >= selectedMission.requiredCards && score >= minimumPower;
   const actionMission = active ? activeMission : selectedMission;
@@ -859,7 +1176,8 @@ function renderAdventure(state) {
           <div class="deployed-squad">
             ${active.squad.map((id) => {
               const card = cardById(id);
-              return `<div><img src="${card.image}" alt="" /><span>${escapeHtml(card.name)}</span><small>${rarityLabel(card.rarity)}</small></div>`;
+              const stage = Number(active.enhancementStages?.[id] ?? cardEnhancement(card, state)) || 0;
+              return `<div class="rarity-${card.rarity}"><img src="${card.image}" alt="" /><span>${escapeHtml(card.name)}</span><small>${rarityLabel(card.rarity)} · ${enhancementLabel(stage)}</small></div>`;
             }).join('')}
           </div>
           <button class="danger-text-button" type="button" data-action="cancel-expedition">작전 중단</button>
@@ -951,8 +1269,19 @@ function renderPersonalRaidRanking(state) {
 
 function renderPersonalRaidBattle(state) {
   const raid = state.raid || createRaidState(RAID_DEFINITION);
-  const selectedRaidSquad = availableRaidSquad(state.selectedRaidSquad, state.expedition);
-  const score = calculateSquadScore(selectedRaidSquad, state.collection, ALL_CARDS);
+  const expeditionLocks = activeExpeditionCardLocks(state);
+  const selectedRaidSquad = availableRaidSquad(
+    state.selectedRaidSquad,
+    state.expedition,
+    state.collection,
+  );
+  const score = calculateSquadScore(
+    selectedRaidSquad,
+    state.collection,
+    ALL_CARDS,
+    state.cardEnhancements,
+    expeditionLocks,
+  );
   const maxHp = Math.max(1, Number(raid.maxHp) || RAID_DEFINITION.maxHp);
   const hp = Math.min(maxHp, Math.max(0, Number(raid.hp) || 0));
   const hpRatio = Math.max(0, hp / maxHp);
@@ -1059,16 +1388,57 @@ function renderLink(state) {
 
 function renderCurrentView(state) {
   if (ui.view === 'collection') return renderCollection(state);
+  if (ui.view === 'management') return renderManagement(state);
   if (ui.view === 'adventure') return renderAdventure(state);
   if (ui.view === 'raid') return renderRaid(state);
   if (ui.view === 'link') return renderLink(state);
   return renderDashboard(state);
 }
 
-function renderPackModal(cards, pityTriggered, state, modal) {
+function renderPackResultCard(card, index, premiumPack, revealedCards, modal) {
+  const gated = premiumPack && requiresPackReveal(card);
+  const faceDown = gated && !revealedCards.has(index);
+  const revealClass = gated ? (faceDown ? 'is-face-down' : 'is-revealed') : '';
+  const rarityClass = faceDown ? 'rarity-concealed' : `rarity-${card.rarity}`;
+  return `
+    <article class="result-card ${rarityClass} ${revealClass}" data-pack-card-index="${index}" style="--reveal-delay:${index * 90}ms">
+      <div class="result-card__art ${revealClass}">
+        ${faceDown ? `
+          <button class="result-card__reveal" type="button" data-action="reveal-pack-card" data-opening-id="${escapeHtml(modal.openingId || '')}" data-card-index="${index}" aria-label="${index + 1}번째 봉인 카드 뒤집기">
+            <span class="card-back-mark">HC</span><strong>카드 봉인</strong><small>눌러서 공개</small>
+          </button>
+        ` : `
+          <img class="card-illustration" src="${card.image}" alt="${escapeHtml(cardDisplayName(card))}" />
+          <span class="rarity-stamp">${rarityEmblem(card.rarity)}</span>
+          <b class="card-power">전투력 ${formatNumber(cardPower(card))}</b>
+          <span class="enhancement-badge">+0</span>
+        `}
+      </div>
+      <div class="result-card__copy">${faceDown
+        ? '<small>특수 공개 대기</small><strong>잠긴 카드</strong><span>카드를 눌러 내용을 확인하세요.</span>'
+        : `<small>${escapeHtml(card.department)}</small><strong>${escapeHtml(cardDisplayName(card))}</strong><span>${escapeHtml(card.trait)}</span>`}</div>
+    </article>`;
+}
+
+function renderPackModalActions(state, unrevealedCount) {
   const pack = PACK_DEFINITION.standard;
   const hasPack = state.packs.standard > 0;
   const canBuy = state.wallet.coins >= pack.coinPrice;
+  return `
+    <button class="secondary-button" type="button" data-action="navigate-from-modal" data-view="collection">도감 보기</button>
+    ${unrevealedCount > 0 ? `
+      <button class="primary-button" type="button" disabled>봉인 카드 ${formatNumber(unrevealedCount)}장 먼저 공개</button>
+    ` : hasPack ? `
+      <button class="primary-button" type="button" data-action="open-another-pack">한 팩 더 개봉 · ${formatNumber(state.packs.standard)}팩 보유</button>
+    ` : `
+      <button class="secondary-button" type="button" disabled>미개봉 카드팩 없음</button>
+      <button class="primary-button" type="button" data-action="buy-and-open-pack" ${canBuy ? '' : 'disabled'}>
+        ${canBuy ? `${formatNumber(pack.coinPrice)} 동전으로 구매 후 개봉` : `동전 부족 · ${formatNumber(pack.coinPrice)} 필요`}
+      </button>
+    `}`;
+}
+
+function renderPackModal(cards, pityTriggered, state, modal) {
   const highest = modal.highestRarity || highestRarity(cards);
   const premiumPack = rarityRank(highest) >= PACK_FLIP_THRESHOLD;
   const revealedCards = new Set(modal.revealedCards || []);
@@ -1076,49 +1446,28 @@ function renderPackModal(cards, pityTriggered, state, modal) {
     count + (premiumPack && requiresPackReveal(card) && !revealedCards.has(index) ? 1 : 0)
   ), 0);
   return `
-    <div class="modal-backdrop pack-backdrop rarity-${highest}" data-action="close-modal">
+    <div class="modal-backdrop pack-backdrop rarity-${highest} ${unrevealedCount ? 'has-sealed-cards' : 'is-reveal-complete'}" data-action="close-modal">
       <section class="modal-sheet pack-opening-modal" role="dialog" aria-modal="true" aria-labelledby="pack-result-title" data-modal-panel>
         <button class="modal-close" type="button" data-action="close-modal" aria-label="닫기"><i data-lucide="x"></i></button>
-        <div class="modal-heading"><span class="eyebrow">PERSONNEL DISCOVERED</span><h2 id="pack-result-title">인물 파일 개봉 결과</h2><p>${premiumPack ? `${rarityLabel(highest)} 카드가 포함되어 특수 공개 연출을 시작합니다.` : (pityTriggered ? '누적 보장으로 SR 등급 이상을 발견했습니다.' : '새 카드가 인사기록에 등록되었습니다.')}</p></div>
-        ${premiumPack ? `<div class="pack-reveal-hint"><i data-lucide="sparkles"></i><span>빛나는 카드만 눌러 뒤집어 확인하세요 · 이번 팩 최고 등급 ${rarityLabel(highest)}</span></div>` : ''}
+        <div class="modal-heading"><span class="eyebrow">PERSONNEL DISCOVERED</span><h2 id="pack-result-title">인물 파일 개봉 결과</h2><p>${premiumPack ? '봉인된 카드는 직접 눌러 확인하세요.' : '새 카드가 인사기록에 등록되었습니다.'}</p></div>
+        ${premiumPack ? `<div class="pack-reveal-hint" data-pack-reveal-hint><i data-lucide="sparkles"></i><span>${unrevealedCount ? `빛나는 봉인 카드를 눌러 한 장씩 확인하세요 · ${formatNumber(unrevealedCount)}장 남음` : '모든 봉인 카드를 확인했습니다.'}</span></div>` : ''}
         <div class="pack-result-grid">
-          ${cards.map((card, index) => {
-            const gated = premiumPack && rarityRank(card.rarity) >= PACK_FLIP_THRESHOLD;
-            const faceDown = gated && !revealedCards.has(index);
-            const revealClass = gated ? (faceDown ? 'is-face-down' : 'is-revealed') : '';
-            return `
-            <article class="result-card rarity-${card.rarity} ${revealClass}" style="--reveal-delay:${index * 90}ms">
-              <div class="result-card__art ${revealClass}">
-                ${faceDown ? `<button class="result-card__reveal" type="button" data-action="reveal-pack-card" data-opening-id="${escapeHtml(modal.openingId || '')}" data-card-index="${index}" aria-label="${rarityLabel(card.rarity)} 카드 뒤집기"><span class="card-back-mark">HC</span><strong>카드 봉인</strong><small>눌러서 공개</small></button>` : `<img src="${card.image}" alt="${escapeHtml(cardDisplayName(card))}" /><span>${rarityLabel(card.rarity)}</span><b class="card-power">전투력 ${formatNumber(cardPower(card))}</b>`}
-              </div>
-              <div class="result-card__copy">${faceDown ? '<small>특수 공개 대기</small><strong>잠긴 카드</strong><span>카드를 눌러 내용을 확인하세요.</span>' : `<small>${escapeHtml(card.department)}</small><strong>${escapeHtml(cardDisplayName(card))}</strong><span>${escapeHtml(card.trait)}</span>`}</div>
-            </article>
-          `; }).join('')}
+          ${cards.map((card, index) => renderPackResultCard(card, index, premiumPack, revealedCards, modal)).join('')}
         </div>
-        <div class="modal-actions">
-          <button class="secondary-button" type="button" data-action="navigate-from-modal" data-view="collection">도감 보기</button>
-          ${unrevealedCount > 0 ? `
-            <button class="primary-button" type="button" disabled>봉인 카드 ${formatNumber(unrevealedCount)}장 먼저 공개</button>
-          ` : hasPack ? `
-            <button class="primary-button" type="button" data-action="open-another-pack">한 팩 더 개봉 · ${formatNumber(state.packs.standard)}팩 보유</button>
-          ` : `
-            <button class="secondary-button" type="button" disabled>미개봉 카드팩 없음</button>
-            <button class="primary-button" type="button" data-action="buy-and-open-pack" ${canBuy ? '' : 'disabled'}>
-              ${canBuy ? `${formatNumber(pack.coinPrice)} 동전으로 구매 후 개봉` : `동전 부족 · ${formatNumber(pack.coinPrice)} 필요`}
-            </button>
-          `}
-        </div>
+        <div class="modal-actions" data-pack-modal-actions>${renderPackModalActions(state, unrevealedCount)}</div>
       </section>
     </div>
   `;
 }
 
 function renderCardModal(card, state) {
+  const enhancement = cardEnhancement(card, state);
+  const counts = enhancementCountsForCard(state.collection, state.cardEnhancements, card.id);
   return `
     <div class="modal-backdrop" data-action="close-modal">
       <section class="modal-sheet card-detail-modal rarity-${card.rarity}" role="dialog" aria-modal="true" aria-labelledby="card-detail-title" data-modal-panel>
         <button class="modal-close" type="button" data-action="close-modal" aria-label="닫기"><i data-lucide="x"></i></button>
-        <div class="detail-card-art"><img src="${card.image}" alt="${escapeHtml(cardDisplayName(card))}" /><span>${rarityLabel(card.rarity)}</span><b class="card-power">전투력 ${formatNumber(cardPower(card))}</b></div>
+        <div class="detail-card-art"><img class="card-illustration" src="${card.image}" alt="${escapeHtml(cardDisplayName(card))}" /><span class="rarity-stamp">${rarityEmblem(card.rarity)}</span><b class="card-power">전투력 ${formatNumber(cardPower(card, state))}</b><span class="enhancement-badge">${enhancementLabel(enhancement)}</span></div>
         <div class="detail-card-copy">
           <span class="eyebrow">${escapeHtml(card.department)} / ${escapeHtml(card.category)}</span>
           <h2 id="card-detail-title">${escapeHtml(cardDisplayName(card))}</h2>
@@ -1131,6 +1480,8 @@ function renderCardModal(card, state) {
           </div>
           <div class="trait-box"><i data-lucide="sparkles"></i><span><strong>${escapeHtml(card.trait)}</strong><small>${escapeHtml(card.traitText)}</small></span></div>
           <div class="owned-line">보유 수량 <strong>${formatNumber(state.collection[card.id])}장</strong></div>
+          <div class="owned-enhancement-line" aria-label="강화 단계별 보유 수량">${counts.map((count, stage) => `<span class="${stage === enhancement ? 'is-best' : ''}"><b>${enhancementLabel(stage)}</b>${formatNumber(count)}장</span>`).join('')}</div>
+          ${RARITY_META[card.rarity] ? `<button class="secondary-button detail-manage-button" type="button" data-action="manage-card" data-card-id="${card.id}">이 카드 강화하기</button>` : ''}
         </div>
       </section>
     </div>
@@ -1160,13 +1511,22 @@ function renderIncidentModal(incident) {
 }
 
 function renderResultModal(result, state) {
+  const resultCard = result.cardId ? cardById(result.cardId) : null;
   return `
     <div class="modal-backdrop" data-action="close-modal">
       <section class="modal-sheet compact-modal" role="dialog" aria-modal="true" aria-labelledby="result-title" data-modal-panel>
         <div class="result-symbol"><i data-lucide="check"></i></div>
-        <span class="eyebrow">TASK COMPLETE</span>
-        <h2 id="result-title">처리 완료</h2>
+        <span class="eyebrow">${escapeHtml(result.eyebrow || 'TASK COMPLETE')}</span>
+        <h2 id="result-title">${escapeHtml(result.title || '처리 완료')}</h2>
         <p>${escapeHtml(result.message)}</p>
+        ${resultCard ? `
+          <div class="management-result-card rarity-${resultCard.rarity}">
+            <img class="card-illustration" src="${resultCard.image}" alt="${escapeHtml(cardDisplayName(resultCard))}" />
+            <span class="rarity-stamp">${rarityEmblem(resultCard.rarity)}</span>
+            <strong>${escapeHtml(cardDisplayName(resultCard))}</strong>
+            <small>${enhancementLabel(result.enhancement || 0)} · 전투력 ${formatNumber(cardPower(resultCard, null, result.enhancement || 0))}</small>
+          </div>
+        ` : ''}
         <div class="reward-line">${result.rewardText}</div>
         ${state.pendingPackOpening ? `
           <div class="modal-actions">
@@ -1339,6 +1699,40 @@ function addPendingPackToCollection(draft, opening, cards) {
   return true;
 }
 
+function patchPackReveal(cardIndex, opening) {
+  if (ui.modal?.type !== 'pack') return false;
+  const cards = ui.modal.cards || [];
+  const card = cards[cardIndex];
+  const cardNode = app.querySelector(`[data-pack-card-index="${cardIndex}"]`);
+  if (!card || !cardNode) return false;
+
+  const highest = ui.modal.highestRarity || highestRarity(cards);
+  const premiumPack = rarityRank(highest) >= PACK_FLIP_THRESHOLD;
+  const revealedCards = new Set(opening.revealedIndices || []);
+  const template = document.createElement('template');
+  template.innerHTML = renderPackResultCard(card, cardIndex, premiumPack, revealedCards, ui.modal).trim();
+  cardNode.replaceWith(template.content.firstElementChild);
+
+  const unrevealedCount = cards.reduce((count, candidate, index) => (
+    count + (premiumPack && requiresPackReveal(candidate) && !revealedCards.has(index) ? 1 : 0)
+  ), 0);
+  const hint = app.querySelector('[data-pack-reveal-hint] span');
+  if (hint) {
+    hint.textContent = unrevealedCount
+      ? `빛나는 봉인 카드를 눌러 한 장씩 확인하세요 · ${formatNumber(unrevealedCount)}장 남음`
+      : '모든 봉인 카드를 확인했습니다.';
+  }
+  const actions = app.querySelector('[data-pack-modal-actions]');
+  if (actions) actions.innerHTML = renderPackModalActions(store.getState(), unrevealedCount);
+  const backdrop = app.querySelector('.pack-backdrop');
+  if (backdrop && unrevealedCount === 0) {
+    backdrop.classList.remove('has-sealed-cards');
+    backdrop.classList.add('is-reveal-complete');
+  }
+  refreshIcons();
+  return true;
+}
+
 function resumePendingPackOpening() {
   const opening = store.getState().pendingPackOpening;
   if (!opening) return false;
@@ -1381,7 +1775,7 @@ function revealPackCardAtIndex(cardIndex, openingId) {
   if (nextOpening === current) return false;
   ui.modal.revealedCards = nextOpening.revealedIndices;
   ui.modal.pendingOpening = !finalized;
-  render();
+  if (!patchPackReveal(cardIndex, nextOpening)) render();
   return true;
 }
 
@@ -1423,7 +1817,7 @@ function openStandardPack() {
   render();
 }
 
-function buyStandardPack() {
+function buyStandardPack({ notify = true } = {}) {
   const price = PACK_DEFINITION.standard.coinPrice;
   const state = store.getState();
   if (state.wallet.coins < price) {
@@ -1435,21 +1829,178 @@ function buyStandardPack() {
     draft.packs.standard += 1;
     appendActivity(draft, '사내 인물 파일 한 팩을 구매했습니다.', 'pack');
   });
-  showNotice('카드팩 1개를 구매했습니다.', 'success');
+  if (notify) showNotice('카드팩 1개를 구매했습니다.', 'success');
   return true;
+}
+
+function enhanceSelectedCard() {
+  const state = store.getState();
+  const card = cardById(ui.enhanceCardId);
+  const targetStage = Number(ui.enhanceTargetStage);
+  const materialStage = Number(ui.enhanceMaterialStage);
+  if (!card) return;
+
+  const available = availableEnhancementCounts(state, card.id);
+  if (available[targetStage] < 1
+    || available[materialStage] - (targetStage === materialStage ? 1 : 0) < 1) {
+    showNotice('모험에 참여하지 않는 동일 카드 재료가 더 필요합니다.', 'warning');
+    return;
+  }
+
+  let outcome = null;
+  try {
+    store.update((draft) => {
+      outcome = attemptCardEnhancement({
+        collection: draft.collection,
+        cardEnhancements: draft.cardEnhancements,
+        cardId: card.id,
+        targetStage,
+        materialStage,
+        lockedCards: activeExpeditionCardLocks(draft),
+      });
+      draft.collection = outcome.collection;
+      draft.cardEnhancements = outcome.cardEnhancements;
+      appendActivity(
+        draft,
+        outcome.success
+          ? `${cardDisplayName(card)} ${enhancementLabel(targetStage + 1)} 강화에 성공했습니다.`
+          : `${cardDisplayName(card)} ${enhancementLabel(targetStage + 1)} 강화에 실패했습니다.`,
+        'card',
+      );
+    });
+  } catch (error) {
+    showNotice(error.message, 'warning');
+    return;
+  }
+
+  ui.enhanceTargetStage = outcome.resultStage;
+  ui.enhanceMaterialStage = null;
+  ui.modal = {
+    type: 'result',
+    title: outcome.success ? '강화 성공' : '강화 실패',
+    eyebrow: outcome.success ? 'ENHANCEMENT COMPLETE' : 'ENHANCEMENT FAILED',
+    message: outcome.success
+      ? `${cardDisplayName(card)} 카드가 ${enhancementLabel(outcome.resultStage)} 단계가 되었습니다.`
+      : `${cardDisplayName(card)} 카드는 ${enhancementLabel(outcome.resultStage)} 단계를 유지합니다. 재료 카드는 소모되었습니다.`,
+    rewardText: `<span><i data-lucide="zap"></i>전투력 ${formatNumber(cardPower(card, null, outcome.resultStage))}</span>`,
+  };
+  render();
+}
+
+function addSynthesisMaterial(cardId, enhancement) {
+  const state = store.getState();
+  const card = cardById(cardId);
+  const stage = Math.floor(Number(enhancement));
+  if (!card || !RARITY_META[card.rarity] || stage < 0 || stage > MAX_ENHANCEMENT) return;
+  sanitizeSynthesisSelection(state);
+  if (ui.synthesisMaterials.length >= SYNTHESIS_MATERIAL_COUNT) return;
+  const selectedRarity = ui.synthesisMaterials.length
+    ? cardById(ui.synthesisMaterials[0].cardId)?.rarity
+    : card.rarity;
+  if (card.rarity !== selectedRarity) {
+    showNotice('같은 등급의 카드만 합성 재료로 넣을 수 있습니다.', 'warning');
+    return;
+  }
+  const locks = lockedEnhancementCounts(
+    state.collection,
+    state.cardEnhancements,
+    activeExpeditionCardLocks(state),
+  );
+  const counts = enhancementCountsForCard(state.collection, state.cardEnhancements, card.id);
+  const available = Math.max(0, counts[stage] - (locks[card.id]?.[stage] || 0));
+  if (synthesisSelectionCount(card.id, stage) >= available) {
+    showNotice('이 단계에서 더 사용할 수 있는 복사본이 없습니다.', 'warning');
+    return;
+  }
+  ui.synthesisRarity = card.rarity;
+  ui.synthesisMaterials.push({ cardId: card.id, enhancement: stage });
+  render({ preserveViewScroll: true });
+}
+
+function autoFillSynthesisMaterials() {
+  const state = store.getState();
+  const materials = autoSelectSynthesisMaterials({
+    collection: state.collection,
+    cardEnhancements: state.cardEnhancements,
+    catalog: CARD_CATALOG,
+    rarityOrder: RARITY_ORDER,
+    lockedCardIds: activeExpeditionCardLocks(state),
+  });
+  if (materials.length !== SYNTHESIS_MATERIAL_COUNT) {
+    showNotice('자동으로 넣을 수 있는 같은 등급 +0 카드가 5장 미만입니다.', 'warning');
+    return;
+  }
+  ui.synthesisMaterials = materials;
+  ui.synthesisRarity = cardById(materials[0].cardId)?.rarity || RARITY_ORDER[0];
+  render({ preserveViewScroll: true });
+}
+
+function synthesizeSelectedCards() {
+  const state = store.getState();
+  sanitizeSynthesisSelection(state);
+  if (ui.synthesisMaterials.length !== SYNTHESIS_MATERIAL_COUNT) {
+    showNotice('같은 등급의 카드 5장을 선택해 주세요.', 'warning');
+    return;
+  }
+
+  let outcome = null;
+  try {
+    store.update((draft) => {
+      outcome = attemptCardSynthesis({
+        collection: draft.collection,
+        cardEnhancements: draft.cardEnhancements,
+        materials: ui.synthesisMaterials,
+        catalog: CARD_CATALOG,
+        rarityOrder: RARITY_ORDER,
+        lockedCardIds: activeExpeditionCardLocks(draft),
+      });
+      draft.collection = outcome.collection;
+      draft.cardEnhancements = outcome.cardEnhancements;
+      appendActivity(
+        draft,
+        outcome.success
+          ? `${rarityLabel(outcome.sourceRarity)} 카드 5장을 합성해 ${rarityLabel(outcome.resultRarity)} ${cardDisplayName(outcome.outputCard)} 카드를 발견했습니다.`
+          : `카드 합성에 실패해 ${rarityLabel(outcome.resultRarity)} ${cardDisplayName(outcome.outputCard)} 카드 1장을 돌려받았습니다.`,
+        'card',
+      );
+    });
+  } catch (error) {
+    showNotice(error.message, 'warning');
+    return;
+  }
+
+  ui.synthesisMaterials = [];
+  ui.synthesisRarity = outcome.sourceRarity;
+  ui.modal = {
+    type: 'result',
+    title: outcome.success ? '합성 성공' : '합성 실패',
+    eyebrow: outcome.success ? 'SYNTHESIS COMPLETE' : 'SYNTHESIS RETURN',
+    message: outcome.success
+      ? `다음 등급의 ${cardDisplayName(outcome.outputCard)} 카드를 획득했습니다.`
+      : `같은 등급의 ${cardDisplayName(outcome.outputCard)} 카드 1장을 돌려받았습니다.`,
+    cardId: outcome.outputCard.id,
+    enhancement: 0,
+    rewardText: `<span><i data-lucide="sparkles"></i>${rarityLabel(outcome.resultRarity)} · ${escapeHtml(cardDisplayName(outcome.outputCard))}</span>`,
+  };
+  render();
 }
 
 function toggleSquadCard(cardId, context = 'adventure') {
   const state = store.getState();
   if (!state.collection[cardId]) return;
-  const unavailableIds = context === 'raid' ? (state.expedition?.squad || []) : [];
-  if (context === 'raid' && unavailableIds.includes(cardId)) {
-    showNotice('모험에 참여 중인 카드는 레이드에 편성할 수 없습니다.', 'warning');
+  const unavailable = context === 'raid' && bestAvailableEnhancementForCard(
+    state.collection,
+    state.cardEnhancements,
+    cardId,
+    activeExpeditionCardLocks(state),
+  ) < 0;
+  if (unavailable) {
+    showNotice('이 카드의 모든 복사본이 모험에 참여 중입니다.', 'warning');
     return;
   }
   store.update((draft) => {
     const field = context === 'raid' ? 'selectedRaidSquad' : 'selectedExpeditionSquad';
-    draft[field] = toggleSquadSelection(draft[field], cardId, { unavailableIds });
+    draft[field] = toggleSquadSelection(draft[field], cardId);
   });
   render({ preserveViewScroll: true });
 }
@@ -1464,6 +2015,7 @@ function beginExpedition() {
       cardIds: state.selectedExpeditionSquad,
       collection: state.collection,
       catalog: ALL_CARDS,
+      cardEnhancements: state.cardEnhancements,
     });
     store.update((draft) => {
       draft.expedition = expedition;
@@ -1551,8 +2103,19 @@ async function refreshPersonalRaid({ rankingOnly = false, silent = false } = {})
 
 async function sendRaidSquad() {
   const state = store.getState();
-  const raidSquad = availableRaidSquad(state.selectedRaidSquad, state.expedition);
-  const score = calculateSquadScore(raidSquad, state.collection, ALL_CARDS);
+  const expeditionLocks = activeExpeditionCardLocks(state);
+  const raidSquad = availableRaidSquad(
+    state.selectedRaidSquad,
+    state.expedition,
+    state.collection,
+  );
+  const score = calculateSquadScore(
+    raidSquad,
+    state.collection,
+    ALL_CARDS,
+    state.cardEnhancements,
+    expeditionLocks,
+  );
   if (!score) {
     showNotice('레이드에 보낼 카드를 편성해 주세요.', 'warning');
     return;
@@ -1571,11 +2134,22 @@ async function sendRaidSquad() {
   render();
   let followUpNotice = null;
   try {
+    // The server verifies raid cards against the cloud record. Persist the
+    // latest enhancement and synthesis changes before requesting damage.
+    await flushCloudStateOrThrow();
     const lease = cloudPlay?.getSnapshot().lease;
     if (!lease?.leaseId) return;
     const payload = await dispatchPersonalRaid(currentRaidToken(), {
       bossId: RAID_DEFINITION.id,
-      squadScore: score,
+      squad: raidSquad.map((cardId) => ({
+        cardId,
+        enhancement: bestAvailableEnhancementForCard(
+          state.collection,
+          state.cardEnhancements,
+          cardId,
+          expeditionLocks,
+        ),
+      })),
       leaseId: lease.leaseId,
       deviceId,
       generation: lease.generation,
@@ -2315,12 +2889,56 @@ app.addEventListener('click', async (event) => {
     ui.modal = null;
     render();
     if (ui.view === 'raid' && ui.raidMode === 'personal') void refreshPersonalRaid({ silent: true });
+  } else if (action === 'manage-card') {
+    ui.enhanceCardId = button.dataset.cardId;
+    ui.enhanceTargetStage = null;
+    ui.enhanceMaterialStage = null;
+    ui.managementPanel = 'enhance';
+    ui.view = 'management';
+    ui.modal = null;
+    render();
+  } else if (action === 'switch-management-panel') {
+    ui.managementPanel = button.dataset.managementPanel === 'synthesis' ? 'synthesis' : 'enhance';
+    render({ preserveViewScroll: false });
+  } else if (action === 'select-enhance-card') {
+    ui.enhanceCardId = button.dataset.cardId;
+    ui.enhanceTargetStage = null;
+    ui.enhanceMaterialStage = null;
+    render({ preserveViewScroll: true });
+  } else if (action === 'select-enhance-target') {
+    ui.enhanceTargetStage = Number(button.dataset.enhancement);
+    ui.enhanceMaterialStage = null;
+    render({ preserveViewScroll: true });
+  } else if (action === 'select-enhance-material') {
+    ui.enhanceMaterialStage = Number(button.dataset.enhancement);
+    render({ preserveViewScroll: true });
+  } else if (action === 'enhance-card') {
+    enhanceSelectedCard();
+  } else if (action === 'select-synthesis-rarity') {
+    if (ui.synthesisMaterials.length) return;
+    ui.synthesisRarity = button.dataset.rarity;
+    render({ preserveViewScroll: true });
+  } else if (action === 'add-synthesis-material') {
+    addSynthesisMaterial(button.dataset.cardId, button.dataset.enhancement);
+  } else if (action === 'remove-synthesis-material') {
+    const index = Number(button.dataset.materialIndex);
+    if (Number.isInteger(index) && index >= 0 && index < ui.synthesisMaterials.length) {
+      ui.synthesisMaterials.splice(index, 1);
+      render({ preserveViewScroll: true });
+    }
+  } else if (action === 'clear-synthesis-materials') {
+    ui.synthesisMaterials = [];
+    render({ preserveViewScroll: true });
+  } else if (action === 'auto-fill-synthesis') {
+    autoFillSynthesisMaterials();
+  } else if (action === 'synthesize-cards') {
+    synthesizeSelectedCards();
   } else if (action === 'open-pack' || action === 'open-another-pack' || action === 'resume-pack-opening') {
     openStandardPack();
   } else if (action === 'buy-pack') {
     buyStandardPack();
   } else if (action === 'buy-and-open-pack') {
-    if (buyStandardPack()) openStandardPack();
+    if (buyStandardPack({ notify: false })) openStandardPack();
   } else if (action === 'reveal-pack-card') {
     if (ui.modal?.type !== 'pack') return;
     const index = Number(button.dataset.cardIndex);

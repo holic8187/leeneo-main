@@ -22,9 +22,20 @@ export function toggleSquadSelection(selectedIds, cardId, {
   return selected;
 }
 
-export function availableRaidSquad(selectedIds, expedition) {
-  const deployed = new Set(Array.isArray(expedition?.squad) ? expedition.squad : []);
+export function availableRaidSquad(selectedIds, expedition, collection = null) {
+  const deployedCounts = {};
+  for (const cardId of Array.isArray(expedition?.squad) ? expedition.squad : []) {
+    deployedCounts[cardId] = (deployedCounts[cardId] || 0) + 1;
+  }
+  const hasCollection = collection && typeof collection === 'object';
   return [...new Set(Array.isArray(selectedIds) ? selectedIds : [])]
-    .filter((id) => id && !deployed.has(id))
+    .filter((cardId) => {
+      if (!cardId) return false;
+      const deployed = deployedCounts[cardId] || 0;
+      if (!deployed) return true;
+      if (!hasCollection) return false;
+      const owned = Math.max(0, Math.floor(Number(collection[cardId]) || 0));
+      return owned > deployed;
+    })
     .slice(0, MAX_SQUAD_SIZE);
 }

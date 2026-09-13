@@ -2,6 +2,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 const jwt = require('jsonwebtoken');
 const TcgPersonalRaidDailyModel = require('../../src/tcg/models/TcgPersonalRaidDaily');
 const {
@@ -13,7 +15,8 @@ const {
   getKstDayWindow,
   getPersonalRaidRanking,
   getPersonalRaidState,
-  parseSquadScore
+  parseSquadScore,
+  validatePersonalRaidSquad
 } = require('../../src/tcg/services/personalRaidService');
 const {
   TCG_TOKEN_AUDIENCE,
@@ -143,6 +146,45 @@ function createAccount(id = 'account-1', nickname = '레이드사원') {
   return { _id: id, nickname, status: 'active', tokenVersion: 0 };
 }
 
+function routeDispatchBody(overrides = {}) {
+  return {
+    bossId: 'deadline-dragon-raid',
+    squad: [{ cardId: 'simsim-c', enhancement: 0 }],
+    leaseId: 'route-lease',
+    deviceId: 'route-device',
+    generation: 1,
+    ...overrides
+  };
+}
+
+function createStablePlayerStateModel(now) {
+  return class StablePlayerState {
+    static async findOne() {
+      const currentTime = now();
+      return {
+        _id: 'player-state-route-account',
+        accountId: 'route-account',
+        initialized: true,
+        revision: 1,
+        state: {
+          collection: { 'simsim-c': 1 },
+          cardEnhancements: {},
+          selectedRaidSquad: ['simsim-c']
+        },
+        activeLease: {
+          leaseId: 'route-lease',
+          deviceId: 'route-device',
+          platform: 'pc',
+          generation: 1,
+          heartbeatAt: new Date(currentTime),
+          expiresAt: new Date(currentTime + 45_000),
+          appVersion: '0.6.0'
+        }
+      };
+    }
+  };
+}
+
 test('personal raid daily model has one row per account, KST day, and boss', () => {
   assert.equal(TcgPersonalRaidDailyModel.schema.options.collection, 'tcg_personal_raid_daily');
   const indexes = TcgPersonalRaidDailyModel.schema.indexes();
@@ -165,7 +207,8 @@ test('KST raid day rolls over exactly at Korea midnight', () => {
 
 test('squad score validation rejects forged ranges and damage variance is server controlled', () => {
   assert.equal(parseSquadScore('54000'), 54_000);
-  for (const invalid of [0, -1, 60_001, 1.5, 'not-a-score', '', null, true]) {
+  assert.equal(parseSquadScore(100_000), 100_000, 'the enhanced-card team ceiling is accepted');
+  for (const invalid of [0, -1, 100_001, 1.5, 'not-a-score', '', null, true]) {
     assert.throws(() => parseSquadScore(invalid), (error) => (
       error instanceof PersonalRaidError && error.code === 'INVALID_SQUAD_SCORE'
     ));
@@ -173,6 +216,90 @@ test('squad score validation rejects forged ranges and damage variance is server
   const boss = PERSONAL_RAID_BOSSES['deadline-dragon-raid'];
   assert.equal(calculatePersonalRaidDamage(10_000, boss, () => 0), 1_232_500);
   assert.equal(calculatePersonalRaidDamage(10_000, boss, () => 0.999999), 1_667_499);
+});
+
+test('server combat catalog stays aligned with every desktop card', async () => {
+  const serverCatalog = require('../../src/tcg/data/cardCombatPower.json');
+  const catalogUrl = pathToFileURL(path.resolve(__dirname, '../../tcg-desktop/src/data/cardCatalog.js'));
+  const { ALL_CARDS } = await import(catalogUrl.href);
+  const desktopCatalog = Object.fromEntries(ALL_CARDS.map((card) => [
+    card.id,
+    Number(card.combatPower)
+      || Object.values(card.stats || {}).reduce((sum, value) => sum + Number(value || 0), 0) * 100
+  ]));
+  assert.deepEqual(serverCatalog, desktopCatalog);
+});
+
+test('raid squad verification uses owned enhanced copies and excludes the exact expedition copy', () => {
+  const playerState = {
+    collection: { 'winter-c': 3, 'simsim-c': 1 },
+    cardEnhancements: { 'winter-c': { 1: 1, 5: 1 } },
+    expedition: {
+      squad: ['winter-c'],
+      enhancementStages: { 'winter-c': 5 },
+      endsAt: Date.parse('2026-09-10T06:00:00.000Z')
+    }
+  };
+  const verified = validatePersonalRaidSquad({
+    playerState,
+    squad: [
+      { cardId: 'winter-c', enhancement: 1 },
+      { cardId: 'simsim-c', enhancement: 0 }
+    ],
+    now: Date.parse('2026-09-10T05:00:00.000Z')
+  });
+  assert.deepEqual(verified.squad, [
+    { cardId: 'winter-c', enhancement: 1, power: 2234 },
+    { cardId: 'simsim-c', enhancement: 0, power: 1800 }
+  ]);
+  assert.equal(verified.squadScore, 4034);
+});
+
+test('raid squad verification rejects duplicate IDs, forged stages, scores, and oversized squads', () => {
+  const playerState = {
+    collection: { 'simsim-c': 2, 'winter-c': 1, 'kkamdung-c': 1, 'nanche-c': 1 },
+    cardEnhancements: { 'simsim-c': { 2: 1 } }
+  };
+  assert.throws(() => validatePersonalRaidSquad({
+    playerState,
+    squad: [
+      { cardId: 'simsim-c', enhancement: 2 },
+      { cardId: 'simsim-c', enhancement: 0 }
+    ]
+  }), (error) => error.code === 'INVALID_RAID_SQUAD');
+  assert.throws(() => validatePersonalRaidSquad({
+    playerState,
+    squad: [{ cardId: 'simsim-c', enhancement: 0 }]
+  }), (error) => error.code === 'RAID_CARD_STAGE_MISMATCH' && error.details.expectedEnhancement === 2);
+  assert.throws(() => validatePersonalRaidSquad({
+    playerState,
+    squad: [{ cardId: 'simsim-c', enhancement: 2 }],
+    submittedScore: 99_999
+  }), (error) => error.code === 'RAID_SQUAD_SCORE_MISMATCH');
+  assert.throws(() => validatePersonalRaidSquad({
+    playerState,
+    squad: [
+      { cardId: 'simsim-c', enhancement: 2 },
+      { cardId: 'winter-c', enhancement: 0 },
+      { cardId: 'kkamdung-c', enhancement: 0 },
+      { cardId: 'nanche-c', enhancement: 0 }
+    ]
+  }), (error) => error.code === 'INVALID_RAID_SQUAD' && error.details.maximumSquadSize === 3);
+});
+
+test('raid squad verification rejects cards that are not owned or whose only copy is deployed', () => {
+  assert.throws(() => validatePersonalRaidSquad({
+    playerState: { collection: { 'winter-c': 1 }, cardEnhancements: {} },
+    squad: [{ cardId: 'simsim-c', enhancement: 0 }]
+  }), (error) => error.code === 'RAID_CARD_UNAVAILABLE');
+  assert.throws(() => validatePersonalRaidSquad({
+    playerState: {
+      collection: { 'winter-c': 1 },
+      cardEnhancements: {},
+      expedition: { squad: ['winter-c'], enhancementStages: { 'winter-c': 0 } }
+    },
+    squad: [{ cardId: 'winter-c', enhancement: 0 }]
+  }), (error) => error.code === 'RAID_CARD_UNAVAILABLE');
 });
 
 test('dispatch enforces a 60-second cooldown and two deadline-dragon clears per KST day', async () => {
@@ -333,6 +460,7 @@ function createRaidRouteHarness({ now, random = () => 0, TcgPlayerState } = {}) 
     async exists() { return null; },
     findOne() { return { async select() { return null; } }; }
   };
+  const PlayerState = TcgPlayerState || createStablePlayerStateModel(now);
   registerTcgRoutes({
     app,
     bcrypt: { hash: async () => '', compare: async () => false },
@@ -340,7 +468,7 @@ function createRaidRouteHarness({ now, random = () => 0, TcgPlayerState } = {}) 
     jwtSecret: TEST_SECRET,
     TcgAccount,
     TcgPersonalRaidDaily: RaidDaily,
-    ...(TcgPlayerState ? { TcgPlayerState } : {}),
+    TcgPlayerState: PlayerState,
     now,
     random
   });
@@ -396,22 +524,52 @@ test('personal raid routes require auth and return state, ranking, cooldown meta
   assert.deepEqual(initial.payload.ranking.entries, []);
 
   const dispatched = await harness.request('POST', '/api/tcg/raids/personal/dispatch', {
-    body: { bossId: 'deadline-dragon-raid', squadScore: 1_000 }
+    body: routeDispatchBody()
   });
   assert.equal(dispatched.statusCode, 200);
-  assert.equal(dispatched.payload.result.damage, 123_250);
+  assert.equal(dispatched.payload.result.squadScore, 1_800);
+  assert.equal(dispatched.payload.result.damage, 221_850);
   assert.deepEqual(dispatched.payload.result.reward, { coins: 0, packs: 0 });
   assert.equal(dispatched.payload.ranking.myRank, 1);
 
   currentTime += 15_000;
   const cooldown = await harness.request('POST', '/api/tcg/raids/personal/dispatch', {
-    body: { bossId: 'deadline-dragon-raid', squadScore: 1_000 }
+    body: routeDispatchBody()
   });
   assert.equal(cooldown.statusCode, 429);
   assert.equal(cooldown.payload.code, 'RAID_COOLDOWN');
   assert.equal(cooldown.payload.remainingCooldownMs, 45_000);
   assert.equal(cooldown.payload.retryAfterSeconds, 45);
   assert.equal(cooldown.headers['Retry-After'], '45');
+});
+
+test('personal raid route rejects a client-forged score before recording damage', async () => {
+  const currentTime = Date.parse('2026-09-10T06:30:00.000Z');
+  const harness = createRaidRouteHarness({ now: () => currentTime });
+  const response = await harness.request('POST', '/api/tcg/raids/personal/dispatch', {
+    body: routeDispatchBody({ squadScore: 99_999 })
+  });
+  assert.equal(response.statusCode, 409);
+  assert.equal(response.payload.code, 'RAID_SQUAD_SCORE_MISMATCH');
+  assert.equal(response.payload.verifiedSquadScore, 1_800);
+  assert.equal(harness.RaidDaily.records.length, 0);
+});
+
+test('personal raid route safely derives an older client squad from cloud state', async () => {
+  const currentTime = Date.parse('2026-09-10T06:45:00.000Z');
+  const harness = createRaidRouteHarness({ now: () => currentTime });
+  const response = await harness.request('POST', '/api/tcg/raids/personal/dispatch', {
+    body: {
+      bossId: 'deadline-dragon-raid',
+      squadScore: 1_800,
+      leaseId: 'route-lease',
+      deviceId: 'route-device',
+      generation: 1
+    }
+  });
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.result.squadScore, 1_800);
+  assert.equal(harness.RaidDaily.records[0].dispatchCount, 1);
 });
 
 test('leased raid dispatch is rejected when another device takes over before the raid write', async () => {
@@ -421,7 +579,7 @@ test('leased raid dispatch is rejected when another device takes over before the
     accountId: 'route-account',
     initialized: true,
     revision: 4,
-    state: { wallet: { coins: 100 } },
+    state: { wallet: { coins: 100 }, collection: { 'simsim-c': 1 }, cardEnhancements: {} },
     activeLease: {
       leaseId: 'pc-lease',
       deviceId: 'pc-device',
@@ -460,8 +618,7 @@ test('leased raid dispatch is rejected when another device takes over before the
   });
   const response = await harness.request('POST', '/api/tcg/raids/personal/dispatch', {
     body: {
-      bossId: 'deadline-dragon-raid',
-      squadScore: 1_000,
+      ...routeDispatchBody(),
       leaseId: 'pc-lease',
       deviceId: 'pc-device',
       generation: 3

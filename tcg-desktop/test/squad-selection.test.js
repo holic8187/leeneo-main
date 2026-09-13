@@ -16,6 +16,15 @@ test('cards deployed on an expedition cannot enter the available raid squad', ()
   const expedition = { squad: ['b', 'c'] };
   assert.deepEqual(toggleSquadSelection(['a'], 'b', { unavailableIds: expedition.squad }), ['a']);
   assert.deepEqual(availableRaidSquad(['a', 'b', 'c'], expedition), ['a']);
+  assert.deepEqual(
+    availableRaidSquad(['a', 'b', 'c'], expedition, { a: 1, b: 2, c: 1 }),
+    ['a', 'b'],
+  );
+});
+
+test('one deck never contains the same card kind twice', () => {
+  assert.deepEqual(toggleSquadSelection(['a', 'a', 'b'], 'c'), ['a', 'b', 'c']);
+  assert.deepEqual(availableRaidSquad(['a', 'a', 'b'], null, { a: 2, b: 1 }), ['a', 'b']);
 });
 
 test('raid and expedition squads migrate separately and the raid selection survives a restart', () => {

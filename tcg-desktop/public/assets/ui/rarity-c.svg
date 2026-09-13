@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 176 104" role="img">
+  <title>C rarity emblem</title>
+  <defs>
+    <linearGradient id="c-metal" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#f7faf8"/>
+      <stop offset=".48" stop-color="#9aa7a2"/>
+      <stop offset="1" stop-color="#e6ece9"/>
+    </linearGradient>
+    <filter id="c-shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#24312c" flood-opacity=".42"/>
+    </filter>
+  </defs>
+  <path d="M17 12H125l37 40-37 40H17L4 52z" fill="#27332f" stroke="url(#c-metal)" stroke-width="5" filter="url(#c-shadow)"/>
+  <path d="M22 20h99l29 32-29 32H22L12 52z" fill="none" stroke="#f4f7f5" stroke-opacity=".5" stroke-width="2"/>
+  <path d="M117 29C104 17 78 16 61 27 43 38 38 61 51 76c14 17 46 18 65 1" fill="none" stroke="url(#c-metal)" stroke-width="14" stroke-linecap="round"/>
+  <path d="M22 52h12M139 52h12" stroke="#dce5e1" stroke-width="3" stroke-linecap="round"/>
+</svg>

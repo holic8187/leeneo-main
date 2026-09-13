@@ -1,3 +1,9 @@
+import {
+  bestAvailableEnhancementForCard,
+  bestEnhancementForCard,
+  enhancedCardPower,
+} from './cardManagement.js';
+
 const LEGACY_STAT_POWER_FACTOR = 100;
 const LEGACY_EXPEDITION_SCORE_FACTOR = 40;
 const COMBAT_POWER_SCALE = 'combat-power-v1';
@@ -26,16 +32,36 @@ export function missionMinimumPower(mission) {
   return Number.isFinite(minimum) && minimum > 0 ? Math.round(minimum) : 0;
 }
 
-export function calculateSquadScore(cardIds = [], collection = {}, catalog = []) {
+export function calculateSquadScore(
+  cardIds = [],
+  collection = {},
+  catalog = [],
+  cardEnhancements = {},
+  lockedCards = [],
+) {
   const uniqueIds = [...new Set(Array.isArray(cardIds) ? cardIds : [])].slice(0, 3);
   return uniqueIds.reduce((score, cardId) => {
     if (!collection?.[cardId]) return score;
     const card = catalog.find((candidate) => candidate.id === cardId);
-    return score + (card ? cardExpeditionPower(card) : 0);
+    const stage = bestAvailableEnhancementForCard(
+      collection,
+      cardEnhancements,
+      cardId,
+      lockedCards,
+    );
+    if (stage < 0) return score;
+    return score + (card ? enhancedCardPower(cardExpeditionPower(card), stage) : 0);
   }, 0);
 }
 
-export function startExpedition({ mission, cardIds, collection, catalog, now = Date.now() }) {
+export function startExpedition({
+  mission,
+  cardIds,
+  collection,
+  cardEnhancements = {},
+  catalog,
+  now = Date.now(),
+}) {
   if (!mission) throw new Error('모험 정보를 찾을 수 없습니다.');
   const sourceIds = Array.isArray(cardIds) ? cardIds : [];
   const squad = [...new Set(sourceIds)].filter((id) => collection?.[id]).slice(0, 3);
@@ -44,7 +70,7 @@ export function startExpedition({ mission, cardIds, collection, catalog, now = D
     throw new Error(`카드를 ${requiredCards}장 이상 편성해 주세요.`);
   }
 
-  const score = calculateSquadScore(squad, collection, catalog);
+  const score = calculateSquadScore(squad, collection, catalog, cardEnhancements);
   const minimumPower = missionMinimumPower(mission);
   if (score < minimumPower) {
     throw new Error(`최소 합산 전투력 ${minimumPower.toLocaleString('ko-KR')} 이상이 필요합니다.`);
@@ -54,6 +80,10 @@ export function startExpedition({ mission, cardIds, collection, catalog, now = D
     id: `expedition-${now}`,
     missionId: mission.id,
     squad,
+    enhancementStages: Object.fromEntries(squad.map((cardId) => [
+      cardId,
+      bestEnhancementForCard(collection, cardEnhancements, cardId),
+    ])),
     score,
     combatPower: score,
     powerScale: COMBAT_POWER_SCALE,
