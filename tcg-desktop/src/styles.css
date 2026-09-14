@@ -3560,6 +3560,19 @@ img.rarity-emblem {
   box-shadow: 0 3px 12px var(--rarity-glow);
 }
 
+.management-card-choice:disabled {
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--rarity-surface) 38%, white);
+  box-shadow: none;
+  cursor: not-allowed;
+  filter: saturate(0.55);
+  opacity: 0.68;
+}
+
+.management-card-choice:disabled > b {
+  color: var(--muted);
+}
+
 .management-card-choice img {
   width: 42px;
   height: 42px;

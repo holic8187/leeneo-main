@@ -244,6 +244,46 @@ export function lockedEnhancementCounts(
   return locks;
 }
 
+/**
+ * Describe whether a card kind has two usable copies: one target below +5 and
+ * one separate material. Copies reserved by an active expedition stay visible
+ * in the owned totals but can never make an otherwise impossible enhancement
+ * look selectable in the UI.
+ */
+export function cardEnhancementAvailability({
+  collection = {},
+  cardEnhancements = {},
+  cardId = '',
+  lockedCards = [],
+  protectedCardIds = [],
+} = {}) {
+  const counts = enhancementCountsForCard(collection, cardEnhancements, cardId);
+  const expeditionLocks = lockedEnhancementCounts(
+    collection,
+    cardEnhancements,
+    lockedCards,
+  )[cardId] || [];
+  const protectedCard = new Set(protectedCardIds || []).has(cardId);
+  const locked = counts.map((count, stage) => (
+    protectedCard ? count : Math.min(count, expeditionLocks[stage] || 0)
+  ));
+  const available = counts.map((count, stage) => Math.max(0, count - locked[stage]));
+  const canEnhance = available.some((targetCount, targetStage) => {
+    if (targetStage >= MAX_ENHANCEMENT || targetCount <= 0) return false;
+    return available.some((materialCount, materialStage) => (
+      materialCount - (materialStage === targetStage ? 1 : 0) > 0
+    ));
+  });
+
+  return {
+    counts,
+    locked,
+    available,
+    protectedCard,
+    canEnhance,
+  };
+}
+
 export function bestAvailableEnhancementForCard(
   collection = {},
   cardEnhancements = {},
