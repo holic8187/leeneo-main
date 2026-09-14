@@ -116,6 +116,7 @@ import {
 import {
   claimAllMailboxItems,
   claimMailboxItem,
+  createMailboxRequestGuard,
   loadMailbox,
   loadTcgAdminUsers,
   loginTcgAdmin,
@@ -136,6 +137,7 @@ let updateCheckPromise = null;
 let updateInstallPromise = null;
 let appVersionPromise = null;
 let authenticationRestorePromise = null;
+const mailboxRequestGuard = createMailboxRequestGuard();
 
 const iconSet = {
   ArrowRight,
@@ -209,6 +211,15 @@ const ui = {
     sending: false,
     users: [],
     error: '',
+    draft: {
+      target: 'all',
+      title: '',
+      message: '',
+      coins: '0',
+      standardPacks: '0',
+      expiresInHours: '168',
+    },
+    pendingMailRequest: null,
   },
   appVersion: '...',
   cloud: {
@@ -1679,6 +1690,9 @@ function renderResultModal(result, state) {
 
 function renderAdminModal() {
   const authenticated = Boolean(ui.admin.token);
+  const draft = ui.admin.draft || {};
+  const draftValue = (field, fallback = '') => escapeHtml(String(draft[field] ?? fallback));
+  const selected = (field, value, fallback = '') => String(draft[field] ?? fallback) === String(value) ? ' selected' : '';
   return `
     <div class="modal-backdrop" data-action="close-modal">
       <section class="modal-sheet admin-modal" role="dialog" aria-modal="true" aria-labelledby="admin-title" data-modal-panel>
@@ -1688,13 +1702,13 @@ function renderAdminModal() {
         <p>${authenticated ? '사용자에게 안내와 보상을 우편으로 발송합니다.' : '관리자 계정으로 로그인해 운영 도구를 엽니다.'}</p>
         ${authenticated ? `
           <form class="admin-mail-form" data-form="admin-mail">
-            <label><span>발송 대상</span><select name="target" required><option value="all">전체 사용자</option>${ui.admin.users.map((user) => `<option value="${escapeHtml(user.id)}">${escapeHtml(user.label || `${user.nickname} (${user.username})`)}</option>`).join('')}</select></label>
-            <label><span>우편 제목</span><input name="title" maxlength="80" placeholder="업데이트 기념 선물" required /></label>
-            <label><span>내용</span><textarea name="message" maxlength="1000" rows="4" placeholder="사용자에게 전달할 내용을 입력하세요."></textarea></label>
+            <label><span>발송 대상</span><select name="target" required><option value="all"${selected('target', 'all', 'all')}>전체 사용자</option>${ui.admin.users.map((user) => `<option value="${escapeHtml(user.id)}"${selected('target', user.id, 'all')}>${escapeHtml(user.label || `${user.nickname} (${user.username})`)}</option>`).join('')}</select></label>
+            <label><span>우편 제목</span><input name="title" maxlength="80" placeholder="업데이트 기념 선물" value="${draftValue('title')}" required /></label>
+            <label><span>내용</span><textarea name="message" maxlength="1000" rows="4" placeholder="사용자에게 전달할 내용을 입력하세요.">${draftValue('message')}</textarea></label>
             <div class="admin-reward-grid">
-              <label><span>사내 동전</span><input name="coins" type="number" min="0" max="100000000" step="1" value="0" /></label>
-              <label><span>표준 카드팩</span><input name="standardPacks" type="number" min="0" max="10000" step="1" value="0" /></label>
-              <label><span>보관 기간</span><select name="expiresInHours"><option value="168">7일</option><option value="720">30일</option><option value="2160">90일</option></select></label>
+              <label><span>사내 동전</span><input name="coins" type="number" min="0" max="100000000" step="1" value="${draftValue('coins', '0')}" /></label>
+              <label><span>표준 카드팩</span><input name="standardPacks" type="number" min="0" max="10000" step="1" value="${draftValue('standardPacks', '0')}" /></label>
+              <label><span>보관 기간</span><select name="expiresInHours"><option value="168"${selected('expiresInHours', '168', '168')}>7일</option><option value="720"${selected('expiresInHours', '720', '168')}>30일</option><option value="2160"${selected('expiresInHours', '2160', '168')}>90일</option></select></label>
             </div>
             <p class="auth-form-error" role="alert">${escapeHtml(ui.admin.error)}</p>
             <div class="admin-modal-actions">
@@ -2818,57 +2832,110 @@ function currentAuthToken() {
   return String(authSession.get()?.token || '');
 }
 
+function currentMailboxIdentity() {
+  return {
+    accountId: ui.auth.account?.id || ui.auth.account?._id || '',
+    token: currentAuthToken(),
+  };
+}
+
+function invalidateMailboxRequests() {
+  mailboxRequestGuard.invalidate();
+}
+
+function isCurrentMailboxRequest(request) {
+  return mailboxRequestGuard.isCurrent(request, currentMailboxIdentity());
+}
+
+function isAuthorizedMailboxRequest(request) {
+  const identity = currentMailboxIdentity();
+  return Boolean(request)
+    && request.accountId === identity.accountId
+    && request.token === identity.token;
+}
+
 async function refreshMailbox({ silent = false } = {}) {
   if (ui.auth.phase !== 'authenticated') return false;
+  const request = mailboxRequestGuard.begin(currentMailboxIdentity());
   if (!silent) {
     ui.mailbox.loading = true;
     ui.mailbox.error = '';
     render();
   }
   try {
-    const result = await loadMailbox(currentAuthToken());
+    const result = await loadMailbox(request.token);
+    if (!isCurrentMailboxRequest(request)) return false;
     ui.mailbox.items = result.mailbox;
     ui.mailbox.lastLoadedAt = Date.now();
     ui.mailbox.error = '';
     return true;
   } catch (error) {
+    if (!isCurrentMailboxRequest(request)) return false;
     ui.mailbox.error = error.message || '우편함을 불러오지 못했습니다.';
     return false;
   } finally {
-    ui.mailbox.loading = false;
-    render();
+    if (isCurrentMailboxRequest(request)) {
+      ui.mailbox.loading = false;
+      render();
+    }
   }
 }
 
 async function readMailboxItem(mailId) {
+  const request = mailboxRequestGuard.capture(currentMailboxIdentity());
   try {
-    const result = await markMailRead(currentAuthToken(), mailId);
+    const result = await markMailRead(request.token, mailId);
+    if (!isCurrentMailboxRequest(request)) return false;
     ui.mailbox.items = result.mailbox;
     ui.mailbox.error = '';
   } catch (error) {
+    if (!isCurrentMailboxRequest(request)) return false;
     ui.mailbox.error = error.message || '우편을 읽음 처리하지 못했습니다.';
   }
   render();
+  return true;
 }
 
 async function claimMailboxRewards(mailId = '') {
-  if (!cloudPlay || ui.cloud.phase !== 'active' || ui.mailbox.claimingId) return false;
+  const activeCloudPlay = cloudPlay;
+  if (!activeCloudPlay || ui.cloud.phase !== 'active' || ui.mailbox.claimingId) return false;
+  const mailboxRequest = mailboxRequestGuard.capture(currentMailboxIdentity());
   ui.mailbox.claimingId = mailId || '*';
   ui.mailbox.error = '';
   render();
+  let authoritativeMutationStarted = false;
   try {
     await flushCloudStateOrThrow();
-    const snapshot = cloudPlay.getSnapshot();
+    if (!isAuthorizedMailboxRequest(mailboxRequest)) return false;
+    // Reserve the current cloud revision while the mailbox endpoint performs
+    // its atomic reward write.  Any game activity that happens during the
+    // request stays in the durable outbox and is rebased on the authoritative
+    // reward snapshot before it can be sent back to the server.
+    const mutation = activeCloudPlay.beginAuthoritativeMutation(store.getState());
+    authoritativeMutationStarted = true;
+    const snapshot = activeCloudPlay.getSnapshot();
     const request = {
       leaseId: snapshot.lease?.leaseId || '',
       deviceId,
       generation: snapshot.lease?.generation || 0,
-      baseRevision: snapshot.revision,
+      baseRevision: mutation.baseRevision,
     };
     const result = mailId
-      ? await claimMailboxItem(currentAuthToken(), { ...request, mailId })
-      : await claimAllMailboxItems(currentAuthToken(), request);
-    cloudPlay.adoptServerSnapshot(result.snapshot);
+      ? await claimMailboxItem(mailboxRequest.token, { ...request, mailId })
+      : await claimAllMailboxItems(mailboxRequest.token, request);
+    // A refresh can supersede this request's mailbox list epoch.  The cloud
+    // claim still belongs to the same authenticated account, so commit its
+    // authoritative state even when the UI will be refreshed by that newer
+    // request.
+    if (!isAuthorizedMailboxRequest(mailboxRequest)) return false;
+    activeCloudPlay.commitAuthoritativeMutation(result.snapshot);
+    authoritativeMutationStarted = false;
+    // If a local action occurred while the request was in flight, the commit
+    // rebased it onto the reward snapshot and queued it at the new revision.
+    // Flush that rebased state before reporting success so the next request
+    // cannot observe a stale local copy.
+    await flushCloudStateOrThrow();
+    if (!isAuthorizedMailboxRequest(mailboxRequest)) return false;
     ui.mailbox.items = result.mailbox;
     ui.mailbox.lastLoadedAt = Date.now();
     const coins = Number(result.rewards?.coins) || 0;
@@ -2877,14 +2944,31 @@ async function claimMailboxRewards(mailId = '') {
     showNotice(rewardParts.length ? `${rewardParts.join(' · ')}을 받았습니다.` : '우편을 확인했습니다.', 'success');
     return true;
   } catch (error) {
+    if (authoritativeMutationStarted) activeCloudPlay.cancelAuthoritativeMutation();
+    if (!isAuthorizedMailboxRequest(mailboxRequest)) return false;
     ui.mailbox.error = error.message || '우편 보상을 수령하지 못했습니다.';
     if (['PLAY_SESSION_LOST', 'PLAYING_ELSEWHERE'].includes(error.code)) {
       await retryCloudConnection();
     }
     return false;
   } finally {
-    ui.mailbox.claimingId = '';
-    render();
+    // A mailbox refresh, logout, or account switch can invalidate this
+    // request before its response arrives. Release the cloud reservation even
+    // on that early-return path so future saves are never left paused.
+    if (authoritativeMutationStarted) activeCloudPlay.cancelAuthoritativeMutation();
+    if (isAuthorizedMailboxRequest(mailboxRequest)) {
+      ui.mailbox.claimingId = '';
+      render();
+    } else if (ui.auth.phase === 'authenticated'
+      && currentMailboxIdentity().accountId === mailboxRequest.accountId
+      && currentMailboxIdentity().token === mailboxRequest.token
+      && ui.mailbox.claimingId === (mailId || '*')) {
+      // A newer list request superseded this claim while the account stayed
+      // the same. Clear only this request's spinner; never touch a new
+      // account's mailbox state.
+      ui.mailbox.claimingId = '';
+      render();
+    }
   }
 }
 
@@ -2930,22 +3014,40 @@ async function submitAdminMail(form) {
   if (!ui.admin.token || ui.admin.sending) return;
   const data = new FormData(form);
   const target = String(data.get('target') || 'all');
+  const payload = {
+    targetMode: target === 'all' ? 'all' : 'single',
+    ...(target === 'all' ? {} : { targetAccountId: target }),
+    title: String(data.get('title') || '').trim(),
+    message: String(data.get('message') || '').trim(),
+    rewards: {
+      coins: Math.max(0, Math.floor(Number(data.get('coins')) || 0)),
+      standardPacks: Math.max(0, Math.floor(Number(data.get('standardPacks')) || 0)),
+    },
+    expiresInHours: Math.max(1, Math.floor(Number(data.get('expiresInHours')) || 168)),
+  };
+  ui.admin.draft = {
+    target,
+    title: String(data.get('title') || ''),
+    message: String(data.get('message') || ''),
+    coins: String(data.get('coins') || '0'),
+    standardPacks: String(data.get('standardPacks') || '0'),
+    expiresInHours: String(data.get('expiresInHours') || '168'),
+  };
+  const payloadFingerprint = JSON.stringify(payload);
+  const previousRequest = ui.admin.pendingMailRequest;
+  const requestId = previousRequest?.fingerprint === payloadFingerprint
+    ? previousRequest.requestId
+    : (globalThis.crypto?.randomUUID?.() || `mail-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  // Keep the id while a send is in flight or failed. If the same form is
+  // retried after a timeout, the server can safely return the first result
+  // instead of creating a second copy of the mail.
+  ui.admin.pendingMailRequest = { fingerprint: payloadFingerprint, requestId };
   ui.admin.sending = true;
   ui.admin.error = '';
   render();
   try {
-    const result = await sendTcgAdminMail(ui.admin.token, {
-      requestId: globalThis.crypto?.randomUUID?.() || `mail-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      targetMode: target === 'all' ? 'all' : 'single',
-      ...(target === 'all' ? {} : { targetAccountId: target }),
-      title: String(data.get('title') || '').trim(),
-      message: String(data.get('message') || '').trim(),
-      rewards: {
-        coins: Math.max(0, Math.floor(Number(data.get('coins')) || 0)),
-        standardPacks: Math.max(0, Math.floor(Number(data.get('standardPacks')) || 0)),
-      },
-      expiresInHours: Math.max(1, Math.floor(Number(data.get('expiresInHours')) || 168)),
-    });
+    const result = await sendTcgAdminMail(ui.admin.token, { ...payload, requestId });
+    ui.admin.pendingMailRequest = null;
     showNotice(`${formatNumber(result.newlyDeliveredCount)}명에게 우편을 발송했습니다.`, 'success');
   } catch (error) {
     ui.admin.error = error.message || '우편을 발송하지 못했습니다.';
@@ -2981,6 +3083,7 @@ async function finishCloudActivation() {
 
 async function activateAuthenticatedSession(session, { newAccount = false } = {}) {
   const account = session.account;
+  invalidateMailboxRequests();
   disposeCloudSession();
   const hadPersistedState = hasStoredGameState(globalThis.localStorage, account.id);
   store = createGameStore(globalThis.localStorage, { userId: account.id });
@@ -2993,6 +3096,11 @@ async function activateAuthenticatedSession(session, { newAccount = false } = {}
   ui.auth.form.passwordConfirm = '';
   ui.raid = { loading: false, dispatching: false, error: '', ranking: null, lastLoadedAt: 0, requestEpoch: 0 };
   ui.mailbox = { loading: false, claimingId: '', items: [], error: '', lastLoadedAt: 0 };
+  ui.admin = {
+    token: '', loading: false, sending: false, users: [], error: '',
+    draft: { target: 'all', title: '', message: '', coins: '0', standardPacks: '0', expiresInHours: '168' },
+    pendingMailRequest: null,
+  };
   ui.view = 'dashboard';
   ui.modal = null;
   ui.cloud = { phase: 'connecting', message: '', code: '', activePlatform: '', generation: 0 };
@@ -3095,6 +3203,8 @@ async function submitSignup(form) {
 }
 
 async function logout() {
+  invalidateMailboxRequests();
+  ui.mailbox.loading = false;
   try {
     flushLocalGameCache();
   } catch (error) {
@@ -3135,7 +3245,11 @@ async function logout() {
   ui.auth.form = { username: '', nickname: '', password: '', passwordConfirm: '' };
   ui.raid = { loading: false, dispatching: false, error: '', ranking: null, lastLoadedAt: 0, requestEpoch: 0 };
   ui.mailbox = { loading: false, claimingId: '', items: [], error: '', lastLoadedAt: 0 };
-  ui.admin = { token: '', loading: false, sending: false, users: [], error: '' };
+  ui.admin = {
+    token: '', loading: false, sending: false, users: [], error: '',
+    draft: { target: 'all', title: '', message: '', coins: '0', standardPacks: '0', expiresInHours: '168' },
+    pendingMailRequest: null,
+  };
   resetAuthAvailability();
   ui.modal = null;
   ui.cloud = { phase: 'idle', message: '', code: '', activePlatform: '', generation: 0 };
@@ -3483,7 +3597,11 @@ app.addEventListener('click', async (event) => {
     render();
     if (ui.admin.token && !ui.admin.users.length) void loadAdminUsers();
   } else if (action === 'admin-logout') {
-    ui.admin = { token: '', loading: false, sending: false, users: [], error: '' };
+    ui.admin = {
+      token: '', loading: false, sending: false, users: [], error: '',
+      draft: { target: 'all', title: '', message: '', coins: '0', standardPacks: '0', expiresInHours: '168' },
+      pendingMailRequest: null,
+    };
     render();
   } else if (action === 'toggle-notifications') {
     const notificationKind = desktopBridge.isDesktop ? '데스크톱 팝업' : '모바일';
@@ -3537,12 +3655,23 @@ app.addEventListener('submit', (event) => {
 });
 
 app.addEventListener('input', (event) => {
+  const adminInput = event.target.closest('.admin-mail-form [name]');
+  if (adminInput) {
+    ui.admin.draft = { ...(ui.admin.draft || {}), [adminInput.name]: adminInput.value };
+    return;
+  }
   const input = event.target.closest('.auth-form input[name]');
   if (!input || !Object.prototype.hasOwnProperty.call(ui.auth.form, input.name)) return;
   ui.auth.form[input.name] = input.value;
   ui.auth.error = '';
   if (input.name === 'username' || input.name === 'nickname') resetAuthAvailability(input.name);
   syncAuthFormControls();
+});
+
+app.addEventListener('change', (event) => {
+  const adminInput = event.target.closest('.admin-mail-form [name]');
+  if (!adminInput) return;
+  ui.admin.draft = { ...(ui.admin.draft || {}), [adminInput.name]: adminInput.value };
 });
 
 function updateLiveTimers() {

@@ -29,6 +29,58 @@ function stateMatches(left, right) {
   }
 }
 
+function cloneState(value) {
+  if (value === undefined) return undefined;
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return value;
+  }
+}
+
+/**
+ * Merge a local snapshot captured while an atomic server mutation was in
+ * flight with the mutation's authoritative response.  The server snapshot is
+ * the source of truth for fields changed by both sides.  Numeric counters use
+ * the local delta so a local spend/earn that happened during the request is
+ * preserved alongside a server reward (for example, +500 coins and -100
+ * coins becomes a net +400 change).
+ */
+export function mergeAuthoritativeState(base, local, authoritative) {
+  if (stateMatches(local, base)) return cloneState(authoritative);
+  if (stateMatches(authoritative, base)) return cloneState(local);
+
+  if (typeof base === 'number' && Number.isFinite(base)
+    && typeof local === 'number' && Number.isFinite(local)
+    && typeof authoritative === 'number' && Number.isFinite(authoritative)) {
+    return Number(authoritative) + (Number(local) - Number(base));
+  }
+
+  if (isRecord(base) && isRecord(local) && isRecord(authoritative)) {
+    const keys = new Set([
+      ...Object.keys(base),
+      ...Object.keys(local),
+      ...Object.keys(authoritative),
+    ]);
+    const merged = {};
+    for (const key of keys) {
+      const baseValue = Object.prototype.hasOwnProperty.call(base, key) ? base[key] : undefined;
+      const localValue = Object.prototype.hasOwnProperty.call(local, key) ? local[key] : undefined;
+      const authoritativeValue = Object.prototype.hasOwnProperty.call(authoritative, key)
+        ? authoritative[key]
+        : undefined;
+      const mergedValue = mergeAuthoritativeState(baseValue, localValue, authoritativeValue);
+      if (mergedValue !== undefined) merged[key] = mergedValue;
+    }
+    return merged;
+  }
+
+  // Arrays and irreconcilable primitive conflicts are intentionally server
+  // authoritative.  A mailbox reward must never be replaced by a stale local
+  // collection or pack snapshot.
+  return cloneState(authoritative);
+}
+
 function parseOutboxEntry(value) {
   try {
     const parsed = typeof value === 'string' ? JSON.parse(value) : value;
@@ -82,6 +134,7 @@ export function createCloudPlaySession({
   let conflict = null;
   let savePromise = null;
   let heartbeatPromise = null;
+  let authoritativeMutation = null;
   let disposed = false;
 
   function readOutbox() {
@@ -162,6 +215,14 @@ export function createCloudPlaySession({
     if (!entry) return;
     if (pendingEntry?.entryId === entry.entryId) pendingEntry = null;
     removeOutboxIfMatching(entry);
+  }
+
+  function schedulePendingSave() {
+    if (saveTimer != null) clearTimeoutImpl(saveTimer);
+    saveTimer = setTimeoutImpl(() => {
+      saveTimer = null;
+      void drainSaves().catch(() => {});
+    }, debounceMs);
   }
 
   function restorePending(entry) {
@@ -360,6 +421,7 @@ export function createCloudPlaySession({
   }
 
   async function drainSaves() {
+    if (authoritativeMutation) return { deferred: true };
     if (savePromise) return savePromise;
     savePromise = (async () => {
       while (pendingEntry && lease && phase === 'active' && !disposed) {
@@ -423,11 +485,11 @@ export function createCloudPlaySession({
       return false;
     }
     writeOutbox(pendingEntry);
-    if (saveTimer != null) clearTimeoutImpl(saveTimer);
-    saveTimer = setTimeoutImpl(() => {
-      saveTimer = null;
-      void drainSaves().catch(() => {});
-    }, debounceMs);
+    // An atomic server mutation (such as claiming a mailbox reward) owns the
+    // revision until its response is applied.  Keep local changes durable in
+    // the outbox, but do not send the stale base revision while that request is
+    // in flight.
+    if (!authoritativeMutation) schedulePendingSave();
     return true;
   }
 
@@ -462,15 +524,10 @@ export function createCloudPlaySession({
     return phase === 'active' && !pendingEntry;
   }
 
-  function adoptServerSnapshot(response) {
+  function validateServerSnapshot(response) {
     if (!lease || phase !== 'active') {
       const error = new Error('활성 플레이 연결이 없어 서버 기록을 적용할 수 없습니다.');
       error.code = 'PLAY_SESSION_LOST';
-      throw error;
-    }
-    if (pendingEntry || inFlightEntry || savePromise || conflict) {
-      const error = new Error('저장 중인 기록이 남아 있어 서버 보상을 아직 적용할 수 없습니다.');
-      error.code = 'CLOUD_MUTATION_BUSY';
       throw error;
     }
     if (!isRecord(response?.state)) {
@@ -494,12 +551,97 @@ export function createCloudPlaySession({
       error.code = 'STALE_SERVER_STATE';
       throw error;
     }
+    return nextRevision;
+  }
+
+  function applyServerSnapshot(response, state, nextRevision) {
     revision = nextRevision;
     if (response.expiresAt) lease.expiresAt = response.expiresAt;
     if (response.serverNow) lease.serverNow = response.serverNow;
-    onRemoteState(response.state, response);
+    onRemoteState(state, response);
     emit('active');
     startHeartbeat();
+    return true;
+  }
+
+  function adoptServerSnapshot(response) {
+    const nextRevision = validateServerSnapshot(response);
+    if (pendingEntry || inFlightEntry || savePromise || conflict || authoritativeMutation) {
+      const error = new Error('저장 중인 기록이 남아 있어 서버 보상을 아직 적용할 수 없습니다.');
+      error.code = 'CLOUD_MUTATION_BUSY';
+      throw error;
+    }
+    return applyServerSnapshot(response, response.state, nextRevision);
+  }
+
+  /**
+   * Reserve the current revision for a server-side atomic mutation.  Local
+   * store notifications continue to be persisted to the outbox, but are held
+   * until commitAuthoritativeMutation can rebase them on the response.
+   */
+  function beginAuthoritativeMutation(baseState) {
+    if (!lease || phase !== 'active') {
+      const error = new Error('활성 플레이 연결이 없어 서버 보상을 적용할 수 없습니다.');
+      error.code = 'PLAY_SESSION_LOST';
+      throw error;
+    }
+    if (pendingEntry || inFlightEntry || savePromise || conflict || authoritativeMutation) {
+      const error = new Error('저장 중인 기록이 남아 있어 서버 보상을 적용할 수 없습니다.');
+      error.code = 'CLOUD_MUTATION_BUSY';
+      throw error;
+    }
+    authoritativeMutation = {
+      baseRevision: revision,
+      baseState: cloneState(baseState),
+    };
+    if (saveTimer != null) clearTimeoutImpl(saveTimer);
+    saveTimer = null;
+    return { baseRevision: revision };
+  }
+
+  function commitAuthoritativeMutation(response) {
+    if (!authoritativeMutation) {
+      const error = new Error('적용할 서버 보상 요청이 없습니다.');
+      error.code = 'CLOUD_MUTATION_MISSING';
+      throw error;
+    }
+    const mutation = authoritativeMutation;
+    const nextRevision = validateServerSnapshot(response);
+    const localEntry = pendingEntry;
+    const localState = localEntry?.state;
+    const mergedState = localEntry
+      ? mergeAuthoritativeState(mutation.baseState, localState, response.state)
+      : response.state;
+    const hasRebasedLocalState = Boolean(
+      localEntry && !stateMatches(mergedState, response.state),
+    );
+
+    authoritativeMutation = null;
+    if (localEntry) {
+      if (hasRebasedLocalState) {
+        pendingEntry = {
+          ...localEntry,
+          baseRevision: nextRevision,
+          state: cloneState(mergedState),
+        };
+        writeOutbox(pendingEntry);
+      } else {
+        clearPending(localEntry);
+      }
+    }
+    applyServerSnapshot(response, mergedState, nextRevision);
+    if (hasRebasedLocalState) schedulePendingSave();
+    return {
+      applied: true,
+      rebased: hasRebasedLocalState,
+      pending: Boolean(pendingEntry),
+    };
+  }
+
+  function cancelAuthoritativeMutation() {
+    if (!authoritativeMutation) return false;
+    authoritativeMutation = null;
+    if (pendingEntry && lease && phase === 'active') schedulePendingSave();
     return true;
   }
 
@@ -565,6 +707,9 @@ export function createCloudPlaySession({
     flush,
     resolveConflict,
     adoptServerSnapshot,
+    beginAuthoritativeMutation,
+    commitAuthoritativeMutation,
+    cancelAuthoritativeMutation,
     release,
     resume,
     dispose,

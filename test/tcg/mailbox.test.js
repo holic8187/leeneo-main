@@ -12,6 +12,10 @@ const {
   registerTcgRoutes,
   signAccountToken
 } = require('../../src/tcg/registerTcgRoutes');
+const {
+  MAX_STORED_MAILS,
+  normalizeAdminMail
+} = require('../../src/tcg/services/mailboxService');
 
 const USER_SECRET = 'mailbox-user-secret-with-enough-entropy';
 const ADMIN_SECRET = 'mailbox-admin-secret-with-enough-entropy';
@@ -29,6 +33,9 @@ function matchValue(actual, expected) {
     if (Object.prototype.hasOwnProperty.call(expected, '$gt')) {
       return new Date(actual).getTime() > new Date(expected.$gt).getTime();
     }
+    if (Object.prototype.hasOwnProperty.call(expected, '$lte')) {
+      return new Date(actual).getTime() <= new Date(expected.$lte).getTime();
+    }
     if (Object.prototype.hasOwnProperty.call(expected, '$ne')) return String(actual) !== String(expected.$ne);
     if (Object.prototype.hasOwnProperty.call(expected, '$in')) {
       return expected.$in.some((candidate) => String(actual) === String(candidate));
@@ -40,6 +47,16 @@ function matchValue(actual, expected) {
 
 function matches(record, query) {
   return Object.entries(query || {}).every(([pathName, expected]) => {
+    if (pathName === '$or') return expected.some((branch) => matches(record, branch));
+    if (pathName === '$and') return expected.every((branch) => matches(record, branch));
+    if (pathName === '$expr') {
+      const expression = expected?.$lt;
+      if (!Array.isArray(expression) || expression.length !== 2) return false;
+      const left = expression[0]?.$size?.$ifNull;
+      return Array.isArray(left)
+        && Array.isArray(record.mailbox || [])
+        && record.mailbox.length < Number(expression[1]);
+    }
     if (pathName === 'mailbox' && expected?.$elemMatch) {
       return (record.mailbox || []).some((entry) => matches(entry, expected.$elemMatch));
     }
@@ -83,6 +100,10 @@ function applyUpdate(record, update, options = {}) {
   for (const [pathName, amount] of Object.entries(update.$inc || {})) {
     setPath(record, pathName, Number(pathValue(record, pathName) || 0) + Number(amount));
   }
+  for (const [pathName, predicate] of Object.entries(update.$pull || {})) {
+    if (!Array.isArray(record[pathName])) continue;
+    record[pathName] = record[pathName].filter((entry) => !matches(entry, predicate));
+  }
   for (const [pathName, value] of Object.entries(update.$push || {})) {
     if (!Array.isArray(record[pathName])) record[pathName] = [];
     if (value && Array.isArray(value.$each)) {
@@ -120,7 +141,7 @@ function createFakePlayerStateModel(seed = []) {
         return { acknowledged: true, matchedCount: 0, modifiedCount: 0, upsertedCount: 1 };
       }
       if (!record) return { acknowledged: true, matchedCount: 0, modifiedCount: 0 };
-      const hasMutation = Boolean(update.$set || update.$inc || update.$push);
+      const hasMutation = Boolean(update.$set || update.$inc || update.$push || update.$pull);
       if (hasMutation) applyUpdate(record, update, options);
       return { acknowledged: true, matchedCount: 1, modifiedCount: hasMutation ? 1 : 0 };
     }
@@ -433,4 +454,77 @@ test('all-recipient delivery initializes unopened accounts without overwriting g
   assert.equal(unopened.initialized, false);
   assert.equal(unopened.state, null);
   assert.equal(unopened.mailbox.length, 1);
+});
+
+test('mail delivery prunes terminal entries but preserves every pending mail', async () => {
+  const harness = createHarness();
+  const record = harness.TcgPlayerState.records[0];
+  const pendingMails = Array.from({ length: MAX_STORED_MAILS - 1 }, (_, index) => normalizeAdminMail({
+    requestId: `pending-${String(index).padStart(3, '0')}`,
+    title: `대기 우편 ${index}`,
+    message: '아직 수령하지 않은 우편입니다.',
+    rewards: { coins: 1 },
+  }, harness.nowMs - index * 1000));
+  const claimedMail = normalizeAdminMail({
+    requestId: 'claimed-0001',
+    title: '이미 받은 우편',
+    message: '정리 대상입니다.',
+    rewards: { coins: 1 },
+  }, harness.nowMs - 100_000);
+  claimedMail.claimedAt = new Date(harness.nowMs - 50_000);
+  record.mailbox = [...pendingMails, claimedMail];
+
+  const login = await harness.request('POST', '/api/tcg/admin/auth/login', {
+    body: { username: ADMIN_USERNAME, password: ADMIN_PASSWORD }
+  });
+  const sent = await harness.request('POST', '/api/tcg/admin/mail/send', {
+    bearer: login.payload.token,
+    body: {
+      requestId: 'pending-new-001',
+      targetMode: 'single',
+      targetAccountId: harness.accounts[0]._id,
+      title: '새 우편',
+      message: '새 우편입니다.',
+      rewards: { coins: 5 }
+    }
+  });
+
+  assert.equal(sent.statusCode, 200);
+  assert.equal(record.mailbox.length, MAX_STORED_MAILS);
+  assert.equal(record.mailbox.some((mail) => mail.id === claimedMail.id), false);
+  assert.equal(record.mailbox.filter((mail) => !mail.claimedAt).length, MAX_STORED_MAILS);
+  assert.equal(record.mailbox.some((mail) => mail.id === 'admin:pending-new-001'), true);
+  for (const mail of pendingMails) assert.equal(record.mailbox.some((entry) => entry.id === mail.id), true);
+});
+
+test('mail delivery rejects a full mailbox instead of deleting pending mail', async () => {
+  const harness = createHarness();
+  const record = harness.TcgPlayerState.records[0];
+  record.mailbox = Array.from({ length: MAX_STORED_MAILS }, (_, index) => normalizeAdminMail({
+    requestId: `full-${String(index).padStart(3, '0')}`,
+    title: `대기 우편 ${index}`,
+    message: '수령 전 우편입니다.',
+    rewards: { coins: 1 },
+  }, harness.nowMs - index * 1000));
+  const idsBefore = record.mailbox.map((mail) => mail.id);
+
+  const login = await harness.request('POST', '/api/tcg/admin/auth/login', {
+    body: { username: ADMIN_USERNAME, password: ADMIN_PASSWORD }
+  });
+  const sent = await harness.request('POST', '/api/tcg/admin/mail/send', {
+    bearer: login.payload.token,
+    body: {
+      requestId: 'full-new-001',
+      targetMode: 'single',
+      targetAccountId: harness.accounts[0]._id,
+      title: '가득 찬 우편함 테스트',
+      message: '미수령 우편을 보존해야 합니다.',
+      rewards: { coins: 5 }
+    }
+  });
+
+  assert.equal(sent.statusCode, 409);
+  assert.equal(sent.payload.code, 'MAILBOX_FULL');
+  assert.deepEqual(record.mailbox.map((mail) => mail.id), idsBefore);
+  assert.equal(record.mailbox.length, MAX_STORED_MAILS);
 });

@@ -4,6 +4,7 @@ import {
   cloudSaveConflictBackupKey,
   cloudSaveOutboxKey,
   createCloudPlaySession,
+  mergeAuthoritativeState,
 } from '../src/core/cloudPlaySession.js';
 
 function memoryStorage() {
@@ -531,4 +532,86 @@ test('an atomic server reward snapshot advances the revision without creating a 
   assert.deepEqual(remoteStates.at(-1), { wallet: { coins: 250 }, packs: { standard: 2 } });
   assert.equal(saveCount, 0);
   cloud.dispose();
+});
+
+test('an atomic server reward rebases a local mutation that happens while the claim request is in flight', async () => {
+  const storage = memoryStorage();
+  const saves = [];
+  const remoteStates = [];
+  const gateway = {
+    async open() {
+      return response({
+        revision: 3,
+        state: { wallet: { coins: 100 }, packs: { standard: 1 }, activity: ['before'] },
+      });
+    },
+    async heartbeat() { return response({ state: null }); },
+    async saveState(_token, body) {
+      saves.push(body);
+      return response({ revision: body.baseRevision + 1, state: null });
+    },
+    async takeover() { return response({ state: null }); },
+    async release() { return response({ state: null }); },
+  };
+  const cloud = createCloudPlaySession({
+    gateway,
+    token: 'token',
+    accountId: 'mailbox-race',
+    storage,
+    deviceId: 'device-123456789',
+    platform: 'pc',
+    appVersion: '0.7.0',
+    onRemoteState: (state) => remoteStates.push(state),
+  });
+
+  await cloud.open();
+  const base = remoteStates.at(-1);
+  const reservation = cloud.beginAuthoritativeMutation(base);
+  assert.equal(reservation.baseRevision, 3);
+
+  // Simulate a local pack purchase/spend while the mailbox HTTP request is
+  // waiting.  The stale revision must remain durable but must not be sent.
+  cloud.queueState({
+    wallet: { coins: 90 },
+    packs: { standard: 0 },
+    activity: ['local action'],
+  });
+  await cloud.flush();
+  assert.equal(saves.length, 0);
+  assert.equal(cloud.getSnapshot().hasPendingState, true);
+
+  const committed = cloud.commitAuthoritativeMutation(response({
+    revision: 4,
+    state: { wallet: { coins: 600 }, packs: { standard: 2 }, activity: ['before'] },
+  }));
+  assert.equal(committed.rebased, true);
+  assert.deepEqual(remoteStates.at(-1), {
+    wallet: { coins: 590 },
+    packs: { standard: 1 },
+    activity: ['local action'],
+  });
+  assert.equal(cloud.getSnapshot().revision, 4);
+  assert.equal(cloud.getSnapshot().hasPendingState, true);
+
+  await cloud.flush();
+  assert.equal(saves.length, 1);
+  assert.equal(saves[0].baseRevision, 4);
+  assert.deepEqual(saves[0].state, {
+    wallet: { coins: 590 },
+    packs: { standard: 1 },
+    activity: ['local action'],
+  });
+  assert.equal(storage.getItem(cloudSaveOutboxKey('mailbox-race')), null);
+  cloud.dispose();
+});
+
+test('authoritative state merge keeps server values for irreconcilable array conflicts', () => {
+  assert.deepEqual(
+    mergeAuthoritativeState(
+      { pendingPackOpening: ['base'] },
+      { pendingPackOpening: ['local'] },
+      { pendingPackOpening: ['server'] },
+    ),
+    { pendingPackOpening: ['server'] },
+  );
 });

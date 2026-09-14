@@ -37,6 +37,33 @@ export function normalizeMail(entry = {}) {
   };
 }
 
+// Mail requests can outlive the account that started them (for example when
+// the user logs out while a slow response is in flight). Callers keep the
+// returned token and only apply a response while this guard still identifies
+// the same account and authentication token.
+export function createMailboxRequestGuard() {
+  let epoch = 0;
+  return {
+    begin({ accountId = '', token = '' } = {}) {
+      epoch += 1;
+      return { epoch, accountId: String(accountId || ''), token: String(token || '') };
+    },
+    capture({ accountId = '', token = '' } = {}) {
+      return { epoch, accountId: String(accountId || ''), token: String(token || '') };
+    },
+    invalidate() {
+      epoch += 1;
+      return epoch;
+    },
+    isCurrent(request, { accountId = '', token = '' } = {}) {
+      return Boolean(request)
+        && request.epoch === epoch
+        && request.accountId === String(accountId || '')
+        && request.token === String(token || '');
+    },
+  };
+}
+
 export function createMailboxGateway({
   apiBase = '',
   fetchImpl = globalThis.fetch,

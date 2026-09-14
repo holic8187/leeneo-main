@@ -17,6 +17,7 @@ const MAX_MAIL_TITLE_LENGTH = 80;
 const MAX_MAIL_MESSAGE_LENGTH = 1_000;
 const MAX_STORED_MAILS = 200;
 const MAX_SAFE_BALANCE = Number.MAX_SAFE_INTEGER;
+const MAILBOX_EPOCH_START = new Date(0);
 
 class MailboxError extends Error {
   constructor(code, message, status = 400, details = {}) {
@@ -134,6 +135,25 @@ function serializeMailbox(entries = [], now = Date.now()) {
     mails,
     pendingCount: mails.filter((mail) => mail.status === 'pending').length,
     unreadCount: mails.filter((mail) => mail.status === 'pending' && !mail.readAt).length
+  };
+}
+
+function isPendingMailboxEntry(entry, now = Date.now()) {
+  const nowMs = toTimestamp(now);
+  return !entry?.claimedAt && new Date(entry?.expiresAt || 0).getTime() > nowMs;
+}
+
+function pruneMailboxEntries(entries = [], now = Date.now()) {
+  const nowMs = toTimestamp(now);
+  return (Array.isArray(entries) ? entries : []).filter((entry) => isPendingMailboxEntry(entry, nowMs));
+}
+
+function terminalMailboxQuery(nowDate) {
+  return {
+    $or: [
+      { claimedAt: { $gt: MAILBOX_EPOCH_START } },
+      { expiresAt: { $lte: nowDate } }
+    ]
   };
 }
 
@@ -370,7 +390,7 @@ function initialPlayerState(accountId) {
   };
 }
 
-async function deliverMailToAccount({ TcgPlayerState, accountId, mail }) {
+async function deliverMailToAccount({ TcgPlayerState, accountId, mail, now = Date.now() }) {
   await TcgPlayerState.updateOne(
     { accountId },
     { $setOnInsert: initialPlayerState(accountId) },
@@ -388,15 +408,28 @@ async function deliverMailToAccount({ TcgPlayerState, accountId, mail }) {
     }
     return false;
   }
+  const nowDate = new Date(toTimestamp(now));
+  // Terminal entries may be removed to make room. Pending entries are never
+  // included in this cleanup, so an account with 200 unclaimed mails is
+  // rejected instead of silently losing an item.
+  await TcgPlayerState.updateOne(
+    { accountId },
+    { $pull: { mailbox: terminalMailboxQuery(nowDate) } },
+    { runValidators: true }
+  );
   const result = await TcgPlayerState.updateOne(
-    { accountId, 'mailbox.id': { $ne: mail.id } },
     {
-      $push: {
-        mailbox: {
-          $each: [clone(mail)],
-          $slice: -MAX_STORED_MAILS
-        }
+      accountId,
+      'mailbox.id': { $ne: mail.id },
+      $expr: {
+        $lt: [
+          { $size: { $ifNull: ['$mailbox', []] } },
+          MAX_STORED_MAILS
+        ]
       }
+    },
+    {
+      $push: { mailbox: clone(mail) }
     },
     { runValidators: true }
   );
@@ -405,6 +438,14 @@ async function deliverMailToAccount({ TcgPlayerState, accountId, mail }) {
   const racedMail = (raced?.mailbox || []).find((entry) => String(entry?.id || '') === mail.id);
   if (racedMail?.requestHash && racedMail.requestHash !== mail.requestHash) {
     throw new MailboxError('MAIL_REQUEST_REUSED', '같은 발송 요청 ID가 다른 내용에 사용되었습니다.', 409);
+  }
+  if (pruneMailboxEntries(raced?.mailbox, nowDate).length >= MAX_STORED_MAILS) {
+    throw new MailboxError(
+      'MAILBOX_FULL',
+      `우편함에 미수령 우편이 ${MAX_STORED_MAILS}개 있어 새 우편을 보낼 수 없습니다.`,
+      409,
+      { maxStoredMails: MAX_STORED_MAILS }
+    );
   }
   return false;
 }
@@ -423,7 +464,8 @@ async function deliverAdminMail({ TcgPlayerState, accountIds, payload = {}, now 
     const results = await Promise.all(batch.map((accountId) => deliverMailToAccount({
       TcgPlayerState,
       accountId,
-      mail
+      mail,
+      now
     })));
     insertedCount += results.filter(Boolean).length;
   }
@@ -448,6 +490,8 @@ module.exports = {
   markMailboxRead,
   normalizeAdminMail,
   normalizeMailRewards,
+  isPendingMailboxEntry,
+  pruneMailboxEntries,
   serializeMail,
   serializeMailbox
 };

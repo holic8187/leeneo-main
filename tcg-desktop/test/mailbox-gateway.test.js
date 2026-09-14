@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createMailboxGateway, normalizeMail } from '../src/services/mailboxGateway.js';
+import { createMailboxGateway, createMailboxRequestGuard, normalizeMail } from '../src/services/mailboxGateway.js';
 
 function fakeFetch(routes, calls) {
   return async (url, options) => {
@@ -65,4 +65,18 @@ test('mail normalization preserves pending, expired, and claimed status', () => 
     status: 'expired',
     claimedAt: '2026-09-14T00:00:00.000Z',
   }).status, 'claimed');
+});
+
+test('mailbox request guard rejects late responses after account or token changes', () => {
+  const guard = createMailboxRequestGuard();
+  const accountA = guard.begin({ accountId: 'account-a', token: 'token-a' });
+  assert.equal(guard.isCurrent(accountA, { accountId: 'account-a', token: 'token-a' }), true);
+
+  guard.invalidate();
+  assert.equal(guard.isCurrent(accountA, { accountId: 'account-a', token: 'token-a' }), false);
+
+  const accountB = guard.begin({ accountId: 'account-b', token: 'token-b' });
+  assert.equal(guard.isCurrent(accountA, { accountId: 'account-b', token: 'token-b' }), false);
+  assert.equal(guard.isCurrent(accountB, { accountId: 'account-b', token: 'token-b' }), true);
+  assert.equal(guard.isCurrent(accountB, { accountId: 'account-b', token: 'stale-token' }), false);
 });
