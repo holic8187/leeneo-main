@@ -72,6 +72,7 @@ import {
   autoSelectSynthesisMaterials,
   bestAvailableEnhancementForCard,
   bestEnhancementForCard,
+  cardEnhancementAvailability,
   enhancementCountsForCard,
   enhancedCardPower,
   expeditionCardLocks,
@@ -906,18 +907,24 @@ function activeExpeditionCardLocks(state) {
 }
 
 function availableEnhancementCounts(state, cardId) {
-  const owned = enhancementCountsForCard(state.collection, state.cardEnhancements, cardId);
-  if (new Set(state.lockedCardIds || []).has(cardId)) return owned.map(() => 0);
-  const locked = lockedEnhancementCounts(
-    state.collection,
-    state.cardEnhancements,
-    activeExpeditionCardLocks(state),
-  )[cardId] || [];
-  return owned.map((count, stage) => Math.max(0, count - (locked[stage] || 0)));
+  return enhancementAvailability(state, cardId).available;
+}
+
+function enhancementAvailability(state, cardId) {
+  return cardEnhancementAvailability({
+    collection: state.collection,
+    cardEnhancements: state.cardEnhancements,
+    cardId,
+    lockedCards: activeExpeditionCardLocks(state),
+    protectedCardIds: state.lockedCardIds,
+  });
 }
 
 function syncEnhancementSelection(state) {
-  const cards = ALL_CARDS.filter((card) => Number(state.collection[card.id]) > 0);
+  const cards = ALL_CARDS.filter((card) => (
+    Number(state.collection[card.id]) > 0
+    && enhancementAvailability(state, card.id).canEnhance
+  ));
   if (!cards.some((card) => card.id === ui.enhanceCardId)) {
     ui.enhanceCardId = cards[0]?.id || '';
   }
@@ -953,7 +960,7 @@ function renderEnhancementPanel(state) {
   const selectedCard = syncEnhancementSelection(state);
   const ownedCards = ALL_CARDS.filter((card) => Number(state.collection[card.id]) > 0);
   if (!selectedCard) {
-    return '<div class="management-empty"><i data-lucide="library"></i><strong>강화할 카드가 없습니다.</strong><span>카드팩에서 카드를 먼저 획득해 주세요.</span></div>';
+    return '<div class="management-empty"><i data-lucide="library"></i><strong>지금 강화할 수 있는 카드가 없습니다.</strong><span>잠금되지 않았고 모험 중이 아닌 동일 카드가 최소 2장 필요합니다.</span></div>';
   }
 
   const counts = enhancementCountsForCard(state.collection, state.cardEnhancements, selectedCard.id);
@@ -977,13 +984,25 @@ function renderEnhancementPanel(state) {
         <div class="management-card-list">
           ${ownedCards.map((card) => {
             const best = cardEnhancement(card, state);
-            const protectedCard = new Set(state.lockedCardIds || []).has(card.id);
-            const reserved = availableEnhancementCounts(state, card.id).reduce((sum, value) => sum + value, 0) === 0;
+            const availability = enhancementAvailability(state, card.id);
+            const lockedCount = availability.locked.reduce((sum, value) => sum + value, 0);
+            const availableCount = availability.available.reduce((sum, value) => sum + value, 0);
+            const onlyMaxedCopies = availability.counts[MAX_ENHANCEMENT] > 0
+              && availability.counts.slice(0, MAX_ENHANCEMENT).every((count) => count === 0);
+            const unavailableLabel = availability.protectedCard
+              ? '잠금됨'
+              : onlyMaxedCopies
+                ? '최대 강화'
+                : lockedCount > 0
+                  ? `모험 ${formatNumber(lockedCount)}장 · 재료 부족`
+                  : availableCount < 2
+                    ? '동일 카드 부족'
+                    : '강화 조합 없음';
             return `
-              <button type="button" class="management-card-choice rarity-${card.rarity} ${card.id === selectedCard.id ? 'is-selected' : ''}" data-action="select-enhance-card" data-card-id="${card.id}" aria-pressed="${card.id === selectedCard.id}">
+              <button type="button" class="management-card-choice rarity-${card.rarity} ${card.id === selectedCard.id ? 'is-selected' : ''}" data-action="select-enhance-card" data-card-id="${card.id}" aria-pressed="${card.id === selectedCard.id}" ${availability.canEnhance ? '' : 'disabled'}>
                 <img src="${card.image}" alt="" loading="lazy" />
                 <span><strong>${escapeHtml(cardDisplayName(card))}</strong><small>${rarityLabel(card.rarity)} · ${formatNumber(state.collection[card.id])}장</small></span>
-                <b>${protectedCard ? '잠금됨' : reserved ? '모험 중' : enhancementLabel(best)}</b>
+                <b>${availability.canEnhance ? enhancementLabel(best) : unavailableLabel}</b>
               </button>`;
           }).join('')}
         </div>
@@ -1718,8 +1737,8 @@ function renderAdminModal() {
           </form>
         ` : `
           <form class="admin-login-form" data-form="admin-login">
-            <label><span>관리자 아이디</span><input name="username" autocomplete="username" maxlength="24" required /></label>
-            <label><span>관리자 비밀번호</span><input name="password" type="password" autocomplete="current-password" maxlength="72" required /></label>
+            <label><span>관리자 아이디</span><input name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="24" required /></label>
+            <label><span>관리자 비밀번호</span><input name="password" type="password" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="72" required /></label>
             <p class="auth-form-error" role="alert">${escapeHtml(ui.admin.error)}</p>
             <button class="primary-button" type="submit" ${ui.admin.loading ? 'disabled' : ''}><i data-lucide="shield"></i>${ui.admin.loading ? '확인 중…' : '관리자 로그인'}</button>
           </form>

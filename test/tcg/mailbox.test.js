@@ -290,7 +290,7 @@ test('admin credentials remain server-only and admin tokens use a separate audie
   assert.equal(rejected.payload.code, 'INVALID_ADMIN_CREDENTIALS');
 
   const login = await harness.request('POST', '/api/tcg/admin/auth/login', {
-    body: { username: ADMIN_USERNAME, password: ADMIN_PASSWORD }
+    body: { username: ADMIN_USERNAME.toUpperCase(), password: ADMIN_PASSWORD }
   });
   assert.equal(login.statusCode, 200);
   assert.ok(login.payload.token);

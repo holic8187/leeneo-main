@@ -494,7 +494,7 @@ function registerTcgRoutes({
         return res.status(400).json({ code: 'INVALID_ADMIN_CREDENTIALS', msg: '아이디와 비밀번호를 입력해주세요.' });
       }
       const passwordMatches = await bcrypt.compare(password, normalizedAdminPasswordHash);
-      if (username !== normalizedAdminUsername || !passwordMatches) {
+      if (canonicalizeIdentity(username) !== canonicalizeIdentity(normalizedAdminUsername) || !passwordMatches) {
         return res.status(401).json({
           code: 'INVALID_ADMIN_CREDENTIALS',
           msg: '관리자 아이디 또는 비밀번호가 올바르지 않습니다.'

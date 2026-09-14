@@ -11,6 +11,7 @@ import {
   autoSelectSynthesisMaterials,
   bestAvailableEnhancementForCard,
   bestEnhancementForCard,
+  cardEnhancementAvailability,
   enhancedCardPower,
   enhancementCountsForCard,
   expeditionCardLocks,
@@ -145,6 +146,24 @@ test('enhancement requires separate target and material copies even at the same 
     random: () => 0,
   });
   assert.deepEqual(result.cardEnhancements, { 'alpha-c': { 3: 1 } });
+});
+
+test('enhancement selection requires two copies that are both free from expeditions', () => {
+  const blocked = cardEnhancementAvailability({
+    collection: { 'alpha-c': 2 },
+    cardId: 'alpha-c',
+    lockedCards: [{ cardId: 'alpha-c', enhancement: 0 }],
+  });
+  assert.deepEqual(blocked.available, [1, 0, 0, 0, 0, 0]);
+  assert.equal(blocked.canEnhance, false);
+
+  const ready = cardEnhancementAvailability({
+    collection: { 'alpha-c': 3 },
+    cardId: 'alpha-c',
+    lockedCards: [{ cardId: 'alpha-c', enhancement: 0 }],
+  });
+  assert.deepEqual(ready.available, [2, 0, 0, 0, 0, 0]);
+  assert.equal(ready.canEnhance, true);
 });
 
 test('enhancement protects the exact copy that departed on an expedition', () => {
