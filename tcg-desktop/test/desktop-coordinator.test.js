@@ -13,6 +13,10 @@ const {
   createUpdateCoordinator,
   toastBounds,
 } = require('../electron/desktop-coordinator.cjs');
+const {
+  findLatestDesktopRelease,
+  resolveDesktopReleaseFeed,
+} = require('../electron/desktop-release-feed.cjs');
 const sourceIncident = { id: 'lucky-box', title: '상자 발견', summary: '확인해 볼까요?', choices: [{ id: 'open', label: '열기', reward: { packs: 999 } }, { id: 'pass', label: '지나가기' }] };
 const deferred = () => {
   let resolve;
@@ -143,6 +147,29 @@ test('packaged launches check every time while simultaneous checks share the req
   assert.equal(count, 2);
   assert.equal(harness.updater.autoDownload, true);
   assert.equal(harness.updater.autoInstallOnAppQuit, false);
+});
+
+test('desktop update discovery ignores a newer Android-only release', async () => {
+  const releases = [
+    { tag_name: 'tcg-android-v0.7.0', draft: false, prerelease: false, assets: [{ name: 'Hoi-Card-Desk-0.7.0-android-release.apk' }] },
+    { tag_name: 'tcg-v0.6.1', draft: false, prerelease: false, assets: [{ name: 'latest.yml' }] },
+    { tag_name: 'tcg-v0.6.0', draft: false, prerelease: false, assets: [{ name: 'latest.yml' }] },
+  ];
+  assert.deepEqual(findLatestDesktopRelease(releases), { tag: 'tcg-v0.6.1', version: '0.6.1' });
+  const feed = await resolveDesktopReleaseFeed({
+    fetchImpl: async () => ({ ok: true, json: async () => releases }),
+  });
+  assert.equal(feed.feedUrl, 'https://github.com/holic8187/leeneo-main/releases/download/tcg-v0.6.1');
+});
+
+test('desktop update check prepares its platform-specific feed before checking', async () => {
+  const order = [];
+  const harness = updaterHarness({
+    prepareCheck: async () => { order.push('prepare'); },
+  });
+  harness.updater.checkForUpdates = async () => { order.push('check'); };
+  await harness.controller.check();
+  assert.deepEqual(order, ['prepare', 'check']);
 });
 
 test('development preview never downloads an installer', async () => {

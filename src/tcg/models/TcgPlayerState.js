@@ -19,6 +19,30 @@ const activeLeaseSchema = new mongoose.Schema({
   id: false
 });
 
+const mailboxRewardSchema = new mongoose.Schema({
+  coins: { type: Number, default: 0, min: 0 },
+  standardPacks: { type: Number, default: 0, min: 0 }
+}, {
+  _id: false,
+  id: false
+});
+
+const mailboxEntrySchema = new mongoose.Schema({
+  id: { type: String, required: true },
+  requestHash: { type: String, default: '' },
+  sender: { type: String, default: '운영자' },
+  title: { type: String, required: true },
+  message: { type: String, default: '' },
+  rewards: { type: mailboxRewardSchema, default: () => ({}) },
+  createdAt: { type: Date, default: Date.now },
+  expiresAt: { type: Date, required: true },
+  readAt: { type: Date, default: null },
+  claimedAt: { type: Date, default: null }
+}, {
+  _id: false,
+  id: false
+});
+
 const tcgPlayerStateSchema = new mongoose.Schema({
   accountId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -27,6 +51,7 @@ const tcgPlayerStateSchema = new mongoose.Schema({
   state: { type: mongoose.Schema.Types.Mixed, default: null },
   revision: { type: Number, default: 0, min: 0 },
   initialized: { type: Boolean, default: false },
+  mailbox: { type: [mailboxEntrySchema], default: [] },
   activeLease: {
     type: activeLeaseSchema,
     default: () => ({

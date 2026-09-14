@@ -315,20 +315,62 @@ test('synthesis rejects mixed rarities, highest-rarity input, and locked materia
   }), /모험에 참여/);
 });
 
-test('state v6 hydrates old saves and clamps sparse enhancement counts to owned totals', () => {
-  assert.equal(createDefaultState().version, 6);
+test('state v7 preserves discoveries and locks while hydrating old saves', () => {
+  assert.equal(createDefaultState().version, 7);
   const state = hydrateState({
-    version: 5,
-    collection: { 'alpha-c': 2 },
+    version: 6,
+    collection: { 'alpha-c': 2, 'used-up-c': 0 },
+    discoveredCardIds: ['used-up-c'],
+    lockedCardIds: ['alpha-c', 'used-up-c'],
     cardEnhancements: {
       'alpha-c': { 1: 4, 4: 1 },
       missing: { 5: 2 },
     },
   });
 
-  assert.equal(state.version, 6);
+  assert.equal(state.version, 7);
+  assert.deepEqual(state.discoveredCardIds.sort(), ['alpha-c', 'kkamdung-c', 'simsim-c', 'used-up-c', 'winter-c'].sort());
+  assert.deepEqual(state.lockedCardIds, ['alpha-c']);
   assert.deepEqual(state.cardEnhancements, { 'alpha-c': { 1: 1, 4: 1 } });
   assert.deepEqual(enhancementCountsForCard(state.collection, state.cardEnhancements, 'alpha-c'), [0, 1, 0, 0, 1, 0]);
+});
+
+test('a discovered card stays in the archive after its last copy is consumed', () => {
+  const acquired = hydrateState({
+    collection: { 'alpha-c': 1 },
+    discoveredCardIds: [],
+  });
+  assert.ok(acquired.discoveredCardIds.includes('alpha-c'));
+  const consumed = hydrateState({
+    ...acquired,
+    collection: { ...acquired.collection, 'alpha-c': 0 },
+  });
+  assert.ok(consumed.discoveredCardIds.includes('alpha-c'));
+});
+
+test('user-protected card kinds cannot be enhanced, synthesized, or auto-selected', () => {
+  assert.throws(() => attemptCardEnhancement({
+    collection: { 'alpha-c': 2 },
+    cardId: 'alpha-c',
+    targetStage: 0,
+    materialStage: 0,
+    protectedCardIds: ['alpha-c'],
+  }), /잠금/);
+
+  assert.throws(() => attemptCardSynthesis({
+    collection: { 'alpha-c': 5 },
+    materials: Array(5).fill(null).map(() => ({ cardId: 'alpha-c', enhancement: 0 })),
+    catalog,
+    rarityOrder,
+    protectedCardIds: ['alpha-c'],
+  }), /잠금/);
+
+  assert.deepEqual(autoSelectSynthesisMaterials({
+    collection: { 'alpha-c': 5, 'alpha-u': 5 },
+    catalog,
+    rarityOrder,
+    protectedCardIds: ['alpha-c'],
+  }), Array(5).fill(null).map(() => ({ cardId: 'alpha-u', enhancement: 0 })));
 });
 
 test('expedition score uses the strongest owned enhancement and snapshots its stage', () => {

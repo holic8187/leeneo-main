@@ -149,6 +149,7 @@ export function attemptCardEnhancement({
   targetStage,
   materialStage = 0,
   lockedCards = [],
+  protectedCardIds = [],
   random = Math.random,
 } = {}) {
   const fromStage = enhancementStage(targetStage);
@@ -161,6 +162,9 @@ export function attemptCardEnhancement({
   }
   if (consumedStage < 0 || consumedStage > MAX_ENHANCEMENT) {
     throw new Error('강화 재료 단계를 확인해 주세요.');
+  }
+  if (new Set(protectedCardIds || []).has(cardId)) {
+    throw new Error('잠금된 카드는 강화 재료로 사용할 수 없습니다. 잠금을 먼저 해제해 주세요.');
   }
 
   const counts = enhancementCountsForCard(collection, cardEnhancements, cardId);
@@ -260,8 +264,10 @@ export function autoSelectSynthesisMaterials({
   catalog = [],
   rarityOrder = [],
   lockedCardIds = [],
+  protectedCardIds = [],
 } = {}) {
   const locks = lockedEnhancementCounts(collection, cardEnhancements, lockedCardIds);
+  const protectedIds = new Set(protectedCardIds || []);
   const rank = new Map(rarityOrder.map((rarity, index) => [rarity, index]));
   const orderedCatalog = [...catalog]
     .filter((card) => card && rank.has(card.rarity) && rank.get(card.rarity) < rarityOrder.length - 1)
@@ -274,6 +280,7 @@ export function autoSelectSynthesisMaterials({
     const materials = [];
     for (const card of orderedCatalog) {
       if (card.rarity !== rarity) continue;
+      if (protectedIds.has(card.id)) continue;
       const counts = enhancementCountsForCard(collection, cardEnhancements, card.id);
       const available = Math.max(0, counts[0] - (locks[card.id]?.[0] || 0));
       for (let index = 0; index < available && materials.length < SYNTHESIS_MATERIAL_COUNT; index += 1) {
@@ -298,6 +305,7 @@ export function attemptCardSynthesis({
   catalog = [],
   rarityOrder = [],
   lockedCardIds = [],
+  protectedCardIds = [],
   successRate,
   random = Math.random,
 } = {}) {
@@ -328,6 +336,10 @@ export function attemptCardSynthesis({
   for (const material of normalizedMaterials) {
     requested[material.cardId] ||= Array(MAX_ENHANCEMENT + 1).fill(0);
     requested[material.cardId][material.enhancement] += 1;
+  }
+  const protectedIds = new Set(protectedCardIds || []);
+  if (Object.keys(requested).some((cardId) => protectedIds.has(cardId))) {
+    throw new Error('잠금된 카드는 합성 재료로 사용할 수 없습니다. 잠금을 먼저 해제해 주세요.');
   }
   const locks = lockedEnhancementCounts(collection, cardEnhancements, lockedCardIds);
   for (const [cardId, stageCounts] of Object.entries(requested)) {

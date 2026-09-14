@@ -31,7 +31,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -43,6 +46,7 @@ public class AndroidUpdaterPlugin extends Plugin {
     private static final String APK_MIME_TYPE = "application/vnd.android.package-archive";
     private static final String UPDATE_FILE_NAME = "hoi-card-desk-update.apk";
     private static final long MAX_APK_BYTES = 256L * 1024L * 1024L;
+    private static final long MAX_DOWNLOAD_DURATION_MS = 6L * 60L * 1000L;
     private static final int MAX_REDIRECTS = 5;
     private static final Pattern TAG_PATTERN = Pattern.compile("^tcg-android-v(\\d+\\.\\d+\\.\\d+)$");
     private static final Pattern ASSET_PATTERN = Pattern.compile(
@@ -96,6 +100,7 @@ public class AndroidUpdaterPlugin extends Plugin {
     }
 
     private void downloadApk(ReleaseAsset releaseAsset, File destination) throws UpdateException {
+        long downloadStartedAt = System.currentTimeMillis();
         File directory = destination.getParentFile();
         if (directory == null || (!directory.isDirectory() && !directory.mkdirs())) {
             throw new UpdateException("UPDATE_STORAGE_FAILED", "업데이트 파일을 저장할 공간을 준비하지 못했습니다.");
@@ -159,6 +164,9 @@ public class AndroidUpdaterPlugin extends Plugin {
                     if (Thread.currentThread().isInterrupted()) {
                         throw new UpdateException("UPDATE_CANCELLED", "업데이트 다운로드가 중단되었습니다.");
                     }
+                    if (System.currentTimeMillis() - downloadStartedAt > MAX_DOWNLOAD_DURATION_MS) {
+                        throw new UpdateException("UPDATE_TIMEOUT", "업데이트 시간이 너무 오래 걸립니다. 연결을 확인한 뒤 다시 시도해 주세요.");
+                    }
                     downloadedBytes += read;
                     if (downloadedBytes > MAX_APK_BYTES) {
                         throw new UpdateException("UPDATE_TOO_LARGE", "업데이트 파일 크기가 허용 범위를 넘었습니다.");
@@ -210,6 +218,7 @@ public class AndroidUpdaterPlugin extends Plugin {
                 rememberPendingUpdate(version, false);
                 throw new UpdateException("UPDATE_PERMISSION_SCREEN_MISSING", "설치 권한 화면을 열지 못했습니다.");
             }
+            launchActivity(settingsIntent, "UPDATE_PERMISSION_SCREEN_MISSING", "설치 권한 화면을 열지 못했습니다.");
             emitStatus(
                 "permission-required",
                 null,
@@ -217,7 +226,6 @@ public class AndroidUpdaterPlugin extends Plugin {
                 null,
                 true
             );
-            launchActivity(settingsIntent, "UPDATE_PERMISSION_SCREEN_MISSING", "설치 권한 화면을 열지 못했습니다.");
             return statusObject(
                 "permission-required",
                 null,
@@ -231,27 +239,40 @@ public class AndroidUpdaterPlugin extends Plugin {
             getContext().getPackageName() + ".fileprovider",
             apk
         );
-        Intent installIntent = new Intent(Intent.ACTION_VIEW);
-        installIntent.setDataAndType(apkUri, APK_MIME_TYPE);
+        Intent installIntent = new Intent(Intent.ACTION_INSTALL_PACKAGE);
+        installIntent.setData(apkUri);
         installIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-        if (installIntent.resolveActivity(getContext().getPackageManager()) == null) {
-            throw new UpdateException("UPDATE_INSTALLER_MISSING", "안드로이드 설치 화면을 열지 못했습니다.");
-        }
 
         rememberPendingUpdate(version, false);
-        emitStatus("installing", 100, "안드로이드 설치 확인 화면을 열었습니다.", null, true);
         launchActivity(installIntent, "UPDATE_INSTALLER_MISSING", "안드로이드 설치 화면을 열지 못했습니다.");
+        emitStatus("installing", 100, "안드로이드 설치 확인 화면을 열었습니다.", null, true);
         return statusObject("installing", 100, "안드로이드 설치 확인 화면을 열었습니다.", null);
     }
 
-    private void launchActivity(Intent intent, String errorCode, String errorMessage) {
+    private void launchActivity(Intent intent, String errorCode, String errorMessage) throws UpdateException {
+        CountDownLatch launched = new CountDownLatch(1);
+        AtomicReference<RuntimeException> launchError = new AtomicReference<>(null);
         getBridge().executeOnMainThread(() -> {
             try {
-                getContext().startActivity(intent);
+                if (getActivity() != null) getActivity().startActivity(intent);
+                else getContext().startActivity(intent);
             } catch (RuntimeException error) {
-                emitStatus("error", null, errorMessage, errorCode, true);
+                launchError.set(error);
+            } finally {
+                launched.countDown();
             }
         });
+        try {
+            if (!launched.await(10, TimeUnit.SECONDS)) {
+                throw new UpdateException(errorCode, errorMessage);
+            }
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new UpdateException("UPDATE_CANCELLED", "업데이트 화면 열기가 중단되었습니다.", error);
+        }
+        if (launchError.get() != null) {
+            throw new UpdateException(errorCode, errorMessage, launchError.get());
+        }
     }
 
     private void verifyApk(File apk, String expectedVersion) throws UpdateException {

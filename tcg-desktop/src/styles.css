@@ -482,7 +482,7 @@ svg {
   content: "";
 }
 
-.nav-button span:not(.nav-alert) {
+.nav-button span:not(.nav-alert):not(.nav-count) {
   font-size: 13px;
   font-weight: 750;
 }
@@ -1215,6 +1215,7 @@ svg {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 20px;
   padding: 18px 0;
 }
@@ -1275,6 +1276,49 @@ svg {
 .segmented-control button.is-active {
   color: #fff;
   background: var(--forest-soft);
+}
+
+.collection-view-controls {
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.collection-owned-toggle {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+  background: var(--paper-bright);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.collection-owned-toggle svg {
+  width: 15px;
+  height: 15px;
+}
+
+.collection-owned-toggle.is-active {
+  border-color: var(--forest-soft);
+  color: #fff;
+  background: var(--forest-soft);
+}
+
+.collection-sort-control {
+  flex-wrap: nowrap;
+}
+
+.collection-sort-control button {
+  min-width: 86px;
 }
 
 .collection-grid {
@@ -4092,7 +4136,7 @@ img.rarity-emblem {
   }
 
   .brand-copy,
-  .nav-button span:not(.nav-alert),
+  .nav-button span:not(.nav-alert):not(.nav-count),
   .sidebar-status div {
     display: none;
   }
@@ -4581,7 +4625,7 @@ img.rarity-emblem {
 }
 
 :is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"])
-  :is(.card-power, .card-stats, .card-copy > span, .card-copy > small, .result-card__copy > small, .result-card__copy > span) {
+  :is(.collection-card .card-power, .collection-card .card-stats, .card-copy > span, .card-copy > small, .result-card__copy > small, .result-card__copy > span) {
   display: none;
 }
 
@@ -4598,8 +4642,45 @@ img.rarity-emblem {
 }
 
 :is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"])
-  :is(.detail-card-copy > .eyebrow, .detail-card-copy > p, .detail-stats, .trait-box, .owned-line) {
+  :is(.detail-card-copy > .eyebrow, .detail-card-copy > p) {
   display: none;
+}
+
+.card-lock-badge {
+  position: absolute;
+  top: 48px;
+  right: 10px;
+  z-index: 4;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 72%);
+  border-radius: 999px;
+  color: #fff;
+  background: rgb(24 34 29 / 82%);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 20%);
+}
+
+.card-lock-badge svg {
+  width: 14px;
+  height: 14px;
+}
+
+.detail-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.detail-card-actions > button {
+  flex: 1 1 150px;
+}
+
+.detail-lock-button.is-locked {
+  color: #fff;
+  border-color: #385c4a;
+  background: #385c4a;
 }
 
 :is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"]) .card-detail-modal {
@@ -4915,6 +4996,24 @@ img.rarity-emblem {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: 10px;
+  }
+
+  .collection-view-controls {
+    display: grid;
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+    gap: 8px;
+    margin-left: 0;
+  }
+
+  .collection-owned-toggle {
+    min-width: 0;
+    padding-inline: 9px;
+  }
+
+  .collection-sort-control button {
+    min-width: 0;
+    padding-inline: 8px;
   }
 
   .search-field,
@@ -5456,6 +5555,438 @@ img.rarity-emblem {
   .synthesis-slot:nth-child(n + 4) {
     width: 100%;
   }
+}
+
+.nav-count {
+  display: inline-grid;
+  min-width: 20px;
+  height: 20px;
+  margin-left: auto;
+  place-items: center;
+  padding: 0 5px;
+  border-radius: 999px;
+  color: #fff;
+  background: var(--coral);
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.mailbox-page {
+  display: grid;
+  gap: 18px;
+}
+
+.mailbox-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+}
+
+.mailbox-header h2 {
+  margin: 5px 0 7px;
+  font-size: clamp(24px, 4vw, 34px);
+}
+
+.mailbox-header p,
+.admin-modal > p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.mailbox-header-actions,
+.admin-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.mailbox-summary {
+  display: flex;
+  gap: 20px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mailbox-summary strong {
+  margin-left: 5px;
+  color: var(--ink);
+}
+
+.mailbox-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid #dca99c;
+  border-radius: 6px;
+  color: #984a3d;
+  background: #fff3ef;
+  font-size: 12px;
+}
+
+.mailbox-error svg {
+  width: 17px;
+}
+
+.mailbox-list {
+  display: grid;
+  gap: 10px;
+}
+
+.mail-card {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+}
+
+.mail-card.is-unread {
+  border-color: #c8a64b;
+  box-shadow: inset 4px 0 #d4b455;
+}
+
+.mail-card.is-claimed {
+  opacity: .72;
+}
+
+.mail-card-icon {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border-radius: 50%;
+  color: #365b49;
+  background: #e8efe9;
+}
+
+.mail-card-copy {
+  min-width: 0;
+}
+
+.mail-card-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.mail-card-copy h3 {
+  margin: 5px 0 6px;
+  font-size: 17px;
+}
+
+.mail-card-copy p {
+  margin: 0;
+  color: #56645d;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.mail-card-copy > small {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.mail-rewards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.mail-rewards span,
+.mail-rewards.is-empty {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 9px;
+  border-radius: 999px;
+  color: #5e4a16;
+  background: #f5ecca;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.mail-rewards svg {
+  width: 13px;
+  height: 13px;
+}
+
+.mail-card-actions {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.mail-status {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.mailbox-empty {
+  display: grid;
+  min-height: 260px;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  background: rgb(255 255 255 / 45%);
+  text-align: center;
+}
+
+.mailbox-empty > svg {
+  width: 38px;
+  height: 38px;
+}
+
+.admin-modal {
+  width: min(92vw, 680px);
+}
+
+.admin-login-form,
+.admin-mail-form {
+  display: grid;
+  gap: 14px;
+  margin-top: 24px;
+}
+
+.admin-login-form label,
+.admin-mail-form label {
+  display: grid;
+  gap: 7px;
+  color: #4b5a52;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.admin-login-form :is(input, select, textarea),
+.admin-mail-form :is(input, select, textarea) {
+  width: 100%;
+  min-height: 43px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--ink);
+  background: #fff;
+  font: inherit;
+  resize: vertical;
+}
+
+.admin-reward-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.settings-admin-button {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.update-session-gate {
+  z-index: 1010;
+  background: radial-gradient(circle at 50% 20%, #273b31, #111914 62%);
+}
+
+@media (max-width: 760px) {
+  .mailbox-header,
+  .mail-card {
+    align-items: stretch;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mailbox-header {
+    flex-direction: column;
+  }
+
+  .mailbox-header-actions,
+  .mailbox-header-actions > button,
+  .admin-modal-actions,
+  .admin-modal-actions > button {
+    width: 100%;
+  }
+
+  .mail-card {
+    grid-template-columns: 40px minmax(0, 1fr);
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .mail-card-icon {
+    width: 40px;
+    height: 40px;
+  }
+
+  .mail-card-actions {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mail-card-actions > * {
+    width: 100%;
+    text-align: center;
+  }
+
+  .admin-reward-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .nav-count {
+    position: absolute;
+    top: 5px;
+    right: 3px;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 4px;
+    font-size: 8px;
+  }
+}
+
+/* Keep secondary information readable on both desktop and narrow mobile screens. */
+.auth-shell :is(
+  .auth-security-note small,
+  .auth-server-state,
+  .auth-field label,
+  .auth-field-status,
+  .auth-form-error,
+  .auth-switch,
+  .auth-switch button
+) {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.app-shell :is(
+  .sidebar-status span:not(.status-dot),
+  .eyebrow,
+  .account-button span,
+  .update-chip,
+  .update-chip button,
+  .board-rule,
+  .pack-sleeve span,
+  .pack-sleeve small,
+  .incident-copy span:not(.incident-pulse),
+  .empty-operation span,
+  .activity-row p,
+  .activity-row time,
+  .collection-progress span,
+  .segmented-control button,
+  .adventure-start-summary small,
+  .mission-meta small,
+  .mission-meta b,
+  .requirement-row span,
+  .subheading span,
+  .squad-card small,
+  .deployed-squad span,
+  .deployed-squad small,
+  .raid-heading span,
+  .boss-health span,
+  .raid-stats span,
+  .raid-power span,
+  .local-operation-note,
+  .table-row,
+  .table-head,
+  .link-form label,
+  .gateway-status,
+  .linked-account small,
+  .link-coming-soon small,
+  .link-coming-soon em,
+  .account-summary-card small,
+  .account-summary-card b,
+  .sync-boundary small,
+  .compact-modal > p,
+  .pack-reveal-hint,
+  .result-card__reveal small,
+  .trait-box strong,
+  .trait-box small,
+  .owned-line,
+  .reward-line span,
+  .settings-account small,
+  .toggle-row small,
+  .settings-footer,
+  .management-tabs button small,
+  .management-intro p,
+  .management-list-heading span,
+  .management-card-choice strong,
+  .management-card-choice > b,
+  .enhancement-focus__copy > p,
+  .management-action-bar span,
+  .synthesis-slot > span,
+  .synthesis-rule,
+  .synthesis-card-copy strong,
+  .synthesis-stage-control b,
+  .raid-mode-tabs button small,
+  .mission-reward-preview small,
+  .mission-reward-preview p,
+  .coop-feature-list span,
+  .my-ranking-summary,
+  .ranking-empty span,
+  .mail-card-title,
+  .mail-card-copy > small,
+  .mail-rewards.is-empty
+) {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.app-shell :is(
+  .resource-item span,
+  .resource-item strong,
+  .card-power,
+  .card-copy small,
+  .card-stats b,
+  .result-card__copy small,
+  .result-card__copy span,
+  .detail-stats span,
+  .owned-enhancement-line span,
+  .owned-enhancement-line b,
+  .management-card-choice small,
+  .enhancement-power-preview small,
+  .enhancement-stage span,
+  .management-action-bar small,
+  .synthesis-slot > strong,
+  .synthesis-slot.is-empty small,
+  .synthesis-outcome span,
+  .synthesis-outcome small,
+  .synthesis-card-copy small,
+  .synthesis-stage-control small,
+  .management-result-card > small,
+  .nav-count
+) {
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.app-shell :is(
+  .card-copy small,
+  .detail-stats span,
+  .owned-enhancement-line span,
+  .owned-enhancement-line b,
+  .management-card-choice small,
+  .enhancement-power-preview small,
+  .enhancement-stage span,
+  .management-action-bar small
+) {
+  font-size: 11px;
 }
 
 @media (prefers-reduced-motion: reduce) {

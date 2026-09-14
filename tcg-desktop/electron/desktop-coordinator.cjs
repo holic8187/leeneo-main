@@ -67,7 +67,7 @@ function createIncidentDeliveryCoordinator({ activate, sendToMain, showToast, cl
   };
 }
 
-function createUpdateCoordinator({ updater, isPackaged, prepareInstall, install, emit }) {
+function createUpdateCoordinator({ updater, isPackaged, prepareCheck = null, prepareInstall, install, emit }) {
   let checking = null;
   let installing = null;
   let downloaded = null;
@@ -111,6 +111,7 @@ function createUpdateCoordinator({ updater, isPackaged, prepareInstall, install,
       checking = (async () => {
         try {
           emit('checking');
+          if (typeof prepareCheck === 'function') await prepareCheck();
           await updater.checkForUpdates();
           return { status: downloading ? 'downloading' : 'checked' };
         } catch (error) { emit('error', error.message); return { status: 'error', message: error.message }; }

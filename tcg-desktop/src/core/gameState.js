@@ -11,7 +11,7 @@ const clone = (value) => JSON.parse(JSON.stringify(value));
 
 export function createDefaultState(now = Date.now()) {
   return {
-    version: 6,
+    version: 7,
     profile: {
       displayName: '익명 사원',
       rank: '대리석 책상',
@@ -29,6 +29,8 @@ export function createDefaultState(now = Date.now()) {
       'winter-c': 1,
       'kkamdung-c': 1,
     },
+    discoveredCardIds: ['simsim-c', 'winter-c', 'kkamdung-c'],
+    lockedCardIds: [],
     cardEnhancements: {},
     pity: {
       standard: 0,
@@ -84,6 +86,22 @@ export function hydrateState(saved, now = Date.now()) {
   };
 
   state.version = defaults.version;
+  const savedDiscoveries = Array.isArray(saved.discoveredCardIds)
+    ? saved.discoveredCardIds
+    : [];
+  const currentlyOwned = Object.entries(state.collection)
+    .filter(([, count]) => Math.max(0, Number(count) || 0) > 0)
+    .map(([cardId]) => cardId);
+  state.discoveredCardIds = [...new Set(
+    [...savedDiscoveries, ...currentlyOwned]
+      .map((cardId) => String(cardId || '').trim())
+      .filter(Boolean),
+  )];
+  state.lockedCardIds = [...new Set(
+    (Array.isArray(saved.lockedCardIds) ? saved.lockedCardIds : [])
+      .map((cardId) => String(cardId || '').trim())
+      .filter((cardId) => cardId && Math.max(0, Number(state.collection[cardId]) || 0) > 0),
+  )];
   state.cardEnhancements = normalizeCardEnhancements(saved.cardEnhancements, state.collection);
 
   const legacySquad = Array.isArray(saved.selectedSquad) ? saved.selectedSquad : null;
