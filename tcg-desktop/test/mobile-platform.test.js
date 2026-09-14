@@ -12,6 +12,7 @@ import {
   compareVersions,
   findLatestAndroidRelease,
   isTrustedAndroidReleaseAssetUrl,
+  MIN_IN_APP_UPDATE_VERSION,
 } from '../src/services/androidUpdateGateway.js';
 import { readAppVersionWithFallback } from '../src/services/desktopBridge.js';
 
@@ -90,8 +91,23 @@ test('Android update discovery selects the newest public APK release', async () 
     fetchImpl: async () => ({ ok: true, async json() { return releases; } }),
   });
   assert.equal(update.status, 'available');
+  assert.equal(update.updateMode, 'reinstall');
   assert.equal(update.downloadUrl, releaseUrl('0.6.0'));
   assert.equal(update.assetName, 'Hoi-Card-Desk-0.6.0-android-release.apk');
+});
+
+test('Android update mode distinguishes an in-place update from a fresh app download', async () => {
+  assert.equal(MIN_IN_APP_UPDATE_VERSION, '0.6.0');
+  const releases = [{
+    tag_name: 'tcg-android-v0.7.0',
+    assets: [{
+      name: 'Hoi-Card-Desk-0.7.0-android-release.apk',
+      browser_download_url: releaseUrl('0.7.0'),
+    }],
+  }];
+  const fetchImpl = async () => ({ ok: true, json: async () => releases });
+  assert.equal((await checkAndroidRelease({ currentVersion: '0.5.1', fetchImpl })).updateMode, 'reinstall');
+  assert.equal((await checkAndroidRelease({ currentVersion: '0.6.1', fetchImpl })).updateMode, 'in-app');
 });
 
 test('Android updater accepts only the exact repository, tag, version, and APK asset path', () => {

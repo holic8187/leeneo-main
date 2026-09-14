@@ -20,16 +20,28 @@ const {
   saveGameState,
   takeoverPlaySession
 } = require('./services/playerStateService');
+const {
+  MailboxError,
+  claimMailbox,
+  deliverAdminMail,
+  getMailbox,
+  markMailboxRead
+} = require('./services/mailboxService');
 
 const TCG_TOKEN_KIND = 'tcg';
 const TCG_TOKEN_ISSUER = 'working-hoi-server';
 const TCG_TOKEN_AUDIENCE = 'hoi-card-desk';
 const DEFAULT_TOKEN_EXPIRES_IN = null;
+const TCG_ADMIN_TOKEN_KIND = 'tcg-admin';
+const TCG_ADMIN_TOKEN_ISSUER = 'working-hoi-server';
+const TCG_ADMIN_TOKEN_AUDIENCE = 'hoi-card-desk-admin';
+const TCG_ADMIN_TOKEN_EXPIRES_IN = '30m';
 const MAX_RATE_LIMIT_KEYS = 10_000;
 const DEFAULT_RATE_LIMITS = Object.freeze({
   availability: Object.freeze({ windowMs: 60_000, max: 60 }),
   register: Object.freeze({ windowMs: 10 * 60_000, max: 8 }),
-  login: Object.freeze({ windowMs: 5 * 60_000, max: 20 })
+  login: Object.freeze({ windowMs: 5 * 60_000, max: 20 }),
+  adminLogin: Object.freeze({ windowMs: 15 * 60_000, max: 8 })
 });
 
 function normalizeUsername(value = '') {
@@ -227,11 +239,26 @@ function signAccountToken(account, jwt, jwtSecret, expiresIn) {
   }, jwtSecret, options);
 }
 
+function signAdminToken(username, jwt, jwtSecret) {
+  return jwt.sign({
+    sub: String(username || ''),
+    kind: TCG_ADMIN_TOKEN_KIND
+  }, jwtSecret, {
+    algorithm: 'HS256',
+    issuer: TCG_ADMIN_TOKEN_ISSUER,
+    audience: TCG_ADMIN_TOKEN_AUDIENCE,
+    expiresIn: TCG_ADMIN_TOKEN_EXPIRES_IN
+  });
+}
+
 function registerTcgRoutes({
   app,
   bcrypt,
   jwt,
   jwtSecret,
+  adminUsername = '',
+  adminPasswordHash = '',
+  adminJwtSecret = jwtSecret,
   tokenExpiresIn = DEFAULT_TOKEN_EXPIRES_IN,
   rateLimitOptions = {},
   TcgAccount = DefaultTcgAccount,
@@ -255,6 +282,18 @@ function registerTcgRoutes({
     ...DEFAULT_RATE_LIMITS.login,
     ...(rateLimitOptions.login || {})
   });
+  const adminLoginRateLimit = createIpRateLimiter({
+    ...DEFAULT_RATE_LIMITS.adminLogin,
+    ...(rateLimitOptions.adminLogin || {})
+  });
+  const normalizedAdminUsername = normalizeUsername(adminUsername);
+  const normalizedAdminPasswordHash = String(adminPasswordHash || '').trim();
+  const normalizedAdminJwtSecret = String(adminJwtSecret || jwtSecret || '');
+  const adminConfigured = Boolean(
+    normalizedAdminUsername
+    && normalizedAdminPasswordHash
+    && normalizedAdminJwtSecret
+  );
 
   async function requireTcgAccount(req, res) {
     try {
@@ -286,6 +325,48 @@ function registerTcgRoutes({
       res.status(401).json({ code: 'INVALID_TOKEN', msg: '로그인이 만료되었습니다.' });
       return null;
     }
+  }
+
+  function requireTcgAdmin(req, res) {
+    if (!adminConfigured) {
+      res.status(503).json({ code: 'ADMIN_NOT_CONFIGURED', msg: '관리자 모드가 아직 설정되지 않았습니다.' });
+      return null;
+    }
+    try {
+      const token = getBearerToken(req);
+      if (!token) {
+        res.status(401).json({ code: 'ADMIN_AUTH_REQUIRED', msg: '관리자 인증이 필요합니다.' });
+        return null;
+      }
+      const payload = jwt.verify(token, normalizedAdminJwtSecret, {
+        algorithms: ['HS256'],
+        issuer: TCG_ADMIN_TOKEN_ISSUER,
+        audience: TCG_ADMIN_TOKEN_AUDIENCE
+      });
+      if (payload?.kind !== TCG_ADMIN_TOKEN_KIND || payload?.sub !== normalizedAdminUsername) {
+        res.status(403).json({ code: 'ADMIN_FORBIDDEN', msg: '관리자 권한이 없습니다.' });
+        return null;
+      }
+      return payload;
+    } catch {
+      res.status(401).json({ code: 'INVALID_ADMIN_TOKEN', msg: '관리자 로그인이 만료되었습니다.' });
+      return null;
+    }
+  }
+
+  function sendMailboxError(error, res) {
+    if (!(error instanceof MailboxError)) return false;
+    res.status(error.status).json({
+      code: error.code,
+      msg: error.message,
+      ...error.details
+    });
+    return true;
+  }
+
+  async function resolveQuery(queryOrValue) {
+    if (queryOrValue && typeof queryOrValue.lean === 'function') return queryOrValue.lean();
+    return queryOrValue;
   }
 
   app.post('/api/tcg/auth/check-availability', async (req, res) => {
@@ -398,6 +479,39 @@ function registerTcgRoutes({
     return res.json({ token, account: serializeAccount(account) });
   });
 
+  app.post('/api/tcg/admin/auth/login', async (req, res) => {
+    if (!adminLoginRateLimit(req, res)) return;
+    if (!adminConfigured) {
+      return res.status(503).json({
+        code: 'ADMIN_NOT_CONFIGURED',
+        msg: '관리자 모드가 아직 설정되지 않았습니다.'
+      });
+    }
+    try {
+      const username = normalizeUsername(req.body?.username);
+      const password = normalizePasswordInput(req.body?.password);
+      if (!username || !password) {
+        return res.status(400).json({ code: 'INVALID_ADMIN_CREDENTIALS', msg: '아이디와 비밀번호를 입력해주세요.' });
+      }
+      const passwordMatches = await bcrypt.compare(password, normalizedAdminPasswordHash);
+      if (username !== normalizedAdminUsername || !passwordMatches) {
+        return res.status(401).json({
+          code: 'INVALID_ADMIN_CREDENTIALS',
+          msg: '관리자 아이디 또는 비밀번호가 올바르지 않습니다.'
+        });
+      }
+      const token = signAdminToken(normalizedAdminUsername, jwt, normalizedAdminJwtSecret);
+      return res.json({
+        token,
+        expiresInSeconds: 30 * 60,
+        admin: { username: normalizedAdminUsername, displayName: '운영자' }
+      });
+    } catch (error) {
+      console.error('TCG admin login error:', error);
+      return res.status(500).json({ code: 'ADMIN_LOGIN_FAILED', msg: '관리자 로그인을 처리하지 못했습니다.' });
+    }
+  });
+
   function sendPlayerStateError(error, res) {
     if (!(error instanceof PlayerStateError)) return false;
     res.status(error.status).json({
@@ -465,6 +579,135 @@ function registerTcgRoutes({
       message: '게임 진행 기록을 저장하지 못했습니다.'
     })
   ));
+
+  app.get('/api/tcg/mail', async (req, res) => {
+    const account = await requireTcgAccount(req, res);
+    if (!account) return;
+    try {
+      return res.json(await getMailbox({
+        TcgPlayerState,
+        accountId: account._id || account.id,
+        now: now()
+      }));
+    } catch (error) {
+      if (sendMailboxError(error, res)) return;
+      console.error('TCG mailbox list error:', error);
+      return res.status(500).json({ code: 'MAILBOX_LOAD_FAILED', msg: '우편함을 불러오지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/tcg/mail/read', async (req, res) => {
+    const account = await requireTcgAccount(req, res);
+    if (!account) return;
+    try {
+      return res.json(await markMailboxRead({
+        TcgPlayerState,
+        accountId: account._id || account.id,
+        mailId: req.body?.mailId,
+        now: now()
+      }));
+    } catch (error) {
+      if (sendMailboxError(error, res)) return;
+      console.error('TCG mailbox read error:', error);
+      return res.status(500).json({ code: 'MAIL_READ_FAILED', msg: '우편을 읽음 처리하지 못했습니다.' });
+    }
+  });
+
+  async function handleMailboxClaim(req, res, claimAll) {
+    const account = await requireTcgAccount(req, res);
+    if (!account) return;
+    try {
+      return res.json(await claimMailbox({
+        TcgPlayerState,
+        accountId: account._id || account.id,
+        request: req.body || {},
+        mailId: req.body?.mailId,
+        claimAll,
+        now: now()
+      }));
+    } catch (error) {
+      if (sendPlayerStateError(error, res)) return;
+      if (sendMailboxError(error, res)) return;
+      console.error(`TCG mailbox ${claimAll ? 'claim all' : 'claim'} error:`, error);
+      return res.status(500).json({ code: 'MAIL_CLAIM_FAILED', msg: '우편 보상을 수령하지 못했습니다.' });
+    }
+  }
+
+  app.post('/api/tcg/mail/claim', async (req, res) => handleMailboxClaim(req, res, false));
+  app.post('/api/tcg/mail/claim-all', async (req, res) => handleMailboxClaim(req, res, true));
+
+  app.get('/api/tcg/admin/users', async (req, res) => {
+    if (!requireTcgAdmin(req, res)) return;
+    try {
+      let query = TcgAccount.find({ status: 'active' });
+      if (typeof query?.sort === 'function') query = query.sort({ nickname: 1, username: 1 });
+      if (typeof query?.select === 'function') query = query.select('username nickname status createdAt');
+      const accounts = await resolveQuery(query) || [];
+      return res.json({
+        users: accounts.map((account) => ({
+          id: String(account._id || account.id || ''),
+          username: String(account.username || ''),
+          nickname: String(account.nickname || ''),
+          label: account.nickname ? `${account.nickname} (${account.username})` : String(account.username || '')
+        }))
+      });
+    } catch (error) {
+      console.error('TCG admin user list error:', error);
+      return res.status(500).json({ code: 'ADMIN_USER_LIST_FAILED', msg: '사용자 목록을 불러오지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/tcg/admin/mail/send', async (req, res) => {
+    const admin = requireTcgAdmin(req, res);
+    if (!admin) return;
+    try {
+      const targetMode = String(req.body?.targetMode || '').trim();
+      if (!['single', 'all'].includes(targetMode)) {
+        return res.status(400).json({ code: 'INVALID_MAIL_TARGET', msg: '발송 대상이 올바르지 않습니다.' });
+      }
+      let accounts = [];
+      if (targetMode === 'all') {
+        let query = TcgAccount.find({ status: 'active' });
+        if (typeof query?.select === 'function') query = query.select('_id');
+        accounts = await resolveQuery(query) || [];
+      } else {
+        const targetAccountId = String(req.body?.targetAccountId || '').trim();
+        if (!targetAccountId) {
+          return res.status(400).json({ code: 'INVALID_MAIL_TARGET', msg: '발송할 사용자를 선택해주세요.' });
+        }
+        let query = TcgAccount.findById(targetAccountId);
+        if (typeof query?.select === 'function') query = query.select('_id status');
+        const account = await resolveQuery(query);
+        if (account?.status === 'active') accounts = [account];
+      }
+      const accountIds = accounts.map((account) => account._id || account.id).filter(Boolean);
+      const result = await deliverAdminMail({
+        TcgPlayerState,
+        accountIds,
+        payload: {
+          ...(req.body || {}),
+          idempotencyScope: targetMode === 'all'
+            ? 'all'
+            : `single:${String(accountIds[0] || '')}`
+        },
+        now: now()
+      });
+      return res.json({
+        success: true,
+        targetMode,
+        deliveredCount: result.recipientCount,
+        newlyDeliveredCount: result.insertedCount,
+        mail: result.mail
+      });
+    } catch (error) {
+      if (sendMailboxError(error, res)) return;
+      if (error?.name === 'CastError') {
+        return res.status(404).json({ code: 'MAIL_RECIPIENT_NOT_FOUND', msg: '우편을 보낼 사용자를 찾을 수 없습니다.' });
+      }
+      console.error('TCG admin mail send error:', error);
+      return res.status(500).json({ code: 'ADMIN_MAIL_SEND_FAILED', msg: '우편을 발송하지 못했습니다.' });
+    }
+  });
 
   function sendPersonalRaidError(error, res) {
     if (!(error instanceof PersonalRaidError)) return false;
@@ -597,6 +840,10 @@ function registerTcgRoutes({
 module.exports = {
   DEFAULT_TOKEN_EXPIRES_IN,
   DEFAULT_RATE_LIMITS,
+  TCG_ADMIN_TOKEN_AUDIENCE,
+  TCG_ADMIN_TOKEN_EXPIRES_IN,
+  TCG_ADMIN_TOKEN_ISSUER,
+  TCG_ADMIN_TOKEN_KIND,
   TCG_TOKEN_AUDIENCE,
   TCG_TOKEN_ISSUER,
   TCG_TOKEN_KIND,
@@ -609,6 +856,7 @@ module.exports = {
   normalizeUsername,
   registerTcgRoutes,
   serializeAccount,
+  signAdminToken,
   signAccountToken,
   validateNickname,
   validatePassword,

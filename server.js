@@ -12,6 +12,9 @@ const app = express();
 const MONGO_URI = process.env.MONGO_URI;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
 const TCG_JWT_SECRET = process.env.TCG_JWT_SECRET || JWT_SECRET;
+const TCG_ADMIN_USERNAME = String(process.env.TCG_ADMIN_USERNAME || '').trim();
+const TCG_ADMIN_PASSWORD_HASH = String(process.env.TCG_ADMIN_PASSWORD_HASH || '').trim();
+const TCG_ADMIN_JWT_SECRET = process.env.TCG_ADMIN_JWT_SECRET || TCG_JWT_SECRET;
 const APP_MODE = String(process.env.APP_MODE || 'v1').trim().toLowerCase() === 'v2' ? 'v2' : 'v1';
 const IS_V2_MODE = APP_MODE === 'v2';
 const IS_PRODUCTION = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
@@ -31,6 +34,16 @@ if (IS_PRODUCTION) {
   if (process.env.JWT_SECRET === process.env.TCG_JWT_SECRET) {
     throw new Error('TCG_JWT_SECRET must be different from JWT_SECRET in production.');
   }
+}
+
+if (Boolean(TCG_ADMIN_USERNAME) !== Boolean(TCG_ADMIN_PASSWORD_HASH)) {
+  throw new Error('TCG_ADMIN_USERNAME and TCG_ADMIN_PASSWORD_HASH must be configured together.');
+}
+if (TCG_ADMIN_PASSWORD_HASH && !/^\$2[aby]\$\d{2}\$/.test(TCG_ADMIN_PASSWORD_HASH)) {
+  throw new Error('TCG_ADMIN_PASSWORD_HASH must be a bcrypt password hash.');
+}
+if (process.env.TCG_ADMIN_JWT_SECRET && String(process.env.TCG_ADMIN_JWT_SECRET).length < 32) {
+  throw new Error('TCG_ADMIN_JWT_SECRET must be at least 32 characters when configured.');
 }
 
 if (TRUST_PROXY_HOPS_RAW && (!/^\d+$/.test(TRUST_PROXY_HOPS_RAW) || TRUST_PROXY_HOPS < 1)) {
@@ -21739,6 +21752,9 @@ registerTcgRoutes({
   bcrypt,
   jwt,
   jwtSecret: TCG_JWT_SECRET,
+  adminUsername: TCG_ADMIN_USERNAME,
+  adminPasswordHash: TCG_ADMIN_PASSWORD_HASH,
+  adminJwtSecret: TCG_ADMIN_JWT_SECRET,
   tokenExpiresIn: process.env.TCG_JWT_EXPIRES_IN || null
 });
 

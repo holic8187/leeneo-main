@@ -13,6 +13,7 @@ let androidUpdaterListenerPromise = null;
 let currentAndroidUpdateUrl = '';
 
 const APP_VERSION_TIMEOUT_MS = 2500;
+const ANDROID_UPDATE_TIMEOUT_MS = 7 * 60 * 1000;
 const BUILD_APP_VERSION = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '0.0.0';
 
 const desktop = globalThis.hoiDesktop;
@@ -174,7 +175,13 @@ export const desktopBridge = {
       error.code = 'UPDATE_PLUGIN_UNAVAILABLE';
       throw error;
     }
-    return updater.downloadAndInstall({ url: downloadUrl });
+    return withDeadline(() => updater.downloadAndInstall({ url: downloadUrl }), {
+      timeoutMs: ANDROID_UPDATE_TIMEOUT_MS,
+      timeoutError: () => Object.assign(
+        new Error('업데이트 파일을 여는 시간이 초과되었습니다. 다시 시도하거나 새 설치 파일을 받아 주세요.'),
+        { code: 'UPDATE_TIMEOUT' },
+      ),
+    });
   },
   onAppStateChange(handler) {
     let removed = false;

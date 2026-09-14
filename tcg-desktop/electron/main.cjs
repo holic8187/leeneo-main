@@ -10,6 +10,7 @@ const {
   createUpdateCoordinator,
   toastBounds,
 } = require('./desktop-coordinator.cjs');
+const { resolveDesktopReleaseFeed } = require('./desktop-release-feed.cjs');
 
 const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL || '';
 let mainWindow = null;
@@ -108,6 +109,10 @@ function requestRenderer(channel, payload = {}) {
 const incidents = createIncidentCoordinator({ resolveChoice: (payload) => requestRenderer('incident:choice', payload) });
 const updates = createUpdateCoordinator({
   updater: autoUpdater, isPackaged: () => app.isPackaged,
+  async prepareCheck() {
+    const release = await resolveDesktopReleaseFeed();
+    autoUpdater.setFeedURL({ provider: 'generic', url: release.feedUrl });
+  },
   emit(status, detail = '') {
     lastUpdateStatus = { status, detail };
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update:status', lastUpdateStatus);

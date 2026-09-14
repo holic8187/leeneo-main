@@ -1,5 +1,6 @@
 const RELEASES_URL = 'https://api.github.com/repos/holic8187/leeneo-main/releases?per_page=30';
 const RELEASE_REPOSITORY = Object.freeze({ owner: 'holic8187', repository: 'leeneo-main' });
+export const MIN_IN_APP_UPDATE_VERSION = '0.6.0';
 
 function parseTrustedAndroidReleaseAssetUrl(value) {
   try {
@@ -104,6 +105,9 @@ export async function checkAndroidRelease({
       downloadUrl: latest.downloadUrl,
       releaseUrl: latest.releaseUrl,
       assetName: latest.assetName,
+      updateMode: compareVersions(currentVersion, MIN_IN_APP_UPDATE_VERSION) < 0
+        ? 'reinstall'
+        : 'in-app',
     };
   } catch (error) {
     return { status: 'error', detail: String(error?.message || '업데이트 확인 실패') };

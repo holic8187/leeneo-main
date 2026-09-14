@@ -14,6 +14,7 @@ import {
   Library,
   Link2,
   Lock,
+  Mail,
   Map,
   PackageOpen,
   RefreshCw,
@@ -24,6 +25,7 @@ import {
   Swords,
   Trophy,
   Users,
+  Unlock,
   Wifi,
   X,
   Zap,
@@ -111,6 +113,15 @@ import {
   saveCloudGameState,
   takeoverPlaySession,
 } from './services/playSessionGateway.js';
+import {
+  claimAllMailboxItems,
+  claimMailboxItem,
+  loadMailbox,
+  loadTcgAdminUsers,
+  loginTcgAdmin,
+  markMailRead,
+  sendTcgAdminMail,
+} from './services/mailboxGateway.js';
 
 const app = document.querySelector('#app');
 const authSession = createAuthSessionStore();
@@ -123,7 +134,6 @@ let applyingRemoteState = false;
 let cloudBootstrapAllowed = false;
 let updateCheckPromise = null;
 let updateInstallPromise = null;
-let autoUpdateAttemptedVersion = '';
 let appVersionPromise = null;
 let authenticationRestorePromise = null;
 
@@ -142,6 +152,7 @@ const iconSet = {
   Library,
   Link2,
   Lock,
+  Mail,
   Map,
   PackageOpen,
   RefreshCw,
@@ -152,6 +163,7 @@ const iconSet = {
   Swords,
   Trophy,
   Users,
+  Unlock,
   Wifi,
   X,
   Zap,
@@ -161,6 +173,7 @@ const views = {
   dashboard: { label: '업무판', icon: 'briefcase' },
   collection: { label: '카드 도감', icon: 'library' },
   management: { label: '카드 관리', icon: 'sparkles' },
+  mailbox: { label: '우편함', icon: 'mail' },
   adventure: { label: '자동 모험', icon: 'map' },
   raid: { label: '레이드', icon: 'shield' },
   link: { label: '호이상사 연동', icon: 'link-2' },
@@ -172,6 +185,8 @@ const ui = {
   modal: null,
   selectedMissionId: EXPEDITIONS[0].id,
   rarityFilter: 'all',
+  collectionOwnedOnly: false,
+  collectionSort: 'rarity-asc',
   collectionQuery: '',
   managementPanel: 'enhance',
   enhanceCardId: '',
@@ -181,6 +196,20 @@ const ui = {
   synthesisMaterials: [],
   notice: null,
   updateStatus: null,
+  mailbox: {
+    loading: false,
+    claimingId: '',
+    items: [],
+    error: '',
+    lastLoadedAt: 0,
+  },
+  admin: {
+    token: '',
+    loading: false,
+    sending: false,
+    users: [],
+    error: '',
+  },
   appVersion: '...',
   cloud: {
     phase: 'idle',
@@ -220,6 +249,8 @@ const ui = {
     },
   },
 };
+
+const scrollPositions = new globalThis.Map();
 
 const cloudGateway = {
   open: openPlaySession,
@@ -298,6 +329,14 @@ function rarityLabel(rarity) {
   return RARITY_META[rarity]?.label || rarity;
 }
 
+function formatDateTime(timestamp) {
+  const value = timestamp ? new Date(timestamp) : null;
+  if (!value || Number.isNaN(value.getTime())) return '';
+  return new Intl.DateTimeFormat('ko-KR', {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  }).format(value);
+}
+
 function rarityEmblem(rarity, { hidden = false, compact = false } = {}) {
   if (hidden) return '<span class="rarity-emblem-fallback">???</span>';
   const label = rarityLabel(rarity);
@@ -308,9 +347,15 @@ function rarityEmblem(rarity, { hidden = false, compact = false } = {}) {
 }
 
 const PACK_FLIP_THRESHOLD = RARITY_ORDER.indexOf('sr');
+const LEGACY_RARITY_ALIASES = Object.freeze({
+  common: 'c',
+  rare: 'r',
+  epic: 'sr',
+  legendary: 'ssr',
+});
 
 function rarityRank(rarity) {
-  const rank = RARITY_ORDER.indexOf(rarity);
+  const rank = RARITY_ORDER.indexOf(LEGACY_RARITY_ALIASES[rarity] || rarity);
   return rank < 0 ? 0 : rank;
 }
 
@@ -357,7 +402,8 @@ function showNotice(message, tone = 'neutral') {
 }
 
 function ownedUniqueCount(state) {
-  return CARD_CATALOG.filter((card) => Number(state.collection[card.id]) > 0).length;
+  const discovered = new Set(state.discoveredCardIds || []);
+  return CARD_CATALOG.filter((card) => discovered.has(card.id)).length;
 }
 
 function totalOwnedCount(state) {
@@ -510,11 +556,16 @@ function syncAuthFormControls() {
 }
 
 function renderSidebar(state) {
+  const pendingMailCount = ui.mailbox.items.filter((mail) => (
+    mail.status === 'pending'
+    && (!mail.readAt || mail.rewards.coins || mail.rewards.standardPacks)
+  )).length;
   const nav = Object.entries(views).map(([id, view]) => `
     <button class="nav-button ${ui.view === id ? 'is-active' : ''}" type="button" data-action="navigate" data-view="${id}" aria-label="${view.label}" title="${view.label}">
       <i data-lucide="${view.icon}"></i>
       <span>${view.label}</span>
       ${id === 'dashboard' && state.activeIncident ? '<span class="nav-alert" aria-label="새 돌발 업무"></span>' : ''}
+      ${id === 'mailbox' && pendingMailCount ? `<span class="nav-count" aria-label="수령 가능한 우편 ${pendingMailCount}개">${Math.min(99, pendingMailCount)}</span>` : ''}
     </button>
   `).join('');
 
@@ -750,24 +801,28 @@ function renderDashboard(state) {
 }
 
 function renderCard(card, count, options = {}) {
-  const hidden = !count;
+  const state = options.state || null;
+  const discovered = Boolean(count) || new Set(state?.discoveredCardIds || []).has(card.id);
+  const hidden = !discovered;
+  const owned = Number(count) > 0;
   const selectable = options.selectable && count;
   const selected = options.selected;
-  const state = options.state || null;
   const enhancement = hidden ? 0 : cardEnhancement(card, state);
+  const locked = new Set(state?.lockedCardIds || []).has(card.id);
   return `
-    <article class="collection-card rarity-${card.rarity} ${hidden ? 'is-hidden' : ''} ${selected ? 'is-selected' : ''}">
+    <article class="collection-card rarity-${card.rarity} ${hidden ? 'is-hidden' : ''} ${selected ? 'is-selected' : ''} ${locked ? 'is-locked' : ''}">
       <button class="card-hitbox" type="button" data-action="${selectable ? 'toggle-squad' : 'open-card'}" data-card-id="${card.id}" ${hidden ? 'disabled' : ''}>
         <div class="card-art">
           <img class="card-illustration" src="${card.image}" alt="${hidden ? '미발견 카드' : escapeHtml(cardDisplayName(card))}" loading="lazy" />
           <span class="rarity-stamp">${rarityEmblem(card.rarity, { hidden })}</span>
           ${hidden ? '' : `<span class="card-power">전투력 ${formatNumber(cardPower(card, state))}</span><span class="enhancement-badge">${enhancementLabel(enhancement)}</span>`}
+          ${locked ? '<span class="card-lock-badge" title="잠금됨"><i data-lucide="lock"></i></span>' : ''}
           ${selected ? '<span class="selection-check"><i data-lucide="check"></i></span>' : ''}
         </div>
         <div class="card-copy">
           <span>${hidden ? '미발견' : escapeHtml(card.department)}</span>
           <strong>${hidden ? '기록 없음' : escapeHtml(cardDisplayName(card))}</strong>
-          <small>${hidden ? '카드팩에서 발견할 수 있습니다.' : `${escapeHtml(card.category)} · ${formatNumber(count)}장 보유 · 최고 ${enhancementLabel(enhancement)}`}</small>
+          <small>${hidden ? '카드팩에서 발견할 수 있습니다.' : `${escapeHtml(card.category)} · ${formatNumber(count)}장 보유${owned ? ` · 최고 ${enhancementLabel(enhancement)}` : ' · 획득 기록 보존'}`}</small>
         </div>
         <div class="card-stats" aria-label="카드 능력치">
           <span><b>업무</b>${hidden ? '-' : card.stats.work}</span>
@@ -784,8 +839,14 @@ function renderCollection(state) {
   const query = ui.collectionQuery.trim().toLowerCase();
   const cards = CARD_CATALOG.filter((card) => {
     if (ui.rarityFilter !== 'all' && card.rarity !== ui.rarityFilter) return false;
+    if (ui.collectionOwnedOnly && Math.max(0, Number(state.collection[card.id]) || 0) <= 0) return false;
     if (!query) return true;
     return `${card.name} ${card.department} ${card.category}`.toLowerCase().includes(query);
+  }).sort((left, right) => {
+    const direction = ui.collectionSort === 'rarity-desc' ? -1 : 1;
+    const rarityDelta = (rarityRank(left.rarity) - rarityRank(right.rarity)) * direction;
+    if (rarityDelta) return rarityDelta;
+    return CARD_CATALOG.indexOf(left) - CARD_CATALOG.indexOf(right);
   });
 
   return `
@@ -810,6 +871,16 @@ function renderCollection(state) {
           <button type="button" class="${ui.rarityFilter === value ? 'is-active' : ''}" data-action="filter-rarity" data-rarity="${value}">${label}</button>
         `).join('')}
       </div>
+      <div class="collection-view-controls">
+        <button type="button" class="collection-owned-toggle ${ui.collectionOwnedOnly ? 'is-active' : ''}" data-action="toggle-owned-cards" aria-pressed="${ui.collectionOwnedOnly ? 'true' : 'false'}">
+          <i data-lucide="${ui.collectionOwnedOnly ? 'check' : 'library'}"></i>
+          보유중 카드만 보기
+        </button>
+        <div class="segmented-control collection-sort-control" role="group" aria-label="카드 정렬">
+          <button type="button" class="${ui.collectionSort === 'rarity-asc' ? 'is-active' : ''}" data-action="sort-collection" data-sort="rarity-asc">등급 낮은순</button>
+          <button type="button" class="${ui.collectionSort === 'rarity-desc' ? 'is-active' : ''}" data-action="sort-collection" data-sort="rarity-desc">등급 높은순</button>
+        </div>
+      </div>
     </div>
     <div class="collection-grid">
       ${cards.length
@@ -825,6 +896,7 @@ function activeExpeditionCardLocks(state) {
 
 function availableEnhancementCounts(state, cardId) {
   const owned = enhancementCountsForCard(state.collection, state.cardEnhancements, cardId);
+  if (new Set(state.lockedCardIds || []).has(cardId)) return owned.map(() => 0);
   const locked = lockedEnhancementCounts(
     state.collection,
     state.cardEnhancements,
@@ -894,12 +966,13 @@ function renderEnhancementPanel(state) {
         <div class="management-card-list">
           ${ownedCards.map((card) => {
             const best = cardEnhancement(card, state);
+            const protectedCard = new Set(state.lockedCardIds || []).has(card.id);
             const reserved = availableEnhancementCounts(state, card.id).reduce((sum, value) => sum + value, 0) === 0;
             return `
               <button type="button" class="management-card-choice rarity-${card.rarity} ${card.id === selectedCard.id ? 'is-selected' : ''}" data-action="select-enhance-card" data-card-id="${card.id}" aria-pressed="${card.id === selectedCard.id}">
                 <img src="${card.image}" alt="" loading="lazy" />
                 <span><strong>${escapeHtml(cardDisplayName(card))}</strong><small>${rarityLabel(card.rarity)} · ${formatNumber(state.collection[card.id])}장</small></span>
-                <b>${reserved ? '모험 중' : enhancementLabel(best)}</b>
+                <b>${protectedCard ? '잠금됨' : reserved ? '모험 중' : enhancementLabel(best)}</b>
               </button>`;
           }).join('')}
         </div>
@@ -974,6 +1047,7 @@ function sanitizeSynthesisSelection(state) {
     const card = cardById(raw.cardId);
     const stage = Math.floor(Number(raw.enhancement));
     if (!card || !RARITY_META[card.rarity] || stage < 0 || stage > MAX_ENHANCEMENT) continue;
+    if (new Set(state.lockedCardIds || []).has(card.id)) continue;
     if (!rarity) rarity = card.rarity;
     if (card.rarity !== rarity) continue;
     const key = `${card.id}:${stage}`;
@@ -1002,7 +1076,9 @@ function renderSynthesisPanel(state) {
     card: cardById(material.cardId),
   }));
   const candidates = CARD_CATALOG.filter((card) => (
-    card.rarity === selectedRarity && Number(state.collection[card.id]) > 0
+    card.rarity === selectedRarity
+      && Number(state.collection[card.id]) > 0
+      && !new Set(state.lockedCardIds || []).has(card.id)
   ));
   const containsEnhancedCard = selectedCards.some(({ enhancement }) => Number(enhancement) > 0);
 
@@ -1046,7 +1122,7 @@ function renderSynthesisPanel(state) {
           </div>
           <button class="secondary-button" type="button" data-action="auto-fill-synthesis"><i data-lucide="refresh-cw"></i>+0 낮은 등급 자동 넣기</button>
         </div>
-        <p class="synthesis-rule">같은 등급 카드만 함께 넣을 수 있습니다. 모험에 참여 중인 복사본은 자동으로 보호됩니다.</p>
+        <p class="synthesis-rule">같은 등급 카드만 함께 넣을 수 있습니다. 모험 참여 카드와 잠금 카드는 자동으로 보호됩니다.</p>
         <div class="synthesis-card-list">
           ${candidates.length ? candidates.map((card) => {
             const counts = enhancementCountsForCard(state.collection, state.cardEnhancements, card.id);
@@ -1087,7 +1163,13 @@ function renderManagement(state) {
 }
 
 function renderSquadPicker(state, context) {
-  const ownedCards = ALL_CARDS.filter((card) => state.collection[card.id]);
+  const ownedCards = ALL_CARDS
+    .filter((card) => state.collection[card.id])
+    .sort((left, right) => (
+      rarityRank(right.rarity) - rarityRank(left.rarity)
+      || cardPower(right, state) - cardPower(left, state)
+      || ALL_CARDS.indexOf(left) - ALL_CARDS.indexOf(right)
+    ));
   const selectedIds = context === 'raid'
     ? (state.selectedRaidSquad || [])
     : (state.selectedExpeditionSquad || state.selectedSquad || []);
@@ -1362,6 +1444,54 @@ function renderRaid(state) {
   `;
 }
 
+function renderMailbox() {
+  const pending = ui.mailbox.items.filter((mail) => mail.status === 'pending');
+  const pendingRewards = pending.filter((mail) => mail.rewards.coins || mail.rewards.standardPacks);
+  const attentionCount = pending.filter((mail) => (
+    !mail.readAt || mail.rewards.coins || mail.rewards.standardPacks
+  )).length;
+  const hasClaimableRewards = pendingRewards.length > 0;
+  return `
+    <section class="mailbox-page">
+      <div class="mailbox-header">
+        <div><span class="eyebrow">COMPANY POST</span><h2>우편함</h2><p>운영팀에서 보낸 안내와 보상을 확인할 수 있습니다.</p></div>
+        <div class="mailbox-header-actions">
+          <button class="secondary-button" type="button" data-action="refresh-mailbox" ${ui.mailbox.loading ? 'disabled' : ''}><i data-lucide="refresh-cw"></i>${ui.mailbox.loading ? '불러오는 중' : '새로고침'}</button>
+          <button class="primary-button" type="button" data-action="claim-all-mail" ${ui.mailbox.claimingId || !hasClaimableRewards ? 'disabled' : ''}><i data-lucide="gift"></i>보상 모두 받기</button>
+        </div>
+      </div>
+      ${ui.mailbox.error ? `<div class="mailbox-error"><i data-lucide="circle-alert"></i>${escapeHtml(ui.mailbox.error)}</div>` : ''}
+      <div class="mailbox-summary"><span>전체 <strong>${formatNumber(ui.mailbox.items.length)}</strong></span><span>확인·수령 대기 <strong>${formatNumber(attentionCount)}</strong></span></div>
+      <div class="mailbox-list">
+        ${ui.mailbox.loading && !ui.mailbox.items.length ? '<div class="mailbox-empty"><div class="cloud-session-loader"><span></span></div><strong>우편을 불러오고 있습니다.</strong></div>' : ''}
+        ${!ui.mailbox.loading && !ui.mailbox.items.length ? '<div class="mailbox-empty"><i data-lucide="mail"></i><strong>도착한 우편이 없습니다.</strong><span>새 소식이 오면 이곳에 표시됩니다.</span></div>' : ''}
+        ${ui.mailbox.items.map((mail) => {
+          const rewardParts = [];
+          if (mail.rewards.coins) rewardParts.push(`<span><i data-lucide="coins"></i>${formatNumber(mail.rewards.coins)} 동전</span>`);
+          if (mail.rewards.standardPacks) rewardParts.push(`<span><i data-lucide="package-open"></i>${formatNumber(mail.rewards.standardPacks)} 카드팩</span>`);
+          const expired = mail.status === 'expired';
+          const claimable = mail.status === 'pending' && rewardParts.length;
+          return `
+            <article class="mail-card ${mail.readAt || expired ? '' : 'is-unread'} ${mail.claimedAt ? 'is-claimed' : ''} ${expired ? 'is-expired' : ''}">
+              <div class="mail-card-icon"><i data-lucide="${mail.claimedAt ? 'check' : expired ? 'clock' : 'mail'}"></i></div>
+              <div class="mail-card-copy">
+                <div class="mail-card-title"><span>${mail.readAt ? '운영팀 우편' : '새 우편'}</span><time>${escapeHtml(formatDateTime(mail.createdAt))}</time></div>
+                <h3>${escapeHtml(mail.title)}</h3>
+                <p>${escapeHtml(mail.message)}</p>
+                ${rewardParts.length ? `<div class="mail-rewards">${rewardParts.join('')}</div>` : '<div class="mail-rewards is-empty">안내 우편</div>'}
+                ${mail.expiresAt ? `<small>${escapeHtml(formatDateTime(mail.expiresAt))}까지 보관</small>` : ''}
+              </div>
+              <div class="mail-card-actions">
+                ${!mail.readAt && !expired ? `<button class="text-button" type="button" data-action="read-mail" data-mail-id="${escapeHtml(mail.id)}">읽음 표시</button>` : ''}
+                ${claimable ? `<button class="primary-button" type="button" data-action="claim-mail" data-mail-id="${escapeHtml(mail.id)}" ${ui.mailbox.claimingId ? 'disabled' : ''}>${ui.mailbox.claimingId === mail.id ? '수령 중…' : '보상 받기'}</button>` : `<span class="mail-status">${mail.claimedAt ? '수령 완료' : expired ? '기간 만료' : mail.readAt ? '확인 완료' : '확인 필요'}</span>`}
+              </div>
+            </article>`;
+        }).join('')}
+      </div>
+    </section>
+  `;
+}
+
 function renderLink(state) {
   const account = ui.auth.account;
   return `
@@ -1390,6 +1520,7 @@ function renderLink(state) {
 function renderCurrentView(state) {
   if (ui.view === 'collection') return renderCollection(state);
   if (ui.view === 'management') return renderManagement(state);
+  if (ui.view === 'mailbox') return renderMailbox(state);
   if (ui.view === 'adventure') return renderAdventure(state);
   if (ui.view === 'raid') return renderRaid(state);
   if (ui.view === 'link') return renderLink(state);
@@ -1462,8 +1593,11 @@ function renderPackModal(cards, pityTriggered, state, modal) {
 }
 
 function renderCardModal(card, state) {
+  if (!card) return '';
   const enhancement = cardEnhancement(card, state);
   const counts = enhancementCountsForCard(state.collection, state.cardEnhancements, card.id);
+  const owned = Number(state.collection[card.id]) > 0;
+  const locked = new Set(state.lockedCardIds || []).has(card.id);
   return `
     <div class="modal-backdrop" data-action="close-modal">
       <section class="modal-sheet card-detail-modal rarity-${card.rarity}" role="dialog" aria-modal="true" aria-labelledby="card-detail-title" data-modal-panel>
@@ -1482,7 +1616,10 @@ function renderCardModal(card, state) {
           <div class="trait-box"><i data-lucide="sparkles"></i><span><strong>${escapeHtml(card.trait)}</strong><small>${escapeHtml(card.traitText)}</small></span></div>
           <div class="owned-line">보유 수량 <strong>${formatNumber(state.collection[card.id])}장</strong></div>
           <div class="owned-enhancement-line" aria-label="강화 단계별 보유 수량">${counts.map((count, stage) => `<span class="${stage === enhancement ? 'is-best' : ''}"><b>${enhancementLabel(stage)}</b>${formatNumber(count)}장</span>`).join('')}</div>
-          ${RARITY_META[card.rarity] ? `<button class="secondary-button detail-manage-button" type="button" data-action="manage-card" data-card-id="${card.id}">이 카드 강화하기</button>` : ''}
+          <div class="detail-card-actions">
+            ${owned ? `<button class="secondary-button detail-lock-button ${locked ? 'is-locked' : ''}" type="button" data-action="toggle-card-lock" data-card-id="${card.id}"><i data-lucide="${locked ? 'unlock' : 'lock'}"></i>${locked ? '카드 잠금 해제' : '카드 잠금'}</button>` : ''}
+            ${owned && RARITY_META[card.rarity] ? `<button class="secondary-button detail-manage-button" type="button" data-action="manage-card" data-card-id="${card.id}">이 카드 강화하기</button>` : ''}
+          </div>
         </div>
       </section>
     </div>
@@ -1540,6 +1677,44 @@ function renderResultModal(result, state) {
   `;
 }
 
+function renderAdminModal() {
+  const authenticated = Boolean(ui.admin.token);
+  return `
+    <div class="modal-backdrop" data-action="close-modal">
+      <section class="modal-sheet admin-modal" role="dialog" aria-modal="true" aria-labelledby="admin-title" data-modal-panel>
+        <button class="modal-close" type="button" data-action="close-modal" aria-label="닫기"><i data-lucide="x"></i></button>
+        <span class="eyebrow">OPERATIONS CONSOLE</span>
+        <h2 id="admin-title">관리자 모드</h2>
+        <p>${authenticated ? '사용자에게 안내와 보상을 우편으로 발송합니다.' : '관리자 계정으로 로그인해 운영 도구를 엽니다.'}</p>
+        ${authenticated ? `
+          <form class="admin-mail-form" data-form="admin-mail">
+            <label><span>발송 대상</span><select name="target" required><option value="all">전체 사용자</option>${ui.admin.users.map((user) => `<option value="${escapeHtml(user.id)}">${escapeHtml(user.label || `${user.nickname} (${user.username})`)}</option>`).join('')}</select></label>
+            <label><span>우편 제목</span><input name="title" maxlength="80" placeholder="업데이트 기념 선물" required /></label>
+            <label><span>내용</span><textarea name="message" maxlength="1000" rows="4" placeholder="사용자에게 전달할 내용을 입력하세요."></textarea></label>
+            <div class="admin-reward-grid">
+              <label><span>사내 동전</span><input name="coins" type="number" min="0" max="100000000" step="1" value="0" /></label>
+              <label><span>표준 카드팩</span><input name="standardPacks" type="number" min="0" max="10000" step="1" value="0" /></label>
+              <label><span>보관 기간</span><select name="expiresInHours"><option value="168">7일</option><option value="720">30일</option><option value="2160">90일</option></select></label>
+            </div>
+            <p class="auth-form-error" role="alert">${escapeHtml(ui.admin.error)}</p>
+            <div class="admin-modal-actions">
+              <button class="text-button" type="button" data-action="admin-logout">관리자 로그아웃</button>
+              <button class="primary-button" type="submit" ${ui.admin.sending ? 'disabled' : ''}><i data-lucide="mail"></i>${ui.admin.sending ? '발송 중…' : '우편 발송'}</button>
+            </div>
+          </form>
+        ` : `
+          <form class="admin-login-form" data-form="admin-login">
+            <label><span>관리자 아이디</span><input name="username" autocomplete="username" maxlength="24" required /></label>
+            <label><span>관리자 비밀번호</span><input name="password" type="password" autocomplete="current-password" maxlength="72" required /></label>
+            <p class="auth-form-error" role="alert">${escapeHtml(ui.admin.error)}</p>
+            <button class="primary-button" type="submit" ${ui.admin.loading ? 'disabled' : ''}><i data-lucide="shield"></i>${ui.admin.loading ? '확인 중…' : '관리자 로그인'}</button>
+          </form>
+        `}
+      </section>
+    </div>
+  `;
+}
+
 function renderSettingsModal(state) {
   const account = ui.auth.account;
   const notificationLabel = desktopBridge.isDesktop ? '데스크톱 팝업 알림' : '모바일 알림';
@@ -1560,6 +1735,7 @@ function renderSettingsModal(state) {
         ${desktopOnlySettings}
         <label class="toggle-row"><span><strong>월급루팡 모드</strong><small>모든 카드 일러스트를 가리고 카드 이름과 등급만 표시합니다.</small></span><input type="checkbox" data-action="toggle-payroll-mode" ${state.settings.payrollMode ? 'checked' : ''} /><i></i></label>
         ${ui.updateStatus?.downloadUrl ? '<button class="primary-button settings-update-button" type="button" data-action="download-update">새 Android 버전 받기</button>' : ''}
+        <button class="secondary-button settings-admin-button" type="button" data-action="open-admin"><i data-lucide="shield"></i>관리자 모드</button>
         <div class="settings-footer"><span>버전 ${escapeHtml(ui.appVersion)}</span><button class="danger-text-button" type="button" data-action="reset-progress">클라우드 진행 기록 초기화</button></div>
       </section>
     </div>
@@ -1573,6 +1749,7 @@ function renderModal(state) {
   if (ui.modal.type === 'incident') return renderIncidentModal(ui.modal.incident);
   if (ui.modal.type === 'result') return renderResultModal(ui.modal, state);
   if (ui.modal.type === 'settings') return renderSettingsModal(state);
+  if (ui.modal.type === 'admin') return renderAdminModal();
   return '';
 }
 
@@ -1635,16 +1812,118 @@ function renderCloudGate() {
   `;
 }
 
-function render({ preserveViewScroll = ui.renderedView === ui.view } = {}) {
-  const currentViewHost = preserveViewScroll ? app.querySelector('.view-host') : null;
-  const savedViewScroll = currentViewHost
-    ? { top: currentViewHost.scrollTop, left: currentViewHost.scrollLeft }
-    : null;
+function updateBlocksGameplay() {
+  return new Set(['available', 'downloading', 'saving', 'permission-required', 'installing'])
+    .has(ui.updateStatus?.status);
+}
+
+function renderUpdateGate() {
+  if (!updateBlocksGameplay()) return '';
+  const status = ui.updateStatus?.status;
+  const reinstall = ui.updateStatus?.updateMode === 'reinstall';
+  const version = ui.updateStatus?.latestVersion || ui.updateStatus?.detail || '';
+  let eyebrow = reinstall ? 'NEW APP REQUIRED' : 'REQUIRED UPDATE';
+  let title = reinstall ? '새 버전 앱을 다시 받아주세요.' : '새 버전으로 업데이트해 주세요.';
+  let description = reinstall
+    ? '이 버전은 설치 서명이 달라 앱 안에서 바로 교체할 수 없습니다. APK를 받은 뒤 기존 앱을 삭제하고 새 버전을 설치하면 클라우드 기록을 그대로 이어갈 수 있습니다.'
+    : `현재 버전보다 새로운 ${version ? String(version).replace(/^v/, 'v') : '버전'}이 있습니다. 업데이트를 마칠 때까지 게임 플레이가 잠깁니다.`;
+  let action = '';
+
+  if (clientPlatform === 'android' && (status === 'available' || status === 'permission-required' || status === 'installing')) {
+    action = `<button class="primary-button" type="button" data-action="download-update">${reinstall ? '새 버전 APK 받기' : status === 'permission-required' ? '설치 권한 확인 후 다시 진행' : status === 'installing' ? '설치 화면 다시 열기' : '지금 업데이트'}</button>`;
+  } else if (status === 'available') {
+    title = '새 버전을 자동으로 받고 있어요.';
+    description = '다운로드가 끝나면 진행 기록을 저장한 뒤 업데이트가 자동으로 적용됩니다.';
+  } else if (status === 'downloading') {
+    const progress = Math.max(0, Math.min(100, Number(ui.updateStatus?.detail) || 0));
+    title = `업데이트를 받고 있어요. ${progress}%`;
+    description = '다운로드가 끝나면 설치 확인 화면이 자동으로 열립니다.';
+  } else if (status === 'saving') {
+    title = '진행 기록을 안전하게 저장하고 있어요.';
+    description = '저장이 끝나면 업데이트 설치를 이어서 진행합니다.';
+  } else if (status === 'installing') {
+    title = '업데이트를 적용하고 있어요.';
+    description = '잠시 후 최신 버전으로 게임이 다시 시작됩니다.';
+  }
+
+  return `
+    <section class="cloud-session-gate update-session-gate" role="dialog" aria-modal="true" aria-live="assertive">
+      <div class="cloud-session-card">
+        <div class="cloud-session-mark" aria-hidden="true"><i data-lucide="download"></i></div>
+        <span class="eyebrow">${eyebrow}</span>
+        <h2>${escapeHtml(title)}</h2>
+        <p>${escapeHtml(description)}</p>
+        ${ui.updateStatus?.message ? `<small>${escapeHtml(ui.updateStatus.message)}</small>` : ''}
+        ${action || '<div class="cloud-session-loader" aria-hidden="true"><span></span></div>'}
+        <button class="cloud-session-logout" type="button" data-action="logout">로그아웃</button>
+      </div>
+    </section>
+  `;
+}
+
+function assignScrollKeys() {
+  const groups = [
+    ['.sidebar', 'global:sidebar'],
+    ['.auth-shell', 'auth:shell'],
+    ['.auth-panel', 'auth:panel'],
+    ['.auth-form-panel', 'auth:form'],
+    ['.view-host', `view:${ui.view}:main`],
+    ['.management-card-list', 'view:management:enhancement-list'],
+    ['.synthesis-card-list', 'view:management:synthesis-list'],
+    ['.synthesis-rarity-tabs', 'view:management:synthesis-rarities'],
+    ['.synthesis-stage-actions', 'view:management:synthesis-stages'],
+    ['.segmented-control', `view:${ui.view}:segmented`],
+    ['.raid-mode-tabs', 'view:raid:mode-tabs'],
+    ['.raid-tab-list', 'view:raid:panel-tabs'],
+    ['.contribution-table', 'view:raid:ranking-table'],
+    ['.raid-stats', 'view:raid:stats'],
+    ['.requirement-row', 'view:adventure:requirements'],
+    ['.detail-stats', `modal:${ui.modal?.type || 'card'}:stats`],
+    ['.modal-backdrop', `modal:${ui.modal?.type || 'generic'}:backdrop`],
+    ['.modal-sheet', `modal:${ui.modal?.type || 'generic'}:sheet`],
+  ];
+
+  for (const [selector, prefix] of groups) {
+    app.querySelectorAll(selector).forEach((element, index) => {
+      if (!element.dataset.scrollKey) element.dataset.scrollKey = `${prefix}:${index}`;
+    });
+  }
+}
+
+function captureScrollPositions() {
+  app.querySelectorAll('[data-scroll-key]').forEach((element) => {
+    scrollPositions.set(element.dataset.scrollKey, {
+      top: element.scrollTop,
+      left: element.scrollLeft,
+    });
+  });
+}
+
+function restoreScrollPositions() {
+  const apply = () => {
+    app.querySelectorAll('[data-scroll-key]').forEach((element) => {
+      const saved = scrollPositions.get(element.dataset.scrollKey);
+      if (!saved) return;
+      element.scrollTop = saved.top;
+      element.scrollLeft = saved.left;
+    });
+  };
+
+  apply();
+  if (typeof globalThis.requestAnimationFrame === 'function') {
+    globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(apply));
+  }
+}
+
+function render() {
+  captureScrollPositions();
   if (ui.auth.phase !== 'authenticated' || !store) {
     ui.renderedView = null;
     app.innerHTML = renderAuthScreen();
     refreshIcons();
     syncAuthFormControls();
+    assignScrollKeys();
+    restoreScrollPositions();
     return;
   }
   const state = store.getState();
@@ -1658,17 +1937,13 @@ function render({ preserveViewScroll = ui.renderedView === ui.view } = {}) {
       ${ui.notice ? `<div class="app-notice app-notice--${ui.notice.tone}">${escapeHtml(ui.notice.message)}</div>` : ''}
       ${renderModal(state)}
       ${renderCloudGate()}
+      ${renderUpdateGate()}
     </div>
   `;
   ui.renderedView = ui.view;
   refreshIcons();
-  if (savedViewScroll) {
-    const nextViewHost = app.querySelector('.view-host');
-    if (nextViewHost) {
-      nextViewHost.scrollTop = savedViewScroll.top;
-      nextViewHost.scrollLeft = savedViewScroll.left;
-    }
-  }
+  assignScrollKeys();
+  restoreScrollPositions();
 }
 
 function rewardText(reward = {}) {
@@ -1858,6 +2133,7 @@ function enhanceSelectedCard() {
         targetStage,
         materialStage,
         lockedCards: activeExpeditionCardLocks(draft),
+        protectedCardIds: draft.lockedCardIds,
       });
       draft.collection = outcome.collection;
       draft.cardEnhancements = outcome.cardEnhancements;
@@ -1893,6 +2169,10 @@ function addSynthesisMaterial(cardId, enhancement) {
   const card = cardById(cardId);
   const stage = Math.floor(Number(enhancement));
   if (!card || !RARITY_META[card.rarity] || stage < 0 || stage > MAX_ENHANCEMENT) return;
+  if (new Set(state.lockedCardIds || []).has(card.id)) {
+    showNotice('잠금된 카드는 합성 재료로 사용할 수 없습니다.', 'warning');
+    return;
+  }
   sanitizeSynthesisSelection(state);
   if (ui.synthesisMaterials.length >= SYNTHESIS_MATERIAL_COUNT) return;
   const selectedRarity = ui.synthesisMaterials.length
@@ -1926,6 +2206,7 @@ function autoFillSynthesisMaterials() {
     catalog: CARD_CATALOG,
     rarityOrder: RARITY_ORDER,
     lockedCardIds: activeExpeditionCardLocks(state),
+    protectedCardIds: state.lockedCardIds,
   });
   if (materials.length !== SYNTHESIS_MATERIAL_COUNT) {
     showNotice('자동으로 넣을 수 있는 같은 등급 +0 카드가 5장 미만입니다.', 'warning');
@@ -1954,6 +2235,7 @@ function synthesizeSelectedCards() {
         catalog: CARD_CATALOG,
         rarityOrder: RARITY_ORDER,
         lockedCardIds: activeExpeditionCardLocks(draft),
+        protectedCardIds: draft.lockedCardIds,
       });
       draft.collection = outcome.collection;
       draft.cardEnhancements = outcome.cardEnhancements;
@@ -2532,6 +2814,148 @@ function applyRemoteGameState(nextState) {
   }
 }
 
+function currentAuthToken() {
+  return String(authSession.get()?.token || '');
+}
+
+async function refreshMailbox({ silent = false } = {}) {
+  if (ui.auth.phase !== 'authenticated') return false;
+  if (!silent) {
+    ui.mailbox.loading = true;
+    ui.mailbox.error = '';
+    render();
+  }
+  try {
+    const result = await loadMailbox(currentAuthToken());
+    ui.mailbox.items = result.mailbox;
+    ui.mailbox.lastLoadedAt = Date.now();
+    ui.mailbox.error = '';
+    return true;
+  } catch (error) {
+    ui.mailbox.error = error.message || '우편함을 불러오지 못했습니다.';
+    return false;
+  } finally {
+    ui.mailbox.loading = false;
+    render();
+  }
+}
+
+async function readMailboxItem(mailId) {
+  try {
+    const result = await markMailRead(currentAuthToken(), mailId);
+    ui.mailbox.items = result.mailbox;
+    ui.mailbox.error = '';
+  } catch (error) {
+    ui.mailbox.error = error.message || '우편을 읽음 처리하지 못했습니다.';
+  }
+  render();
+}
+
+async function claimMailboxRewards(mailId = '') {
+  if (!cloudPlay || ui.cloud.phase !== 'active' || ui.mailbox.claimingId) return false;
+  ui.mailbox.claimingId = mailId || '*';
+  ui.mailbox.error = '';
+  render();
+  try {
+    await flushCloudStateOrThrow();
+    const snapshot = cloudPlay.getSnapshot();
+    const request = {
+      leaseId: snapshot.lease?.leaseId || '',
+      deviceId,
+      generation: snapshot.lease?.generation || 0,
+      baseRevision: snapshot.revision,
+    };
+    const result = mailId
+      ? await claimMailboxItem(currentAuthToken(), { ...request, mailId })
+      : await claimAllMailboxItems(currentAuthToken(), request);
+    cloudPlay.adoptServerSnapshot(result.snapshot);
+    ui.mailbox.items = result.mailbox;
+    ui.mailbox.lastLoadedAt = Date.now();
+    const coins = Number(result.rewards?.coins) || 0;
+    const packs = Number(result.rewards?.standardPacks) || 0;
+    const rewardParts = [coins ? `${formatNumber(coins)} 동전` : '', packs ? `${formatNumber(packs)} 카드팩` : ''].filter(Boolean);
+    showNotice(rewardParts.length ? `${rewardParts.join(' · ')}을 받았습니다.` : '우편을 확인했습니다.', 'success');
+    return true;
+  } catch (error) {
+    ui.mailbox.error = error.message || '우편 보상을 수령하지 못했습니다.';
+    if (['PLAY_SESSION_LOST', 'PLAYING_ELSEWHERE'].includes(error.code)) {
+      await retryCloudConnection();
+    }
+    return false;
+  } finally {
+    ui.mailbox.claimingId = '';
+    render();
+  }
+}
+
+async function loadAdminUsers() {
+  if (!ui.admin.token) return false;
+  ui.admin.loading = true;
+  ui.admin.error = '';
+  render();
+  try {
+    const result = await loadTcgAdminUsers(ui.admin.token);
+    ui.admin.users = Array.isArray(result.users) ? result.users : [];
+    return true;
+  } catch (error) {
+    ui.admin.error = error.message || '사용자 목록을 불러오지 못했습니다.';
+    if ([401, 403].includes(Number(error.status))) ui.admin.token = '';
+    return false;
+  } finally {
+    ui.admin.loading = false;
+    render();
+  }
+}
+
+async function submitAdminLogin(form) {
+  const data = new FormData(form);
+  ui.admin.loading = true;
+  ui.admin.error = '';
+  render();
+  try {
+    const result = await loginTcgAdmin(String(data.get('username') || '').trim(), String(data.get('password') || ''));
+    if (!result?.token) throw new Error('관리자 로그인 응답이 올바르지 않습니다.');
+    ui.admin.token = result.token;
+    await loadAdminUsers();
+  } catch (error) {
+    ui.admin.token = '';
+    ui.admin.error = error.message || '관리자 로그인에 실패했습니다.';
+  } finally {
+    ui.admin.loading = false;
+    render();
+  }
+}
+
+async function submitAdminMail(form) {
+  if (!ui.admin.token || ui.admin.sending) return;
+  const data = new FormData(form);
+  const target = String(data.get('target') || 'all');
+  ui.admin.sending = true;
+  ui.admin.error = '';
+  render();
+  try {
+    const result = await sendTcgAdminMail(ui.admin.token, {
+      requestId: globalThis.crypto?.randomUUID?.() || `mail-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      targetMode: target === 'all' ? 'all' : 'single',
+      ...(target === 'all' ? {} : { targetAccountId: target }),
+      title: String(data.get('title') || '').trim(),
+      message: String(data.get('message') || '').trim(),
+      rewards: {
+        coins: Math.max(0, Math.floor(Number(data.get('coins')) || 0)),
+        standardPacks: Math.max(0, Math.floor(Number(data.get('standardPacks')) || 0)),
+      },
+      expiresInHours: Math.max(1, Math.floor(Number(data.get('expiresInHours')) || 168)),
+    });
+    showNotice(`${formatNumber(result.newlyDeliveredCount)}명에게 우편을 발송했습니다.`, 'success');
+  } catch (error) {
+    ui.admin.error = error.message || '우편을 발송하지 못했습니다.';
+    if ([401, 403].includes(Number(error.status))) ui.admin.token = '';
+  } finally {
+    ui.admin.sending = false;
+    render();
+  }
+}
+
 async function finishCloudActivation() {
   if (ui.cloud.phase !== 'active' || !store) return;
   const current = store.getState();
@@ -2551,6 +2975,8 @@ async function finishCloudActivation() {
   await startIncidentRuntime();
   await refreshPersonalRaid({ silent: true });
   render();
+  void refreshMailbox({ silent: true });
+  void checkForAppUpdates();
 }
 
 async function activateAuthenticatedSession(session, { newAccount = false } = {}) {
@@ -2566,6 +2992,7 @@ async function activateAuthenticatedSession(session, { newAccount = false } = {}
   ui.auth.form.password = '';
   ui.auth.form.passwordConfirm = '';
   ui.raid = { loading: false, dispatching: false, error: '', ranking: null, lastLoadedAt: 0, requestEpoch: 0 };
+  ui.mailbox = { loading: false, claimingId: '', items: [], error: '', lastLoadedAt: 0 };
   ui.view = 'dashboard';
   ui.modal = null;
   ui.cloud = { phase: 'connecting', message: '', code: '', activePlatform: '', generation: 0 };
@@ -2707,6 +3134,8 @@ async function logout() {
   ui.auth.account = null;
   ui.auth.form = { username: '', nickname: '', password: '', passwordConfirm: '' };
   ui.raid = { loading: false, dispatching: false, error: '', ranking: null, lastLoadedAt: 0, requestEpoch: 0 };
+  ui.mailbox = { loading: false, claimingId: '', items: [], error: '', lastLoadedAt: 0 };
+  ui.admin = { token: '', loading: false, sending: false, users: [], error: '' };
   resetAuthAvailability();
   ui.modal = null;
   ui.cloud = { phase: 'idle', message: '', code: '', activePlatform: '', generation: 0 };
@@ -2773,26 +3202,26 @@ async function resolveCloudSaveConflict(strategy) {
   }
 }
 
-async function checkForAppUpdates({ autoInstall = clientPlatform === 'android' } = {}) {
+async function checkForAppUpdates() {
   if (updateCheckPromise) return updateCheckPromise;
   updateCheckPromise = (async () => {
     ui.updateStatus = { status: 'checking' };
     render();
-    const result = await desktopBridge.checkForUpdates();
-    if (result?.status && !['denied'].includes(result.status)) {
-      ui.updateStatus = result;
+    try {
+      const result = await desktopBridge.checkForUpdates();
+      if (result?.status && !['denied'].includes(result.status)) {
+        ui.updateStatus = result;
+        render();
+      }
+      return result;
+    } catch (error) {
+      ui.updateStatus = {
+        status: 'error',
+        message: error.message || '업데이트 확인에 실패했습니다.',
+      };
       render();
+      return ui.updateStatus;
     }
-    if (
-      autoInstall
-      && result?.status === 'available'
-      && result.latestVersion
-      && result.latestVersion !== autoUpdateAttemptedVersion
-    ) {
-      autoUpdateAttemptedVersion = result.latestVersion;
-      await downloadAndroidUpdate();
-    }
-    return result;
   })().finally(() => {
     updateCheckPromise = null;
   });
@@ -2814,11 +3243,22 @@ async function downloadAndroidUpdate() {
         releasedCloudSession = true;
       }
       await desktopBridge.cancelIncident();
-      ui.cloud = { ...ui.cloud, phase: 'updating', message: '', code: '' };
       ui.updateStatus = { ...ui.updateStatus, status: 'saving', downloadUrl };
       render();
 
       if (clientPlatform === 'android') {
+        if (ui.updateStatus.updateMode === 'reinstall') {
+          const opened = await desktopBridge.openExternal(downloadUrl);
+          if (!opened) throw new Error('새 버전 APK 주소를 열지 못했습니다.');
+          ui.updateStatus = {
+            ...ui.updateStatus,
+            status: 'available',
+            updateMode: 'reinstall',
+            message: 'APK 다운로드가 시작되었습니다. 설치 후 다시 실행해 주세요.',
+          };
+          render();
+          return true;
+        }
         const result = await desktopBridge.installAndroidUpdate(downloadUrl);
         ui.updateStatus = { ...ui.updateStatus, ...result, downloadUrl };
         render();
@@ -2830,13 +3270,28 @@ async function downloadAndroidUpdate() {
       return true;
     } catch (error) {
       console.warn('Could not prepare the Android update:', error);
+      if (clientPlatform === 'android' && error.code === 'UPDATE_SIGNATURE_MISMATCH') {
+        ui.updateStatus = {
+          ...ui.updateStatus,
+          status: 'available',
+          updateMode: 'reinstall',
+          message: '현재 앱과 새 앱의 설치 서명이 달라 APK를 새로 설치해야 합니다.',
+          downloadUrl,
+        };
+        await desktopBridge.openExternal(downloadUrl).catch(() => false);
+        render();
+        if (releasedCloudSession && ui.auth.phase === 'authenticated') await retryCloudConnection();
+        return true;
+      }
       const hasSaveConflict = error.code === 'CLOUD_SAVE_CONFLICT' || cloudPlay?.getSnapshot().hasSaveConflict;
       if (!hasSaveConflict) {
-        updateCloudUi({
-          phase: 'connection-error',
-          message: error.message || '클라우드 저장을 마치지 못해 업데이트를 열지 않았습니다.',
-          code: error.code || 'UPDATE_PREPARE_FAILED',
-        });
+        ui.updateStatus = {
+          ...ui.updateStatus,
+          status: 'available',
+          message: error.message || '업데이트를 열지 못했습니다. 다시 시도해 주세요.',
+          downloadUrl,
+        };
+        render();
       }
       if (releasedCloudSession && ui.auth.phase === 'authenticated') await retryCloudConnection();
       return false;
@@ -2861,8 +3316,8 @@ app.addEventListener('click', async (event) => {
     'logout',
   ]);
   if (ui.auth.phase === 'authenticated'
-    && ui.cloud.phase !== 'active'
-    && !actionsAllowedWhileCloudBlocked.has(action)) return;
+    && ((ui.cloud.phase !== 'active' && !actionsAllowedWhileCloudBlocked.has(action))
+      || (updateBlocksGameplay() && !actionsAllowedWhileCloudBlocked.has(action)))) return;
 
   if (action === 'switch-auth-mode') {
     switchAuthMode(button.dataset.mode);
@@ -2885,6 +3340,7 @@ app.addEventListener('click', async (event) => {
     ui.modal = null;
     render();
     if (ui.view === 'raid' && ui.raidMode === 'personal') void refreshPersonalRaid({ silent: true });
+    if (ui.view === 'mailbox' && Date.now() - ui.mailbox.lastLoadedAt > 10000) void refreshMailbox({ silent: true });
   } else if (action === 'navigate-from-modal') {
     ui.view = button.dataset.view;
     ui.modal = null;
@@ -2948,12 +3404,39 @@ app.addEventListener('click', async (event) => {
   } else if (action === 'open-card') {
     ui.modal = { type: 'card', cardId: button.dataset.cardId };
     render();
+  } else if (action === 'refresh-mailbox') {
+    await refreshMailbox();
+  } else if (action === 'read-mail') {
+    await readMailboxItem(button.dataset.mailId);
+  } else if (action === 'claim-mail') {
+    await claimMailboxRewards(button.dataset.mailId);
+  } else if (action === 'claim-all-mail') {
+    await claimMailboxRewards();
+  } else if (action === 'toggle-card-lock') {
+    const cardId = String(button.dataset.cardId || '');
+    const card = cardById(cardId);
+    if (!card || Number(store.getState().collection[cardId]) <= 0) return;
+    store.update((draft) => {
+      const locked = new Set(draft.lockedCardIds || []);
+      if (locked.has(cardId)) locked.delete(cardId);
+      else locked.add(cardId);
+      draft.lockedCardIds = [...locked];
+      appendActivity(draft, `${cardDisplayName(card)} 카드 잠금을 ${locked.has(cardId) ? '설정' : '해제'}했습니다.`, 'card');
+    });
+    ui.synthesisMaterials = ui.synthesisMaterials.filter((material) => material.cardId !== cardId);
+    render();
   } else if (action === 'close-modal') {
     if (event.target.closest('[data-modal-panel]') && !event.target.closest('.modal-close') && !event.target.closest('.compact-modal .primary-button')) return;
     ui.modal = null;
     render();
   } else if (action === 'filter-rarity') {
     ui.rarityFilter = button.dataset.rarity;
+    render();
+  } else if (action === 'toggle-owned-cards') {
+    ui.collectionOwnedOnly = !ui.collectionOwnedOnly;
+    render();
+  } else if (action === 'sort-collection') {
+    ui.collectionSort = button.dataset.sort === 'rarity-desc' ? 'rarity-desc' : 'rarity-asc';
     render();
   } else if (action === 'toggle-squad') {
     toggleSquadCard(button.dataset.cardId, button.dataset.context);
@@ -2993,6 +3476,14 @@ app.addEventListener('click', async (event) => {
     await desktopBridge.hideWindow();
   } else if (action === 'open-settings') {
     ui.modal = { type: 'settings' };
+    render();
+  } else if (action === 'open-admin') {
+    ui.admin.error = '';
+    ui.modal = { type: 'admin' };
+    render();
+    if (ui.admin.token && !ui.admin.users.length) void loadAdminUsers();
+  } else if (action === 'admin-logout') {
+    ui.admin = { token: '', loading: false, sending: false, users: [], error: '' };
     render();
   } else if (action === 'toggle-notifications') {
     const notificationKind = desktopBridge.isDesktop ? '데스크톱 팝업' : '모바일';
@@ -3038,6 +3529,10 @@ app.addEventListener('submit', (event) => {
   } else if (form.dataset.form === 'collection-search') {
     ui.collectionQuery = String(new FormData(form).get('query') || '');
     render();
+  } else if (form.dataset.form === 'admin-login') {
+    void submitAdminLogin(form);
+  } else if (form.dataset.form === 'admin-mail') {
+    void submitAdminMail(form);
   }
 });
 
@@ -3105,7 +3600,7 @@ desktopBridge.onBeforeUpdate(async () => {
 desktopBridge.onUpdateStatus((status) => {
   ui.updateStatus = { ...ui.updateStatus, ...status };
   render();
-  if (status?.status === 'error' && ui.cloud.phase === 'updating' && ui.auth.phase === 'authenticated') {
+  if (status?.status === 'error' && ui.cloud.phase === 'released' && ui.auth.phase === 'authenticated') {
     void retryCloudConnection();
   }
 });

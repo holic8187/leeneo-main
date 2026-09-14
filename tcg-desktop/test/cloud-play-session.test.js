@@ -505,3 +505,30 @@ test('a durable outbox conflict keeps both the active local copy and a conflict 
   assert.equal(storage.getItem(cloudSaveOutboxKey(accountId)), null);
   cloud.dispose();
 });
+
+test('an atomic server reward snapshot advances the revision without creating a local save', async () => {
+  const remoteStates = [];
+  let saveCount = 0;
+  const gateway = {
+    async open() { return response(); },
+    async heartbeat() { return response({ revision: 4, state: null }); },
+    async saveState() { saveCount += 1; return response({ state: null }); },
+    async takeover() { return response(); },
+    async release() { return response({ state: null }); },
+  };
+  const cloud = createCloudPlaySession({
+    gateway,
+    token: 'token', deviceId: 'device-123456789', platform: 'pc', appVersion: '0.7.0',
+    onRemoteState: (state) => remoteStates.push(state),
+  });
+
+  await cloud.open();
+  assert.equal(cloud.adoptServerSnapshot(response({
+    revision: 4,
+    state: { wallet: { coins: 250 }, packs: { standard: 2 } },
+  })), true);
+  assert.equal(cloud.getSnapshot().revision, 4);
+  assert.deepEqual(remoteStates.at(-1), { wallet: { coins: 250 }, packs: { standard: 2 } });
+  assert.equal(saveCount, 0);
+  cloud.dispose();
+});

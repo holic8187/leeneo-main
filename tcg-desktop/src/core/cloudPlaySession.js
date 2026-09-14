@@ -462,6 +462,47 @@ export function createCloudPlaySession({
     return phase === 'active' && !pendingEntry;
   }
 
+  function adoptServerSnapshot(response) {
+    if (!lease || phase !== 'active') {
+      const error = new Error('활성 플레이 연결이 없어 서버 기록을 적용할 수 없습니다.');
+      error.code = 'PLAY_SESSION_LOST';
+      throw error;
+    }
+    if (pendingEntry || inFlightEntry || savePromise || conflict) {
+      const error = new Error('저장 중인 기록이 남아 있어 서버 보상을 아직 적용할 수 없습니다.');
+      error.code = 'CLOUD_MUTATION_BUSY';
+      throw error;
+    }
+    if (!isRecord(response?.state)) {
+      const error = new Error('서버 진행 기록 응답이 올바르지 않습니다.');
+      error.code = 'INVALID_RESPONSE';
+      throw error;
+    }
+    if (response?.leaseId && response.leaseId !== lease.leaseId) {
+      const error = new Error('플레이 연결이 다른 기기로 이동했습니다.');
+      error.code = 'PLAY_SESSION_LOST';
+      throw error;
+    }
+    if (response?.generation && Number(response.generation) !== Number(lease.generation)) {
+      const error = new Error('플레이 연결 세대가 변경되었습니다.');
+      error.code = 'PLAY_SESSION_LOST';
+      throw error;
+    }
+    const nextRevision = Math.max(0, Math.floor(Number(response.revision) || 0));
+    if (nextRevision < revision) {
+      const error = new Error('서버가 이전 진행 기록을 반환했습니다.');
+      error.code = 'STALE_SERVER_STATE';
+      throw error;
+    }
+    revision = nextRevision;
+    if (response.expiresAt) lease.expiresAt = response.expiresAt;
+    if (response.serverNow) lease.serverNow = response.serverNow;
+    onRemoteState(response.state, response);
+    emit('active');
+    startHeartbeat();
+    return true;
+  }
+
   async function release({ flushPending = true } = {}) {
     clearHeartbeat();
     if (!lease) return false;
@@ -523,6 +564,7 @@ export function createCloudPlaySession({
     queueState,
     flush,
     resolveConflict,
+    adoptServerSnapshot,
     release,
     resume,
     dispose,
