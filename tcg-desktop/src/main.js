@@ -65,7 +65,6 @@ import {
   ENHANCEMENT_SUCCESS_RATES,
   MAX_ENHANCEMENT,
   SYNTHESIS_MATERIAL_COUNT,
-  SYNTHESIS_SUCCESS_RATE,
   attemptCardEnhancement,
   attemptCardSynthesis,
   autoSelectSynthesisMaterials,
@@ -75,6 +74,7 @@ import {
   enhancedCardPower,
   expeditionCardLocks,
   lockedEnhancementCounts,
+  synthesisSuccessRateForRarity,
 } from './core/cardManagement.js';
 import {
   cardsForPendingPack,
@@ -996,6 +996,7 @@ function renderSynthesisPanel(state) {
     ? cardById(ui.synthesisMaterials[0].cardId)?.rarity
     : ui.synthesisRarity;
   const resultRarity = RARITY_ORDER[RARITY_ORDER.indexOf(selectedRarity) + 1];
+  const synthesisSuccessRate = synthesisSuccessRateForRarity(selectedRarity);
   const selectedCards = ui.synthesisMaterials.map((material) => ({
     ...material,
     card: cardById(material.cardId),
@@ -1031,7 +1032,7 @@ function renderSynthesisPanel(state) {
         </div>
         ${containsEnhancedCard ? '<p class="material-warning"><i data-lucide="circle-alert"></i>강화된 카드가 포함되어 있습니다. 합성하면 강화 단계도 함께 사라집니다.</p>' : ''}
         <div class="management-action-bar synthesis-action-bar">
-          <div><span>합성 성공 확률</span><strong>${Math.round(SYNTHESIS_SUCCESS_RATE * 100)}%</strong><small>성공과 실패 모두 선택한 5장을 소모합니다.</small></div>
+          <div><span>${rarityLabel(selectedRarity)} 합성 성공 확률</span><strong>${Math.round(synthesisSuccessRate * 100)}%</strong><small>성공과 실패 모두 선택한 5장을 소모합니다.</small></div>
           <button class="primary-button" type="button" data-action="synthesize-cards" ${selectedCards.length === SYNTHESIS_MATERIAL_COUNT ? '' : 'disabled'}><i data-lucide="sparkles"></i>카드 합성</button>
         </div>
       </section>
@@ -1078,7 +1079,7 @@ function renderManagement(state) {
       </div>
       <div class="management-intro">
         <div><span class="eyebrow">CARD LABORATORY</span><h2>${ui.managementPanel === 'enhance' ? '같은 카드를 모아 전력을 높이세요.' : '남는 카드를 새로운 한 장으로 바꾸세요.'}</h2></div>
-        <p>${ui.managementPanel === 'enhance' ? '강화 단계별 전투력 증가는 누적 4% · 10% · 18% · 28% · 40%입니다.' : `합성 성공률은 ${Math.round(SYNTHESIS_SUCCESS_RATE * 100)}%이며, 실패해도 같은 등급 카드 1장을 돌려받습니다.`}</p>
+        <p>${ui.managementPanel === 'enhance' ? '강화 단계별 전투력 증가는 누적 4% · 10% · 18% · 28% · 40%입니다.' : '합성 성공률은 등급에 따라 60%부터 10%까지 낮아지며, 실패해도 같은 등급 카드 1장을 돌려받습니다.'}</p>
       </div>
       ${ui.managementPanel === 'synthesis' ? renderSynthesisPanel(state) : renderEnhancementPanel(state)}
     </section>

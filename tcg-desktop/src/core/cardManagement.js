@@ -2,7 +2,20 @@ export const MAX_ENHANCEMENT = 5;
 export const ENHANCEMENT_SUCCESS_RATES = Object.freeze([1, 0.86, 0.72, 0.58, 0.44]);
 export const ENHANCEMENT_TOTAL_BONUSES = Object.freeze([0, 0.04, 0.10, 0.18, 0.28, 0.40]);
 export const SYNTHESIS_MATERIAL_COUNT = 5;
-export const SYNTHESIS_SUCCESS_RATE = 0.60;
+export const SYNTHESIS_SUCCESS_RATES = Object.freeze({
+  c: 0.60,
+  u: 0.50,
+  r: 0.40,
+  rr: 0.30,
+  rrr: 0.20,
+  sr: 0.10,
+  hr: 0.10,
+  ur: 0.10,
+});
+
+export function synthesisSuccessRateForRarity(rarity = '') {
+  return SYNTHESIS_SUCCESS_RATES[String(rarity).trim().toLowerCase()] ?? 0;
+}
 
 const integerCount = (value) => {
   const count = Math.floor(Number(value));
@@ -285,7 +298,7 @@ export function attemptCardSynthesis({
   catalog = [],
   rarityOrder = [],
   lockedCardIds = [],
-  successRate = SYNTHESIS_SUCCESS_RATE,
+  successRate,
   random = Math.random,
 } = {}) {
   if (!Array.isArray(materials) || materials.length !== SYNTHESIS_MATERIAL_COUNT) {
@@ -340,7 +353,10 @@ export function attemptCardSynthesis({
     nextEnhancements = setCardCounts(nextEnhancements, cardId, counts);
   }
 
-  const normalizedSuccessRate = Math.min(1, Math.max(0, Number(successRate) || 0));
+  const requestedSuccessRate = successRate == null
+    ? synthesisSuccessRateForRarity(sourceRarity)
+    : successRate;
+  const normalizedSuccessRate = Math.min(1, Math.max(0, Number(requestedSuccessRate) || 0));
   const success = rollValue(random) < normalizedSuccessRate;
   const resultRarity = success ? rarityOrder[sourceRank + 1] : sourceRarity;
   const resultPool = catalog.filter((card) => card.rarity === resultRarity);
