@@ -37,14 +37,18 @@ test('admin gateway keeps credentials in a POST body and uses only the returned 
     fetchImpl: fakeFetch({
       '/api/tcg/admin/auth/login': { token: 'admin-token' },
       '/api/tcg/admin/users': { users: [] },
+      '/api/tcg/admin/grants/catalog': { packages: [{ id: 'tester-package-1' }] },
     }, calls),
   });
   assert.equal((await gateway.adminLogin('operator', 'secret')).token, 'admin-token');
   await gateway.adminUsers('admin-token');
+  const catalog = await gateway.adminGrantCatalog('admin-token');
+  assert.equal(catalog.packages[0].id, 'tester-package-1');
   assert.equal(JSON.parse(calls[0].options.body).password, 'secret');
   assert.equal(calls[0].options.headers.Authorization, undefined);
   assert.equal(calls[1].options.headers.Authorization, 'Bearer admin-token');
   assert.equal(calls[1].options.body, undefined);
+  assert.equal(calls[2].options.headers.Authorization, 'Bearer admin-token');
 });
 
 test('mail normalization clamps invalid rewards', () => {

@@ -133,6 +133,9 @@ export function createMailboxGateway({
     adminUsers(adminToken) {
       return request('/api/tcg/admin/users', { token: adminToken });
     },
+    adminGrantCatalog(adminToken) {
+      return request('/api/tcg/admin/grants/catalog', { token: adminToken });
+    },
     adminSendMail(adminToken, body) {
       return request('/api/tcg/admin/mail/send', { method: 'POST', token: adminToken, body });
     },
@@ -148,4 +151,5 @@ export const claimMailboxItem = mailboxGateway.claim;
 export const claimAllMailboxItems = mailboxGateway.claimAll;
 export const loginTcgAdmin = mailboxGateway.adminLogin;
 export const loadTcgAdminUsers = mailboxGateway.adminUsers;
+export const loadTcgAdminGrantCatalog = mailboxGateway.adminGrantCatalog;
 export const sendTcgAdminMail = mailboxGateway.adminSendMail;

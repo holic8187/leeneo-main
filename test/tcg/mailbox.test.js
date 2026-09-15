@@ -13,7 +13,9 @@ const {
   signAccountToken
 } = require('../../src/tcg/registerTcgRoutes');
 const {
+  ADMIN_GRANT_PACKAGES,
   MAX_STORED_MAILS,
+  adminGrantCatalog,
   normalizeAdminMail
 } = require('../../src/tcg/services/mailboxService');
 
@@ -305,6 +307,44 @@ test('admin credentials remain server-only and admin tokens use a separate audie
     bearer: harness.userToken
   });
   assert.equal(userTokenRejected.statusCode, 401);
+});
+
+test('admin grant packages are server-owned and deliver their exact configured rewards', async () => {
+  assert.deepEqual(ADMIN_GRANT_PACKAGES.map((entry) => ({
+    id: entry.id,
+    priceKrw: entry.priceKrw,
+    rewards: entry.rewards
+  })), [
+    { id: 'tester-package-1', priceKrw: 5_000, rewards: { coins: 0, standardPacks: 6 } },
+    { id: 'tester-package-2', priceKrw: 10_000, rewards: { coins: 1_500, standardPacks: 15 } },
+    { id: 'tester-package-3', priceKrw: 30_000, rewards: { coins: 7_000, standardPacks: 50 } }
+  ]);
+  assert.deepEqual(adminGrantCatalog().packages[2].rewards, { coins: 7_000, standardPacks: 50 });
+
+  const harness = createHarness();
+  const login = await harness.request('POST', '/api/tcg/admin/auth/login', {
+    body: { username: ` ${ADMIN_USERNAME.toUpperCase()} `, password: ` ${ADMIN_PASSWORD} ` }
+  });
+  assert.equal(login.statusCode, 200);
+  const catalog = await harness.request('GET', '/api/tcg/admin/grants/catalog', {
+    bearer: login.payload.token
+  });
+  assert.equal(catalog.statusCode, 200);
+  assert.equal(catalog.payload.packages.length, 3);
+
+  const sent = await harness.request('POST', '/api/tcg/admin/mail/send', {
+    bearer: login.payload.token,
+    body: {
+      requestId: 'package-grant-0001',
+      targetMode: 'single',
+      targetAccountId: harness.accounts[0]._id,
+      presetId: 'tester-package-2',
+      title: '테스터 패키지2',
+      rewards: { coins: 999_999, standardPacks: 999 }
+    }
+  });
+  assert.equal(sent.statusCode, 200);
+  assert.deepEqual(sent.payload.mail.rewards, { coins: 1_500, standardPacks: 15 });
 });
 
 test('admin mail can be sent once, read, and atomically claimed into cloud state', async () => {

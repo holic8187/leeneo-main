@@ -7,10 +7,13 @@ import { withDeadline } from '../core/promiseDeadline.js';
 
 const browserListeners = new Set();
 const mobileUpdateListeners = new Set();
+const gameNotificationOpenListeners = new Set();
 let browserTimer = null;
 let androidUpdater = null;
 let androidUpdaterListenerPromise = null;
 let currentAndroidUpdateUrl = '';
+let gameNotifications = null;
+let gameNotificationListenerPromise = null;
 
 const APP_VERSION_TIMEOUT_MS = 2500;
 const ANDROID_UPDATE_TIMEOUT_MS = 7 * 60 * 1000;
@@ -61,6 +64,36 @@ async function capacitorAndroidUpdater() {
   } catch {
     return null;
   }
+}
+
+async function capacitorGameNotifications() {
+  if (platform !== 'android') return null;
+  if (gameNotifications) return gameNotifications;
+  try {
+    const { registerPlugin } = await import('@capacitor/core');
+    gameNotifications = registerPlugin('GameNotifications');
+    return gameNotifications;
+  } catch {
+    return null;
+  }
+}
+
+async function ensureGameNotificationListener() {
+  if (platform !== 'android') return null;
+  if (!gameNotificationListenerPromise) {
+    gameNotificationListenerPromise = (async () => {
+      const plugin = await capacitorGameNotifications();
+      if (!plugin) return null;
+      return plugin.addListener('notificationOpened', ({ notification } = {}) => {
+        if (!notification) return;
+        for (const listener of gameNotificationOpenListeners) listener(notification);
+      });
+    })().catch(() => {
+      gameNotificationListenerPromise = null;
+      return null;
+    });
+  }
+  return gameNotificationListenerPromise;
 }
 
 async function ensureAndroidUpdaterListener() {
@@ -152,6 +185,63 @@ export const desktopBridge = {
     mobileUpdateListeners.add(handler);
     void ensureAndroidUpdaterListener();
     return () => mobileUpdateListeners.delete(handler);
+  },
+  async getGameNotificationPermission() {
+    const plugin = await capacitorGameNotifications();
+    if (!plugin) return { display: platform === 'android' ? 'unavailable' : 'unsupported', granted: false };
+    return plugin.getPermissionStatus();
+  },
+  async requestGameNotificationPermission() {
+    const plugin = await capacitorGameNotifications();
+    if (!plugin) return { display: 'unavailable', granted: false };
+    return plugin.requestPermission();
+  },
+  async openGameNotificationSettings() {
+    const plugin = await capacitorGameNotifications();
+    if (!plugin) return { display: 'unavailable', granted: false };
+    return plugin.openNotificationSettings();
+  },
+  async configureGameNotifications({ enabled = true, quietHoursEnabled = false } = {}) {
+    const plugin = await capacitorGameNotifications();
+    if (!plugin) return { enabled: false, quietHoursEnabled: false, permission: 'unavailable' };
+    return plugin.configure({
+      enabled: enabled === true,
+      quietHoursEnabled: quietHoursEnabled === true,
+      quietStartHour: 22,
+      quietEndHour: 6,
+    });
+  },
+  async scheduleGameNotification(notification) {
+    const plugin = await capacitorGameNotifications();
+    if (!plugin) return { scheduled: false, permission: 'unavailable' };
+    return plugin.schedule(notification);
+  },
+  async cancelGameNotification(id) {
+    const plugin = await capacitorGameNotifications();
+    if (!plugin || !id) return { cancelled: false };
+    return plugin.cancel({ id });
+  },
+  async cancelGameNotificationType(type) {
+    const plugin = await capacitorGameNotifications();
+    if (!plugin || !type) return { cancelled: 0 };
+    return plugin.cancelType({ type });
+  },
+  async cancelAllGameNotifications() {
+    const plugin = await capacitorGameNotifications();
+    if (!plugin) return { cancelled: 0 };
+    return plugin.cancelAll();
+  },
+  async consumeLastOpenedGameNotification() {
+    const plugin = await capacitorGameNotifications();
+    if (!plugin) return null;
+    const result = await plugin.consumeLastOpenedNotification();
+    return result?.notification || null;
+  },
+  onGameNotificationOpened(handler) {
+    if (platform !== 'android') return () => {};
+    gameNotificationOpenListeners.add(handler);
+    void ensureGameNotificationListener();
+    return () => gameNotificationOpenListeners.delete(handler);
   },
   async checkForUpdates() {
     if (desktop?.checkForUpdates) return desktop.checkForUpdates();
