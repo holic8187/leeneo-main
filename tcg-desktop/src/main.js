@@ -87,6 +87,7 @@ import {
 } from './core/packOpeningSession.js';
 import { createAuthSessionStore } from './core/authSession.js';
 import { createCloudPlaySession } from './core/cloudPlaySession.js';
+import { withDeadline } from './core/promiseDeadline.js';
 import {
   getOrCreateDeviceId,
   platformLabel,
@@ -119,6 +120,7 @@ import {
   claimMailboxItem,
   createMailboxRequestGuard,
   loadMailbox,
+  loadTcgAdminGrantCatalog,
   loadTcgAdminUsers,
   loginTcgAdmin,
   markMailRead,
@@ -138,6 +140,7 @@ let updateCheckPromise = null;
 let updateInstallPromise = null;
 let appVersionPromise = null;
 let authenticationRestorePromise = null;
+let pendingGameNotificationOpen = null;
 const mailboxRequestGuard = createMailboxRequestGuard();
 
 const iconSet = {
@@ -182,6 +185,12 @@ const views = {
   link: { label: '호이상사 연동', icon: 'link-2' },
 };
 
+const DONATION_PACKAGES = Object.freeze([
+  { name: '테스터 패키지', packs: 6, coins: 0, price: 5_000 },
+  { name: '테스터 패키지2', packs: 15, coins: 1_500, price: 10_000 },
+  { name: '테스터 패키지3', packs: 50, coins: 7_000, price: 30_000 },
+]);
+
 const ui = {
   view: 'dashboard',
   renderedView: null,
@@ -199,6 +208,7 @@ const ui = {
   synthesisMaterials: [],
   notice: null,
   updateStatus: null,
+  notificationPermission: 'unknown',
   mailbox: {
     loading: false,
     claimingId: '',
@@ -211,9 +221,11 @@ const ui = {
     loading: false,
     sending: false,
     users: [],
+    packages: [],
     error: '',
     draft: {
       target: 'all',
+      presetId: 'custom',
       title: '',
       message: '',
       coins: '0',
@@ -305,6 +317,94 @@ async function flushCloudStateOrThrow() {
     throw error;
   }
   return result;
+}
+
+function expeditionNotificationId(expedition) {
+  if (!expedition?.missionId || !Number(expedition?.endsAt)) return '';
+  return `expedition:${expedition.missionId}:${Number(expedition.endsAt)}`;
+}
+
+function incidentNotificationId(incident) {
+  const at = Number(incident?.scheduledAt ?? incident?.arrivedAt);
+  if (!incident?.id || !at) return '';
+  return `incident:${incident.id}:${at}`;
+}
+
+async function scheduleExpeditionNotification(expedition, mission = expeditionById(expedition?.missionId)) {
+  if (clientPlatform !== 'android' || !expedition || !mission) return false;
+  const id = expeditionNotificationId(expedition);
+  if (!id) return false;
+  try {
+    await desktopBridge.scheduleGameNotification({
+      id,
+      type: 'expedition',
+      title: '모험 완료',
+      body: `${mission.name} 모험이 완료되었습니다.`,
+      at: Number(expedition.endsAt),
+      quietBehavior: 'delay',
+      payload: { type: 'expedition', missionId: mission.id },
+    });
+    return true;
+  } catch (error) {
+    console.warn('Could not schedule the expedition notification:', error);
+    return false;
+  }
+}
+
+async function scheduleIncidentNotification(pending, incident = incidentById(pending?.id)) {
+  if (clientPlatform !== 'android' || !pending || !incident) return false;
+  const id = incidentNotificationId(pending);
+  if (!id) return false;
+  const scheduledAt = Number(pending.scheduledAt);
+  try {
+    await desktopBridge.scheduleGameNotification({
+      id,
+      type: 'incident',
+      title: '돌발 임무 도착',
+      body: incident.title,
+      at: scheduledAt,
+      expiresAt: incidentExpiresAt(scheduledAt),
+      quietBehavior: 'skip',
+      payload: { type: 'incident', incidentId: incident.id },
+    });
+    return true;
+  } catch (error) {
+    console.warn('Could not schedule the incident notification:', error);
+    return false;
+  }
+}
+
+async function syncMobileGameNotifications({ requestPermission = false } = {}) {
+  if (clientPlatform !== 'android' || !store) return false;
+  const state = store.getState();
+  const enabled = state.settings.incidentNotifications === true;
+  try {
+    let permission = await desktopBridge.getGameNotificationPermission();
+    if (enabled && requestPermission && permission?.display === 'prompt') {
+      permission = await desktopBridge.requestGameNotificationPermission();
+    }
+    ui.notificationPermission = String(permission?.display || 'unknown');
+    await desktopBridge.configureGameNotifications({
+      enabled,
+      quietHoursEnabled: state.settings.quietHoursNotifications === true,
+    });
+    await Promise.allSettled([
+      desktopBridge.cancelGameNotificationType('expedition'),
+      desktopBridge.cancelGameNotificationType('incident'),
+    ]);
+    if (!enabled) return false;
+    const scheduled = [];
+    if (state.expedition) scheduled.push(scheduleExpeditionNotification(state.expedition));
+    if (state.pendingIncident && Number(state.pendingIncident.scheduledAt) > Date.now()) {
+      scheduled.push(scheduleIncidentNotification(state.pendingIncident));
+    }
+    await Promise.allSettled(scheduled);
+    return permission?.granted === true;
+  } catch (error) {
+    ui.notificationPermission = 'unavailable';
+    console.warn('Could not sync Android game notifications:', error);
+    return false;
+  }
 }
 
 function escapeHtml(value) {
@@ -645,6 +745,10 @@ function renderTopbar(state) {
         <button class="icon-button" type="button" data-action="open-settings" title="설정" aria-label="설정">
           <i data-lucide="settings"></i>
         </button>
+        <button class="quiet-button donation-button" type="button" data-action="open-donation" title="도네이션" aria-label="도네이션">
+          <i data-lucide="gift"></i>
+          <span>도네이션</span>
+        </button>
         <button class="quiet-button ${state.settings.payrollMode ? 'is-active' : ''}" type="button" data-action="toggle-payroll-mode" aria-pressed="${state.settings.payrollMode ? 'true' : 'false'}">
           <i data-lucide="eye-off"></i>
           <span>월급루팡 모드</span>
@@ -786,7 +890,7 @@ function renderDashboard(state) {
           <div class="empty-operation">
             <i data-lucide="wifi"></i>
             <strong>사내망 확인 중</strong>
-            <span>12~24분 간격 · 특별한 업무도 기다리고 있어요.</span>
+            <span>주기적으로 도착하며 특별한 업무도 기다리고 있어요.</span>
           </div>
         `}
       </section>
@@ -1185,7 +1289,7 @@ function renderManagement(state) {
       </div>
       <div class="management-intro">
         <div><span class="eyebrow">CARD LABORATORY</span><h2>${ui.managementPanel === 'enhance' ? '같은 카드를 모아 전력을 높이세요.' : '남는 카드를 새로운 한 장으로 바꾸세요.'}</h2></div>
-        <p>${ui.managementPanel === 'enhance' ? '강화 단계별 전투력 증가는 누적 4% · 10% · 18% · 28% · 40%입니다.' : '합성 성공률은 등급에 따라 60%부터 10%까지 낮아지며, 실패해도 같은 등급 카드 1장을 돌려받습니다.'}</p>
+        <p>${ui.managementPanel === 'enhance' ? '동일한 카드 한 장을 재료로 사용하며, 성공할수록 다음 강화의 성공 확률이 낮아집니다.' : '합성 성공률은 등급에 따라 60%부터 10%까지 낮아지며, 실패해도 같은 등급 카드 1장을 돌려받습니다.'}</p>
       </div>
       ${ui.managementPanel === 'synthesis' ? renderSynthesisPanel(state) : renderEnhancementPanel(state)}
     </section>
@@ -1722,11 +1826,12 @@ function renderAdminModal() {
         ${authenticated ? `
           <form class="admin-mail-form" data-form="admin-mail">
             <label><span>발송 대상</span><select name="target" required><option value="all"${selected('target', 'all', 'all')}>전체 사용자</option>${ui.admin.users.map((user) => `<option value="${escapeHtml(user.id)}"${selected('target', user.id, 'all')}>${escapeHtml(user.label || `${user.nickname} (${user.username})`)}</option>`).join('')}</select></label>
+            <label><span>지급 구성</span><select name="presetId"><option value="custom"${selected('presetId', 'custom', 'custom')}>직접 수량 지정</option>${ui.admin.packages.map((preset) => `<option value="${escapeHtml(preset.id)}"${selected('presetId', preset.id, 'custom')}>${escapeHtml(preset.name)} · ${formatNumber(preset.rewards.standardPacks)}팩${preset.rewards.coins ? ` + ${formatNumber(preset.rewards.coins)}코인` : ''}</option>`).join('')}</select></label>
             <label><span>우편 제목</span><input name="title" maxlength="80" placeholder="업데이트 기념 선물" value="${draftValue('title')}" required /></label>
             <label><span>내용</span><textarea name="message" maxlength="1000" rows="4" placeholder="사용자에게 전달할 내용을 입력하세요.">${draftValue('message')}</textarea></label>
             <div class="admin-reward-grid">
-              <label><span>사내 동전</span><input name="coins" type="number" min="0" max="100000000" step="1" value="${draftValue('coins', '0')}" /></label>
-              <label><span>표준 카드팩</span><input name="standardPacks" type="number" min="0" max="10000" step="1" value="${draftValue('standardPacks', '0')}" /></label>
+              <label><span>사내 동전</span><input name="coins" type="number" min="0" max="100000000" step="1" value="${draftValue('coins', '0')}" ${String(draft.presetId || 'custom') !== 'custom' ? 'disabled' : ''} /></label>
+              <label><span>표준 카드팩</span><input name="standardPacks" type="number" min="0" max="10000" step="1" value="${draftValue('standardPacks', '0')}" ${String(draft.presetId || 'custom') !== 'custom' ? 'disabled' : ''} /></label>
               <label><span>보관 기간</span><select name="expiresInHours"><option value="168"${selected('expiresInHours', '168', '168')}>7일</option><option value="720"${selected('expiresInHours', '720', '168')}>30일</option><option value="2160"${selected('expiresInHours', '2160', '168')}>90일</option></select></label>
             </div>
             <p class="auth-form-error" role="alert">${escapeHtml(ui.admin.error)}</p>
@@ -1751,6 +1856,10 @@ function renderAdminModal() {
 function renderSettingsModal(state) {
   const account = ui.auth.account;
   const notificationLabel = desktopBridge.isDesktop ? '데스크톱 팝업 알림' : '모바일 알림';
+  const mobileNotificationSettings = clientPlatform === 'android' ? `
+    <label class="toggle-row"><span><strong>야간 알림 끄기 (22:00~06:00)</strong><small>야간에는 돌발 임무 알림을 보내지 않고, 모험 완료 알림은 오전 6시 이후에 알려드립니다.</small></span><input type="checkbox" data-action="toggle-quiet-hours" ${state.settings.quietHoursNotifications ? 'checked' : ''} ${state.settings.incidentNotifications ? '' : 'disabled'} /><i></i></label>
+    ${ui.notificationPermission === 'denied' ? '<button class="secondary-button settings-notification-button" type="button" data-action="open-notification-settings">휴대폰 알림 권한 열기</button>' : ''}
+  ` : '';
   const desktopOnlySettings = desktopBridge.isDesktop
     ? `<label class="toggle-row"><span><strong>은밀 근무 모드</strong><small>창 닫기 시 앱을 종료하지 않고 숨깁니다.</small></span><input type="checkbox" data-action="toggle-discreet" ${state.settings.discreetMode ? 'checked' : ''} /><i></i></label>`
     : '';
@@ -1765,11 +1874,36 @@ function renderSettingsModal(state) {
           <button class="secondary-button" type="button" data-action="logout">로그아웃</button>
         </div>
         <label class="toggle-row"><span><strong>${notificationLabel}</strong><small>꺼도 돌발 업무는 계속 발생하며 업무판에서 10분간 유지됩니다.</small></span><input type="checkbox" data-action="toggle-notifications" ${state.settings.incidentNotifications ? 'checked' : ''} /><i></i></label>
+        ${mobileNotificationSettings}
         ${desktopOnlySettings}
         <label class="toggle-row"><span><strong>월급루팡 모드</strong><small>모든 카드 일러스트를 가리고 카드 이름과 등급만 표시합니다.</small></span><input type="checkbox" data-action="toggle-payroll-mode" ${state.settings.payrollMode ? 'checked' : ''} /><i></i></label>
         ${ui.updateStatus?.downloadUrl ? '<button class="primary-button settings-update-button" type="button" data-action="download-update">새 Android 버전 받기</button>' : ''}
         <button class="secondary-button settings-admin-button" type="button" data-action="open-admin"><i data-lucide="shield"></i>관리자 모드</button>
         <div class="settings-footer"><span>버전 ${escapeHtml(ui.appVersion)}</span><button class="danger-text-button" type="button" data-action="reset-progress">클라우드 진행 기록 초기화</button></div>
+      </section>
+    </div>
+  `;
+}
+
+function renderDonationModal() {
+  return `
+    <div class="modal-backdrop" data-action="close-modal">
+      <section class="modal-sheet donation-modal" role="dialog" aria-modal="true" aria-labelledby="donation-title" data-modal-panel>
+        <button class="modal-close" type="button" data-action="close-modal" aria-label="닫기"><i data-lucide="x"></i></button>
+        <span class="eyebrow">TESTER SUPPORT</span>
+        <h2 id="donation-title">도네이션</h2>
+        <div class="donation-bank"><small>토스뱅크</small><strong>1000-4112-0011 ㅊㅅㅇ</strong></div>
+        <p>입금 후 운영자에게 알려주시면 해당 패키지를 우편으로 지급합니다.</p>
+        <div class="donation-package-list">
+          ${DONATION_PACKAGES.map((entry, index) => `
+            <article>
+              <b>${index + 1}</b>
+              <span><strong>${escapeHtml(entry.name)}</strong><small>카드팩 ${formatNumber(entry.packs)}개${entry.coins ? ` · ${formatNumber(entry.coins)}코인` : ''}</small></span>
+              <em>${formatNumber(entry.price)}원</em>
+            </article>
+          `).join('')}
+        </div>
+        <button class="primary-button" type="button" data-action="close-modal">확인</button>
       </section>
     </div>
   `;
@@ -1782,6 +1916,7 @@ function renderModal(state) {
   if (ui.modal.type === 'incident') return renderIncidentModal(ui.modal.incident);
   if (ui.modal.type === 'result') return renderResultModal(ui.modal, state);
   if (ui.modal.type === 'settings') return renderSettingsModal(state);
+  if (ui.modal.type === 'donation') return renderDonationModal();
   if (ui.modal.type === 'admin') return renderAdminModal();
   return '';
 }
@@ -2337,6 +2472,7 @@ function beginExpedition() {
       draft.expedition = expedition;
       appendActivity(draft, `${mission.name} 모험을 시작했습니다.`, 'adventure');
     });
+    void scheduleExpeditionNotification(expedition, mission);
     showNotice('자동 모험을 시작했습니다.', 'success');
   } catch (error) {
     showNotice(error.message, 'warning');
@@ -2349,6 +2485,8 @@ function completeExpeditionIfReady() {
   const mission = expeditionById(state.expedition?.missionId);
   const completion = completeDueExpedition({ state, mission });
   if (!completion) return false;
+  const notificationId = expeditionNotificationId(state.expedition);
+  if (notificationId) void desktopBridge.cancelGameNotification(notificationId).catch(() => {});
   appendActivity(
     completion.state,
     `${mission.name} 완료: ${formatNumber(completion.result.coins)} 동전 획득`,
@@ -2521,6 +2659,7 @@ async function resolveActiveIncident({ choiceId, instanceId = null, incidentId =
   if (ui.cloud.phase !== 'active') throw new Error('클라우드 연결을 확인한 뒤 다시 선택해 주세요.');
   const state = store.getState();
   const active = state.activeIncident;
+  const nativeNotificationId = incidentNotificationId(active);
   const targetInstanceId = instanceId || active?.instanceId;
   if (incidentId && active?.id !== incidentId) throw new Error('이미 종료되었거나 이전 돌발 업무입니다.');
   const resolution = resolveIncidentChoice({
@@ -2546,6 +2685,7 @@ async function resolveActiveIncident({ choiceId, instanceId = null, incidentId =
   // must not make the user lose the result or retry it for a second reward.
   try {
     await desktopBridge.clearActiveIncident(targetInstanceId, { keepToast: fromToast });
+    if (nativeNotificationId) await desktopBridge.cancelGameNotification(nativeNotificationId);
   } catch (error) {
     console.warn('Could not close the incident notification:', error);
   }
@@ -2590,6 +2730,8 @@ async function scheduleNextIncident() {
         draft.nextIncidentAt = null;
         draft.incidentScheduled = false;
       });
+    } else {
+      await scheduleIncidentNotification({ id: incident.id, scheduledAt }, incident);
     }
   } catch (error) {
     // Keep the pending incident so the next startup/retry can schedule it again.
@@ -2714,6 +2856,8 @@ async function expireActiveIncidentIfNeeded() {
     showNotice('돌발 업무의 10분 제한 시간이 끝났습니다.', 'warning');
     try {
       await desktopBridge.clearActiveIncident(active.instanceId);
+      const nativeNotificationId = incidentNotificationId(active);
+      if (nativeNotificationId) await desktopBridge.cancelGameNotification(nativeNotificationId);
     } catch (error) {
       console.warn('Could not clear an expired incident notification:', error);
     }
@@ -2734,6 +2878,28 @@ async function startIncidentRuntime() {
   if (await expireActiveIncidentIfNeeded()) return;
   if (restorePendingIncidentIfDue() === 'active') return;
   await scheduleNextIncident();
+}
+
+function handleGameNotificationOpened(notification) {
+  if (!notification) return;
+  if (!store || ui.auth.phase !== 'authenticated' || ui.cloud.phase !== 'active') {
+    pendingGameNotificationOpen = notification;
+    return;
+  }
+  const type = String(notification.type || notification.payload?.type || '');
+  if (type === 'incident') {
+    restorePendingIncidentIfDue();
+    if (store.getState().activeIncident) openActiveIncident();
+    else {
+      ui.view = 'dashboard';
+      render();
+    }
+    return;
+  }
+  if (type === 'expedition') {
+    ui.view = 'adventure';
+    if (!completeExpeditionIfReady()) render();
+  }
 }
 
 function resetAuthAvailability(field = null) {
@@ -2802,6 +2968,7 @@ function updateCloudUi(status = {}) {
   ui.auth.offline = ui.cloud.phase !== 'active';
   if (previousPhase === 'active' && ui.cloud.phase !== 'active') {
     void desktopBridge.cancelIncident().catch(() => {});
+    void desktopBridge.cancelAllGameNotifications().catch(() => {});
   }
   if (ui.auth.phase === 'authenticated' && store) {
     try {
@@ -2997,8 +3164,12 @@ async function loadAdminUsers() {
   ui.admin.error = '';
   render();
   try {
-    const result = await loadTcgAdminUsers(ui.admin.token);
+    const [result, catalog] = await Promise.all([
+      loadTcgAdminUsers(ui.admin.token),
+      loadTcgAdminGrantCatalog(ui.admin.token),
+    ]);
     ui.admin.users = Array.isArray(result.users) ? result.users : [];
+    ui.admin.packages = Array.isArray(catalog.packages) ? catalog.packages : [];
     return true;
   } catch (error) {
     ui.admin.error = error.message || '사용자 목록을 불러오지 못했습니다.';
@@ -3016,7 +3187,10 @@ async function submitAdminLogin(form) {
   ui.admin.error = '';
   render();
   try {
-    const result = await loginTcgAdmin(String(data.get('username') || '').trim(), String(data.get('password') || ''));
+    const result = await loginTcgAdmin(
+      String(data.get('username') || '').normalize('NFKC').trim(),
+      String(data.get('password') || '').normalize('NFC').trim(),
+    );
     if (!result?.token) throw new Error('관리자 로그인 응답이 올바르지 않습니다.');
     ui.admin.token = result.token;
     await loadAdminUsers();
@@ -3033,23 +3207,30 @@ async function submitAdminMail(form) {
   if (!ui.admin.token || ui.admin.sending) return;
   const data = new FormData(form);
   const target = String(data.get('target') || 'all');
+  const presetId = String(data.get('presetId') || 'custom');
+  const preset = ui.admin.packages.find((entry) => entry.id === presetId);
+  const coins = preset
+    ? Math.max(0, Math.floor(Number(preset.rewards?.coins) || 0))
+    : Math.max(0, Math.floor(Number(data.get('coins')) || 0));
+  const standardPacks = preset
+    ? Math.max(0, Math.floor(Number(preset.rewards?.standardPacks) || 0))
+    : Math.max(0, Math.floor(Number(data.get('standardPacks')) || 0));
   const payload = {
     targetMode: target === 'all' ? 'all' : 'single',
     ...(target === 'all' ? {} : { targetAccountId: target }),
     title: String(data.get('title') || '').trim(),
     message: String(data.get('message') || '').trim(),
-    rewards: {
-      coins: Math.max(0, Math.floor(Number(data.get('coins')) || 0)),
-      standardPacks: Math.max(0, Math.floor(Number(data.get('standardPacks')) || 0)),
-    },
+    ...(preset ? { presetId } : {}),
+    rewards: { coins, standardPacks },
     expiresInHours: Math.max(1, Math.floor(Number(data.get('expiresInHours')) || 168)),
   };
   ui.admin.draft = {
     target,
+    presetId,
     title: String(data.get('title') || ''),
     message: String(data.get('message') || ''),
-    coins: String(data.get('coins') || '0'),
-    standardPacks: String(data.get('standardPacks') || '0'),
+    coins: String(coins),
+    standardPacks: String(standardPacks),
     expiresInHours: String(data.get('expiresInHours') || '168'),
   };
   const payloadFingerprint = JSON.stringify(payload);
@@ -3094,6 +3275,11 @@ async function finishCloudActivation() {
   // immediately after the authoritative cloud record is restored.
   if (!completeExpeditionIfReady()) render();
   await startIncidentRuntime();
+  await syncMobileGameNotifications({ requestPermission: true });
+  const openedNotification = pendingGameNotificationOpen
+    || await desktopBridge.consumeLastOpenedGameNotification().catch(() => null);
+  pendingGameNotificationOpen = null;
+  if (openedNotification) handleGameNotificationOpened(openedNotification);
   await refreshPersonalRaid({ silent: true });
   render();
   void refreshMailbox({ silent: true });
@@ -3116,8 +3302,8 @@ async function activateAuthenticatedSession(session, { newAccount = false } = {}
   ui.raid = { loading: false, dispatching: false, error: '', ranking: null, lastLoadedAt: 0, requestEpoch: 0 };
   ui.mailbox = { loading: false, claimingId: '', items: [], error: '', lastLoadedAt: 0 };
   ui.admin = {
-    token: '', loading: false, sending: false, users: [], error: '',
-    draft: { target: 'all', title: '', message: '', coins: '0', standardPacks: '0', expiresInHours: '168' },
+    token: '', loading: false, sending: false, users: [], packages: [], error: '',
+    draft: { target: 'all', presetId: 'custom', title: '', message: '', coins: '0', standardPacks: '0', expiresInHours: '168' },
     pendingMailRequest: null,
   };
   ui.view = 'dashboard';
@@ -3252,6 +3438,9 @@ async function logout() {
   await desktopBridge.cancelIncident().catch((error) => {
     console.warn('Could not cancel the incident during logout:', error);
   });
+  await desktopBridge.cancelAllGameNotifications().catch((error) => {
+    console.warn('Could not cancel Android game notifications during logout:', error);
+  });
   disposeCloudSession();
   authSession.clear();
   store = null;
@@ -3265,8 +3454,8 @@ async function logout() {
   ui.raid = { loading: false, dispatching: false, error: '', ranking: null, lastLoadedAt: 0, requestEpoch: 0 };
   ui.mailbox = { loading: false, claimingId: '', items: [], error: '', lastLoadedAt: 0 };
   ui.admin = {
-    token: '', loading: false, sending: false, users: [], error: '',
-    draft: { target: 'all', title: '', message: '', coins: '0', standardPacks: '0', expiresInHours: '168' },
+    token: '', loading: false, sending: false, users: [], packages: [], error: '',
+    draft: { target: 'all', presetId: 'custom', title: '', message: '', coins: '0', standardPacks: '0', expiresInHours: '168' },
     pendingMailRequest: null,
   };
   resetAuthAvailability();
@@ -3368,16 +3557,36 @@ async function downloadAndroidUpdate() {
   updateInstallPromise = (async () => {
     let releasedCloudSession = false;
     try {
-      await authenticationRestorePromise?.catch(() => {});
+      ui.updateStatus = {
+        ...ui.updateStatus,
+        status: 'saving',
+        message: '기기와 클라우드에 진행 기록을 저장하고 있습니다.',
+        downloadUrl,
+      };
+      render();
+      await withDeadline(() => authenticationRestorePromise?.catch(() => {}), {
+        timeoutMs: 15_000,
+        timeoutError: () => Object.assign(new Error('로그인 복구가 늦어 업데이트 준비를 중단했습니다. 다시 눌러 주세요.'), { code: 'UPDATE_PREPARE_TIMEOUT' }),
+      });
       flushLocalGameCache();
-      await flushCloudStateOrThrow();
+      await withDeadline(() => flushCloudStateOrThrow(), {
+        timeoutMs: 20_000,
+        timeoutError: () => Object.assign(new Error('진행 기록 저장 시간이 초과되었습니다. 로컬 백업은 보관되어 있으니 연결을 확인한 뒤 다시 시도해 주세요.'), { code: 'UPDATE_SAVE_TIMEOUT' }),
+      });
       if (cloudPlay?.getSnapshot().lease) {
-        await cloudPlay.release({ flushPending: false });
-        releasedCloudSession = true;
+        try {
+          await withDeadline(() => cloudPlay.release({ flushPending: false }), {
+            timeoutMs: 15_000,
+            timeoutError: () => Object.assign(new Error('플레이 연결 반납 응답이 늦습니다.'), { code: 'UPDATE_RELEASE_TIMEOUT' }),
+          });
+        } catch (error) {
+          // The game state was already saved. A release response can be lost
+          // without risking progress; the server lease expires automatically.
+          console.warn('Could not confirm cloud release before Android update:', error);
+        }
+        releasedCloudSession = !cloudPlay?.getSnapshot().lease;
       }
       await desktopBridge.cancelIncident();
-      ui.updateStatus = { ...ui.updateStatus, status: 'saving', downloadUrl };
-      render();
 
       if (clientPlatform === 'android') {
         if (ui.updateStatus.updateMode === 'reinstall') {
@@ -3392,6 +3601,14 @@ async function downloadAndroidUpdate() {
           render();
           return true;
         }
+        ui.updateStatus = {
+          ...ui.updateStatus,
+          status: 'downloading',
+          detail: 0,
+          message: '안드로이드가 업데이트 파일을 받고 있습니다.',
+          downloadUrl,
+        };
+        render();
         const result = await desktopBridge.installAndroidUpdate(downloadUrl);
         ui.updateStatus = { ...ui.updateStatus, ...result, downloadUrl };
         render();
@@ -3413,7 +3630,7 @@ async function downloadAndroidUpdate() {
         };
         await desktopBridge.openExternal(downloadUrl).catch(() => false);
         render();
-        if (releasedCloudSession && ui.auth.phase === 'authenticated') await retryCloudConnection();
+        if ((releasedCloudSession || ui.cloud.phase !== 'active') && ui.auth.phase === 'authenticated') await retryCloudConnection();
         return true;
       }
       const hasSaveConflict = error.code === 'CLOUD_SAVE_CONFLICT' || cloudPlay?.getSnapshot().hasSaveConflict;
@@ -3426,7 +3643,7 @@ async function downloadAndroidUpdate() {
         };
         render();
       }
-      if (releasedCloudSession && ui.auth.phase === 'authenticated') await retryCloudConnection();
+      if ((releasedCloudSession || ui.cloud.phase !== 'active') && ui.auth.phase === 'authenticated') await retryCloudConnection();
       return false;
     } finally {
       updateInstallPromise = null;
@@ -3579,11 +3796,13 @@ app.addEventListener('click', async (event) => {
   } else if (action === 'start-expedition') {
     beginExpedition();
   } else if (action === 'cancel-expedition') {
+    const notificationId = expeditionNotificationId(store.getState().expedition);
     store.update((draft) => {
       const mission = expeditionById(draft.expedition?.missionId);
       draft.expedition = null;
       appendActivity(draft, `${mission?.name || '모험'}을 중단했습니다.`, 'adventure');
     });
+    if (notificationId) void desktopBridge.cancelGameNotification(notificationId).catch(() => {});
     showNotice('모험을 중단했습니다.', 'warning');
   } else if (action === 'dispatch-raid') {
     await sendRaidSquad();
@@ -3610,6 +3829,9 @@ app.addEventListener('click', async (event) => {
   } else if (action === 'open-settings') {
     ui.modal = { type: 'settings' };
     render();
+  } else if (action === 'open-donation') {
+    ui.modal = { type: 'donation' };
+    render();
   } else if (action === 'open-admin') {
     ui.admin.error = '';
     ui.modal = { type: 'admin' };
@@ -3617,23 +3839,48 @@ app.addEventListener('click', async (event) => {
     if (ui.admin.token && !ui.admin.users.length) void loadAdminUsers();
   } else if (action === 'admin-logout') {
     ui.admin = {
-      token: '', loading: false, sending: false, users: [], error: '',
-      draft: { target: 'all', title: '', message: '', coins: '0', standardPacks: '0', expiresInHours: '168' },
+      token: '', loading: false, sending: false, users: [], packages: [], error: '',
+      draft: { target: 'all', presetId: 'custom', title: '', message: '', coins: '0', standardPacks: '0', expiresInHours: '168' },
       pendingMailRequest: null,
     };
     render();
   } else if (action === 'toggle-notifications') {
     const notificationKind = desktopBridge.isDesktop ? '데스크톱 팝업' : '모바일';
+    let enabled = button.checked;
+    if (clientPlatform === 'android' && enabled) {
+      const permission = await desktopBridge.requestGameNotificationPermission().catch(() => ({ display: 'unavailable', granted: false }));
+      ui.notificationPermission = String(permission?.display || 'unavailable');
+      enabled = permission?.granted === true;
+    }
     store.update((draft) => {
-      draft.settings.incidentNotifications = button.checked;
+      draft.settings.incidentNotifications = enabled;
     });
-    await desktopBridge.setIncidentNotifications(button.checked);
+    if (clientPlatform === 'android') await syncMobileGameNotifications();
+    else await desktopBridge.setIncidentNotifications(enabled);
     showNotice(
-      button.checked
+      enabled
         ? `${notificationKind} 알림을 켰습니다.`
-        : `${notificationKind} 알림만 껐습니다. 돌발 업무는 업무판에 계속 표시됩니다.`,
-      'success',
+        : (button.checked && clientPlatform === 'android'
+          ? '휴대폰 알림 권한이 필요합니다. 설정에서 권한을 허용해 주세요.'
+          : `${notificationKind} 알림만 껐습니다. 돌발 업무는 업무판에 계속 표시됩니다.`),
+      enabled || !button.checked ? 'success' : 'warning',
     );
+  } else if (action === 'toggle-quiet-hours') {
+    store.update((draft) => {
+      draft.settings.quietHoursNotifications = button.checked;
+    });
+    await syncMobileGameNotifications();
+    showNotice(button.checked ? '야간 알림을 끕니다.' : '야간에도 알림을 보냅니다.', 'success');
+  } else if (action === 'open-notification-settings') {
+    const permission = await desktopBridge.openGameNotificationSettings().catch(() => ({ display: 'denied', granted: false }));
+    ui.notificationPermission = String(permission?.display || 'denied');
+    if (permission?.granted) {
+      store.update((draft) => { draft.settings.incidentNotifications = true; });
+      await syncMobileGameNotifications();
+      showNotice('휴대폰 알림 권한을 확인했습니다.', 'success');
+    } else {
+      render();
+    }
   } else if (action === 'toggle-discreet') {
     store.update((draft) => {
       draft.settings.discreetMode = button.checked;
@@ -3691,6 +3938,13 @@ app.addEventListener('change', (event) => {
   const adminInput = event.target.closest('.admin-mail-form [name]');
   if (!adminInput) return;
   ui.admin.draft = { ...(ui.admin.draft || {}), [adminInput.name]: adminInput.value };
+  if (adminInput.name === 'presetId') {
+    const preset = ui.admin.packages.find((entry) => entry.id === adminInput.value);
+    ui.admin.draft.coins = String(Math.max(0, Number(preset?.rewards?.coins) || 0));
+    ui.admin.draft.standardPacks = String(Math.max(0, Number(preset?.rewards?.standardPacks) || 0));
+    if (preset && !String(ui.admin.draft.title || '').trim()) ui.admin.draft.title = preset.name;
+    render({ preserveViewScroll: true });
+  }
 });
 
 function updateLiveTimers() {
@@ -3751,6 +4005,11 @@ desktopBridge.onUpdateStatus((status) => {
   if (status?.status === 'error' && ui.cloud.phase === 'released' && ui.auth.phase === 'authenticated') {
     void retryCloudConnection();
   }
+});
+
+desktopBridge.onGameNotificationOpened((notification) => {
+  void desktopBridge.consumeLastOpenedGameNotification().catch(() => null);
+  handleGameNotificationOpened(notification);
 });
 
 desktopBridge.onAppStateChange((isActive) => {

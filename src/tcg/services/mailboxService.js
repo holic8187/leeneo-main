@@ -19,6 +19,27 @@ const MAX_STORED_MAILS = 200;
 const MAX_SAFE_BALANCE = Number.MAX_SAFE_INTEGER;
 const MAILBOX_EPOCH_START = new Date(0);
 
+const ADMIN_GRANT_PACKAGES = Object.freeze([
+  Object.freeze({
+    id: 'tester-package-1',
+    name: '테스터 패키지',
+    priceKrw: 5_000,
+    rewards: Object.freeze({ coins: 0, standardPacks: 6 })
+  }),
+  Object.freeze({
+    id: 'tester-package-2',
+    name: '테스터 패키지2',
+    priceKrw: 10_000,
+    rewards: Object.freeze({ coins: 1_500, standardPacks: 15 })
+  }),
+  Object.freeze({
+    id: 'tester-package-3',
+    name: '테스터 패키지3',
+    priceKrw: 30_000,
+    rewards: Object.freeze({ coins: 7_000, standardPacks: 50 })
+  })
+]);
+
 class MailboxError extends Error {
   constructor(code, message, status = 400, details = {}) {
     super(message);
@@ -60,6 +81,26 @@ function normalizeMailRewards(value = {}) {
   };
 }
 
+function adminGrantCatalog() {
+  return {
+    packages: ADMIN_GRANT_PACKAGES.map((entry) => clone(entry)),
+    limits: {
+      coins: MAX_MAIL_COINS,
+      standardPacks: MAX_MAIL_STANDARD_PACKS
+    }
+  };
+}
+
+function resolveAdminGrantPackage(value = '') {
+  const presetId = String(value || '').normalize('NFKC').trim();
+  if (!presetId) return null;
+  const preset = ADMIN_GRANT_PACKAGES.find((entry) => entry.id === presetId);
+  if (!preset) {
+    throw new MailboxError('INVALID_GRANT_PACKAGE', '선택한 지급 패키지가 올바르지 않습니다.');
+  }
+  return preset;
+}
+
 function normalizeRequestId(value = '') {
   const requestId = String(value || '').normalize('NFKC').trim();
   if (!requestId) return randomUUID();
@@ -74,7 +115,8 @@ function normalizeAdminMail(payload = {}, now = Date.now()) {
   const requestId = normalizeRequestId(payload.requestId);
   const title = String(payload.title || '').normalize('NFKC').trim().slice(0, MAX_MAIL_TITLE_LENGTH);
   const message = String(payload.message || '').replace(/\r\n/g, '\n').trim().slice(0, MAX_MAIL_MESSAGE_LENGTH);
-  const rewards = normalizeMailRewards(payload.rewards || {
+  const grantPackage = resolveAdminGrantPackage(payload.presetId);
+  const rewards = normalizeMailRewards(grantPackage?.rewards || payload.rewards || {
     coins: payload.coins,
     standardPacks: payload.standardPacks
   });
@@ -99,6 +141,7 @@ function normalizeAdminMail(payload = {}, now = Date.now()) {
   };
   normalized.requestHash = createHash('sha256').update(JSON.stringify({
     idempotencyScope: String(payload.idempotencyScope || ''),
+    presetId: grantPackage?.id || '',
     title,
     message,
     rewards,
@@ -477,12 +520,14 @@ async function deliverAdminMail({ TcgPlayerState, accountIds, payload = {}, now 
 }
 
 module.exports = {
+  ADMIN_GRANT_PACKAGES,
   DEFAULT_MAIL_EXPIRY_HOURS,
   MAX_MAIL_COINS,
   MAX_MAIL_EXPIRY_HOURS,
   MAX_MAIL_STANDARD_PACKS,
   MAX_STORED_MAILS,
   MailboxError,
+  adminGrantCatalog,
   applyMailRewards,
   claimMailbox,
   deliverAdminMail,
@@ -492,6 +537,7 @@ module.exports = {
   normalizeMailRewards,
   isPendingMailboxEntry,
   pruneMailboxEntries,
+  resolveAdminGrantPackage,
   serializeMail,
   serializeMailbox
 };

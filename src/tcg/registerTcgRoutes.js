@@ -22,6 +22,7 @@ const {
 } = require('./services/playerStateService');
 const {
   MailboxError,
+  adminGrantCatalog,
   claimMailbox,
   deliverAdminMail,
   getMailbox,
@@ -489,7 +490,7 @@ function registerTcgRoutes({
     }
     try {
       const username = normalizeUsername(req.body?.username);
-      const password = normalizePasswordInput(req.body?.password);
+      const password = normalizePasswordInput(req.body?.password).trim();
       if (!username || !password) {
         return res.status(400).json({ code: 'INVALID_ADMIN_CREDENTIALS', msg: '아이디와 비밀번호를 입력해주세요.' });
       }
@@ -655,6 +656,11 @@ function registerTcgRoutes({
       console.error('TCG admin user list error:', error);
       return res.status(500).json({ code: 'ADMIN_USER_LIST_FAILED', msg: '사용자 목록을 불러오지 못했습니다.' });
     }
+  });
+
+  app.get('/api/tcg/admin/grants/catalog', (req, res) => {
+    if (!requireTcgAdmin(req, res)) return;
+    return res.json(adminGrantCatalog());
   });
 
   app.post('/api/tcg/admin/mail/send', async (req, res) => {

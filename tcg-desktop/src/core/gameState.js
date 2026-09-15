@@ -57,6 +57,7 @@ export function createDefaultState(now = Date.now()) {
       discreetMode: true,
       payrollMode: false,
       incidentNotifications: true,
+      quietHoursNotifications: false,
     },
     activity: [
       {
