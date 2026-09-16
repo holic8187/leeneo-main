@@ -4,8 +4,11 @@ const crypto = require('crypto');
 const CARD_COMBAT_POWER = Object.freeze(require('../data/cardCombatPower.json'));
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
-const PERSONAL_RAID_COOLDOWN_MS = 60 * 1000;
-const PERSONAL_RAID_MAX_DAILY_CLEARS = 2;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const PERSONAL_RAID_MAX_DAILY_ENTRIES = 5;
+const PERSONAL_RAID_MAX_STAGE = 8;
+const PERSONAL_RAID_MAX_TURNS = 7;
+const PERSONAL_RAID_SESSION_MS = 30 * 60 * 1000;
 const PERSONAL_RAID_MIN_SQUAD_SCORE = 1;
 const PERSONAL_RAID_MAX_SQUAD_SCORE = 100_000;
 const PERSONAL_RAID_MAX_SQUAD_SIZE = 3;
@@ -13,17 +16,32 @@ const MAX_CARD_ENHANCEMENT = 5;
 const ENHANCEMENT_TOTAL_BONUSES = Object.freeze([0, 0.04, 0.10, 0.18, 0.28, 0.40]);
 const DEFAULT_RANKING_LIMIT = 50;
 const MAX_RANKING_LIMIT = 100;
-const MAX_CAS_ATTEMPTS = 5;
-const PERSONAL_RAID_CLEAR_REWARD = Object.freeze({ coins: 5_000, packs: 1 });
+const MAX_CAS_ATTEMPTS = 6;
+const RAID_SCHEMA_VERSION = 2;
+const PERSONAL_RAID_CLEAR_REWARD = Object.freeze({ coins: 0, packs: 0 });
+const PERSONAL_RAID_COOLDOWN_MS = 0; // v1 compatibility export
+const PERSONAL_RAID_MAX_DAILY_CLEARS = PERSONAL_RAID_MAX_DAILY_ENTRIES; // v1 compatibility export
+
+const STAGE_HP = Object.freeze([0, 100_000, 200_000, 400_000, 800_000, 1_600_000, 3_200_000, 6_400_000, 12_800_000]);
+const DEADLINE_DRAGON_SKILLS = Object.freeze([
+  Object.freeze({ id: 'deadline-swipe', name: '마감의 휩쓸기', unlockStage: 2, cooldownTurns: 3, target: 'random-two-living-cards', damage: 30, description: '무작위 생존 카드 2장에게 각각 30의 피해를 줍니다.' }),
+  Object.freeze({ id: 'overtime-order', name: '야근 명령', unlockStage: 3, cooldownTurns: 4, target: 'all-living-cards', damage: 18, description: '생존한 모든 카드에게 18의 피해를 줍니다.' }),
+  Object.freeze({ id: 'urgent-revision', name: '긴급 수정 요청', unlockStage: 4, cooldownTurns: 4, target: 'highest-power-living-card', damage: 42, status: Object.freeze({ id: 'seal', turns: 1 }), description: '전투력이 가장 높은 생존 카드에게 42의 피해를 주고 다음 스킬 사용을 1회 봉인합니다.' }),
+  Object.freeze({ id: 'deadline-roar', name: '마감 폭주', unlockStage: 5, cooldownTurns: 5, target: 'self', buff: Object.freeze({ id: 'attack-up', percent: 25, bossActions: 3 }), description: '자신의 공격 피해를 다음 3회 행동 동안 25% 높입니다.' }),
+  Object.freeze({ id: 'burning-overtime', name: '불타는 야근', unlockStage: 6, cooldownTurns: 4, target: 'all-living-cards', damage: 24, status: Object.freeze({ id: 'burn', damage: 8, turns: 2 }), description: '생존한 모든 카드에게 24의 피해를 주고 2턴 동안 턴마다 8의 화상 피해를 줍니다.' }),
+  Object.freeze({ id: 'final-inspection', name: '최종 검수', unlockStage: 7, cooldownTurns: 5, target: 'self', shieldPercentOfStageHp: 5, description: '단계 최대 HP의 5%만큼 보호막을 얻습니다.' }),
+  Object.freeze({ id: 'absolute-deadline', name: '절대 마감', unlockStage: 8, cooldownTurns: 5, target: 'all-living-cards', damage: 38, status: Object.freeze({ id: 'damage-down', percent: 20, turns: 2 }), description: '생존한 모든 카드에게 38의 피해를 주고 2턴 동안 피해량을 20% 낮춥니다.' })
+]);
 
 const PERSONAL_RAID_BOSSES = Object.freeze({
   'deadline-dragon-raid': Object.freeze({
     id: 'deadline-dragon-raid',
     name: '마감기한 드래곤',
-    maxHp: 2_800_000,
-    damageMultiplier: 145,
-    cooldownMs: PERSONAL_RAID_COOLDOWN_MS,
-    maxDailyClears: PERSONAL_RAID_MAX_DAILY_CLEARS
+    maxStage: PERSONAL_RAID_MAX_STAGE,
+    stageHp: STAGE_HP,
+    basicAttack: Object.freeze({ target: 'random-living-card', damageFormula: '9 + stage' }),
+    skills: DEADLINE_DRAGON_SKILLS,
+    maxDailyEntries: PERSONAL_RAID_MAX_DAILY_ENTRIES
   })
 });
 
@@ -38,571 +56,322 @@ class PersonalRaidError extends Error {
 }
 
 function toTimestamp(value = Date.now()) {
-  const timestamp = value instanceof Date ? value.getTime() : Number(value);
-  if (!Number.isFinite(timestamp)) throw new TypeError('A valid date is required.');
-  return timestamp;
+  const result = value instanceof Date ? value.getTime() : Number(value);
+  if (!Number.isFinite(result)) throw new TypeError('A valid date is required.');
+  return result;
+}
+
+function formatShiftedDate(shifted) {
+  return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, '0')}-${String(shifted.getUTCDate()).padStart(2, '0')}`;
 }
 
 function getKstDayWindow(now = Date.now()) {
   const nowMs = toTimestamp(now);
   const shifted = new Date(nowMs + KST_OFFSET_MS);
-  const year = shifted.getUTCFullYear();
-  const monthIndex = shifted.getUTCMonth();
-  const day = shifted.getUTCDate();
-  const dayKey = `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-  const startsAtMs = Date.UTC(year, monthIndex, day) - KST_OFFSET_MS;
-  const resetsAtMs = Date.UTC(year, monthIndex, day + 1) - KST_OFFSET_MS;
-  return {
-    dayKey,
-    startsAt: new Date(startsAtMs),
-    resetsAt: new Date(resetsAtMs)
-  };
+  const midnightShifted = Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate());
+  const startsAt = new Date(midnightShifted - KST_OFFSET_MS);
+  return { dayKey: formatShiftedDate(shifted), startsAt, resetsAt: new Date(startsAt.getTime() + DAY_MS) };
+}
+
+// Product wording "Monday 24:00" means Tuesday 00:00 KST.
+function getKstRaidWeekWindow(now = Date.now()) {
+  const nowMs = toTimestamp(now);
+  const shifted = new Date(nowMs + KST_OFFSET_MS);
+  const midnightShifted = Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate());
+  const daysSinceTuesday = (shifted.getUTCDay() + 5) % 7;
+  const startsAt = new Date(midnightShifted - (daysSinceTuesday * DAY_MS) - KST_OFFSET_MS);
+  const weekKey = formatShiftedDate(new Date(startsAt.getTime() + KST_OFFSET_MS));
+  return { weekKey, startsAt, resetsAt: new Date(startsAt.getTime() + (7 * DAY_MS)), resetRule: 'MONDAY_24_KST' };
 }
 
 function getPersonalRaidBoss(bossId = 'deadline-dragon-raid') {
   return PERSONAL_RAID_BOSSES[String(bossId || '')] || null;
 }
 
+function getBossStage(boss, value) {
+  const stage = Math.max(1, Math.min(boss.maxStage, Math.floor(Number(value) || 1)));
+  return {
+    stage,
+    maxHp: boss.stageHp[stage],
+    basicAttack: { target: boss.basicAttack.target, damage: 9 + stage, description: `무작위 생존 카드 1장에게 ${9 + stage}의 피해를 줍니다.` },
+    skills: boss.skills.filter((skill) => skill.unlockStage <= stage)
+  };
+}
+
 function parseSquadScore(value) {
-  if ((typeof value !== 'number' && typeof value !== 'string')
-    || (typeof value === 'string' && value.trim() === '')) {
-    throw new PersonalRaidError(
-      'INVALID_SQUAD_SCORE',
-      `합산 전투력은 ${PERSONAL_RAID_MIN_SQUAD_SCORE.toLocaleString('ko-KR')}~${PERSONAL_RAID_MAX_SQUAD_SCORE.toLocaleString('ko-KR')} 사이의 정수여야 합니다.`,
-      400,
-      { minimum: PERSONAL_RAID_MIN_SQUAD_SCORE, maximum: PERSONAL_RAID_MAX_SQUAD_SCORE }
-    );
-  }
   const score = Number(value);
-  if (!Number.isSafeInteger(score)
-    || score < PERSONAL_RAID_MIN_SQUAD_SCORE
-    || score > PERSONAL_RAID_MAX_SQUAD_SCORE) {
-    throw new PersonalRaidError(
-      'INVALID_SQUAD_SCORE',
-      `합산 전투력은 ${PERSONAL_RAID_MIN_SQUAD_SCORE.toLocaleString('ko-KR')}~${PERSONAL_RAID_MAX_SQUAD_SCORE.toLocaleString('ko-KR')} 사이의 정수여야 합니다.`,
-      400,
-      { minimum: PERSONAL_RAID_MIN_SQUAD_SCORE, maximum: PERSONAL_RAID_MAX_SQUAD_SCORE }
-    );
+  if ((typeof value !== 'number' && typeof value !== 'string') || (typeof value === 'string' && !value.trim())
+    || !Number.isSafeInteger(score) || score < PERSONAL_RAID_MIN_SQUAD_SCORE || score > PERSONAL_RAID_MAX_SQUAD_SCORE) {
+    throw new PersonalRaidError('INVALID_SQUAD_SCORE', '합산 전투력이 올바르지 않습니다.', 400, { minimum: 1, maximum: PERSONAL_RAID_MAX_SQUAD_SCORE });
   }
   return score;
 }
 
-function positiveInteger(value) {
-  const count = Math.floor(Number(value));
-  return Number.isFinite(count) && count > 0 ? count : 0;
+function parseSubmittedDamage(value) {
+  const damage = Number(value);
+  if (!Number.isSafeInteger(damage) || damage < 0) throw new PersonalRaidError('INVALID_RAID_DAMAGE', '레이드 피해량은 0 이상의 정수여야 합니다.', 400);
+  return damage;
 }
 
-function enhancementCountsForCard(collection, cardEnhancements, cardId) {
+function positiveInteger(value) {
+  const result = Math.floor(Number(value));
+  return Number.isFinite(result) && result > 0 ? result : 0;
+}
+
+function enhancementCountsForCard(collection, enhancements, cardId) {
   const counts = Array(MAX_CARD_ENHANCEMENT + 1).fill(0);
   let remaining = positiveInteger(collection?.[cardId]);
-  const saved = cardEnhancements?.[cardId];
+  const saved = enhancements?.[cardId];
   for (let stage = MAX_CARD_ENHANCEMENT; stage >= 1; stage -= 1) {
-    const requested = Array.isArray(saved)
-      ? positiveInteger(saved[stage])
-      : positiveInteger(saved?.[stage]);
-    counts[stage] = Math.min(requested, remaining);
+    counts[stage] = Math.min(positiveInteger(saved?.[stage]), remaining);
     remaining -= counts[stage];
   }
   counts[0] = remaining;
   return counts;
 }
 
-function activeExpeditionLocks(playerState, now = Date.now()) {
+function activeExpeditionLocks(playerState, now) {
   const expedition = playerState?.expedition;
   if (!expedition || typeof expedition !== 'object') return {};
-  const endsAt = Number(expedition.endsAt);
-  if (Number.isFinite(endsAt) && endsAt <= toTimestamp(now)) return {};
-
-  const collection = playerState?.collection || {};
-  const cardEnhancements = playerState?.cardEnhancements || {};
+  if (Number.isFinite(Number(expedition.endsAt)) && Number(expedition.endsAt) <= toTimestamp(now)) return {};
   const locks = {};
-  for (const rawCardId of Array.isArray(expedition.squad) ? expedition.squad : []) {
-    const cardId = String(rawCardId || '').trim();
+  for (const rawId of Array.isArray(expedition.squad) ? expedition.squad : []) {
+    const cardId = String(rawId || '').trim();
     if (!cardId) continue;
-    const owned = enhancementCountsForCard(collection, cardEnhancements, cardId);
+    const owned = enhancementCountsForCard(playerState.collection, playerState.cardEnhancements, cardId);
     const locked = locks[cardId] || Array(MAX_CARD_ENHANCEMENT + 1).fill(0);
-    const rawSavedStage = expedition.enhancementStages?.[cardId];
-    const savedStage = rawSavedStage == null ? -1 : Number(rawSavedStage);
-    if (Number.isSafeInteger(savedStage)
-      && savedStage >= 0
-      && savedStage <= MAX_CARD_ENHANCEMENT
-      && owned[savedStage] > locked[savedStage]) {
+    const savedStage = Number(expedition.enhancementStages?.[cardId]);
+    if (Number.isSafeInteger(savedStage) && savedStage >= 0 && savedStage <= MAX_CARD_ENHANCEMENT && owned[savedStage] > locked[savedStage]) {
       locked[savedStage] += 1;
-      locks[cardId] = locked;
-      continue;
-    }
-    for (let stage = MAX_CARD_ENHANCEMENT; stage >= 0; stage -= 1) {
-      if (owned[stage] > locked[stage]) {
-        locked[stage] += 1;
-        locks[cardId] = locked;
-        break;
+    } else {
+      for (let stage = MAX_CARD_ENHANCEMENT; stage >= 0; stage -= 1) {
+        if (owned[stage] > locked[stage]) { locked[stage] += 1; break; }
       }
     }
+    locks[cardId] = locked;
   }
   return locks;
 }
 
-function enhancedCardPower(basePower, enhancement) {
-  return Math.round(basePower * (1 + ENHANCEMENT_TOTAL_BONUSES[enhancement]));
-}
-
-function invalidRaidSquad(message, details = {}) {
-  return new PersonalRaidError('INVALID_RAID_SQUAD', message, 400, details);
-}
-
-function validatePersonalRaidSquad({
-  playerState,
-  squad,
-  submittedScore,
-  allowImplicitEnhancement = false,
-  skipUnavailable = false,
-  now = Date.now()
-} = {}) {
-  if (!playerState || typeof playerState !== 'object' || Array.isArray(playerState)) {
-    throw new PersonalRaidError(
-      'RAID_PLAYER_STATE_UNAVAILABLE',
-      '클라우드에 저장된 카드 정보를 불러온 뒤 다시 시도해 주세요.',
-      409
-    );
+function validatePersonalRaidSquad({ playerState, squad, submittedScore, allowImplicitEnhancement = false, skipUnavailable = false, now = Date.now() } = {}) {
+  if (!playerState || typeof playerState !== 'object' || Array.isArray(playerState) || !playerState.collection || Array.isArray(playerState.collection)) {
+    throw new PersonalRaidError('RAID_PLAYER_STATE_UNAVAILABLE', '클라우드 카드 보유 정보를 불러온 뒤 다시 시도해 주세요.', 409);
   }
-  if (!Array.isArray(squad) || squad.length < 1 || squad.length > PERSONAL_RAID_MAX_SQUAD_SIZE) {
-    throw invalidRaidSquad(`개인 레이드에는 서로 다른 카드를 1~${PERSONAL_RAID_MAX_SQUAD_SIZE}장 편성해 주세요.`, {
-      maximumSquadSize: PERSONAL_RAID_MAX_SQUAD_SIZE
-    });
+  if (!Array.isArray(squad) || squad.length !== PERSONAL_RAID_MAX_SQUAD_SIZE) {
+    throw new PersonalRaidError('INVALID_RAID_SQUAD', '개인 레이드에는 서로 다른 카드 3장을 편성해 주세요.', 400, { requiredSquadSize: 3, maximumSquadSize: 3 });
   }
-
-  const collection = playerState.collection;
-  if (!collection || typeof collection !== 'object' || Array.isArray(collection)) {
-    throw new PersonalRaidError(
-      'RAID_PLAYER_STATE_UNAVAILABLE',
-      '클라우드 카드 보유 정보를 불러온 뒤 다시 시도해 주세요.',
-      409
-    );
-  }
-  const cardEnhancements = playerState.cardEnhancements || {};
   const locks = activeExpeditionLocks(playerState, now);
   const seen = new Set();
   const verifiedSquad = [];
   let squadScore = 0;
-
-  for (const rawDescriptor of squad) {
-    const descriptor = typeof rawDescriptor === 'string'
-      ? { cardId: rawDescriptor }
-      : rawDescriptor;
-    if (!descriptor || typeof descriptor !== 'object' || Array.isArray(descriptor)) {
-      throw invalidRaidSquad('레이드 카드 편성 정보가 올바르지 않습니다.');
+  for (const raw of squad) {
+    const descriptor = typeof raw === 'string' ? { cardId: raw } : raw;
+    const cardId = String(descriptor?.cardId || '').trim();
+    const hasStage = Boolean(descriptor && Object.prototype.hasOwnProperty.call(descriptor, 'enhancement'));
+    const claimedStage = Number(descriptor?.enhancement);
+    if (!cardId || (!hasStage && !allowImplicitEnhancement) || (hasStage && (!Number.isSafeInteger(claimedStage) || claimedStage < 0 || claimedStage > 5))) {
+      throw new PersonalRaidError('INVALID_RAID_SQUAD', '레이드 카드 또는 강화 단계 정보가 올바르지 않습니다.', 400);
     }
-    const cardId = String(descriptor.cardId || '').trim();
-    const hasClaimedEnhancement = Object.prototype.hasOwnProperty.call(descriptor, 'enhancement');
-    const enhancement = hasClaimedEnhancement ? Number(descriptor.enhancement) : null;
-    if (!cardId || (!allowImplicitEnhancement && !hasClaimedEnhancement)
-      || (hasClaimedEnhancement && (!Number.isSafeInteger(enhancement)
-        || enhancement < 0 || enhancement > MAX_CARD_ENHANCEMENT))) {
-      throw invalidRaidSquad('레이드 카드 또는 강화 단계 정보가 올바르지 않습니다.');
-    }
-    if (seen.has(cardId)) {
-      throw invalidRaidSquad('같은 종류의 카드는 강화 단계가 달라도 한 덱에 중복 편성할 수 없습니다.', {
-        cardId
-      });
-    }
+    if (seen.has(cardId)) throw new PersonalRaidError('INVALID_RAID_SQUAD', '같은 종류의 카드는 한 덱에 중복 편성할 수 없습니다.', 400, { cardId });
     seen.add(cardId);
-
     const basePower = Number(CARD_COMBAT_POWER[cardId]);
     if (!Number.isSafeInteger(basePower) || basePower < 1) {
       if (skipUnavailable) continue;
-      throw invalidRaidSquad('현재 레이드에서 사용할 수 없는 카드가 포함되어 있습니다.', { cardId });
+      throw new PersonalRaidError('INVALID_RAID_SQUAD', '현재 레이드에서 사용할 수 없는 카드가 포함되어 있습니다.', 400, { cardId });
     }
-    const owned = enhancementCountsForCard(collection, cardEnhancements, cardId);
+    const owned = enhancementCountsForCard(playerState.collection, playerState.cardEnhancements || {}, cardId);
     const locked = locks[cardId] || [];
-    let expectedEnhancement = -1;
-    for (let stage = MAX_CARD_ENHANCEMENT; stage >= 0; stage -= 1) {
-      if (owned[stage] > (locked[stage] || 0)) {
-        expectedEnhancement = stage;
-        break;
-      }
-    }
-    if (expectedEnhancement < 0) {
+    let expectedStage = -1;
+    for (let stage = 5; stage >= 0; stage -= 1) if (owned[stage] > (locked[stage] || 0)) { expectedStage = stage; break; }
+    if (expectedStage < 0) {
       if (skipUnavailable) continue;
-      throw new PersonalRaidError(
-        'RAID_CARD_UNAVAILABLE',
-        '보유하지 않았거나 모험에 참여 중인 카드는 레이드에 편성할 수 없습니다.',
-        409,
-        { cardId }
-      );
+      throw new PersonalRaidError('RAID_CARD_UNAVAILABLE', '보유하지 않았거나 모험에 참여 중인 카드는 레이드에 편성할 수 없습니다.', 409, { cardId });
     }
-    if (hasClaimedEnhancement && enhancement !== expectedEnhancement) {
-      throw new PersonalRaidError(
-        'RAID_CARD_STAGE_MISMATCH',
-        '카드 강화 정보가 클라우드 기록과 일치하지 않습니다. 잠시 후 다시 시도해 주세요.',
-        409,
-        { cardId, expectedEnhancement }
-      );
-    }
-
-    const power = enhancedCardPower(basePower, expectedEnhancement);
+    if (hasStage && claimedStage !== expectedStage) throw new PersonalRaidError('RAID_CARD_STAGE_MISMATCH', '카드 강화 정보가 클라우드 기록과 일치하지 않습니다.', 409, { cardId, expectedEnhancement: expectedStage });
+    const power = Math.round(basePower * (1 + ENHANCEMENT_TOTAL_BONUSES[expectedStage]));
     squadScore += power;
-    verifiedSquad.push({ cardId, enhancement: expectedEnhancement, power });
+    verifiedSquad.push({ slot: verifiedSquad.length + 1, cardId, enhancement: expectedStage, power });
   }
-
-  if (!verifiedSquad.length) {
-    throw invalidRaidSquad('개인 레이드에 사용할 수 있는 카드를 1장 이상 편성해 주세요.');
-  }
+  if (!verifiedSquad.length) throw new PersonalRaidError('INVALID_RAID_SQUAD', '레이드에 사용할 수 있는 카드가 없습니다.', 400);
   squadScore = parseSquadScore(squadScore);
-  if (submittedScore !== undefined && submittedScore !== null
-    && parseSquadScore(submittedScore) !== squadScore) {
-    throw new PersonalRaidError(
-      'RAID_SQUAD_SCORE_MISMATCH',
-      '전투력이 클라우드 카드 기록과 일치하지 않습니다. 최신 기록을 불러온 뒤 다시 시도해 주세요.',
-      409,
-      { verifiedSquadScore: squadScore }
-    );
+  if (submittedScore != null && parseSquadScore(submittedScore) !== squadScore) {
+    throw new PersonalRaidError('RAID_SQUAD_SCORE_MISMATCH', '전투력이 클라우드 카드 기록과 일치하지 않습니다.', 409, { verifiedSquadScore: squadScore });
   }
   return { squad: verifiedSquad, squadScore };
 }
 
-function secureRandom() {
-  return crypto.randomInt(0, 1_000_000) / 1_000_000;
-}
-
-function calculatePersonalRaidDamage(squadScore, boss, random = secureRandom) {
-  const score = parseSquadScore(squadScore);
+function calculatePersonalRaidDamage(squadScore, boss, random = Math.random) {
   const roll = Math.min(0.999999, Math.max(0, Number(random()) || 0));
-  const variance = 0.85 + (roll * 0.30);
-  return Math.max(1, Math.floor(score * boss.damageMultiplier * variance));
+  return Math.max(1, Math.floor(parseSquadScore(squadScore) * 10 * (0.85 + (roll * 0.30))));
 }
 
-function getRemainingCooldownMs(record, boss, now = Date.now()) {
-  const lastDispatchAt = record?.lastDispatchAt ? new Date(record.lastDispatchAt).getTime() : 0;
-  if (!Number.isFinite(lastDispatchAt) || lastDispatchAt <= 0) return 0;
-  return Math.max(0, boss.cooldownMs - (toTimestamp(now) - lastDispatchAt));
+function normalizedProgress(record, boss) {
+  if (Number(record?.schemaVersion) !== RAID_SCHEMA_VERSION) return { stage: 1, hp: boss.stageHp[1], contribution: 0, completed: false };
+  const stage = Math.max(1, Math.min(boss.maxStage, Math.floor(Number(record.currentStage) || 1)));
+  const maxHp = boss.stageHp[stage];
+  const rawHp = Math.max(0, Math.min(maxHp, Math.floor(Number(record.currentHp) || 0)));
+  return { stage, hp: record.weeklyCompleted ? 0 : (rawHp || maxHp), contribution: Math.max(0, Math.floor(Number(record.contribution) || 0)), completed: Boolean(record.weeklyCompleted) };
 }
 
-function createEmptyState(account, boss, window, now = Date.now()) {
-  return serializePersonalRaidState(null, account, boss, window, now);
+async function resolveLean(value) { return value && typeof value.lean === 'function' ? value.lean() : value; }
+async function findRecord(Model, key) { return resolveLean(Model.findOne(key)); }
+
+async function ensureWeeklyRecord(Model, key, account, boss) {
+  try {
+    await Model.updateOne(key, { $setOnInsert: {
+      ...key, weekKey: key.dayKey, schemaVersion: RAID_SCHEMA_VERSION, nickname: String(account.nickname || ''),
+      currentStage: 1, currentHp: boss.stageHp[1], contribution: 0, dispatchCount: 0, clearCount: 0,
+      dailyEntryDayKey: '', dailyEntryCount: 0, activeSession: null, lastFinishedSessionId: '',
+      lastDamage: 0, lastSquadScore: 0, weeklyCompleted: false, revision: 0
+    } }, { upsert: true });
+  } catch (error) { if (error?.code !== 11000) throw error; }
+}
+
+function sessionPublicView(session) {
+  if (!session) return null;
+  return {
+    sessionId: String(session.sessionId || ''), stage: Number(session.stage) || 1,
+    bossHpBefore: Number(session.bossHpBefore) || 0, stageMaxHp: Number(session.stageMaxHp) || 0,
+    squad: Array.isArray(session.squad) ? session.squad : [], squadScore: Number(session.squadScore) || 0,
+    startedAt: new Date(session.startedAt).getTime(), expiresAt: new Date(session.expiresAt).getTime()
+  };
 }
 
 function serializePersonalRaidState(record, account, boss, window, now = Date.now()) {
-  const clears = Math.max(0, Number(record?.clearCount) || 0);
-  const limitReached = clears >= boss.maxDailyClears;
-  const remainingCooldownMs = getRemainingCooldownMs(record, boss, now);
-  const currentHp = record
-    ? Math.max(0, Math.min(boss.maxHp, Number(record.currentHp) || 0))
-    : boss.maxHp;
-  const lastDispatchAt = record?.lastDispatchAt ? new Date(record.lastDispatchAt) : null;
+  const nowMs = toTimestamp(now);
+  const week = window?.weekKey ? window : getKstRaidWeekWindow(nowMs);
+  const day = getKstDayWindow(nowMs);
+  const progress = normalizedProgress(record, boss);
+  const entriesToday = record?.dailyEntryDayKey === day.dayKey ? Math.max(0, Number(record.dailyEntryCount) || 0) : 0;
+  const activeSession = record?.activeSession && new Date(record.activeSession.expiresAt).getTime() > nowMs ? sessionPublicView(record.activeSession) : null;
+  const stageConfig = getBossStage(boss, progress.stage);
+  const canEnter = !progress.completed && entriesToday < boss.maxDailyEntries && !activeSession;
   return {
-    mode: 'personal',
-    dayKey: window.dayKey,
-    resetsAt: window.resetsAt.getTime(),
-    serverNow: toTimestamp(now),
-    accountId: String(account?._id || account?.id || ''),
-    nickname: String(account?.nickname || record?.nickname || ''),
-    id: boss.id,
-    bossId: boss.id,
-    bossName: boss.name,
-    hp: currentHp,
-    maxHp: boss.maxHp,
-    contribution: Math.max(0, Number(record?.contribution) || 0),
-    totalContribution: Math.max(0, Number(record?.contribution) || 0),
-    dispatches: Math.max(0, Number(record?.dispatchCount) || 0),
-    clears,
-    rewardKey: `${window.dayKey}:${boss.id}`,
-    earnedRewards: {
-      coins: clears * PERSONAL_RAID_CLEAR_REWARD.coins,
-      packs: clears * PERSONAL_RAID_CLEAR_REWARD.packs
-    },
-    maxClears: boss.maxDailyClears,
-    maxDailyClears: boss.maxDailyClears,
-    cooldownMs: boss.cooldownMs,
-    lastDispatchAt: lastDispatchAt ? lastDispatchAt.getTime() : 0,
-    nextDispatchAt: lastDispatchAt ? lastDispatchAt.getTime() + boss.cooldownMs : 0,
-    remainingCooldownMs,
-    limitReached,
-    canDispatch: !limitReached && remainingCooldownMs === 0
+    mode: 'personal', rulesVersion: RAID_SCHEMA_VERSION, resetRule: week.resetRule, weekKey: week.weekKey, dayKey: day.dayKey,
+    resetsAt: week.resetsAt.getTime(), dailyResetsAt: day.resetsAt.getTime(), serverNow: nowMs,
+    accountId: String(account?._id || account?.id || ''), nickname: String(account?.nickname || record?.nickname || ''),
+    id: boss.id, bossId: boss.id, bossName: boss.name, stage: progress.stage, maxStage: boss.maxStage,
+    hp: progress.hp, currentHp: progress.hp, maxHp: stageConfig.maxHp, boss: stageConfig,
+    contribution: progress.contribution, totalContribution: progress.contribution, score: progress.contribution,
+    entriesToday, remainingEntries: Math.max(0, boss.maxDailyEntries - entriesToday), maxDailyEntries: boss.maxDailyEntries,
+    dispatches: Math.max(0, Number(record?.dispatchCount) || 0), clears: Math.max(0, Number(record?.clearCount) || 0),
+    weeklyCompleted: progress.completed, activeSession, canEnter, canDispatch: canEnter,
+    limitReached: entriesToday >= boss.maxDailyEntries, cooldownMs: 0, remainingCooldownMs: 0,
+    rewardKey: `${week.weekKey}:${boss.id}`, earnedRewards: { coins: 0, packs: 0 }
   };
 }
 
-async function resolveLean(queryOrValue) {
-  if (queryOrValue && typeof queryOrValue.lean === 'function') return queryOrValue.lean();
-  return queryOrValue;
-}
+function createEmptyState(account, boss, window, now) { return serializePersonalRaidState(null, account, boss, window, now); }
 
-async function findDailyRecord(TcgPersonalRaidDaily, key) {
-  return resolveLean(TcgPersonalRaidDaily.findOne(key));
-}
-
-async function ensureDailyRecord(TcgPersonalRaidDaily, key, account, boss) {
-  try {
-    await TcgPersonalRaidDaily.updateOne(key, {
-      $setOnInsert: {
-        ...key,
-        nickname: String(account.nickname || ''),
-        currentHp: boss.maxHp,
-        contribution: 0,
-        dispatchCount: 0,
-        clearCount: 0,
-        lastDispatchAt: null,
-        lastDamage: 0,
-        lastSquadScore: 0,
-        revision: 0
-      }
-    }, { upsert: true });
-  } catch (error) {
-    // Two first dispatches can race to create the same daily row. The unique index
-    // picks one winner; the other request continues against that row.
-    if (error?.code !== 11000) throw error;
-  }
-}
-
-function assertDispatchAllowed(record, boss, nowMs) {
-  const clears = Math.max(0, Number(record?.clearCount) || 0);
-  if (clears >= boss.maxDailyClears) {
-    throw new PersonalRaidError(
-      'DAILY_CLEAR_LIMIT',
-      `${boss.name}은 하루에 최대 ${boss.maxDailyClears}회까지만 클리어할 수 있습니다.`,
-      429,
-      { clears, maxDailyClears: boss.maxDailyClears }
-    );
-  }
-  const remainingCooldownMs = getRemainingCooldownMs(record, boss, nowMs);
-  if (remainingCooldownMs > 0) {
-    throw new PersonalRaidError(
-      'RAID_COOLDOWN',
-      `다음 개인 레이드 파견까지 ${Math.ceil(remainingCooldownMs / 1000)}초 남았습니다.`,
-      429,
-      { remainingCooldownMs }
-    );
-  }
-}
-
-async function dispatchPersonalRaid({
-  TcgPersonalRaidDaily,
-  account,
-  bossId = 'deadline-dragon-raid',
-  squadScore,
-  now = Date.now(),
-  random = secureRandom,
-  validateSession = null
-}) {
+async function startPersonalRaid({ TcgPersonalRaidDaily, account, bossId = 'deadline-dragon-raid', verifiedSquad, now = Date.now(), validateSession = null }) {
   const boss = getPersonalRaidBoss(bossId);
-  if (!boss) {
-    throw new PersonalRaidError('UNKNOWN_RAID_BOSS', '개인 레이드 보스 정보를 찾을 수 없습니다.', 404);
-  }
-  let score = null;
-  async function validateDispatchRequest() {
-    const validation = typeof validateSession === 'function' ? await validateSession() : null;
-    const candidate = validation && Object.prototype.hasOwnProperty.call(validation, 'squadScore')
-      ? validation.squadScore
-      : squadScore;
-    const verifiedScore = parseSquadScore(candidate);
-    if (score !== null && verifiedScore !== score) {
-      throw new PersonalRaidError(
-        'RAID_SQUAD_CHANGED',
-        '레이드 처리 중 카드 편성이 변경되었습니다. 다시 시도해 주세요.',
-        409
-      );
-    }
-    score = verifiedScore;
-  }
-  await validateDispatchRequest();
-  const nowMs = toTimestamp(now);
-  const nowDate = new Date(nowMs);
-  const window = getKstDayWindow(nowMs);
-  const accountId = account?._id || account?.id;
-  const key = { accountId, dayKey: window.dayKey, bossId: boss.id };
-  const rolledDamage = calculatePersonalRaidDamage(score, boss, random);
-
-  await ensureDailyRecord(TcgPersonalRaidDaily, key, account, boss);
-
+  if (!boss) throw new PersonalRaidError('UNKNOWN_RAID_BOSS', '개인 레이드 보스를 찾을 수 없습니다.', 404);
+  const nowMs = toTimestamp(now); const nowDate = new Date(nowMs); const week = getKstRaidWeekWindow(nowMs); const day = getKstDayWindow(nowMs);
+  const key = { accountId: account?._id || account?.id, dayKey: week.weekKey, bossId: boss.id };
+  let verified = verifiedSquad;
+  const revalidate = async () => {
+    if (typeof validateSession === 'function') verified = await validateSession();
+    if (!verified?.squad?.length) throw new PersonalRaidError('INVALID_RAID_SQUAD', '개인 레이드 덱을 확인할 수 없습니다.', 400);
+    parseSquadScore(verified.squadScore);
+  };
+  await revalidate();
+  await ensureWeeklyRecord(TcgPersonalRaidDaily, key, account, boss);
   for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {
-    const snapshot = await findDailyRecord(TcgPersonalRaidDaily, key);
-    if (!snapshot) continue;
-    assertDispatchAllowed(snapshot, boss, nowMs);
-
-    const previousHp = Math.max(1, Math.min(boss.maxHp, Number(snapshot.currentHp) || boss.maxHp));
-    const damage = Math.min(previousHp, rolledDamage);
-    const hpAfterHit = previousHp - damage;
-    const cleared = hpAfterHit <= 0;
-    const previousClears = Math.max(0, Number(snapshot.clearCount) || 0);
-    const clearsAfter = previousClears + (cleared ? 1 : 0);
-    const storedHp = cleared && clearsAfter < boss.maxDailyClears ? boss.maxHp : hpAfterHit;
-    const revision = Math.max(0, Number(snapshot.revision) || 0);
-    const lastDispatchAt = snapshot.lastDispatchAt ? new Date(snapshot.lastDispatchAt) : null;
-
-    // The lease can move to another device while damage is being calculated.
-    // Recheck immediately before the raid row is committed.
-    await validateDispatchRequest();
-    const updated = await TcgPersonalRaidDaily.findOneAndUpdate({
-      _id: snapshot._id,
-      revision,
-      clearCount: previousClears,
-      lastDispatchAt
-    }, {
-      $set: {
-        nickname: String(account.nickname || snapshot.nickname || ''),
-        currentHp: storedHp,
-        lastDispatchAt: nowDate,
-        lastDamage: damage,
-        lastSquadScore: score,
-        updatedAt: nowDate
-      },
-      $inc: {
-        contribution: damage,
-        dispatchCount: 1,
-        clearCount: cleared ? 1 : 0,
-        revision: 1
-      }
-    }, { new: true, runValidators: true });
-
+    const snapshot = await findRecord(TcgPersonalRaidDaily, key); if (!snapshot) continue;
+    const progress = normalizedProgress(snapshot, boss);
+    if (progress.completed) throw new PersonalRaidError('RAID_WEEKLY_COMPLETE', '이번 주 개인 레이드 8단계를 모두 완료했습니다.', 409);
+    if (snapshot.activeSession && new Date(snapshot.activeSession.expiresAt).getTime() > nowMs) throw new PersonalRaidError('RAID_SESSION_ACTIVE', '이미 진행 중인 개인 레이드가 있습니다.', 409, { activeSession: sessionPublicView(snapshot.activeSession) });
+    const used = snapshot.dailyEntryDayKey === day.dayKey ? Math.max(0, Number(snapshot.dailyEntryCount) || 0) : 0;
+    if (used >= boss.maxDailyEntries) throw new PersonalRaidError('DAILY_ENTRY_LIMIT', '개인 레이드는 하루에 5회까지 입장할 수 있습니다.', 429, { entriesToday: used, maxDailyEntries: 5, dailyResetsAt: day.resetsAt.getTime() });
+    const session = { sessionId: crypto.randomUUID(), stage: progress.stage, bossHpBefore: progress.hp, stageMaxHp: boss.stageHp[progress.stage], squad: verified.squad, squadScore: verified.squadScore, startedAt: nowDate, expiresAt: new Date(nowMs + PERSONAL_RAID_SESSION_MS), dayKey: day.dayKey };
+    await revalidate();
+    const updated = await TcgPersonalRaidDaily.findOneAndUpdate({ _id: snapshot._id, revision: Number(snapshot.revision) || 0 }, { $set: {
+      schemaVersion: RAID_SCHEMA_VERSION, weekKey: week.weekKey, nickname: String(account.nickname || snapshot.nickname || ''),
+      currentStage: progress.stage, currentHp: progress.hp, contribution: progress.contribution, weeklyCompleted: false,
+      dailyEntryDayKey: day.dayKey, dailyEntryCount: used + 1, activeSession: session,
+      lastSquadScore: verified.squadScore, lastDispatchAt: nowDate, updatedAt: nowDate
+    }, $inc: { dispatchCount: 1, revision: 1 } }, { new: true, runValidators: true });
     if (!updated) continue;
-    return {
-      record: typeof updated.toObject === 'function' ? updated.toObject() : updated,
-      boss,
-      window,
-      result: {
-        squadScore: score,
-        damage,
-        rolledDamage,
-        bossHpBefore: previousHp,
-        bossHpAfter: hpAfterHit,
-        cleared,
-        clearNumber: cleared ? clearsAfter : null,
-        reward: {
-          coins: cleared ? PERSONAL_RAID_CLEAR_REWARD.coins : 0,
-          packs: cleared ? PERSONAL_RAID_CLEAR_REWARD.packs : 0
-        }
-      }
-    };
+    return { record: typeof updated.toObject === 'function' ? updated.toObject() : updated, boss, window: week, session: sessionPublicView(session) };
   }
-
-  throw new PersonalRaidError(
-    'RAID_BUSY',
-    '동시에 처리 중인 개인 레이드 요청이 있습니다. 잠시 후 다시 시도해주세요.',
-    409
-  );
+  throw new PersonalRaidError('RAID_BUSY', '동시에 처리 중인 레이드 요청이 있습니다.', 409);
 }
 
-async function getPersonalRaidState({
-  TcgPersonalRaidDaily,
-  account,
-  bossId = 'deadline-dragon-raid',
-  now = Date.now()
-}) {
+async function finishPersonalRaid({ TcgPersonalRaidDaily, account, bossId = 'deadline-dragon-raid', sessionId, damageDealt, bossHpRemaining, turns, battleLog, now = Date.now(), validateSession = null }) {
   const boss = getPersonalRaidBoss(bossId);
-  if (!boss) throw new PersonalRaidError('UNKNOWN_RAID_BOSS', '개인 레이드 보스 정보를 찾을 수 없습니다.', 404);
-  const nowMs = toTimestamp(now);
-  const window = getKstDayWindow(nowMs);
-  const record = await findDailyRecord(TcgPersonalRaidDaily, {
-    accountId: account?._id || account?.id,
-    dayKey: window.dayKey,
-    bossId: boss.id
-  });
-  return {
-    record,
-    boss,
-    window,
-    state: serializePersonalRaidState(record, account, boss, window, nowMs)
-  };
+  if (!boss) throw new PersonalRaidError('UNKNOWN_RAID_BOSS', '개인 레이드 보스를 찾을 수 없습니다.', 404);
+  const damage = parseSubmittedDamage(damageDealt); const id = String(sessionId || '').trim();
+  if (!id) throw new PersonalRaidError('RAID_SESSION_REQUIRED', '레이드 전투 세션이 필요합니다.', 400);
+  if (turns != null && (!Number.isSafeInteger(Number(turns)) || Number(turns) < 0 || Number(turns) > PERSONAL_RAID_MAX_TURNS)) {
+    throw new PersonalRaidError('INVALID_RAID_TURNS', `개인 레이드는 최대 ${PERSONAL_RAID_MAX_TURNS}턴까지 진행할 수 있습니다.`, 400, { maximumTurns: PERSONAL_RAID_MAX_TURNS });
+  }
+  if (battleLog != null && (!Array.isArray(battleLog) || battleLog.length > 20_000)) throw new PersonalRaidError('INVALID_RAID_LOG', '전투 기록이 올바르지 않습니다.', 400);
+  const nowMs = toTimestamp(now); const nowDate = new Date(nowMs); const week = getKstRaidWeekWindow(nowMs);
+  const key = { accountId: account?._id || account?.id, dayKey: week.weekKey, bossId: boss.id };
+  for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {
+    const snapshot = await findRecord(TcgPersonalRaidDaily, key);
+    if (!snapshot) throw new PersonalRaidError('RAID_SESSION_NOT_FOUND', '진행 중인 레이드를 찾을 수 없습니다.', 404);
+    if (String(snapshot.lastFinishedSessionId || '') === id) throw new PersonalRaidError('RAID_SESSION_ALREADY_FINISHED', '이미 반영된 레이드 결과입니다.', 409);
+    const session = snapshot.activeSession;
+    if (!session || String(session.sessionId || '') !== id) throw new PersonalRaidError('RAID_SESSION_MISMATCH', '현재 진행 중인 레이드와 일치하지 않습니다.', 409);
+    if (new Date(session.expiresAt).getTime() <= nowMs) throw new PersonalRaidError('RAID_SESSION_EXPIRED', '레이드 전투 시간이 만료되었습니다.', 409);
+    const progress = normalizedProgress(snapshot, boss);
+    if (Number(session.stage) !== progress.stage || Number(session.bossHpBefore) !== progress.hp) throw new PersonalRaidError('RAID_PROGRESS_CHANGED', '레이드 진행 기록이 변경되었습니다.', 409);
+    const limit = Math.min(boss.stageHp[progress.stage], progress.hp, Number(session.bossHpBefore));
+    if (damage > limit) throw new PersonalRaidError('RAID_DAMAGE_EXCEEDS_LIMIT', '제출한 피해량이 현재 보스 HP를 초과합니다.', 400, { maximumDamage: limit, stageMaxHp: boss.stageHp[progress.stage], bossHpBefore: progress.hp });
+    const remaining = progress.hp - damage;
+    if (bossHpRemaining != null && (!Number.isSafeInteger(Number(bossHpRemaining)) || Number(bossHpRemaining) !== remaining)) throw new PersonalRaidError('RAID_HP_MISMATCH', '남은 보스 HP와 피해량이 일치하지 않습니다.', 409, { expectedBossHpRemaining: remaining });
+    if (typeof validateSession === 'function') await validateSession();
+    const cleared = remaining === 0; const completed = cleared && progress.stage === boss.maxStage;
+    const nextStage = cleared && !completed ? progress.stage + 1 : progress.stage;
+    const storedHp = cleared ? (completed ? 0 : boss.stageHp[nextStage]) : remaining;
+    const result = { sessionId: id, stage: progress.stage, squadScore: Number(session.squadScore) || 0, damage, damageDealt: damage, bossHpBefore: progress.hp, bossHpAfter: remaining, bossHpRemaining: remaining, turns: Number(turns) || 0, cleared, weeklyCompleted: completed, nextStage, totalContribution: progress.contribution + damage, reward: PERSONAL_RAID_CLEAR_REWARD };
+    const updated = await TcgPersonalRaidDaily.findOneAndUpdate({ _id: snapshot._id, revision: Number(snapshot.revision) || 0, 'activeSession.sessionId': id }, { $set: {
+      nickname: String(account.nickname || snapshot.nickname || ''), currentStage: nextStage, currentHp: storedHp,
+      weeklyCompleted: completed, activeSession: null, lastFinishedSessionId: id, lastFinishedResult: result,
+      lastDamage: damage, updatedAt: nowDate
+    }, $inc: { contribution: damage, clearCount: cleared ? 1 : 0, revision: 1 } }, { new: true, runValidators: true });
+    if (!updated) continue;
+    return { record: typeof updated.toObject === 'function' ? updated.toObject() : updated, boss, window: week, result };
+  }
+  throw new PersonalRaidError('RAID_BUSY', '레이드 결과를 동시에 처리 중입니다.', 409);
 }
 
-function normalizeRankingLimit(value) {
-  const parsed = Number.parseInt(String(value ?? DEFAULT_RANKING_LIMIT), 10);
-  if (!Number.isFinite(parsed)) return DEFAULT_RANKING_LIMIT;
-  return Math.max(1, Math.min(MAX_RANKING_LIMIT, parsed));
+async function dispatchPersonalRaid() {
+  throw new PersonalRaidError('RAID_BATTLE_REQUIRED', '개인 레이드가 턴제 전투로 변경되었습니다.', 409, { startEndpoint: '/api/tcg/raids/personal/start', finishEndpoint: '/api/tcg/raids/personal/finish' });
 }
 
-async function getPersonalRaidRanking({
-  TcgPersonalRaidDaily,
-  account,
-  bossId = 'deadline-dragon-raid',
-  now = Date.now(),
-  limit = DEFAULT_RANKING_LIMIT,
-  ownRecord = undefined
-}) {
-  const boss = getPersonalRaidBoss(bossId);
-  if (!boss) throw new PersonalRaidError('UNKNOWN_RAID_BOSS', '개인 레이드 보스 정보를 찾을 수 없습니다.', 404);
-  const nowMs = toTimestamp(now);
-  const window = getKstDayWindow(nowMs);
-  const query = { dayKey: window.dayKey, bossId: boss.id, contribution: { $gt: 0 } };
-  const rankingQuery = TcgPersonalRaidDaily.find(query)
-    .sort({ contribution: -1, updatedAt: 1, _id: 1 })
-    .limit(normalizeRankingLimit(limit));
-  const records = await resolveLean(rankingQuery);
-  const accountId = String(account?._id || account?.id || '');
-  const mine = ownRecord === undefined
-    ? await findDailyRecord(TcgPersonalRaidDaily, {
-      accountId: account?._id || account?.id,
-      dayKey: window.dayKey,
-      bossId: boss.id
-    })
-    : ownRecord;
-  const myContribution = Math.max(0, Number(mine?.contribution) || 0);
-  const myRank = myContribution > 0
-    ? (await TcgPersonalRaidDaily.countDocuments({
-      dayKey: window.dayKey,
-      bossId: boss.id,
-      contribution: { $gt: myContribution }
-    })) + 1
-    : null;
-  let previousContribution = null;
-  let currentRank = 0;
-  const entries = (records || []).map((record, index) => {
-    const contribution = Math.max(0, Number(record.contribution) || 0);
-    if (contribution !== previousContribution) currentRank = index + 1;
-    previousContribution = contribution;
-    return {
-      rank: currentRank,
-      accountId: String(record.accountId || ''),
-      nickname: String(record.nickname || ''),
-      contribution,
-      clears: Math.max(0, Number(record.clearCount) || 0),
-      dispatches: Math.max(0, Number(record.dispatchCount) || 0),
-      isMe: String(record.accountId || '') === accountId
-    };
-  });
-  const myEntry = myContribution > 0 ? {
-    rank: myRank,
-    accountId,
-    nickname: String(account?.nickname || mine?.nickname || ''),
-    contribution: myContribution,
-    clears: Math.max(0, Number(mine?.clearCount) || 0),
-    dispatches: Math.max(0, Number(mine?.dispatchCount) || 0),
-    isMe: true
-  } : null;
-
-  return {
-    mode: 'personal',
-    bossId: boss.id,
-    dayKey: window.dayKey,
-    resetsAt: window.resetsAt.getTime(),
-    serverNow: nowMs,
-    entries,
-    myRank,
-    myEntry
-  };
+async function getPersonalRaidState({ TcgPersonalRaidDaily, account, bossId = 'deadline-dragon-raid', now = Date.now() }) {
+  const boss = getPersonalRaidBoss(bossId); if (!boss) throw new PersonalRaidError('UNKNOWN_RAID_BOSS', '개인 레이드 보스를 찾을 수 없습니다.', 404);
+  const window = getKstRaidWeekWindow(now); const record = await findRecord(TcgPersonalRaidDaily, { accountId: account?._id || account?.id, dayKey: window.weekKey, bossId: boss.id });
+  return { record, boss, window, state: serializePersonalRaidState(record, account, boss, window, now) };
 }
+
+function normalizeRankingLimit(value) { const parsed = Number.parseInt(String(value ?? DEFAULT_RANKING_LIMIT), 10); return Number.isFinite(parsed) ? Math.max(1, Math.min(MAX_RANKING_LIMIT, parsed)) : DEFAULT_RANKING_LIMIT; }
+
+async function getPersonalRaidRanking({ TcgPersonalRaidDaily, account, bossId = 'deadline-dragon-raid', now = Date.now(), limit = DEFAULT_RANKING_LIMIT, ownRecord }) {
+  const boss = getPersonalRaidBoss(bossId); if (!boss) throw new PersonalRaidError('UNKNOWN_RAID_BOSS', '개인 레이드 보스를 찾을 수 없습니다.', 404);
+  const nowMs = toTimestamp(now); const window = getKstRaidWeekWindow(nowMs);
+  const query = { weekKey: window.weekKey, bossId: boss.id, schemaVersion: RAID_SCHEMA_VERSION, contribution: { $gt: 0 } };
+  const records = await resolveLean(TcgPersonalRaidDaily.find(query).sort({ contribution: -1, updatedAt: 1, _id: 1 }).limit(normalizeRankingLimit(limit)));
+  const mine = ownRecord === undefined ? await findRecord(TcgPersonalRaidDaily, { accountId: account?._id || account?.id, dayKey: window.weekKey, bossId: boss.id }) : ownRecord;
+  const myScore = Number(mine?.schemaVersion) === RAID_SCHEMA_VERSION ? Math.max(0, Number(mine.contribution) || 0) : 0;
+  const myRank = myScore > 0 ? (await TcgPersonalRaidDaily.countDocuments({ ...query, contribution: { $gt: myScore } })) + 1 : null;
+  const accountId = String(account?._id || account?.id || ''); let previous = null; let rank = 0;
+  const entries = (records || []).map((record, index) => { const score = Math.max(0, Number(record.contribution) || 0); if (score !== previous) rank = index + 1; previous = score; return { rank, accountId: String(record.accountId || ''), nickname: String(record.nickname || ''), contribution: score, score, stage: Math.max(1, Number(record.currentStage) || 1), clears: Math.max(0, Number(record.clearCount) || 0), entries: Math.max(0, Number(record.dispatchCount) || 0), isMe: String(record.accountId || '') === accountId }; });
+  const myEntry = myScore > 0 ? { rank: myRank, accountId, nickname: String(account?.nickname || mine?.nickname || ''), contribution: myScore, score: myScore, stage: Math.max(1, Number(mine.currentStage) || 1), clears: Math.max(0, Number(mine.clearCount) || 0), entries: Math.max(0, Number(mine.dispatchCount) || 0), isMe: true } : null;
+  return { mode: 'personal', period: 'weekly', resetRule: window.resetRule, bossId: boss.id, weekKey: window.weekKey, dayKey: window.weekKey, resetsAt: window.resetsAt.getTime(), serverNow: nowMs, entries, myRank, myEntry };
+}
+
+function getRemainingCooldownMs() { return 0; }
 
 module.exports = {
-  DEFAULT_RANKING_LIMIT,
-  KST_OFFSET_MS,
-  MAX_RANKING_LIMIT,
-  PERSONAL_RAID_BOSSES,
-  PERSONAL_RAID_CLEAR_REWARD,
-  PERSONAL_RAID_COOLDOWN_MS,
-  PERSONAL_RAID_MAX_DAILY_CLEARS,
-  PERSONAL_RAID_MAX_SQUAD_SIZE,
-  PERSONAL_RAID_MAX_SQUAD_SCORE,
-  PERSONAL_RAID_MIN_SQUAD_SCORE,
-  PersonalRaidError,
-  calculatePersonalRaidDamage,
-  createEmptyState,
-  dispatchPersonalRaid,
-  getKstDayWindow,
-  getPersonalRaidBoss,
-  getPersonalRaidRanking,
-  getPersonalRaidState,
-  getRemainingCooldownMs,
-  normalizeRankingLimit,
-  parseSquadScore,
-  serializePersonalRaidState,
-  validatePersonalRaidSquad
+  DEFAULT_RANKING_LIMIT, KST_OFFSET_MS, MAX_RANKING_LIMIT, PERSONAL_RAID_BOSSES, PERSONAL_RAID_CLEAR_REWARD,
+  PERSONAL_RAID_COOLDOWN_MS, PERSONAL_RAID_MAX_DAILY_CLEARS, PERSONAL_RAID_MAX_DAILY_ENTRIES,
+  PERSONAL_RAID_MAX_STAGE, PERSONAL_RAID_MAX_SQUAD_SIZE, PERSONAL_RAID_MAX_SQUAD_SCORE,
+  PERSONAL_RAID_MAX_TURNS, PERSONAL_RAID_MIN_SQUAD_SCORE, PERSONAL_RAID_SESSION_MS, RAID_SCHEMA_VERSION, STAGE_HP,
+  PersonalRaidError, calculatePersonalRaidDamage, createEmptyState, dispatchPersonalRaid, finishPersonalRaid,
+  getBossStage, getKstDayWindow, getKstRaidWeekWindow, getPersonalRaidBoss, getPersonalRaidRanking,
+  getPersonalRaidState, getRemainingCooldownMs, normalizeRankingLimit, parseSquadScore,
+  parseSubmittedDamage, serializePersonalRaidState, startPersonalRaid, validatePersonalRaidSquad
 };

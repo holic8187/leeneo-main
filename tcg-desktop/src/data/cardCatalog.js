@@ -67,21 +67,6 @@ const CARD_VARIANTS = Object.freeze([
   ['winter-ur', '영원의 백색 여왕'], ['hoi-ur', '별의 탄생'], ['hoi-ssr', '첫빛의 창세'],
 ]);
 
-const STAT_KEYS = Object.freeze(['work', 'sense', 'grit', 'luck']);
-
-function statsFor(total, profile) {
-  let assigned = 0;
-  const stats = {};
-  STAT_KEYS.forEach((key, index) => {
-    const value = index === STAT_KEYS.length - 1
-      ? total - assigned
-      : Math.max(1, Math.floor(total * profile[index] / 100));
-    stats[key] = value;
-    assigned += value;
-  });
-  return Object.freeze(stats);
-}
-
 function createCard([id, epithet], cardIndex) {
   const separator = id.lastIndexOf('-');
   const characterId = id.slice(0, separator);
@@ -104,7 +89,6 @@ function createCard([id, epithet], cardIndex) {
     category: character.category,
     image: `./assets/cards/${id}.webp`,
     combatPower,
-    stats: statsFor(Math.round(combatPower / 100), character.profile),
     trait: character.trait,
     traitText: `${rarityInfo.label} 등급의 ${character.specialty} 중심 전력으로 자동 모험을 지원합니다.`,
     flavor: `${epithet}. ${character.flavor}`,
@@ -114,15 +98,15 @@ function createCard([id, epithet], cardIndex) {
 export const CARD_CATALOG = Object.freeze(CARD_VARIANTS.map(createCard));
 
 export const LEGACY_CARDS = Object.freeze([
-  { id: 'rookie-analyst', name: '눈치 빠른 신입사원', rarity: 'common', department: '경영지원', category: '사원', image: './assets/cards/rookie-analyst.webp', stats: { work: 11, sense: 18, grit: 10, luck: 8 }, trait: '상사의 발소리', traitText: '돌발 업무에서 눈치 판정이 조금 유리해집니다.', flavor: 'Alt+Tab보다 빠른 손놀림으로 오늘도 살아남는다.' },
-  { id: 'sales-fox', name: '영업 여우', rarity: 'common', department: '영업본부', category: '몬스터', image: './assets/cards/sales-fox.webp', stats: { work: 13, sense: 17, grit: 8, luck: 9 }, trait: '계약의 냄새', traitText: '영업 모험의 동전 보상이 조금 증가합니다.', flavor: '계약서는 이미 준비했다. 이제 사인만 남았다.' },
-  { id: 'pantry-cat', name: '탕비실 고양이', rarity: 'rare', department: '공용시설', category: '지원', image: './assets/cards/pantry-cat.webp', stats: { work: 7, sense: 24, grit: 16, luck: 23 }, trait: '간식 감별사', traitText: '모험 중 소모품 발견 확률이 증가합니다.', flavor: '부장님의 고급 참치는 결재 없이 집행한다.' },
-  { id: 'peach-sentry', name: '피치전자 게이트 센트리', rarity: 'rare', department: '피치전자', category: '기계', image: './assets/cards/peach-sentry.webp', stats: { work: 22, sense: 12, grit: 25, luck: 8 }, trait: '출입 기록', traitText: '보안 지역 모험의 성공률이 증가합니다.', flavor: '사원증을 대십시오. 커피는 별도 승인 대상입니다.' },
-  { id: 'hwang-manager', name: '야근하다 미쳐버린 황과장', rarity: 'epic', department: '경영전략', category: '필드보스', image: './assets/cards/hwang-manager.webp', stats: { work: 34, sense: 18, grit: 31, luck: 11 }, trait: '퇴근 반려', traitText: '장시간 모험의 업무력 보정이 증가합니다.', flavor: '오늘 안에 끝내자는 말은 내일도 출근하자는 뜻이다.' },
-  { id: 'gammam-neo', name: '감맘 네오', rarity: 'epic', department: '히든스트리트', category: '필드보스', image: './assets/cards/gammam-neo.webp', stats: { work: 28, sense: 27, grit: 34, luck: 16 }, trait: '감자의 복수', traitText: '보스 모험에서 멘탈 손실을 줄입니다.', flavor: '부러진 다리만큼 복수심도 단단해졌다.' },
-  { id: 'kim-manager', name: '대머리 김부장', rarity: 'legendary', department: '본부장실', category: '레이드보스', image: './assets/cards/kim-manager.webp', stats: { work: 42, sense: 33, grit: 46, luck: 17 }, trait: '가발 낙하주의', traitText: '협동 레이드 기여 피해가 크게 증가합니다.', flavor: '빛나는 것은 이마인가, 결재권인가.' },
-  { id: 'deadline-dragon', name: '마감기한 드래곤', rarity: 'legendary', department: '프로덕션', category: '재해', image: './assets/cards/deadline-dragon.webp', stats: { work: 48, sense: 29, grit: 40, luck: 22 }, trait: 'D-DAY', traitText: '마감 직전 모험에서 모든 능력치가 증가합니다.', flavor: '일정표의 마지막 칸에서 깨어난 재앙.' },
-].map((card) => Object.freeze({ ...card, stats: Object.freeze(card.stats), legacy: true })));
+  { id: 'rookie-analyst', name: '눈치 빠른 신입사원', rarity: 'common', department: '경영지원', category: '사원', image: './assets/cards/rookie-analyst.webp', combatPower: 4700, trait: '상사의 발소리', traitText: '상사의 움직임을 읽어 전투 흐름을 앞당깁니다.', flavor: 'Alt+Tab보다 빠른 손놀림으로 오늘도 살아남는다.' },
+  { id: 'sales-fox', name: '영업 여우', rarity: 'common', department: '영업본부', category: '몬스터', image: './assets/cards/sales-fox.webp', combatPower: 4700, trait: '계약의 냄새', traitText: '계약 표식이 있는 적에게 더 강한 피해를 줍니다.', flavor: '계약서는 이미 준비했다. 이제 사인만 남았다.' },
+  { id: 'pantry-cat', name: '탕비실 고양이', rarity: 'rare', department: '공용시설', category: '지원', image: './assets/cards/pantry-cat.webp', combatPower: 7000, trait: '간식 감별사', traitText: '간식으로 아군의 체력과 전투 의지를 회복합니다.', flavor: '부장님의 고급 참치는 결재 없이 집행한다.' },
+  { id: 'peach-sentry', name: '피치전자 게이트 센트리', rarity: 'rare', department: '피치전자', category: '기계', image: './assets/cards/peach-sentry.webp', combatPower: 6700, trait: '출입 기록', traitText: '적의 강화와 침입 행동을 차단합니다.', flavor: '사원증을 대십시오. 커피는 별도 승인 대상입니다.' },
+  { id: 'hwang-manager', name: '야근하다 미쳐버린 황과장', rarity: 'epic', department: '경영전략', category: '필드보스', image: './assets/cards/hwang-manager.webp', combatPower: 9400, trait: '퇴근 반려', traitText: '전투가 길어질수록 공격력이 증가합니다.', flavor: '오늘 안에 끝내자는 말은 내일도 출근하자는 뜻이다.' },
+  { id: 'gammam-neo', name: '감맘 네오', rarity: 'epic', department: '히든스트리트', category: '필드보스', image: './assets/cards/gammam-neo.webp', combatPower: 10500, trait: '감자의 복수', traitText: '받은 피해를 축적해 강하게 반격합니다.', flavor: '부러진 다리만큼 복수심도 단단해졌다.' },
+  { id: 'kim-manager', name: '대머리 김부장', rarity: 'legendary', department: '본부장실', category: '레이드보스', image: './assets/cards/kim-manager.webp', combatPower: 13800, trait: '가발 낙하주의', traitText: '강한 결재력으로 적의 방어를 무너뜨립니다.', flavor: '빛나는 것은 이마인가, 결재권인가.' },
+  { id: 'deadline-dragon', name: '마감기한 드래곤', rarity: 'legendary', department: '프로덕션', category: '재해', image: './assets/cards/deadline-dragon.webp', combatPower: 13900, trait: 'D-DAY', traitText: '전투가 길어질수록 마감 공격이 강해집니다.', flavor: '일정표의 마지막 칸에서 깨어난 재앙.' },
+].map((card) => Object.freeze({ ...card, legacy: true })));
 
 export const ALL_CARDS = Object.freeze([...CARD_CATALOG, ...LEGACY_CARDS]);
 
@@ -268,8 +252,9 @@ export const EXPEDITIONS = Object.freeze([
 ]);
 
 export const RAID_DEFINITION = Object.freeze({
-  id: 'deadline-dragon-raid', name: '마감기한 드래곤', subtitle: '개인 일일 레이드',
-  maxHp: 2800000, durationMs: 24 * 60 * 60 * 1000, dispatchCooldownMs: 60 * 1000, maxDailyClears: 2,
+  id: 'deadline-dragon-raid', name: '마감기한 드래곤', subtitle: '주간 단계형 개인 레이드',
+  maxHp: 100000, durationMs: 7 * 24 * 60 * 60 * 1000, dispatchCooldownMs: 0,
+  maxDailyClears: 5, maxDailyEntries: 5, maxStage: 8, maxRounds: 7,
 });
 
 export const cardById = (id) => ALL_CARDS.find((card) => card.id === id) || null;

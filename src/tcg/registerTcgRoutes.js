@@ -6,9 +6,12 @@ const DefaultTcgPlayerState = require('./models/TcgPlayerState');
 const {
   PersonalRaidError,
   dispatchPersonalRaid,
+  finishPersonalRaid,
+  getBossStage,
   getPersonalRaidRanking,
   getPersonalRaidState,
   serializePersonalRaidState,
+  startPersonalRaid,
   validatePersonalRaidSquad
 } = require('./services/personalRaidService');
 const {
@@ -780,11 +783,11 @@ function registerTcgRoutes({
     } catch (error) {
       if (sendPersonalRaidError(error, res)) return;
       console.error('TCG personal raid ranking error:', error);
-      return res.status(500).json({ code: 'RAID_RANKING_FAILED', msg: '오늘의 개인 레이드 랭킹을 불러오지 못했습니다.' });
+      return res.status(500).json({ code: 'RAID_RANKING_FAILED', msg: '이번 주 개인 레이드 랭킹을 불러오지 못했습니다.' });
     }
   });
 
-  app.post('/api/tcg/raids/personal/dispatch', async (req, res) => {
+  app.post('/api/tcg/raids/personal/start', async (req, res) => {
     const account = await requireTcgAccount(req, res);
     if (!account) return;
     try {
@@ -810,30 +813,96 @@ function registerTcgRoutes({
           now: currentTime
         });
       };
-      const dispatched = await dispatchPersonalRaid({
+      const started = await startPersonalRaid({
         TcgPersonalRaidDaily,
         account,
         bossId: request.bossId,
-        squadScore: request.squadScore,
         now: currentTime,
-        validateSession,
-        ...(typeof random === 'function' ? { random } : {})
+        validateSession
       });
-      const state = serializePersonalRaidState(
-        dispatched.record,
-        account,
-        dispatched.boss,
-        dispatched.window,
-        currentTime
-      );
+      const state = serializePersonalRaidState(started.record, account, started.boss, started.window, currentTime);
+      const stageConfig = getBossStage(started.boss, started.session.stage);
       const ranking = await getPersonalRaidRanking({
         TcgPersonalRaidDaily,
         account,
-        bossId: dispatched.boss.id,
+        bossId: started.boss.id,
         now: currentTime,
-        ownRecord: dispatched.record
+        ownRecord: started.record
       });
-      return res.json({ result: dispatched.result, state, ranking });
+      return res.json({
+        state,
+        battle: {
+          sessionId: started.session.sessionId,
+          stage: started.session.stage,
+          bossId: started.boss.id,
+          bossName: started.boss.name,
+          bossMaxHp: stageConfig.maxHp,
+          bossHp: started.session.bossHpBefore,
+          stageConfig,
+          squad: started.session.squad,
+          squadScore: started.session.squadScore,
+          startedAt: started.session.startedAt,
+          expiresAt: started.session.expiresAt
+        },
+        ranking
+      });
+    } catch (error) {
+      if (sendPlayerStateError(error, res)) return;
+      if (sendPersonalRaidError(error, res)) return;
+      console.error('TCG personal raid start error:', error);
+      return res.status(500).json({ code: 'RAID_START_FAILED', msg: '개인 레이드 입장을 처리하지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/tcg/raids/personal/finish', async (req, res) => {
+    const account = await requireTcgAccount(req, res);
+    if (!account) return;
+    try {
+      const request = req.body || {};
+      const currentTime = now();
+      const validateSession = () => assertActivePlaySession({
+        TcgPlayerState,
+        accountId: account._id || account.id,
+        request,
+        now: currentTime
+      });
+      // Fail before reading or changing raid progress when another device owns play.
+      await validateSession();
+      const finished = await finishPersonalRaid({
+        TcgPersonalRaidDaily,
+        account,
+        bossId: request.bossId,
+        sessionId: request.sessionId,
+        damageDealt: request.damageDealt,
+        bossHpRemaining: request.bossHpRemaining,
+        turns: request.turns,
+        battleLog: request.battleLog,
+        now: currentTime,
+        validateSession
+      });
+      const state = serializePersonalRaidState(finished.record, account, finished.boss, finished.window, currentTime);
+      const ranking = await getPersonalRaidRanking({
+        TcgPersonalRaidDaily,
+        account,
+        bossId: finished.boss.id,
+        now: currentTime,
+        ownRecord: finished.record
+      });
+      return res.json({ state, result: finished.result, ranking });
+    } catch (error) {
+      if (sendPlayerStateError(error, res)) return;
+      if (sendPersonalRaidError(error, res)) return;
+      console.error('TCG personal raid finish error:', error);
+      return res.status(500).json({ code: 'RAID_FINISH_FAILED', msg: '개인 레이드 결과를 처리하지 못했습니다.' });
+    }
+  });
+
+  app.post('/api/tcg/raids/personal/dispatch', async (req, res) => {
+    const account = await requireTcgAccount(req, res);
+    if (!account) return;
+    try {
+      await dispatchPersonalRaid();
+      return res.status(500).json({ code: 'RAID_DISPATCH_FAILED', msg: '개인 레이드 전환에 실패했습니다.' });
     } catch (error) {
       if (sendPlayerStateError(error, res)) return;
       if (sendPersonalRaidError(error, res)) return;

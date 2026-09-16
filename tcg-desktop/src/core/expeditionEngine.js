@@ -4,16 +4,8 @@ import {
   enhancedCardPower,
 } from './cardManagement.js';
 
-const LEGACY_STAT_POWER_FACTOR = 100;
 const LEGACY_EXPEDITION_SCORE_FACTOR = 40;
 const COMBAT_POWER_SCALE = 'combat-power-v1';
-
-const statTotal = (stats = {}) => (
-  Number(stats.work || 0)
-  + Number(stats.sense || 0)
-  + Number(stats.grit || 0)
-  + Number(stats.luck || 0)
-);
 
 export const cardExpeditionPower = (card) => {
   const combatPower = Number(card?.combatPower);
@@ -21,10 +13,7 @@ export const cardExpeditionPower = (card) => {
     return Math.max(1, Math.round(combatPower));
   }
 
-  // Legacy cards predate combatPower. Their stat totals use the same 1:100
-  // scale as the generated stats on current cards, so this keeps both sets
-  // directly comparable without changing saved collections.
-  return Math.max(0, Math.round(statTotal(card?.stats) * LEGACY_STAT_POWER_FACTOR));
+  return 0;
 };
 
 export function missionMinimumPower(mission) {
