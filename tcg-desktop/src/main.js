@@ -55,7 +55,8 @@ import {
   expeditionById,
 } from './data/cardCatalog.js';
 import { incidentById } from './data/incidentCatalog.js';
-import { addCardsToCollection, openPack } from './core/packEngine.js';
+import { addCardsToCollection, openPacks } from './core/packEngine.js';
+import { newCardIndices, registerDiscoveredCards } from './core/cardDiscovery.js';
 import {
   chooseIncident,
   incidentExpiresAt,
@@ -95,8 +96,10 @@ import {
   MAX_ENHANCEMENT,
   SYNTHESIS_MATERIAL_COUNT,
   attemptCardEnhancement,
+  attemptBatchCardSynthesis,
   attemptCardSynthesis,
   autoSelectSynthesisMaterials,
+  availableSynthesisMaterialCountForRarity,
   bestAvailableEnhancementForCard,
   bestEnhancementForCard,
   cardEnhancementAvailability,
@@ -114,7 +117,9 @@ import {
 } from './core/packOpeningSession.js';
 import { createAuthSessionStore } from './core/authSession.js';
 import { createCloudPlaySession } from './core/cloudPlaySession.js';
+import { mobileNotificationPermissionPrompt } from './core/mobileNotificationPermission.js';
 import { withDeadline } from './core/promiseDeadline.js';
+import { shouldFlushCloudBeforeUpdate, waitForOptionalUpdateRestore } from './core/androidUpdatePreparation.js';
 import {
   getOrCreateDeviceId,
   platformLabel,
@@ -268,6 +273,7 @@ const ui = {
   notice: null,
   updateStatus: null,
   notificationPermission: 'unknown',
+  notificationPermissionPromptShown: false,
   mailbox: {
     loading: false,
     claimingId: '',
@@ -426,15 +432,12 @@ async function scheduleIncidentNotification(pending, incident = incidentById(pen
   }
 }
 
-async function syncMobileGameNotifications({ requestPermission = false } = {}) {
+async function syncMobileGameNotifications() {
   if (clientPlatform !== 'android' || !store) return false;
   const state = store.getState();
   const enabled = state.settings.incidentNotifications === true;
   try {
     let permission = await desktopBridge.getGameNotificationPermission();
-    if (enabled && requestPermission && permission?.display === 'prompt') {
-      permission = await desktopBridge.requestGameNotificationPermission();
-    }
     ui.notificationPermission = String(permission?.display || 'unknown');
     await desktopBridge.configureGameNotifications({
       enabled,
@@ -549,6 +552,11 @@ function requiresPackReveal(card) {
 
 function cardDisplayName(card) {
   return card?.name || '';
+}
+
+function cardCharacterIdentity(cardId) {
+  const card = cardById(cardId);
+  return card?.characterId || card?.id || String(cardId || '');
 }
 
 function refreshIcons() {
@@ -852,10 +860,22 @@ function renderDashboard(state) {
               <span>미개봉</span>
               <strong>${formatNumber(state.packs.standard)}<small>팩</small></strong>
             </div>
-            <button class="primary-button" type="button" data-action="${pendingPackOpening ? 'resume-pack-opening' : 'open-pack'}" ${!pendingPackOpening && state.packs.standard <= 0 ? 'disabled' : ''}>
-              <i data-lucide="${pendingPackOpening ? 'sparkles' : 'package-open'}"></i>
-              ${pendingPackOpening ? '미확인 카드 이어보기' : '5장 개봉'}
-            </button>
+            ${pendingPackOpening ? `
+              <button class="primary-button" type="button" data-action="resume-pack-opening">
+                <i data-lucide="sparkles"></i>미확인 카드 이어보기
+              </button>
+            ` : `
+              <div class="pack-open-buttons">
+                <button class="primary-button" type="button" data-action="open-pack" data-pack-count="1" ${state.packs.standard <= 0 ? 'disabled' : ''}>
+                  <i data-lucide="package-open"></i>1팩 개봉 · 5장
+                </button>
+                ${state.packs.standard >= 10 ? `
+                  <button class="primary-button pack-open-ten" type="button" data-action="open-pack" data-pack-count="10">
+                    <i data-lucide="sparkles"></i>10팩 한 번에 개봉 · 50장
+                  </button>
+                ` : ''}
+              </div>
+            `}
             <button class="secondary-button" type="button" data-action="buy-pack" ${state.wallet.coins < pack.coinPrice ? 'disabled' : ''}>
               <i data-lucide="coins"></i>
               ${formatNumber(pack.coinPrice)} 동전으로 구매
@@ -1264,6 +1284,15 @@ function renderSynthesisPanel(state) {
       && !new Set(state.lockedCardIds || []).has(card.id)
   ));
   const containsEnhancedCard = selectedCards.some(({ enhancement }) => Number(enhancement) > 0);
+  const batchMaterialCount = availableSynthesisMaterialCountForRarity({
+    collection: state.collection,
+    cardEnhancements: state.cardEnhancements,
+    catalog: CARD_CATALOG,
+    rarityOrder: RARITY_ORDER,
+    rarity: selectedRarity,
+    lockedCardIds: activeExpeditionCardLocks(state),
+    protectedCardIds: state.lockedCardIds,
+  });
 
   return `
     <div class="synthesis-workspace">
@@ -1303,9 +1332,13 @@ function renderSynthesisPanel(state) {
               <button type="button" class="${selectedRarity === rarity ? 'is-active' : ''}" data-action="select-synthesis-rarity" data-rarity="${rarity}" ${ui.synthesisMaterials.length && selectedRarity !== rarity ? 'disabled' : ''}>${rarityLabel(rarity)}</button>
             `).join('')}
           </div>
-          <button class="secondary-button" type="button" data-action="auto-fill-synthesis"><i data-lucide="refresh-cw"></i>+0 낮은 등급 자동 넣기</button>
+          <div class="synthesis-quick-actions">
+            <button class="secondary-button" type="button" data-action="auto-fill-synthesis"><i data-lucide="refresh-cw"></i>+0 낮은 등급 자동 넣기</button>
+            <button class="primary-button synthesis-batch-button" type="button" data-action="batch-synthesize-cards" ${batchMaterialCount >= SYNTHESIS_MATERIAL_COUNT ? '' : 'disabled'}><i data-lucide="sparkles"></i>${rarityLabel(selectedRarity)} 일괄 합성</button>
+          </div>
+          <small class="synthesis-batch-count">일괄 합성 가능 +0 카드 ${formatNumber(batchMaterialCount)}장</small>
         </div>
-        <p class="synthesis-rule">같은 등급 카드만 함께 넣을 수 있습니다. 모험 참여 카드와 잠금 카드는 자동으로 보호됩니다.</p>
+        <p class="synthesis-rule">같은 등급 카드만 함께 넣을 수 있습니다. 일괄 합성은 선택한 등급의 +0 카드만 사용하며, 모험 참여 카드·강화 카드·잠금 카드는 자동으로 보호됩니다.</p>
         <div class="synthesis-card-list">
           ${candidates.length ? candidates.map((card) => {
             const counts = enhancementCountsForCard(state.collection, state.cardEnhancements, card.id);
@@ -1639,6 +1672,7 @@ function renderPersonalRaidBattle(state) {
     state.selectedRaidSquad,
     state.expedition,
     state.collection,
+    { identityForId: cardCharacterIdentity },
   );
   const score = calculateSquadScore(
     selectedRaidSquad,
@@ -1822,10 +1856,12 @@ function renderCurrentView(state) {
 function renderPackResultCard(card, index, premiumPack, revealedCards, modal) {
   const gated = premiumPack && requiresPackReveal(card);
   const faceDown = gated && !revealedCards.has(index);
+  const isNew = !faceDown && new Set(modal.newCardIndices || []).has(index);
   const revealClass = gated ? (faceDown ? 'is-face-down' : 'is-revealed') : '';
   const rarityClass = faceDown ? 'rarity-concealed' : `rarity-${card.rarity}`;
   return `
-    <article class="result-card ${rarityClass} ${revealClass}" data-pack-card-index="${index}" style="--reveal-delay:${index * 90}ms">
+    <article class="result-card ${rarityClass} ${revealClass} ${isNew ? 'is-new-card' : ''}" data-pack-card-index="${index}" style="--reveal-delay:${Math.min(index, 10) * 70}ms">
+      ${isNew ? '<span class="new-card-badge" aria-label="처음 획득한 카드">NEW!!</span>' : ''}
       <div class="result-card__art ${revealClass}">
         ${faceDown ? `
           <button class="result-card__reveal" type="button" data-action="reveal-pack-card" data-opening-id="${escapeHtml(modal.openingId || '')}" data-card-index="${index}" aria-label="${index + 1}번째 봉인 카드 뒤집기">
@@ -1853,7 +1889,8 @@ function renderPackModalActions(state, unrevealedCount) {
     ${unrevealedCount > 0 ? `
       <button class="primary-button" type="button" disabled>봉인 카드 ${formatNumber(unrevealedCount)}장 먼저 공개</button>
     ` : hasPack ? `
-      <button class="primary-button" type="button" data-action="open-another-pack">한 팩 더 개봉 · ${formatNumber(state.packs.standard)}팩 보유</button>
+      <button class="primary-button" type="button" data-action="open-another-pack" data-pack-count="1">1팩 더 개봉 · ${formatNumber(state.packs.standard)}팩 보유</button>
+      ${state.packs.standard >= 10 ? '<button class="primary-button pack-open-ten" type="button" data-action="open-another-pack" data-pack-count="10">10팩 한 번에 개봉</button>' : ''}
     ` : `
       <button class="secondary-button" type="button" disabled>미개봉 카드팩 없음</button>
       <button class="primary-button" type="button" data-action="buy-and-open-pack" ${canBuy ? '' : 'disabled'}>
@@ -1873,9 +1910,9 @@ function renderPackModal(cards, pityTriggered, state, modal) {
     <div class="modal-backdrop pack-backdrop rarity-${highest} ${unrevealedCount ? 'has-sealed-cards' : 'is-reveal-complete'}" data-action="close-modal">
       <section class="modal-sheet pack-opening-modal" role="dialog" aria-modal="true" aria-labelledby="pack-result-title" data-modal-panel>
         <button class="modal-close" type="button" data-action="close-modal" aria-label="닫기"><i data-lucide="x"></i></button>
-        <div class="modal-heading"><span class="eyebrow">PERSONNEL DISCOVERED</span><h2 id="pack-result-title">인물 파일 개봉 결과</h2><p>${premiumPack ? '봉인된 카드는 직접 눌러 확인하세요.' : '새 카드가 인사기록에 등록되었습니다.'}</p></div>
+        <div class="modal-heading"><span class="eyebrow">PERSONNEL DISCOVERED</span><h2 id="pack-result-title">${modal.packCount > 1 ? `${formatNumber(modal.packCount)}팩 · ${formatNumber(cards.length)}장` : '인물 파일 개봉 결과'}</h2><p>${premiumPack ? '봉인된 카드는 직접 눌러 확인하세요.' : '새 카드가 인사기록에 등록되었습니다.'}</p></div>
         ${premiumPack ? `<div class="pack-reveal-hint" data-pack-reveal-hint><i data-lucide="sparkles"></i><span>${unrevealedCount ? `빛나는 봉인 카드를 눌러 한 장씩 확인하세요 · ${formatNumber(unrevealedCount)}장 남음` : '모든 봉인 카드를 확인했습니다.'}</span></div>` : ''}
-        <div class="pack-result-grid">
+        <div class="pack-result-grid ${modal.packCount > 1 ? 'is-batch' : ''}">
           ${cards.map((card, index) => renderPackResultCard(card, index, premiumPack, revealedCards, modal)).join('')}
         </div>
         <div class="modal-actions" data-pack-modal-actions>${renderPackModalActions(state, unrevealedCount)}</div>
@@ -1949,7 +1986,8 @@ function renderResultModal(result, state) {
         <h2 id="result-title">${escapeHtml(result.title || '처리 완료')}</h2>
         <p>${escapeHtml(result.message)}</p>
         ${resultCard ? `
-          <div class="management-result-card rarity-${resultCard.rarity}">
+          <div class="management-result-card rarity-${resultCard.rarity} ${result.isNew ? 'is-new-card' : ''}">
+            ${result.isNew ? '<span class="new-card-badge" aria-label="처음 획득한 카드">NEW!!</span>' : ''}
             <img class="card-illustration" src="${resultCard.image}" alt="${escapeHtml(cardDisplayName(resultCard))}" />
             <span class="rarity-stamp">${rarityEmblem(resultCard.rarity)}</span>
             <strong>${escapeHtml(cardDisplayName(resultCard))}</strong>
@@ -1963,6 +2001,41 @@ function renderResultModal(result, state) {
             <button class="primary-button" type="button" data-action="resume-pack-opening">미확인 카드 계속 보기</button>
           </div>
         ` : '<button class="primary-button" type="button" data-action="close-modal">확인</button>'}
+      </section>
+    </div>
+  `;
+}
+
+function renderBatchSynthesisResultModal(result) {
+  const results = Array.isArray(result.results) ? result.results : [];
+  return `
+    <div class="modal-backdrop" data-action="close-modal">
+      <section class="modal-sheet batch-synthesis-result-modal" role="dialog" aria-modal="true" aria-labelledby="batch-synthesis-result-title" data-modal-panel>
+        <button class="modal-close" type="button" data-action="close-modal" aria-label="닫기"><i data-lucide="x"></i></button>
+        <div class="result-symbol"><i data-lucide="sparkles"></i></div>
+        <span class="eyebrow">BATCH SYNTHESIS COMPLETE</span>
+        <h2 id="batch-synthesis-result-title">${rarityLabel(result.sourceRarity)} 일괄 합성 완료</h2>
+        <p>${formatNumber(results.length)}회 합성하여 ${formatNumber(result.successCount)}회 성공하고 ${formatNumber(result.failureCount)}회 실패했습니다.</p>
+        <div class="batch-synthesis-summary" aria-label="일괄 합성 요약">
+          <span><small>총 시도</small><strong>${formatNumber(results.length)}</strong></span>
+          <span class="is-success"><small>성공</small><strong>${formatNumber(result.successCount)}</strong></span>
+          <span class="is-failure"><small>실패</small><strong>${formatNumber(result.failureCount)}</strong></span>
+        </div>
+        <ol class="batch-synthesis-result-list">
+          ${results.map((entry, index) => {
+            const card = cardById(entry.outputCardId);
+            if (!card) return '';
+            return `
+              <li class="rarity-${card.rarity} ${entry.isNew ? 'is-new-card' : ''}">
+                <b>${formatNumber(index + 1)}</b>
+                <img class="card-illustration" src="${card.image}" alt="" loading="lazy" />
+                <span><strong>${escapeHtml(cardDisplayName(card))}</strong><small>${entry.success ? `${rarityLabel(entry.sourceRarity)} → ${rarityLabel(entry.resultRarity)} 성공` : `${rarityLabel(entry.sourceRarity)} 카드 반환`}</small></span>
+                <em class="${entry.success ? 'is-success' : 'is-failure'}">${entry.success ? '성공' : '실패'}</em>
+                ${entry.isNew ? '<mark class="batch-new-card-badge">NEW!!</mark>' : ''}
+              </li>`;
+          }).join('')}
+        </ol>
+        <button class="primary-button" type="button" data-action="close-modal">확인</button>
       </section>
     </div>
   `;
@@ -2066,15 +2139,39 @@ function renderDonationModal() {
   `;
 }
 
+function renderNotificationPermissionModal() {
+  const needsSettings = ui.modal?.action === 'settings';
+  return `
+    <div class="modal-backdrop notification-permission-backdrop">
+      <section class="modal-sheet compact-modal notification-permission-modal" role="dialog" aria-modal="true" aria-labelledby="notification-permission-title" data-modal-panel>
+        <div class="notification-permission-symbol" aria-hidden="true"><i data-lucide="bell"></i></div>
+        <span class="eyebrow">ANDROID NOTIFICATION</span>
+        <h2 id="notification-permission-title">${needsSettings ? '휴대폰 설정에서 알림을 켜주세요.' : '게임 알림을 받아볼까요?'}</h2>
+        <p>${needsSettings
+          ? '알림 권한이 꺼져 있습니다. 권한을 켜면 앱을 닫아도 모험 완료와 돌발 임무를 놓치지 않습니다.'
+          : 'Android 알림 권한을 허용하면 앱을 닫아도 모험 완료와 돌발 임무를 알려드립니다. 야간 알림은 설정에서 따로 끌 수 있습니다.'}</p>
+        <div class="modal-actions notification-permission-actions">
+          <button class="secondary-button" type="button" data-action="dismiss-notification-permission">나중에</button>
+          <button class="primary-button" type="button" data-action="${needsSettings ? 'open-notification-settings-from-prompt' : 'request-notification-permission'}">
+            <i data-lucide="bell"></i>${needsSettings ? '알림 설정 열기' : '알림 권한 허용하기'}
+          </button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
 function renderModal(state) {
   if (!ui.modal) return '';
   if (ui.modal.type === 'pack') return renderPackModal(ui.modal.cards, ui.modal.pityTriggered, state, ui.modal);
   if (ui.modal.type === 'card') return renderCardModal(cardById(ui.modal.cardId), state);
   if (ui.modal.type === 'incident') return renderIncidentModal(ui.modal.incident);
   if (ui.modal.type === 'result') return renderResultModal(ui.modal, state);
+  if (ui.modal.type === 'batch-synthesis-result') return renderBatchSynthesisResultModal(ui.modal);
   if (ui.modal.type === 'settings') return renderSettingsModal(state);
   if (ui.modal.type === 'donation') return renderDonationModal();
   if (ui.modal.type === 'admin') return renderAdminModal();
+  if (ui.modal.type === 'notification-permission') return renderNotificationPermissionModal();
   return '';
 }
 
@@ -2197,6 +2294,7 @@ function assignScrollKeys() {
     ['.synthesis-card-list', 'view:management:synthesis-list'],
     ['.synthesis-rarity-tabs', 'view:management:synthesis-rarities'],
     ['.synthesis-stage-actions', 'view:management:synthesis-stages'],
+    ['.batch-synthesis-result-list', 'modal:batch-synthesis:results'],
     ['.segmented-control', `view:${ui.view}:segmented`],
     ['.raid-mode-tabs', 'view:raid:mode-tabs'],
     ['.raid-tab-list', 'view:raid:panel-tabs'],
@@ -2285,6 +2383,8 @@ function showPackOpeningModal(opening, cards, { renderNow = true } = {}) {
     cards,
     pityTriggered: opening.pityTriggered,
     highestRarity: highestRarity(cards),
+    newCardIndices: opening.newCardIndices || [],
+    packCount: opening.packCount || 1,
     revealedCards: opening.revealedIndices,
     openingId: opening.id,
     pendingOpening: true,
@@ -2295,6 +2395,7 @@ function showPackOpeningModal(opening, cards, { renderNow = true } = {}) {
 function addPendingPackToCollection(draft, opening, cards) {
   if (draft.pendingPackOpening?.id !== opening.id) return false;
   draft.collection = addCardsToCollection(draft.collection, cards);
+  draft.discoveredCardIds = registerDiscoveredCards(draft.discoveredCardIds, cards);
   draft.pendingPackOpening = null;
   appendActivity(draft, `공개를 마친 카드 ${cards.length}장을 인사기록에 등록했습니다.`, 'pack');
   return true;
@@ -2348,6 +2449,7 @@ function resumePendingPackOpening() {
     ui.modal = {
       type: 'pack', cards, pityTriggered: opening.pityTriggered,
       highestRarity: highestRarity(cards),
+      newCardIndices: opening.newCardIndices || [], packCount: opening.packCount || 1,
       revealedCards: opening.revealedIndices, openingId: opening.id, pendingOpening: false,
     };
     render();
@@ -2380,39 +2482,45 @@ function revealPackCardAtIndex(cardIndex, openingId) {
   return true;
 }
 
-function openStandardPack() {
+function openStandardPacks(packCount = 1) {
   if (resumePendingPackOpening()) return;
   const state = store.getState();
-  if (state.packs.standard <= 0) {
-    showNotice('미개봉 카드팩이 없습니다.', 'warning');
+  const requestedCount = Number(packCount) === 10 ? 10 : 1;
+  if (state.packs.standard < requestedCount) {
+    showNotice(requestedCount === 10 ? '10팩 개봉에는 카드팩 10개가 필요합니다.' : '미개봉 카드팩이 없습니다.', 'warning');
     return;
   }
-  const result = openPack({
+  const result = openPacks({
     catalog: CARD_CATALOG,
     definition: PACK_DEFINITION.standard,
     pity: state.pity.standard,
+    packCount: requestedCount,
   });
   const highest = highestRarity(result.cards);
+  const freshIndices = newCardIndices(result.cards, state.discoveredCardIds);
   const premiumPack = rarityRank(highest) >= PACK_FLIP_THRESHOLD;
   const opening = premiumPack ? createPendingPackOpening({
     cards: result.cards,
     pityTriggered: result.pityTriggered,
     highestRarity: highest,
+    newCardIndices: freshIndices,
+    packCount: result.packCount,
   }) : null;
   store.update((draft) => {
-    draft.packs.standard -= 1;
+    draft.packs.standard -= result.packCount;
     draft.pity.standard = result.nextPity;
     if (opening) {
       draft.pendingPackOpening = opening;
       appendActivity(draft, '인물 파일에서 특별 카드 봉인을 발견했습니다.', 'pack');
     } else {
       draft.collection = addCardsToCollection(draft.collection, result.cards);
+      draft.discoveredCardIds = registerDiscoveredCards(draft.discoveredCardIds, result.cards);
       appendActivity(draft, `인물 파일에서 카드 ${result.cards.length}장을 발견했습니다.`, 'pack');
     }
   });
   ui.modal = {
     type: 'pack', cards: result.cards, pityTriggered: result.pityTriggered,
-    highestRarity: highest, revealedCards: [],
+    highestRarity: highest, newCardIndices: freshIndices, packCount: result.packCount, revealedCards: [],
     openingId: opening?.id || '', pendingOpening: Boolean(opening),
   };
   render();
@@ -2551,6 +2659,7 @@ function synthesizeSelectedCards() {
   }
 
   let outcome = null;
+  let isNew = false;
   try {
     store.update((draft) => {
       outcome = attemptCardSynthesis({
@@ -2564,6 +2673,8 @@ function synthesizeSelectedCards() {
       });
       draft.collection = outcome.collection;
       draft.cardEnhancements = outcome.cardEnhancements;
+      isNew = !(draft.discoveredCardIds || []).includes(outcome.outputCard.id);
+      draft.discoveredCardIds = registerDiscoveredCards(draft.discoveredCardIds, [outcome.outputCard]);
       appendActivity(
         draft,
         outcome.success
@@ -2587,8 +2698,65 @@ function synthesizeSelectedCards() {
       ? `다음 등급의 ${cardDisplayName(outcome.outputCard)} 카드를 획득했습니다.`
       : `같은 등급의 ${cardDisplayName(outcome.outputCard)} 카드 1장을 돌려받았습니다.`,
     cardId: outcome.outputCard.id,
+    isNew,
     enhancement: 0,
     rewardText: `<span><i data-lucide="sparkles"></i>${rarityLabel(outcome.resultRarity)} · ${escapeHtml(cardDisplayName(outcome.outputCard))}</span>`,
+  };
+  render();
+}
+
+function synthesizeCardsByRarity() {
+  const rarity = RARITY_ORDER.slice(0, -1).includes(ui.synthesisRarity)
+    ? ui.synthesisRarity
+    : RARITY_ORDER[0];
+  let outcome = null;
+  let resultEntries = [];
+
+  try {
+    store.update((draft) => {
+      outcome = attemptBatchCardSynthesis({
+        collection: draft.collection,
+        cardEnhancements: draft.cardEnhancements,
+        catalog: CARD_CATALOG,
+        rarityOrder: RARITY_ORDER,
+        rarity,
+        lockedCardIds: activeExpeditionCardLocks(draft),
+        protectedCardIds: draft.lockedCardIds,
+      });
+      draft.collection = outcome.collection;
+      draft.cardEnhancements = outcome.cardEnhancements;
+      const knownCards = new Set(draft.discoveredCardIds || []);
+      resultEntries = outcome.results.map((result) => {
+        const isNew = !knownCards.has(result.outputCard.id);
+        knownCards.add(result.outputCard.id);
+        return {
+          success: result.success,
+          sourceRarity: result.sourceRarity,
+          resultRarity: result.resultRarity,
+          outputCardId: result.outputCard.id,
+          isNew,
+        };
+      });
+      draft.discoveredCardIds = [...knownCards];
+      appendActivity(
+        draft,
+        `${rarityLabel(outcome.sourceRarity)} 카드 일괄 합성 ${formatNumber(outcome.attemptCount)}회를 완료했습니다. 성공 ${formatNumber(outcome.successCount)}회 · 실패 ${formatNumber(outcome.failureCount)}회`,
+        'card',
+      );
+    });
+  } catch (error) {
+    showNotice(error.message, 'warning');
+    return;
+  }
+
+  ui.synthesisMaterials = [];
+  ui.synthesisRarity = outcome.sourceRarity;
+  ui.modal = {
+    type: 'batch-synthesis-result',
+    sourceRarity: outcome.sourceRarity,
+    successCount: outcome.successCount,
+    failureCount: outcome.failureCount,
+    results: resultEntries,
   };
   render();
 }
@@ -2608,7 +2776,7 @@ function toggleSquadCard(cardId, context = 'adventure') {
   }
   store.update((draft) => {
     const field = context === 'raid' ? 'selectedRaidSquad' : 'selectedExpeditionSquad';
-    draft[field] = toggleSquadSelection(draft[field], cardId);
+    draft[field] = toggleSquadSelection(draft[field], cardId, { identityForId: cardCharacterIdentity });
   });
   render({ preserveViewScroll: true });
 }
@@ -2714,7 +2882,12 @@ async function refreshPersonalRaid({ rankingOnly = false, silent = false } = {})
 
 function selectedRaidBattleCards(state = store.getState()) {
   const expeditionLocks = activeExpeditionCardLocks(state);
-  return availableRaidSquad(state.selectedRaidSquad, state.expedition, state.collection).map((cardId) => {
+  return availableRaidSquad(
+    state.selectedRaidSquad,
+    state.expedition,
+    state.collection,
+    { identityForId: cardCharacterIdentity },
+  ).map((cardId) => {
     const card = cardById(cardId);
     const enhancement = bestAvailableEnhancementForCard(
       state.collection,
@@ -2760,6 +2933,22 @@ function enterRaidBattle() {
   } catch (error) {
     showNotice(error.message || '레이드 전투를 준비하지 못했습니다.', 'warning');
   }
+}
+
+function maybeShowMobileNotificationPermissionPrompt() {
+  if (!store) return false;
+  const prompt = mobileNotificationPermissionPrompt({
+    platform: clientPlatform,
+    authenticated: ui.auth.phase === 'authenticated',
+    cloudActive: ui.cloud.phase === 'active',
+    notificationsEnabled: store.getState().settings.incidentNotifications === true,
+    permissionDisplay: ui.notificationPermission,
+    alreadyShown: ui.notificationPermissionPromptShown,
+  });
+  if (!prompt) return false;
+  ui.notificationPermissionPromptShown = true;
+  ui.modal = { type: 'notification-permission', action: prompt.action };
+  return true;
 }
 
 async function beginRaidBattle() {
@@ -3577,7 +3766,8 @@ async function finishCloudActivation() {
   // immediately after the authoritative cloud record is restored.
   if (!completeExpeditionIfReady()) render();
   await startIncidentRuntime();
-  await syncMobileGameNotifications({ requestPermission: true });
+  await syncMobileGameNotifications();
+  maybeShowMobileNotificationPermissionPrompt();
   const openedNotification = pendingGameNotificationOpen
     || await desktopBridge.consumeLastOpenedGameNotification().catch(() => null);
   pendingGameNotificationOpen = null;
@@ -3866,15 +4056,18 @@ async function downloadAndroidUpdate() {
         downloadUrl,
       };
       render();
-      await withDeadline(() => authenticationRestorePromise?.catch(() => {}), {
-        timeoutMs: 15_000,
-        timeoutError: () => Object.assign(new Error('로그인 복구가 늦어 업데이트 준비를 중단했습니다. 다시 눌러 주세요.'), { code: 'UPDATE_PREPARE_TIMEOUT' }),
-      });
+      // An in-place APK update preserves local storage. Save it first, then
+      // give login restoration a short best-effort window on slow networks.
       flushLocalGameCache();
-      await withDeadline(() => flushCloudStateOrThrow(), {
-        timeoutMs: 20_000,
-        timeoutError: () => Object.assign(new Error('진행 기록 저장 시간이 초과되었습니다. 로컬 백업은 보관되어 있으니 연결을 확인한 뒤 다시 시도해 주세요.'), { code: 'UPDATE_SAVE_TIMEOUT' }),
-      });
+      const restoreStatus = await waitForOptionalUpdateRestore(authenticationRestorePromise, { timeoutMs: 4_000 });
+      if (restoreStatus === 'restored') flushLocalGameCache();
+      const activeCloudSession = Boolean(cloudPlay?.getSnapshot().lease);
+      if (shouldFlushCloudBeforeUpdate({ cloudPhase: ui.cloud.phase, hasCloudSession: activeCloudSession })) {
+        await withDeadline(() => flushCloudStateOrThrow(), {
+          timeoutMs: 20_000,
+          timeoutError: () => Object.assign(new Error('진행 기록 저장 시간이 초과되었습니다. 기기 기록은 보관되어 있으니 연결을 확인한 뒤 다시 시도해 주세요.'), { code: 'UPDATE_SAVE_TIMEOUT' }),
+        });
+      }
       if (cloudPlay?.getSnapshot().lease) {
         try {
           await withDeadline(() => cloudPlay.release({ flushPending: false }), {
@@ -4042,12 +4235,16 @@ app.addEventListener('click', async (event) => {
     autoFillSynthesisMaterials();
   } else if (action === 'synthesize-cards') {
     synthesizeSelectedCards();
-  } else if (action === 'open-pack' || action === 'open-another-pack' || action === 'resume-pack-opening') {
-    openStandardPack();
+  } else if (action === 'batch-synthesize-cards') {
+    synthesizeCardsByRarity();
+  } else if (action === 'resume-pack-opening') {
+    resumePendingPackOpening();
+  } else if (action === 'open-pack' || action === 'open-another-pack') {
+    openStandardPacks(Number(button.dataset.packCount) || 1);
   } else if (action === 'buy-pack') {
     buyStandardPack();
   } else if (action === 'buy-and-open-pack') {
-    if (buyStandardPack({ notify: false })) openStandardPack();
+    if (buyStandardPack({ notify: false })) openStandardPacks(1);
   } else if (action === 'reveal-pack-card') {
     if (ui.modal?.type !== 'pack') return;
     const index = Number(button.dataset.cardIndex);
@@ -4217,6 +4414,38 @@ app.addEventListener('click', async (event) => {
     } else {
       render();
     }
+  } else if (action === 'request-notification-permission') {
+    const permission = await desktopBridge.requestGameNotificationPermission()
+      .catch(() => ({ display: 'unavailable', granted: false }));
+    ui.notificationPermission = String(permission?.display || 'unavailable');
+    if (permission?.granted) {
+      ui.modal = null;
+      await syncMobileGameNotifications();
+      showNotice('휴대폰 알림을 켰습니다.', 'success');
+    } else if (ui.notificationPermission === 'denied') {
+      ui.modal = { type: 'notification-permission', action: 'settings' };
+      showNotice('알림 권한이 꺼져 있습니다. 휴대폰 설정에서 허용해 주세요.', 'warning');
+      render();
+    } else {
+      ui.modal = null;
+      showNotice('알림 권한 요청을 열지 못했습니다. 설정에서 다시 시도해 주세요.', 'warning');
+      render();
+    }
+  } else if (action === 'open-notification-settings-from-prompt') {
+    const permission = await desktopBridge.openGameNotificationSettings()
+      .catch(() => ({ display: 'denied', granted: false }));
+    ui.notificationPermission = String(permission?.display || 'denied');
+    if (permission?.granted) {
+      ui.modal = null;
+      await syncMobileGameNotifications();
+      showNotice('휴대폰 알림을 켰습니다.', 'success');
+    } else {
+      ui.modal = { type: 'notification-permission', action: 'settings' };
+      render();
+    }
+  } else if (action === 'dismiss-notification-permission') {
+    ui.modal = null;
+    render();
   } else if (action === 'toggle-discreet') {
     store.update((draft) => {
       draft.settings.discreetMode = button.checked;

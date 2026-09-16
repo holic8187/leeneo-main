@@ -333,6 +333,131 @@ export function autoSelectSynthesisMaterials({
   return [];
 }
 
+function synthesisMaterialAvailabilityForRarity({
+  collection = {},
+  cardEnhancements = {},
+  catalog = [],
+  rarityOrder = [],
+  rarity = '',
+  lockedCardIds = [],
+  protectedCardIds = [],
+} = {}) {
+  const sourceRarity = String(rarity || '').trim().toLowerCase();
+  const sourceRank = rarityOrder.indexOf(sourceRarity);
+  if (sourceRank < 0 || sourceRank >= rarityOrder.length - 1) return [];
+
+  const locks = lockedEnhancementCounts(collection, cardEnhancements, lockedCardIds);
+  const protectedIds = new Set(protectedCardIds || []);
+  return [...catalog]
+    .filter((card) => card?.rarity === sourceRarity && !protectedIds.has(card.id))
+    .sort((left, right) => String(left.id).localeCompare(String(right.id)))
+    .map((card) => {
+      const counts = enhancementCountsForCard(collection, cardEnhancements, card.id);
+      const available = Math.max(0, counts[0] - (locks[card.id]?.[0] || 0));
+      return { cardId: card.id, available };
+    })
+    .filter((entry) => entry.available > 0);
+}
+
+function synthesisMaterialEntriesForRarity(options = {}, limit = Number.POSITIVE_INFINITY) {
+  const entries = [];
+  for (const { cardId, available } of synthesisMaterialAvailabilityForRarity(options)) {
+    for (let index = 0; index < available && entries.length < limit; index += 1) {
+      entries.push({ cardId, enhancement: 0 });
+    }
+    if (entries.length >= limit) break;
+  }
+  return entries;
+}
+
+/**
+ * Count +0 cards that a rarity batch may safely consume. Enhanced copies,
+ * exact copies away on an expedition, and every user-protected card kind are
+ * deliberately excluded.
+ */
+export function availableSynthesisMaterialCountForRarity(options = {}) {
+  return synthesisMaterialAvailabilityForRarity(options)
+    .reduce((total, entry) => total + entry.available, 0);
+}
+
+/**
+ * Repeatedly synthesize the selected rarity until fewer than five eligible +0
+ * cards remain. A failed result is allowed to re-enter a later attempt when it
+ * is not protected, matching the visible inventory after each synthesis.
+ */
+export function attemptBatchCardSynthesis({
+  collection = {},
+  cardEnhancements = {},
+  catalog = [],
+  rarityOrder = [],
+  rarity = '',
+  lockedCardIds = [],
+  protectedCardIds = [],
+  successRate,
+  random = Math.random,
+} = {}) {
+  const sourceRarity = String(rarity || '').trim().toLowerCase();
+  const sourceRank = rarityOrder.indexOf(sourceRarity);
+  if (sourceRank < 0 || sourceRank >= rarityOrder.length - 1) {
+    throw new Error('일괄 합성할 카드 등급을 확인해 주세요.');
+  }
+
+  let nextCollection = { ...collection };
+  let nextEnhancements = normalizeCardEnhancements(cardEnhancements, nextCollection);
+  const results = [];
+
+  while (true) {
+    const materials = synthesisMaterialEntriesForRarity({
+      collection: nextCollection,
+      cardEnhancements: nextEnhancements,
+      catalog,
+      rarityOrder,
+      rarity: sourceRarity,
+      lockedCardIds,
+      protectedCardIds,
+    }, SYNTHESIS_MATERIAL_COUNT);
+    if (materials.length < SYNTHESIS_MATERIAL_COUNT) break;
+
+    const outcome = attemptCardSynthesis({
+      collection: nextCollection,
+      cardEnhancements: nextEnhancements,
+      materials,
+      catalog,
+      rarityOrder,
+      lockedCardIds,
+      protectedCardIds,
+      successRate,
+      random,
+    });
+    nextCollection = outcome.collection;
+    nextEnhancements = outcome.cardEnhancements;
+    results.push({
+      success: outcome.success,
+      successRate: outcome.successRate,
+      sourceRarity: outcome.sourceRarity,
+      resultRarity: outcome.resultRarity,
+      outputCard: outcome.outputCard,
+      materials: outcome.materials,
+    });
+  }
+
+  if (!results.length) {
+    throw new Error(`${SYNTHESIS_MATERIAL_COUNT}장 이상인 합성 가능한 ${sourceRarity.toUpperCase()} +0 카드가 없습니다.`);
+  }
+
+  return {
+    sourceRarity,
+    resultRarity: rarityOrder[sourceRank + 1],
+    results,
+    attemptCount: results.length,
+    successCount: results.filter((result) => result.success).length,
+    failureCount: results.filter((result) => !result.success).length,
+    consumedCount: results.length * SYNTHESIS_MATERIAL_COUNT,
+    collection: nextCollection,
+    cardEnhancements: nextEnhancements,
+  };
+}
+
 const normalizeMaterial = (material) => ({
   cardId: String(material?.cardId || ''),
   enhancement: enhancementStage(material?.enhancement ?? material?.stage ?? 0),

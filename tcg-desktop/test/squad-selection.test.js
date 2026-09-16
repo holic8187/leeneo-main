@@ -49,3 +49,30 @@ test('raid and expedition squads migrate separately and the raid selection survi
   assert.deepEqual(restored.selectedRaidSquad, ['winter-c']);
   assert.deepEqual(restored.selectedExpeditionSquad, ['simsim-c']);
 });
+
+test('different rarities of the same character replace each other in adventure and raid squads', () => {
+  const identity = (cardId) => cardId.split('-')[0];
+  assert.deepEqual(
+    toggleSquadSelection(['winter-c', 'guma-c'], 'winter-sr', { identityForId: identity }),
+    ['winter-sr', 'guma-c'],
+  );
+  assert.deepEqual(
+    availableRaidSquad(
+      ['winter-c', 'winter-sr', 'guma-c'],
+      null,
+      { 'winter-c': 1, 'winter-sr': 1, 'guma-c': 1 },
+      { identityForId: identity },
+    ),
+    ['winter-c', 'guma-c'],
+  );
+});
+
+test('saved squads discard later cards belonging to an already selected character', () => {
+  const hydrated = hydrateState({
+    collection: { 'winter-c': 1, 'winter-sr': 1, 'guma-c': 1 },
+    selectedExpeditionSquad: ['winter-c', 'winter-sr', 'guma-c'],
+    selectedRaidSquad: ['winter-sr', 'winter-c', 'guma-c'],
+  });
+  assert.deepEqual(hydrated.selectedExpeditionSquad, ['winter-c', 'guma-c']);
+  assert.deepEqual(hydrated.selectedRaidSquad, ['winter-sr', 'guma-c']);
+});

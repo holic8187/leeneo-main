@@ -21,6 +21,14 @@ const RAID_SCHEMA_VERSION = 2;
 const PERSONAL_RAID_CLEAR_REWARD = Object.freeze({ coins: 0, packs: 0 });
 const PERSONAL_RAID_COOLDOWN_MS = 0; // v1 compatibility export
 const PERSONAL_RAID_MAX_DAILY_CLEARS = PERSONAL_RAID_MAX_DAILY_ENTRIES; // v1 compatibility export
+const CARD_RARITY_SUFFIXES = new Set(['c', 'u', 'r', 'rr', 'rrr', 'sr', 'hr', 'ur', 'ssr']);
+
+function cardCharacterKey(cardId) {
+  const normalized = String(cardId || '').trim();
+  const separator = normalized.lastIndexOf('-');
+  if (separator <= 0 || !CARD_RARITY_SUFFIXES.has(normalized.slice(separator + 1))) return normalized;
+  return normalized.slice(0, separator);
+}
 
 const STAGE_HP = Object.freeze([0, 100_000, 200_000, 400_000, 800_000, 1_600_000, 3_200_000, 6_400_000, 12_800_000]);
 const DEADLINE_DRAGON_SKILLS = Object.freeze([
@@ -162,6 +170,7 @@ function validatePersonalRaidSquad({ playerState, squad, submittedScore, allowIm
   }
   const locks = activeExpeditionLocks(playerState, now);
   const seen = new Set();
+  const seenCharacters = new Set();
   const verifiedSquad = [];
   let squadScore = 0;
   for (const raw of squad) {
@@ -174,6 +183,9 @@ function validatePersonalRaidSquad({ playerState, squad, submittedScore, allowIm
     }
     if (seen.has(cardId)) throw new PersonalRaidError('INVALID_RAID_SQUAD', '같은 종류의 카드는 한 덱에 중복 편성할 수 없습니다.', 400, { cardId });
     seen.add(cardId);
+    const characterKey = cardCharacterKey(cardId);
+    if (seenCharacters.has(characterKey)) throw new PersonalRaidError('INVALID_RAID_SQUAD', '등급이 달라도 같은 인물은 한 파티에 중복 편성할 수 없습니다.', 400, { cardId, characterId: characterKey });
+    seenCharacters.add(characterKey);
     const basePower = Number(CARD_COMBAT_POWER[cardId]);
     if (!Number.isSafeInteger(basePower) || basePower < 1) {
       if (skipUnavailable) continue;
