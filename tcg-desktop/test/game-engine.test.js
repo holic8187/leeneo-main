@@ -73,11 +73,7 @@ test('rarity combat-power bands are exact, ascending, and non-overlapping', () =
 
     for (const card of CARD_CATALOG.filter((candidate) => candidate.rarity === rarity)) {
       assert.ok(card.combatPower >= minimum && card.combatPower <= maximum, card.id);
-      assert.equal(
-        Object.values(card.stats).reduce((sum, value) => sum + value, 0),
-        Math.round(card.combatPower / 100),
-        card.id,
-      );
+      assert.equal(card.stats, undefined, card.id);
     }
   });
 });
@@ -250,22 +246,24 @@ test('an expedition keeps its original end time and settles only once after reop
   }), null);
 });
 
-test('legacy cards are converted to the current combat-power scale', () => {
+test('legacy cards expose the same unified combat-power stat', () => {
   const legacy = cardById('rookie-analyst');
   const score = calculateSquadScore(
     [legacy.id],
     { [legacy.id]: 1 },
     ALL_CARDS,
   );
-  assert.equal(score, Object.values(legacy.stats).reduce((sum, value) => sum + value, 0) * 100);
+  assert.equal(legacy.stats, undefined);
+  assert.equal(score, legacy.combatPower);
 });
 
 test('raid dispatch records damage and enforces dispatch cooldown', () => {
-  const raid = createRaidState(RAID_DEFINITION, 1000);
+  const legacyDefinition = { ...RAID_DEFINITION, dispatchCooldownMs: 60 * 1000 };
+  const raid = createRaidState(legacyDefinition, 1000);
   const first = dispatchRaid({
     raid,
     squadScore: 200,
-    definition: RAID_DEFINITION,
+    definition: legacyDefinition,
     now: 2000,
     random: () => 0.5,
   });
@@ -275,7 +273,7 @@ test('raid dispatch records damage and enforces dispatch cooldown', () => {
   assert.throws(() => dispatchRaid({
     raid: first.raid,
     squadScore: 200,
-    definition: RAID_DEFINITION,
+    definition: legacyDefinition,
     now: 2001,
     random: () => 0.5,
   }), /재정비/);

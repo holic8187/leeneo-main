@@ -28,14 +28,14 @@ test('squad score is the exact sum of owned modern-card combat power', () => {
   assert.equal(calculateSquadScore([...ids, 'mango-c'], collection, ALL_CARDS), expected);
 });
 
-test('legacy stats are converted onto the current combat-power scale', () => {
+test('legacy cards use the same unified combat-power scale', () => {
   const legacy = cardById('rookie-analyst');
-  const statSum = Object.values(legacy.stats).reduce((sum, value) => sum + value, 0);
 
-  assert.equal(cardExpeditionPower(legacy), statSum * 100);
+  assert.equal(legacy.stats, undefined);
+  assert.equal(cardExpeditionPower(legacy), legacy.combatPower);
   assert.equal(
     calculateSquadScore([legacy.id], { [legacy.id]: 1 }, ALL_CARDS),
-    statSum * 100,
+    legacy.combatPower,
   );
 });
 

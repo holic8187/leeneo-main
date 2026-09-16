@@ -1,32 +1,44 @@
 import {
   ArrowRight,
   Bell,
+  Ban,
   Briefcase,
   Check,
   ChevronRight,
+  ChevronLeft,
   CircleAlert,
   Clock,
   Coins,
   createIcons,
   Download,
   EyeOff,
+  Flame,
   Gift,
+  HeartPulse,
   Library,
   Link2,
   Lock,
   Mail,
   Map,
+  Megaphone,
+  Orbit,
   PackageOpen,
   RefreshCw,
+  RotateCcw,
   Search,
   Settings,
   Shield,
+  ShieldAlert,
+  ShieldMinus,
+  Snowflake,
   Sparkles,
   Swords,
   Trophy,
+  Target,
   Users,
   Unlock,
   Wifi,
+  Wind,
   X,
   Zap,
 } from 'lucide';
@@ -61,6 +73,21 @@ import {
   startExpedition,
 } from './core/expeditionEngine.js';
 import { createRaidState } from './core/raidEngine.js';
+import {
+  createRaidBattle,
+  performBossAction,
+  performPlayerAction,
+  skillForCard,
+  startRaidBattle,
+} from './core/turnRaidEngine.js';
+import {
+  activeRaidCardIndex,
+  effectPresentation,
+  isPlayerRaidTurn,
+  normalizeRaidBattle,
+  raidBattleFinished,
+  raidTurnSecondsRemaining,
+} from './core/raidBattleView.js';
 import { reconcileRaidRewards } from './core/raidRewards.js';
 import { appendActivity, createGameStore, hasStoredGameState } from './core/gameState.js';
 import {
@@ -103,10 +130,11 @@ import {
   registerTcgAccount,
 } from './services/authGateway.js';
 import {
-  dispatchPersonalRaid,
+  finishPersonalRaid,
   isRaidGatewayConfigured,
   loadPersonalRaid,
   loadPersonalRaidRanking,
+  startPersonalRaid,
 } from './services/raidGateway.js';
 import {
   heartbeatPlaySession,
@@ -145,32 +173,44 @@ const mailboxRequestGuard = createMailboxRequestGuard();
 
 const iconSet = {
   ArrowRight,
+  Ban,
   Bell,
   Briefcase,
   Check,
   ChevronRight,
+  ChevronLeft,
   CircleAlert,
   Clock,
   Coins,
   Download,
   EyeOff,
+  Flame,
   Gift,
+  HeartPulse,
   Library,
   Link2,
   Lock,
   Mail,
   Map,
+  Megaphone,
+  Orbit,
   PackageOpen,
   RefreshCw,
+  RotateCcw,
   Search,
   Settings,
   Shield,
+  ShieldAlert,
+  ShieldMinus,
+  Snowflake,
   Sparkles,
   Swords,
   Trophy,
+  Target,
   Users,
   Unlock,
   Wifi,
+  Wind,
   X,
   Zap,
 };
@@ -190,6 +230,25 @@ const DONATION_PACKAGES = Object.freeze([
   { name: '테스터 패키지2', packs: 15, coins: 1_500, price: 10_000 },
   { name: '테스터 패키지3', packs: 50, coins: 7_000, price: 30_000 },
 ]);
+
+function createRaidUiState() {
+  return {
+    loading: false,
+    dispatching: false,
+    error: '',
+    ranking: null,
+    lastLoadedAt: 0,
+    requestEpoch: 0,
+    battle: null,
+    serverBattle: null,
+    battlePending: false,
+    finishing: false,
+    animation: null,
+    inspector: null,
+    bossActionTimer: null,
+    timeoutActionPending: false,
+  };
+}
 
 const ui = {
   view: 'dashboard',
@@ -246,14 +305,7 @@ const ui = {
   incidentExpiring: false,
   raidMode: 'personal',
   raidPanel: 'battle',
-  raid: {
-    loading: false,
-    dispatching: false,
-    error: '',
-    ranking: null,
-    lastLoadedAt: 0,
-    requestEpoch: 0,
-  },
+  raid: createRaidUiState(),
   auth: {
     phase: 'restoring',
     mode: 'login',
@@ -940,11 +992,8 @@ function renderCard(card, count, options = {}) {
           <strong>${hidden ? '기록 없음' : escapeHtml(cardDisplayName(card))}</strong>
           <small>${hidden ? '카드팩에서 발견할 수 있습니다.' : `${escapeHtml(card.category)} · ${formatNumber(count)}장 보유${owned ? ` · 최고 ${enhancementLabel(enhancement)}` : ' · 획득 기록 보존'}`}</small>
         </div>
-        <div class="card-stats" aria-label="카드 능력치">
-          <span><b>업무</b>${hidden ? '-' : card.stats.work}</span>
-          <span><b>눈치</b>${hidden ? '-' : card.stats.sense}</span>
-          <span><b>멘탈</b>${hidden ? '-' : card.stats.grit}</span>
-          <span><b>행운</b>${hidden ? '-' : card.stats.luck}</span>
+        <div class="card-stats card-stats--combat" aria-label="카드 전투 능력치">
+          <span><b>공격력</b>${hidden ? '-' : formatNumber(cardPower(card, state))}</span>
         </div>
       </button>
     </article>
@@ -1320,12 +1369,13 @@ function renderSquadPicker(state, context) {
             expeditionLocks,
           )
           : cardEnhancement(card, state);
-        const unavailable = availableStage < 0;
+        const unavailable = availableStage < 0 || (context === 'raid' && !skillForCard(card.id, Math.max(0, availableStage)));
+        const selectionOrder = selected ? selectedIds.indexOf(card.id) + 1 : 0;
         return `
           <button class="squad-card rarity-${card.rarity} ${selected ? 'is-selected' : ''} ${unavailable ? 'is-unavailable' : ''}" type="button" data-action="toggle-squad" data-context="${context}" data-card-id="${card.id}" ${unavailable ? 'disabled' : ''} aria-pressed="${selected ? 'true' : 'false'}">
             <img class="squad-card__art" src="${card.image}" alt="" />
-            <span><strong>${escapeHtml(cardDisplayName(card))}</strong><small><b>${rarityLabel(card.rarity)} · ${enhancementLabel(Math.max(0, availableStage))}</b><span class="squad-detail-copy">${unavailable ? ' · 모든 복사본이 모험 참여 중 · 레이드 사용 불가' : ` · 전투력 ${formatNumber(cardPower(card, state, availableStage))}`}</span></small></span>
-            <i data-lucide="${unavailable ? 'lock' : (selected ? 'check' : 'users')}"></i>
+            <span><strong>${escapeHtml(cardDisplayName(card))}</strong><small><b>${rarityLabel(card.rarity)} · ${enhancementLabel(Math.max(0, availableStage))}</b><span class="squad-detail-copy">${unavailable ? (availableStage < 0 ? ' · 모든 복사본이 모험 참여 중 · 레이드 사용 불가' : ' · 고유 스킬 준비 중 · 레이드 사용 불가') : ` · 전투력 ${formatNumber(cardPower(card, state, availableStage))}`}</span></small></span>
+            ${selectionOrder ? `<b class="squad-order-badge" aria-label="행동 순서 ${selectionOrder}번">${selectionOrder}</b>` : `<i data-lucide="${unavailable ? 'lock' : 'users'}"></i>`}
           </button>
         `;
       }).join('')}
@@ -1460,23 +1510,23 @@ function renderPersonalRaidRanking(state) {
   return `
     <section class="contribution-table raid-ranking-panel" aria-labelledby="contribution-title">
       <div class="section-heading section-heading--compact">
-        <div><span class="eyebrow">DAILY CONTRIBUTION</span><h2 id="contribution-title">오늘의 개인 합산 기여도</h2></div>
+        <div><span class="eyebrow">WEEKLY TOTAL DAMAGE</span><h2 id="contribution-title">이번 주 개인 레이드 랭킹</h2></div>
         <button class="icon-button" type="button" data-action="refresh-raid-ranking" title="랭킹 새로고침" aria-label="랭킹 새로고침" ${ui.raid.loading ? 'disabled' : ''}><i data-lucide="refresh-cw"></i></button>
       </div>
       <div class="ranking-reset-line">
-        <span>매일 대한민국 시간 00:00 초기화</span>
+        <span>매주 월요일 24:00 대한민국 시간 초기화</span>
         ${resetsAt ? `<strong>초기화까지 <span data-countdown="${resetsAt}">${formatDuration(resetsAt - Date.now())}</span></strong>` : ''}
       </div>
-      <div class="table-row table-head"><span>순위</span><span>사원</span><span>클리어</span><span>합산 기여도</span></div>
+      <div class="table-row table-head"><span>순위</span><span>사원</span><span>현재 단계</span><span>총 피해 점수</span></div>
       ${entries.length ? entries.map((entry) => `
         <div class="table-row ${entry.isMe ? 'is-me' : ''}">
           <span>${formatNumber(entry.rank)}</span>
           <span>${escapeHtml(entry.nickname)}</span>
-          <span>${formatNumber(entry.clears)}회</span>
+          <span>${formatNumber(entry.stage || 1)}단계</span>
           <strong>${formatNumber(entry.contribution)}</strong>
         </div>
       `).join('') : `
-        <div class="ranking-empty"><i data-lucide="trophy"></i><strong>오늘 기록된 기여도가 없습니다.</strong><span>개인 레이드에 파견하면 즉시 순위에 반영됩니다.</span></div>
+        <div class="ranking-empty"><i data-lucide="trophy"></i><strong>이번 주 기록된 피해 점수가 없습니다.</strong><span>개인 레이드 전투를 마치면 즉시 순위에 반영됩니다.</span></div>
       `}
       ${ranking.myRank ? `<div class="my-ranking-summary"><span>내 현재 순위</span><strong>${formatNumber(ranking.myRank)}위</strong></div>` : ''}
       ${ui.raid.error ? `<p class="raid-sync-error"><i data-lucide="circle-alert"></i>${escapeHtml(ui.raid.error)}</p>` : ''}
@@ -1484,7 +1534,105 @@ function renderPersonalRaidRanking(state) {
   `;
 }
 
+function renderRaidEffectIcon(rawEffect, owner, index) {
+  const effect = effectPresentation(rawEffect);
+  return `<button class="raid-effect-icon is-${effect.tone}" type="button" data-action="inspect-raid-effect" data-effect-owner="${owner}" data-effect-index="${index}" title="${escapeHtml(effect.label)}" aria-label="${escapeHtml(effect.label)} 정보 보기"><i data-lucide="${escapeHtml(effect.icon)}"></i>${effect.count ? `<b>${formatNumber(effect.count)}</b>` : ''}</button>`;
+}
+
+function renderRaidEffectList(effects, owner) {
+  return `<div class="raid-effect-list">${effects.map((effect, index) => renderRaidEffectIcon(effect, owner, index)).join('')}</div>`;
+}
+
+function renderRaidBattleInspector(battle) {
+  const inspector = ui.raid.inspector;
+  if (!inspector) return '';
+  if (inspector.type === 'skill-choice') {
+    return `<aside class="raid-skill-tooltip raid-skill-choice" role="dialog" aria-label="구미신탁 효과 선택"><button type="button" data-action="close-raid-inspector" aria-label="닫기"><i data-lucide="x"></i></button><span class="eyebrow">구미신탁 · 길흉역전</span><h3>사용할 신탁을 선택하세요</h3><p>선택하는 즉시 이번 행동이 진행됩니다.</p><div class="raid-skill-choice-list"><button type="button" data-action="raid-skill-choice" data-choice="fortune"><strong>길</strong><small>전체 회복 · 약화 제거</small></button><button type="button" data-action="raid-skill-choice" data-choice="misfortune"><strong>흉</strong><small>강한 피해 · 브레이크</small></button><button type="button" data-action="raid-skill-choice" data-choice="reversal"><strong>역전</strong><small>전체 보호막 · 쿨다운 감소</small></button></div></aside>`;
+  }
+  if (inspector.type === 'effect') {
+    const source = inspector.owner === 'boss'
+      ? battle.boss.effects
+      : battle.squad[Number(inspector.owner)]?.effects;
+    const effect = source?.[inspector.index];
+    if (!effect) return '';
+    return `<aside class="raid-effect-tooltip is-${effect.tone}" role="dialog" aria-label="상태 효과 설명"><button type="button" data-action="close-raid-inspector" aria-label="닫기"><i data-lucide="x"></i></button><h3>${escapeHtml(effect.label)}${effect.count ? ` · ${formatNumber(effect.count)}` : ''}</h3><p>${escapeHtml(effect.description)}</p></aside>`;
+  }
+  const member = battle.squad[inspector.cardIndex];
+  const card = cardById(member?.cardId);
+  const skill = member ? skillForCard(member.cardId, member.enhancement) : null;
+  if (!member || !card) return '';
+  return `<aside class="raid-skill-tooltip" role="dialog" aria-label="카드 스킬 설명"><button type="button" data-action="close-raid-inspector" aria-label="닫기"><i data-lucide="x"></i></button><span class="eyebrow">${rarityLabel(card.rarity)} · ${enhancementLabel(member.enhancement)}</span><h3>${escapeHtml(skill?.name || '고유 스킬 준비 중')}</h3><p>${escapeHtml(skill?.description || '이 카드의 고유 스킬은 준비 중입니다.')}</p><dl><dt>공격력</dt><dd>${formatNumber(member.attack || cardPower(card, store?.getState(), member.enhancement))}</dd><dt>쿨타임</dt><dd>${skill?.oncePerBattle ? '전투당 1회' : `${formatNumber(skill?.cooldown || 0)}턴`}</dd><dt>현재 상태</dt><dd>${member.hp <= 0 ? '행동 불능' : member.cooldown > 0 ? `스킬 ${formatNumber(member.cooldown)}턴 남음` : '행동 가능'}</dd></dl></aside>`;
+}
+
+function renderPersonalRaidBattlefield(state) {
+  const battle = normalizeRaidBattle(ui.raid.battle);
+  const activeIndex = activeRaidCardIndex(battle);
+  const playerTurn = isPlayerRaidTurn(battle);
+  const remaining = raidTurnSecondsRemaining(battle);
+  const bossHpRatio = Math.round((battle.boss.hp / battle.boss.maxHp) * 100);
+  const animation = ui.raid.animation || {};
+  const latestLog = battle.battleLog.at(-1)?.message || (battle.status === 'ready' ? '전투 시작을 기다리고 있습니다.' : '행동을 선택하세요.');
+  const bossCard = cardById('deadline-dragon');
+  const finished = raidBattleFinished(battle);
+  const victory = battle.result === 'victory' || battle.boss.hp <= 0;
+  const allDefeated = battle.terminationReason === 'party-defeated' || battle.squad.every((member) => member.hp <= 0);
+  const turnLimited = battle.terminationReason === 'round-limit' || battle.result === 'turn-limit';
+  const endTitle = victory ? '단계 클리어!' : allDefeated ? '아군 전원 행동불능' : turnLimited ? '7턴 전투 종료' : '도전 종료';
+  const animationTargets = Array.isArray(animation.targets)
+    ? animation.targets
+    : animation.target == null ? [] : [animation.target];
+  return `
+    <section class="raid-battle-screen" aria-label="개인 레이드 전투 화면">
+      <header class="raid-battle-topbar">
+        <button class="raid-battle-exit" type="button" data-action="leave-raid-battle" ${ui.raid.finishing ? 'disabled' : ''}><i data-lucide="chevron-left"></i><span>편성으로 돌아가기</span></button>
+        <div class="raid-boss-hud">
+          <div class="raid-boss-title"><span>STAGE ${formatNumber(battle.stage)}</span><strong>${escapeHtml(battle.boss.name)}</strong></div>
+          <div class="raid-boss-health-label"><span>HP${battle.boss.shield ? ` +${formatNumber(battle.boss.shield)}` : ''}</span><strong>${formatNumber(battle.boss.hp)} / ${formatNumber(battle.boss.maxHp)}</strong></div>
+          <div class="raid-boss-health-track" role="progressbar" aria-valuenow="${battle.boss.hp}" aria-valuemax="${battle.boss.maxHp}"><span style="width:${bossHpRatio}%"></span></div>
+          <div class="raid-break-label"><span>BREAK</span><strong>${formatNumber(battle.boss.breakGauge)} / 100</strong></div>
+          <div class="raid-break-track" role="progressbar" aria-valuenow="${battle.boss.breakGauge}" aria-valuemax="100"><span style="width:${battle.boss.breakGauge}%"></span></div>
+        </div>
+        <div class="raid-turn-counter"><small>전투 턴</small><strong>${formatNumber(battle.turn || 1)}</strong></div>
+      </header>
+      <div class="raid-battle-arena">
+        ${playerTurn ? `<div class="raid-battle-countdown ${remaining <= 5 ? 'is-urgent' : ''}" data-raid-turn-deadline="${battle.turnDeadlineAt}" aria-label="행동 제한 시간">${formatNumber(remaining)}</div>` : ''}
+        <div class="raid-boss-zone">
+          <div class="raid-boss-effects">${renderRaidEffectList(battle.boss.effects, 'boss')}</div>
+          <div class="raid-boss-card ${battle.boss.stunned ? 'is-stunned' : ''} ${animation.attacker === 'boss' ? 'is-attacking' : ''} ${animationTargets.includes('boss') ? 'is-raid-hit' : ''}">
+            <img src="${battle.boss.image || bossCard?.image || './assets/cards/deadline-dragon.webp'}" alt="${escapeHtml(battle.boss.name)}" />
+            ${battle.boss.stunned ? '<span class="raid-stun-orbit" aria-label="브레이크 스턴"></span>' : ''}
+          </div>
+        </div>
+        <div class="raid-squad-zone">
+          ${battle.squad.map((member, index) => {
+            const card = cardById(member.cardId);
+            const skill = skillForCard(member.cardId, member.enhancement);
+            const onTurn = index === activeIndex && playerTurn;
+            const sealed = (member.statuses || []).some((status) => status.id === 'seal' && (status.charges == null || status.charges > 0));
+            const skillUnavailable = sealed || member.skillCooldown > 0 || (skill?.oncePerBattle && member.skillUses > 0);
+            return `<article class="raid-unit-slot rarity-${card?.rarity || 'c'} ${onTurn ? 'is-active' : ''} ${animation.attacker === index ? 'is-attacking' : ''}">
+              ${onTurn ? `<div class="raid-card-actions"><button type="button" data-action="raid-basic-attack" ${ui.raid.battlePending ? 'disabled' : ''}>기본공격</button><button type="button" data-action="raid-skill-attack" ${ui.raid.battlePending || skillUnavailable ? 'disabled' : ''}>스킬${skillUnavailable ? `<small>${sealed ? '봉인됨' : skill?.oncePerBattle && member.skillUses > 0 ? '사용 완료' : `${formatNumber(member.skillCooldown)}턴 남음`}</small>` : ''}</button></div>` : ''}
+              <div class="raid-unit-effects">${renderRaidEffectList(member.effects, String(index))}</div>
+              <button class="raid-unit-card ${member.hp <= 0 ? 'is-ko' : ''} ${animationTargets.includes(index) ? 'is-raid-hit' : ''}" type="button" data-action="inspect-raid-card" data-card-index="${index}" data-payroll-label="${escapeHtml(`${rarityLabel(card?.rarity)} · ${cardDisplayName(card)}`)}">
+                <span class="raid-unit-number">${index + 1}</span>
+                <img src="${card?.image || member.image}" alt="${escapeHtml(cardDisplayName(card))}" />
+                <span class="raid-unit-name">${escapeHtml(cardDisplayName(card))} ${enhancementLabel(member.enhancement)}</span>
+              </button>
+              <div class="raid-unit-hp"><div class="raid-unit-hp-label"><span>HP${member.shield ? ` +${formatNumber(member.shield)}` : ''}</span><strong>${formatNumber(member.hp)} / ${formatNumber(member.maxHp)}</strong></div><div class="raid-unit-hp-track"><span style="width:${Math.round(member.hp / member.maxHp * 100)}%"></span></div></div>
+            </article>`;
+          }).join('')}
+        </div>
+        <div class="raid-battle-message" aria-live="polite">${escapeHtml(animation.message || latestLog)}</div>
+      </div>
+      ${battle.status === 'ready' ? `<div class="raid-battle-start-panel"><div class="raid-battle-start-card"><span class="eyebrow">PERSONAL RAID · STAGE ${formatNumber(battle.stage)}</span><h2>전투 준비 완료</h2><p>편성 순서대로 카드가 행동합니다. 내 차례에는 20초 안에 기본공격이나 스킬을 선택하세요. 전투는 최대 7턴 진행됩니다.</p><button class="alert-button" type="button" data-action="begin-raid-battle" ${ui.raid.battlePending ? 'disabled' : ''}><i data-lucide="swords"></i>${ui.raid.battlePending ? '전투 준비 중' : '전투 시작'}</button></div></div>` : ''}
+      ${finished ? `<div class="raid-battle-result-panel"><div class="raid-battle-result-card"><span class="eyebrow">${victory ? 'RAID CLEAR' : 'BATTLE ENDED'}</span><h2>${endTitle}</h2><p>이번 도전 획득 점수</p><strong class="raid-earned-score">${formatNumber(battle.totalDamage || 0)}</strong><small>보스에게 실제로 입힌 총 피해량입니다.</small><button class="primary-button" type="button" data-action="finish-raid-battle" ${ui.raid.finishing ? 'disabled' : ''}>${ui.raid.finishing ? '점수 저장 중' : '점수 반영하기'}</button></div></div>` : ''}
+      ${animation.skillCutIn ? `<div class="raid-skill-cut-in"><img src="${escapeHtml(animation.skillCutIn.image)}" alt="" /><strong>${escapeHtml(animation.skillCutIn.name)}</strong></div>` : ''}
+      ${renderRaidBattleInspector(battle)}
+    </section>`;
+}
+
 function renderPersonalRaidBattle(state) {
+  if (ui.raid.battle) return renderPersonalRaidBattlefield(state);
   const raid = state.raid || createRaidState(RAID_DEFINITION);
   const expeditionLocks = activeExpeditionCardLocks(state);
   const selectedRaidSquad = availableRaidSquad(
@@ -1502,16 +1650,20 @@ function renderPersonalRaidBattle(state) {
   const maxHp = Math.max(1, Number(raid.maxHp) || RAID_DEFINITION.maxHp);
   const hp = Math.min(maxHp, Math.max(0, Number(raid.hp) || 0));
   const hpRatio = Math.max(0, hp / maxHp);
-  const cooldownMs = Math.max(0, Number(raid.cooldownMs) || RAID_DEFINITION.dispatchCooldownMs);
-  const cooldownEndsAt = Math.max(0, Number(raid.lastDispatchAt) || 0) + cooldownMs;
-  const cooldown = Math.max(0, cooldownEndsAt - Date.now());
   const clears = Math.max(0, Number(raid.clears) || 0);
-  const maxClears = Math.max(1, Number(raid.maxClears) || RAID_DEFINITION.maxDailyClears || 2);
-  const dailyLocked = clears >= maxClears;
+  const maxEntries = Math.max(1, Number(raid.maxDailyEntries ?? raid.maxClears) || 5);
+  const entriesToday = Math.max(0, Number(raid.entriesToday) || 0);
+  const remainingEntries = Math.max(0, Number(raid.remainingEntries ?? (maxEntries - entriesToday)) || 0);
+  const stage = Math.max(1, Number(raid.stage) || 1);
+  const maxStage = Math.max(stage, Number(raid.maxStage) || 8);
+  const dailyLocked = remainingEntries <= 0;
+  const weeklyCompleted = Boolean(raid.weeklyCompleted);
+  const canEnter = raid.canEnter == null ? !dailyLocked && !weeklyCompleted : Boolean(raid.canEnter);
   const online = !ui.auth.offline && isRaidGatewayConfigured();
-  const dispatchDisabled = !online || !selectedRaidSquad.length || cooldown > 0 || dailyLocked || ui.raid.dispatching;
+  const dispatchDisabled = !online || selectedRaidSquad.length !== 3 || !canEnter || ui.raid.dispatching;
   const boss = cardById('deadline-dragon');
-  const resetsAt = Number(raid.resetsAt) || 0;
+  const weeklyResetsAt = Number(raid.resetsAt) || 0;
+  const dailyResetsAt = Number(raid.dailyResetsAt) || 0;
 
   return `
     <div class="raid-layout">
@@ -1520,21 +1672,25 @@ function renderPersonalRaidBattle(state) {
           <img src="${boss.image}" alt="${escapeHtml(RAID_DEFINITION.name)}" />
           <div class="raid-vignette"></div>
           <div class="raid-heading">
-            <span>개인 도전 · 일일 최대 ${maxClears}회 클리어</span>
+            <span>개인 도전 · STAGE ${formatNumber(stage)} / ${formatNumber(maxStage)}</span>
             <h2 id="raid-title">${RAID_DEFINITION.name}</h2>
           </div>
         </div>
         <div class="raid-dispatch-bar">
           <div class="raid-power"><span>선택 카드 합산 전투력</span><strong>${formatNumber(score)}</strong></div>
-          <button class="alert-button raid-dispatch" type="button" data-action="dispatch-raid" ${dispatchDisabled ? 'disabled' : ''}>
+          <button class="alert-button raid-dispatch" type="button" data-action="enter-raid-battle" ${dispatchDisabled ? 'disabled' : ''}>
             <i data-lucide="zap"></i>
             ${ui.raid.dispatching
               ? '파견 처리 중'
-              : dailyLocked
-                ? '오늘의 클리어 제한 도달'
-                : cooldown > 0
-                  ? `<span data-raid-cooldown="${cooldownEndsAt}">재정비 ${Math.ceil(cooldown / 1000)}초</span>`
-                  : '개인 레이드 파견'}
+              : weeklyCompleted
+                ? '이번 주 8단계 공략 완료'
+                : dailyLocked
+                  ? '오늘의 입장 횟수 소진'
+                  : raid.activeSession
+                    ? '진행 중인 전투가 있습니다'
+                    : selectedRaidSquad.length !== 3
+                    ? '카드 3장 편성 필요'
+                    : '레이드 입장'}
           </button>
         </div>
         <div class="boss-health">
@@ -1542,9 +1698,11 @@ function renderPersonalRaidBattle(state) {
           <div class="boss-health-track"><span style="width:${Math.round(hpRatio * 100)}%"></span></div>
         </div>
         <div class="raid-stats">
-          <div><span>오늘의 합산 기여</span><strong>${formatNumber(raid.totalContribution ?? raid.contribution)}</strong></div>
-          <div><span>오늘의 클리어</span><strong>${formatNumber(clears)} / ${formatNumber(maxClears)}</strong></div>
-          <div><span>일일 초기화</span><strong>${resetsAt ? `<span data-countdown="${resetsAt}">${formatDuration(resetsAt - Date.now())}</span>` : '매일 00:00'}</strong></div>
+          <div><span>이번 주 총 피해 점수</span><strong>${formatNumber(raid.totalContribution ?? raid.contribution)}</strong></div>
+          <div><span>오늘 남은 입장</span><strong>${formatNumber(remainingEntries)} / ${formatNumber(maxEntries)}</strong></div>
+          <div><span>현재 단계 클리어</span><strong>${formatNumber(clears)}회</strong></div>
+          <div><span>일일 입장 초기화</span><strong>${dailyResetsAt ? `<span data-countdown="${dailyResetsAt}">${formatDuration(dailyResetsAt - Date.now())}</span>` : '매일 00:00'}</strong></div>
+          <div><span>주간 단계 초기화</span><strong>${weeklyResetsAt ? `<span data-countdown="${weeklyResetsAt}">${formatDuration(weeklyResetsAt - Date.now())}</span>` : '월요일 24:00'}</strong></div>
         </div>
         ${!online ? '<p class="raid-sync-error"><i data-lucide="wifi"></i>개인 레이드와 실시간 랭킹은 온라인 연결이 필요합니다.</p>' : ''}
         ${ui.raid.error ? `<p class="raid-sync-error"><i data-lucide="circle-alert"></i>${escapeHtml(ui.raid.error)}</p>` : ''}
@@ -1570,7 +1728,7 @@ function renderRaid(state) {
       ${ui.raidMode === 'cooperative' ? renderCooperativeRaid() : `
         <div class="raid-tab-list" role="tablist" aria-label="개인 레이드 메뉴">
           <button type="button" role="tab" aria-selected="${ui.raidPanel === 'battle'}" class="${ui.raidPanel === 'battle' ? 'is-active' : ''}" data-action="switch-raid-panel" data-raid-panel="battle">레이드 진행</button>
-          <button type="button" role="tab" aria-selected="${ui.raidPanel === 'ranking'}" class="${ui.raidPanel === 'ranking' ? 'is-active' : ''}" data-action="switch-raid-panel" data-raid-panel="ranking">오늘의 랭킹</button>
+          <button type="button" role="tab" aria-selected="${ui.raidPanel === 'ranking'}" class="${ui.raidPanel === 'ranking' ? 'is-active' : ''}" data-action="switch-raid-panel" data-raid-panel="ranking">주간 랭킹</button>
         </div>
         ${ui.raidPanel === 'ranking' ? renderPersonalRaidRanking(state) : renderPersonalRaidBattle(state)}
       `}
@@ -1732,6 +1890,7 @@ function renderCardModal(card, state) {
   const counts = enhancementCountsForCard(state.collection, state.cardEnhancements, card.id);
   const owned = Number(state.collection[card.id]) > 0;
   const locked = new Set(state.lockedCardIds || []).has(card.id);
+  const skill = skillForCard(card.id, enhancement);
   return `
     <div class="modal-backdrop" data-action="close-modal">
       <section class="modal-sheet card-detail-modal rarity-${card.rarity}" role="dialog" aria-modal="true" aria-labelledby="card-detail-title" data-modal-panel>
@@ -1741,13 +1900,11 @@ function renderCardModal(card, state) {
           <span class="eyebrow">${escapeHtml(card.department)} / ${escapeHtml(card.category)}</span>
           <h2 id="card-detail-title">${escapeHtml(cardDisplayName(card))}</h2>
           <p>${escapeHtml(card.flavor)}</p>
-          <div class="detail-stats">
-            <div><span>업무력</span><strong>${card.stats.work}</strong></div>
-            <div><span>눈치</span><strong>${card.stats.sense}</strong></div>
-            <div><span>멘탈</span><strong>${card.stats.grit}</strong></div>
-            <div><span>행운</span><strong>${card.stats.luck}</strong></div>
+          <div class="detail-stats detail-stats--combat">
+            <div><span>공격력 · 전투력</span><strong>${formatNumber(cardPower(card, state))}</strong></div>
+            <div><span>기본 HP</span><strong>100</strong></div>
           </div>
-          <div class="trait-box"><i data-lucide="sparkles"></i><span><strong>${escapeHtml(card.trait)}</strong><small>${escapeHtml(card.traitText)}</small></span></div>
+          <div class="trait-box card-skill-box"><i data-lucide="sparkles"></i><span><strong>${escapeHtml(skill?.name || '고유 스킬 준비 중')}</strong><small>${escapeHtml(skill?.description || '이 카드는 추후 전투 스킬이 추가됩니다.')}</small>${skill ? `<em>${skill.oncePerBattle ? '전투당 1회' : `쿨타임 ${formatNumber(skill.cooldown)}턴`} · ${enhancementLabel(enhancement)} 효과 수치 적용</em>` : ''}</span></div>
           <div class="owned-line">보유 수량 <strong>${formatNumber(state.collection[card.id])}장</strong></div>
           <div class="owned-enhancement-line" aria-label="강화 단계별 보유 수량">${counts.map((count, stage) => `<span class="${stage === enhancement ? 'is-best' : ''}"><b>${enhancementLabel(stage)}</b>${formatNumber(count)}장</span>`).join('')}</div>
           <div class="detail-card-actions">
@@ -2555,87 +2712,232 @@ async function refreshPersonalRaid({ rankingOnly = false, silent = false } = {})
   }
 }
 
-async function sendRaidSquad() {
-  const state = store.getState();
+function selectedRaidBattleCards(state = store.getState()) {
   const expeditionLocks = activeExpeditionCardLocks(state);
-  const raidSquad = availableRaidSquad(
-    state.selectedRaidSquad,
-    state.expedition,
-    state.collection,
-  );
-  const score = calculateSquadScore(
-    raidSquad,
-    state.collection,
-    ALL_CARDS,
-    state.cardEnhancements,
-    expeditionLocks,
-  );
-  if (!score) {
-    showNotice('레이드에 보낼 카드를 편성해 주세요.', 'warning');
+  return availableRaidSquad(state.selectedRaidSquad, state.expedition, state.collection).map((cardId) => {
+    const card = cardById(cardId);
+    const enhancement = bestAvailableEnhancementForCard(
+      state.collection,
+      state.cardEnhancements,
+      cardId,
+      expeditionLocks,
+    );
+    return {
+      cardId,
+      enhancement,
+      name: cardDisplayName(card),
+      image: card?.image || '',
+      combatPower: cardPower(card, state, enhancement),
+    };
+  });
+}
+
+function enterRaidBattle() {
+  const state = store.getState();
+  const cards = selectedRaidBattleCards(state);
+  if (cards.length !== 3) {
+    showNotice('개인 레이드에는 카드 3장을 편성해야 합니다.', 'warning');
     return;
   }
+  try {
+    ui.raid.battle = createRaidBattle({
+      cards,
+      boss: {
+        id: RAID_DEFINITION.id,
+        name: RAID_DEFINITION.name,
+        image: cardById('deadline-dragon')?.image,
+        stage: Math.max(1, Number(state.raid?.stage) || 1),
+        maxHp: Math.max(1, Number(state.raid?.maxHp) || RAID_DEFINITION.maxHp),
+        hp: Math.max(0, Number(state.raid?.hp ?? state.raid?.currentHp ?? state.raid?.maxHp ?? RAID_DEFINITION.maxHp)),
+      },
+      seed: Date.now(),
+    });
+    ui.raid.serverBattle = null;
+    ui.raid.error = '';
+    ui.raid.inspector = null;
+    ui.raid.animation = null;
+    render();
+  } catch (error) {
+    showNotice(error.message || '레이드 전투를 준비하지 못했습니다.', 'warning');
+  }
+}
+
+async function beginRaidBattle() {
+  if (ui.raid.battlePending || !ui.raid.battle || ui.raid.battle.status !== 'ready') return;
   if (ui.auth.offline || !isRaidGatewayConfigured()) {
     showNotice('개인 레이드는 온라인 연결이 필요합니다.', 'warning');
     return;
   }
-  if (ui.raid.dispatching) return;
-  ui.raid.requestEpoch += 1;
-  const requestEpoch = ui.raid.requestEpoch;
-  const leaseKey = activeCloudLeaseKey();
-  if (!leaseKey) return;
-  ui.raid.dispatching = true;
+  ui.raid.battlePending = true;
   ui.raid.error = '';
   render();
-  let followUpNotice = null;
   try {
-    // The server verifies raid cards against the cloud record. Persist the
-    // latest enhancement and synthesis changes before requesting damage.
     await flushCloudStateOrThrow();
+    const state = store.getState();
+    const cards = selectedRaidBattleCards(state);
     const lease = cloudPlay?.getSnapshot().lease;
-    if (!lease?.leaseId) return;
-    const payload = await dispatchPersonalRaid(currentRaidToken(), {
+    if (!lease?.leaseId) throw new Error('플레이 연결을 다시 확인해 주세요.');
+    const squadScore = cards.reduce((total, member) => total + member.combatPower, 0);
+    const payload = await startPersonalRaid(currentRaidToken(), {
       bossId: RAID_DEFINITION.id,
-      squad: raidSquad.map((cardId) => ({
-        cardId,
-        enhancement: bestAvailableEnhancementForCard(
-          state.collection,
-          state.cardEnhancements,
-          cardId,
-          expeditionLocks,
-        ),
-      })),
+      squad: cards.map(({ cardId, enhancement }) => ({ cardId, enhancement })),
+      squadScore,
       leaseId: lease.leaseId,
       deviceId,
       generation: lease.generation,
     });
-    if (requestEpoch !== ui.raid.requestEpoch || activeCloudLeaseKey() !== leaseKey) return;
-    const result = payload.result || {};
-    const damage = Math.max(0, Number(result.damage) || 0);
-    const cleared = Boolean(result.cleared);
-    const reward = applyRaidPayload(payload, {
-      activityMessage: `개인 레이드 파견으로 ${formatNumber(damage)} 기여도를 기록했습니다.`,
+    const serverBattle = payload.battle || {};
+    const serverMembers = Array.isArray(serverBattle.squad) ? serverBattle.squad : [];
+    const battleCards = cards.map((card) => ({
+      ...card,
+      ...(serverMembers.find((member) => member.cardId === card.cardId) || {}),
+      combatPower: card.combatPower,
+    }));
+    const stageConfig = {
+      ...(serverBattle.stageConfig || {}),
+      id: serverBattle.bossId || RAID_DEFINITION.id,
+      name: serverBattle.bossName || RAID_DEFINITION.name,
+      image: cardById('deadline-dragon')?.image,
+      stage: serverBattle.stage || state.raid?.stage || 1,
+      maxHp: serverBattle.bossMaxHp || state.raid?.maxHp || RAID_DEFINITION.maxHp,
+      hp: Math.max(0, Number(serverBattle.bossHp ?? state.raid?.hp ?? state.raid?.currentHp ?? serverBattle.bossMaxHp ?? RAID_DEFINITION.maxHp)),
+    };
+    ui.raid.serverBattle = serverBattle;
+    ui.raid.battle = startRaidBattle(createRaidBattle({
+      cards: battleCards,
+      boss: stageConfig,
+      stageConfig,
+      seed: serverBattle.seed || Date.now(),
+      now: serverBattle.startedAt || Date.now(),
+    }), Date.now());
+    if (payload.state) applyRaidPayload(payload);
+    render();
+    scheduleBossRaidAction();
+  } catch (error) {
+    if (error?.code === 'PLAY_SESSION_LOST' || error?.code === 'PLAYING_ELSEWHERE') void retryCloudConnection();
+    ui.raid.error = error.message || '레이드 전투를 시작하지 못했습니다.';
+    showNotice(ui.raid.error, 'warning');
+  } finally {
+    ui.raid.battlePending = false;
+    render();
+  }
+}
+
+function clearRaidAnimation(delay = 680) {
+  window.setTimeout(() => {
+    if (!ui.raid.animation) return;
+    ui.raid.animation = null;
+    render();
+    scheduleBossRaidAction();
+  }, delay);
+}
+
+function performRaidPlayerTurn(type = 'basic', { automatic = false, choice = null } = {}) {
+  const before = ui.raid.battle;
+  if (!before || before.status !== 'active' || before.currentActor !== 'card' || ui.raid.battlePending) return;
+  const actorIndex = Number(before.currentActorIndex);
+  const actor = before.cards?.[actorIndex];
+  if (!actor) return;
+  try {
+    const next = performPlayerAction(before, { type, choice }, Date.now());
+    const dealtDamage = Math.max(0, Number(before.boss?.hp) - Number(next.boss?.hp));
+    const skill = type === 'skill' ? skillForCard(actor.cardId, actor.enhancement) : null;
+    ui.raid.battle = next;
+    ui.raid.inspector = null;
+    ui.raid.animation = {
+      attacker: dealtDamage > 0 ? actorIndex : null,
+      targets: dealtDamage > 0 ? ['boss'] : [],
+      message: automatic ? `${actor.name}이(가) 시간 초과로 기본공격을 사용했습니다.` : `${actor.name}의 ${skill?.name || '기본공격'}!`,
+      skillCutIn: skill ? { image: actor.image || cardById(actor.cardId)?.image, name: skill.name } : null,
+    };
+    render();
+    clearRaidAnimation(skill ? 1260 : 680);
+  } catch (error) {
+    showNotice(error.message || '행동을 처리하지 못했습니다.', 'warning');
+  }
+}
+
+function scheduleBossRaidAction() {
+  window.clearTimeout(ui.raid.bossActionTimer);
+  ui.raid.bossActionTimer = null;
+  const battle = ui.raid.battle;
+  if (!battle || battle.status !== 'active' || battle.currentActor !== 'boss' || ui.raid.animation || ui.raid.battlePending) return;
+  ui.raid.bossActionTimer = window.setTimeout(() => {
+    ui.raid.bossActionTimer = null;
+    performRaidBossTurn();
+  }, 1000);
+}
+
+function performRaidBossTurn() {
+  const before = ui.raid.battle;
+  if (!before || before.status !== 'active' || before.currentActor !== 'boss') return;
+  try {
+    const next = performBossAction(before, Date.now());
+    const targetIndexes = before.cards
+      .map((card, index) => (Number(next.cards[index]?.hp) < Number(card.hp) ? index : -1))
+      .filter((index) => index >= 0);
+    const skipped = before.boss.stunned || next.log.at(-1)?.type === 'boss-skip';
+    ui.raid.battle = next;
+    ui.raid.animation = {
+      attacker: skipped ? null : 'boss',
+      targets: targetIndexes,
+      message: next.log.at(-1)?.message || (skipped ? '보스가 행동할 수 없습니다.' : '보스의 공격!'),
+    };
+    render();
+    clearRaidAnimation(680);
+  } catch (error) {
+    showNotice(error.message || '보스 행동을 처리하지 못했습니다.', 'warning');
+  }
+}
+
+async function completeRaidBattle({ leave = false } = {}) {
+  const battle = ui.raid.battle;
+  if (!battle || ui.raid.finishing) return;
+  if (battle.status === 'ready') {
+    ui.raid.battle = null;
+    ui.raid.serverBattle = null;
+    render();
+    return;
+  }
+  if (battle.status === 'active' && !leave) return;
+  ui.raid.finishing = true;
+  render();
+  try {
+    const lease = cloudPlay?.getSnapshot().lease;
+    const payload = await finishPersonalRaid(currentRaidToken(), {
+      sessionId: ui.raid.serverBattle?.sessionId || battle.sessionId,
+      bossHpRemaining: battle.boss.hp,
+      damageDealt: battle.totalDamage,
+      turns: battle.round,
+      battleLog: battle.log,
+      leaseId: lease?.leaseId,
+      deviceId,
+      generation: lease?.generation,
     });
-    if (cleared) {
+    const result = payload.result || {};
+    const reward = applyRaidPayload(payload, {
+      activityMessage: `개인 레이드 ${formatNumber(battle.stage)}단계에서 ${formatNumber(battle.totalDamage)} 피해를 기록했습니다.`,
+    });
+    ui.raid.battle = null;
+    ui.raid.serverBattle = null;
+    ui.raid.inspector = null;
+    if (!leave) {
       ui.modal = {
         type: 'result',
-        message: `마감기한 드래곤을 오늘 ${formatNumber(payload.state.clears)}번째로 클리어했습니다.`,
-        rewardText: rewardText(reward),
+        message: result.cleared
+          ? `${formatNumber(battle.stage)}단계를 클리어했습니다. 이번 도전 점수 ${formatNumber(battle.totalDamage)}점`
+          : `이번 도전에서 ${formatNumber(battle.totalDamage)}점을 획득했습니다.`,
+        rewardText: `주간 누적 ${formatNumber(payload.state?.totalContribution ?? payload.state?.contribution ?? battle.totalDamage)}점${reward.coins || reward.packs ? ` · ${rewardText(reward)}` : ''}`,
       };
-    } else {
-      followUpNotice = { message: `${formatNumber(damage)} 기여도를 기록했습니다.`, tone: 'success' };
     }
   } catch (error) {
-    if (requestEpoch !== ui.raid.requestEpoch || activeCloudLeaseKey() !== leaseKey) return;
-    if (error?.code === 'PLAY_SESSION_LOST' || error?.code === 'PLAYING_ELSEWHERE') {
-      void retryCloudConnection();
-    }
-    ui.raid.error = error.message || '레이드 파견을 처리하지 못했습니다.';
-    followUpNotice = { message: ui.raid.error, tone: 'warning' };
+    ui.raid.error = error.message || '레이드 결과를 저장하지 못했습니다.';
+    showNotice(ui.raid.error, 'warning');
+    return;
   } finally {
-    ui.raid.dispatching = false;
-    if (followUpNotice) showNotice(followUpNotice.message, followUpNotice.tone);
-    else render();
+    ui.raid.finishing = false;
   }
+  render();
 }
 
 function openActiveIncident(incident = null) {
@@ -3299,7 +3601,7 @@ async function activateAuthenticatedSession(session, { newAccount = false } = {}
   ui.auth.account = account;
   ui.auth.form.password = '';
   ui.auth.form.passwordConfirm = '';
-  ui.raid = { loading: false, dispatching: false, error: '', ranking: null, lastLoadedAt: 0, requestEpoch: 0 };
+  ui.raid = createRaidUiState();
   ui.mailbox = { loading: false, claimingId: '', items: [], error: '', lastLoadedAt: 0 };
   ui.admin = {
     token: '', loading: false, sending: false, users: [], packages: [], error: '',
@@ -3451,7 +3753,7 @@ async function logout() {
   ui.auth.offline = false;
   ui.auth.account = null;
   ui.auth.form = { username: '', nickname: '', password: '', passwordConfirm: '' };
-  ui.raid = { loading: false, dispatching: false, error: '', ranking: null, lastLoadedAt: 0, requestEpoch: 0 };
+  ui.raid = createRaidUiState();
   ui.mailbox = { loading: false, claimingId: '', items: [], error: '', lastLoadedAt: 0 };
   ui.admin = {
     token: '', loading: false, sending: false, users: [], packages: [], error: '',
@@ -3804,8 +4106,42 @@ app.addEventListener('click', async (event) => {
     });
     if (notificationId) void desktopBridge.cancelGameNotification(notificationId).catch(() => {});
     showNotice('모험을 중단했습니다.', 'warning');
-  } else if (action === 'dispatch-raid') {
-    await sendRaidSquad();
+  } else if (action === 'enter-raid-battle') {
+    enterRaidBattle();
+  } else if (action === 'begin-raid-battle') {
+    await beginRaidBattle();
+  } else if (action === 'raid-basic-attack') {
+    performRaidPlayerTurn('basic');
+  } else if (action === 'raid-skill-attack') {
+    const battle = ui.raid.battle;
+    const activeCard = battle?.cards?.[battle.currentActorIndex];
+    if (activeCard?.cardId === 'guma-hr') {
+      ui.raid.inspector = { type: 'skill-choice' };
+      render();
+    } else {
+      performRaidPlayerTurn('skill');
+    }
+  } else if (action === 'raid-skill-choice') {
+    const choice = String(button.dataset.choice || 'fortune');
+    ui.raid.inspector = null;
+    performRaidPlayerTurn('skill', { choice });
+  } else if (action === 'finish-raid-battle') {
+    await completeRaidBattle();
+  } else if (action === 'leave-raid-battle') {
+    await completeRaidBattle({ leave: true });
+  } else if (action === 'inspect-raid-card') {
+    ui.raid.inspector = { type: 'skill', cardIndex: Number(button.dataset.cardIndex) };
+    render();
+  } else if (action === 'inspect-raid-effect') {
+    ui.raid.inspector = {
+      type: 'effect',
+      owner: button.dataset.effectOwner,
+      index: Number(button.dataset.effectIndex),
+    };
+    render();
+  } else if (action === 'close-raid-inspector') {
+    ui.raid.inspector = null;
+    render();
   } else if (action === 'switch-raid-mode') {
     ui.raidMode = button.dataset.raidMode === 'cooperative' ? 'cooperative' : 'personal';
     render();
@@ -3970,6 +4306,20 @@ function updateLiveTimers() {
     const remaining = Number(cooldownNode.dataset.raidCooldown) - Date.now();
     if (remaining <= 0) render();
     else cooldownNode.textContent = `재정비 ${Math.ceil(remaining / 1000)}초`;
+  }
+  const raidTurnNode = document.querySelector('[data-raid-turn-deadline]');
+  if (raidTurnNode && ui.raid.battle?.status === 'active' && ui.raid.battle?.currentActor === 'card') {
+    const remainingSeconds = Math.max(0, Math.ceil((Number(raidTurnNode.dataset.raidTurnDeadline) - Date.now()) / 1000));
+    raidTurnNode.textContent = String(remainingSeconds);
+    raidTurnNode.classList.toggle('is-urgent', remainingSeconds <= 5);
+    if (remainingSeconds <= 0 && !ui.raid.timeoutActionPending) {
+      ui.raid.timeoutActionPending = true;
+      try {
+        performRaidPlayerTurn('basic', { automatic: true });
+      } finally {
+        ui.raid.timeoutActionPending = false;
+      }
+    }
   }
 }
 

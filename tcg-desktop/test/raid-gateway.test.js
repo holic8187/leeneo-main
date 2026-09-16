@@ -59,3 +59,45 @@ test('raid gateway exposes server limits and rejects missing authentication', as
     (error) => error instanceof RaidGatewayError && error.code === 'AUTH_REQUIRED',
   );
 });
+
+test('raid gateway preserves weekly stages, daily entries, zero rewards, and battle sessions', async () => {
+  const calls = [];
+  const state = {
+    id: 'deadline-dragon-raid', bossId: 'deadline-dragon-raid', bossName: '마감기한 드래곤',
+    stage: 3, maxStage: 8, hp: 175000, currentHp: 175000, maxHp: 400000,
+    contribution: 370000, totalContribution: 370000,
+    entriesToday: 2, remainingEntries: 3, maxDailyEntries: 5,
+    canEnter: true, weeklyCompleted: false, cooldownMs: 0,
+    weekKey: '2026-09-15', dayKey: '2026-09-16',
+    resetsAt: 9000, dailyResetsAt: 8000,
+    earnedRewards: { coins: 0, packs: 0 },
+  };
+  const fetchImpl = async (url, options) => {
+    calls.push({ url, options });
+    if (url.endsWith('/start')) return response({
+      state,
+      battle: {
+        sessionId: 'session-1', stage: 3, bossHp: 175000, bossMaxHp: 400000,
+        stageConfig: { stage: 3, maxHp: 400000, skills: [] }, squad: [],
+      },
+      ranking: { period: 'weekly', weekKey: '2026-09-15', resetsAt: 9000, entries: [] },
+    });
+    return response({ state, result: { damageDealt: 50000 }, ranking: { period: 'weekly', entries: [] } });
+  };
+  const gateway = createRaidGateway({ apiBase: 'https://cards.example.com', fetchImpl });
+  const started = await gateway.start('token', {
+    bossId: state.id, squad: [], squadScore: 1, leaseId: 'lease', deviceId: 'device', generation: 1,
+  });
+  assert.equal(started.state.stage, 3);
+  assert.equal(started.state.remainingEntries, 3);
+  assert.equal(started.state.cooldownMs, 0);
+  assert.deepEqual(started.state.earnedRewards, { coins: 0, packs: 0 });
+  assert.equal(started.battle.sessionId, 'session-1');
+  assert.equal(started.ranking.period, 'weekly');
+  await gateway.finish('token', {
+    sessionId: 'session-1', bossHpRemaining: 125000, damageDealt: 50000,
+    turns: 7, battleLog: [], leaseId: 'lease', deviceId: 'device', generation: 1,
+  });
+  assert.equal(calls.length, 2);
+  assert.equal(JSON.parse(calls[1].options.body).turns, 7);
+});
