@@ -159,6 +159,72 @@ test('server boss skill fields map to distinct targets, cooldowns, and debuffs',
   assert.equal(state.boss.cooldowns['burning-overtime'], 4);
 });
 
+test('duration-based freeze skips the next boss action even when it has no charges field', () => {
+  let state = startRaidBattle(createRaidBattle({
+    cards: [card('winter-r'), card('nanche-c'), card('hoi-c')],
+    boss: { maxHp: 100_000, baseDamage: 10 },
+  }), 0);
+  state.boss.breakGauge = 68;
+  state = performPlayerAction(state, { type: 'skill' }, 1);
+  assert.equal(state.boss.statuses.some((status) => status.id === 'freeze' && status.duration === 1), true);
+
+  // The skill also breaks the boss. Remove the break state to prove that the
+  // duration-only freeze, rather than break stun, is what skips this action.
+  state.boss.stunned = false;
+  state.boss.statuses = state.boss.statuses.filter((status) => status.id !== 'break-stun');
+  const hpBefore = state.cards.reduce((total, member) => total + member.hp, 0);
+  state = performBossAction(state, 2);
+  assert.equal(state.cards.reduce((total, member) => total + member.hp, 0), hpBefore);
+  assert.equal(state.boss.statuses.some((status) => status.id === 'freeze'), false);
+});
+
+test('raw boss statusEffects preserve percent, duration, and damage aliases', () => {
+  let state = startRaidBattle(createRaidBattle({
+    cards: deck(),
+    stageConfig: {
+      stage: 6, maxHp: 3_200_000, basicAttack: { damage: 1 },
+      skills: [{
+        id: 'raw-burn', name: '원시 화상', cooldown: 3,
+        target: 'all-living-cards', damage: 1,
+        statusEffects: [{ id: 'burn', damage: 7, turns: 2 }],
+      }],
+    },
+  }), 0);
+  state = performPlayerAction(state, { type: 'basic' }, 1);
+  state = performBossAction(state, 2);
+  for (const member of state.cards) {
+    const burn = member.statuses.find((status) => status.id === 'burn');
+    assert.ok(burn);
+    assert.equal(burn.value, 7);
+    assert.equal(burn.dotDamage, 7);
+    assert.equal(burn.duration, 2);
+  }
+});
+
+test('stored party effects use the caster magnitude once instead of scaling again for the acting card', () => {
+  let state = startRaidBattle(createRaidBattle({
+    cards: [card('jandi-c', 1000, 5), card('nanche-c', 1000, 5), card('hoi-c', 1000, 0)],
+    boss: { maxHp: 100_000, baseDamage: 1 },
+  }), 0);
+  state.cards.forEach((member) => { member.hp = 50; });
+  state = performPlayerAction(state, { type: 'skill' }, 1);
+  assert.equal(state.teamStatuses.find((status) => status.id === 'regen').value, 4);
+  state = performBossAction(state, 2);
+  state.cards[1].hp = 50;
+  state = performPlayerAction(state, { type: 'basic' }, 3);
+  assert.equal(state.cards[1].hp, 54);
+});
+
+test('솜주먹 U receives its shielded-boss damage bonus without requiring an unrelated debuff', () => {
+  const cards = [card('somfist-u'), card('nanche-c'), card('hoi-c')];
+  let state = startRaidBattle(createRaidBattle({
+    cards,
+    boss: { maxHp: 100_000, shield: 100_000, baseDamage: 1 },
+  }), 0);
+  state = performPlayerAction(state, { type: 'skill' }, 1);
+  assert.equal(state.boss.shield, 98_115);
+});
+
 test('every one of the 84 card skills applies a battle effect instead of being metadata only', () => {
   const fallbackIds = ['winter-c', 'hoi-c', 'nanche-c', 'simsim-c'];
   const effectSnapshot = (state) => JSON.stringify({

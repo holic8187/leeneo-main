@@ -137,6 +137,12 @@ function statusValue(entity, id) {
   return (entity.statuses || []).filter((status) => status.id === id).reduce((sum, status) => sum + Number(status.value || 0), 0);
 }
 
+function statusIsActive(status) {
+  if (!status) return false;
+  return (status.duration == null || Number(status.duration) > 0)
+    && (status.charges == null || Number(status.charges) > 0);
+}
+
 function addStatus(entity, status) {
   const normalized = { kind: 'buff', duration: null, charges: null, ...status };
   const old = entity.statuses.find((item) => item.id === normalized.id && item.sourceId === normalized.sourceId);
@@ -215,19 +221,21 @@ function targetsFor(state, actor, mode, targetId) {
   return [requested || actor];
 }
 
-function heal(state, targets, percent, actor, scale = 1) {
+function heal(state, targets, percent, actor, scale = 1, { scaleMagnitude = true } = {}) {
   for (const target of targets) {
     const boost = 1 + (statusValue(target, 'healing-taken-up') + statusValue(actor, 'effect-up')) / 100;
-    const amount = Math.max(1, Math.round(target.maxHp * magnitude(percent, actor, scale) / 100 * boost));
+    const magnitudeValue = scaleMagnitude ? magnitude(percent, actor, scale) : Math.max(0, Number(percent) || 0);
+    const amount = Math.max(1, Math.round(target.maxHp * magnitudeValue / 100 * boost));
     const applied = Math.min(target.maxHp - target.hp, amount); target.hp += applied;
     log(state, 'heal', `${target.name}의 HP가 ${applied} 회복되었습니다.`, { sourceId: actor.id, targetId: target.id, amount: applied });
   }
 }
 
-function shield(state, targets, percent, actor, scale = 1) {
+function shield(state, targets, percent, actor, scale = 1, { scaleMagnitude = true } = {}) {
   for (const target of targets) {
     const boost = 1 + statusValue(actor, 'effect-up') / 100;
-    const amount = Math.max(1, Math.round(target.maxHp * magnitude(percent, actor, scale) / 100 * boost));
+    const magnitudeValue = scaleMagnitude ? magnitude(percent, actor, scale) : Math.max(0, Number(percent) || 0);
+    const amount = Math.max(1, Math.round(target.maxHp * magnitudeValue / 100 * boost));
     target.shield += amount;
     log(state, 'shield', `${target.name}에게 보호막 ${amount}이 생겼습니다.`, { sourceId: actor.id, targetId: target.id, amount });
   }
@@ -263,6 +271,7 @@ function damageBoss(state, actor, multiplier, hits = 1, breakDamage = 0, scale =
   if (options.selfHpAbove && actor.hp / actor.maxHp >= options.selfHpAbove) conditional *= options.bonus || 1;
   if (options.bossHpAbove && state.boss.hp / state.boss.maxHp >= options.bossHpAbove) conditional *= options.bonus || 1;
   if (options.bossDebuffed && state.boss.statuses.some((s) => s.kind === 'debuff')) conditional *= options.bonus || 1;
+  if (options.bossShielded && state.boss.shield > 0) conditional *= options.bonus || 1;
   if (options.bossStunned && state.boss.stunned) conditional *= options.bonus || 1;
   if (options.breakAtMost != null && state.boss.breakGauge <= options.breakAtMost) conditional *= options.bonus || 1;
   const outgoing = Math.max(0, 1 + (
@@ -316,7 +325,7 @@ function commonEffects(state, actor, skill, targetId, scale) {
   if (spec) {
     const options = { skill: true };
     if (actor.cardId === 'mango-c') Object.assign(options, { selfHpAbove: .7, bonus: 1.2 });
-    if (actor.cardId === 'somfist-u') Object.assign(options, { bossDebuffed: state.boss.shield > 0, bonus: 1.3 });
+    if (actor.cardId === 'somfist-u') Object.assign(options, { bossShielded: true, bonus: 1.3 });
     if (actor.cardId === 'kkamdung-r') Object.assign(options, { bossDebuffed: true, bonus: 1.25 });
     if (actor.cardId === 'mango-r') Object.assign(options, { bossHpAbove: .5, bonus: 1.5 });
     if (actor.cardId === 'shanghai-r') Object.assign(options, { bossStunned: true, bonus: 1.45 });
@@ -430,14 +439,15 @@ function prePlayerAction(state, actor) {
       statusId: status.id,
     });
   }
-  const regen = state.teamStatuses.find(s=>s.id==='regen'); if(regen) heal(state,state.cards.filter(alive),regen.value,actor,1);
-  const fruit = state.teamStatuses.find(s=>s.id==='golden-fruit'); if(fruit){heal(state,targetsFor(state,actor,'lowest'),fruit.value,actor,1);fruit.charges-=1;}
+  const sourceFor = (status) => state.cards.find((card) => card.id === status.sourceId) || actor;
+  const regen = state.teamStatuses.find(s=>s.id==='regen'); if(regen) heal(state,state.cards.filter(alive),regen.value,sourceFor(regen),1,{scaleMagnitude:false});
+  const fruit = state.teamStatuses.find(s=>s.id==='golden-fruit'); if(fruit){heal(state,targetsFor(state,actor,'lowest'),fruit.value,sourceFor(fruit),1,{scaleMagnitude:false});fruit.charges-=1;}
   const season=state.teamStatuses.find(s=>s.id==='season-cycle');
-  if(season){ if(season.step===0)heal(state,state.cards.filter(alive),8,actor); if(season.step===1)addCardStatus([actor],actor,'effect-up','여름 효과 강화',20,null,'buff',1); if(season.step===2)addCardStatus([actor],actor,'break-up','가을 브레이크',20,null,'buff',1); if(season.step===3)shield(state,state.cards.filter(alive),10,actor); season.step+=1;season.charges-=1; }
+  if(season){ const source=sourceFor(season); if(season.step===0)heal(state,state.cards.filter(alive),8,source); if(season.step===1)addCardStatus([actor],source,'effect-up','여름 효과 강화',20,null,'buff',1); if(season.step===2)addCardStatus([actor],source,'break-up','가을 브레이크',20,null,'buff',1); if(season.step===3)shield(state,state.cards.filter(alive),10,source); season.step+=1;season.charges-=1; }
   const route=state.teamStatuses.find(s=>s.id==='world-tree-route');
-  if(route){if(route.step===0)addCardStatus([actor],actor,'break-up','세계수 브레이크',30,null,'buff',1);if(route.step===1)heal(state,targetsFor(state,actor,'lowest'),15,actor);if(route.step===2)reduceCooldown(state.cards.filter(alive));route.step+=1;route.charges-=1;}
+  if(route){const source=sourceFor(route);if(route.step===0)addCardStatus([actor],source,'break-up','세계수 브레이크',30,null,'buff',1);if(route.step===1)heal(state,targetsFor(state,actor,'lowest'),15,source);if(route.step===2)reduceCooldown(state.cards.filter(alive));route.step+=1;route.charges-=1;}
   const course=state.teamStatuses.find(s=>s.id==='full-course');
-  if(course){if(course.step===0)shield(state,state.cards.filter(alive),12,actor);if(course.step===1)heal(state,state.cards.filter(alive),15,actor);if(course.step===2){addCardStatus(state.cards.filter(alive),actor,'effect-up','디저트 강화',25,null,'buff',1);reduceCooldown(state.cards.filter(alive));}course.step+=1;course.charges-=1;}
+  if(course){const source=sourceFor(course);if(course.step===0)shield(state,state.cards.filter(alive),12,source);if(course.step===1)heal(state,state.cards.filter(alive),15,source);if(course.step===2){addCardStatus(state.cards.filter(alive),source,'effect-up','디저트 강화',25,null,'buff',1);reduceCooldown(state.cards.filter(alive));}course.step+=1;course.charges-=1;}
   state.teamStatuses = state.teamStatuses.filter(s=>s.charges==null||s.charges>0);
 }
 
@@ -543,9 +553,9 @@ function hurtCard(state, target, rawDamage, source = 'boss') {
   let damage=Math.max(0,Math.round(rawDamage*(1-clamp(reduction,0,90)/100)));
   const absorbed=Math.min(target.shield,damage);target.shield-=absorbed;damage-=absorbed;
   const hpDamage=Math.min(target.hp,damage);target.hp-=hpDamage;target.defeated=target.hp<=0;
-  if(absorbed>0&&target.shield<=0){const recovery=statusValue(target,'shield-break-heal');if(recovery)heal(state,[target],recovery,target);}
-  const emergency=target.statuses.find(s=>s.id==='emergency-shield');if(target.hp>0&&target.hp<50&&emergency&&emergency.charges!==0){shield(state,[target],emergency.value,target);emergency.charges=0;}
-  const heart=target.statuses.find(s=>s.id==='white-night-heart');if(target.hp>0&&target.hp<50&&heart&&heart.charges>0){heal(state,[target],heart.value,target);heart.charges-=1;}
+  if(absorbed>0&&target.shield<=0){const recovery=statusValue(target,'shield-break-heal');if(recovery)heal(state,[target],recovery,target,1,{scaleMagnitude:false});}
+  const emergency=target.statuses.find(s=>s.id==='emergency-shield');if(target.hp>0&&target.hp<50&&statusIsActive(emergency)){shield(state,[target],emergency.value,target,1,{scaleMagnitude:false});emergency.charges=0;}
+  const heart=target.statuses.find(s=>s.id==='white-night-heart');if(target.hp>0&&target.hp<50&&statusIsActive(heart)){heal(state,[target],heart.value,target,1,{scaleMagnitude:false});if(heart.charges!=null)heart.charges-=1;else if(heart.duration!=null)heart.duration=0;}
   log(state,'boss-damage',`${target.name}이(가) ${hpDamage} 피해를 받았습니다.`,{sourceId:source,targetId:target.id,amount:hpDamage,absorbed});
   const counter=target.statuses.find(s=>s.id==='counter'&&s.charges>0);if(counter){damageBoss(state,target,counter.value,1,target.cardId==='shanghai-rr'?10:0,1,{counter:true});counter.charges-=1;}
   if(finale&&finale.charges<=0){const sourceCard=state.cards.find(card=>card.id===finale.sourceId);if(sourceCard){damageBoss(state,sourceCard,160,1,0,1,{counter:true});const extra=Math.min(state.boss.hp,Math.round(finale.stored));state.boss.hp-=extra;state.totalDamage+=extra;log(state,'counter',`저장한 피해 ${extra}을 되돌려주었습니다.`,{sourceId:sourceCard.id,targetId:state.boss.id,amount:extra});}}
@@ -568,8 +578,10 @@ function applyBossStatusToCard(state, target, effect) {
   }
   addStatus(target,{
     id:effect.id||'boss-debuff',name:effect.name||'보스 약화',kind:'debuff',
-    value:Number(effect.value)||0,duration:Number(effect.duration)||1,
-    charges:effect.charges??null,dotDamage:Math.max(0,Number(effect.dotDamage)||0),sourceId:'boss'
+    value:Number(effect.value ?? effect.percent ?? effect.amount ?? effect.damage) || 0,
+    duration:Math.max(1, Number(effect.duration ?? effect.turns ?? effect.rounds) || 1),
+    charges:effect.charges ?? effect.stacks ?? null,
+    dotDamage:Math.max(0,Number(effect.dotDamage ?? effect.damage) || 0),sourceId:'boss'
   });
 }
 
@@ -612,8 +624,15 @@ function defaultBossAction(state) {
 
 export function performBossAction(input, now = Date.now()) {
   const state=clone(input); if(state.status!=='active'||state.currentActor!=='boss')throw new Error('현재는 보스의 행동 차례가 아닙니다.');
-  const frozen=state.boss.statuses.find(s=>s.id==='freeze'&&s.charges>0);
-  if(state.boss.stunned||frozen){if(frozen){frozen.charges-=1;removeExpired(state.boss);}log(state,'boss-skip',`${state.boss.name}은(는) 행동할 수 없습니다.`);}
+  const frozen=state.boss.statuses.find((status) => status.id === 'freeze' && statusIsActive(status));
+  if(state.boss.stunned||frozen){
+    if(frozen){
+      if(frozen.charges != null) frozen.charges-=1;
+      else if(frozen.duration != null) frozen.duration=0;
+      removeExpired(state.boss);
+    }
+    log(state,'boss-skip',`${state.boss.name}은(는) 행동할 수 없습니다.`);
+  }
   else defaultBossAction(state);
   advance(state,now);checkBattleEnd(state,now);return state;
 }
