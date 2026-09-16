@@ -7,8 +7,10 @@ import {
   SYNTHESIS_MATERIAL_COUNT,
   SYNTHESIS_SUCCESS_RATES,
   attemptCardEnhancement,
+  attemptBatchCardSynthesis,
   attemptCardSynthesis,
   autoSelectSynthesisMaterials,
+  availableSynthesisMaterialCountForRarity,
   bestAvailableEnhancementForCard,
   bestEnhancementForCard,
   cardEnhancementAvailability,
@@ -281,6 +283,81 @@ test('successful synthesis consumes five same-rarity cards and returns one next-
   assert.equal(result.collection['alpha-c'], 0);
   assert.equal(result.collection['beta-u'], 3);
   assert.deepEqual(result.cardEnhancements, {});
+});
+
+test('rarity batch synthesis repeats returned failures and reports every deterministic result', () => {
+  const result = attemptBatchCardSynthesis({
+    collection: { 'alpha-c': 9 },
+    cardEnhancements: {},
+    catalog,
+    rarityOrder,
+    rarity: 'c',
+    random: sequence(
+      0.99, 0,
+      0.1, 0.999,
+    ),
+  });
+
+  assert.equal(result.attemptCount, 2);
+  assert.equal(result.successCount, 1);
+  assert.equal(result.failureCount, 1);
+  assert.equal(result.consumedCount, 10);
+  assert.deepEqual(result.results.map((entry) => ({
+    success: entry.success,
+    output: entry.outputCard.id,
+  })), [
+    { success: false, output: 'alpha-c' },
+    { success: true, output: 'beta-u' },
+  ]);
+  assert.equal(result.collection['alpha-c'], 0);
+  assert.equal(result.collection['beta-u'], 1);
+});
+
+test('rarity batch synthesis uses only free +0 copies and preserves enhancements, expeditions, and locks', () => {
+  const options = {
+    collection: { 'alpha-c': 8, 'beta-c': 5 },
+    cardEnhancements: { 'alpha-c': { 2: 1 } },
+    catalog,
+    rarityOrder,
+    rarity: 'c',
+    lockedCardIds: [{ cardId: 'alpha-c', enhancement: 0 }],
+    protectedCardIds: ['beta-c'],
+  };
+
+  assert.equal(availableSynthesisMaterialCountForRarity(options), 6);
+  const result = attemptBatchCardSynthesis({
+    ...options,
+    random: sequence(0, 0),
+  });
+
+  assert.equal(result.attemptCount, 1);
+  assert.equal(result.successCount, 1);
+  assert.equal(result.collection['alpha-c'], 3);
+  assert.equal(result.collection['beta-c'], 5);
+  assert.equal(result.collection['alpha-u'], 1);
+  assert.deepEqual(result.cardEnhancements, { 'alpha-c': { 2: 1 } });
+  assert.equal(availableSynthesisMaterialCountForRarity({
+    ...options,
+    collection: result.collection,
+    cardEnhancements: result.cardEnhancements,
+  }), 1);
+});
+
+test('rarity batch synthesis rejects unsupported rarities and fewer than five eligible copies', () => {
+  assert.throws(() => attemptBatchCardSynthesis({
+    collection: { 'alpha-ssr': 5 },
+    catalog,
+    rarityOrder,
+    rarity: 'ssr',
+  }), /등급을 확인/);
+
+  assert.throws(() => attemptBatchCardSynthesis({
+    collection: { 'alpha-c': 4, 'beta-c': 5 },
+    catalog,
+    rarityOrder,
+    rarity: 'c',
+    protectedCardIds: ['beta-c'],
+  }), /5장 이상/);
 });
 
 test('failed synthesis consumes enhanced materials and returns one random source-rarity +0 card', () => {

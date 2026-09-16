@@ -1,4 +1,4 @@
-const MAX_PACK_CARDS = 20;
+const MAX_PACK_CARDS = 50;
 
 const uniqueIndices = (values, length) => (
   Array.isArray(values)
@@ -18,6 +18,8 @@ export function createPendingPackOpening({
   cards,
   pityTriggered = false,
   highestRarity = '',
+  newCardIndices = [],
+  packCount = 1,
   openedAt = Date.now(),
   id = '',
 } = {}) {
@@ -34,6 +36,8 @@ export function createPendingPackOpening({
     cardIds,
     pityTriggered: Boolean(pityTriggered),
     highestRarity: typeof highestRarity === 'string' ? highestRarity : '',
+    newCardIndices: uniqueIndices(newCardIndices, cardIds.length),
+    packCount: Math.min(10, Math.max(1, Math.floor(Number(packCount) || 1))),
     revealedIndices: [],
     openedAt: safeOpenedAt,
   };
@@ -54,6 +58,8 @@ export function hydratePendingPackOpening(value) {
     cardIds,
     pityTriggered: Boolean(value.pityTriggered),
     highestRarity: typeof value.highestRarity === 'string' ? value.highestRarity : '',
+    newCardIndices: uniqueIndices(value.newCardIndices, cardIds.length),
+    packCount: Math.min(10, Math.max(1, Math.floor(Number(value.packCount) || 1))),
     revealedIndices: uniqueIndices(value.revealedIndices, cardIds.length),
     openedAt,
   };

@@ -12,7 +12,8 @@ import {
   RARITY_ORDER,
   cardById,
 } from '../src/data/cardCatalog.js';
-import { addCardsToCollection, openPack, rollWeightedRarity } from '../src/core/packEngine.js';
+import { addCardsToCollection, openPack, openPacks, rollWeightedRarity } from '../src/core/packEngine.js';
+import { newCardIndices, registerDiscoveredCards } from '../src/core/cardDiscovery.js';
 import {
   cardsForPendingPack,
   createPendingPackOpening,
@@ -315,6 +316,52 @@ test('a premium pack reveal survives persistence and resumes without duplicate f
   assert.equal(duplicate.changed, false);
 });
 
+test('ten-pack opening advances pity one pack at a time and returns fifty cards', () => {
+  const definition = {
+    cardCount: 5,
+    weights: { c: 1 },
+    rarityOrder: ['c'],
+  };
+  const result = openPacks({
+    catalog: [{ id: 'alpha-c', rarity: 'c' }],
+    definition,
+    pity: 4,
+    packCount: 10,
+    random: () => 0,
+  });
+  assert.equal(result.packCount, 10);
+  assert.equal(result.cards.length, 50);
+  assert.equal(result.nextPity, 4);
+});
+
+test('new card markers only flag the first copy and discoveries persist after cards are consumed', () => {
+  const cards = [
+    { id: 'known-c' },
+    { id: 'fresh-u' },
+    { id: 'fresh-u' },
+    { id: 'fresh-r' },
+  ];
+  assert.deepEqual(newCardIndices(cards, ['known-c']), [1, 3]);
+  assert.deepEqual(
+    registerDiscoveredCards(['known-c', 'old-c'], cards),
+    ['known-c', 'old-c', 'fresh-u', 'fresh-r'],
+  );
+});
+
+test('pending ten-pack opening preserves new markers and all fifty cards', () => {
+  const cards = Array.from({ length: 50 }, (_, index) => ({ id: `batch-${index}` }));
+  const opening = createPendingPackOpening({
+    cards,
+    packCount: 10,
+    newCardIndices: [0, 17, 49, 99],
+    id: 'ten-pack-resume',
+  });
+  const restored = hydrateState({ pendingPackOpening: opening }).pendingPackOpening;
+  assert.equal(restored.cardIds.length, 50);
+  assert.equal(restored.packCount, 10);
+  assert.deepEqual(restored.newCardIndices, [0, 17, 49]);
+});
+
 test('expired incidents are removed during saved-state hydration so scheduling can resume', () => {
   const hydrated = hydrateState({
     activeIncident: { id: 'coffee-order', instanceId: 'expired', arrivedAt: 1000 },
@@ -421,4 +468,14 @@ test('every catalog card has a packaged artwork file', () => {
   for (const card of CARD_CATALOG) {
     assert.equal(existsSync(new URL(`../public/${card.image.slice(2)}`, import.meta.url)), true, card.id);
   }
+});
+
+test('expedition rejects different rarities of the same character in one party', () => {
+  assert.throws(() => startExpedition({
+    mission: EXPEDITIONS[0],
+    cardIds: ['winter-c', 'winter-u'],
+    collection: { 'winter-c': 1, 'winter-u': 1 },
+    catalog: ALL_CARDS,
+    now: 1000,
+  }), /같은 인물/);
 });

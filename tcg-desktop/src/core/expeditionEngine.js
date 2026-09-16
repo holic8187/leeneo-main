@@ -54,6 +54,11 @@ export function startExpedition({
   if (!mission) throw new Error('모험 정보를 찾을 수 없습니다.');
   const sourceIds = Array.isArray(cardIds) ? cardIds : [];
   const squad = [...new Set(sourceIds)].filter((id) => collection?.[id]).slice(0, 3);
+  const catalogById = new Map((Array.isArray(catalog) ? catalog : []).map((card) => [card.id, card]));
+  const characterIds = squad.map((cardId) => catalogById.get(cardId)?.characterId || cardId);
+  if (new Set(characterIds).size !== characterIds.length) {
+    throw new Error('등급이 달라도 같은 인물은 한 모험 파티에 중복 편성할 수 없습니다.');
+  }
   const requiredCards = Math.max(1, Math.floor(Number(mission.requiredCards) || 1));
   if (squad.length < requiredCards) {
     throw new Error(`카드를 ${requiredCards}장 이상 편성해 주세요.`);

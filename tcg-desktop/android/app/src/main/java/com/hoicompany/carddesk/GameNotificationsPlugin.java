@@ -50,12 +50,15 @@ public class GameNotificationsPlugin extends Plugin {
             call.resolve(permissionStatus());
             return;
         }
-        GameNotificationScheduler.markPermissionRequested(getContext());
         requestPermissionForAlias("notifications", call, "notificationPermissionCallback");
     }
 
     @PermissionCallback
     private void notificationPermissionCallback(PluginCall call) {
+        // Record the request only after Android has actually returned from its
+        // permission UI. If the activity is interrupted before the dialog can
+        // open, the next authenticated launch can offer the request again.
+        GameNotificationScheduler.markPermissionRequested(getContext());
         if (GameNotificationScheduler.canPostNotifications(getContext())) {
             GameNotificationScheduler.rescheduleAll(getContext());
         }

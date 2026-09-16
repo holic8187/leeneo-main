@@ -141,7 +141,7 @@ test('deadline dragon exposes eight doubling HP stages and cumulative skills', (
 
 test('squad validation preserves selection order, verifies enhancement, and blocks expedition cards', () => {
   const playerState = {
-    collection: { 'simsim-c': 1, 'winter-c': 2, 'kkamdung-c': 1, 'mango-c': 1 },
+    collection: { 'simsim-c': 1, 'winter-c': 2, 'winter-u': 1, 'kkamdung-c': 1, 'mango-c': 1 },
     cardEnhancements: { 'winter-c': { 2: 1 } },
     expedition: { squad: ['kkamdung-c'], enhancementStages: { 'kkamdung-c': 0 }, endsAt: Date.parse('2026-09-16T10:00:00Z') }
   };
@@ -152,6 +152,7 @@ test('squad validation preserves selection order, verifies enhancement, and bloc
   });
   assert.deepEqual(verified.squad.map((card) => [card.slot, card.cardId, card.enhancement]), [[1, 'winter-c', 2], [2, 'simsim-c', 0], [3, 'mango-c', 0]]);
   assert.throws(() => validatePersonalRaidSquad({ playerState, squad: [{ cardId: 'kkamdung-c', enhancement: 0 }, { cardId: 'simsim-c', enhancement: 0 }, { cardId: 'winter-c', enhancement: 2 }] }), (error) => error.code === 'RAID_CARD_UNAVAILABLE');
+  assert.throws(() => validatePersonalRaidSquad({ playerState, squad: [{ cardId: 'winter-c', enhancement: 2 }, { cardId: 'winter-u', enhancement: 0 }, { cardId: 'simsim-c', enhancement: 0 }] }), (error) => error.code === 'INVALID_RAID_SQUAD' && /같은 인물/.test(error.message));
 });
 
 test('start consumes one daily entry, creates a bound session, and prevents parallel starts', async () => {

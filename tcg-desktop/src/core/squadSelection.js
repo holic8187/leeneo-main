@@ -1,13 +1,32 @@
 export const MAX_SQUAD_SIZE = 3;
 
+const identityOf = (cardId, identityForId) => (
+  String(typeof identityForId === 'function' ? identityForId(cardId) : cardId || '').trim()
+  || String(cardId || '').trim()
+);
+
+export function uniqueSquadByIdentity(selectedIds, identityForId = null, maxSize = MAX_SQUAD_SIZE) {
+  const identities = new Set();
+  const selected = [];
+  for (const rawId of Array.isArray(selectedIds) ? selectedIds : []) {
+    const cardId = String(rawId || '').trim();
+    if (!cardId) continue;
+    const identity = identityOf(cardId, identityForId);
+    if (identities.has(identity)) continue;
+    identities.add(identity);
+    selected.push(cardId);
+    if (selected.length >= Math.max(1, maxSize)) break;
+  }
+  return selected;
+}
+
 export function toggleSquadSelection(selectedIds, cardId, {
   maxSize = MAX_SQUAD_SIZE,
   unavailableIds = [],
+  identityForId = null,
 } = {}) {
   const normalizedCardId = String(cardId || '').trim();
-  const selected = [...new Set(Array.isArray(selectedIds) ? selectedIds : [])]
-    .filter(Boolean)
-    .slice(0, Math.max(1, maxSize));
+  const selected = uniqueSquadByIdentity(selectedIds, identityForId, maxSize);
   if (!normalizedCardId) return selected;
 
   if (selected.includes(normalizedCardId)) {
@@ -17,20 +36,31 @@ export function toggleSquadSelection(selectedIds, cardId, {
     return selected;
   }
 
+  const nextIdentity = identityOf(normalizedCardId, identityForId);
+  const sameCharacterIndex = selected.findIndex((id) => identityOf(id, identityForId) === nextIdentity);
+  if (sameCharacterIndex >= 0) {
+    selected[sameCharacterIndex] = normalizedCardId;
+    return selected;
+  }
+
   if (selected.length >= maxSize) selected.shift();
   selected.push(normalizedCardId);
   return selected;
 }
 
-export function availableRaidSquad(selectedIds, expedition, collection = null) {
+export function availableRaidSquad(
+  selectedIds,
+  expedition,
+  collection = null,
+  { identityForId = null } = {},
+) {
   const deployedCounts = {};
   for (const cardId of Array.isArray(expedition?.squad) ? expedition.squad : []) {
     deployedCounts[cardId] = (deployedCounts[cardId] || 0) + 1;
   }
   const hasCollection = collection && typeof collection === 'object';
-  return [...new Set(Array.isArray(selectedIds) ? selectedIds : [])]
+  return uniqueSquadByIdentity(selectedIds, identityForId)
     .filter((cardId) => {
-      if (!cardId) return false;
       const deployed = deployedCounts[cardId] || 0;
       if (!deployed) return true;
       if (!hasCollection) return false;

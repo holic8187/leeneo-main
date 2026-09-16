@@ -89,6 +89,28 @@ export function openPack({ catalog, definition, pity = 0, random = Math.random }
   };
 }
 
+export function openPacks({
+  catalog,
+  definition,
+  pity = 0,
+  packCount = 1,
+  random = Math.random,
+} = {}) {
+  const count = Math.min(10, Math.max(1, Math.floor(Number(packCount) || 1)));
+  const cards = [];
+  let nextPity = Math.max(0, Math.floor(Number(pity) || 0));
+  let pityTriggered = false;
+
+  for (let index = 0; index < count; index += 1) {
+    const result = openPack({ catalog, definition, pity: nextPity, random });
+    cards.push(...result.cards);
+    nextPity = result.nextPity;
+    pityTriggered ||= result.pityTriggered;
+  }
+
+  return { cards, nextPity, pityTriggered, packCount: count };
+}
+
 export function addCardsToCollection(collection, cards) {
   const next = { ...collection };
   for (const card of cards) {

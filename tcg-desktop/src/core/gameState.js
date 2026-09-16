@@ -2,6 +2,8 @@ import { INCIDENT_ACTIVE_DURATION_MS } from './incidentEngine.js';
 import { normalizeCardEnhancements } from './cardManagement.js';
 import { hydratePendingPackOpening } from './packOpeningSession.js';
 import { hydrateRaidRewardClaims } from './raidRewards.js';
+import { uniqueSquadByIdentity } from './squadSelection.js';
+import { cardById } from '../data/cardCatalog.js';
 
 export const STORAGE_KEY = 'hoi-card-desk-state-v1';
 export const ACCOUNT_STORAGE_PREFIX = 'hoi-card-desk-state-v2:';
@@ -106,10 +108,10 @@ export function hydrateState(saved, now = Date.now()) {
   state.cardEnhancements = normalizeCardEnhancements(saved.cardEnhancements, state.collection);
 
   const legacySquad = Array.isArray(saved.selectedSquad) ? saved.selectedSquad : null;
-  const hydrateSquad = (candidate, fallback) => (
-    Array.isArray(candidate)
-      ? [...new Set(candidate)].filter((id) => state.collection[id]).slice(0, 3)
-      : fallback.filter((id) => state.collection[id])
+  const squadCharacterIdentity = (cardId) => cardById(cardId)?.characterId || cardId;
+  const hydrateSquad = (candidate, fallback) => uniqueSquadByIdentity(
+    (Array.isArray(candidate) ? candidate : fallback).filter((id) => state.collection[id]),
+    squadCharacterIdentity,
   );
   state.selectedExpeditionSquad = hydrateSquad(
     saved.selectedExpeditionSquad || legacySquad,
