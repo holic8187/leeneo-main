@@ -220,6 +220,10 @@ const iconSet = {
   Zap,
 };
 
+const availableLucideIconNames = new Set(Object.keys(iconSet).map((name) => (
+  name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()
+)));
+
 const views = {
   dashboard: { label: '업무판', icon: 'briefcase' },
   collection: { label: '카드 도감', icon: 'library' },
@@ -1569,11 +1573,16 @@ function renderPersonalRaidRanking(state) {
 
 function renderRaidEffectIcon(rawEffect, owner, index) {
   const effect = effectPresentation(rawEffect);
-  return `<button class="raid-effect-icon is-${effect.tone}" type="button" data-action="inspect-raid-effect" data-effect-owner="${owner}" data-effect-index="${index}" title="${escapeHtml(effect.label)}" aria-label="${escapeHtml(effect.label)} 정보 보기"><i data-lucide="${escapeHtml(effect.icon)}"></i>${effect.count ? `<b>${formatNumber(effect.count)}</b>` : ''}</button>`;
+  const icon = availableLucideIconNames.has(effect.icon) ? effect.icon : 'circle-alert';
+  const shared = rawEffect?.shared === true || rawEffect?.scope === 'team';
+  const count = effect.count ? `<b aria-label="${formatNumber(effect.count)}회 남음">${formatNumber(effect.count)}</b>` : '';
+  return `<button class="raid-effect-icon is-${effect.tone}${shared ? ' is-shared' : ''}" type="button" data-action="inspect-raid-effect" data-effect-owner="${owner}" data-effect-index="${index}" title="${escapeHtml(effect.label)}" aria-label="${escapeHtml(`${effect.label}${effect.count ? ` ${formatNumber(effect.count)}회 남음` : ''} 정보 보기`)}"><i data-lucide="${escapeHtml(icon)}"></i>${shared ? '<em aria-hidden="true">파티</em>' : ''}${count}</button>`;
 }
 
-function renderRaidEffectList(effects, owner) {
-  return `<div class="raid-effect-list">${effects.map((effect, index) => renderRaidEffectIcon(effect, owner, index)).join('')}</div>`;
+function renderRaidEffectList(effects, owner, label = '적용 중인 상태 효과') {
+  const visibleEffects = Array.isArray(effects) ? effects : [];
+  if (!visibleEffects.length) return '';
+  return `<div class="raid-effect-list" aria-label="${escapeHtml(label)}">${visibleEffects.map((effect, index) => renderRaidEffectIcon(effect, owner, index)).join('')}</div>`;
 }
 
 function renderRaidBattleInspector(battle) {
@@ -1588,7 +1597,7 @@ function renderRaidBattleInspector(battle) {
       : battle.squad[Number(inspector.owner)]?.effects;
     const effect = source?.[inspector.index];
     if (!effect) return '';
-    return `<aside class="raid-effect-tooltip is-${effect.tone}" role="dialog" aria-label="상태 효과 설명"><button type="button" data-action="close-raid-inspector" aria-label="닫기"><i data-lucide="x"></i></button><h3>${escapeHtml(effect.label)}${effect.count ? ` · ${formatNumber(effect.count)}` : ''}</h3><p>${escapeHtml(effect.description)}</p></aside>`;
+    return `<aside class="raid-effect-tooltip is-${effect.tone}" role="dialog" aria-label="상태 효과 설명"><button type="button" data-action="close-raid-inspector" aria-label="닫기"><i data-lucide="x"></i></button><h3>${escapeHtml(effect.label)}${effect.count ? ` · ${formatNumber(effect.count)}` : ''}${effect.scope === 'team' ? '<span class="raid-effect-scope">파티 전체</span>' : ''}</h3><p>${escapeHtml(effect.description)}</p></aside>`;
   }
   const member = battle.squad[inspector.cardIndex];
   const card = cardById(member?.cardId);
@@ -1624,13 +1633,13 @@ function renderPersonalRaidBattlefield(state) {
           <div class="raid-boss-health-track" role="progressbar" aria-valuenow="${battle.boss.hp}" aria-valuemax="${battle.boss.maxHp}"><span style="width:${bossHpRatio}%"></span></div>
           <div class="raid-break-label"><span>BREAK</span><strong>${formatNumber(battle.boss.breakGauge)} / 100</strong></div>
           <div class="raid-break-track" role="progressbar" aria-valuenow="${battle.boss.breakGauge}" aria-valuemax="100"><span style="width:${battle.boss.breakGauge}%"></span></div>
+          <div class="raid-boss-effects">${renderRaidEffectList(battle.boss.effects, 'boss', '보스에게 적용 중인 상태 효과')}</div>
         </div>
         <div class="raid-turn-counter"><small>전투 턴</small><strong>${formatNumber(battle.turn || 1)}</strong></div>
       </header>
       <div class="raid-battle-arena">
         ${playerTurn ? `<div class="raid-battle-countdown ${remaining <= 5 ? 'is-urgent' : ''}" data-raid-turn-deadline="${battle.turnDeadlineAt}" aria-label="행동 제한 시간">${formatNumber(remaining)}</div>` : ''}
         <div class="raid-boss-zone">
-          <div class="raid-boss-effects">${renderRaidEffectList(battle.boss.effects, 'boss')}</div>
           <div class="raid-boss-card ${battle.boss.stunned ? 'is-stunned' : ''} ${animation.attacker === 'boss' ? 'is-attacking' : ''} ${animationTargets.includes('boss') ? 'is-raid-hit' : ''}">
             <img src="${battle.boss.image || bossCard?.image || './assets/cards/deadline-dragon.webp'}" alt="${escapeHtml(battle.boss.name)}" />
             ${battle.boss.stunned ? '<span class="raid-stun-orbit" aria-label="브레이크 스턴"></span>' : ''}
@@ -1645,12 +1654,12 @@ function renderPersonalRaidBattlefield(state) {
             const skillUnavailable = sealed || member.skillCooldown > 0 || (skill?.oncePerBattle && member.skillUses > 0);
             return `<article class="raid-unit-slot rarity-${card?.rarity || 'c'} ${onTurn ? 'is-active' : ''} ${animation.attacker === index ? 'is-attacking' : ''}">
               ${onTurn ? `<div class="raid-card-actions"><button type="button" data-action="raid-basic-attack" ${ui.raid.battlePending ? 'disabled' : ''}>기본공격</button><button type="button" data-action="raid-skill-attack" ${ui.raid.battlePending || skillUnavailable ? 'disabled' : ''}>스킬${skillUnavailable ? `<small>${sealed ? '봉인됨' : skill?.oncePerBattle && member.skillUses > 0 ? '사용 완료' : `${formatNumber(member.skillCooldown)}턴 남음`}</small>` : ''}</button></div>` : ''}
-              <div class="raid-unit-effects">${renderRaidEffectList(member.effects, String(index))}</div>
               <button class="raid-unit-card ${member.hp <= 0 ? 'is-ko' : ''} ${animationTargets.includes(index) ? 'is-raid-hit' : ''}" type="button" data-action="inspect-raid-card" data-card-index="${index}" data-payroll-label="${escapeHtml(`${rarityLabel(card?.rarity)} · ${cardDisplayName(card)}`)}">
                 <span class="raid-unit-number">${index + 1}</span>
                 <img src="${card?.image || member.image}" alt="${escapeHtml(cardDisplayName(card))}" />
                 <span class="raid-unit-name">${escapeHtml(cardDisplayName(card))} ${enhancementLabel(member.enhancement)}</span>
               </button>
+              <div class="raid-unit-effects">${renderRaidEffectList(member.effects, String(index), `${cardDisplayName(card)}에게 적용 중인 상태 효과`)}</div>
               <div class="raid-unit-hp"><div class="raid-unit-hp-label"><span>HP${member.shield ? ` +${formatNumber(member.shield)}` : ''}</span><strong>${formatNumber(member.hp)} / ${formatNumber(member.maxHp)}</strong></div><div class="raid-unit-hp-track"><span style="width:${Math.round(member.hp / member.maxHp * 100)}%"></span></div></div>
             </article>`;
           }).join('')}
