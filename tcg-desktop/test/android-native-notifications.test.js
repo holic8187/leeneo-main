@@ -41,6 +41,20 @@ test('Android retries the corrected notification permission flow once after upgr
   assert.match(scheduler, /putInt\(PERMISSION_FLOW_VERSION_KEY, PERMISSION_FLOW_VERSION\)/);
 });
 
+test('Android notification probing cannot block authenticated cloud startup', () => {
+  const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  const activationStart = main.indexOf('async function activateAuthenticatedSession');
+  const activationEnd = main.indexOf('\nasync function submitLogin', activationStart);
+  const activation = main.slice(activationStart, activationEnd);
+  assert.match(activation, /void prepareMobileNotificationPermissionPrompt/);
+  assert.doesNotMatch(activation, /await prepareMobileNotificationPermissionPrompt/);
+
+  const bridge = readFileSync(new URL('../src/services/desktopBridge.js', import.meta.url), 'utf8');
+  assert.match(bridge, /GAME_NOTIFICATION_STATUS_TIMEOUT_MS/);
+  assert.match(bridge, /readGameNotificationPermissionWithFallback/);
+  assert.match(bridge, /NOTIFICATION_PERMISSION_TIMEOUT/);
+});
+
 test('Android updater streams the APK into app-private cache and reports byte progress', () => {
   const updater = androidFile('java/com/hoicompany/carddesk/AndroidUpdaterPlugin.java');
   assert.doesNotMatch(updater, /import android\.app\.DownloadManager/);

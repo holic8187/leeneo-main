@@ -3070,10 +3070,12 @@ function maybeShowMobileNotificationPermissionPrompt() {
   return true;
 }
 
-async function prepareMobileNotificationPermissionPrompt() {
+async function prepareMobileNotificationPermissionPrompt({ accountId = '' } = {}) {
   if (clientPlatform !== 'android' || !store) return false;
   try {
     const permission = await desktopBridge.getGameNotificationPermission();
+    const activeAccountId = String(ui.auth.account?.id || ui.auth.account?._id || '');
+    if (ui.auth.phase !== 'authenticated' || (accountId && activeAccountId !== accountId) || !store) return false;
     ui.notificationPermission = String(permission?.display || 'unknown');
     const opened = maybeShowMobileNotificationPermissionPrompt();
     if (opened) render();
@@ -4012,9 +4014,9 @@ async function activateAuthenticatedSession(session, { newAccount = false } = {}
     ui.appVersion = await desktopBridge.getVersion().catch(() => '0.0.0');
   }
   // Notification permission is local to Android and must not depend on winning
-  // the single-device cloud lease. This also lets a phone prompt correctly
-  // while the same account is still open on PC.
-  await prepareMobileNotificationPermissionPrompt();
+  // the single-device cloud lease. More importantly, a stalled OEM permission
+  // bridge must never prevent the cloud-session request from starting.
+  void prepareMobileNotificationPermissionPrompt({ accountId: String(account.id || account._id || '') });
   cloudBootstrapAllowed = shouldBootstrapCloudState({
     platform: clientPlatform,
     newAccount,

@@ -16,6 +16,7 @@ let gameNotifications = null;
 let gameNotificationListenerPromise = null;
 
 const APP_VERSION_TIMEOUT_MS = 2500;
+const GAME_NOTIFICATION_STATUS_TIMEOUT_MS = 2500;
 const ANDROID_UPDATE_TIMEOUT_MS = 7 * 60 * 1000;
 const BUILD_APP_VERSION = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '0.0.0';
 
@@ -40,6 +41,36 @@ export async function readAppVersionWithFallback(
       timeoutError: () => Object.assign(new Error('앱 버전 확인 시간이 초과되었습니다.'), { code: 'VERSION_TIMEOUT' }),
     });
     return String(value || fallback);
+  } catch {
+    return fallback;
+  }
+}
+
+export async function readGameNotificationPermissionWithFallback(
+  readPermission,
+  {
+    timeoutMs = GAME_NOTIFICATION_STATUS_TIMEOUT_MS,
+    setTimeoutImpl = globalThis.setTimeout,
+    clearTimeoutImpl = globalThis.clearTimeout,
+  } = {},
+) {
+  const fallback = { display: 'unavailable', granted: false };
+  try {
+    const value = await withDeadline(readPermission, {
+      timeoutMs,
+      setTimeoutImpl,
+      clearTimeoutImpl,
+      timeoutError: () => Object.assign(
+        new Error('알림 권한 상태 확인 시간이 초과되었습니다.'),
+        { code: 'NOTIFICATION_PERMISSION_TIMEOUT' },
+      ),
+    });
+    if (!value || typeof value !== 'object') return fallback;
+    return {
+      ...value,
+      display: String(value.display || fallback.display),
+      granted: value.granted === true,
+    };
   } catch {
     return fallback;
   }
@@ -187,9 +218,12 @@ export const desktopBridge = {
     return () => mobileUpdateListeners.delete(handler);
   },
   async getGameNotificationPermission() {
-    const plugin = await capacitorGameNotifications();
-    if (!plugin) return { display: platform === 'android' ? 'unavailable' : 'unsupported', granted: false };
-    return plugin.getPermissionStatus();
+    const unsupported = { display: platform === 'android' ? 'unavailable' : 'unsupported', granted: false };
+    return readGameNotificationPermissionWithFallback(async () => {
+      const plugin = await capacitorGameNotifications();
+      if (!plugin) return unsupported;
+      return plugin.getPermissionStatus();
+    });
   },
   async requestGameNotificationPermission() {
     const plugin = await capacitorGameNotifications();
