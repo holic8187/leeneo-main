@@ -8,8 +8,8 @@ test('clicking a selected card removes it and clicking an unselected card adds i
   assert.deepEqual(toggleSquadSelection(['a'], 'b'), ['a', 'b']);
 });
 
-test('a full squad replaces its oldest card while preserving a maximum of three', () => {
-  assert.deepEqual(toggleSquadSelection(['a', 'b', 'c'], 'd'), ['b', 'c', 'd']);
+test('a full squad replaces its oldest card while preserving a maximum of four', () => {
+  assert.deepEqual(toggleSquadSelection(['a', 'b', 'c', 'd'], 'e'), ['b', 'c', 'd', 'e']);
 });
 
 test('cards deployed on an expedition cannot enter the available raid squad', () => {

@@ -3,6 +3,18 @@ import {
   bestEnhancementForCard,
   enhancedCardPower,
 } from './cardManagement.js';
+import {
+  cardCombatPowerAtLevel,
+  expeditionExperienceReward,
+  grantCardExperience,
+  progressionForCard,
+} from './cardProgression.js';
+import { MAX_SQUAD_SIZE } from './squadSelection.js';
+import {
+  addEquipmentToInventory,
+  equipmentPartyAttackMultiplier,
+  rollExpeditionEquipmentDrop,
+} from './equipment.js';
 
 const LEGACY_EXPEDITION_SCORE_FACTOR = 40;
 const COMBAT_POWER_SCALE = 'combat-power-v1';
@@ -27,9 +39,11 @@ export function calculateSquadScore(
   catalog = [],
   cardEnhancements = {},
   lockedCards = [],
+  cardProgression = {},
+  equipment = null,
 ) {
-  const uniqueIds = [...new Set(Array.isArray(cardIds) ? cardIds : [])].slice(0, 3);
-  return uniqueIds.reduce((score, cardId) => {
+  const uniqueIds = [...new Set(Array.isArray(cardIds) ? cardIds : [])].slice(0, MAX_SQUAD_SIZE);
+  const baseScore = uniqueIds.reduce((score, cardId) => {
     if (!collection?.[cardId]) return score;
     const card = catalog.find((candidate) => candidate.id === cardId);
     const stage = bestAvailableEnhancementForCard(
@@ -39,8 +53,11 @@ export function calculateSquadScore(
       lockedCards,
     );
     if (stage < 0) return score;
-    return score + (card ? enhancedCardPower(cardExpeditionPower(card), stage) : 0);
+    if (!card) return score;
+    const enhancedPower = enhancedCardPower(cardExpeditionPower(card), stage);
+    return score + cardCombatPowerAtLevel(enhancedPower, card, cardProgression);
   }, 0);
+  return Math.round(baseScore * equipmentPartyAttackMultiplier(equipment));
 }
 
 export function startExpedition({
@@ -48,12 +65,14 @@ export function startExpedition({
   cardIds,
   collection,
   cardEnhancements = {},
+  cardProgression = {},
+  equipment = null,
   catalog,
   now = Date.now(),
 }) {
   if (!mission) throw new Error('모험 정보를 찾을 수 없습니다.');
   const sourceIds = Array.isArray(cardIds) ? cardIds : [];
-  const squad = [...new Set(sourceIds)].filter((id) => collection?.[id]).slice(0, 3);
+  const squad = [...new Set(sourceIds)].filter((id) => collection?.[id]).slice(0, MAX_SQUAD_SIZE);
   const catalogById = new Map((Array.isArray(catalog) ? catalog : []).map((card) => [card.id, card]));
   const characterIds = squad.map((cardId) => catalogById.get(cardId)?.characterId || cardId);
   if (new Set(characterIds).size !== characterIds.length) {
@@ -64,7 +83,7 @@ export function startExpedition({
     throw new Error(`카드를 ${requiredCards}장 이상 편성해 주세요.`);
   }
 
-  const score = calculateSquadScore(squad, collection, catalog, cardEnhancements);
+  const score = calculateSquadScore(squad, collection, catalog, cardEnhancements, [], cardProgression, equipment);
   const minimumPower = missionMinimumPower(mission);
   if (score < minimumPower) {
     throw new Error(`최소 합산 전투력 ${minimumPower.toLocaleString('ko-KR')} 이상이 필요합니다.`);
@@ -78,6 +97,11 @@ export function startExpedition({
       cardId,
       bestEnhancementForCard(collection, cardEnhancements, cardId),
     ])),
+    cardLevels: Object.fromEntries(squad.map((cardId) => [
+      cardId,
+      progressionForCard(cardProgression, cardId).level,
+    ])),
+    equipment: equipment ? { ...equipment } : null,
     score,
     combatPower: score,
     powerScale: COMBAT_POWER_SCALE,
@@ -145,9 +169,22 @@ export function completeDueExpedition({ state, mission, now = Date.now(), random
   if (!expedition || !Number.isFinite(completedAt) || now < completedAt) return null;
 
   const result = settleExpedition({ expedition, mission, now, random });
+  const experiencePerCard = expeditionExperienceReward(mission);
+  const experienceResult = grantCardExperience(
+    state.cardProgression,
+    expedition.squad,
+    experiencePerCard,
+    state.collection,
+  );
+  const equipment = rollExpeditionEquipmentDrop({ mission, now: completedAt, random });
   return {
     completedAt,
-    result,
+    result: {
+      ...result,
+      experiencePerCard,
+      experienceAwards: experienceResult.awards,
+      equipment,
+    },
     state: {
       ...state,
       wallet: {
@@ -158,6 +195,10 @@ export function completeDueExpedition({ state, mission, now = Date.now(), random
         ...(state.packs || {}),
         standard: Math.max(0, Number(state.packs?.standard) || 0) + result.packs,
       },
+      cardProgression: experienceResult.cardProgression,
+      equipmentInventory: equipment
+        ? addEquipmentToInventory(state.equipmentInventory, equipment)
+        : [...(state.equipmentInventory || [])],
       expedition: null,
     },
   };

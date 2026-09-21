@@ -33,3 +33,33 @@ test('Android records a permission request only after its operating-system dialo
   assert.match(callback, /markPermissionRequested/);
   assert.match(callback, /rescheduleAll/);
 });
+
+test('Android retries the corrected notification permission flow once after upgrading from a legacy build', () => {
+  const scheduler = androidFile('java/com/hoicompany/carddesk/GameNotificationScheduler.java');
+  assert.match(scheduler, /PERMISSION_FLOW_VERSION_KEY/);
+  assert.match(scheduler, /getInt\(PERMISSION_FLOW_VERSION_KEY, 0\) >= PERMISSION_FLOW_VERSION/);
+  assert.match(scheduler, /putInt\(PERMISSION_FLOW_VERSION_KEY, PERMISSION_FLOW_VERSION\)/);
+});
+
+test('Android updater streams the APK into app-private cache and reports byte progress', () => {
+  const updater = androidFile('java/com/hoicompany/carddesk/AndroidUpdaterPlugin.java');
+  assert.doesNotMatch(updater, /import android\.app\.DownloadManager/);
+  assert.match(updater, /new BufferedInputStream\(connection\.getInputStream\(\)\)/);
+  assert.match(updater, /downloadedBytes \* 100L\) \/ totalBytes/);
+  assert.match(updater, /Math\.max\(1L, Math\.min\(99L/);
+  assert.match(updater, /payload\.put\("downloadedBytes"/);
+  assert.match(updater, /new File\(getContext\(\)\.getCacheDir\(\), "updates"\)/);
+  assert.match(updater, /"release-assets\.githubusercontent\.com"\.equals\(host\)/);
+});
+
+test('Android updater bounds retries and timeouts, then falls back across OEM installers', () => {
+  const updater = androidFile('java/com/hoicompany/carddesk/AndroidUpdaterPlugin.java');
+  assert.match(updater, /MAX_DOWNLOAD_ATTEMPTS = 2/);
+  assert.match(updater, /long deadlineAt = SystemClock\.elapsedRealtime\(\) \+ MAX_DOWNLOAD_DURATION_MS/);
+  assert.match(updater, /setConnectTimeout\(boundedTimeout/);
+  assert.match(updater, /setReadTimeout\(boundedTimeout/);
+  assert.match(updater, /new Intent\(Intent\.ACTION_INSTALL_PACKAGE\)/);
+  assert.match(updater, /new Intent\(Intent\.ACTION_VIEW\)/);
+  assert.match(updater, /setClipData\(ClipData\.newRawUri/);
+  assert.match(updater, /editor\.commit\(\)/);
+});

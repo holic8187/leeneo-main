@@ -290,8 +290,14 @@ export function createCloudPlaySession({
           reason: 'session-moved',
           serverRevision: Number(error?.revision) || revision,
         });
-        if (pendingEntry) clearPending(pendingEntry);
-        else removeOutboxIfMatching(inFlightEntry);
+        // Do not discard a card acquisition (or any other local mutation)
+        // merely because another device took over the lease.  Keeping the
+        // outbox entry makes the next session compare it with the current
+        // server revision and enter the explicit conflict flow.  The former
+        // behavior only retained a passive backup, so an unsent rare card
+        // could silently disappear from normal recovery after PC/mobile
+        // switching.
+        if (!pendingEntry && inFlightEntry) restorePending(inFlightEntry);
       }
       inFlightEntry = null;
       conflict = null;

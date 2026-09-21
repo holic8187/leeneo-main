@@ -9,13 +9,13 @@ const tcgPersonalRaidDailySchema = new mongoose.Schema({
     index: true
   },
   dayKey: { type: String, required: true, index: true },
-  // v2 stores the Tuesday KST week key in dayKey as well. Keeping dayKey lets
-  // the existing production unique index migrate without a destructive drop.
+  // v3 stores the Monday 00:00 KST week key in dayKey as well. Keeping dayKey
+  // lets the production unique index migrate without a destructive drop.
   weekKey: { type: String, default: '', index: true },
   schemaVersion: { type: Number, default: 1, min: 1 },
   bossId: { type: String, required: true, index: true },
   nickname: { type: String, required: true },
-  currentStage: { type: Number, default: 1, min: 1, max: 8 },
+  currentStage: { type: Number, default: 1, min: 1, max: 10 },
   currentHp: { type: Number, required: true, min: 0 },
   contribution: { type: Number, default: 0, min: 0 },
   dispatchCount: { type: Number, default: 0, min: 0 },

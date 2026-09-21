@@ -41,6 +41,8 @@ final class GameNotificationScheduler {
     private static final String QUIET_START_KEY = "quiet-start-hour";
     private static final String QUIET_END_KEY = "quiet-end-hour";
     private static final String PERMISSION_REQUESTED_KEY = "permission-requested";
+    private static final String PERMISSION_FLOW_VERSION_KEY = "permission-flow-version";
+    private static final int PERMISSION_FLOW_VERSION = 2;
     private static final String LAST_OPENED_KEY = "last-opened";
 
     private static final String CHANNEL_ID = "game-events";
@@ -147,11 +149,16 @@ final class GameNotificationScheduler {
     }
 
     static boolean permissionWasRequested(Context context) {
-        return preferences(context).getBoolean(PERMISSION_REQUESTED_KEY, false);
+        SharedPreferences values = preferences(context);
+        return values.getBoolean(PERMISSION_REQUESTED_KEY, false)
+            && values.getInt(PERMISSION_FLOW_VERSION_KEY, 0) >= PERMISSION_FLOW_VERSION;
     }
 
     static void markPermissionRequested(Context context) {
-        preferences(context).edit().putBoolean(PERMISSION_REQUESTED_KEY, true).commit();
+        preferences(context).edit()
+            .putBoolean(PERMISSION_REQUESTED_KEY, true)
+            .putInt(PERMISSION_FLOW_VERSION_KEY, PERMISSION_FLOW_VERSION)
+            .commit();
     }
 
     static void configure(Context context, boolean enabled, boolean quietEnabled, int quietStart, int quietEnd) {

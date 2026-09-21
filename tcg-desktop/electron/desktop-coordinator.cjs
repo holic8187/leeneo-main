@@ -123,12 +123,12 @@ function createUpdateCoordinator({ updater, isPackaged, prepareCheck = null, pre
 }
 
 function toastBounds(workArea, choiceCount) {
-  const width = Math.min(410, Math.max(1, workArea.width - 24));
-  const height = Math.min(230 + choiceCount * 48, Math.max(1, workArea.height - 24));
+  const width = Math.min(300, Math.max(1, workArea.width - 16));
+  const height = Math.min(104 + choiceCount * 34, Math.max(1, workArea.height - 16));
   return {
     width, height,
-    x: Math.max(workArea.x, workArea.x + workArea.width - width - 12),
-    y: Math.max(workArea.y, workArea.y + workArea.height - height - 12),
+    x: Math.max(workArea.x, workArea.x + workArea.width - width - 8),
+    y: Math.max(workArea.y, workArea.y + workArea.height - height - 8),
   };
 }
 

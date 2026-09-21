@@ -12,7 +12,13 @@ import {
   RARITY_ORDER,
   cardById,
 } from '../src/data/cardCatalog.js';
-import { addCardsToCollection, openPack, openPacks, rollWeightedRarity } from '../src/core/packEngine.js';
+import {
+  addCardsToCollection,
+  openPack,
+  openPacks,
+  rollWeightedRarity,
+  secureRandom,
+} from '../src/core/packEngine.js';
 import { newCardIndices, registerDiscoveredCards } from '../src/core/cardDiscovery.js';
 import {
   cardsForPendingPack,
@@ -258,6 +264,24 @@ test('legacy cards expose the same unified combat-power stat', () => {
   assert.equal(score, legacy.combatPower);
 });
 
+test('default pack entropy uses independent crypto draws without a shared date seed', () => {
+  const values = [0, 0xffffffff, 0x80000000];
+  let calls = 0;
+  const cryptoImpl = {
+    getRandomValues(target) {
+      target[0] = values[calls];
+      calls += 1;
+      return target;
+    },
+  };
+
+  assert.equal(secureRandom(cryptoImpl), 0);
+  assert.equal(secureRandom(cryptoImpl), 0xffffffff / 0x100000000);
+  assert.equal(secureRandom(cryptoImpl), 0.5);
+  assert.equal(calls, 3);
+  assert.throws(() => secureRandom(null), /secure random source/i);
+});
+
 test('raid dispatch records damage and enforces dispatch cooldown', () => {
   const legacyDefinition = { ...RAID_DEFINITION, dispatchCooldownMs: 60 * 1000 };
   const raid = createRaidState(legacyDefinition, 1000);
@@ -388,9 +412,9 @@ test('saved state hydration preserves legacy squads and migrates incident fields
     resolvedIncidents: 3,
   }, 5000);
 
-  assert.equal(hydrated.version, 7);
+  assert.equal(hydrated.version, 9);
   assert.equal(hydrated.wallet.coins, 99);
-  assert.equal(hydrated.wallet.linkPoints, 0);
+  assert.equal(hydrated.wallet.linkPoints, undefined);
   assert.deepEqual(hydrated.selectedSquad, ['pantry-cat']);
   assert.deepEqual(hydrated.selectedExpeditionSquad, ['pantry-cat']);
   assert.deepEqual(hydrated.selectedRaidSquad, ['pantry-cat']);

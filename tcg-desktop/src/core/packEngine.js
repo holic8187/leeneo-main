@@ -1,6 +1,21 @@
 const clampRandom = (value) => Math.min(0.999999999, Math.max(0, Number(value) || 0));
 
-export function rollWeightedRarity(weights, random = Math.random) {
+/**
+ * Return an independent uniform draw backed by the platform Web Crypto API.
+ * Supported desktop, Android WebView, and modern browser runtimes all expose
+ * getRandomValues; failing closed avoids accidentally replacing pack draws
+ * with a predictable timestamp-derived fallback.
+ */
+export function secureRandom(cryptoImpl = globalThis.crypto) {
+  if (!cryptoImpl || typeof cryptoImpl.getRandomValues !== 'function') {
+    throw new Error('A cryptographically secure random source is required for card draws.');
+  }
+  const value = new Uint32Array(1);
+  cryptoImpl.getRandomValues(value);
+  return value[0] / 0x100000000;
+}
+
+export function rollWeightedRarity(weights, random = secureRandom) {
   const entries = Object.entries(weights).filter(([, weight]) => Number(weight) > 0);
   const total = entries.reduce((sum, [, weight]) => sum + Number(weight), 0);
   if (!entries.length || total <= 0) throw new Error('At least one positive rarity weight is required.');
@@ -37,7 +52,7 @@ function rollAtLeast(weights, minimum, order, random) {
   return rollWeightedRarity(eligible, random);
 }
 
-export function pickCard(catalog, rarity, random = Math.random) {
+export function pickCard(catalog, rarity, random = secureRandom) {
   const pool = catalog.filter((card) => card.rarity === rarity);
   if (!pool.length) {
     throw new Error(`No cards configured for rarity: ${rarity}`);
@@ -45,7 +60,7 @@ export function pickCard(catalog, rarity, random = Math.random) {
   return pool[Math.floor(clampRandom(random()) * pool.length)];
 }
 
-export function openPack({ catalog, definition, pity = 0, random = Math.random }) {
+export function openPack({ catalog, definition, pity = 0, random = secureRandom }) {
   const cards = [];
   const order = rarityOrderFor(definition);
   const guaranteedRarity = definition.guaranteedRarity;
@@ -94,7 +109,7 @@ export function openPacks({
   definition,
   pity = 0,
   packCount = 1,
-  random = Math.random,
+  random = secureRandom,
 } = {}) {
   const count = Math.min(10, Math.max(1, Math.floor(Number(packCount) || 1)));
   const cards = [];

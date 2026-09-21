@@ -1,8 +1,8 @@
 {
   "name": "hoi-card-desk",
-  "version": "0.8.2",
+  "version": "0.9.0",
   "private": true,
-  "description": "A discreet desktop card collection game linked optionally to Hoi Company.",
+  "description": "A standalone desktop and mobile card collection game.",
   "author": "Hoi Company",
   "type": "module",
   "main": "electron/main.cjs",

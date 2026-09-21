@@ -411,8 +411,8 @@ test('synthesis rejects mixed rarities, highest-rarity input, and locked materia
   }), /모험에 참여/);
 });
 
-test('state v7 preserves discoveries and locks while hydrating old saves', () => {
-  assert.equal(createDefaultState().version, 7);
+test('state v9 preserves discoveries, locks, and card progression while hydrating old saves', () => {
+  assert.equal(createDefaultState().version, 9);
   const state = hydrateState({
     version: 6,
     collection: { 'alpha-c': 2, 'used-up-c': 0 },
@@ -424,8 +424,8 @@ test('state v7 preserves discoveries and locks while hydrating old saves', () =>
     },
   });
 
-  assert.equal(state.version, 7);
-  assert.deepEqual(state.discoveredCardIds.sort(), ['alpha-c', 'kkamdung-c', 'simsim-c', 'used-up-c', 'winter-c'].sort());
+  assert.equal(state.version, 9);
+  assert.deepEqual(state.discoveredCardIds.sort(), ['alpha-c', 'kkamdung-c', 'nanche-c', 'simsim-c', 'used-up-c', 'winter-c'].sort());
   assert.deepEqual(state.lockedCardIds, ['alpha-c']);
   assert.deepEqual(state.cardEnhancements, { 'alpha-c': { 1: 1, 4: 1 } });
   assert.deepEqual(enhancementCountsForCard(state.collection, state.cardEnhancements, 'alpha-c'), [0, 1, 0, 0, 1, 0]);

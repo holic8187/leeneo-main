@@ -1,0 +1,23 @@
+{
+  "simsim-c": "support", "winter-c": "support", "kkamdung-c": "defense", "nanche-c": "attack",
+  "rayeon-c": "support", "mango-c": "attack", "morae-c": "defense", "mond-c": "support",
+  "somfist-c": "defense", "shanghai-c": "attack", "meongpeu-c": "support", "sseubi-c": "attack",
+  "gyullak-c": "attack", "guma-c": "support", "wollu-c": "defense", "easy-c": "support",
+  "eungga-c": "defense", "peach-c": "attack", "jandi-c": "support", "chuming-c": "support",
+  "choonsik-c": "attack", "coca-c": "attack", "pie-c": "support", "hoi-c": "attack",
+  "winter-u": "defense", "kkamdung-u": "support", "nanche-u": "defense", "rayeon-u": "support",
+  "mango-u": "defense", "morae-u": "support", "mond-u": "attack", "somfist-u": "attack",
+  "shanghai-u": "defense", "sseubi-u": "defense", "gyullak-u": "support", "guma-u": "attack",
+  "easy-u": "attack", "peach-u": "support", "choonsik-u": "defense", "hoi-u": "support",
+  "winter-r": "attack", "kkamdung-r": "attack", "rayeon-r": "defense", "mango-r": "attack",
+  "morae-r": "attack", "mond-r": "defense", "shanghai-r": "attack", "guma-r": "defense",
+  "chuming-r": "attack", "coca-r": "support", "pie-r": "attack", "hoi-r": "attack",
+  "winter-rr": "defense", "rayeon-rr": "support", "mango-rr": "support", "somfist-rr": "attack",
+  "shanghai-rr": "defense", "jandi-rr": "support", "chuming-rr": "attack", "hoi-rr": "support",
+  "winter-rrr": "support", "guma-rrr": "attack", "mond-rrr": "support", "pie-rrr": "support",
+  "kkamdung-rrr": "defense", "hoi-rrr": "support", "winter-sr": "attack", "rayeon-sr": "attack",
+  "shanghai-sr": "attack", "hoi-sr": "attack", "guma-hr": "support", "chuming-hr": "defense",
+  "mango-hr": "attack", "winter-ur": "defense", "hoi-ur": "support", "hoi-ssr": "support",
+  "rookie-analyst": "attack", "sales-fox": "attack", "pantry-cat": "support", "peach-sentry": "defense",
+  "hwang-manager": "attack", "gammam-neo": "defense", "kim-manager": "attack", "deadline-dragon": "attack"
+}

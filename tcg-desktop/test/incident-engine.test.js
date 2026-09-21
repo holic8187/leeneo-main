@@ -36,7 +36,7 @@ test('catalog has sixty distinct events with complete, meaningful choices', () =
       results.add(value.result);
       assert.ok(Object.keys(value.reward).length);
       for (const [key, reward] of Object.entries(value.reward)) {
-        assert.ok(['coins', 'linkPoints', 'packs'].includes(key));
+        assert.ok(['coins', 'packs'].includes(key));
         assert.ok(Number.isInteger(reward) && reward > 0);
       }
       if (entry.tier === 'ordinary') assert.equal(value.reward.packs, undefined);

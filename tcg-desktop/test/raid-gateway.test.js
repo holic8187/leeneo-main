@@ -64,7 +64,7 @@ test('raid gateway preserves weekly stages, daily entries, zero rewards, and bat
   const calls = [];
   const state = {
     id: 'deadline-dragon-raid', bossId: 'deadline-dragon-raid', bossName: '마감기한 드래곤',
-    stage: 3, maxStage: 8, hp: 175000, currentHp: 175000, maxHp: 400000,
+    stage: 3, maxStage: 10, hp: 175000, currentHp: 175000, maxHp: 400000,
     contribution: 370000, totalContribution: 370000,
     entriesToday: 2, remainingEntries: 3, maxDailyEntries: 5,
     canEnter: true, weeklyCompleted: false, cooldownMs: 0,

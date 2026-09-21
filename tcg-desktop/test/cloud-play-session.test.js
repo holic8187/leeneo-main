@@ -232,7 +232,7 @@ test('a reopened session blocks on a newer, different server state instead of si
   cloud.dispose();
 });
 
-test('moving to another device discards stale pending state before takeover', async () => {
+test('moving to another device preserves unsent state and requires reconciliation after takeover', async () => {
   let saveCount = 0;
   const remoteStates = [];
   const gateway = {
@@ -244,7 +244,8 @@ test('moving to another device discards stale pending state before takeover', as
     },
     async saveState() {
       saveCount += 1;
-      throw Object.assign(new Error('network down'), { code: 'NETWORK_ERROR' });
+      if (saveCount === 1) throw Object.assign(new Error('network down'), { code: 'NETWORK_ERROR' });
+      return response({ leaseId: 'lease-9', generation: 9, revision: 11, state: { wallet: { coins: 555 } } });
     },
     async takeover() {
       return response({ leaseId: 'lease-9', generation: 9, revision: 10, state: { wallet: { coins: 900 } } });
@@ -262,11 +263,69 @@ test('moving to another device discards stale pending state before takeover', as
   await assert.rejects(cloud.flush(), /network down/);
   await assert.rejects(cloud.heartbeat(), /mobile active/);
   assert.equal(cloud.getSnapshot().phase, 'playing-elsewhere');
-  assert.equal(cloud.getSnapshot().hasPendingState, false);
+  assert.equal(cloud.getSnapshot().hasPendingState, true);
   await cloud.takeover({ expectedGeneration: 8 });
   await cloud.flush();
   assert.equal(saveCount, 1);
-  assert.deepEqual(remoteStates, [{ wallet: { coins: 900 } }]);
+  assert.deepEqual(remoteStates, []);
+  assert.equal(cloud.getSnapshot().phase, 'save-conflict');
+  assert.equal(cloud.getSnapshot().hasPendingState, true);
+  assert.equal(cloud.getSnapshot().hasSaveConflict, true);
+
+  assert.equal(await cloud.resolveConflict('local'), true);
+  assert.equal(saveCount, 2);
+  assert.equal(cloud.getSnapshot().phase, 'active');
+  assert.equal(cloud.getSnapshot().hasPendingState, false);
+  cloud.dispose();
+});
+
+test('a displaced in-flight card acquisition remains in the durable account outbox', async () => {
+  const storage = memoryStorage();
+  const accountId = 'account-card-recovery';
+  let rejectSave;
+  let saveStarted;
+  const started = new Promise((resolve) => { saveStarted = resolve; });
+  const gateway = {
+    async open() { return response({ state: null }); },
+    async heartbeat() {
+      throw Object.assign(new Error('mobile active'), {
+        code: 'PLAY_SESSION_LOST', activePlatform: 'android', generation: 4, revision: 4,
+      });
+    },
+    async saveState() {
+      saveStarted();
+      return new Promise((resolve, reject) => { rejectSave = reject; });
+    },
+    async takeover() { return response({ state: null }); },
+    async release() { return response({ state: null }); },
+  };
+  const cloud = createCloudPlaySession({
+    gateway,
+    token: 'token', accountId, storage,
+    deviceId: 'pc-device', platform: 'pc', appVersion: '0.9.0',
+  });
+
+  await cloud.open();
+  cloud.queueState({
+    collection: { 'hoi-ssr': 1 },
+    discoveredCardIds: ['hoi-ssr'],
+  });
+  const flushing = cloud.flush();
+  await started;
+  await assert.rejects(cloud.heartbeat(), /mobile active/);
+
+  const durable = JSON.parse(storage.getItem(cloudSaveOutboxKey(accountId)));
+  assert.equal(durable.state.collection['hoi-ssr'], 1);
+  assert.equal(cloud.getSnapshot().hasPendingState, true);
+
+  rejectSave(Object.assign(new Error('lease moved'), {
+    code: 'PLAY_SESSION_LOST', activePlatform: 'android', generation: 4, revision: 4,
+  }));
+  await flushing;
+  assert.equal(
+    JSON.parse(storage.getItem(cloudSaveOutboxKey(accountId))).state.collection['hoi-ssr'],
+    1,
+  );
   cloud.dispose();
 });
 

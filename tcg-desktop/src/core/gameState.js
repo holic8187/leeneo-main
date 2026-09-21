@@ -3,7 +3,10 @@ import { normalizeCardEnhancements } from './cardManagement.js';
 import { hydratePendingPackOpening } from './packOpeningSession.js';
 import { hydrateRaidRewardClaims } from './raidRewards.js';
 import { uniqueSquadByIdentity } from './squadSelection.js';
+import { normalizeCardProgression } from './cardProgression.js';
+import { normalizeDeckPresets } from './deckPresets.js';
 import { cardById } from '../data/cardCatalog.js';
+import { normalizeEquipmentInventory } from './equipment.js';
 
 export const STORAGE_KEY = 'hoi-card-desk-state-v1';
 export const ACCOUNT_STORAGE_PREFIX = 'hoi-card-desk-state-v2:';
@@ -13,7 +16,7 @@ const clone = (value) => JSON.parse(JSON.stringify(value));
 
 export function createDefaultState(now = Date.now()) {
   return {
-    version: 7,
+    version: 9,
     profile: {
       displayName: '익명 사원',
       rank: '대리석 책상',
@@ -21,7 +24,6 @@ export function createDefaultState(now = Date.now()) {
     },
     wallet: {
       coins: 7200,
-      linkPoints: 0,
     },
     packs: {
       standard: 3,
@@ -30,16 +32,29 @@ export function createDefaultState(now = Date.now()) {
       'simsim-c': 2,
       'winter-c': 1,
       'kkamdung-c': 1,
+      'nanche-c': 1,
     },
-    discoveredCardIds: ['simsim-c', 'winter-c', 'kkamdung-c'],
+    discoveredCardIds: ['simsim-c', 'winter-c', 'kkamdung-c', 'nanche-c'],
     lockedCardIds: [],
     cardEnhancements: {},
+    cardProgression: {
+      'simsim-c': { level: 1, experience: 0 },
+      'winter-c': { level: 1, experience: 0 },
+      'kkamdung-c': { level: 1, experience: 0 },
+      'nanche-c': { level: 1, experience: 0 },
+    },
+    deckPresets: Array.from({ length: 5 }, () => null),
+    equipmentInventory: [],
+    selectedExpeditionEquipmentId: '',
+    selectedRaidEquipmentId: '',
+    selectedExpeditionArtifactId: '',
+    selectedRaidArtifactId: '',
     pity: {
       standard: 0,
     },
     pendingPackOpening: null,
-    selectedExpeditionSquad: ['simsim-c', 'winter-c', 'kkamdung-c'],
-    selectedRaidSquad: ['simsim-c', 'winter-c', 'kkamdung-c'],
+    selectedExpeditionSquad: ['simsim-c', 'winter-c', 'kkamdung-c', 'nanche-c'],
+    selectedRaidSquad: ['simsim-c', 'winter-c', 'kkamdung-c', 'nanche-c'],
     expedition: null,
     activeIncident: null,
     recentIncidentIds: [],
@@ -50,11 +65,6 @@ export function createDefaultState(now = Date.now()) {
     incidentScheduled: false,
     raid: null,
     raidRewardClaims: {},
-    link: {
-      status: 'unlinked',
-      hoiNickname: null,
-      linkedAt: null,
-    },
     settings: {
       discreetMode: true,
       payrollMode: false,
@@ -80,11 +90,12 @@ export function hydrateState(saved, now = Date.now()) {
     ...defaults,
     ...saved,
     profile: { ...defaults.profile, ...(saved.profile || {}) },
-    wallet: { ...defaults.wallet, ...(saved.wallet || {}) },
+    wallet: {
+      coins: Math.max(0, Math.floor(Number(saved.wallet?.coins ?? defaults.wallet.coins) || 0)),
+    },
     packs: { ...defaults.packs, ...(saved.packs || {}) },
     collection: { ...defaults.collection, ...(saved.collection || {}) },
     pity: { ...defaults.pity, ...(saved.pity || {}) },
-    link: { ...defaults.link, ...(saved.link || {}) },
     settings: { ...defaults.settings, ...(saved.settings || {}) },
   };
 
@@ -106,6 +117,22 @@ export function hydrateState(saved, now = Date.now()) {
       .filter((cardId) => cardId && Math.max(0, Number(state.collection[cardId]) || 0) > 0),
   )];
   state.cardEnhancements = normalizeCardEnhancements(saved.cardEnhancements, state.collection);
+  state.cardProgression = normalizeCardProgression(saved.cardProgression, state.collection);
+  state.deckPresets = normalizeDeckPresets(saved.deckPresets, {
+    identityForId: (cardId) => cardById(cardId)?.characterId || cardId,
+  });
+  state.equipmentInventory = normalizeEquipmentInventory(saved.equipmentInventory);
+  const equipmentIds = new Set(state.equipmentInventory.map((item) => item.id));
+  state.selectedExpeditionEquipmentId = equipmentIds.has(String(saved.selectedExpeditionEquipmentId || ''))
+    ? String(saved.selectedExpeditionEquipmentId)
+    : '';
+  state.selectedRaidEquipmentId = equipmentIds.has(String(saved.selectedRaidEquipmentId || ''))
+    ? String(saved.selectedRaidEquipmentId)
+    : '';
+  // Artifact cards have a reserved slot but are intentionally unavailable
+  // until the artifact release ships.
+  state.selectedExpeditionArtifactId = '';
+  state.selectedRaidArtifactId = '';
 
   const legacySquad = Array.isArray(saved.selectedSquad) ? saved.selectedSquad : null;
   const squadCharacterIdentity = (cardId) => cardById(cardId)?.characterId || cardId;

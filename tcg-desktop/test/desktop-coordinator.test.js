@@ -119,6 +119,15 @@ test('popup bounds remain inside offset and small display work areas', () => {
   }
 });
 
+test('desktop incident popup uses the compact half-size layout', () => {
+  assert.deepEqual(toastBounds({ x: 0, y: 0, width: 1920, height: 1080 }, 2), {
+    width: 300,
+    height: 172,
+    x: 1612,
+    y: 900,
+  });
+});
+
 function updaterHarness(overrides = {}) {
   const updater = new EventEmitter();
   const events = [];

@@ -6,9 +6,12 @@ const jwt = require('jsonwebtoken');
 const TcgPersonalRaidDailyModel = require('../../src/tcg/models/TcgPersonalRaidDaily');
 const {
   PERSONAL_RAID_BOSSES,
+  PERSONAL_RAID_MAX_SQUAD_SCORE,
   RAID_SCHEMA_VERSION,
   STAGE_HP,
   PersonalRaidError,
+  clearRewardForStage,
+  cumulativeClearRewards,
   finishPersonalRaid,
   getBossStage,
   getKstRaidWeekWindow,
@@ -102,9 +105,10 @@ function verifiedSquad() {
     squad: [
       { slot: 1, cardId: 'simsim-c', enhancement: 0, power: 1800 },
       { slot: 2, cardId: 'winter-c', enhancement: 0, power: 2148 },
-      { slot: 3, cardId: 'kkamdung-c', enhancement: 0, power: 2496 }
+      { slot: 3, cardId: 'kkamdung-c', enhancement: 0, power: 2496 },
+      { slot: 4, cardId: 'nanche-c', enhancement: 0, power: 2844 }
     ],
-    squadScore: 6444
+    squadScore: 9288
   };
 }
 
@@ -116,19 +120,21 @@ test('model preserves the production unique index and adds a weekly ranking inde
   assert.equal(unique[1].unique, true);
   const ranking = indexes.find(([, options]) => options.name === 'personal_raid_weekly_ranking');
   assert.deepEqual(ranking[0], { weekKey: 1, bossId: 1, schemaVersion: 1, contribution: -1, updatedAt: 1 });
+  assert.equal(TcgPersonalRaidDailyModel.schema.path('currentStage').options.max, 10);
+  assert.equal(PERSONAL_RAID_MAX_SQUAD_SCORE, 200_000);
 });
 
-test('weekly reset interprets Monday 24:00 as Tuesday 00:00 KST', () => {
-  const before = getKstRaidWeekWindow(new Date('2026-09-14T14:59:59.999Z')); // Mon 23:59:59.999 KST
-  assert.equal(before.weekKey, '2026-09-08');
-  assert.equal(before.resetsAt.toISOString(), '2026-09-14T15:00:00.000Z');
-  const after = getKstRaidWeekWindow(new Date('2026-09-14T15:00:00.000Z')); // Tue 00:00 KST
-  assert.equal(after.weekKey, '2026-09-15');
-  assert.equal(after.startsAt.toISOString(), '2026-09-14T15:00:00.000Z');
-  assert.equal(after.resetRule, 'MONDAY_24_KST');
+test('weekly reset occurs at Monday 00:00 KST', () => {
+  const before = getKstRaidWeekWindow(new Date('2026-09-13T14:59:59.999Z')); // Sun 23:59:59.999 KST
+  assert.equal(before.weekKey, '2026-09-07');
+  assert.equal(before.resetsAt.toISOString(), '2026-09-13T15:00:00.000Z');
+  const after = getKstRaidWeekWindow(new Date('2026-09-13T15:00:00.000Z')); // Mon 00:00 KST
+  assert.equal(after.weekKey, '2026-09-14');
+  assert.equal(after.startsAt.toISOString(), '2026-09-13T15:00:00.000Z');
+  assert.equal(after.resetRule, 'MONDAY_00_KST');
 });
 
-test('deadline dragon exposes eight doubling HP stages and cumulative skills', () => {
+test('deadline dragon exposes ten doubling HP stages and cumulative skills', () => {
   const boss = PERSONAL_RAID_BOSSES['deadline-dragon-raid'];
   assert.deepEqual(boss.stageHp, STAGE_HP);
   assert.equal(getBossStage(boss, 1).basicAttack.damage, 10);
@@ -137,22 +143,48 @@ test('deadline dragon exposes eight doubling HP stages and cumulative skills', (
   assert.equal(getBossStage(boss, 3).skills.length, 2);
   assert.equal(getBossStage(boss, 8).skills.length, 7);
   assert.equal(getBossStage(boss, 8).maxHp, 12_800_000);
+  assert.equal(getBossStage(boss, 10).maxHp, 51_200_000);
+});
+
+test('each cleared stage grants three more packs through thirty at stage ten', () => {
+  assert.deepEqual(clearRewardForStage(1), { coins: 0, packs: 3 });
+  assert.deepEqual(clearRewardForStage(10), { coins: 0, packs: 30 });
+  assert.deepEqual(cumulativeClearRewards(10), { coins: 0, packs: 165 });
 });
 
 test('squad validation preserves selection order, verifies enhancement, and blocks expedition cards', () => {
   const playerState = {
-    collection: { 'simsim-c': 1, 'winter-c': 2, 'winter-u': 1, 'kkamdung-c': 1, 'mango-c': 1 },
+    collection: { 'simsim-c': 1, 'winter-c': 2, 'winter-u': 1, 'kkamdung-c': 1, 'mango-c': 1, 'nanche-c': 1 },
     cardEnhancements: { 'winter-c': { 2: 1 } },
     expedition: { squad: ['kkamdung-c'], enhancementStages: { 'kkamdung-c': 0 }, endsAt: Date.parse('2026-09-16T10:00:00Z') }
   };
   const verified = validatePersonalRaidSquad({
     playerState,
-    squad: [{ cardId: 'winter-c', enhancement: 2 }, { cardId: 'simsim-c', enhancement: 0 }, { cardId: 'mango-c', enhancement: 0 }],
+    squad: [{ cardId: 'winter-c', enhancement: 2 }, { cardId: 'simsim-c', enhancement: 0 }, { cardId: 'mango-c', enhancement: 0 }, { cardId: 'nanche-c', enhancement: 0 }],
     now: Date.parse('2026-09-16T09:00:00Z')
   });
-  assert.deepEqual(verified.squad.map((card) => [card.slot, card.cardId, card.enhancement]), [[1, 'winter-c', 2], [2, 'simsim-c', 0], [3, 'mango-c', 0]]);
-  assert.throws(() => validatePersonalRaidSquad({ playerState, squad: [{ cardId: 'kkamdung-c', enhancement: 0 }, { cardId: 'simsim-c', enhancement: 0 }, { cardId: 'winter-c', enhancement: 2 }] }), (error) => error.code === 'RAID_CARD_UNAVAILABLE');
-  assert.throws(() => validatePersonalRaidSquad({ playerState, squad: [{ cardId: 'winter-c', enhancement: 2 }, { cardId: 'winter-u', enhancement: 0 }, { cardId: 'simsim-c', enhancement: 0 }] }), (error) => error.code === 'INVALID_RAID_SQUAD' && /같은 인물/.test(error.message));
+  assert.deepEqual(verified.squad.map((card) => [card.slot, card.cardId, card.enhancement]), [[1, 'winter-c', 2], [2, 'simsim-c', 0], [3, 'mango-c', 0], [4, 'nanche-c', 0]]);
+  assert.throws(() => validatePersonalRaidSquad({ playerState, squad: [{ cardId: 'kkamdung-c', enhancement: 0 }, { cardId: 'simsim-c', enhancement: 0 }, { cardId: 'winter-c', enhancement: 2 }, { cardId: 'nanche-c', enhancement: 0 }], now: Date.parse('2026-09-16T09:00:00Z') }), (error) => error.code === 'RAID_CARD_UNAVAILABLE');
+  assert.throws(() => validatePersonalRaidSquad({ playerState, squad: [{ cardId: 'winter-c', enhancement: 2 }, { cardId: 'winter-u', enhancement: 0 }, { cardId: 'simsim-c', enhancement: 0 }, { cardId: 'nanche-c', enhancement: 0 }] }), (error) => error.code === 'INVALID_RAID_SQUAD' && /같은 인물/.test(error.message));
+});
+
+test('server raid score applies card role levels and only the equipped owned weapon', () => {
+  const squad = ['simsim-c', 'winter-c', 'kkamdung-c', 'nanche-c'].map((cardId) => ({ cardId, enhancement: 0 }));
+  const playerState = {
+    collection: Object.fromEntries(squad.map(({ cardId }) => [cardId, 1])),
+    cardEnhancements: {},
+    cardProgression: Object.fromEntries(squad.map(({ cardId }) => [cardId, { level: 11, experience: 0 }])),
+    selectedRaidEquipmentId: 'weapon-1',
+    equipmentInventory: [{ id: 'weapon-1', type: 'weapon', bonusPercent: 5 }]
+  };
+  const verified = validatePersonalRaidSquad({ playerState, squad });
+  assert.deepEqual(verified.squad.map((card) => card.power), [1901, 2266, 2621, 3007]);
+  assert.equal(verified.squadScore, 9795);
+
+  playerState.selectedRaidEquipmentId = 'forged-client-id';
+  const withoutOwnedWeapon = validatePersonalRaidSquad({ playerState, squad });
+  assert.deepEqual(withoutOwnedWeapon.squad.map((card) => card.power), [1810, 2158, 2496, 2864]);
+  assert.equal(withoutOwnedWeapon.squadScore, 9328);
 });
 
 test('start consumes one daily entry, creates a bound session, and prevents parallel starts', async () => {
@@ -176,6 +208,7 @@ test('finish validates HP math, caps damage, advances stages, and rejects duplic
   assert.equal(finished.record.currentStage, 2);
   assert.equal(finished.record.currentHp, 200_000);
   assert.equal(finished.record.contribution, 100_000);
+  assert.deepEqual(finished.result.reward, { coins: 0, packs: 3 });
   await assert.rejects(() => finishPersonalRaid({ TcgPersonalRaidDaily: Model, account: user, sessionId: started.session.sessionId, damageDealt: 100_000, now: now + 2000 }), (error) => error.code === 'RAID_SESSION_ALREADY_FINISHED');
 });
 
@@ -210,17 +243,27 @@ test('daily entry count resets at KST midnight while weekly progress remains', a
   assert.equal(started.session.stage, 1);
 });
 
-test('legacy daily record is reset into v2 weekly progress at the first start', async () => {
+test('legacy daily record is reset into current weekly progress at the first start', async () => {
   const user = account(); const now = Date.parse('2026-09-15T03:00:00Z');
   const Model = createFakeRaidModel([{
-    accountId: user._id, dayKey: '2026-09-15', bossId: 'deadline-dragon-raid', nickname: user.nickname,
-    currentHp: 2_000_000, contribution: 800_000, dispatchCount: 3, clearCount: 1, schemaVersion: 1
+    accountId: user._id, dayKey: '2026-09-14', bossId: 'deadline-dragon-raid', nickname: user.nickname,
+    currentHp: 2_000_000, contribution: 800_000, dispatchCount: 3, clearCount: 1,
+    lastFinishedSessionId: 'legacy-session', lastFinishedResult: { reward: { packs: 99 } }, schemaVersion: 1
   }]);
+  const beforeStart = await getPersonalRaidState({ TcgPersonalRaidDaily: Model, account: user, now });
+  assert.equal(beforeStart.state.clears, 0);
+  assert.deepEqual(beforeStart.state.earnedRewards, { coins: 0, packs: 0 });
   const started = await startPersonalRaid({ TcgPersonalRaidDaily: Model, account: user, verifiedSquad: verifiedSquad(), now });
   assert.equal(started.session.stage, 1);
   assert.equal(started.session.bossHpBefore, 100_000);
   assert.equal(Model.records[0].schemaVersion, RAID_SCHEMA_VERSION);
   assert.equal(Model.records[0].contribution, 0);
+  assert.equal(Model.records[0].clearCount, 0);
+  assert.equal(Model.records[0].dispatchCount, 1);
+  assert.equal(Model.records[0].lastFinishedSessionId, '');
+  const state = await getPersonalRaidState({ TcgPersonalRaidDaily: Model, account: user, now: now + 1 });
+  assert.equal(state.state.clears, 0);
+  assert.deepEqual(state.state.earnedRewards, { coins: 0, packs: 0 });
 });
 
 function routeHarness() {
@@ -233,7 +276,7 @@ function routeHarness() {
     static async findOne() {
       return {
         accountId: user._id, initialized: true, revision: 1,
-        state: { collection: { 'simsim-c': 1, 'winter-c': 1, 'kkamdung-c': 1 }, cardEnhancements: {}, selectedRaidSquad: ['simsim-c', 'winter-c', 'kkamdung-c'] },
+        state: { collection: { 'simsim-c': 1, 'winter-c': 1, 'kkamdung-c': 1, 'nanche-c': 1 }, cardEnhancements: {}, selectedRaidSquad: ['simsim-c', 'winter-c', 'kkamdung-c', 'nanche-c'] },
         activeLease: { leaseId: 'lease', deviceId: 'device', platform: 'pc', generation: 1, heartbeatAt: new Date(now), expiresAt: new Date(now + 60_000), appVersion: '1.0.0' }
       };
     }
@@ -255,7 +298,7 @@ test('start and finish routes expose the agreed battle contract', async () => {
   const unauthorized = await harness.request('POST', '/api/tcg/raids/personal/start', {}, false);
   assert.equal(unauthorized.statusCode, 401);
   const common = { bossId: 'deadline-dragon-raid', leaseId: 'lease', deviceId: 'device', generation: 1 };
-  const started = await harness.request('POST', '/api/tcg/raids/personal/start', { ...common, squad: [{ cardId: 'simsim-c', enhancement: 0 }, { cardId: 'winter-c', enhancement: 0 }, { cardId: 'kkamdung-c', enhancement: 0 }], squadScore: 6444 });
+  const started = await harness.request('POST', '/api/tcg/raids/personal/start', { ...common, squad: [{ cardId: 'simsim-c', enhancement: 0 }, { cardId: 'winter-c', enhancement: 0 }, { cardId: 'kkamdung-c', enhancement: 0 }, { cardId: 'nanche-c', enhancement: 0 }], squadScore: 9288 });
   assert.equal(started.statusCode, 200);
   assert.equal(started.payload.battle.bossMaxHp, 100_000);
   assert.equal(started.payload.battle.bossHp, 100_000);

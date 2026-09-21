@@ -4,6 +4,7 @@ export const CARD_MAX_HP = 100;
 export const BREAK_GAUGE_MAX = 100;
 export const PLAYER_TURN_SECONDS = 20;
 export const RAID_MAX_ROUNDS = 7;
+export const RAID_SQUAD_SIZE = 4;
 
 const DIRECT_ATTACKS = Object.freeze({
   'nanche-c':[95,1,18], 'mango-c':[115,1,0], 'shanghai-c':[100,1,16], 'sseubi-c':[110,1,0],
@@ -36,8 +37,9 @@ const SHIELDS = Object.freeze({
 const clone = (value) => structuredClone(value);
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const alive = (card) => card.hp > 0;
-const magnitude = (value, member, scale = 1) => skillMagnitude(value, member.enhancement) * scale;
+const magnitude = (value, member, scale = member?.skillScale ?? 1) => skillMagnitude(value, member.enhancement) * scale;
 const log = (state, type, message, data = {}) => state.log.push({ index: state.log.length, type, message, ...data });
+const NON_COPYABLE_SKILLS = new Set(['hoi-rrr', 'hoi-ssr']);
 
 function normalizedMember(raw, index) {
   const cardId = String(raw.cardId || raw.id || '');
@@ -48,7 +50,9 @@ function normalizedMember(raw, index) {
   return {
     id: String(raw.instanceId || `${cardId}:${index + 1}`), cardId, name: raw.name || cardId,
     image: raw.image || '', order: index + 1, enhancement,
-    attack: combatPower, maxHp: CARD_MAX_HP, hp: CARD_MAX_HP,
+    attack: combatPower,
+    maxHp: Math.max(1, Number(raw.maxHp) || CARD_MAX_HP),
+    hp: Math.max(1, Number(raw.maxHp) || CARD_MAX_HP),
     shield: 0, cooldown: 0, statuses: [], skillUses: 0, defeated: false,
   };
 }
@@ -96,7 +100,7 @@ function normalizedBoss(raw = {}) {
 }
 
 export function createRaidBattle({ cards = [], boss = {}, stageConfig = null, seed = 1, now = Date.now() } = {}) {
-  if (cards.length !== 3) throw new Error('개인 레이드에는 카드 3장이 필요합니다.');
+  if (cards.length !== RAID_SQUAD_SIZE) throw new Error(`개인 레이드에는 카드 ${RAID_SQUAD_SIZE}장이 필요합니다.`);
   const ids = cards.map((card) => String(card.cardId || card.id || ''));
   if (new Set(ids).size !== ids.length) throw new Error('같은 종류의 카드는 한 덱에 함께 편성할 수 없습니다.');
   if (ids.some((id) => !CARD_SKILL_BY_ID[id])) throw new Error('고유 스킬이 없는 카드가 편성되어 있습니다.');
@@ -135,6 +139,16 @@ function nextRandom(state) {
 
 function statusValue(entity, id) {
   return (entity.statuses || []).filter((status) => status.id === id).reduce((sum, status) => sum + Number(status.value || 0), 0);
+}
+
+function activeStatuses(entity, id) {
+  return (entity?.statuses || []).filter((status) => status.id === id && statusIsActive(status));
+}
+
+function damageRemainingMultiplier(statuses) {
+  return statuses.reduce((remaining, status) => (
+    remaining * (1 - clamp(Number(status?.value) || 0, 0, 100) / 100)
+  ), 1);
 }
 
 function statusIsActive(status) {
@@ -186,27 +200,48 @@ function advance(state, now = Date.now()) {
     setActor(state, 'boss', null, now);
     return;
   }
-  let next = (state.sequenceIndex + 1) % 3;
-  // A round is one complete card1-boss-card2-boss-card3-boss cycle. Finish
-  // after the seventh boss opportunity, including a skipped/stunned action.
-  if (next === 0 && state.round >= (state.maxRounds || RAID_MAX_ROUNDS)) {
-    state.status = 'finished';
-    state.result = 'turn-limit';
-    state.terminationReason = 'round-limit';
-    state.finishedAt = now;
-    state.currentActor = null;
-    state.currentActorIndex = null;
-    state.turnDeadlineAt = null;
-    log(state, 'battle-end', `${state.maxRounds || RAID_MAX_ROUNDS}턴이 지나 전투가 종료되었습니다.`, { totalDamage: state.totalDamage });
+  advanceToNextLivingCard(state, now);
+}
+
+function finishAtRoundLimit(state, now) {
+  state.status = 'finished';
+  state.result = 'turn-limit';
+  state.terminationReason = 'round-limit';
+  state.finishedAt = now;
+  state.currentActor = null;
+  state.currentActorIndex = null;
+  state.turnDeadlineAt = null;
+  log(state, 'battle-end', `${state.maxRounds || RAID_MAX_ROUNDS}턴이 지나 전투가 종료되었습니다.`, { totalDamage: state.totalDamage });
+}
+
+function advanceToNextLivingCard(state, now = Date.now()) {
+  if (checkBattleEnd(state, now)) return;
+  const previous = Math.max(0, Number(state.sequenceIndex) || 0);
+  let next = -1;
+  let wrapped = false;
+  for (let step = 1; step <= state.cards.length; step += 1) {
+    const candidate = (previous + step) % state.cards.length;
+    if (!alive(state.cards[candidate])) {
+      log(state, 'skip', `${state.cards[candidate].name}은(는) 행동불능이라 차례를 건너뜁니다.`, { actorId: state.cards[candidate].id });
+      continue;
+    }
+    next = candidate;
+    wrapped = previous + step >= state.cards.length;
+    break;
+  }
+  if (next < 0) {
+    checkBattleEnd(state, now);
+    return;
+  }
+  // A round is one complete pass over every squad slot. Defeated slots are
+  // skipped without creating a matching boss action.
+  if (wrapped && state.round >= (state.maxRounds || RAID_MAX_ROUNDS)) {
+    finishAtRoundLimit(state, now);
     return;
   }
   state.sequenceIndex = next;
-  if (next === 0) tickRound(state);
+  if (wrapped) tickRound(state);
   setActor(state, 'card', next, now);
-  if (!alive(state.cards[next])) {
-    log(state, 'skip', `${state.cards[next].name}은(는) 행동불능입니다.`, { actorId: state.cards[next].id });
-    setActor(state, 'boss', null, now);
-  }
 }
 
 function targetsFor(state, actor, mode, targetId) {
@@ -259,8 +294,9 @@ function applyBreak(state, actor, base, scale = 1) {
   log(state, 'break', `브레이크 게이지가 ${amount} 올랐습니다.`, { sourceId: actor.id, amount });
   if (state.boss.breakGauge < state.boss.breakMax) return false;
   state.boss.breakGauge = 0; state.boss.stunned = true;
-  // Four boss actions are skipped: after the breaker, next card, card 1, and the breaker again.
-  state.boss.stunReleaseAtPlayerAction = state.playerActionCount + 5;
+  // The boss stays stunned through the breaker card's next action, then wakes
+  // before the following card. This scales with the current squad size.
+  state.boss.stunReleaseAtPlayerAction = state.playerActionCount + state.cards.length + 2;
   addStatus(state.boss, { id: 'break-stun', name: '브레이크 스턴', kind: 'debuff', sourceId: actor.id });
   log(state, 'break-stun', `${state.boss.name}이(가) 브레이크되어 스턴에 빠졌습니다.`, { sourceId: actor.id });
   return true;
@@ -290,24 +326,32 @@ function damageBoss(state, actor, multiplier, hits = 1, breakDamage = 0, scale =
   const applied = Math.min(state.boss.hp, total - shieldDamage); state.boss.hp -= applied; state.totalDamage += applied;
   log(state, options.counter ? 'counter' : 'damage', `${actor.name}이(가) ${applied} 피해를 입혔습니다.`, { sourceId: actor.id, targetId: state.boss.id, amount: applied, hits });
   const broken = applyBreak(state, actor, breakDamage, scale);
-  const seed = state.boss.statuses.find((status) => status.id === 'peach-seed');
-  if (seed && !options.seed) {
-    damageBoss(state, actor, seed.value, 1, 0, scale, { seed: true, scaleMagnitude: false });
-    seed.charges -= 1; removeExpired(state.boss);
+  const seeds = activeStatuses(state.boss, 'peach-seed');
+  if (seeds.length && !options.seed) {
+    for (const seed of seeds) {
+      damageBoss(state, actor, seed.value, 1, 0, scale, { seed: true, scaleMagnitude: false });
+      seed.charges -= 1;
+    }
+    removeExpired(state.boss);
   }
-  const star = state.teamStatuses.find((status) => status.id === 'star-follow-up');
-  if (star && !options.followUp) {
-    damageBoss(state, actor, star.value, 1, star.break || 0, scale, { followUp: true, scaleMagnitude: false });
-    star.charges -= 1; state.teamStatuses = state.teamStatuses.filter((s) => s.charges == null || s.charges > 0);
+  const stars = state.teamStatuses.filter((status) => status.id === 'star-follow-up' && statusIsActive(status));
+  if (stars.length && !options.followUp) {
+    for (const star of stars) {
+      damageBoss(state, actor, star.value, 1, star.break || 0, scale, { followUp: true, scaleMagnitude: false });
+      star.charges -= 1;
+    }
+    state.teamStatuses = state.teamStatuses.filter((s) => s.charges == null || s.charges > 0);
   }
-  const seal = state.boss.statuses.find((status) => status.id === 'tiger-seal');
-  if (seal && !options.seal) {
-    seal.attackers ||= [];
-    if (!seal.attackers.includes(actor.id)) seal.attackers.push(actor.id);
-    if (seal.attackers.length >= 3) {
-      damageBoss(state, actor, seal.value, 1, seal.break || 0, 1, { seal: true, scaleMagnitude: false });
-      addBossStatus(state, actor, 'attack-down', '봉인 공격 약화', 25, null, 1);
-      state.boss.statuses = state.boss.statuses.filter((status) => status !== seal);
+  const seals = activeStatuses(state.boss, 'tiger-seal');
+  if (seals.length && !options.seal) {
+    for (const seal of seals) {
+      seal.attackers ||= [];
+      if (!seal.attackers.includes(actor.id)) seal.attackers.push(actor.id);
+      if (seal.attackers.length >= 3) {
+        damageBoss(state, actor, seal.value, 1, seal.break || 0, 1, { seal: true, scaleMagnitude: false });
+        addBossStatus(state, actor, 'attack-down', '봉인 공격 약화', 25, null, 1);
+        state.boss.statuses = state.boss.statuses.filter((status) => status !== seal);
+      }
     }
   }
   return broken;
@@ -381,7 +425,7 @@ function specialEffects(state, actor, targetId, choice, scale, broken) {
     case 'pie-r': addBossStatus(state,actor,'attack-down','공격력 감소',12,2); addBossStatus(state,actor,'healing-down','회복량 감소',12,2); break;
     case 'hoi-r': state.teamStatuses.push({id:'star-follow-up',name:'별빛 추가 피해',kind:'buff',value:magnitude(25,actor,scale),break:0,charges:2,sourceId:actor.id}); break;
     case 'winter-rr': addCardStatus([actor],actor,'taunt','도발',0,null,'buff',2); addCardStatus(all,actor,'damage-reduction','수정왕관 보호',15,2); break;
-    case 'rayeon-rr': state.teamStatuses.push({id:'foresight',name:'호수의 예지',kind:'buff',value:magnitude(50,actor,scale),charges:1,sourceId:actor.id}); break;
+    case 'rayeon-rr': state.teamStatuses.push({id:'foresight',name:'호수의 예지',kind:'buff',value:magnitude(50,actor,scale),successBoost:magnitude(30,actor,scale),charges:1,sourceId:actor.id}); break;
     case 'mango-rr': state.teamStatuses.push({id:'golden-fruit',name:'황금 열매',kind:'buff',value:magnitude(6,actor,scale),charges:3,sourceId:actor.id}); break;
     case 'somfist-rr': if(broken) reduceCooldown(all); break;
     case 'shanghai-rr': addCardStatus([actor],actor,'taunt','도발',0,null,'buff',2); addCardStatus([actor],actor,'damage-reduction','피해 감소',35,null,'buff',2); addCardStatus([actor],actor,'counter','반격',80,null,'buff',2); break;
@@ -392,7 +436,7 @@ function specialEffects(state, actor, targetId, choice, scale, broken) {
     case 'guma-rrr': addStatus(state.boss,{id:'tiger-seal',name:'백호야행 봉인진',kind:'debuff',value:magnitude(180,actor,scale),break:magnitude(30,actor,scale),attackers:[],charges:3,sourceId:actor.id}); break;
     case 'mond-rrr': state.teamStatuses.push({id:'world-tree-route',name:'세계수 항로',kind:'buff',charges:3,step:0,value:magnitude(30,actor,scale),sourceId:actor.id}); break;
     case 'pie-rrr': state.teamStatuses.push({id:'full-course',name:'별가루 풀코스',kind:'buff',charges:3,step:0,sourceId:actor.id}); break;
-    case 'kkamdung-rrr': state.teamStatuses.push({id:'eclipse-guard',name:'월식 경계선',kind:'buff',value:magnitude(30,actor,scale),charges:2,shadow:1,sourceId:actor.id}); break;
+    case 'kkamdung-rrr': state.teamStatuses.push({id:'eclipse-guard',name:'월식 경계선',kind:'buff',value:magnitude(30,actor,scale),accuracyDown:magnitude(20,actor,scale),charges:2,shadow:1,sourceId:actor.id}); break;
     case 'hoi-rrr': { const target=ally[0]; target.cooldown=0; damageBoss(state,target,70,1,0,scale,{skill:true}); break; }
     case 'winter-sr': addBossStatus(state,actor,'freeze','빙점 정지',0,null,1); addBossStatus(state,actor,'attack-down','공격력 감소',30,2); addBossStatus(state,actor,'break-taken-up','브레이크 취약',35,2); break;
     case 'rayeon-sr': addBossStatus(state,actor,'damage-taken-up','받는 피해 증가',18,2); break;
@@ -403,13 +447,21 @@ function specialEffects(state, actor, targetId, choice, scale, broken) {
       else if(oracle==='reversal'){shield(state,all,18,actor,scale);reduceCooldown(all);}
       else {heal(state,all,18,actor,scale);cleanse(all,1);} break;
     }
-    case 'chuming-hr': state.teamStatuses.push({id:'finale-guard',name:'피날레 스타링',kind:'buff',value:magnitude(35,actor,scale),charges:2,stored:0,sourceId:actor.id,attack:actor.attack}); break;
+    case 'chuming-hr': state.teamStatuses.push({id:'finale-guard',name:'피날레 스타링',kind:'buff',value:magnitude(35,actor,scale),counter:magnitude(160,actor,scale),charges:2,stored:0,sourceId:actor.id,attack:actor.attack}); break;
     case 'mango-hr': if(state.boss.stunned) shield(state,all,15,actor,scale); else addBossStatus(state,actor,'attack-down','다음 공격 약화',25,null,1); break;
     case 'winter-ur': state.teamStatuses.push({id:'ice-spire',name:'얼음 첨탑',kind:'buff',value:magnitude(30,actor,scale),counter:magnitude(70,actor,scale),break:magnitude(10,actor,scale),charges:3,sourceId:actor.id,attack:actor.attack}); break;
-    case 'hoi-ur': state.teamStatuses.push({id:'new-galaxy',name:'신생은하 육성',kind:'buff',charges:3,records:[],sourceId:actor.id}); break;
+    case 'hoi-ur': state.teamStatuses.push({id:'new-galaxy',name:'신생은하 육성',kind:'buff',charges:3,records:[],startsAfterPlayerAction:state.playerActionCount+1,sourceId:actor.id}); break;
     case 'hoi-ssr': {
       const copied=state.lastCopyableSkill;
-      if(copied && copied.cardId!==actor.cardId){ const fake={...actor,cardId:copied.cardId,enhancement:copied.enhancement,attack:actor.attack}; executeSkill(state,fake,copied.targetId,copied.choice,.85,true); }
+      if(copied && copied.cardId!==actor.cardId){
+        // The cast is a snapshot of the last skill. It deliberately does not
+        // look up the original caster, so it remains valid after that card is
+        // defeated. Share/copy mutable self state back so copied self-buffs do
+        // not disappear with the temporary skill identity.
+        const fake={...actor,statuses:actor.statuses,cardId:copied.cardId,enhancement:copied.enhancement,attack:actor.attack,skillScale:.85};
+        executeSkill(state,fake,copied.targetId,copied.choice,.85,true);
+        actor.hp=fake.hp; actor.shield=fake.shield; actor.statuses=fake.statuses;
+      }
       break;
     }
     case 'rookie-analyst': addCardStatus([actor],actor,'evasion','회피율 증가',15,1); break;
@@ -440,38 +492,38 @@ function prePlayerAction(state, actor) {
     });
   }
   const sourceFor = (status) => state.cards.find((card) => card.id === status.sourceId) || actor;
-  const regen = state.teamStatuses.find(s=>s.id==='regen'); if(regen) heal(state,state.cards.filter(alive),regen.value,sourceFor(regen),1,{scaleMagnitude:false});
-  const fruit = state.teamStatuses.find(s=>s.id==='golden-fruit'); if(fruit){heal(state,targetsFor(state,actor,'lowest'),fruit.value,sourceFor(fruit),1,{scaleMagnitude:false});fruit.charges-=1;}
-  const season=state.teamStatuses.find(s=>s.id==='season-cycle');
-  if(season){ const source=sourceFor(season); if(season.step===0)heal(state,state.cards.filter(alive),8,source); if(season.step===1)addCardStatus([actor],source,'effect-up','여름 효과 강화',20,null,'buff',1); if(season.step===2)addCardStatus([actor],source,'break-up','가을 브레이크',20,null,'buff',1); if(season.step===3)shield(state,state.cards.filter(alive),10,source); season.step+=1;season.charges-=1; }
-  const route=state.teamStatuses.find(s=>s.id==='world-tree-route');
-  if(route){const source=sourceFor(route);if(route.step===0)addCardStatus([actor],source,'break-up','세계수 브레이크',30,null,'buff',1);if(route.step===1)heal(state,targetsFor(state,actor,'lowest'),15,source);if(route.step===2)reduceCooldown(state.cards.filter(alive));route.step+=1;route.charges-=1;}
-  const course=state.teamStatuses.find(s=>s.id==='full-course');
-  if(course){const source=sourceFor(course);if(course.step===0)shield(state,state.cards.filter(alive),12,source);if(course.step===1)heal(state,state.cards.filter(alive),15,source);if(course.step===2){addCardStatus(state.cards.filter(alive),source,'effect-up','디저트 강화',25,null,'buff',1);reduceCooldown(state.cards.filter(alive));}course.step+=1;course.charges-=1;}
+  for (const regen of state.teamStatuses.filter(s=>s.id==='regen'&&statusIsActive(s))) heal(state,state.cards.filter(alive),regen.value,sourceFor(regen),1,{scaleMagnitude:false});
+  for (const fruit of state.teamStatuses.filter(s=>s.id==='golden-fruit'&&statusIsActive(s))){heal(state,targetsFor(state,actor,'lowest'),fruit.value,sourceFor(fruit),1,{scaleMagnitude:false});fruit.charges-=1;}
+  for (const season of state.teamStatuses.filter(s=>s.id==='season-cycle'&&statusIsActive(s))){ const source=sourceFor(season); if(season.step===0)heal(state,state.cards.filter(alive),8,source); if(season.step===1)addCardStatus([actor],source,'effect-up','여름 효과 강화',20,null,'buff',1); if(season.step===2)addCardStatus([actor],source,'break-up','가을 브레이크',20,null,'buff',1); if(season.step===3)shield(state,state.cards.filter(alive),10,source); season.step+=1;season.charges-=1; }
+  for (const route of state.teamStatuses.filter(s=>s.id==='world-tree-route'&&statusIsActive(s))){const source=sourceFor(route);if(route.step===0)addCardStatus([actor],source,'break-up','세계수 브레이크',30,null,'buff',1);if(route.step===1)heal(state,targetsFor(state,actor,'lowest'),15,source);if(route.step===2)reduceCooldown(state.cards.filter(alive));route.step+=1;route.charges-=1;}
+  for (const course of state.teamStatuses.filter(s=>s.id==='full-course'&&statusIsActive(s))){const source=sourceFor(course);if(course.step===0)shield(state,state.cards.filter(alive),12,source);if(course.step===1)heal(state,state.cards.filter(alive),15,source);if(course.step===2){addCardStatus(state.cards.filter(alive),source,'effect-up','디저트 강화',25,null,'buff',1);reduceCooldown(state.cards.filter(alive));}course.step+=1;course.charges-=1;}
   state.teamStatuses = state.teamStatuses.filter(s=>s.charges==null||s.charges>0);
 }
 
 function resolveGalaxy(state, actor, actionType, skill, preferred) {
-  const galaxy=state.teamStatuses.find(s=>s.id==='new-galaxy'); if(!galaxy)return;
+  const galaxies=state.teamStatuses.filter(s=>s.id==='new-galaxy'&&statusIsActive(s)); if(!galaxies.length)return;
   const role = actionType === 'basic' || /공격|브레이크/.test(skill?.role || '') ? 'attack'
     : /회복/.test(skill?.role || '') ? 'heal' : 'support';
-  galaxy.records.push(role); galaxy.charges -= 1;
-  if(galaxy.charges > 0)return;
-  const counts=galaxy.records.reduce((map,key)=>({...map,[key]:(map[key]||0)+1}),{});
-  const best=Math.max(...Object.values(counts)); const tied=Object.keys(counts).filter(key=>counts[key]===best);
-  const outcome=tied.includes(preferred)?preferred:tied[0];
-  const source=state.cards.find(card=>card.id===galaxy.sourceId)||actor;
-  if(outcome==='heal'){heal(state,state.cards.filter(alive),25,source);shield(state,state.cards.filter(alive),15,source);}
-  else if(outcome==='support'){reduceCooldown(state.cards.filter(alive),2);addBossStatus(state,source,'attack-down','신생은하 약화',25,2);}
-  else damageBoss(state,source,320,1,30,1,{skill:true});
-  state.teamStatuses=state.teamStatuses.filter(status=>status!==galaxy);
+  for (const galaxy of galaxies) {
+    if (state.playerActionCount < Number(galaxy.startsAfterPlayerAction || 0)) continue;
+    galaxy.records.push(role); galaxy.charges -= 1;
+    if(galaxy.charges > 0)continue;
+    const counts=galaxy.records.reduce((map,key)=>({...map,[key]:(map[key]||0)+1}),{});
+    const best=Math.max(...Object.values(counts)); const tied=Object.keys(counts).filter(key=>counts[key]===best);
+    const outcome=tied.includes(preferred)?preferred:tied[0];
+    const source=state.cards.find(card=>card.id===galaxy.sourceId)||actor;
+    if(outcome==='heal'){heal(state,state.cards.filter(alive),25,source);shield(state,state.cards.filter(alive),15,source);}
+    else if(outcome==='support'){reduceCooldown(state.cards.filter(alive),2);addBossStatus(state,source,'attack-down','신생은하 약화',25,2);}
+    else damageBoss(state,source,320,1,30,1,{skill:true});
+    state.teamStatuses=state.teamStatuses.filter(status=>status!==galaxy);
+  }
 }
 
 function executeSkill(state, actor, targetId, choice, scale = 1, copied = false) {
   const skill = cardSkillAtEnhancement(actor.cardId, actor.enhancement);
   const broken = commonEffects(state,actor,skill,targetId,scale);
   specialEffects(state,actor,targetId,choice,scale,broken);
-  if(!copied && skill && !skill.oncePerBattle && actor.cardId !== 'hoi-ssr') {
+  if(!copied && skill && !NON_COPYABLE_SKILLS.has(actor.cardId)) {
     state.lastCopyableSkill={cardId:actor.cardId,enhancement:actor.enhancement,targetId,choice};
   }
   return skill;
@@ -481,13 +533,13 @@ export function performPlayerAction(input, action = {}, now = Date.now()) {
   const state = clone(input);
   if (state.status !== 'active' || state.currentActor !== 'card') throw new Error('현재는 카드의 행동 차례가 아닙니다.');
   const actor = state.cards[state.currentActorIndex];
-  if (!alive(actor)) { advance(state,now); return state; }
+  if (!alive(actor)) { advanceToNextLivingCard(state,now); return state; }
   const actionType = action.type === 'skill' ? 'skill' : 'basic';
   prePlayerAction(state,actor);
   if (!alive(actor)) {
     log(state, 'skip', `${actor.name}은(는) 지속 피해로 행동불능이 되었습니다.`, { actorId: actor.id });
     state.playerActionCount += 1;
-    advance(state, now);
+    advanceToNextLivingCard(state, now);
     return state;
   }
   let usedSkill = null;
@@ -545,12 +597,12 @@ function hurtCard(state, target, rawDamage, source = 'boss') {
       sourceId: source, targetId: guardian.id, protectedId: target.id, amount: guardHpDamage, absorbed: guardAbsorbed,
     });
   }
-  let reduction=statusValue(target,'damage-reduction');
-  const foresight=state.teamStatuses.find(s=>s.id==='foresight'); if(foresight){reduction+=foresight.value;foresight.charges-=1;addCardStatus(state.cards.filter(alive),target,'effect-up','예지 성공',30,null,'buff',1);}
-  const eclipse=state.teamStatuses.find(s=>s.id==='eclipse-guard'); if(eclipse){if(eclipse.shadow>0){eclipse.shadow=0;rawDamage=0;addStatus(state.boss,{id:'accuracy-down',name:'그림자 교란',kind:'debuff',value:20,duration:2,sourceId:eclipse.sourceId});}else reduction+=eclipse.value;eclipse.charges-=1;}
-  const finale=state.teamStatuses.find(s=>s.id==='finale-guard'); if(finale){const saved=rawDamage*finale.value/100;finale.stored+=saved;rawDamage-=saved;finale.charges-=1;}
-  const spire=state.teamStatuses.find(s=>s.id==='ice-spire'); if(spire){rawDamage*=1-spire.value/100;spire.charges-=1;const sourceCard=state.cards.find(c=>c.id===spire.sourceId);if(sourceCard)damageBoss(state,sourceCard,spire.counter,1,spire.break,1,{counter:true});}
-  let damage=Math.max(0,Math.round(rawDamage*(1-clamp(reduction,0,90)/100)));
+  let remainingMultiplier=damageRemainingMultiplier(activeStatuses(target,'damage-reduction'));
+  const foresight=state.teamStatuses.find(s=>s.id==='foresight'&&statusIsActive(s)); if(foresight){remainingMultiplier*=1-clamp(foresight.value,0,100)/100;foresight.charges-=1;addCardStatus(state.cards.filter(alive),target,'effect-up','예지 성공',foresight.successBoost||30,null,'buff',1);}
+  const eclipse=state.teamStatuses.find(s=>s.id==='eclipse-guard'&&statusIsActive(s)); if(eclipse){if(eclipse.shadow>0){eclipse.shadow=0;rawDamage=0;addStatus(state.boss,{id:'accuracy-down',name:'그림자 교란',kind:'debuff',value:eclipse.accuracyDown||20,duration:2,sourceId:eclipse.sourceId});}else remainingMultiplier*=1-clamp(eclipse.value,0,100)/100;eclipse.charges-=1;}
+  const finale=state.teamStatuses.find(s=>s.id==='finale-guard'&&statusIsActive(s)); if(finale){const saved=rawDamage*clamp(finale.value,0,100)/100;finale.stored+=saved;rawDamage-=saved;finale.charges-=1;}
+  const spire=state.teamStatuses.find(s=>s.id==='ice-spire'&&statusIsActive(s)); if(spire){remainingMultiplier*=1-clamp(spire.value,0,100)/100;spire.charges-=1;const sourceCard=state.cards.find(c=>c.id===spire.sourceId);if(sourceCard)damageBoss(state,sourceCard,spire.counter,1,spire.break,1,{counter:true});}
+  let damage=Math.max(0,Math.round(rawDamage*remainingMultiplier));
   const absorbed=Math.min(target.shield,damage);target.shield-=absorbed;damage-=absorbed;
   const hpDamage=Math.min(target.hp,damage);target.hp-=hpDamage;target.defeated=target.hp<=0;
   if(absorbed>0&&target.shield<=0){const recovery=statusValue(target,'shield-break-heal');if(recovery)heal(state,[target],recovery,target,1,{scaleMagnitude:false});}
@@ -558,7 +610,7 @@ function hurtCard(state, target, rawDamage, source = 'boss') {
   const heart=target.statuses.find(s=>s.id==='white-night-heart');if(target.hp>0&&target.hp<50&&statusIsActive(heart)){heal(state,[target],heart.value,target,1,{scaleMagnitude:false});if(heart.charges!=null)heart.charges-=1;else if(heart.duration!=null)heart.duration=0;}
   log(state,'boss-damage',`${target.name}이(가) ${hpDamage} 피해를 받았습니다.`,{sourceId:source,targetId:target.id,amount:hpDamage,absorbed});
   const counter=target.statuses.find(s=>s.id==='counter'&&s.charges>0);if(counter){damageBoss(state,target,counter.value,1,target.cardId==='shanghai-rr'?10:0,1,{counter:true});counter.charges-=1;}
-  if(finale&&finale.charges<=0){const sourceCard=state.cards.find(card=>card.id===finale.sourceId);if(sourceCard){damageBoss(state,sourceCard,160,1,0,1,{counter:true});const extra=Math.min(state.boss.hp,Math.round(finale.stored));state.boss.hp-=extra;state.totalDamage+=extra;log(state,'counter',`저장한 피해 ${extra}을 되돌려주었습니다.`,{sourceId:sourceCard.id,targetId:state.boss.id,amount:extra});}}
+  if(finale&&finale.charges<=0){const sourceCard=state.cards.find(card=>card.id===finale.sourceId);if(sourceCard){damageBoss(state,sourceCard,finale.counter||160,1,0,1,{counter:true});const extra=Math.min(state.boss.hp,Math.round(finale.stored));state.boss.hp-=extra;state.totalDamage+=extra;log(state,'counter',`저장한 피해 ${extra}을 되돌려주었습니다.`,{sourceId:sourceCard.id,targetId:state.boss.id,amount:extra});}}
   state.teamStatuses=state.teamStatuses.filter(s=>s.charges==null||s.charges>0);
   removeExpired(target); return hpDamage;
 }

@@ -1,4 +1,4 @@
-export const PERSONAL_RAID_REWARD_PER_CLEAR = Object.freeze({ coins: 5000, packs: 1 });
+export const PERSONAL_RAID_REWARD_PER_CLEAR = Object.freeze({ coins: 0, packs: 3 });
 
 const MAX_REWARD_KEYS = 45;
 
@@ -20,10 +20,10 @@ export function earnedRewardsForRaid(raid) {
   const clears = wholeReward(raid?.clears);
   return {
     coins: raid?.earnedRewards?.coins == null
-      ? clears * PERSONAL_RAID_REWARD_PER_CLEAR.coins
+      ? 0
       : wholeReward(raid.earnedRewards.coins),
     packs: raid?.earnedRewards?.packs == null
-      ? clears * PERSONAL_RAID_REWARD_PER_CLEAR.packs
+      ? PERSONAL_RAID_REWARD_PER_CLEAR.packs * clears * (clears + 1) / 2
       : wholeReward(raid.earnedRewards.packs),
   };
 }

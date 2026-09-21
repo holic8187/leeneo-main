@@ -56,7 +56,7 @@ test('missions span one minute through twelve hours with starter and expert choi
   }
 
   const oneMinute = EXPEDITIONS.filter((mission) => mission.durationMs === 60 * 1000);
-  assert.deepEqual(oneMinute.map(missionMinimumPower).sort((a, b) => a - b), [4000, 20000]);
+  assert.deepEqual(oneMinute.map(missionMinimumPower).sort((a, b) => a - b), [5400, 26700]);
 });
 
 test('coin expectation per hour rewards active short-mission play in both power bands', () => {
@@ -72,11 +72,11 @@ test('coin expectation per hour rewards active short-mission play in both power 
   }
 });
 
-test('every mission is attainable by the three strongest current cards', () => {
+test('every mission is attainable by the four strongest current cards', () => {
   const strongestPower = CARD_CATALOG
     .map((card) => card.combatPower)
     .sort((a, b) => b - a)
-    .slice(0, 3)
+    .slice(0, 4)
     .reduce((sum, power) => sum + power, 0);
 
   for (const mission of EXPEDITIONS) {
@@ -97,7 +97,7 @@ test('an expedition cannot start below its minimum aggregate combat power', () =
     collection,
     catalog: ALL_CARDS,
     now: 1000,
-  }), /최소 합산 전투력 4,000/);
+  }), /최소 합산 전투력 5,400/);
 
   const started = startExpedition({
     mission,

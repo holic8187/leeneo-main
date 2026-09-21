@@ -16,7 +16,6 @@ import {
   Gift,
   HeartPulse,
   Library,
-  Link2,
   Lock,
   Mail,
   Map,
@@ -118,6 +117,28 @@ import {
 import { createAuthSessionStore } from './core/authSession.js';
 import { createCloudPlaySession } from './core/cloudPlaySession.js';
 import { mobileNotificationPermissionPrompt } from './core/mobileNotificationPermission.js';
+import {
+  cardCombatPowerAtLevel,
+  cardExperienceForNextLevel,
+  cardLevelUpCoinCost,
+  cardMaxHpAtLevel,
+  grantCardExperience,
+  progressionForCard,
+  purchaseCardLevel,
+  raidExperienceReward,
+  roleForCard,
+} from './core/cardProgression.js';
+import {
+  MAX_DECK_PRESETS,
+  deckPresetCards,
+  saveDeckPreset,
+} from './core/deckPresets.js';
+import {
+  EQUIPMENT_TYPES,
+  equipmentById,
+  equipmentPartyAttackMultiplier,
+  equipmentPartyHpMultiplier,
+} from './core/equipment.js';
 import { withDeadline } from './core/promiseDeadline.js';
 import { shouldFlushCloudBeforeUpdate, waitForOptionalUpdateRestore } from './core/androidUpdatePreparation.js';
 import {
@@ -125,7 +146,7 @@ import {
   platformLabel,
   shouldBootstrapCloudState,
 } from './core/deviceIdentity.js';
-import { availableRaidSquad, toggleSquadSelection } from './core/squadSelection.js';
+import { MAX_SQUAD_SIZE, availableRaidSquad, toggleSquadSelection } from './core/squadSelection.js';
 import { desktopBridge } from './services/desktopBridge.js';
 import {
   checkAccountAvailability,
@@ -193,7 +214,6 @@ const iconSet = {
   Gift,
   HeartPulse,
   Library,
-  Link2,
   Lock,
   Mail,
   Map,
@@ -231,7 +251,6 @@ const views = {
   mailbox: { label: '우편함', icon: 'mail' },
   adventure: { label: '자동 모험', icon: 'map' },
   raid: { label: '레이드', icon: 'shield' },
-  link: { label: '호이상사 연동', icon: 'link-2' },
 };
 
 const DONATION_PACKAGES = Object.freeze([
@@ -268,6 +287,9 @@ const ui = {
   collectionOwnedOnly: false,
   collectionSort: 'rarity-asc',
   collectionQuery: '',
+  deckPresetContext: 'adventure',
+  deckPresetSlot: 0,
+  deckPresetName: '',
   managementPanel: 'enhance',
   enhanceCardId: '',
   enhanceTargetStage: null,
@@ -543,7 +565,8 @@ function cardEnhancement(card, state) {
 
 function cardPower(card, state = null, enhancement = null) {
   const stage = Number.isInteger(enhancement) ? enhancement : cardEnhancement(card, state);
-  return enhancedCardPower(cardExpeditionPower(card), stage);
+  const enhancedPower = enhancedCardPower(cardExpeditionPower(card), stage);
+  return cardCombatPowerAtLevel(enhancedPower, card, state?.cardProgression || {});
 }
 
 function enhancementLabel(stage) {
@@ -642,13 +665,13 @@ function renderAuthScreen() {
   return `
     <main class="auth-shell">
       <section class="auth-intro" aria-label="게임 소개">
-        <div class="auth-brand"><span>HC</span><div><strong>호이상사 외전</strong><small>월급루팡 카드부</small></div></div>
+        <div class="auth-brand"><span>HC</span><div><strong>호이 카드 데스크</strong><small>독립 카드 게임</small></div></div>
         <div class="auth-intro-copy">
           <span class="eyebrow">PERSONNEL ARCHIVE</span>
           <h1>당신만의 인물 파일을<br />새 책상에서 이어가세요.</h1>
           <p>카드, 동전, 모험 기록을 클라우드에 안전하게 보관하고 PC와 모바일에서 이어서 플레이합니다.</p>
         </div>
-        <div class="auth-security-note"><i data-lucide="lock"></i><span><strong>독립 카드부 계정</strong><small>호이상사 본편 계정 연동은 추후 제공됩니다.</small></span></div>
+        <div class="auth-security-note"><i data-lucide="lock"></i><span><strong>카드 데스크 전용 계정</strong><small>PC와 모바일의 진행 기록을 안전하게 동기화합니다.</small></span></div>
       </section>
 
       <section class="auth-panel" aria-labelledby="auth-title">
@@ -750,8 +773,8 @@ function renderSidebar(state) {
       <div class="brand-block">
         <div class="brand-mark" aria-hidden="true">HC</div>
         <div class="brand-copy">
-          <strong>호이상사 외전</strong>
-          <span>월급루팡 카드부</span>
+          <strong>호이 카드 데스크</strong>
+          <span>독립 카드 게임</span>
         </div>
       </div>
       <nav class="primary-nav" aria-label="주 메뉴">${nav}</nav>
@@ -827,6 +850,38 @@ function renderTopbar(state) {
   `;
 }
 
+function renderDeckPresetPanel(state) {
+  return `
+    <section class="deck-preset-panel" aria-labelledby="deck-preset-title">
+      <div class="section-heading section-heading--compact">
+        <div><span class="eyebrow">DECK PRESETS</span><h2 id="deck-preset-title">덱 프리셋</h2></div>
+        <span>최대 ${MAX_DECK_PRESETS}개</span>
+      </div>
+      <div class="deck-preset-list">
+        ${Array.from({ length: MAX_DECK_PRESETS }, (_, slot) => {
+          const preset = state.deckPresets?.[slot] || null;
+          const cards = preset?.cardIds?.map(cardById).filter(Boolean) || [];
+          const equipment = equipmentById(state.equipmentInventory, preset?.equipmentCardId);
+          return `<article class="deck-preset-card ${preset ? '' : 'is-empty'}">
+            <div class="deck-preset-heading"><span>${slot + 1}</span><strong>${escapeHtml(preset?.name || `프리셋 ${slot + 1}`)}</strong></div>
+            <div class="deck-preset-members">
+              ${Array.from({ length: MAX_SQUAD_SIZE }, (_, index) => {
+                const card = cards[index];
+                return card ? `<img src="${card.image}" alt="${escapeHtml(cardDisplayName(card))}" title="${escapeHtml(cardDisplayName(card))}" />` : '<span aria-label="빈 카드 슬롯">+</span>';
+              }).join('')}
+            </div>
+            <small>${equipment ? escapeHtml(equipmentEffectText(equipment)) : '장비 없음'} · 유물 출시 예정</small>
+            <div class="deck-preset-actions">
+              ${preset ? `<button type="button" data-action="load-deck-preset" data-slot="${slot}" data-context="adventure">모험 불러오기</button><button type="button" data-action="load-deck-preset" data-slot="${slot}" data-context="raid">레이드 불러오기</button>` : ''}
+              <button type="button" data-action="save-deck-preset" data-slot="${slot}" data-context="adventure">모험 덱 ${preset ? '덮어쓰기' : '저장'}</button>
+              <button type="button" data-action="save-deck-preset" data-slot="${slot}" data-context="raid">레이드 덱 ${preset ? '덮어쓰기' : '저장'}</button>
+            </div>
+          </article>`;
+        }).join('')}
+      </div>
+    </section>`;
+}
+
 function renderDashboard(state) {
   const pack = PACK_DEFINITION.standard;
   const pendingPackOpening = state.pendingPackOpening;
@@ -900,7 +955,7 @@ function renderDashboard(state) {
           <div><dt>발견 카드</dt><dd>${ownedUniqueCount(state)} / ${CARD_CATALOG.length}</dd></div>
           <div><dt>보유 카드</dt><dd>${totalOwnedCount(state)}장</dd></div>
           <div><dt>해결한 돌발 업무</dt><dd>${formatNumber(state.resolvedIncidents)}건</dd></div>
-          <div><dt>호이 연동</dt><dd>추후 제공</dd></div>
+          <div><dt>클라우드 동기화</dt><dd>${ui.cloud.phase === 'active' ? '연결됨' : '확인 중'}</dd></div>
         </dl>
         <button class="text-button" type="button" data-action="navigate" data-view="collection">
           인사기록 전체 보기 <i data-lucide="arrow-right"></i>
@@ -971,6 +1026,8 @@ function renderDashboard(state) {
         `}
       </section>
 
+      ${renderDeckPresetPanel(state)}
+
       <section class="activity-panel" aria-labelledby="activity-title">
         <div class="section-heading section-heading--compact">
           <div>
@@ -1000,6 +1057,7 @@ function renderCard(card, count, options = {}) {
   const selectable = options.selectable && count;
   const selected = options.selected;
   const enhancement = hidden ? 0 : cardEnhancement(card, state);
+  const progression = hidden ? { level: 1 } : progressionForCard(state?.cardProgression, card.id);
   const locked = new Set(state?.lockedCardIds || []).has(card.id);
   return `
     <article class="collection-card rarity-${card.rarity} ${hidden ? 'is-hidden' : ''} ${selected ? 'is-selected' : ''} ${locked ? 'is-locked' : ''}">
@@ -1014,7 +1072,7 @@ function renderCard(card, count, options = {}) {
         <div class="card-copy">
           <span>${hidden ? '미발견' : escapeHtml(card.department)}</span>
           <strong>${hidden ? '기록 없음' : escapeHtml(cardDisplayName(card))}</strong>
-          <small>${hidden ? '카드팩에서 발견할 수 있습니다.' : `${escapeHtml(card.category)} · ${formatNumber(count)}장 보유${owned ? ` · 최고 ${enhancementLabel(enhancement)}` : ' · 획득 기록 보존'}`}</small>
+          <small>${hidden ? '카드팩에서 발견할 수 있습니다.' : `${escapeHtml(card.category)} · Lv.${formatNumber(progression.level)} · ${formatNumber(count)}장 보유${owned ? ` · 최고 ${enhancementLabel(enhancement)}` : ' · 획득 기록 보존'}`}</small>
         </div>
         <div class="card-stats card-stats--combat" aria-label="카드 전투 능력치">
           <span><b>공격력</b>${hidden ? '-' : formatNumber(cardPower(card, state))}</span>
@@ -1024,9 +1082,9 @@ function renderCard(card, count, options = {}) {
   `;
 }
 
-function renderCollection(state) {
+function collectionCardsForView(state) {
   const query = ui.collectionQuery.trim().toLowerCase();
-  const cards = CARD_CATALOG.filter((card) => {
+  return CARD_CATALOG.filter((card) => {
     if (ui.rarityFilter !== 'all' && card.rarity !== ui.rarityFilter) return false;
     if (ui.collectionOwnedOnly && Math.max(0, Number(state.collection[card.id]) || 0) <= 0) return false;
     if (!query) return true;
@@ -1037,6 +1095,44 @@ function renderCollection(state) {
     if (rarityDelta) return rarityDelta;
     return CARD_CATALOG.indexOf(left) - CARD_CATALOG.indexOf(right);
   });
+}
+
+function selectedEquipment(state, context) {
+  const equipmentId = context === 'raid'
+    ? state.selectedRaidEquipmentId
+    : state.selectedExpeditionEquipmentId;
+  return equipmentById(state.equipmentInventory, equipmentId);
+}
+
+function equipmentEffectText(item) {
+  if (!item) return '장착 없음';
+  const effect = item.type === EQUIPMENT_TYPES.armor.id ? '파티 HP' : '파티 공격력';
+  return `${rarityLabel(item.rarity)} ${EQUIPMENT_TYPES[item.type]?.label || '장비'} · ${effect} +${Number(item.bonusPercent).toFixed(1)}%`;
+}
+
+function renderLoadoutSlots(state, context) {
+  const equipmentId = context === 'raid'
+    ? state.selectedRaidEquipmentId
+    : state.selectedExpeditionEquipmentId;
+  const inventory = Array.isArray(state.equipmentInventory) ? state.equipmentInventory : [];
+  return `
+    <div class="loadout-slots" aria-label="추가 장착 카드">
+      <label class="loadout-slot">
+        <span><i data-lucide="shield"></i><b>장비 카드</b></span>
+        <select data-action="select-equipment" data-context="${context}">
+          <option value="">장착 없음</option>
+          ${inventory.map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === equipmentId ? 'selected' : ''}>${escapeHtml(equipmentEffectText(item))}</option>`).join('')}
+        </select>
+      </label>
+      <label class="loadout-slot is-coming-soon">
+        <span><i data-lucide="sparkles"></i><b>유물 카드</b></span>
+        <select disabled><option>출시 예정</option></select>
+      </label>
+    </div>`;
+}
+
+function renderCollection(state) {
+  const cards = collectionCardsForView(state);
 
   return `
     <section class="collection-header">
@@ -1409,11 +1505,14 @@ function renderSquadPicker(state, context) {
         const unavailable = availableStage < 0 || (context === 'raid' && !skillForCard(card.id, Math.max(0, availableStage)));
         const selectionOrder = selected ? selectedIds.indexOf(card.id) + 1 : 0;
         return `
+          <div class="squad-card-shell">
           <button class="squad-card rarity-${card.rarity} ${selected ? 'is-selected' : ''} ${unavailable ? 'is-unavailable' : ''}" type="button" data-action="toggle-squad" data-context="${context}" data-card-id="${card.id}" ${unavailable ? 'disabled' : ''} aria-pressed="${selected ? 'true' : 'false'}">
             <img class="squad-card__art" src="${card.image}" alt="" />
-            <span><strong>${escapeHtml(cardDisplayName(card))}</strong><small><b>${rarityLabel(card.rarity)} · ${enhancementLabel(Math.max(0, availableStage))}</b><span class="squad-detail-copy">${unavailable ? (availableStage < 0 ? ' · 모든 복사본이 모험 참여 중 · 레이드 사용 불가' : ' · 고유 스킬 준비 중 · 레이드 사용 불가') : ` · 전투력 ${formatNumber(cardPower(card, state, availableStage))}`}</span></small></span>
+            <span><strong>${escapeHtml(cardDisplayName(card))}</strong><small><b>${rarityLabel(card.rarity)} · Lv.${formatNumber(progressionForCard(state.cardProgression, card.id).level)} · ${enhancementLabel(Math.max(0, availableStage))}</b><span class="squad-detail-copy">${unavailable ? (availableStage < 0 ? ' · 모든 복사본이 모험 참여 중 · 레이드 사용 불가' : ' · 고유 스킬 준비 중 · 레이드 사용 불가') : ` · 전투력 ${formatNumber(cardPower(card, state, availableStage))}`}</span></small></span>
             ${selectionOrder ? `<b class="squad-order-badge" aria-label="행동 순서 ${selectionOrder}번">${selectionOrder}</b>` : `<i data-lucide="${unavailable ? 'lock' : 'users'}"></i>`}
           </button>
+          <button class="squad-card-info" type="button" data-action="open-card" data-card-id="${card.id}" aria-label="${escapeHtml(cardDisplayName(card))} 상세 정보"><i data-lucide="search"></i></button>
+          </div>
         `;
       }).join('')}
     </div>
@@ -1429,7 +1528,8 @@ function renderAdventure(state) {
   const activeMission = active ? expeditionById(active.missionId) : null;
   const selectedMission = expeditionById(ui.selectedMissionId) || EXPEDITIONS[0];
   const expeditionSquad = state.selectedExpeditionSquad || state.selectedSquad || [];
-  const score = calculateSquadScore(expeditionSquad, state.collection, ALL_CARDS, state.cardEnhancements);
+  const expeditionEquipment = selectedEquipment(state, 'adventure');
+  const score = calculateSquadScore(expeditionSquad, state.collection, ALL_CARDS, state.cardEnhancements, [], state.cardProgression, expeditionEquipment);
   const minimumPower = missionMinimumPower(selectedMission);
   const canStart = expeditionSquad.length >= selectedMission.requiredCards && score >= minimumPower;
   const actionMission = active ? activeMission : selectedMission;
@@ -1502,7 +1602,8 @@ function renderAdventure(state) {
             <p>모험은 항상 완료되며 최소 ${formatNumber(selectedMission.reward.coins[0])} 동전을 보장합니다. 실제 보상은 매번 변동하고, 최소 전투력을 넘긴 정도에 따라 최대 ${Math.round((selectedMission.reward.powerBonusCap || 0.35) * 100)}% 증가합니다.</p>
           </div>
           ${score < minimumPower ? `<p class="requirement-warning"><i data-lucide="circle-alert"></i>최소 합산 전투력까지 ${formatNumber(minimumPower - score)}이 더 필요합니다.</p>` : ''}
-          <div class="subheading"><h3>파견 카드</h3><span>${expeditionSquad.length} / 3</span></div>
+           ${renderLoadoutSlots(state, 'adventure')}
+           <div class="subheading"><h3>파견 카드</h3><span>${expeditionSquad.length} / ${MAX_SQUAD_SIZE}</span></div>
           ${renderSquadPicker(state, 'adventure')}
         `}
       </section>
@@ -1551,7 +1652,7 @@ function renderPersonalRaidRanking(state) {
         <button class="icon-button" type="button" data-action="refresh-raid-ranking" title="랭킹 새로고침" aria-label="랭킹 새로고침" ${ui.raid.loading ? 'disabled' : ''}><i data-lucide="refresh-cw"></i></button>
       </div>
       <div class="ranking-reset-line">
-        <span>매주 월요일 24:00 대한민국 시간 초기화</span>
+        <span>매주 월요일 00:00 대한민국 시간 초기화</span>
         ${resetsAt ? `<strong>초기화까지 <span data-countdown="${resetsAt}">${formatDuration(resetsAt - Date.now())}</span></strong>` : ''}
       </div>
       <div class="table-row table-head"><span>순위</span><span>사원</span><span>현재 단계</span><span>총 피해 점수</span></div>
@@ -1644,6 +1745,8 @@ function renderPersonalRaidBattlefield(state) {
             <img src="${battle.boss.image || bossCard?.image || './assets/cards/deadline-dragon.webp'}" alt="${escapeHtml(battle.boss.name)}" />
             ${battle.boss.stunned ? '<span class="raid-stun-orbit" aria-label="브레이크 스턴"></span>' : ''}
           </div>
+          ${animation.damageAmount ? `<strong class="raid-floating-number is-damage">${formatNumber(animation.damageAmount)}</strong>` : ''}
+          ${animation.breakAmount ? `<strong class="raid-floating-number is-break">BREAK ${formatNumber(animation.breakAmount)}</strong>` : ''}
         </div>
         <div class="raid-squad-zone">
           ${battle.squad.map((member, index) => {
@@ -1689,6 +1792,8 @@ function renderPersonalRaidBattle(state) {
     ALL_CARDS,
     state.cardEnhancements,
     expeditionLocks,
+    state.cardProgression,
+    selectedEquipment(state, 'raid'),
   );
   const maxHp = Math.max(1, Number(raid.maxHp) || RAID_DEFINITION.maxHp);
   const hp = Math.min(maxHp, Math.max(0, Number(raid.hp) || 0));
@@ -1698,12 +1803,12 @@ function renderPersonalRaidBattle(state) {
   const entriesToday = Math.max(0, Number(raid.entriesToday) || 0);
   const remainingEntries = Math.max(0, Number(raid.remainingEntries ?? (maxEntries - entriesToday)) || 0);
   const stage = Math.max(1, Number(raid.stage) || 1);
-  const maxStage = Math.max(stage, Number(raid.maxStage) || 8);
+  const maxStage = Math.max(stage, Number(raid.maxStage) || 10);
   const dailyLocked = remainingEntries <= 0;
   const weeklyCompleted = Boolean(raid.weeklyCompleted);
   const canEnter = raid.canEnter == null ? !dailyLocked && !weeklyCompleted : Boolean(raid.canEnter);
   const online = !ui.auth.offline && isRaidGatewayConfigured();
-  const dispatchDisabled = !online || selectedRaidSquad.length !== 3 || !canEnter || ui.raid.dispatching;
+  const dispatchDisabled = !online || selectedRaidSquad.length !== MAX_SQUAD_SIZE || !canEnter || ui.raid.dispatching;
   const boss = cardById('deadline-dragon');
   const weeklyResetsAt = Number(raid.resetsAt) || 0;
   const dailyResetsAt = Number(raid.dailyResetsAt) || 0;
@@ -1726,13 +1831,13 @@ function renderPersonalRaidBattle(state) {
             ${ui.raid.dispatching
               ? '파견 처리 중'
               : weeklyCompleted
-                ? '이번 주 8단계 공략 완료'
+                ? `이번 주 ${formatNumber(maxStage)}단계 공략 완료`
                 : dailyLocked
                   ? '오늘의 입장 횟수 소진'
                   : raid.activeSession
                     ? '진행 중인 전투가 있습니다'
-                    : selectedRaidSquad.length !== 3
-                    ? '카드 3장 편성 필요'
+                   : selectedRaidSquad.length !== MAX_SQUAD_SIZE
+                    ? `카드 ${MAX_SQUAD_SIZE}장 편성 필요`
                     : '레이드 입장'}
           </button>
         </div>
@@ -1745,7 +1850,7 @@ function renderPersonalRaidBattle(state) {
           <div><span>오늘 남은 입장</span><strong>${formatNumber(remainingEntries)} / ${formatNumber(maxEntries)}</strong></div>
           <div><span>현재 단계 클리어</span><strong>${formatNumber(clears)}회</strong></div>
           <div><span>일일 입장 초기화</span><strong>${dailyResetsAt ? `<span data-countdown="${dailyResetsAt}">${formatDuration(dailyResetsAt - Date.now())}</span>` : '매일 00:00'}</strong></div>
-          <div><span>주간 단계 초기화</span><strong>${weeklyResetsAt ? `<span data-countdown="${weeklyResetsAt}">${formatDuration(weeklyResetsAt - Date.now())}</span>` : '월요일 24:00'}</strong></div>
+           <div><span>주간 단계 초기화</span><strong>${weeklyResetsAt ? `<span data-countdown="${weeklyResetsAt}">${formatDuration(weeklyResetsAt - Date.now())}</span>` : '월요일 00:00'}</strong></div>
         </div>
         ${!online ? '<p class="raid-sync-error"><i data-lucide="wifi"></i>개인 레이드와 실시간 랭킹은 온라인 연결이 필요합니다.</p>' : ''}
         ${ui.raid.error ? `<p class="raid-sync-error"><i data-lucide="circle-alert"></i>${escapeHtml(ui.raid.error)}</p>` : ''}
@@ -1754,10 +1859,11 @@ function renderPersonalRaidBattle(state) {
       <aside class="raid-command">
         <div class="section-heading section-heading--compact">
           <div><span class="eyebrow">STRIKE TEAM</span><h2>파견 카드 선택</h2></div>
-          <span>${selectedRaidSquad.length} / 3</span>
+           <span>${selectedRaidSquad.length} / ${MAX_SQUAD_SIZE}</span>
         </div>
         ${state.expedition ? `<p class="local-operation-note"><i data-lucide="lock"></i>모험에 참여 중인 ${state.expedition.squad.length}장의 카드는 레이드에 편성할 수 없습니다.</p>` : ''}
-        ${renderSquadPicker(state, 'raid')}
+         ${renderLoadoutSlots(state, 'raid')}
+         ${renderSquadPicker(state, 'raid')}
         <p class="local-operation-note"><i data-lucide="wifi"></i>기여도와 순위는 서버에 실시간으로 저장됩니다.</p>
       </aside>
     </div>
@@ -1827,38 +1933,12 @@ function renderMailbox() {
   `;
 }
 
-function renderLink(state) {
-  const account = ui.auth.account;
-  return `
-    <div class="link-layout">
-      <section class="link-sheet" aria-labelledby="link-title">
-        <div class="link-symbol"><span>HC</span><i data-lucide="link-2"></i><span>CD</span></div>
-        <span class="eyebrow">COMING LATER</span>
-        <h2 id="link-title">호이상사 계정 연동</h2>
-        <p>호이상사 본편 캐릭터와 카드부 계정을 연결하는 기능은 추후 업데이트에서 제공됩니다.</p>
-        <div class="link-coming-soon">
-          <i data-lucide="lock"></i>
-          <span><small>현재 상태</small><strong>연동 준비 중</strong><em>지금은 카드부 계정만으로 모든 콘텐츠를 이용할 수 있습니다.</em></span>
-        </div>
-      </section>
-      <aside class="benefit-ledger">
-        <div class="section-heading section-heading--compact"><div><span class="eyebrow">CARD DESK ACCOUNT</span><h2>현재 카드부 계정</h2></div></div>
-        <div class="account-summary-card"><i data-lucide="users"></i><span><strong>${escapeHtml(account?.nickname || state.profile.displayName)}</strong><small>@${escapeHtml(account?.username || '')}</small></span><b>${ui.auth.offline ? '오프라인' : '온라인'}</b></div>
-        <div class="benefit-row"><i data-lucide="trophy"></i><span><strong>컬렉션 진행</strong><small>이 계정 전용 로컬 기록</small></span><b>${ownedUniqueCount(state)} / ${CARD_CATALOG.length}</b></div>
-        <div class="sync-boundary"><i data-lucide="lock"></i><span><strong>계정별 분리 저장</strong><small>다른 카드부 계정으로 로그인하면 해당 계정의 기록을 따로 불러옵니다.</small></span></div>
-        <button class="secondary-button account-logout-button" type="button" data-action="logout">로그아웃</button>
-      </aside>
-    </div>
-  `;
-}
-
 function renderCurrentView(state) {
   if (ui.view === 'collection') return renderCollection(state);
   if (ui.view === 'management') return renderManagement(state);
   if (ui.view === 'mailbox') return renderMailbox(state);
   if (ui.view === 'adventure') return renderAdventure(state);
   if (ui.view === 'raid') return renderRaid(state);
-  if (ui.view === 'link') return renderLink(state);
   return renderDashboard(state);
 }
 
@@ -1937,10 +2017,28 @@ function renderCardModal(card, state) {
   const owned = Number(state.collection[card.id]) > 0;
   const locked = new Set(state.lockedCardIds || []).has(card.id);
   const skill = skillForCard(card.id, enhancement);
+  const progression = progressionForCard(state.cardProgression, card.id);
+  const role = roleForCard(card);
+  const maxHp = cardMaxHpAtLevel(card, state.cardProgression);
+  const requiredExperience = cardExperienceForNextLevel(progression.level);
+  const levelCost = cardLevelUpCoinCost(state.cardProgression, card.id);
+  let visibleCards = collectionCardsForView(state).filter((entry) => (
+    Number(state.collection[entry.id]) > 0 || new Set(state.discoveredCardIds || []).has(entry.id)
+  ));
+  if (!visibleCards.some((entry) => entry.id === card.id)) {
+    visibleCards = CARD_CATALOG.filter((entry) => (
+      Number(state.collection[entry.id]) > 0 || new Set(state.discoveredCardIds || []).has(entry.id)
+    ));
+  }
+  const cardIndex = visibleCards.findIndex((entry) => entry.id === card.id);
+  const previousCard = cardIndex > 0 ? visibleCards[cardIndex - 1] : null;
+  const nextCard = cardIndex >= 0 && cardIndex < visibleCards.length - 1 ? visibleCards[cardIndex + 1] : null;
   return `
     <div class="modal-backdrop" data-action="close-modal">
       <section class="modal-sheet card-detail-modal rarity-${card.rarity}" role="dialog" aria-modal="true" aria-labelledby="card-detail-title" data-modal-panel>
         <button class="modal-close" type="button" data-action="close-modal" aria-label="닫기"><i data-lucide="x"></i></button>
+        <button class="detail-card-nav detail-card-nav--previous" type="button" data-action="navigate-card-detail" data-card-id="${previousCard?.id || ''}" aria-label="이전 카드" ${previousCard ? '' : 'disabled'}><i data-lucide="chevron-left"></i></button>
+        <button class="detail-card-nav detail-card-nav--next" type="button" data-action="navigate-card-detail" data-card-id="${nextCard?.id || ''}" aria-label="다음 카드" ${nextCard ? '' : 'disabled'}><i data-lucide="chevron-right"></i></button>
         <div class="detail-card-art"><img class="card-illustration" src="${card.image}" alt="${escapeHtml(cardDisplayName(card))}" /><span class="rarity-stamp">${rarityEmblem(card.rarity)}</span><b class="card-power">전투력 ${formatNumber(cardPower(card, state))}</b><span class="enhancement-badge">${enhancementLabel(enhancement)}</span></div>
         <div class="detail-card-copy">
           <span class="eyebrow">${escapeHtml(card.department)} / ${escapeHtml(card.category)}</span>
@@ -1948,7 +2046,14 @@ function renderCardModal(card, state) {
           <p>${escapeHtml(card.flavor)}</p>
           <div class="detail-stats detail-stats--combat">
             <div><span>공격력 · 전투력</span><strong>${formatNumber(cardPower(card, state))}</strong></div>
-            <div><span>기본 HP</span><strong>100</strong></div>
+            <div><span>최대 HP</span><strong>${formatNumber(maxHp)}</strong></div>
+            <div><span>역할</span><strong>${escapeHtml(role.label)}</strong></div>
+            <div><span>카드 레벨</span><strong>Lv.${formatNumber(progression.level)}</strong></div>
+          </div>
+          <div class="card-level-panel">
+            <div><span>${progression.level >= 100 ? '최대 레벨 달성' : `다음 레벨까지 ${formatNumber(requiredExperience - progression.experience)} EXP`}</span><strong>${progression.level >= 100 ? 'MAX' : `${formatNumber(progression.experience)} / ${formatNumber(requiredExperience)}`}</strong></div>
+            <div class="card-level-track"><span style="width:${progression.level >= 100 ? 100 : Math.round((progression.experience / Math.max(1, requiredExperience)) * 100)}%"></span></div>
+            ${owned ? `<button class="secondary-button" type="button" data-action="level-up-card" data-card-id="${card.id}" ${progression.level >= 100 || state.wallet.coins < levelCost ? 'disabled' : ''}><i data-lucide="sparkles"></i>${progression.level >= 100 ? '최대 레벨' : `${formatNumber(levelCost)} 동전으로 레벨업`}</button>` : ''}
           </div>
           <div class="trait-box card-skill-box"><i data-lucide="sparkles"></i><span><strong>${escapeHtml(skill?.name || '고유 스킬 준비 중')}</strong><small>${escapeHtml(skill?.description || '이 카드는 추후 전투 스킬이 추가됩니다.')}</small>${skill ? `<em>${skill.oncePerBattle ? '전투당 1회' : `쿨타임 ${formatNumber(skill.cooldown)}턴`} · ${enhancementLabel(enhancement)} 효과 수치 적용</em>` : ''}</span></div>
           <div class="owned-line">보유 수량 <strong>${formatNumber(state.collection[card.id])}장</strong></div>
@@ -2382,7 +2487,6 @@ function rewardText(reward = {}) {
   const parts = [];
   if (reward.coins) parts.push(`<span><i data-lucide="coins"></i>${formatNumber(reward.coins)} 동전</span>`);
   if (reward.packs) parts.push(`<span><i data-lucide="package-open"></i>${formatNumber(reward.packs)} 카드팩</span>`);
-  if (reward.linkPoints) parts.push(`<span><i data-lucide="link-2"></i>${formatNumber(reward.linkPoints)} 연동 포인트</span>`);
   return parts.join('') || '<span>기록 갱신</span>';
 }
 
@@ -2801,6 +2905,8 @@ function beginExpedition() {
       collection: state.collection,
       catalog: ALL_CARDS,
       cardEnhancements: state.cardEnhancements,
+      cardProgression: state.cardProgression,
+      equipment: selectedEquipment(state, 'adventure'),
     });
     store.update((draft) => {
       draft.expedition = expedition;
@@ -2823,7 +2929,7 @@ function completeExpeditionIfReady() {
   if (notificationId) void desktopBridge.cancelGameNotification(notificationId).catch(() => {});
   appendActivity(
     completion.state,
-    `${mission.name} 완료: ${formatNumber(completion.result.coins)} 동전 획득`,
+    `${mission.name} 완료: ${formatNumber(completion.result.coins)} 동전${completion.result.equipment ? ` · ${completion.result.equipment.name}` : ''} 획득`,
     'adventure',
     completion.completedAt,
   );
@@ -2831,7 +2937,7 @@ function completeExpeditionIfReady() {
   ui.modal = {
     type: 'result',
     message: `${mission.name} 임무를 무사히 마쳤습니다.`,
-    rewardText: rewardText({ coins: completion.result.coins, packs: completion.result.packs }),
+    rewardText: `${rewardText({ coins: completion.result.coins, packs: completion.result.packs })} · 카드당 경험치 ${formatNumber(completion.result.experiencePerCard)}${completion.result.equipment ? ` · ${equipmentEffectText(completion.result.equipment)} 획득` : ''}`,
   };
   render();
   return true;
@@ -2891,6 +2997,9 @@ async function refreshPersonalRaid({ rankingOnly = false, silent = false } = {})
 
 function selectedRaidBattleCards(state = store.getState()) {
   const expeditionLocks = activeExpeditionCardLocks(state);
+  const equipment = selectedEquipment(state, 'raid');
+  const attackMultiplier = equipmentPartyAttackMultiplier(equipment);
+  const hpMultiplier = equipmentPartyHpMultiplier(equipment);
   return availableRaidSquad(
     state.selectedRaidSquad,
     state.expedition,
@@ -2909,7 +3018,8 @@ function selectedRaidBattleCards(state = store.getState()) {
       enhancement,
       name: cardDisplayName(card),
       image: card?.image || '',
-      combatPower: cardPower(card, state, enhancement),
+      combatPower: Math.round(cardPower(card, state, enhancement) * attackMultiplier),
+      maxHp: Math.round(cardMaxHpAtLevel(card, state.cardProgression) * hpMultiplier * 2) / 2,
     };
   });
 }
@@ -2917,8 +3027,8 @@ function selectedRaidBattleCards(state = store.getState()) {
 function enterRaidBattle() {
   const state = store.getState();
   const cards = selectedRaidBattleCards(state);
-  if (cards.length !== 3) {
-    showNotice('개인 레이드에는 카드 3장을 편성해야 합니다.', 'warning');
+  if (cards.length !== MAX_SQUAD_SIZE) {
+    showNotice(`개인 레이드에는 카드 ${MAX_SQUAD_SIZE}장을 편성해야 합니다.`, 'warning');
     return;
   }
   try {
@@ -2958,6 +3068,21 @@ function maybeShowMobileNotificationPermissionPrompt() {
   ui.notificationPermissionPromptShown = true;
   ui.modal = { type: 'notification-permission', action: prompt.action };
   return true;
+}
+
+async function prepareMobileNotificationPermissionPrompt() {
+  if (clientPlatform !== 'android' || !store) return false;
+  try {
+    const permission = await desktopBridge.getGameNotificationPermission();
+    ui.notificationPermission = String(permission?.display || 'unknown');
+    const opened = maybeShowMobileNotificationPermissionPrompt();
+    if (opened) render();
+    return opened;
+  } catch (error) {
+    ui.notificationPermission = 'unavailable';
+    console.warn('Could not read Android notification permission:', error);
+    return false;
+  }
 }
 
 async function beginRaidBattle() {
@@ -3039,6 +3164,13 @@ function performRaidPlayerTurn(type = 'basic', { automatic = false, choice = nul
   try {
     const next = performPlayerAction(before, { type, choice }, Date.now());
     const dealtDamage = Math.max(0, Number(before.boss?.hp) - Number(next.boss?.hp));
+    const newLogs = (next.log || []).slice((before.log || []).length);
+    const damageAmount = newLogs
+      .filter((entry) => ['damage', 'counter'].includes(entry.type) && entry.targetId === next.boss.id)
+      .reduce((sum, entry) => sum + Math.max(0, Number(entry.amount) || 0), 0) || dealtDamage;
+    const breakAmount = newLogs
+      .filter((entry) => entry.type === 'break')
+      .reduce((sum, entry) => sum + Math.max(0, Number(entry.amount) || 0), 0);
     const skill = type === 'skill' ? skillForCard(actor.cardId, actor.enhancement) : null;
     ui.raid.battle = next;
     ui.raid.inspector = null;
@@ -3047,6 +3179,8 @@ function performRaidPlayerTurn(type = 'basic', { automatic = false, choice = nul
       targets: dealtDamage > 0 ? ['boss'] : [],
       message: automatic ? `${actor.name}이(가) 시간 초과로 기본공격을 사용했습니다.` : `${actor.name}의 ${skill?.name || '기본공격'}!`,
       skillCutIn: skill ? { image: actor.image || cardById(actor.cardId)?.image, name: skill.name } : null,
+      damageAmount,
+      breakAmount,
     };
     render();
     clearRaidAnimation(skill ? 1260 : 680);
@@ -3116,6 +3250,21 @@ async function completeRaidBattle({ leave = false } = {}) {
     const reward = applyRaidPayload(payload, {
       activityMessage: `개인 레이드 ${formatNumber(battle.stage)}단계에서 ${formatNumber(battle.totalDamage)} 피해를 기록했습니다.`,
     });
+    const experiencePerCard = raidExperienceReward({
+      damageDealt: battle.totalDamage,
+      stage: battle.stage,
+      cleared: Boolean(result.cleared),
+    });
+    store.update((draft) => {
+      const experience = grantCardExperience(
+        draft.cardProgression,
+        battle.cards.map((card) => card.cardId),
+        experiencePerCard,
+        draft.collection,
+      );
+      draft.cardProgression = experience.cardProgression;
+      appendActivity(draft, `레이드 참가 카드가 각각 경험치 ${formatNumber(experiencePerCard)}을 획득했습니다.`, 'card');
+    });
     ui.raid.battle = null;
     ui.raid.serverBattle = null;
     ui.raid.inspector = null;
@@ -3125,7 +3274,7 @@ async function completeRaidBattle({ leave = false } = {}) {
         message: result.cleared
           ? `${formatNumber(battle.stage)}단계를 클리어했습니다. 이번 도전 점수 ${formatNumber(battle.totalDamage)}점`
           : `이번 도전에서 ${formatNumber(battle.totalDamage)}점을 획득했습니다.`,
-        rewardText: `주간 누적 ${formatNumber(payload.state?.totalContribution ?? payload.state?.contribution ?? battle.totalDamage)}점${reward.coins || reward.packs ? ` · ${rewardText(reward)}` : ''}`,
+        rewardText: `주간 누적 ${formatNumber(payload.state?.totalContribution ?? payload.state?.contribution ?? battle.totalDamage)}점 · 카드당 경험치 ${formatNumber(experiencePerCard)}${reward.coins || reward.packs ? ` · ${rewardText(reward)}` : ''}`,
       };
     }
   } catch (error) {
@@ -3151,8 +3300,56 @@ function plainRewardText(reward = {}) {
   const parts = [];
   if (reward.coins) parts.push(`${formatNumber(reward.coins)} 동전`);
   if (reward.packs) parts.push(`카드팩 ${formatNumber(reward.packs)}개`);
-  if (reward.linkPoints) parts.push(`연동 포인트 ${formatNumber(reward.linkPoints)}`);
   return parts.join(' · ') || '기록 갱신';
+}
+
+function saveCurrentDeckPreset(slot, context) {
+  const state = store.getState();
+  const raid = context === 'raid';
+  const existing = state.deckPresets?.[slot];
+  const cardIds = raid ? state.selectedRaidSquad : state.selectedExpeditionSquad;
+  const equipmentCardId = raid ? state.selectedRaidEquipmentId : state.selectedExpeditionEquipmentId;
+  store.update((draft) => {
+    draft.deckPresets = saveDeckPreset(draft.deckPresets, slot, {
+      name: existing?.name || `프리셋 ${Number(slot) + 1}`,
+      cardIds,
+      equipmentCardId,
+      artifactCardId: '',
+      identityForId: cardCharacterIdentity,
+    });
+    appendActivity(draft, `${raid ? '레이드' : '모험'} 덱을 프리셋 ${Number(slot) + 1}에 저장했습니다.`, 'card');
+  });
+  showNotice(`프리셋 ${Number(slot) + 1}에 저장했습니다.`, 'success');
+}
+
+function loadSavedDeckPreset(slot, context) {
+  const state = store.getState();
+  const preset = state.deckPresets?.[slot];
+  if (!preset) {
+    showNotice('저장된 덱 프리셋이 없습니다.', 'warning');
+    return;
+  }
+  const raid = context === 'raid';
+  let cards = deckPresetCards(preset, {
+    collection: state.collection,
+    identityForId: cardCharacterIdentity,
+  });
+  if (raid) cards = availableRaidSquad(cards, state.expedition, state.collection, { identityForId: cardCharacterIdentity });
+  const equipment = equipmentById(state.equipmentInventory, preset.equipmentCardId);
+  store.update((draft) => {
+    if (raid) {
+      draft.selectedRaidSquad = cards;
+      draft.selectedRaidEquipmentId = equipment?.id || '';
+    } else {
+      draft.selectedExpeditionSquad = cards;
+      draft.selectedExpeditionEquipmentId = equipment?.id || '';
+    }
+    appendActivity(draft, `${preset.name}을(를) ${raid ? '레이드' : '모험'} 덱에 불러왔습니다.`, 'card');
+  });
+  ui.view = raid ? 'raid' : 'adventure';
+  showNotice(`${preset.name}을(를) 불러왔습니다.`, 'success');
+  render();
+  if (raid) void refreshPersonalRaid({ silent: true });
 }
 
 async function resolveActiveIncident({ choiceId, instanceId = null, incidentId = null, fromToast = false }) {
@@ -3171,7 +3368,6 @@ async function resolveActiveIncident({ choiceId, instanceId = null, incidentId =
   store.update((draft) => {
     if (draft.activeIncident?.instanceId !== targetInstanceId) throw new Error('이미 처리된 돌발 업무입니다.');
     draft.wallet.coins += Number(resolution.reward.coins) || 0;
-    draft.wallet.linkPoints += Number(resolution.reward.linkPoints) || 0;
     draft.packs.standard += Number(resolution.reward.packs) || 0;
     draft.activeIncident = null;
     draft.resolvedIncidents += 1;
@@ -3815,6 +4011,10 @@ async function activateAuthenticatedSession(session, { newAccount = false } = {}
   if (ui.appVersion === '...') {
     ui.appVersion = await desktopBridge.getVersion().catch(() => '0.0.0');
   }
+  // Notification permission is local to Android and must not depend on winning
+  // the single-device cloud lease. This also lets a phone prompt correctly
+  // while the same account is still open on PC.
+  await prepareMobileNotificationPermissionPrompt();
   cloudBootstrapAllowed = shouldBootstrapCloudState({
     platform: clientPlatform,
     newAccount,
@@ -4262,6 +4462,32 @@ app.addEventListener('click', async (event) => {
   } else if (action === 'open-card') {
     ui.modal = { type: 'card', cardId: button.dataset.cardId };
     render();
+  } else if (action === 'navigate-card-detail') {
+    const cardId = String(button.dataset.cardId || '');
+    if (!cardById(cardId)) return;
+    ui.modal = { type: 'card', cardId };
+    render();
+  } else if (action === 'level-up-card') {
+    const cardId = String(button.dataset.cardId || '');
+    const card = cardById(cardId);
+    if (!card) return;
+    try {
+      const state = store.getState();
+      const outcome = purchaseCardLevel({
+        cardProgression: state.cardProgression,
+        collection: state.collection,
+        wallet: state.wallet,
+        cardId,
+      });
+      store.update((draft) => {
+        draft.wallet = outcome.wallet;
+        draft.cardProgression = outcome.cardProgression;
+        appendActivity(draft, `${cardDisplayName(card)} 카드가 Lv.${formatNumber(outcome.after.level)}에 도달했습니다.`, 'card');
+      });
+      showNotice(`${cardDisplayName(card)} Lv.${formatNumber(outcome.after.level)} · ${formatNumber(outcome.cost)} 동전 사용`, 'success');
+    } catch (error) {
+      showNotice(error.message, 'warning');
+    }
   } else if (action === 'refresh-mailbox') {
     await refreshMailbox();
   } else if (action === 'read-mail') {
@@ -4284,7 +4510,7 @@ app.addEventListener('click', async (event) => {
     ui.synthesisMaterials = ui.synthesisMaterials.filter((material) => material.cardId !== cardId);
     render();
   } else if (action === 'close-modal') {
-    if (event.target.closest('[data-modal-panel]') && !event.target.closest('.modal-close') && !event.target.closest('.compact-modal .primary-button')) return;
+    if (button.classList.contains('modal-backdrop') && event.target.closest('[data-modal-panel]')) return;
     ui.modal = null;
     render();
   } else if (action === 'filter-rarity') {
@@ -4298,6 +4524,10 @@ app.addEventListener('click', async (event) => {
     render();
   } else if (action === 'toggle-squad') {
     toggleSquadCard(button.dataset.cardId, button.dataset.context);
+  } else if (action === 'save-deck-preset') {
+    saveCurrentDeckPreset(Number(button.dataset.slot), button.dataset.context === 'raid' ? 'raid' : 'adventure');
+  } else if (action === 'load-deck-preset') {
+    loadSavedDeckPreset(Number(button.dataset.slot), button.dataset.context === 'raid' ? 'raid' : 'adventure');
   } else if (action === 'select-mission') {
     ui.selectedMissionId = button.dataset.missionId;
     render();
@@ -4428,6 +4658,7 @@ app.addEventListener('click', async (event) => {
       .catch(() => ({ display: 'unavailable', granted: false }));
     ui.notificationPermission = String(permission?.display || 'unavailable');
     if (permission?.granted) {
+      store.update((draft) => { draft.settings.incidentNotifications = true; });
       ui.modal = null;
       await syncMobileGameNotifications();
       showNotice('휴대폰 알림을 켰습니다.', 'success');
@@ -4445,6 +4676,7 @@ app.addEventListener('click', async (event) => {
       .catch(() => ({ display: 'denied', granted: false }));
     ui.notificationPermission = String(permission?.display || 'denied');
     if (permission?.granted) {
+      store.update((draft) => { draft.settings.incidentNotifications = true; });
       ui.modal = null;
       await syncMobileGameNotifications();
       showNotice('휴대폰 알림을 켰습니다.', 'success');
@@ -4509,6 +4741,19 @@ app.addEventListener('input', (event) => {
 });
 
 app.addEventListener('change', (event) => {
+  const equipmentSelect = event.target.closest('[data-action="select-equipment"]');
+  if (equipmentSelect) {
+    const context = equipmentSelect.dataset.context === 'raid' ? 'raid' : 'adventure';
+    const equipmentId = String(equipmentSelect.value || '');
+    const state = store.getState();
+    if (equipmentId && !equipmentById(state.equipmentInventory, equipmentId)) return;
+    store.update((draft) => {
+      if (context === 'raid') draft.selectedRaidEquipmentId = equipmentId;
+      else draft.selectedExpeditionEquipmentId = equipmentId;
+    });
+    render({ preserveViewScroll: true });
+    return;
+  }
   const adminInput = event.target.closest('.admin-mail-form [name]');
   if (!adminInput) return;
   ui.admin.draft = { ...(ui.admin.draft || {}), [adminInput.name]: adminInput.value };

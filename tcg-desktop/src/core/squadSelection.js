@@ -1,4 +1,4 @@
-export const MAX_SQUAD_SIZE = 3;
+export const MAX_SQUAD_SIZE = 4;
 
 const identityOf = (cardId, identityForId) => (
   String(typeof identityForId === 'function' ? identityForId(cardId) : cardId || '').trim()

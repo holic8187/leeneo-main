@@ -144,7 +144,7 @@ export function normalizeRaidBattle(value = {}) {
       shield: rawBoss.shield,
     }),
   };
-  const squad = rawSquad.slice(0, 3).map((member, index) => {
+  const squad = rawSquad.slice(0, 4).map((member, index) => {
     const maxHp = Math.max(1, Number(member.maxHp) || 100);
     const normalized = {
       ...member,
@@ -196,8 +196,8 @@ export function createRaidBattlePreview({ serverBattle = {}, squad = [], cardsBy
     },
     squad: squad.map((member) => ({
       ...member,
-      hp: 100,
-      maxHp: 100,
+      hp: member.maxHp || 100,
+      maxHp: member.maxHp || 100,
       effects: [],
       name: cardsById(member.cardId)?.name || member.name,
     })),

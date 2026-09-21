@@ -61,7 +61,7 @@ function normalizeState(value) {
     bossId: String(value.bossId || id),
     bossName: String(value.bossName || value.boss?.name || '마감기한 드래곤'),
     stage: Math.max(1, Number(value.stage) || 1),
-    maxStage: Math.max(1, Number(value.maxStage) || 8),
+    maxStage: Math.max(1, Number(value.maxStage) || 10),
     hp: Math.min(maxHp, Math.max(0, Number(value.hp) || 0)),
     currentHp: Math.min(maxHp, Math.max(0, Number(value.currentHp ?? value.hp) || 0)),
     maxHp,

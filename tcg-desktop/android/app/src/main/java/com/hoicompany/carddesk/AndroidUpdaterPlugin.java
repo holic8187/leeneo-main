@@ -1,15 +1,13 @@
 package com.hoicompany.carddesk;
 
+import android.content.ClipData;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.app.DownloadManager;
-import android.database.Cursor;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.Signature;
 import android.net.Uri;
 import android.os.Build;
-import android.os.Environment;
 import android.os.SystemClock;
 import android.provider.Settings;
 import androidx.core.content.FileProvider;
@@ -18,9 +16,16 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.URL;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -43,7 +48,11 @@ public class AndroidUpdaterPlugin extends Plugin {
     private static final String UPDATE_FILE_NAME = "hoi-card-desk-update.apk";
     private static final long MAX_APK_BYTES = 256L * 1024L * 1024L;
     private static final long MAX_DOWNLOAD_DURATION_MS = 6L * 60L * 1000L;
-    private static final long MAX_NO_PROGRESS_DURATION_MS = 90L * 1000L;
+    private static final int DOWNLOAD_CONNECT_TIMEOUT_MS = 30_000;
+    private static final int DOWNLOAD_READ_TIMEOUT_MS = 30_000;
+    private static final int MAX_DOWNLOAD_ATTEMPTS = 2;
+    private static final int MAX_DOWNLOAD_REDIRECTS = 5;
+    private static final int DOWNLOAD_BUFFER_BYTES = 64 * 1024;
     private static final Pattern TAG_PATTERN = Pattern.compile("^tcg-android-v(\\d+\\.\\d+\\.\\d+)$");
     private static final Pattern ASSET_PATTERN = Pattern.compile(
         "^Hoi-Card-Desk-(\\d+\\.\\d+\\.\\d+)-android-release\\.apk$",
@@ -52,8 +61,6 @@ public class AndroidUpdaterPlugin extends Plugin {
     private static final String PREFERENCES_NAME = "android-updater";
     private static final String PENDING_VERSION_KEY = "pending-version";
     private static final String AWAITING_PERMISSION_KEY = "awaiting-permission";
-    private static final String DOWNLOAD_ID_KEY = "download-id";
-    private static final String DOWNLOAD_VERSION_KEY = "download-version";
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean operationRunning = new AtomicBoolean(false);
@@ -98,128 +105,162 @@ public class AndroidUpdaterPlugin extends Plugin {
     }
 
     private void downloadApk(ReleaseAsset releaseAsset, File destination) throws UpdateException {
-        DownloadManager manager = (DownloadManager) getContext().getSystemService(android.content.Context.DOWNLOAD_SERVICE);
-        if (manager == null) {
-            throw new UpdateException("UPDATE_DOWNLOAD_UNAVAILABLE", "안드로이드 다운로드 기능을 사용할 수 없습니다.");
-        }
         File directory = destination.getParentFile();
         if (directory == null || (!directory.isDirectory() && !directory.mkdirs())) {
             throw new UpdateException("UPDATE_STORAGE_FAILED", "업데이트 파일을 저장할 공간을 준비하지 못했습니다.");
         }
-
-        SharedPreferences prefs = preferences();
-        long downloadId = prefs.getLong(DOWNLOAD_ID_KEY, -1L);
-        String downloadVersion = prefs.getString(DOWNLOAD_VERSION_KEY, null);
-        DownloadSnapshot existing = downloadId > 0L ? queryDownload(manager, downloadId) : null;
-        if (!releaseAsset.version.equals(downloadVersion)
-            || existing == null
-            || existing.status == DownloadManager.STATUS_FAILED) {
-            if (downloadId > 0L) manager.remove(downloadId);
-            if (destination.exists() && !destination.delete()) {
-                throw new UpdateException("UPDATE_STORAGE_FAILED", "이전 업데이트 파일을 지우지 못했습니다.");
-            }
-            DownloadManager.Request request = new DownloadManager.Request(Uri.parse(releaseAsset.uri.toString()))
-                .setTitle("호이상사 외전: 카드부 업데이트")
-                .setDescription("버전 " + releaseAsset.version + " 설치 파일을 받는 중")
-                .setMimeType(APK_MIME_TYPE)
-                .setAllowedOverMetered(true)
-                .setAllowedOverRoaming(false)
-                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
-                .setDestinationUri(Uri.fromFile(destination));
-            try {
-                downloadId = manager.enqueue(request);
-            } catch (RuntimeException error) {
-                throw new UpdateException("UPDATE_DOWNLOAD_FAILED", "안드로이드 다운로드를 시작하지 못했습니다.", error);
-            }
-            prefs.edit()
-                .putLong(DOWNLOAD_ID_KEY, downloadId)
-                .putString(DOWNLOAD_VERSION_KEY, releaseAsset.version)
-                .commit();
-        }
-
-        emitStatus("downloading", 0, "안드로이드가 업데이트 파일을 받고 있습니다.", null, false);
+        File partial = new File(directory, UPDATE_FILE_NAME + ".part");
+        deleteDownloadFile(destination);
+        deleteDownloadFile(partial);
+        // Clear identifiers left by the old DownloadManager implementation so
+        // an Android-owned job can never be reused after this migration.
+        preferences().edit().remove("download-id").remove("download-version").apply();
+        emitDownloadProgress(0, 0L, -1L, "안드로이드가 업데이트 파일을 받고 있습니다.");
         try {
-            awaitDownload(manager, downloadId, destination);
-            prefs.edit().remove(DOWNLOAD_ID_KEY).remove(DOWNLOAD_VERSION_KEY).commit();
-            emitStatus("downloading", 100, "업데이트 파일을 모두 받았습니다.", null, false);
-        } catch (UpdateException error) {
-            manager.remove(downloadId);
-            prefs.edit().remove(DOWNLOAD_ID_KEY).remove(DOWNLOAD_VERSION_KEY).commit();
-            if (destination.exists()) destination.delete();
-            throw error;
-        }
-    }
-
-    private void awaitDownload(DownloadManager manager, long downloadId, File destination) throws UpdateException {
-        long startedAt = SystemClock.elapsedRealtime();
-        long lastProgressAt = startedAt;
-        long lastDownloadedBytes = -1L;
-        int lastPercent = -1;
-        while (true) {
-            if (Thread.currentThread().isInterrupted()) {
-                throw new UpdateException("UPDATE_CANCELLED", "업데이트 다운로드가 중단되었습니다.");
-            }
-            long now = SystemClock.elapsedRealtime();
-            if (now - startedAt > MAX_DOWNLOAD_DURATION_MS) {
-                throw new UpdateException("UPDATE_TIMEOUT", "업데이트 시간이 너무 오래 걸립니다. 연결을 확인한 뒤 다시 시도해 주세요.");
-            }
-            DownloadSnapshot snapshot = queryDownload(manager, downloadId);
-            if (snapshot == null) {
-                throw new UpdateException("UPDATE_DOWNLOAD_MISSING", "안드로이드 다운로드 작업을 찾지 못했습니다.");
-            }
-            if (snapshot.status == DownloadManager.STATUS_SUCCESSFUL) {
-                if (!destination.isFile() || destination.length() <= 0L) {
-                    throw new UpdateException("UPDATE_INCOMPLETE", "업데이트 파일을 끝까지 받지 못했습니다.");
+            long deadlineAt = SystemClock.elapsedRealtime() + MAX_DOWNLOAD_DURATION_MS;
+            IOException lastNetworkError = null;
+            for (int attempt = 1; attempt <= MAX_DOWNLOAD_ATTEMPTS; attempt += 1) {
+                deleteDownloadFile(partial);
+                try {
+                    streamApk(releaseAsset.uri.toURL(), partial, deadlineAt);
+                    lastNetworkError = null;
+                    break;
+                } catch (IOException error) {
+                    lastNetworkError = error;
+                    if (attempt >= MAX_DOWNLOAD_ATTEMPTS || SystemClock.elapsedRealtime() >= deadlineAt) {
+                        throw new UpdateException(
+                            "UPDATE_DOWNLOAD_FAILED",
+                            "업데이트 파일을 받지 못했습니다. 네트워크를 확인해 주세요.",
+                            error
+                        );
+                    }
+                    emitDownloadProgress(0, 0L, -1L, "연결이 끊겨 업데이트 다운로드를 다시 시도합니다.");
                 }
-                if (destination.length() > MAX_APK_BYTES) {
-                    throw new UpdateException("UPDATE_TOO_LARGE", "업데이트 파일 크기가 허용 범위를 넘었습니다.");
-                }
-                return;
             }
-            if (snapshot.status == DownloadManager.STATUS_FAILED) {
+            if (lastNetworkError != null) {
                 throw new UpdateException(
                     "UPDATE_DOWNLOAD_FAILED",
-                    "업데이트 파일을 받지 못했습니다. (Android 오류 " + snapshot.reason + ")"
+                    "업데이트 파일을 받지 못했습니다. 네트워크를 확인해 주세요.",
+                    lastNetworkError
                 );
             }
-            if (snapshot.downloadedBytes != lastDownloadedBytes) {
-                lastDownloadedBytes = snapshot.downloadedBytes;
-                lastProgressAt = now;
-            } else if (now - lastProgressAt > MAX_NO_PROGRESS_DURATION_MS) {
-                throw new UpdateException(
-                    "UPDATE_STALLED",
-                    "업데이트 다운로드가 진행되지 않습니다. 네트워크를 확인한 뒤 다시 시도해 주세요."
-                );
+            if (destination.exists() && !destination.delete()) {
+                throw new UpdateException("UPDATE_STORAGE_FAILED", "이전 업데이트 파일을 교체하지 못했습니다.");
             }
-            if (snapshot.totalBytes > MAX_APK_BYTES || snapshot.downloadedBytes > MAX_APK_BYTES) {
-                throw new UpdateException("UPDATE_TOO_LARGE", "업데이트 파일 크기가 허용 범위를 넘었습니다.");
+            if (!partial.renameTo(destination)) {
+                throw new UpdateException("UPDATE_STORAGE_FAILED", "받은 업데이트 파일을 저장하지 못했습니다.");
             }
-            int percent = snapshot.totalBytes > 0L
-                ? (int) Math.min(99L, (snapshot.downloadedBytes * 100L) / snapshot.totalBytes)
-                : 0;
-            if (percent != lastPercent) {
-                emitStatus("downloading", percent, "업데이트 파일을 받고 있습니다.", null, false);
-                lastPercent = percent;
-            }
-            try {
-                Thread.sleep(500L);
-            } catch (InterruptedException error) {
-                Thread.currentThread().interrupt();
-                throw new UpdateException("UPDATE_CANCELLED", "업데이트 다운로드가 중단되었습니다.", error);
-            }
+            emitStatus("downloading", 100, "업데이트 파일을 모두 받았습니다.", null, false);
+        } finally {
+            deleteDownloadFile(partial);
         }
     }
 
-    private DownloadSnapshot queryDownload(DownloadManager manager, long downloadId) {
-        try (Cursor cursor = manager.query(new DownloadManager.Query().setFilterById(downloadId))) {
-            if (cursor == null || !cursor.moveToFirst()) return null;
-            int status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
-            int reason = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON));
-            long downloaded = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
-            long total = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
-            return new DownloadSnapshot(status, reason, downloaded, total);
-        } catch (RuntimeException error) {
-            return null;
+    private void streamApk(URL initialUrl, File partial, long deadlineAt) throws IOException, UpdateException {
+        int lastPercent = 0;
+        URL currentUrl = initialUrl;
+        for (int redirectCount = 0; redirectCount <= MAX_DOWNLOAD_REDIRECTS; redirectCount += 1) {
+            long remainingMs = deadlineAt - SystemClock.elapsedRealtime();
+            if (remainingMs <= 0L) {
+                throw new UpdateException("UPDATE_TIMEOUT", "업데이트 시간이 너무 오래 걸립니다. 연결을 확인한 뒤 다시 시도해 주세요.");
+            }
+            HttpURLConnection connection = (HttpURLConnection) currentUrl.openConnection();
+            connection.setInstanceFollowRedirects(false);
+            connection.setUseCaches(false);
+            connection.setConnectTimeout(boundedTimeout(DOWNLOAD_CONNECT_TIMEOUT_MS, remainingMs));
+            connection.setReadTimeout(boundedTimeout(DOWNLOAD_READ_TIMEOUT_MS, remainingMs));
+            connection.setRequestProperty("Accept", APK_MIME_TYPE + ", application/octet-stream");
+            connection.setRequestProperty("Accept-Encoding", "identity");
+            connection.setRequestProperty("User-Agent", "Hoi-Card-Desk-Android-Updater");
+            try {
+                int responseCode = connection.getResponseCode();
+                if (responseCode >= 300 && responseCode < 400) {
+                    String location = connection.getHeaderField("Location");
+                    if (redirectCount == MAX_DOWNLOAD_REDIRECTS || location == null || location.trim().isEmpty()) {
+                        throw new UpdateException("UPDATE_REDIRECT_FAILED", "업데이트 파일 주소를 따라가지 못했습니다.");
+                    }
+                    currentUrl = validatedRedirect(currentUrl, location);
+                    continue;
+                }
+                if (responseCode != HttpURLConnection.HTTP_OK) {
+                    throw new UpdateException(
+                        "UPDATE_DOWNLOAD_FAILED",
+                        "업데이트 서버가 파일을 보내지 못했습니다. (HTTP " + responseCode + ")"
+                    );
+                }
+
+                long totalBytes = connection.getContentLengthLong();
+                if (totalBytes > MAX_APK_BYTES) {
+                    throw new UpdateException("UPDATE_TOO_LARGE", "업데이트 파일 크기가 허용 범위를 넘었습니다.");
+                }
+                long downloadedBytes = 0L;
+                byte[] buffer = new byte[DOWNLOAD_BUFFER_BYTES];
+                try (
+                    InputStream input = new BufferedInputStream(connection.getInputStream());
+                    BufferedOutputStream output = new BufferedOutputStream(new FileOutputStream(partial))
+                ) {
+                    int read;
+                    while ((read = input.read(buffer)) != -1) {
+                        if (Thread.currentThread().isInterrupted()) {
+                            throw new UpdateException("UPDATE_CANCELLED", "업데이트 다운로드가 중단되었습니다.");
+                        }
+                        if (SystemClock.elapsedRealtime() >= deadlineAt) {
+                            throw new UpdateException("UPDATE_TIMEOUT", "업데이트 시간이 너무 오래 걸립니다. 연결을 확인한 뒤 다시 시도해 주세요.");
+                        }
+                        downloadedBytes += read;
+                        if (downloadedBytes > MAX_APK_BYTES) {
+                            throw new UpdateException("UPDATE_TOO_LARGE", "업데이트 파일 크기가 허용 범위를 넘었습니다.");
+                        }
+                        output.write(buffer, 0, read);
+                        int percent = totalBytes > 0L
+                            ? (int) Math.max(1L, Math.min(99L, (downloadedBytes * 100L) / totalBytes))
+                            : (int) Math.min(99L, 1L + downloadedBytes / (1024L * 1024L));
+                        if (percent != lastPercent) {
+                            emitDownloadProgress(
+                                percent,
+                                downloadedBytes,
+                                totalBytes,
+                                "업데이트 파일을 받고 있습니다."
+                            );
+                            lastPercent = percent;
+                        }
+                    }
+                    output.flush();
+                }
+                if (downloadedBytes <= 0L || (totalBytes > 0L && downloadedBytes != totalBytes)) {
+                    throw new UpdateException("UPDATE_INCOMPLETE", "업데이트 파일을 끝까지 받지 못했습니다.");
+                }
+                return;
+            } finally {
+                connection.disconnect();
+            }
+        }
+        throw new UpdateException("UPDATE_REDIRECT_FAILED", "업데이트 파일 주소를 따라가지 못했습니다.");
+    }
+
+    private int boundedTimeout(int configuredTimeoutMs, long remainingMs) {
+        return (int) Math.max(1L, Math.min((long) configuredTimeoutMs, remainingMs));
+    }
+
+    private URL validatedRedirect(URL source, String location) throws UpdateException {
+        try {
+            URL redirected = new URL(source, location);
+            String host = redirected.getHost().toLowerCase();
+            if (!"https".equalsIgnoreCase(redirected.getProtocol())
+                || redirected.getUserInfo() != null
+                || (redirected.getPort() != -1 && redirected.getPort() != 443)
+                || !("github.com".equals(host) || "release-assets.githubusercontent.com".equals(host))) {
+                throw new UpdateException("UPDATE_REDIRECT_NOT_ALLOWED", "업데이트 파일이 허용되지 않은 주소로 이동했습니다.");
+            }
+            return redirected;
+        } catch (IOException error) {
+            throw new UpdateException("UPDATE_REDIRECT_FAILED", "업데이트 파일 주소를 따라가지 못했습니다.", error);
+        }
+    }
+
+    private void deleteDownloadFile(File file) throws UpdateException {
+        if (file.exists() && !file.delete()) {
+            throw new UpdateException("UPDATE_STORAGE_FAILED", "이전 업데이트 파일을 지우지 못했습니다.");
         }
     }
 
@@ -258,10 +299,26 @@ public class AndroidUpdaterPlugin extends Plugin {
         );
         Intent installIntent = new Intent(Intent.ACTION_INSTALL_PACKAGE);
         installIntent.setData(apkUri);
+        installIntent.setClipData(ClipData.newRawUri("update-apk", apkUri));
         installIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
 
         rememberPendingUpdate(version, false);
-        launchActivity(installIntent, "UPDATE_INSTALLER_MISSING", "안드로이드 설치 화면을 열지 못했습니다.");
+        try {
+            launchActivity(installIntent, "UPDATE_INSTALLER_MISSING", "안드로이드 설치 화면을 열지 못했습니다.");
+        } catch (UpdateException primaryError) {
+            // Some OEM package installers do not advertise ACTION_INSTALL_PACKAGE
+            // even though they accept the older MIME-typed ACTION_VIEW contract.
+            Intent fallbackIntent = new Intent(Intent.ACTION_VIEW);
+            fallbackIntent.setDataAndType(apkUri, APK_MIME_TYPE);
+            fallbackIntent.setClipData(ClipData.newRawUri("update-apk", apkUri));
+            fallbackIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            try {
+                launchActivity(fallbackIntent, "UPDATE_INSTALLER_MISSING", "안드로이드 설치 화면을 열지 못했습니다.");
+            } catch (UpdateException fallbackError) {
+                fallbackError.addSuppressed(primaryError);
+                throw fallbackError;
+            }
+        }
         emitStatus("installing", 100, "안드로이드 설치 확인 화면을 열었습니다.", null, true);
         return statusObject("installing", 100, "안드로이드 설치 확인 화면을 열었습니다.", null);
     }
@@ -446,10 +503,10 @@ public class AndroidUpdaterPlugin extends Plugin {
     }
 
     private File downloadedApk() {
-        File externalDownloads = getContext().getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
-        File directory = externalDownloads != null
-            ? externalDownloads
-            : new File(getContext().getCacheDir(), "updates");
+        // The app itself now streams the APK. App-private cache avoids the
+        // OEM-specific DownloadManager destination failures that left updates
+        // indefinitely at 0%, and FileProvider grants the installer read access.
+        File directory = new File(getContext().getCacheDir(), "updates");
         return new File(directory, UPDATE_FILE_NAME);
     }
 
@@ -461,7 +518,9 @@ public class AndroidUpdaterPlugin extends Plugin {
         SharedPreferences.Editor editor = preferences().edit().putBoolean(AWAITING_PERMISSION_KEY, awaitingPermission);
         if (version == null) editor.remove(PENDING_VERSION_KEY);
         else editor.putString(PENDING_VERSION_KEY, version);
-        editor.apply();
+        // The activity can leave immediately for Android settings/installer.
+        // Persist synchronously so handleOnResume can always continue the handoff.
+        editor.commit();
     }
 
     private void deleteInvalidApk(File apk) {
@@ -485,6 +544,13 @@ public class AndroidUpdaterPlugin extends Plugin {
         getBridge().executeOnMainThread(() -> notifyListeners("updateStatus", payload, retain));
     }
 
+    private void emitDownloadProgress(int progress, long downloadedBytes, long totalBytes, String message) {
+        JSObject payload = statusObject("downloading", progress, message, null);
+        payload.put("downloadedBytes", Math.max(0L, downloadedBytes));
+        if (totalBytes > 0L) payload.put("totalBytes", totalBytes);
+        getBridge().executeOnMainThread(() -> notifyListeners("updateStatus", payload, false));
+    }
+
     private static class ReleaseAsset {
         final URI uri;
         final String version;
@@ -492,20 +558,6 @@ public class AndroidUpdaterPlugin extends Plugin {
         ReleaseAsset(URI uri, String version) {
             this.uri = uri;
             this.version = version;
-        }
-    }
-
-    private static class DownloadSnapshot {
-        final int status;
-        final int reason;
-        final long downloadedBytes;
-        final long totalBytes;
-
-        DownloadSnapshot(int status, int reason, long downloadedBytes, long totalBytes) {
-            this.status = status;
-            this.reason = reason;
-            this.downloadedBytes = Math.max(0L, downloadedBytes);
-            this.totalBytes = totalBytes;
         }
     }
 

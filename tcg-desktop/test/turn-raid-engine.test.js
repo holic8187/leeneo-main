@@ -11,7 +11,7 @@ import {
 } from '../src/core/turnRaidEngine.js';
 
 const card = (id, attack = 1000, enhancement = 0) => ({ id, name: id, combatPower: attack, enhancement });
-const deck = () => [card('nanche-c'), card('winter-c'), card('hoi-c')];
+const deck = () => [card('nanche-c'), card('winter-c'), card('hoi-c'), card('simsim-c')];
 
 test('all 76 main cards and 8 legacy cards have explicit skill information', () => {
   assert.equal(CARD_SKILLS.length, 84);
@@ -34,7 +34,7 @@ test('enhancement changes effect magnitudes but preserves durations and conditio
   assert.equal(skillDescriptionAtEnhancement('winter-c', 1).includes('1턴간'), true);
 });
 
-test('battle follows card 1, boss, card 2, boss, card 3, boss and ticks cooldown at next card 1 turn', () => {
+test('battle follows all four cards with one boss action after each living card', () => {
   let state = startRaidBattle(createRaidBattle({ cards: deck(), boss: { maxHp: 100000, baseDamage: 1 } }), 0);
   assert.equal(state.currentActor, 'card');
   assert.equal(state.currentActorIndex, 0);
@@ -48,19 +48,22 @@ test('battle follows card 1, boss, card 2, boss, card 3, boss and ticks cooldown
   assert.equal(state.currentActorIndex, 2);
   state = performPlayerAction(state, { type: 'basic' }, 5);
   state = performBossAction(state, 6);
+  assert.equal(state.currentActorIndex, 3);
+  state = performPlayerAction(state, { type: 'basic' }, 7);
+  state = performBossAction(state, 8);
   assert.equal(state.currentActorIndex, 0);
   assert.equal(state.round, 2);
   assert.equal(state.cards[0].cooldown, 2);
 });
 
-test('break at 100 resets gauge and skips four boss actions through the breaker next turn', () => {
+test('break at 100 resets gauge and skips boss actions through the breaker next turn', () => {
   let state = startRaidBattle(createRaidBattle({ cards: deck(), boss: { maxHp: 100000, baseDamage: 10 } }), 0);
   state.boss.breakGauge = 90;
   state = performPlayerAction(state, { type: 'skill' }, 1);
   assert.equal(state.boss.breakGauge, 0);
   assert.equal(state.boss.stunned, true);
   const initialHp = state.cards.reduce((sum, item) => sum + item.hp, 0);
-  for (let skipped = 0; skipped < 4; skipped += 1) {
+  for (let skipped = 0; skipped < 5; skipped += 1) {
     state = performBossAction(state, 2 + skipped * 2);
     assert.equal(state.cards.reduce((sum, item) => sum + item.hp, 0), initialHp);
     state = performPlayerAction(state, { type: 'basic' }, 3 + skipped * 2);
@@ -79,7 +82,7 @@ test('stageConfig is retained and a boss skill damages distinct random living ta
   assert.deepEqual(state.boss.stageConfig, stageConfig);
   state = performPlayerAction(state, { type: 'basic' }, 1);
   state = performBossAction(state, 2);
-  assert.equal(state.cards.reduce((sum, item) => sum + item.hp, 0), 240);
+  assert.equal(state.cards.reduce((sum, item) => sum + item.hp, 0), 340);
   assert.equal(state.boss.cooldowns['double-crunch'], 3);
 });
 
@@ -92,7 +95,7 @@ test('all battle state is JSON serializable and player timeout can use determini
 });
 
 test('battle keeps the server remaining HP and uses displayed enhanced power exactly once', () => {
-  const cards = [card('nanche-c', 12345, 5), card('winter-c', 9000, 2), card('hoi-c', 8000, 1)];
+  const cards = [card('nanche-c', 12345, 5), card('winter-c', 9000, 2), card('hoi-c', 8000, 1), card('simsim-c', 7000, 0)];
   let state = createRaidBattle({
     cards,
     stageConfig: { stage: 3, maxHp: 400000, hp: 175000, basicAttack: { damage: 12 }, skills: [] },
@@ -118,7 +121,7 @@ test('an uncleared raid ends after seven full rounds and preserves this attempt 
   assert.equal(state.round, 7);
   assert.equal(state.result, 'turn-limit');
   assert.equal(state.terminationReason, 'round-limit');
-  assert.equal(state.totalDamage, 21000);
+  assert.equal(state.totalDamage, 28000);
   assert.equal(state.currentActor, null);
 });
 
@@ -154,14 +157,14 @@ test('server boss skill fields map to distinct targets, cooldowns, and debuffs',
   }), 0);
   state = performPlayerAction(state, { type: 'basic' }, 1);
   state = performBossAction(state, 2);
-  assert.deepEqual(state.cards.map((member) => member.hp), [76, 76, 76]);
+  assert.deepEqual(state.cards.map((member) => member.hp), [76, 76, 76, 76]);
   assert.equal(state.cards.every((member) => member.statuses.some((status) => status.id === 'burn' && status.dotDamage === 8)), true);
   assert.equal(state.boss.cooldowns['burning-overtime'], 4);
 });
 
 test('duration-based freeze skips the next boss action even when it has no charges field', () => {
   let state = startRaidBattle(createRaidBattle({
-    cards: [card('winter-r'), card('nanche-c'), card('hoi-c')],
+    cards: [card('winter-r'), card('nanche-c'), card('hoi-c'), card('simsim-c')],
     boss: { maxHp: 100_000, baseDamage: 10 },
   }), 0);
   state.boss.breakGauge = 68;
@@ -203,7 +206,7 @@ test('raw boss statusEffects preserve percent, duration, and damage aliases', ()
 
 test('stored party effects use the caster magnitude once instead of scaling again for the acting card', () => {
   let state = startRaidBattle(createRaidBattle({
-    cards: [card('jandi-c', 1000, 5), card('nanche-c', 1000, 5), card('hoi-c', 1000, 0)],
+    cards: [card('jandi-c', 1000, 5), card('nanche-c', 1000, 5), card('hoi-c', 1000, 0), card('simsim-c', 1000, 0)],
     boss: { maxHp: 100_000, baseDamage: 1 },
   }), 0);
   state.cards.forEach((member) => { member.hp = 50; });
@@ -216,7 +219,7 @@ test('stored party effects use the caster magnitude once instead of scaling agai
 });
 
 test('솜주먹 U receives its shielded-boss damage bonus without requiring an unrelated debuff', () => {
-  const cards = [card('somfist-u'), card('nanche-c'), card('hoi-c')];
+  const cards = [card('somfist-u'), card('nanche-c'), card('hoi-c'), card('simsim-c')];
   let state = startRaidBattle(createRaidBattle({
     cards,
     boss: { maxHp: 100_000, shield: 100_000, baseDamage: 1 },
@@ -233,7 +236,7 @@ test('every one of the 84 card skills applies a battle effect instead of being m
     teamStatuses: state.teamStatuses,
   });
   for (const skill of CARD_SKILLS) {
-    const companions = fallbackIds.filter((id) => id !== skill.id).slice(0, 2);
+    const companions = fallbackIds.filter((id) => id !== skill.id).slice(0, 3);
     let state = startRaidBattle(createRaidBattle({
       cards: [card(skill.id, 1000, 2), ...companions.map((id) => card(id, 900))],
       boss: { maxHp: 100000, baseDamage: 10 },
@@ -244,4 +247,86 @@ test('every one of the 84 card skills applies a battle effect instead of being m
     state = performPlayerAction(state, { type: 'skill', targetId: state.cards[1].id, choice: 'misfortune' }, 1);
     assert.notEqual(effectSnapshot(state), before, `${skill.id} (${skill.name}) must change combat state`);
   }
+});
+
+test('a defeated squad slot is skipped without granting the boss an extra action', () => {
+  let state = startRaidBattle(createRaidBattle({ cards: deck(), boss: { maxHp: 1_000_000, baseDamage: 1 } }), 0);
+  state.cards[1].hp = 0;
+  state.cards[1].defeated = true;
+  state = performPlayerAction(state, { type: 'basic' }, 1);
+  state = performBossAction(state, 2);
+  assert.equal(state.currentActor, 'card');
+  assert.equal(state.currentActorIndex, 2);
+  const bossActions = state.log.filter((entry) => entry.type === 'boss-basic' || entry.type === 'boss-skill').length;
+  assert.equal(bossActions, 1);
+});
+
+test('SSR Hoi copies a snapshotted UR Winter skill after its original caster is defeated', () => {
+  let state = startRaidBattle(createRaidBattle({
+    cards: [card('winter-ur'), card('nanche-c'), card('hoi-ssr'), card('simsim-c')],
+    boss: { maxHp: 1_000_000, baseDamage: 10 },
+  }), 0);
+  state = performPlayerAction(state, { type: 'skill' }, 1);
+  assert.ok(state.teamStatuses.some((status) => status.id === 'ice-spire'));
+  state = performBossAction(state, 2);
+  state.cards[0].hp = 0;
+  state.cards[0].defeated = true;
+  state = performPlayerAction(state, { type: 'basic' }, 3);
+  state = performBossAction(state, 4);
+  state = performPlayerAction(state, { type: 'skill' }, 5);
+  const spires = state.teamStatuses.filter((status) => status.id === 'ice-spire');
+  assert.equal(spires.length, 2);
+  assert.ok(spires.every((status) => status.sourceId === state.cards[2].id || status.sourceId === state.cards[0].id));
+});
+
+test('SSR Hoi keeps copied self buffs when the original caster is defeated', () => {
+  let state = startRaidBattle(createRaidBattle({
+    cards: [card('shanghai-u'), card('nanche-c'), card('hoi-ssr'), card('simsim-c')],
+    boss: { maxHp: 1_000_000, baseDamage: 1 },
+  }), 0);
+  state = performPlayerAction(state, { type: 'skill' }, 1);
+  state = performBossAction(state, 2);
+  state.cards[0].hp = 0;
+  state.cards[0].defeated = true;
+  state = performPlayerAction(state, { type: 'basic' }, 3);
+  state = performBossAction(state, 4);
+  state = performPlayerAction(state, { type: 'skill' }, 5);
+  assert.equal(state.cards[2].statuses.some((status) => status.id === 'damage-reduction'), true);
+  assert.equal(state.cards[2].statuses.some((status) => status.id === 'counter'), true);
+});
+
+test('damage reduction buffs stack multiplicatively', () => {
+  let state = startRaidBattle(createRaidBattle({ cards: deck(), boss: { maxHp: 1_000_000, baseDamage: 100 } }), 0);
+  state.cards[0].statuses.push(
+    { id: 'damage-reduction', value: 50, kind: 'buff', sourceId: 'a' },
+    { id: 'damage-reduction', value: 50, kind: 'buff', sourceId: 'b' },
+    { id: 'taunt', value: 0, kind: 'buff', charges: 1, sourceId: 'a' },
+  );
+  state = performPlayerAction(state, { type: 'basic' }, 1);
+  state = performBossAction(state, 2);
+  assert.equal(state.cards[0].hp, 75);
+});
+
+test('stage four boss actions do not erase party buffs or boss debuffs', () => {
+  let state = startRaidBattle(createRaidBattle({
+    cards: [card('winter-rr'), card('nanche-c'), card('rayeon-sr'), card('simsim-c')],
+    stageConfig: {
+      stage: 4,
+      maxHp: 800_000,
+      basicAttack: { damage: 13 },
+      skills: [{
+        id: 'urgent-revision', name: '긴급 수정 요청', cooldownTurns: 4,
+        target: 'highest-power-living-card', damage: 42,
+        status: { id: 'seal', turns: 1 },
+      }],
+    },
+  }), 0);
+  state = performPlayerAction(state, { type: 'skill' }, 1);
+  assert.equal(state.cards.every((member) => member.statuses.some((status) => status.id === 'damage-reduction')), true);
+  state = performBossAction(state, 2);
+  state = performPlayerAction(state, { type: 'basic' }, 3);
+  state = performBossAction(state, 4);
+  state = performPlayerAction(state, { type: 'skill' }, 5);
+  assert.equal(state.boss.statuses.some((status) => status.id === 'damage-taken-up'), true);
+  assert.equal(state.cards.some((member) => member.statuses.some((status) => status.id === 'damage-reduction')), true);
 });
