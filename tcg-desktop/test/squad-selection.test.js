@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createGameStore, hydrateState } from '../src/core/gameState.js';
-import { availableRaidSquad, toggleSquadSelection } from '../src/core/squadSelection.js';
+import {
+  availableRaidSquad,
+  toggleAvailableRaidSquad,
+  toggleSquadSelection,
+} from '../src/core/squadSelection.js';
 
 test('clicking a selected card removes it and clicking an unselected card adds it', () => {
   assert.deepEqual(toggleSquadSelection(['a', 'b'], 'b'), ['a']);
@@ -64,6 +68,15 @@ test('different rarities of the same character replace each other in adventure a
       { identityForId: identity },
     ),
     ['winter-c', 'guma-c'],
+  );
+});
+
+test('editing a raid squad starts from the visible cards when a middle slot is expedition-locked', () => {
+  const collection = { a: 1, b: 1, c: 1, d: 1, e: 1 };
+  const expedition = { squad: ['b'] };
+  assert.deepEqual(
+    toggleAvailableRaidSquad(['a', 'b', 'c', 'd'], 'e', expedition, collection),
+    ['a', 'c', 'd', 'e'],
   );
 });
 

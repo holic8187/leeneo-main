@@ -1,4 +1,5 @@
-import { MAX_SQUAD_SIZE, uniqueSquadByIdentity } from './squadSelection.js';
+import { MAX_SQUAD_SIZE, availableRaidSquad, uniqueSquadByIdentity } from './squadSelection.js';
+import { equipmentById } from './equipment.js';
 
 export const MAX_DECK_PRESETS = 5;
 
@@ -52,6 +53,40 @@ export function saveDeckPreset(presets, slot, {
   return next;
 }
 
+export function createDeckPresetDraft(preset, slot, { identityForId = null } = {}) {
+  const normalizedSlot = slotNumber(slot);
+  const normalized = normalizeDeckPreset(
+    preset && typeof preset === 'object' ? preset : {},
+    normalizedSlot,
+    { identityForId },
+  );
+  return {
+    ...normalized,
+    cardIds: [...normalized.cardIds],
+  };
+}
+
+export function saveDeckPresetLoadout(presets, slot, {
+  cardIds = [],
+  equipmentCardId = '',
+  updatedAt = Date.now(),
+  identityForId = null,
+} = {}) {
+  const normalizedSlot = slotNumber(slot);
+  const normalized = normalizeDeckPresets(presets, { identityForId });
+  const existing = normalized[normalizedSlot];
+  return saveDeckPreset(normalized, normalizedSlot, {
+    name: existing?.name || '',
+    cardIds,
+    equipmentCardId,
+    // The artifact slot is not editable yet, so replacing only the loadout
+    // must not erase data written by a newer client or a future release.
+    artifactCardId: existing?.artifactCardId || '',
+    updatedAt,
+    identityForId,
+  });
+}
+
 export function deckPresetCards(preset, {
   collection = {},
   unavailableIds = [],
@@ -61,4 +96,24 @@ export function deckPresetCards(preset, {
   return uniqueSquadByIdentity(preset?.cardIds, identityForId, MAX_SQUAD_SIZE)
     .filter((cardId) => Math.max(0, Number(collection?.[cardId]) || 0) > 0)
     .filter((cardId) => !blocked.has(cardId));
+}
+
+export function resolveDeckPresetLoadout(preset, {
+  collection = {},
+  equipmentInventory = [],
+  expedition = null,
+  context = 'adventure',
+  identityForId = null,
+} = {}) {
+  const ownedCards = deckPresetCards(preset, { collection, identityForId });
+  const cardIds = context === 'raid'
+    ? availableRaidSquad(ownedCards, expedition, collection, { identityForId })
+    : ownedCards;
+  return {
+    cardIds,
+    equipmentCardId: equipmentById(equipmentInventory, preset?.equipmentCardId)?.id || '',
+    // Relics are reserved until their release.
+    artifactCardId: '',
+    omittedCardCount: Math.max(0, (preset?.cardIds?.length || 0) - cardIds.length),
+  };
 }

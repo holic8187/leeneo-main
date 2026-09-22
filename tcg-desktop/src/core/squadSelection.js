@@ -69,3 +69,19 @@ export function availableRaidSquad(
     })
     .slice(0, MAX_SQUAD_SIZE);
 }
+
+export function toggleAvailableRaidSquad(
+  selectedIds,
+  cardId,
+  expedition,
+  collection = null,
+  options = {},
+) {
+  const available = availableRaidSquad(
+    selectedIds,
+    expedition,
+    collection,
+    { identityForId: options.identityForId },
+  );
+  return toggleSquadSelection(available, cardId, options);
+}

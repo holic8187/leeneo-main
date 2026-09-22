@@ -1050,7 +1050,7 @@ svg {
 
 .deck-preset-list {
   display: grid;
-  grid-template-columns: repeat(5, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
   gap: 9px;
   margin-top: 16px;
 }
@@ -1071,9 +1071,83 @@ svg {
 .deck-preset-members :is(img, span) { width: 100%; aspect-ratio: 1; border: 1px solid var(--line); border-radius: 3px; object-fit: cover; }
 .deck-preset-members span { display: grid; place-items: center; color: #a5aca8; background: #f0f0e9; }
 .deck-preset-card > small { overflow: hidden; color: var(--muted); font-size: 8px; white-space: nowrap; text-overflow: ellipsis; }
-.deck-preset-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
-.deck-preset-actions button { min-height: 27px; padding: 4px; border: 1px solid var(--line-dark); border-radius: 3px; color: var(--forest); background: #fff; cursor: pointer; font-size: 7px; font-weight: 800; }
+.deck-preset-actions { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
+.deck-preset-actions button { min-height: 34px; padding: 6px 9px; border: 1px solid var(--line-dark); border-radius: 3px; color: var(--forest); background: #fff; cursor: pointer; font-size: 9px; font-weight: 800; }
 .deck-preset-actions button:hover { color: #fff; background: var(--forest); }
+
+.deck-preset-editor-modal {
+  width: min(100%, 720px);
+  overscroll-behavior: contain;
+}
+
+.deck-preset-editor-modal > h2 {
+  margin: 6px 44px 0 0;
+  font-size: 22px;
+}
+
+.deck-preset-editor-modal > p {
+  margin: 7px 44px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.preset-slot-tabs {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 22px;
+}
+
+.preset-slot-tabs button {
+  min-width: 0;
+  min-height: 42px;
+  padding: 7px 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+  background: #f6f5ef;
+  cursor: pointer;
+  font-family: Consolas, monospace;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.preset-slot-tabs button:hover:not(:disabled),
+.preset-slot-tabs button.is-active,
+.preset-slot-tabs button[aria-selected="true"] {
+  border-color: var(--forest-soft);
+  color: #fff;
+  background: var(--forest-soft);
+  box-shadow: 0 4px 12px rgb(31 67 51 / 18%);
+}
+
+.deck-preset-editor-summary {
+  min-width: 0;
+  display: block;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--forest-soft);
+  border-radius: 4px;
+  background: #f8f7f0;
+}
+
+.deck-preset-editor-summary .deck-preset-members {
+  width: min(100%, 320px);
+  margin: 0 auto;
+  gap: 8px;
+}
+
+.deck-preset-editor-modal .modal-actions {
+  flex-wrap: wrap;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.deck-preset-editor-modal .modal-actions button {
+  min-height: 40px;
+}
 
 .incident-panel.has-incident {
   border-top-color: var(--coral);
@@ -2086,12 +2160,304 @@ img.rarity-emblem {
 .squad-card-info { position: absolute; top: 50%; right: 8px; z-index: 2; display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid var(--line); border-radius: 50%; color: var(--forest); background: rgb(255 255 255 / 90%); cursor: pointer; transform: translateY(-50%); }
 .squad-card-info svg { width: 13px; }
 
-.loadout-slots { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 16px 0; }
-.loadout-slot { display: grid; gap: 7px; padding: 10px; border: 1px dashed var(--line-dark); border-radius: 5px; background: #f8f7f0; }
-.loadout-slot > span { display: flex; align-items: center; gap: 6px; font-size: 9px; }
-.loadout-slot svg { width: 14px; color: var(--forest-soft); }
-.loadout-slot select { width: 100%; min-width: 0; min-height: 33px; padding: 5px; border: 1px solid var(--line); border-radius: 3px; color: var(--ink); background: #fff; font-size: 8px; }
-.loadout-slot.is-coming-soon { opacity: .62; }
+.loadout-editor {
+  min-width: 0;
+  margin-top: 16px;
+}
+
+.loadout-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #ebeae2;
+}
+
+.loadout-tabs button {
+  min-width: 0;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.loadout-tabs button:hover:not(:disabled) {
+  color: var(--forest);
+  background: rgb(255 255 255 / 64%);
+}
+
+.loadout-tabs button.is-active,
+.loadout-tabs button[aria-selected="true"] {
+  border-color: var(--line-dark);
+  color: var(--forest);
+  background: #fff;
+  box-shadow: 0 3px 9px rgb(31 41 35 / 10%);
+}
+
+.loadout-tabs button svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+}
+
+.loadout-tabs button small {
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  font-family: Consolas, monospace;
+  font-size: 8px;
+  font-weight: 800;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  opacity: 0.78;
+}
+
+.loadout-panel {
+  min-width: 0;
+  margin-top: 10px;
+}
+
+.equipment-picker {
+  min-width: 0;
+  max-height: min(52dvh, 520px);
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  padding: 2px 4px 2px 2px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.equipment-choice {
+  width: 100%;
+  min-width: 0;
+  min-height: 56px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 25px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--rarity-edge, var(--line));
+  border-radius: 5px;
+  color: var(--ink);
+  background: linear-gradient(105deg, var(--rarity-surface, #faf9f3), #fff 76%);
+  box-shadow: 0 2px 8px var(--rarity-glow, transparent);
+  cursor: pointer;
+  text-align: left;
+}
+
+.equipment-choice:hover:not(:disabled),
+.equipment-choice.is-selected,
+.equipment-choice[aria-pressed="true"] {
+  border-color: var(--rarity-color, var(--teal));
+  background: color-mix(in srgb, var(--rarity-surface, #edf4f0) 78%, white);
+}
+
+.equipment-choice > svg {
+  width: 18px;
+  height: 18px;
+  justify-self: center;
+  color: var(--rarity-color, var(--forest-soft));
+}
+
+.equipment-choice.is-selected > svg:last-child,
+.equipment-choice[aria-pressed="true"] > svg:last-child {
+  width: 23px;
+  height: 23px;
+  padding: 5px;
+  border-radius: 50%;
+  color: #fff;
+  background: var(--teal);
+  stroke-width: 2.5;
+}
+
+.equipment-choice-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.equipment-choice-copy strong,
+.equipment-choice-copy small {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.equipment-choice-copy strong {
+  font-size: 11px;
+}
+
+.equipment-choice-copy small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.equipment-empty,
+.equipment-coming-soon {
+  min-height: 76px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 5px;
+  padding: 14px;
+  border: 1px dashed var(--line);
+  border-radius: 5px;
+  color: var(--muted);
+  background: #f8f7f0;
+  text-align: center;
+  font-size: 9px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.equipment-coming-soon svg {
+  width: 17px;
+  color: var(--forest-soft);
+}
+
+.equipment-coming-soon {
+  min-height: 58px;
+  margin: 8px 0 0;
+  opacity: 0.68;
+}
+
+.loadout-slots {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.loadout-slot {
+  min-width: 0;
+  min-height: 62px;
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  border: 1px dashed var(--line-dark);
+  border-radius: 5px;
+  color: var(--ink);
+  background: #f8f7f0;
+  text-align: left;
+}
+
+.loadout-slot > span {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9px;
+}
+
+.loadout-slot svg {
+  width: 14px;
+  flex: 0 0 auto;
+  color: var(--forest-soft);
+}
+
+.loadout-slot > small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 8px;
+  line-height: 1.35;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+button.loadout-slot {
+  cursor: pointer;
+}
+
+button.loadout-slot:hover:not(:disabled) {
+  border-color: var(--teal);
+  background: #fff;
+}
+
+.loadout-slot.is-coming-soon {
+  opacity: 0.62;
+}
+
+.preset-quick-load {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+  margin: 12px 0 14px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #f8f7f0;
+}
+
+.preset-quick-load .subheading {
+  gap: 8px;
+  margin: 0;
+}
+
+.preset-quick-load .subheading .text-button {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 5px 7px;
+  font-size: 8px;
+}
+
+.preset-quick-buttons {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.preset-quick-buttons button {
+  min-width: 0;
+  min-height: 40px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 2px;
+  padding: 5px 3px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--forest);
+  background: #fff;
+  cursor: pointer;
+  font-family: Consolas, monospace;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.preset-quick-buttons button:hover:not(:disabled),
+.preset-quick-buttons button.is-selected,
+.preset-quick-buttons button[aria-pressed="true"] {
+  border-color: var(--forest-soft);
+  color: #fff;
+  background: var(--forest-soft);
+}
+
+.preset-quick-buttons button small {
+  width: 100%;
+  overflow: hidden;
+  font-family: inherit;
+  font-size: 7px;
+  font-weight: 700;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  opacity: 0.78;
+}
 
 .squad-card {
   display: grid;
@@ -5883,7 +6249,14 @@ img.rarity-emblem {
   .alert-button,
   .quiet-button,
   .mission-row,
-  .squad-card {
+  .squad-card,
+  .loadout-tabs button,
+  .equipment-choice,
+  button.loadout-slot,
+  .preset-slot-tabs button,
+  .preset-quick-buttons button,
+  .preset-quick-load .text-button,
+  .deck-preset-actions button {
     min-height: 44px;
   }
 
@@ -5896,7 +6269,8 @@ img.rarity-emblem {
 
 @media (max-width: 760px) {
   .deck-preset-list { grid-template-columns: 1fr; }
-  .loadout-slots { grid-template-columns: 1fr; }
+  .deck-preset-editor-modal { width: min(100%, 620px); }
+  .equipment-picker { max-height: min(52dvh, 440px); }
   .detail-card-nav { top: auto; bottom: 10px; width: 42px; height: 42px; transform: none; }
   .detail-card-nav--previous { left: 10px; }
   .detail-card-nav--next { right: 10px; }

@@ -177,7 +177,7 @@ export const EXPEDITIONS = Object.freeze([
   expedition({
     id: 'firewall-counterattack', name: '심야 방화벽 역습', location: '피치전자 중앙 서버실', durationMinutes: 5,
     minimumPower: 33300, requiredCards: 4, powerBand: 'expert', coins: [760, 1040], packChance: 0.025,
-    description: '숙련된 카드 셋으로 침입 신호를 추적하고 서버를 안정화합니다.',
+    description: '숙련된 카드 넷으로 침입 신호를 추적하고 서버를 안정화합니다.',
   }),
   expedition({
     id: 'lobby-lost-found', name: '로비 분실물 순찰', location: '카드 데스크 중앙 로비', durationMinutes: 15,
@@ -247,7 +247,7 @@ export const EXPEDITIONS = Object.freeze([
   expedition({
     id: 'starfall-contingency', name: '별똥별 비상 계획', location: '천문전략실 외우주 관제소', durationMinutes: 720,
     minimumPower: 58000, requiredCards: 4, powerBand: 'expert', coins: [54000, 66000], packChance: 0.65,
-    description: '최정예 카드 셋으로 반나절에 걸친 별빛 재난을 막아냅니다.',
+    description: '최정예 카드 넷으로 반나절에 걸친 별빛 재난을 막아냅니다.',
   }),
 ]);
 

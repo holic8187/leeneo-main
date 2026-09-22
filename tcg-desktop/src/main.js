@@ -42,6 +42,8 @@ import {
   Zap,
 } from 'lucide';
 import './styles.css';
+import './lobby.css';
+import './mobile-game.css';
 import {
   CARD_CATALOG,
   ALL_CARDS,
@@ -68,8 +70,10 @@ import {
   calculateSquadScore,
   cardExpeditionPower,
   completeDueExpedition,
+  expeditionEligibility,
   expeditionEffectivePower,
   expeditionProgress,
+  missionMinimumPower,
   startExpedition,
 } from './core/expeditionEngine.js';
 import { createRaidState } from './core/raidEngine.js';
@@ -129,13 +133,15 @@ import {
   roleForCard,
 } from './core/cardProgression.js';
 import {
+  createDeckPresetDraft,
   MAX_DECK_PRESETS,
-  deckPresetCards,
-  saveDeckPreset,
+  resolveDeckPresetLoadout,
+  saveDeckPresetLoadout,
 } from './core/deckPresets.js';
 import {
   EQUIPMENT_TYPES,
   equipmentById,
+  equipmentDropChanceForMission,
   equipmentPartyAttackMultiplier,
   equipmentPartyHpMultiplier,
 } from './core/equipment.js';
@@ -146,7 +152,12 @@ import {
   platformLabel,
   shouldBootstrapCloudState,
 } from './core/deviceIdentity.js';
-import { MAX_SQUAD_SIZE, availableRaidSquad, toggleSquadSelection } from './core/squadSelection.js';
+import {
+  MAX_SQUAD_SIZE,
+  availableRaidSquad,
+  toggleAvailableRaidSquad,
+  toggleSquadSelection,
+} from './core/squadSelection.js';
 import { desktopBridge } from './services/desktopBridge.js';
 import {
   checkAccountAvailability,
@@ -245,11 +256,11 @@ const availableLucideIconNames = new Set(Object.keys(iconSet).map((name) => (
 )));
 
 const views = {
-  dashboard: { label: '업무판', icon: 'briefcase' },
-  collection: { label: '카드 도감', icon: 'library' },
-  management: { label: '카드 관리', icon: 'sparkles' },
+  dashboard: { label: '로비', icon: 'briefcase' },
+  collection: { label: '도감', icon: 'library' },
+  management: { label: '성장', icon: 'sparkles' },
   mailbox: { label: '우편함', icon: 'mail' },
-  adventure: { label: '자동 모험', icon: 'map' },
+  adventure: { label: '모험', icon: 'map' },
   raid: { label: '레이드', icon: 'shield' },
 };
 
@@ -283,13 +294,12 @@ const ui = {
   renderedView: null,
   modal: null,
   selectedMissionId: EXPEDITIONS[0].id,
+  missionListExpanded: false,
   rarityFilter: 'all',
   collectionOwnedOnly: false,
   collectionSort: 'rarity-asc',
   collectionQuery: '',
-  deckPresetContext: 'adventure',
-  deckPresetSlot: 0,
-  deckPresetName: '',
+  loadoutPanel: { adventure: 'cards', raid: 'cards', preset: 'cards' },
   managementPanel: 'enhance',
   enhanceCardId: '',
   enhanceTargetStage: null,
@@ -499,6 +509,10 @@ function escapeHtml(value) {
 
 function formatNumber(value) {
   return new Intl.NumberFormat('ko-KR').format(Math.max(0, Number(value) || 0));
+}
+
+function formatDropChance(mission) {
+  return new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 2 }).format(equipmentDropChanceForMission(mission) * 100);
 }
 
 function formatDuration(milliseconds) {
@@ -760,7 +774,7 @@ function renderSidebar(state) {
     && (!mail.readAt || mail.rewards.coins || mail.rewards.standardPacks)
   )).length;
   const nav = Object.entries(views).map(([id, view]) => `
-    <button class="nav-button ${ui.view === id ? 'is-active' : ''}" type="button" data-action="navigate" data-view="${id}" aria-label="${view.label}" title="${view.label}">
+    <button class="nav-button ${ui.view === id ? 'is-active' : ''}" type="button" data-action="navigate" data-view="${id}" aria-label="${view.label}" title="${view.label}" ${ui.view === id ? 'aria-current="page"' : ''}>
       <i data-lucide="${view.icon}"></i>
       <span>${view.label}</span>
       ${id === 'dashboard' && state.activeIncident ? '<span class="nav-alert" aria-label="새 돌발 업무"></span>' : ''}
@@ -806,23 +820,23 @@ function renderTopbar(state) {
   return `
     <header class="topbar">
       <div class="page-heading">
-        <span class="page-kicker">CARD DEPARTMENT</span>
+        <span class="page-kicker">HOI CARD DESK</span>
         <h1>${current.label}</h1>
       </div>
       <div class="resource-strip" aria-label="보유 재화">
-        <div class="resource-item">
+        <div class="resource-item" aria-label="동전 ${formatNumber(state.wallet.coins)}">
           <i data-lucide="coins"></i>
-          <span>사내 동전</span>
+          <span>동전</span>
           <strong>${formatNumber(state.wallet.coins)}</strong>
         </div>
-        <div class="resource-item">
+        <div class="resource-item" aria-label="카드팩 ${formatNumber(state.packs.standard)}개">
           <i data-lucide="package-open"></i>
           <span>카드팩</span>
           <strong>${formatNumber(state.packs.standard)}</strong>
         </div>
       </div>
       <div class="top-actions">
-        <button class="account-button" type="button" data-action="open-settings" title="계정 및 설정">
+        <button class="account-button" type="button" data-action="open-settings" title="계정 및 설정" aria-label="계정 및 설정">
           <i data-lucide="users"></i>
           <span>${escapeHtml(ui.auth.account?.nickname || state.profile.displayName)}</span>
         </button>
@@ -836,7 +850,7 @@ function renderTopbar(state) {
           <i data-lucide="gift"></i>
           <span>도네이션</span>
         </button>
-        <button class="quiet-button ${state.settings.payrollMode ? 'is-active' : ''}" type="button" data-action="toggle-payroll-mode" aria-pressed="${state.settings.payrollMode ? 'true' : 'false'}">
+        <button class="quiet-button ${state.settings.payrollMode ? 'is-active' : ''}" type="button" data-action="toggle-payroll-mode" aria-label="월급루팡 모드" aria-pressed="${state.settings.payrollMode ? 'true' : 'false'}">
           <i data-lucide="eye-off"></i>
           <span>월급루팡 모드</span>
         </button>
@@ -854,8 +868,8 @@ function renderDeckPresetPanel(state) {
   return `
     <section class="deck-preset-panel" aria-labelledby="deck-preset-title">
       <div class="section-heading section-heading--compact">
-        <div><span class="eyebrow">DECK PRESETS</span><h2 id="deck-preset-title">덱 프리셋</h2></div>
-        <span>최대 ${MAX_DECK_PRESETS}개</span>
+        <div><h2 id="deck-preset-title">나의 덱</h2></div>
+        <span>모험 · 레이드 공통</span>
       </div>
       <div class="deck-preset-list">
         ${Array.from({ length: MAX_DECK_PRESETS }, (_, slot) => {
@@ -870,11 +884,9 @@ function renderDeckPresetPanel(state) {
                 return card ? `<img src="${card.image}" alt="${escapeHtml(cardDisplayName(card))}" title="${escapeHtml(cardDisplayName(card))}" />` : '<span aria-label="빈 카드 슬롯">+</span>';
               }).join('')}
             </div>
-            <small>${equipment ? escapeHtml(equipmentEffectText(equipment)) : '장비 없음'} · 유물 출시 예정</small>
+            <small>${equipment ? escapeHtml(equipmentEffectText(equipment)) : preset ? '장비 미장착' : '아직 저장한 덱이 없어요'}</small>
             <div class="deck-preset-actions">
-              ${preset ? `<button type="button" data-action="load-deck-preset" data-slot="${slot}" data-context="adventure">모험 불러오기</button><button type="button" data-action="load-deck-preset" data-slot="${slot}" data-context="raid">레이드 불러오기</button>` : ''}
-              <button type="button" data-action="save-deck-preset" data-slot="${slot}" data-context="adventure">모험 덱 ${preset ? '덮어쓰기' : '저장'}</button>
-              <button type="button" data-action="save-deck-preset" data-slot="${slot}" data-context="raid">레이드 덱 ${preset ? '덮어쓰기' : '저장'}</button>
+              <button type="button" data-action="edit-deck-preset" data-slot="${slot}" aria-label="프리셋 ${slot + 1} ${preset ? '편집' : '만들기'}">${preset ? '편집' : '만들기'}</button>
             </div>
           </article>`;
         }).join('')}
@@ -885,164 +897,153 @@ function renderDeckPresetPanel(state) {
 function renderDashboard(state) {
   const pack = PACK_DEFINITION.standard;
   const pendingPackOpening = state.pendingPackOpening;
-  const featured = [CARD_CATALOG.at(-1), CARD_CATALOG.at(-3), CARD_CATALOG.find((card) => card.rarity === 'sr')];
+  const ownedCards = ALL_CARDS
+    .filter((card) => Math.max(0, Number(state.collection?.[card.id]) || 0) > 0)
+    .sort((left, right) => cardPower(right, state) - cardPower(left, state));
+  const heroOwned = ownedCards.length > 0;
+  const heroCard = ownedCards[0] || cardById('simsim-c') || CARD_CATALOG[0];
+  const heroLevel = progressionForCard(state.cardProgression, heroCard.id).level;
+  const heroStage = cardEnhancement(heroCard, state);
+  const featured = [
+    CARD_CATALOG.at(-1),
+    CARD_CATALOG.at(-3),
+    CARD_CATALOG.find((card) => card.rarity === 'sr'),
+  ].filter(Boolean);
   const expedition = state.expedition;
   const mission = expedition ? expeditionById(expedition.missionId) : null;
   const progress = expedition ? expeditionProgress(expedition) : 0;
-  const recent = state.activity.slice(0, 5);
+  const recent = (state.activity || []).slice(0, 5);
+  const activeIncident = state.activeIncident
+    ? (incidentById(state.activeIncident.id) || state.activeIncident)
+    : null;
 
   return `
-    <div class="dashboard-grid">
-      <section class="pack-desk" aria-labelledby="pack-title">
-        <div class="section-heading">
-          <div>
-            <span class="eyebrow">TODAY'S FILE</span>
-            <h2 id="pack-title">${pack.name}</h2>
-          </div>
-          <span class="pity-label">${pendingPackOpening ? '미확인 특별 카드가 있습니다' : `SR 이상 확정까지 ${Math.max(1, pack.pityPacks - state.pity.standard)}팩`}</span>
+    <div class="lobby">
+      <section class="lobby-hero rarity-${heroCard.rarity}" aria-labelledby="lobby-hero-title">
+        <div class="lobby-hero__copy">
+          <span class="lobby-hero__greeting">${escapeHtml(state.profile.displayName)}님의 로비</span>
+          <span class="lobby-hero__label">${heroOwned ? '보유 대표 카드' : '시작 카드 미리보기'}</span>
+          <h2 id="lobby-hero-title">${escapeHtml(cardDisplayName(heroCard))}</h2>
+          <p>${heroOwned
+            ? `${escapeHtml(rarityLabel(heroCard.rarity))} · Lv.${formatNumber(heroLevel)} · ${escapeHtml(enhancementLabel(heroStage))} · 전투력 ${formatNumber(cardPower(heroCard, state))}`
+            : '첫 카드를 획득하고 나만의 덱을 만들어 보세요.'}</p>
+          <button class="lobby-hero__detail" type="button" data-action="open-card" data-card-id="${escapeHtml(heroCard.id)}">
+            카드 자세히 보기 <i data-lucide="chevron-right"></i>
+          </button>
         </div>
-        <div class="pack-stage">
-          <div class="pack-stack" aria-hidden="true">
-            ${featured.map((card, index) => `
-              <div class="pack-preview pack-preview--${index + 1}">
-                <img src="${card.image}" alt="" />
-              </div>
-            `).join('')}
-            <div class="pack-sleeve">
-              <span>HOI COMPANY</span>
-              <strong>인물 파일</strong>
-              <small>VOL. 2 / 9 RARITIES</small>
-            </div>
-          </div>
-          <div class="pack-actions">
-            <div class="pack-count">
-              <span>미개봉</span>
-              <strong>${formatNumber(state.packs.standard)}<small>팩</small></strong>
-            </div>
-            ${pendingPackOpening ? `
-              <button class="primary-button" type="button" data-action="resume-pack-opening">
-                <i data-lucide="sparkles"></i>미확인 카드 이어보기
-              </button>
-            ` : `
-              <div class="pack-open-buttons">
-                <button class="primary-button" type="button" data-action="open-pack" data-pack-count="1" ${state.packs.standard <= 0 ? 'disabled' : ''}>
-                  <i data-lucide="package-open"></i>1팩 개봉 · 5장
-                </button>
-                ${state.packs.standard >= 10 ? `
-                  <button class="primary-button pack-open-ten" type="button" data-action="open-pack" data-pack-count="10">
-                    <i data-lucide="sparkles"></i>10팩 한 번에 개봉 · 50장
-                  </button>
-                ` : ''}
-              </div>
-            `}
-            <button class="secondary-button" type="button" data-action="buy-pack" ${state.wallet.coins < pack.coinPrice ? 'disabled' : ''}>
-              <i data-lucide="coins"></i>
-              ${formatNumber(pack.coinPrice)} 동전으로 구매
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <aside class="daily-ledger" aria-labelledby="ledger-title">
-        <div class="section-heading section-heading--compact">
-          <div>
-            <span class="eyebrow">PERSONNEL FILE</span>
-            <h2 id="ledger-title">${escapeHtml(state.profile.displayName)}</h2>
-          </div>
-          <i data-lucide="briefcase"></i>
-        </div>
-        <dl class="ledger-list">
-          <div><dt>발견 카드</dt><dd>${ownedUniqueCount(state)} / ${CARD_CATALOG.length}</dd></div>
-          <div><dt>보유 카드</dt><dd>${totalOwnedCount(state)}장</dd></div>
-          <div><dt>해결한 돌발 업무</dt><dd>${formatNumber(state.resolvedIncidents)}건</dd></div>
-          <div><dt>클라우드 동기화</dt><dd>${ui.cloud.phase === 'active' ? '연결됨' : '확인 중'}</dd></div>
-        </dl>
-        <button class="text-button" type="button" data-action="navigate" data-view="collection">
-          인사기록 전체 보기 <i data-lucide="arrow-right"></i>
+        <button class="lobby-hero__card" type="button" data-action="open-card" data-card-id="${escapeHtml(heroCard.id)}" aria-label="${escapeHtml(cardDisplayName(heroCard))} 카드 정보 보기">
+          <img src="${escapeHtml(heroCard.image)}" alt="${escapeHtml(cardDisplayName(heroCard))}" />
+          <span>${escapeHtml(rarityLabel(heroCard.rarity))}</span>
         </button>
-      </aside>
-    </div>
-
-    <div class="lower-grid">
-      <section class="operation-panel" aria-labelledby="operation-title">
-        <div class="section-heading section-heading--compact">
-          <div>
-            <span class="eyebrow">AUTO EXPEDITION</span>
-            <h2 id="operation-title">진행 중인 모험</h2>
-          </div>
-          <i data-lucide="map"></i>
+        <div class="lobby-hero__actions" aria-label="주요 메뉴">
+          <button class="lobby-main-action lobby-main-action--adventure" type="button" data-action="navigate" data-view="adventure">
+            <i data-lucide="map"></i>
+            <span>
+              <small>${expedition ? '모험 진행 중' : '카드를 편성하고 출발'}</small>
+              <strong>${expedition ? escapeHtml(mission?.name || '진행 중인 모험') : '모험으로'}</strong>
+            </span>
+            ${expedition
+              ? `<time data-countdown="${expedition.endsAt}">${formatDuration(expedition.endsAt - Date.now())}</time>`
+              : '<i data-lucide="chevron-right"></i>'}
+          </button>
+          <button class="lobby-main-action lobby-main-action--raid" type="button" data-action="navigate" data-view="raid">
+            <i data-lucide="swords"></i>
+            <span><small>보스에게 도전</small><strong>레이드 입장</strong></span>
+            <i data-lucide="chevron-right"></i>
+          </button>
         </div>
         ${expedition ? `
-          <div class="active-operation">
-            <div class="operation-copy">
-              <strong>${mission.name}</strong>
-              <span>${mission.location} · 편성 ${expedition.squad.length}명</span>
-            </div>
-            <div class="operation-timer" data-countdown="${expedition.endsAt}">${formatDuration(expedition.endsAt - Date.now())}</div>
+          <div class="lobby-hero__progress" aria-label="${escapeHtml(mission?.name || '모험')} 진행률">
+            <span data-expedition-progress style="width:${Math.round(progress * 100)}%"></span>
           </div>
-          <div class="progress-track"><span data-expedition-progress style="width:${Math.round(progress * 100)}%"></span></div>
-          <button class="text-button" type="button" data-action="navigate" data-view="adventure">
-            작전 기록 열기 <i data-lucide="chevron-right"></i>
-          </button>
-        ` : `
-          <div class="empty-operation">
-            <i data-lucide="clock"></i>
-            <strong>대기 중</strong>
-            <span>편성된 카드가 휴게실에서 기다리고 있습니다.</span>
-          </div>
-          <button class="primary-button primary-button--small" type="button" data-action="navigate" data-view="adventure">
-            모험 선택
-          </button>
-        `}
+        ` : ''}
       </section>
 
-      <section class="incident-panel ${state.activeIncident ? 'has-incident' : ''}" aria-labelledby="incident-title">
-        <div class="section-heading section-heading--compact">
-          <div>
-            <span class="eyebrow">INCOMING</span>
-            <h2 id="incident-title">돌발 업무</h2>
+      <div class="lobby-feature-grid">
+        <section class="lobby-pack" aria-labelledby="lobby-pack-title">
+          <div class="lobby-section-heading">
+            <div><span>카드 소환</span><h2 id="lobby-pack-title">${escapeHtml(pack.name)}</h2></div>
+            <b>${pendingPackOpening ? '미확인 카드 있음' : `SR 이상 확정까지 ${Math.max(1, pack.pityPacks - state.pity.standard)}팩`}</b>
           </div>
-          <i data-lucide="bell"></i>
-        </div>
-        ${state.activeIncident ? (() => {
-          const incident = incidentById(state.activeIncident.id) || state.activeIncident;
-          return `
-            <div class="incident-copy">
-              <span class="incident-pulse"></span>
-              <div>
-                <strong>${escapeHtml(incident.title)}</strong>
-                <span>${escapeHtml(incident.summary)}</span>
-                <span class="incident-expiry" data-incident-countdown="${state.activeIncident.expiresAt}">남은 시간 ${formatDuration(state.activeIncident.expiresAt - Date.now())}</span>
+          <div class="lobby-pack__body">
+            <div class="lobby-pack__fan" aria-hidden="true">
+              ${featured.map((card, index) => `<img class="lobby-pack__card lobby-pack__card--${index + 1}" src="${escapeHtml(card.image)}" alt="" />`).join('')}
+              <div class="lobby-pack__seal"><i data-lucide="sparkles"></i><strong>인물 파일</strong><small>카드 5장</small></div>
+            </div>
+            <div class="lobby-pack__controls">
+              <div class="lobby-pack__count"><span>보유 카드팩</span><strong>${formatNumber(state.packs.standard)}<small>팩</small></strong></div>
+              ${pendingPackOpening ? `
+                <button class="primary-button lobby-pack__resume" type="button" data-action="resume-pack-opening">
+                  <i data-lucide="sparkles"></i>미확인 카드 이어보기
+                </button>
+              ` : `
+                <div class="lobby-pack__open-buttons">
+                  <button class="primary-button" type="button" data-action="open-pack" data-pack-count="1" ${state.packs.standard <= 0 ? 'disabled' : ''}>
+                    <i data-lucide="package-open"></i><span><strong>1팩 개봉</strong><small>카드 5장</small></span>
+                  </button>
+                  <button class="primary-button" type="button" data-action="open-pack" data-pack-count="10" ${state.packs.standard < 10 ? 'disabled' : ''}>
+                    <i data-lucide="sparkles"></i><span><strong>10팩 개봉</strong><small>카드 50장</small></span>
+                  </button>
+                </div>
+              `}
+              <button class="secondary-button lobby-pack__buy" type="button" data-action="buy-pack" ${state.wallet.coins < pack.coinPrice ? 'disabled' : ''}>
+                <i data-lucide="coins"></i>${formatNumber(pack.coinPrice)} 동전으로 1팩 구매
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <div class="lobby-side-stack">
+          <section class="lobby-incident ${activeIncident ? 'is-active' : 'is-idle'}" aria-labelledby="lobby-incident-title">
+            <div class="lobby-section-heading">
+              <div><span>${activeIncident ? '새 알림' : '대기 중'}</span><h2 id="lobby-incident-title">돌발 업무</h2></div>
+              <i data-lucide="${activeIncident ? 'bell' : 'wifi'}"></i>
+            </div>
+            ${activeIncident ? `
+              <div class="lobby-incident__copy">
+                <strong>${escapeHtml(activeIncident.title)}</strong>
+                <p>${escapeHtml(activeIncident.summary)}</p>
+                <time data-incident-countdown="${state.activeIncident.expiresAt}">남은 시간 ${formatDuration(state.activeIncident.expiresAt - Date.now())}</time>
               </div>
+              <button class="alert-button" type="button" data-action="open-incident">지금 확인하기</button>
+            ` : `
+              <div class="lobby-incident__empty">
+                <i data-lucide="bell"></i>
+                <p>새 업무가 도착하면 이곳에서 바로 알려드릴게요.</p>
+              </div>
+            `}
+          </section>
+
+          <section class="lobby-collection" aria-labelledby="lobby-collection-title">
+            <div class="lobby-section-heading">
+              <div><span>나의 카드</span><h2 id="lobby-collection-title">수집 현황</h2></div>
+              <button type="button" data-action="navigate" data-view="collection" aria-label="카드 도감 열기"><i data-lucide="arrow-right"></i></button>
             </div>
-            <button class="alert-button" type="button" data-action="open-incident">즉시 확인</button>
-          `;
-        })() : `
-          <div class="empty-operation">
-            <i data-lucide="wifi"></i>
-            <strong>사내망 확인 중</strong>
-            <span>주기적으로 도착하며 특별한 업무도 기다리고 있어요.</span>
-          </div>
-        `}
-      </section>
-
-      ${renderDeckPresetPanel(state)}
-
-      <section class="activity-panel" aria-labelledby="activity-title">
-        <div class="section-heading section-heading--compact">
-          <div>
-            <span class="eyebrow">RECENT LOG</span>
-            <h2 id="activity-title">최근 기록</h2>
-          </div>
+            <dl class="lobby-collection__stats">
+              <div><dt>발견</dt><dd>${ownedUniqueCount(state)} / ${CARD_CATALOG.length}</dd></div>
+              <div><dt>보유</dt><dd>${totalOwnedCount(state)}장</dd></div>
+              <div><dt>완료 업무</dt><dd>${formatNumber(state.resolvedIncidents)}건</dd></div>
+              <div><dt>클라우드</dt><dd>${ui.cloud.phase === 'active' ? '연결됨' : '확인 중'}</dd></div>
+            </dl>
+          </section>
         </div>
-        <div class="activity-list">
-          ${recent.map((entry) => `
-            <div class="activity-row">
-              <span class="activity-icon activity-icon--${entry.type}"></span>
+      </div>
+
+      <div class="lobby-presets">${renderDeckPresetPanel(state)}</div>
+
+      <section class="lobby-log" aria-labelledby="lobby-log-title">
+        <div class="lobby-section-heading">
+          <div><span>최근 플레이</span><h2 id="lobby-log-title">최근 기록</h2></div>
+          <i data-lucide="clock"></i>
+        </div>
+        <div class="lobby-log__list">
+          ${recent.length ? recent.map((entry) => `
+            <div class="lobby-log__row">
+              <span aria-hidden="true"></span>
               <p>${escapeHtml(entry.message)}</p>
               <time>${formatClock(entry.at)}</time>
             </div>
-          `).join('')}
+          `).join('') : '<p class="lobby-log__empty">아직 남겨진 기록이 없습니다.</p>'}
         </div>
       </section>
     </div>
@@ -1098,7 +1099,9 @@ function collectionCardsForView(state) {
 }
 
 function selectedEquipment(state, context) {
-  const equipmentId = context === 'raid'
+  const equipmentId = context === 'preset'
+    ? ui.modal?.equipmentCardId
+    : context === 'raid'
     ? state.selectedRaidEquipmentId
     : state.selectedExpeditionEquipmentId;
   return equipmentById(state.equipmentInventory, equipmentId);
@@ -1111,24 +1114,100 @@ function equipmentEffectText(item) {
 }
 
 function renderLoadoutSlots(state, context) {
-  const equipmentId = context === 'raid'
-    ? state.selectedRaidEquipmentId
-    : state.selectedExpeditionEquipmentId;
-  const inventory = Array.isArray(state.equipmentInventory) ? state.equipmentInventory : [];
+  const equipment = selectedEquipment(state, context);
   return `
     <div class="loadout-slots" aria-label="추가 장착 카드">
-      <label class="loadout-slot">
+      <button type="button" class="loadout-slot" data-action="switch-loadout-panel" data-context="${context}" data-panel="equipment">
         <span><i data-lucide="shield"></i><b>장비 카드</b></span>
-        <select data-action="select-equipment" data-context="${context}">
-          <option value="">장착 없음</option>
-          ${inventory.map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === equipmentId ? 'selected' : ''}>${escapeHtml(equipmentEffectText(item))}</option>`).join('')}
-        </select>
-      </label>
-      <label class="loadout-slot is-coming-soon">
+        <small>${equipment ? escapeHtml(equipmentEffectText(equipment)) : '장착 없음 · 눌러서 선택'}</small>
+      </button>
+      <div class="loadout-slot is-coming-soon" aria-disabled="true">
         <span><i data-lucide="sparkles"></i><b>유물 카드</b></span>
-        <select disabled><option>출시 예정</option></select>
-      </label>
+        <small>출시 예정</small>
+      </div>
     </div>`;
+}
+
+function selectedLoadoutCards(state, context) {
+  if (context === 'preset') return ui.modal?.cardIds || [];
+  if (context === 'raid') return availableRaidSquad(state.selectedRaidSquad, state.expedition, state.collection, { identityForId: cardCharacterIdentity });
+  return state.selectedExpeditionSquad || state.selectedSquad || [];
+}
+
+function renderPresetQuickLoad(state, context) {
+  const selected = selectedLoadoutCards(state, context);
+  const equipmentId = selectedEquipment(state, context)?.id || '';
+  return `<div class="preset-quick-load">
+    <div class="subheading"><h3>프리셋 불러오기</h3><button type="button" class="text-button" data-action="copy-deck-to-preset" data-context="${context}">현재 덱 저장</button></div>
+    <div class="preset-quick-buttons">
+      ${Array.from({ length: MAX_DECK_PRESETS }, (_, slot) => {
+        const preset = state.deckPresets?.[slot];
+        const matches = preset && JSON.stringify(preset.cardIds) === JSON.stringify(selected) && (preset.equipmentCardId || '') === equipmentId;
+        return `<button type="button" class="${matches ? 'is-selected' : ''}" data-action="load-deck-preset" data-context="${context}" data-slot="${slot}" aria-pressed="${Boolean(matches)}" aria-label="프리셋 ${slot + 1}${preset ? ' 불러오기' : ' 비어 있음'}" ${preset ? '' : 'disabled'}>${slot + 1}<small>${preset ? `${preset.cardIds.length}장` : '비어 있음'}</small></button>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+function renderEquipmentPicker(state, context) {
+  const selectedId = selectedEquipment(state, context)?.id || '';
+  const inventory = [...(state.equipmentInventory || [])].sort((left, right) => (
+    rarityRank(right.rarity) - rarityRank(left.rarity)
+    || left.type.localeCompare(right.type)
+    || right.bonusPercent - left.bonusPercent
+    || right.acquiredAt - left.acquiredAt
+  ));
+  return `<div class="equipment-picker" data-scroll-key="loadout:${context}:equipment">
+    <button type="button" class="equipment-choice ${selectedId ? '' : 'is-selected'}" data-action="select-equipment" data-context="${context}" data-equipment-id="" aria-pressed="${!selectedId}">
+      <i data-lucide="ban"></i><span class="equipment-choice-copy"><strong>장착 없음</strong><small>장비 효과 없이 편성합니다.</small></span>${selectedId ? '' : '<i data-lucide="check"></i>'}
+    </button>
+    ${inventory.map((item) => `<button type="button" class="equipment-choice rarity-${item.rarity} ${item.id === selectedId ? 'is-selected' : ''}" data-action="select-equipment" data-context="${context}" data-equipment-id="${escapeHtml(item.id)}" aria-pressed="${item.id === selectedId}">
+      <i data-lucide="${item.type === 'armor' ? 'shield' : 'swords'}"></i><span class="equipment-choice-copy"><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(equipmentEffectText(item))}</small></span>${item.id === selectedId ? '<i data-lucide="check"></i>' : ''}
+    </button>`).join('')}
+    ${inventory.length ? '' : '<p class="equipment-empty">보유한 장비가 없습니다. 모험에서 장비를 획득할 수 있습니다.</p>'}
+    <p class="equipment-coming-soon"><i data-lucide="sparkles"></i>유물 카드는 추후 추가됩니다.</p>
+  </div>`;
+}
+
+function renderDeckEditor(state, context) {
+  const panel = ui.loadoutPanel[context] === 'equipment' ? 'equipment' : 'cards';
+  const cards = selectedLoadoutCards(state, context);
+  return `<div class="loadout-editor">
+    ${context === 'preset' ? '' : `<div class="selected-squad-strip" aria-label="편성된 카드, 누르면 제외">
+      ${Array.from({ length: MAX_SQUAD_SIZE }, (_, index) => {
+        const card = cardById(cards[index]);
+        return card ? `<button type="button" class="selected-squad-slot rarity-${card.rarity}" data-action="toggle-squad" data-context="${context}" data-card-id="${card.id}" aria-label="${index + 1}번 ${escapeHtml(cardDisplayName(card))} 편성 제외"><img src="${card.image}" alt="" /><b>${index + 1}</b><span>${escapeHtml(cardDisplayName(card))}</span></button>` : `<div class="selected-squad-slot is-empty"><b>${index + 1}</b><span>빈 슬롯</span></div>`;
+      }).join('')}
+    </div>`}
+    ${context === 'preset' ? '' : renderPresetQuickLoad(state, context)}
+    ${renderLoadoutSlots(state, context)}
+    <div class="loadout-tabs" role="tablist" aria-label="편성 목록">
+      <button type="button" role="tab" id="${context}-cards-tab" aria-controls="${context}-loadout-panel" aria-selected="${panel === 'cards'}" class="${panel === 'cards' ? 'is-active' : ''}" data-action="switch-loadout-panel" data-context="${context}" data-panel="cards"><i data-lucide="users"></i>카드 <small>${cards.length} / ${MAX_SQUAD_SIZE}</small></button>
+      <button type="button" role="tab" id="${context}-equipment-tab" aria-controls="${context}-loadout-panel" aria-selected="${panel === 'equipment'}" class="${panel === 'equipment' ? 'is-active' : ''}" data-action="switch-loadout-panel" data-context="${context}" data-panel="equipment"><i data-lucide="shield"></i>장비 <small>${state.equipmentInventory.length}개</small></button>
+    </div>
+    <div class="loadout-panel" id="${context}-loadout-panel" role="tabpanel" aria-labelledby="${context}-${panel}-tab">
+      ${panel === 'equipment' ? renderEquipmentPicker(state, context) : renderSquadPicker(state, context)}
+    </div>
+  </div>`;
+}
+
+function renderDeckPresetModal(state) {
+  const slot = ui.modal.slot;
+  const cards = (ui.modal.cardIds || []).map(cardById).filter(Boolean);
+  return `<div class="modal-backdrop" data-action="close-modal">
+    <section class="modal-sheet deck-preset-editor-modal" role="dialog" aria-modal="true" aria-labelledby="preset-editor-title" data-modal-panel>
+      <button class="modal-close" type="button" data-action="close-modal" aria-label="닫기"><i data-lucide="x"></i></button>
+      <span class="eyebrow">SHARED DECK</span><h2 id="preset-editor-title">프리셋 ${slot + 1} ${ui.modal.saveCopy ? '저장' : '편집'}</h2>
+      <p>모험과 레이드에서 같은 번호로 불러오는 공통 덱입니다.</p>
+      ${ui.modal.saveCopy ? `<div class="preset-slot-tabs" aria-label="저장할 프리셋 번호">${Array.from({ length: MAX_DECK_PRESETS }, (_, index) => `<button type="button" class="${index === slot ? 'is-active' : ''}" data-action="select-preset-save-slot" data-slot="${index}" aria-pressed="${index === slot}">${index + 1}${state.deckPresets[index] ? ' · 덮어쓰기' : ''}</button>`).join('')}</div>` : ''}
+      <div class="deck-preset-editor-summary"><div class="deck-preset-members">${Array.from({ length: MAX_SQUAD_SIZE }, (_, index) => {
+        const card = cards[index];
+        return card ? `<button type="button" class="preset-member-remove" data-action="remove-preset-card" data-card-id="${card.id}" aria-label="${escapeHtml(cardDisplayName(card))} 프리셋에서 제외"><img src="${card.image}" alt="${escapeHtml(cardDisplayName(card))}" /><small>${state.collection[card.id] ? `${index + 1} · 제외` : '미보유 · 제외'}</small></button>` : '<span aria-label="빈 카드 슬롯">+</span>';
+      }).join('')}</div></div>
+      ${renderDeckEditor(state, 'preset')}
+      <div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">취소</button><button type="button" class="primary-button" data-action="save-deck-preset" ${cards.length ? '' : 'disabled'}>프리셋 ${slot + 1}에 저장</button></div>
+    </section>
+  </div>`;
 }
 
 function renderCollection(state) {
@@ -1138,7 +1217,7 @@ function renderCollection(state) {
     <section class="collection-header">
       <div>
         <span class="eyebrow">ARCHIVE ${ownedUniqueCount(state).toString().padStart(2, '0')} / ${CARD_CATALOG.length.toString().padStart(2, '0')}</span>
-        <h2>사내 인물 도감</h2>
+        <h2>카드 도감</h2>
         <p>발견한 카드의 기록과 능력치를 열람합니다.</p>
       </div>
       <div class="collection-progress" aria-label="도감 완성도">
@@ -1486,12 +1565,10 @@ function renderSquadPicker(state, context) {
       || cardPower(right, state) - cardPower(left, state)
       || ALL_CARDS.indexOf(left) - ALL_CARDS.indexOf(right)
     ));
-  const selectedIds = context === 'raid'
-    ? (state.selectedRaidSquad || [])
-    : (state.selectedExpeditionSquad || state.selectedSquad || []);
+  const selectedIds = selectedLoadoutCards(state, context);
   const expeditionLocks = context === 'raid' ? activeExpeditionCardLocks(state) : [];
   return `
-    <div class="squad-picker" data-context="${context}">
+    <div class="squad-picker" data-context="${context}" data-scroll-key="loadout:${context}:cards">
       ${ownedCards.map((card) => {
         const selected = selectedIds.includes(card.id);
         const availableStage = context === 'raid'
@@ -1511,16 +1588,12 @@ function renderSquadPicker(state, context) {
             <span><strong>${escapeHtml(cardDisplayName(card))}</strong><small><b>${rarityLabel(card.rarity)} · Lv.${formatNumber(progressionForCard(state.cardProgression, card.id).level)} · ${enhancementLabel(Math.max(0, availableStage))}</b><span class="squad-detail-copy">${unavailable ? (availableStage < 0 ? ' · 모든 복사본이 모험 참여 중 · 레이드 사용 불가' : ' · 고유 스킬 준비 중 · 레이드 사용 불가') : ` · 전투력 ${formatNumber(cardPower(card, state, availableStage))}`}</span></small></span>
             ${selectionOrder ? `<b class="squad-order-badge" aria-label="행동 순서 ${selectionOrder}번">${selectionOrder}</b>` : `<i data-lucide="${unavailable ? 'lock' : 'users'}"></i>`}
           </button>
-          <button class="squad-card-info" type="button" data-action="open-card" data-card-id="${card.id}" aria-label="${escapeHtml(cardDisplayName(card))} 상세 정보"><i data-lucide="search"></i></button>
+          ${context === 'preset' ? '' : `<button class="squad-card-info" type="button" data-action="open-card" data-card-id="${card.id}" aria-label="${escapeHtml(cardDisplayName(card))} 상세 정보"><i data-lucide="search"></i></button>`}
           </div>
         `;
       }).join('')}
     </div>
   `;
-}
-
-function missionMinimumPower(mission) {
-  return Math.max(0, Number(mission?.minimumPower ?? mission?.recommendedScore) || 0);
 }
 
 function renderAdventure(state) {
@@ -1529,9 +1602,16 @@ function renderAdventure(state) {
   const selectedMission = expeditionById(ui.selectedMissionId) || EXPEDITIONS[0];
   const expeditionSquad = state.selectedExpeditionSquad || state.selectedSquad || [];
   const expeditionEquipment = selectedEquipment(state, 'adventure');
-  const score = calculateSquadScore(expeditionSquad, state.collection, ALL_CARDS, state.cardEnhancements, [], state.cardProgression, expeditionEquipment);
-  const minimumPower = missionMinimumPower(selectedMission);
-  const canStart = expeditionSquad.length >= selectedMission.requiredCards && score >= minimumPower;
+  const eligibility = expeditionEligibility({
+    mission: selectedMission,
+    cardIds: expeditionSquad,
+    collection: state.collection,
+    catalog: ALL_CARDS,
+    cardEnhancements: state.cardEnhancements,
+    cardProgression: state.cardProgression,
+    equipment: expeditionEquipment,
+  });
+  const { score, minimumPower, canStart } = eligibility;
   const actionMission = active ? activeMission : selectedMission;
   const actionScore = active ? expeditionEffectivePower(active) : score;
   const actionMinimumPower = missionMinimumPower(actionMission);
@@ -1550,19 +1630,20 @@ function renderAdventure(state) {
           <div class="adventure-start-summary">
             <span>${active ? '현재 진행 중' : '선택한 모험'}</span>
             <strong>${escapeHtml(actionMission.name)}</strong>
-            <small>합산 전투력 ${formatNumber(actionScore)} / 최소 ${formatNumber(actionMinimumPower)}</small>
+            <small>합산 전투력 ${formatNumber(actionScore)} / 최소 ${formatNumber(actionMinimumPower)} · 카드 ${active ? active.squad.length : eligibility.squad.length} / 최소 ${actionMission.requiredCards}장</small>
           </div>
           <button class="primary-button assignment-submit" type="button" data-action="start-expedition" ${active || !canStart ? 'disabled' : ''}>
             <i data-lucide="map"></i>
-            ${active ? '모험 진행 중' : '자동 모험 시작'}
+            ${active ? '모험 진행 중' : eligibility.missingCards ? `카드 ${eligibility.missingCards}장 추가 필요` : eligibility.missingPower ? '전투력 부족' : '자동 모험 시작'}
           </button>
         </div>
-        <div class="mission-list">
+        <button type="button" class="mission-list-toggle" data-action="toggle-mission-list" aria-expanded="${!active && ui.missionListExpanded}" aria-controls="adventure-mission-list" ${active ? 'disabled' : ''}><span><small>${active ? '진행 중인 모험' : `모험 선택 · ${EXPEDITIONS.length}곳`}</small><strong>${escapeHtml(actionMission.name)}</strong></span><i data-lucide="chevron-right"></i></button>
+        <div class="mission-list ${!active && ui.missionListExpanded ? 'is-expanded' : ''}" id="adventure-mission-list">
           ${EXPEDITIONS.map((mission) => `
             <button type="button" class="mission-row ${ui.selectedMissionId === mission.id ? 'is-selected' : ''}" data-action="select-mission" data-mission-id="${mission.id}" ${active ? 'disabled' : ''}>
               <span class="mission-index">${String(EXPEDITIONS.indexOf(mission) + 1).padStart(2, '0')}</span>
               <span class="mission-copy"><strong>${mission.name}</strong><small>${mission.location}</small></span>
-              <span class="mission-meta"><b>${formatDuration(mission.durationMs)}</b><small>최소 합산 ${formatNumber(missionMinimumPower(mission))}</small></span>
+              <span class="mission-meta"><b>${formatDuration(mission.durationMs)}</b><small>최소 합산 ${formatNumber(missionMinimumPower(mission))} · ${mission.requiredCards}장</small><small>장비 드랍 ${formatDropChance(mission)}%</small></span>
               <i data-lucide="chevron-right"></i>
             </button>
           `).join('')}
@@ -1576,6 +1657,7 @@ function renderAdventure(state) {
             <div class="large-countdown" data-countdown="${active.endsAt}">${formatDuration(active.endsAt - Date.now())}</div>
           </div>
           <p class="assignment-description">${activeMission.description}</p>
+          <p class="local-operation-note">장비 드랍 확률 ${formatDropChance(activeMission)}% · 드랍된 뒤 장비 등급이 결정됩니다.</p>
           <div class="progress-track progress-track--large"><span data-expedition-progress style="width:${Math.round(expeditionProgress(active) * 100)}%"></span></div>
           <div class="deployed-squad">
             ${active.squad.map((id) => {
@@ -1594,17 +1676,16 @@ function renderAdventure(state) {
           <div class="requirement-row">
             <span>합산 전투력 <strong class="${score >= minimumPower ? 'positive' : 'negative'}">${formatNumber(score)}</strong></span>
             <span>최소 합산 전투력 <strong>${formatNumber(minimumPower)}</strong></span>
-            <span>최소 카드 <strong>${selectedMission.requiredCards}장</strong></span>
+            <span>편성 카드 <strong class="${eligibility.missingCards ? 'negative' : 'positive'}">${eligibility.squad.length} / 최소 ${eligibility.requiredCards}장</strong></span>
           </div>
           <div class="mission-reward-preview">
             <span><i data-lucide="coins"></i><small>기본 동전 범위</small><strong>${formatNumber(selectedMission.reward.coins[0])}~${formatNumber(selectedMission.reward.coins[1])}</strong></span>
             <span><i data-lucide="package-open"></i><small>카드팩 발견 확률</small><strong>${Math.round(selectedMission.reward.packChance * 1000) / 10}%</strong></span>
-            <p>모험은 항상 완료되며 최소 ${formatNumber(selectedMission.reward.coins[0])} 동전을 보장합니다. 실제 보상은 매번 변동하고, 최소 전투력을 넘긴 정도에 따라 최대 ${Math.round((selectedMission.reward.powerBonusCap || 0.35) * 100)}% 증가합니다.</p>
+            <span><i data-lucide="shield"></i><small>장비 드랍 확률</small><strong>${formatDropChance(selectedMission)}%</strong></span>
           </div>
-          ${score < minimumPower ? `<p class="requirement-warning"><i data-lucide="circle-alert"></i>최소 합산 전투력까지 ${formatNumber(minimumPower - score)}이 더 필요합니다.</p>` : ''}
-           ${renderLoadoutSlots(state, 'adventure')}
-           <div class="subheading"><h3>파견 카드</h3><span>${expeditionSquad.length} / ${MAX_SQUAD_SIZE}</span></div>
-          ${renderSquadPicker(state, 'adventure')}
+          <details class="mission-reward-details"><summary>보상은 어떻게 결정되나요?</summary><p>모험은 항상 완료되며 최소 ${formatNumber(selectedMission.reward.coins[0])} 동전을 보장합니다. 실제 보상은 매번 변동하고, 최소 전투력을 넘긴 정도에 따라 최대 ${Math.round((selectedMission.reward.powerBonusCap || 0.35) * 100)}% 증가합니다. 장비는 드랍 여부를 먼저 판정한 뒤 등급이 결정됩니다.</p></details>
+          ${!canStart ? `<p class="requirement-warning" role="status"><i data-lucide="circle-alert"></i>${escapeHtml(eligibility.message)}</p>` : ''}
+          ${renderDeckEditor(state, 'adventure')}
         `}
       </section>
     </div>
@@ -1858,12 +1939,11 @@ function renderPersonalRaidBattle(state) {
 
       <aside class="raid-command">
         <div class="section-heading section-heading--compact">
-          <div><span class="eyebrow">STRIKE TEAM</span><h2>파견 카드 선택</h2></div>
+          <div><span class="eyebrow">STRIKE TEAM</span><h2>덱 편성</h2></div>
            <span>${selectedRaidSquad.length} / ${MAX_SQUAD_SIZE}</span>
         </div>
         ${state.expedition ? `<p class="local-operation-note"><i data-lucide="lock"></i>모험에 참여 중인 ${state.expedition.squad.length}장의 카드는 레이드에 편성할 수 없습니다.</p>` : ''}
-         ${renderLoadoutSlots(state, 'raid')}
-         ${renderSquadPicker(state, 'raid')}
+         ${renderDeckEditor(state, 'raid')}
         <p class="local-operation-note"><i data-lucide="wifi"></i>기여도와 순위는 서버에 실시간으로 저장됩니다.</p>
       </aside>
     </div>
@@ -2220,6 +2300,7 @@ function renderSettingsModal(state) {
         <label class="toggle-row"><span><strong>${notificationLabel}</strong><small>꺼도 돌발 업무는 계속 발생하며 업무판에서 10분간 유지됩니다.</small></span><input type="checkbox" data-action="toggle-notifications" ${state.settings.incidentNotifications ? 'checked' : ''} /><i></i></label>
         ${mobileNotificationSettings}
         ${desktopOnlySettings}
+        <div class="settings-utility-actions"><button class="secondary-button" type="button" data-action="check-update"><i data-lucide="download"></i>업데이트 확인</button><button class="secondary-button" type="button" data-action="open-donation"><i data-lucide="gift"></i>후원 안내</button></div>
         <label class="toggle-row"><span><strong>월급루팡 모드</strong><small>모든 카드 일러스트를 가리고 카드 이름과 등급만 표시합니다.</small></span><input type="checkbox" data-action="toggle-payroll-mode" ${state.settings.payrollMode ? 'checked' : ''} /><i></i></label>
         ${ui.updateStatus?.downloadUrl ? '<button class="primary-button settings-update-button" type="button" data-action="download-update">새 Android 버전 받기</button>' : ''}
         <button class="secondary-button settings-admin-button" type="button" data-action="open-admin"><i data-lucide="shield"></i>관리자 모드</button>
@@ -2277,6 +2358,7 @@ function renderNotificationPermissionModal() {
 
 function renderModal(state) {
   if (!ui.modal) return '';
+  if (ui.modal.type === 'deck-preset') return renderDeckPresetModal(state);
   if (ui.modal.type === 'pack') return renderPackModal(ui.modal.cards, ui.modal.pityTriggered, state, ui.modal);
   if (ui.modal.type === 'card') return renderCardModal(cardById(ui.modal.cardId), state);
   if (ui.modal.type === 'incident') return renderIncidentModal(ui.modal.incident);
@@ -2469,7 +2551,7 @@ function render() {
       ${renderSidebar(state)}
       <main class="main-shell">
         ${renderTopbar(state)}
-        <div class="view-host">${renderCurrentView(state)}</div>
+        <div class="view-host" data-view="${ui.view}">${renderCurrentView(state)}</div>
       </main>
       ${ui.notice ? `<div class="app-notice app-notice--${ui.notice.tone}">${escapeHtml(ui.notice.message)}</div>` : ''}
       ${renderModal(state)}
@@ -2877,6 +2959,12 @@ function synthesizeCardsByRarity() {
 function toggleSquadCard(cardId, context = 'adventure') {
   const state = store.getState();
   if (!state.collection[cardId]) return;
+  if (context === 'preset') {
+    if (ui.modal?.type !== 'deck-preset') return;
+    ui.modal.cardIds = toggleSquadSelection(ui.modal.cardIds, cardId, { identityForId: cardCharacterIdentity });
+    render();
+    return;
+  }
   const unavailable = context === 'raid' && bestAvailableEnhancementForCard(
     state.collection,
     state.cardEnhancements,
@@ -2889,7 +2977,15 @@ function toggleSquadCard(cardId, context = 'adventure') {
   }
   store.update((draft) => {
     const field = context === 'raid' ? 'selectedRaidSquad' : 'selectedExpeditionSquad';
-    draft[field] = toggleSquadSelection(draft[field], cardId, { identityForId: cardCharacterIdentity });
+    draft[field] = context === 'raid'
+      ? toggleAvailableRaidSquad(
+        draft[field],
+        cardId,
+        draft.expedition,
+        draft.collection,
+        { identityForId: cardCharacterIdentity },
+      )
+      : toggleSquadSelection(draft[field], cardId, { identityForId: cardCharacterIdentity });
   });
   render({ preserveViewScroll: true });
 }
@@ -2897,7 +2993,7 @@ function toggleSquadCard(cardId, context = 'adventure') {
 function beginExpedition() {
   const state = store.getState();
   if (state.expedition) return;
-  const mission = expeditionById(ui.selectedMissionId);
+  const mission = expeditionById(ui.selectedMissionId) || EXPEDITIONS[0];
   try {
     const expedition = startExpedition({
       mission,
@@ -3305,23 +3401,47 @@ function plainRewardText(reward = {}) {
   return parts.join(' · ') || '기록 갱신';
 }
 
-function saveCurrentDeckPreset(slot, context) {
+function openDeckPresetEditor(slot, { copyContext = '' } = {}) {
   const state = store.getState();
-  const raid = context === 'raid';
-  const existing = state.deckPresets?.[slot];
-  const cardIds = raid ? state.selectedRaidSquad : state.selectedExpeditionSquad;
-  const equipmentCardId = raid ? state.selectedRaidEquipmentId : state.selectedExpeditionEquipmentId;
+  const targetSlot = Math.max(0, Math.min(MAX_DECK_PRESETS - 1, Number(slot) || 0));
+  const existing = createDeckPresetDraft(state.deckPresets[targetSlot], targetSlot, {
+    identityForId: cardCharacterIdentity,
+  });
+  const loadout = copyContext
+    ? {
+      ...existing,
+      cardIds: [...selectedLoadoutCards(state, copyContext)],
+      equipmentCardId: selectedEquipment(state, copyContext)?.id || '',
+    }
+    : existing;
+  ui.loadoutPanel.preset = 'cards';
+  ui.modal = {
+    type: 'deck-preset',
+    slot: targetSlot,
+    cardIds: [...loadout.cardIds],
+    equipmentCardId: loadout.equipmentCardId,
+    artifactCardId: loadout.artifactCardId,
+    saveCopy: Boolean(copyContext),
+  };
+  render();
+}
+
+function saveCurrentDeckPreset() {
+  if (ui.modal?.type !== 'deck-preset') return;
+  const slot = ui.modal.slot;
+  const cardIds = [...(ui.modal.cardIds || [])];
+  const equipmentCardId = String(ui.modal.equipmentCardId || '');
+  if (!cardIds.length) return;
   store.update((draft) => {
-    draft.deckPresets = saveDeckPreset(draft.deckPresets, slot, {
-      name: existing?.name || `프리셋 ${Number(slot) + 1}`,
+    draft.deckPresets = saveDeckPresetLoadout(draft.deckPresets, slot, {
       cardIds,
       equipmentCardId,
-      artifactCardId: '',
       identityForId: cardCharacterIdentity,
     });
-    appendActivity(draft, `${raid ? '레이드' : '모험'} 덱을 프리셋 ${Number(slot) + 1}에 저장했습니다.`, 'card');
+    appendActivity(draft, `공통 프리셋 ${slot + 1}에 덱을 저장했습니다.`, 'card');
   });
-  showNotice(`프리셋 ${Number(slot) + 1}에 저장했습니다.`, 'success');
+  ui.modal = null;
+  showNotice(`프리셋 ${slot + 1}에 저장했습니다. 모험과 레이드에서 불러올 수 있습니다.`, 'success');
 }
 
 function loadSavedDeckPreset(slot, context) {
@@ -3332,26 +3452,26 @@ function loadSavedDeckPreset(slot, context) {
     return;
   }
   const raid = context === 'raid';
-  let cards = deckPresetCards(preset, {
+  const loadout = resolveDeckPresetLoadout(preset, {
     collection: state.collection,
+    equipmentInventory: state.equipmentInventory,
+    expedition: state.expedition,
+    context,
     identityForId: cardCharacterIdentity,
   });
-  if (raid) cards = availableRaidSquad(cards, state.expedition, state.collection, { identityForId: cardCharacterIdentity });
-  const equipment = equipmentById(state.equipmentInventory, preset.equipmentCardId);
   store.update((draft) => {
     if (raid) {
-      draft.selectedRaidSquad = cards;
-      draft.selectedRaidEquipmentId = equipment?.id || '';
+      draft.selectedRaidSquad = loadout.cardIds;
+      draft.selectedRaidEquipmentId = loadout.equipmentCardId;
     } else {
-      draft.selectedExpeditionSquad = cards;
-      draft.selectedExpeditionEquipmentId = equipment?.id || '';
+      draft.selectedExpeditionSquad = loadout.cardIds;
+      draft.selectedExpeditionEquipmentId = loadout.equipmentCardId;
     }
-    appendActivity(draft, `${preset.name}을(를) ${raid ? '레이드' : '모험'} 덱에 불러왔습니다.`, 'card');
+    appendActivity(draft, `프리셋 ${slot + 1}을 ${raid ? '레이드' : '모험'} 덱에 불러왔습니다.`, 'card');
   });
-  ui.view = raid ? 'raid' : 'adventure';
-  showNotice(`${preset.name}을(를) 불러왔습니다.`, 'success');
+  const omitted = loadout.omittedCardCount;
+  showNotice(`프리셋 ${slot + 1}을 불러왔습니다.${omitted ? ` 미보유 또는 모험 참여 중인 카드 ${omitted}장은 제외했습니다.` : ''}`, omitted ? 'warning' : 'success');
   render();
-  if (raid) void refreshPersonalRaid({ silent: true });
 }
 
 async function resolveActiveIncident({ choiceId, instanceId = null, incidentId = null, fromToast = false }) {
@@ -3704,6 +3824,7 @@ function disposeCloudSession() {
 
 function applyRemoteGameState(nextState) {
   if (!store || !nextState) return;
+  if (ui.modal?.type === 'deck-preset') ui.modal = null;
   applyingRemoteState = true;
   try {
     store.replace(nextState);
@@ -4526,12 +4647,48 @@ app.addEventListener('click', async (event) => {
     render();
   } else if (action === 'toggle-squad') {
     toggleSquadCard(button.dataset.cardId, button.dataset.context);
+  } else if (action === 'switch-loadout-panel') {
+    const context = ['raid', 'preset'].includes(button.dataset.context) ? button.dataset.context : 'adventure';
+    ui.loadoutPanel[context] = button.dataset.panel === 'equipment' ? 'equipment' : 'cards';
+    render();
+  } else if (action === 'select-equipment') {
+    const context = ['raid', 'preset'].includes(button.dataset.context) ? button.dataset.context : 'adventure';
+    const equipmentId = String(button.dataset.equipmentId || '');
+    const state = store.getState();
+    if (equipmentId && !equipmentById(state.equipmentInventory, equipmentId)) return;
+    if (context === 'preset') {
+      if (ui.modal?.type !== 'deck-preset') return;
+      ui.modal.equipmentCardId = equipmentId;
+    } else {
+      store.update((draft) => {
+        if (context === 'raid') draft.selectedRaidEquipmentId = equipmentId;
+        else draft.selectedExpeditionEquipmentId = equipmentId;
+      });
+    }
+    render();
+  } else if (action === 'remove-preset-card') {
+    if (ui.modal?.type !== 'deck-preset') return;
+    ui.modal.cardIds = ui.modal.cardIds.filter((id) => id !== button.dataset.cardId);
+    render();
+  } else if (action === 'edit-deck-preset') {
+    openDeckPresetEditor(Number(button.dataset.slot));
+  } else if (action === 'copy-deck-to-preset') {
+    const emptySlot = store.getState().deckPresets.findIndex((preset) => !preset);
+    openDeckPresetEditor(Math.max(0, emptySlot), { copyContext: button.dataset.context === 'raid' ? 'raid' : 'adventure' });
+  } else if (action === 'select-preset-save-slot') {
+    if (ui.modal?.type !== 'deck-preset') return;
+    ui.modal.slot = Math.max(0, Math.min(MAX_DECK_PRESETS - 1, Number(button.dataset.slot) || 0));
+    render();
   } else if (action === 'save-deck-preset') {
-    saveCurrentDeckPreset(Number(button.dataset.slot), button.dataset.context === 'raid' ? 'raid' : 'adventure');
+    saveCurrentDeckPreset();
   } else if (action === 'load-deck-preset') {
     loadSavedDeckPreset(Number(button.dataset.slot), button.dataset.context === 'raid' ? 'raid' : 'adventure');
+  } else if (action === 'toggle-mission-list') {
+    ui.missionListExpanded = !ui.missionListExpanded;
+    render();
   } else if (action === 'select-mission') {
     ui.selectedMissionId = button.dataset.missionId;
+    ui.missionListExpanded = false;
     render();
   } else if (action === 'start-expedition') {
     beginExpedition();
@@ -4743,19 +4900,6 @@ app.addEventListener('input', (event) => {
 });
 
 app.addEventListener('change', (event) => {
-  const equipmentSelect = event.target.closest('[data-action="select-equipment"]');
-  if (equipmentSelect) {
-    const context = equipmentSelect.dataset.context === 'raid' ? 'raid' : 'adventure';
-    const equipmentId = String(equipmentSelect.value || '');
-    const state = store.getState();
-    if (equipmentId && !equipmentById(state.equipmentInventory, equipmentId)) return;
-    store.update((draft) => {
-      if (context === 'raid') draft.selectedRaidEquipmentId = equipmentId;
-      else draft.selectedExpeditionEquipmentId = equipmentId;
-    });
-    render({ preserveViewScroll: true });
-    return;
-  }
   const adminInput = event.target.closest('.admin-mail-form [name]');
   if (!adminInput) return;
   ui.admin.draft = { ...(ui.admin.draft || {}), [adminInput.name]: adminInput.value };

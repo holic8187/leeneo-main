@@ -1,0 +1,167 @@
+/* Mobile card-RPG shell. Existing card art stays the visual identity. */
+.mission-list-toggle { display: none; }
+.mission-reward-details { margin: 8px 0 16px; color: var(--muted); font-size: 12px; }
+.mission-reward-details summary { cursor: pointer; padding: 10px 0; }
+.mission-reward-details p { margin: 0; line-height: 1.7; }
+.settings-utility-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.selected-squad-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.selected-squad-slot { position: relative; min-width: 0; height: 112px; padding: 0; overflow: hidden; border: 1px solid #b9b19e; border-radius: 4px; color: #fff9eb; background: #252d30; cursor: pointer; }
+.selected-squad-slot img { width: 100%; height: 100%; object-fit: cover; object-position: center 24%; }
+.selected-squad-slot b { position: absolute; top: 4px; left: 4px; display: grid; width: 20px; height: 20px; place-items: center; color: #fff; background: #1d282d; border: 1px solid #bba272; font-size: 11px; }
+.selected-squad-slot > span { position: absolute; bottom: 0; left: 0; width: 100%; overflow: hidden; padding: 12px 4px 5px; background: linear-gradient(transparent, #121a20 65%); font-size: 11px; font-weight: 700; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.selected-squad-slot.is-empty { border-style: dashed; color: var(--muted); background: #eae6dc; cursor: default; }
+.selected-squad-slot.is-empty > span { color: #73736a; background: none; bottom: 28%; }
+.selected-squad-slot.is-empty b { color: #73736a; background: none; border: 0; }
+.payroll-mode .selected-squad-slot img { visibility: hidden; }
+.preset-member-remove { position: relative; min-width: 0; min-height: 44px; padding: 0; border: 0; background: none; cursor: pointer; }
+.preset-member-remove img { display: block; }
+.preset-member-remove small { position: absolute; right: 0; bottom: 0; left: 0; padding: 4px; color: #fff; background: #182026db; font-size: 10px; }
+/* Persistent editors re-render on each selection; replaying entrance animations flickers. */
+.modal-backdrop:has(.deck-preset-editor-modal), .deck-preset-editor-modal { animation: none; }
+
+@media (max-width: 700px) {
+  :root { --paper: #f1ede4; --paper-bright: #fcfaf4; --ink: #242c30; --muted: #676c6c; --line: #d9d3c5; --line-dark: #475154; --forest: #26383d; --forest-soft: #3c5b60; --teal: #39656b; --gold: #bd9456; --sidebar: #182026; }
+  .app-shell { --mobile-nav-height: calc(62px + env(safe-area-inset-bottom)); }
+  .topbar { display: grid; grid-template-columns: minmax(44px, .8fr) minmax(0, 1.8fr) 44px; grid-template-rows: auto; min-height: 64px; gap: 8px; padding: max(8px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left)); color: #f5efdf; background: #182026; border-bottom: 1px solid #a08659; }
+  .page-heading { min-width: 0; margin: 0; }
+  .page-heading h1 { margin: 0; font-size: 17px; }
+  .page-kicker { display: none; }
+  .resource-strip { grid-column: 2; grid-row: 1; width: 100%; min-width: 0; flex: initial; margin: 0; border: 0; background: #222d33; border-radius: 3px; }
+  .resource-item { flex: 1; min-width: 0; grid-template-columns: 17px minmax(0, 1fr); grid-template-rows: 1fr; padding: 9px 7px; column-gap: 5px; }
+  .resource-item + .resource-item { border-left-color: #3c4546; }
+  .resource-item span { display: none; }
+  .resource-item svg { grid-row: auto; width: 16px; height: 16px; }
+  .resource-item strong { font-family: inherit; font-variant-numeric: tabular-nums; font-size: 12px; }
+  .top-actions { display: block; grid-column: 3; grid-row: 1; }
+  .top-actions > button { display: none; }
+  .top-actions > [data-action="open-settings"].icon-button { display: grid; width: 44px; height: 44px; min-height: 44px; place-items: center; border: 0; color: #dfd6c2; background: transparent; }
+  .update-chip { top: 100%; right: 10px; max-width: calc(100vw - 20px); z-index: 8; font-size: 11px; }
+  .sidebar { height: var(--mobile-nav-height); min-height: var(--mobile-nav-height); padding: 0 max(4px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(4px, env(safe-area-inset-left)); overflow: hidden; background: #182026; border-top: 1px solid #485050; }
+  .primary-nav { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); min-width: 0; gap: 0; }
+  .nav-button { display: flex; width: 100%; min-width: 0; height: 61px; padding: 7px 2px 5px; flex-direction: column; justify-content: center; gap: 5px; color: #aeb5b5; border: 0; border-radius: 0; }
+  .nav-button svg { width: 20px; height: 20px; }
+  .nav-button span:not(.nav-alert):not(.nav-count) { display: block; font-size: 10px; font-weight: 600; line-height: 1.2; }
+  .nav-button.is-active { color: #eed5a1; background: #263137; box-shadow: none; }
+  .nav-button.is-active::before { top: 0; bottom: auto; left: 16px; right: 16px; height: 2px; width: auto; background: #d1ab6b; }
+  .nav-count { top: 4px; right: 5px; min-width: 15px; font-size: 9px; }
+  .nav-alert { top: 7px; right: 15px; }
+  .view-host { padding: 18px 14px 28px; scroll-padding-block: 14px 128px; }
+  .view-host:is([data-view="adventure"], [data-view="raid"]) { padding-bottom: 126px; }
+  .section-heading h2, .subheading h3 { font-size: 17px; }
+  .section-heading > span { font-size: 11px; }
+  .eyebrow { font-size: 10px; letter-spacing: .08em; }
+  .primary-button, .secondary-button, .alert-button { min-height: 46px; font-size: 13px; border-radius: 4px; box-shadow: none; }
+  .primary-button { background: #263d43; border-color: #263d43; }
+  .secondary-button { color: #2e4549; background: #fcfaf4; }
+  .alert-button { color: #fff9ef; background: #974939; border-color: #974939; }
+  .text-button { min-height: 44px; font-size: 12px; }
+  .deck-preset-panel { padding: 18px 0 0; border: 0; border-top: 1px solid var(--line); background: transparent; }
+  .deck-preset-list { grid-template-columns: minmax(0, 1fr); gap: 0; margin-top: 8px; }
+  .deck-preset-card { grid-template-columns: minmax(78px, 1fr) minmax(0, 1.4fr) 52px; grid-template-rows: auto auto; gap: 3px 8px; padding: 10px 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
+  .deck-preset-heading { grid-column: 1; grid-row: 1; gap: 5px; }
+  .deck-preset-heading > span { width: 18px; height: 18px; flex: 0 0 18px; border-radius: 2px; font-size: 10px; }
+  .deck-preset-heading strong { font-size: 11px; }
+  .deck-preset-card > small { grid-column: 1; grid-row: 2; font-size: 10px; }
+  .deck-preset-card > .deck-preset-members { grid-column: 2; grid-row: 1 / 3; gap: 3px; align-self: center; }
+  .deck-preset-card .deck-preset-members :is(img, span) { height: 46px; aspect-ratio: auto; object-position: center 25%; }
+  .deck-preset-actions { grid-column: 3; grid-row: 1 / 3; align-self: center; }
+  .deck-preset-actions button { min-height: 44px; padding: 4px; font-size: 11px; border-color: #aaa38f; background: transparent; }
+  .adventure-layout { gap: 12px; }
+  .mission-board { padding: 0; border: 0; background: transparent; }
+  .mission-board > .section-heading { display: none; }
+  .mission-list-toggle { display: flex; width: 100%; min-height: 66px; align-items: center; justify-content: space-between; padding: 12px 14px; gap: 10px; border: 1px solid #8c8a7d; border-left: 3px solid #b28d52; border-radius: 4px; background: #fcfaf4; text-align: left; }
+  .mission-list-toggle > span { display: grid; gap: 5px; }
+  .mission-list-toggle small { color: var(--muted); font-size: 11px; }
+  .mission-list-toggle strong { font-size: 16px; }
+  .mission-list-toggle svg { flex: 0 0 20px; transition: transform .15s; }
+  .mission-list-toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
+  .mission-list { display: none; margin: 0; max-height: 48dvh; overflow-y: auto; overscroll-behavior: contain; background: #fcfaf4; border: 1px solid var(--line); border-top: 0; }
+  .mission-list.is-expanded { display: block; }
+  .mission-row { grid-template-columns: 24px minmax(0, 1fr) auto; gap: 8px; padding: 12px 10px; }
+  .mission-row > svg { display: none; }
+  .mission-copy strong { font-size: 12px; }
+  .mission-copy small, .mission-meta small { font-size: 10px; line-height: 1.5; }
+  .mission-meta b { font-size: 12px; }
+  .assignment-sheet { padding: 16px 14px; border: 1px solid var(--line); border-radius: 4px; }
+  .operation-banner { align-items: center; }
+  .operation-banner .eyebrow { display: none; }
+  .operation-banner h2 { font-size: 17px; }
+  .assignment-description { min-height: 0; font-size: 12px; line-height: 1.7; margin: 10px 0; }
+  .requirement-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; overflow: visible; margin: 12px 0; padding: 12px; background: #efebe0; border: 0; }
+  .requirement-row > span { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 8px; padding: 0; border: 0; font-size: 11px; }
+  .requirement-row strong { font-family: inherit; font-variant-numeric: tabular-nums; font-size: 13px; }
+  .mission-reward-preview { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; padding: 0; background: transparent; border: 0; }
+  .mission-reward-preview > span { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 5px; padding: 9px 3px; justify-items: center; text-align: center; background: transparent; }
+  .mission-reward-preview svg { display: none; }
+  .mission-reward-preview small { font-size: 10px; }
+  .mission-reward-preview strong { grid-column: 1; font-family: inherit; font-size: 13px; }
+  .requirement-warning { font-size: 12px; line-height: 1.6; }
+  .adventure-start-bar, .raid-dispatch-bar { position: fixed; z-index: 20; top: auto; bottom: var(--mobile-nav-height); left: 0; right: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(136px, .95fr); align-items: center; gap: 10px; margin: 0; padding: 10px max(14px, env(safe-area-inset-right)) 10px max(14px, env(safe-area-inset-left)); border: 0; border-top: 1px solid #b7ad97; color: var(--ink); background: #fcfaf4; box-shadow: 0 -4px 16px #18202612; }
+  .adventure-start-summary span { display: none; }
+  .adventure-start-summary strong { font-size: 12px; }
+  .adventure-start-summary small { font-family: inherit; font-size: 10px; line-height: 1.55; }
+  .adventure-start-bar .assignment-submit, .raid-dispatch-bar .raid-dispatch { width: 100%; min-width: 0; min-height: 48px; margin: 0; padding: 8px; font-size: 12px; }
+  .raid-dispatch-bar .raid-power { min-width: 0; width: auto; padding: 0; border: 0; }
+  .raid-power > span { font-size: 11px; }
+  .raid-power > strong { font-size: 22px; }
+  .loadout-editor { margin-top: 14px; }
+  .selected-squad-slot { height: 96px; }
+  .preset-quick-load { padding: 0; border: 0; background: transparent; }
+  .preset-quick-load .subheading h3 { font-size: 12px; }
+  .preset-quick-load .subheading .text-button { min-height: 44px; padding: 4px; font-size: 11px; }
+  .preset-quick-buttons button { min-height: 44px; gap: 2px; font-family: inherit; font-size: 14px; }
+  .preset-quick-buttons button small { font-size: 10px; }
+  .loadout-slots { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-block: 12px; }
+  .loadout-slot { min-height: 58px; padding: 9px; border-radius: 4px; }
+  .loadout-slot > span { font-size: 10px; }
+  .loadout-slot > strong { font-size: 12px; }
+  .loadout-slot > small { font-size: 10px; }
+  .loadout-tabs { gap: 0; padding: 0; border: 0; border-bottom: 1px solid #b8b09d; border-radius: 0; background: transparent; }
+  .loadout-tabs button { min-height: 46px; border: 0; border-bottom: 3px solid transparent; border-radius: 0; font-size: 14px; }
+  .loadout-tabs button small { font-size: 11px; }
+  .loadout-tabs button.is-active { color: #253b40; background: transparent; border-bottom-color: #98783e; box-shadow: none; }
+  .loadout-panel { margin-top: 12px; }
+  .squad-picker { gap: 8px; }
+  .squad-card-shell .squad-card { grid-template-columns: 48px minmax(0, 1fr) 20px; min-height: 86px; padding: 8px 49px 8px 8px; gap: 9px; }
+  .squad-card .squad-card__art { width: 48px; height: 66px; object-position: center 24%; }
+  .squad-card strong { font-size: 13px; }
+  .squad-card small, .squad-card small b, .squad-detail-copy { font-size: 11px; line-height: 1.55; }
+  .squad-card small { display: grid; white-space: normal; }
+  .squad-card-info { right: 3px; width: 44px; height: 44px; border: 0; border-radius: 4px; background: transparent; }
+  .squad-card-info svg { width: 17px; height: 17px; }
+  .squad-card.is-selected { border-color: #6e765f; background: #f2edda; box-shadow: inset 3px 0 #a58449; }
+  .equipment-choice { min-height: 72px; padding: 12px; }
+  .equipment-choice-copy strong { font-size: 13px; }
+  .equipment-choice-copy small { font-size: 11px; }
+  .equipment-empty, .equipment-coming-soon { font-size: 12px; }
+  .equipment-picker { max-height: none; overflow: visible; }
+  .raid-art { height: 220px; }
+  .raid-stage, .raid-command { border-top: 0; border-radius: 4px; overflow: hidden; }
+  .raid-command { padding: 16px 14px; border: 1px solid var(--line); }
+  .raid-command > .section-heading .eyebrow { display: none; }
+  .raid-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; overflow: visible; }
+  .raid-stats > div { min-width: 0; padding: 8px; }
+  .raid-stats span { font-size: 10px; }
+  .raid-stats strong { font-size: 14px; }
+  .local-operation-note { font-size: 11px; line-height: 1.6; }
+  .deployed-squad { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  .modal-backdrop { padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); background: #10171cd9; }
+  .modal-sheet { border-top-color: #ad8d55; border-radius: 6px; }
+  .modal-close { top: 8px; right: 8px; width: 44px; height: 44px; }
+  .deck-preset-editor-modal { max-height: calc(100dvh - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); padding: 18px 14px 0; scroll-padding-bottom: 82px; }
+  .deck-preset-editor-modal > .eyebrow { display: none; }
+  .deck-preset-editor-modal > h2 { margin-top: 0; font-size: 20px; }
+  .deck-preset-editor-modal > p { margin: 9px 38px 12px 0; font-size: 12px; line-height: 1.6; }
+  .deck-preset-editor-summary { padding: 0; border: 0; background: transparent; }
+  .deck-preset-editor-summary .deck-preset-members { width: 100%; }
+  .deck-preset-editor-summary .deck-preset-members :is(img, span) { height: 86px; aspect-ratio: auto; object-position: center 24%; }
+  .deck-preset-editor-modal .modal-actions { position: sticky; z-index: 4; bottom: 0; display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 8px; margin: 14px -14px 0; padding: 10px 14px; background: #fcfaf4; border-top: 1px solid #b7ad97; }
+  .deck-preset-editor-modal .modal-actions > button { min-width: 0; min-height: 48px; font-size: 13px; }
+  .preset-slot-tabs { margin-top: 12px; gap: 4px; }
+  .preset-slot-tabs button { min-height: 44px; font-size: 11px; }
+  .app-notice { bottom: calc(var(--mobile-nav-height) + 90px); padding: 12px; font-size: 12px; pointer-events: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-backdrop, .modal-sheet, .app-notice, .mission-list-toggle svg { animation: none; transition: none; }
+}

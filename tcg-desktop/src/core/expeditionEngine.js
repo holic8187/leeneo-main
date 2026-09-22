@@ -70,24 +70,9 @@ export function startExpedition({
   catalog,
   now = Date.now(),
 }) {
-  if (!mission) throw new Error('모험 정보를 찾을 수 없습니다.');
-  const sourceIds = Array.isArray(cardIds) ? cardIds : [];
-  const squad = [...new Set(sourceIds)].filter((id) => collection?.[id]).slice(0, MAX_SQUAD_SIZE);
-  const catalogById = new Map((Array.isArray(catalog) ? catalog : []).map((card) => [card.id, card]));
-  const characterIds = squad.map((cardId) => catalogById.get(cardId)?.characterId || cardId);
-  if (new Set(characterIds).size !== characterIds.length) {
-    throw new Error('등급이 달라도 같은 인물은 한 모험 파티에 중복 편성할 수 없습니다.');
-  }
-  const requiredCards = Math.max(1, Math.floor(Number(mission.requiredCards) || 1));
-  if (squad.length < requiredCards) {
-    throw new Error(`카드를 ${requiredCards}장 이상 편성해 주세요.`);
-  }
-
-  const score = calculateSquadScore(squad, collection, catalog, cardEnhancements, [], cardProgression, equipment);
-  const minimumPower = missionMinimumPower(mission);
-  if (score < minimumPower) {
-    throw new Error(`최소 합산 전투력 ${minimumPower.toLocaleString('ko-KR')} 이상이 필요합니다.`);
-  }
+  const eligibility = expeditionEligibility({ mission, cardIds, collection, cardEnhancements, cardProgression, equipment, catalog });
+  if (!eligibility.canStart) throw new Error(eligibility.message);
+  const { squad, score } = eligibility;
 
   return {
     id: `expedition-${now}`,
@@ -107,6 +92,56 @@ export function startExpedition({
     powerScale: COMBAT_POWER_SCALE,
     startedAt: now,
     endsAt: now + mission.durationMs,
+  };
+}
+
+// The preview, disabled button, and actual dispatch share the same owned-card
+// normalization and eligibility checks, including level and equipment bonuses.
+export function expeditionEligibility({
+  mission,
+  cardIds = [],
+  collection = {},
+  cardEnhancements = {},
+  cardProgression = {},
+  equipment = null,
+  catalog = [],
+} = {}) {
+  const sourceIds = Array.isArray(cardIds) ? cardIds : [];
+  const catalogById = new Map((Array.isArray(catalog) ? catalog : []).map((card) => [card.id, card]));
+  const squad = [...new Set(sourceIds)]
+    .filter((id) => Number(collection?.[id]) > 0 && catalogById.has(id))
+    .slice(0, MAX_SQUAD_SIZE);
+  const characterIds = squad.map((cardId) => catalogById.get(cardId)?.characterId || cardId);
+  const requiredCards = Math.max(1, Math.floor(Number(mission?.requiredCards) || 1));
+  const score = calculateSquadScore(squad, collection, catalog, cardEnhancements, [], cardProgression, equipment);
+  const minimumPower = missionMinimumPower(mission);
+  const missingCards = Math.max(0, requiredCards - squad.length);
+  const missingPower = Math.max(0, minimumPower - score);
+  let code = '';
+  let message = '';
+  if (!mission) {
+    code = 'MISSION_NOT_FOUND';
+    message = '모험 정보를 찾을 수 없습니다.';
+  } else if (new Set(characterIds).size !== characterIds.length) {
+    code = 'DUPLICATE_CHARACTER';
+    message = '등급이 달라도 같은 인물은 한 모험 파티에 중복 편성할 수 없습니다.';
+  } else if (missingCards > 0) {
+    code = 'INSUFFICIENT_CARDS';
+    message = `최소 ${requiredCards}장 편성이 필요합니다. 현재 ${squad.length}장 · ${missingCards}장을 더 선택해 주세요.`;
+  } else if (missingPower > 0) {
+    code = 'INSUFFICIENT_POWER';
+    message = `최소 합산 전투력 ${minimumPower.toLocaleString('ko-KR')} 이상이 필요합니다. ${missingPower.toLocaleString('ko-KR')}이 부족합니다.`;
+  }
+  return {
+    canStart: !code,
+    code,
+    message,
+    squad,
+    score,
+    minimumPower,
+    requiredCards,
+    missingCards,
+    missingPower,
   };
 }
 

@@ -4,10 +4,12 @@ import { ALL_CARDS, CARD_CATALOG, EXPEDITIONS, cardById } from '../src/data/card
 import {
   calculateSquadScore,
   cardExpeditionPower,
+  expeditionEligibility,
   missionMinimumPower,
   settleExpedition,
   startExpedition,
 } from '../src/core/expeditionEngine.js';
+import { createEquipment } from '../src/core/equipment.js';
 
 const rewardMidpoint = (mission) => (
   (mission.reward.coins[0] + mission.reward.coins[1]) / 2
@@ -186,4 +188,67 @@ test('an in-progress expedition saved by the previous score scale still settles 
   assert.equal(result.effectivePower, 4000);
   assert.equal(result.powerMultiplier, 1);
   assert.equal(result.success, true);
+});
+
+test('sufficient power cannot hide a missing-card requirement in the expedition preview', () => {
+  const input = {
+    mission: EXPEDITIONS.find((mission) => mission.id === 'lobby-lost-found'),
+    cardIds: ['hoi-ssr'],
+    collection: { 'hoi-ssr': 1 },
+    catalog: ALL_CARDS,
+  };
+  const preview = expeditionEligibility(input);
+  assert.ok(preview.score >= preview.minimumPower);
+  assert.equal(preview.canStart, false);
+  assert.equal(preview.code, 'INSUFFICIENT_CARDS');
+  assert.equal(preview.missingCards, 1);
+  assert.match(preview.message, /현재 1장/);
+  assert.throws(() => startExpedition(input), { message: preview.message });
+});
+
+test('expedition eligibility and dispatch agree at the level and weapon bonus boundary', () => {
+  const catalog = [{ id: 'alpha', characterId: 'alpha', combatPower: 1000, role: 'attack' }];
+  const input = {
+    mission: { id: 'boundary', requiredCards: 1, minimumPower: 1010, durationMs: 60_000 },
+    cardIds: ['alpha'], collection: { alpha: 1 }, catalog,
+  };
+  const insufficient = expeditionEligibility(input);
+  assert.equal(insufficient.code, 'INSUFFICIENT_POWER');
+  assert.equal(insufficient.missingPower, 10);
+  assert.throws(() => startExpedition(input), { message: insufficient.message });
+
+  const weapon = createEquipment({ type: 'weapon', rarity: 'c', random: () => 0.5, idFactory: () => 'weapon' });
+  const equipped = { ...input, equipment: weapon };
+  assert.equal(expeditionEligibility(equipped).canStart, true);
+  assert.equal(expeditionEligibility(equipped).score, startExpedition(equipped).score);
+  assert.equal(startExpedition(equipped).score, 1010);
+
+  const armor = createEquipment({ type: 'armor', rarity: 'ssr', random: () => 0.5, idFactory: () => 'armor' });
+  assert.equal(expeditionEligibility({ ...input, equipment: armor }).canStart, false);
+  const leveled = { ...input, cardProgression: { alpha: { level: 100, experience: 0 } } };
+  assert.equal(expeditionEligibility(leveled).canStart, true);
+  assert.equal(expeditionEligibility(leveled).score, startExpedition(leveled).score);
+});
+
+test('every mission uses the same eligibility result for preview and dispatch', () => {
+  const ids = ['hoi-ssr', 'winter-ur', 'mango-c', 'simsim-c'];
+  for (const mission of EXPEDITIONS) {
+    for (let count = 0; count <= ids.length; count += 1) {
+      const input = { mission, cardIds: ids.slice(0, count), collection: Object.fromEntries(ids.map((id) => [id, 1])), catalog: ALL_CARDS };
+      const preview = expeditionEligibility(input);
+      if (preview.canStart) assert.equal(startExpedition(input).score, preview.score);
+      else assert.throws(() => startExpedition(input), { message: preview.message });
+    }
+  }
+});
+
+test('unowned, unknown, repeated, and same-character cards cannot bypass eligibility', () => {
+  const mission = { id: 'validation', requiredCards: 2, minimumPower: 1, durationMs: 60_000 };
+  const base = { mission, collection: { 'hoi-ssr': 1, 'winter-ur': 0, unknown: 1, 'hoi-c': 1 }, catalog: ALL_CARDS };
+  const invalid = expeditionEligibility({ ...base, cardIds: ['hoi-ssr', 'hoi-ssr', 'winter-ur', 'unknown'] });
+  assert.equal(invalid.code, 'INSUFFICIENT_CARDS');
+  assert.deepEqual(invalid.squad, ['hoi-ssr']);
+  const duplicate = { ...base, cardIds: ['hoi-ssr', 'hoi-c'] };
+  assert.equal(expeditionEligibility(duplicate).code, 'DUPLICATE_CHARACTER');
+  assert.throws(() => startExpedition(duplicate), /같은 인물/);
 });

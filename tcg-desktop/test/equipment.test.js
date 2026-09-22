@@ -53,3 +53,15 @@ test('expedition equipment drops are optional and normalized inventory rejects d
   assert.equal(item.source.missionId, mission.id);
   assert.equal(normalizeEquipmentInventory([item, item]).length, 1);
 });
+
+test('the advertised overall equipment chance is decided before any rarity or stat roll', () => {
+  for (const mission of EXPEDITIONS) {
+    const chance = equipmentDropChanceForMission(mission);
+    let calls = 0;
+    const miss = rollExpeditionEquipmentDrop({ mission, random: () => { calls += 1; return chance; } });
+    assert.equal(miss, null);
+    assert.equal(calls, 1, mission.id);
+    const rolls = [chance - 0.000001, 0.5, 0, 0.5];
+    assert.ok(rollExpeditionEquipmentDrop({ mission, random: () => rolls.shift(), idFactory: () => 'drop-test' }), mission.id);
+  }
+});
