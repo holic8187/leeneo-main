@@ -1,0 +1,27 @@
+.relic-picker { grid-column: 1 / -1; min-width: 0; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line, #d8dee3); }
+.relic-picker .subheading { flex-wrap: wrap; gap: 6px; }
+.relic-picker > .equipment-choice { width: 100%; margin-bottom: 10px; }
+.relic-card { display: grid; grid-template-columns: minmax(95px, 140px) minmax(0, 1fr); gap: 14px; padding: 12px; border: 1px solid #bca878; border-radius: 12px; background: #f8f3e7; color: #293c40; }
+.relic-card.is-selected { border: 2px solid #488472; padding: 11px; }
+.relic-card__art { position: relative; align-self: start; overflow: hidden; border-radius: 8px; box-shadow: 0 4px 12px #253b4026; }
+.relic-card__art img { display: block; width: 100%; aspect-ratio: 3 / 4; object-fit: cover; }
+.relic-card__art > span { position: absolute; left: 0; right: 0; bottom: 0; padding: 7px 4px; background: #172f2de6; color: #f5de9a; font-size: 10px; font-weight: 800; text-align: center; letter-spacing: .08em; }
+.relic-card__copy { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; }
+.relic-card__copy h4, .relic-card__copy p { margin: 0; }
+.relic-card__copy h4 { font-size: 18px; }
+.relic-card__copy > strong { color: #267258; font-size: 13px; }
+.relic-card__copy p { font-size: 12px; line-height: 1.6; word-break: keep-all; overflow-wrap: anywhere; }
+.relic-card__copy small { font-size: 11px; line-height: 1.5; }
+.relic-card__copy button { min-height: 40px; margin-top: auto; }
+.adventure-repeat { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin: 12px 0; padding: 12px; border-radius: 10px; background: #eaf2ef; }
+.adventure-repeat span { min-width: 0; font-size: 12px; line-height: 1.5; }
+.adventure-repeat button { min-height: 42px; }
+.relic-bonus-note { color: #267258; font-size: 12px; font-weight: 700; }
+.raid-bonus-guide { font-size: 12px; line-height: 1.65; padding: 10px 12px; background: #eef1f6; border-radius: 8px; }
+@media (max-width: 420px) {
+  .relic-card { grid-template-columns: 90px minmax(0, 1fr); gap: 10px; padding: 10px; }
+  .relic-card.is-selected { padding: 9px; }
+  .relic-card__copy h4 { font-size: 16px; }
+  .relic-card__copy p { font-size: 11px; }
+  .relic-card__copy button { width: 100%; padding: 8px; font-size: 12px; }
+}

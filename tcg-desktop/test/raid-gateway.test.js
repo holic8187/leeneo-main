@@ -70,7 +70,11 @@ test('raid gateway preserves weekly stages, daily entries, zero rewards, and bat
     canEnter: true, weeklyCompleted: false, cooldownMs: 0,
     weekKey: '2026-09-15', dayKey: '2026-09-16',
     resetsAt: 9000, dailyResetsAt: 8000,
-    earnedRewards: { coins: 0, packs: 0 },
+    earnedRewards: {
+      coins: 0,
+      packs: 0,
+      bonuses: [{ id: 'bonus-1', type: 'relic', relicId: 'luxury-bag', quantity: 1, stage: 5 }],
+    },
   };
   const fetchImpl = async (url, options) => {
     calls.push({ url, options });
@@ -91,7 +95,11 @@ test('raid gateway preserves weekly stages, daily entries, zero rewards, and bat
   assert.equal(started.state.stage, 3);
   assert.equal(started.state.remainingEntries, 3);
   assert.equal(started.state.cooldownMs, 0);
-  assert.deepEqual(started.state.earnedRewards, { coins: 0, packs: 0 });
+  assert.deepEqual(started.state.earnedRewards, {
+    coins: 0,
+    packs: 0,
+    bonuses: [{ id: 'bonus-1', type: 'relic', relicId: 'luxury-bag', quantity: 1, stage: 5 }],
+  });
   assert.equal(started.battle.sessionId, 'session-1');
   assert.equal(started.ranking.period, 'weekly');
   await gateway.finish('token', {

@@ -25,6 +25,7 @@ const tcgPersonalRaidDailySchema = new mongoose.Schema({
   activeSession: { type: mongoose.Schema.Types.Mixed, default: null },
   lastFinishedSessionId: { type: String, default: '' },
   lastFinishedResult: { type: mongoose.Schema.Types.Mixed, default: null },
+  bonusRewards: { type: [mongoose.Schema.Types.Mixed], default: [] },
   weeklyCompleted: { type: Boolean, default: false },
   lastDispatchAt: { type: Date, default: null },
   lastDamage: { type: Number, default: 0, min: 0 },

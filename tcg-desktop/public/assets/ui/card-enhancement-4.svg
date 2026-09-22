@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 64" role="img" aria-labelledby="title">
+  <title id="title">강화 +4</title>
+  <defs>
+    <linearGradient id="edge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f4b5ff"/>
+      <stop offset=".42" stop-color="#a43dd6"/>
+      <stop offset=".72" stop-color="#e95f9d"/>
+      <stop offset="1" stop-color="#ffd2ff"/>
+    </linearGradient>
+    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#65247e"/>
+      <stop offset="1" stop-color="#281344"/>
+    </linearGradient>
+    <filter id="shadow" x="-25%" y="-25%" width="150%" height="160%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#160021" flood-opacity=".78"/>
+      <feDropShadow dx="0" dy="0" stdDeviation="1.5" flood-color="#e986ff" flood-opacity=".55"/>
+    </filter>
+  </defs>
+  <g filter="url(#shadow)">
+    <path fill="url(#edge)" d="M13 5h70l10 12v29L81 59H15L3 47V18z"/>
+    <path fill="#3e1752" d="M15 9h66l8 10v25L79 55H17L7 45V20z"/>
+    <path fill="url(#face)" stroke="#ed9eff" stroke-width="1.5" d="M18 13h60l7 8v21l-8 9H19l-8-8V22z"/>
+    <path fill="#ffd5ff" d="M12 23h3v17h-3zm69 0h3v17h-3z" opacity=".74"/>
+    <path fill="#ffd5ff" d="m17 14 1.4 3 3 1.4-3 1.4-1.4 3-1.4-3-3-1.4 3-1.4zm62 27 1.4 3 3 1.4-3 1.4-1.4 3-1.4-3-3-1.4 3-1.4z"/>
+  </g>
+  <text x="48" y="42" fill="#fff" stroke="#351044" stroke-width="3" paint-order="stroke" text-anchor="middle" font-family="Arial Black,Arial,sans-serif" font-size="29" font-weight="900">+4</text>
+</svg>

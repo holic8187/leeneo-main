@@ -23,6 +23,20 @@ const PERSONAL_RAID_CLEAR_REWARD = Object.freeze({ coins: 0, packs: 3 });
 const PERSONAL_RAID_COOLDOWN_MS = 0; // v1 compatibility export
 const PERSONAL_RAID_MAX_DAILY_CLEARS = PERSONAL_RAID_MAX_DAILY_ENTRIES; // v1 compatibility export
 const CARD_RARITY_SUFFIXES = new Set(['c', 'u', 'r', 'rr', 'rrr', 'sr', 'hr', 'ur', 'ssr']);
+const RAID_RELIC_ID = 'luxury-bag';
+const MAX_RAID_BONUS_REWARDS = PERSONAL_RAID_MAX_STAGE * 2;
+const RAID_SR_PLUS_RARITY_WEIGHTS = Object.freeze([
+  Object.freeze({ rarity: 'sr', weight: 70 }),
+  Object.freeze({ rarity: 'hr', weight: 22 }),
+  Object.freeze({ rarity: 'ur', weight: 7 }),
+  Object.freeze({ rarity: 'ssr', weight: 1 })
+]);
+const RAID_SR_PLUS_CARD_POOLS = Object.freeze(Object.fromEntries(
+  RAID_SR_PLUS_RARITY_WEIGHTS.map(({ rarity }) => [
+    rarity,
+    Object.freeze(Object.keys(CARD_COMBAT_POWER).filter((cardId) => cardId.endsWith(`-${rarity}`)))
+  ])
+));
 
 function cardCharacterKey(cardId) {
   const normalized = String(cardId || '').trim();
@@ -99,6 +113,92 @@ function clearRewardForStage(stage) {
 function cumulativeClearRewards(clearCount) {
   const clears = Math.max(0, Math.min(PERSONAL_RAID_MAX_STAGE, Math.floor(Number(clearCount) || 0)));
   return { coins: 0, packs: 3 * clears * (clears + 1) / 2 };
+}
+
+function randomUnit(random = Math.random) {
+  return Math.min(0.999999, Math.max(0, Number(random()) || 0));
+}
+
+function relicDropChanceForStage(stage) {
+  const normalized = Math.max(1, Math.min(PERSONAL_RAID_MAX_STAGE, Math.floor(Number(stage) || 1)));
+  return normalized >= 5 ? (normalized - 4) * 0.005 : 0;
+}
+
+function stageBonusRewardId(weekKey, bossId, stage, type) {
+  return `${String(weekKey || '').trim()}:${String(bossId || '').trim()}:stage-${stage}:${type}`.slice(0, 200);
+}
+
+function normalizeRaidBonusRewards(value) {
+  if (!Array.isArray(value)) return [];
+  const normalized = [];
+  const seen = new Set();
+  for (const raw of value) {
+    if (!raw || typeof raw !== 'object' || normalized.length >= MAX_RAID_BONUS_REWARDS) continue;
+    const id = String(raw.id || '').trim().slice(0, 200);
+    const type = String(raw.type || '').trim();
+    const stage = Math.max(1, Math.min(PERSONAL_RAID_MAX_STAGE, Math.floor(Number(raw.stage) || 1)));
+    const quantity = Math.max(1, Math.min(100, Math.floor(Number(raw.quantity) || 1)));
+    if (!id || seen.has(id)) continue;
+    if (type === 'relic') {
+      const relicId = String(raw.relicId || '').trim().slice(0, 120);
+      if (!relicId) continue;
+      normalized.push({ id, type, relicId, quantity, stage });
+    } else if (type === 'card') {
+      const cardId = String(raw.cardId || '').trim().slice(0, 120);
+      const rarity = String(raw.rarity || cardId.slice(cardId.lastIndexOf('-') + 1)).trim().toLowerCase();
+      if (!cardId || !RAID_SR_PLUS_CARD_POOLS[rarity]?.includes(cardId)) continue;
+      normalized.push({ id, type, cardId, rarity, quantity, stage });
+    } else {
+      continue;
+    }
+    seen.add(id);
+  }
+  return normalized;
+}
+
+function rollSrPlusRarity(random = Math.random) {
+  const roll = randomUnit(random) * 100;
+  let threshold = 0;
+  for (const entry of RAID_SR_PLUS_RARITY_WEIGHTS) {
+    threshold += entry.weight;
+    if (roll < threshold) return entry.rarity;
+  }
+  return 'ssr';
+}
+
+function rollStageClearBonuses({ stage, weekKey, bossId, random = Math.random } = {}) {
+  const normalizedStage = Math.max(1, Math.min(PERSONAL_RAID_MAX_STAGE, Math.floor(Number(stage) || 1)));
+  const bonuses = [];
+  const relicChance = relicDropChanceForStage(normalizedStage);
+  if (relicChance > 0 && randomUnit(random) < relicChance) {
+    bonuses.push({
+      id: stageBonusRewardId(weekKey, bossId, normalizedStage, 'relic'),
+      type: 'relic',
+      relicId: RAID_RELIC_ID,
+      quantity: 1,
+      stage: normalizedStage
+    });
+  }
+  if (normalizedStage >= 8) {
+    const rarity = rollSrPlusRarity(random);
+    const pool = RAID_SR_PLUS_CARD_POOLS[rarity] || [];
+    if (pool.length) {
+      const cardId = pool[Math.floor(randomUnit(random) * pool.length)];
+      bonuses.push({
+        id: stageBonusRewardId(weekKey, bossId, normalizedStage, 'card'),
+        type: 'card',
+        cardId,
+        rarity,
+        quantity: 1,
+        stage: normalizedStage
+      });
+    }
+  }
+  return bonuses;
+}
+
+function appendRaidBonusRewards(existing, additions) {
+  return normalizeRaidBonusRewards([...normalizeRaidBonusRewards(existing), ...additions]);
 }
 
 function playerCardLevel(playerState, cardId) {
@@ -264,7 +364,7 @@ async function ensureWeeklyRecord(Model, key, account, boss) {
       ...key, weekKey: key.dayKey, schemaVersion: RAID_SCHEMA_VERSION, nickname: String(account.nickname || ''),
       currentStage: 1, currentHp: boss.stageHp[1], contribution: 0, dispatchCount: 0, clearCount: 0,
       dailyEntryDayKey: '', dailyEntryCount: 0, activeSession: null, lastFinishedSessionId: '',
-      lastDamage: 0, lastSquadScore: 0, weeklyCompleted: false, revision: 0
+      lastDamage: 0, lastSquadScore: 0, bonusRewards: [], weeklyCompleted: false, revision: 0
     } }, { upsert: true });
   } catch (error) { if (error?.code !== 11000) throw error; }
 }
@@ -302,7 +402,11 @@ function serializePersonalRaidState(record, account, boss, window, now = Date.no
     dispatches, clears,
     weeklyCompleted: progress.completed, activeSession, canEnter, canDispatch: canEnter,
     limitReached: entriesToday >= boss.maxDailyEntries, cooldownMs: 0, remainingCooldownMs: 0,
-    rewardKey: `${week.weekKey}:${boss.id}`, earnedRewards: cumulativeClearRewards(clears)
+    rewardKey: `${week.weekKey}:${boss.id}`,
+    earnedRewards: {
+      ...cumulativeClearRewards(clears),
+      bonuses: currentRules ? normalizeRaidBonusRewards(record?.bonusRewards) : []
+    }
   };
 }
 
@@ -336,7 +440,8 @@ async function startPersonalRaid({ TcgPersonalRaidDaily, account, bossId = 'dead
       dispatchCount: 1,
       lastFinishedSessionId: '',
       lastFinishedResult: null,
-      lastDamage: 0
+      lastDamage: 0,
+      bonusRewards: []
     } : {};
     const incrementFields = migrating ? { revision: 1 } : { dispatchCount: 1, revision: 1 };
     const updated = await TcgPersonalRaidDaily.findOneAndUpdate({ _id: snapshot._id, revision: Number(snapshot.revision) || 0 }, { $set: {
@@ -352,7 +457,7 @@ async function startPersonalRaid({ TcgPersonalRaidDaily, account, bossId = 'dead
   throw new PersonalRaidError('RAID_BUSY', '동시에 처리 중인 레이드 요청이 있습니다.', 409);
 }
 
-async function finishPersonalRaid({ TcgPersonalRaidDaily, account, bossId = 'deadline-dragon-raid', sessionId, damageDealt, bossHpRemaining, turns, battleLog, now = Date.now(), validateSession = null }) {
+async function finishPersonalRaid({ TcgPersonalRaidDaily, account, bossId = 'deadline-dragon-raid', sessionId, damageDealt, bossHpRemaining, turns, battleLog, now = Date.now(), validateSession = null, random = Math.random }) {
   const boss = getPersonalRaidBoss(bossId);
   if (!boss) throw new PersonalRaidError('UNKNOWN_RAID_BOSS', '개인 레이드 보스를 찾을 수 없습니다.', 404);
   const damage = parseSubmittedDamage(damageDealt); const id = String(sessionId || '').trim();
@@ -366,7 +471,12 @@ async function finishPersonalRaid({ TcgPersonalRaidDaily, account, bossId = 'dea
   for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {
     const snapshot = await findRecord(TcgPersonalRaidDaily, key);
     if (!snapshot) throw new PersonalRaidError('RAID_SESSION_NOT_FOUND', '진행 중인 레이드를 찾을 수 없습니다.', 404);
-    if (String(snapshot.lastFinishedSessionId || '') === id) throw new PersonalRaidError('RAID_SESSION_ALREADY_FINISHED', '이미 반영된 레이드 결과입니다.', 409);
+    if (String(snapshot.lastFinishedSessionId || '') === id) {
+      if (snapshot.lastFinishedResult && typeof snapshot.lastFinishedResult === 'object') {
+        return { record: snapshot, boss, window: week, result: snapshot.lastFinishedResult };
+      }
+      throw new PersonalRaidError('RAID_SESSION_ALREADY_FINISHED', '이미 반영된 레이드 결과입니다.', 409);
+    }
     const session = snapshot.activeSession;
     if (!session || String(session.sessionId || '') !== id) throw new PersonalRaidError('RAID_SESSION_MISMATCH', '현재 진행 중인 레이드와 일치하지 않습니다.', 409);
     if (new Date(session.expiresAt).getTime() <= nowMs) throw new PersonalRaidError('RAID_SESSION_EXPIRED', '레이드 전투 시간이 만료되었습니다.', 409);
@@ -380,11 +490,18 @@ async function finishPersonalRaid({ TcgPersonalRaidDaily, account, bossId = 'dea
     const cleared = remaining === 0; const completed = cleared && progress.stage === boss.maxStage;
     const nextStage = cleared && !completed ? progress.stage + 1 : progress.stage;
     const storedHp = cleared ? (completed ? 0 : boss.stageHp[nextStage]) : remaining;
-    const result = { sessionId: id, stage: progress.stage, squadScore: Number(session.squadScore) || 0, damage, damageDealt: damage, bossHpBefore: progress.hp, bossHpAfter: remaining, bossHpRemaining: remaining, turns: Number(turns) || 0, cleared, weeklyCompleted: completed, nextStage, totalContribution: progress.contribution + damage, reward: cleared ? clearRewardForStage(progress.stage) : { coins: 0, packs: 0 } };
+    const bonuses = cleared ? rollStageClearBonuses({
+      stage: progress.stage,
+      weekKey: week.weekKey,
+      bossId: boss.id,
+      random
+    }) : [];
+    const bonusRewards = appendRaidBonusRewards(snapshot.bonusRewards, bonuses);
+    const result = { sessionId: id, stage: progress.stage, squadScore: Number(session.squadScore) || 0, damage, damageDealt: damage, bossHpBefore: progress.hp, bossHpAfter: remaining, bossHpRemaining: remaining, turns: Number(turns) || 0, cleared, weeklyCompleted: completed, nextStage, totalContribution: progress.contribution + damage, reward: { ...(cleared ? clearRewardForStage(progress.stage) : { coins: 0, packs: 0 }), bonuses } };
     const updated = await TcgPersonalRaidDaily.findOneAndUpdate({ _id: snapshot._id, revision: Number(snapshot.revision) || 0, 'activeSession.sessionId': id }, { $set: {
       nickname: String(account.nickname || snapshot.nickname || ''), currentStage: nextStage, currentHp: storedHp,
       weeklyCompleted: completed, activeSession: null, lastFinishedSessionId: id, lastFinishedResult: result,
-      lastDamage: damage, updatedAt: nowDate
+      lastDamage: damage, bonusRewards, updatedAt: nowDate
     }, $inc: { contribution: damage, clearCount: cleared ? 1 : 0, revision: 1 } }, { new: true, runValidators: true });
     if (!updated) continue;
     return { record: typeof updated.toObject === 'function' ? updated.toObject() : updated, boss, window: week, result };
@@ -424,9 +541,11 @@ module.exports = {
   DEFAULT_RANKING_LIMIT, KST_OFFSET_MS, MAX_RANKING_LIMIT, PERSONAL_RAID_BOSSES, PERSONAL_RAID_CLEAR_REWARD,
   PERSONAL_RAID_COOLDOWN_MS, PERSONAL_RAID_MAX_DAILY_CLEARS, PERSONAL_RAID_MAX_DAILY_ENTRIES,
   PERSONAL_RAID_MAX_STAGE, PERSONAL_RAID_MAX_SQUAD_SIZE, PERSONAL_RAID_MAX_SQUAD_SCORE,
-  PERSONAL_RAID_MAX_TURNS, PERSONAL_RAID_MIN_SQUAD_SCORE, PERSONAL_RAID_SESSION_MS, RAID_SCHEMA_VERSION, STAGE_HP,
+  PERSONAL_RAID_MAX_TURNS, PERSONAL_RAID_MIN_SQUAD_SCORE, PERSONAL_RAID_SESSION_MS, RAID_RELIC_ID,
+  RAID_SCHEMA_VERSION, RAID_SR_PLUS_CARD_POOLS, RAID_SR_PLUS_RARITY_WEIGHTS, STAGE_HP,
   PersonalRaidError, calculatePersonalRaidDamage, clearRewardForStage, cumulativeClearRewards, createEmptyState, dispatchPersonalRaid, finishPersonalRaid,
   getBossStage, getKstDayWindow, getKstRaidWeekWindow, getPersonalRaidBoss, getPersonalRaidRanking,
-  getPersonalRaidState, getRemainingCooldownMs, normalizeRankingLimit, parseSquadScore,
-  parseSubmittedDamage, serializePersonalRaidState, startPersonalRaid, validatePersonalRaidSquad
+  getPersonalRaidState, getRemainingCooldownMs, normalizeRaidBonusRewards, normalizeRankingLimit, parseSquadScore,
+  parseSubmittedDamage, relicDropChanceForStage, rollStageClearBonuses, serializePersonalRaidState,
+  startPersonalRaid, validatePersonalRaidSquad
 };

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
@@ -40,7 +41,7 @@ import {
   hydrateState,
 } from '../src/core/gameState.js';
 
-const rarityCounts = { c: 24, u: 16, r: 12, rr: 8, rrr: 6, sr: 4, hr: 3, ur: 2, ssr: 1 };
+const rarityCounts = { c: 24, u: 17, r: 12, rr: 9, rrr: 7, sr: 5, hr: 4, ur: 3, ssr: 2 };
 const powerRanges = {
   c: [1800, 2999],
   u: [3200, 4499],
@@ -55,9 +56,9 @@ const powerRanges = {
 
 const rankOf = (rarity) => RARITY_ORDER.indexOf(rarity);
 
-test('catalog contains 76 unique cards in the requested nine-rarity distribution', () => {
-  assert.equal(CARD_CATALOG.length, 76);
-  assert.equal(new Set(CARD_CATALOG.map((card) => card.id)).size, 76);
+test('catalog contains 83 unique cards in the requested nine-rarity distribution', () => {
+  assert.equal(CARD_CATALOG.length, 83);
+  assert.equal(new Set(CARD_CATALOG.map((card) => card.id)).size, 83);
   assert.deepEqual(RARITY_ORDER, Object.keys(rarityCounts));
   assert.deepEqual(
     Object.fromEntries(RARITY_ORDER.map((rarity) => [
@@ -68,8 +69,24 @@ test('catalog contains 76 unique cards in the requested nine-rarity distribution
   );
 
   for (const card of CARD_CATALOG) {
-    assert.match(card.image, /^\.\/assets\/cards\/[a-z0-9-]+\.webp$/);
+    assert.match(card.image, /^\.\/assets\/cards\/[a-z0-9-]+\.(?:png|webp)$/);
   }
+});
+
+test('new Coca variants are appended without changing the original catalog order or combat power', () => {
+  const originalPowerDigest = createHash('sha256')
+    .update(JSON.stringify(CARD_CATALOG.slice(0, 76).map(({ id, combatPower }) => [id, combatPower])))
+    .digest('hex');
+  assert.equal(originalPowerDigest, '50c6c1f1ba0cf87f423dde87d7f6e6871dfefa610d3541c16af91eb43e6fddef');
+  assert.deepEqual(CARD_CATALOG.slice(76).map(({ id, combatPower, image }) => [id, combatPower, image]), [
+    ['coca-u', 4132, './assets/cards/coca-u.png'],
+    ['coca-rr', 7347, './assets/cards/coca-rr.png'],
+    ['coca-rrr', 8373, './assets/cards/coca-rrr.png'],
+    ['coca-sr', 10199, './assets/cards/coca-sr.png'],
+    ['coca-hr', 12725, './assets/cards/coca-hr.png'],
+    ['coca-ur', 14751, './assets/cards/coca-ur.png'],
+    ['coca-ssr', 17265, './assets/cards/coca-ssr.png'],
+  ]);
 });
 
 test('rarity combat-power bands are exact, ascending, and non-overlapping', () => {
@@ -85,9 +102,9 @@ test('rarity combat-power bands are exact, ascending, and non-overlapping', () =
   });
 });
 
-test('legacy cards remain readable without entering the 76-card collectible catalog', () => {
+test('legacy cards remain readable without entering the 83-card collectible catalog', () => {
   assert.equal(LEGACY_CARDS.length, 8);
-  assert.equal(ALL_CARDS.length, 84);
+  assert.equal(ALL_CARDS.length, 91);
   assert.equal(CARD_CATALOG.some((card) => card.id === 'rookie-analyst'), false);
   assert.equal(cardById('rookie-analyst')?.legacy, true);
   assert.equal(cardById('hoi-ssr')?.rarity, 'ssr');
@@ -470,13 +487,13 @@ test('successful store updates persist the committed state', () => {
   assert.equal(persisted.wallet.coins, 321);
 });
 
-test('art manifest records both supplied reference sheets and the approved invented 멍프', () => {
+test('historical art manifest still records the original 76-card sequence and approved invented 멍프', () => {
   const manifest = JSON.parse(readFileSync(new URL('../docs/art-manifest.json', import.meta.url), 'utf8'));
   const meongpeu = manifest.cards.find((card) => card.id === 'meongpeu-c');
 
   assert.equal(manifest.cardCount, 76);
   assert.equal(manifest.cards.length, 76);
-  assert.deepEqual(manifest.cards.map((card) => card.id), CARD_CATALOG.map((card) => card.id));
+  assert.deepEqual(manifest.cards.map((card) => card.id), CARD_CATALOG.slice(0, 76).map((card) => card.id));
   assert.equal(manifest.cards.filter((card) => /_05\.png$/.test(card.sourceRef || '')).length, 40);
   assert.equal(manifest.cards.filter((card) => /_06\.png$/.test(card.sourceRef || '')).length, 35);
   assert.equal(meongpeu.referenceStatus, 'invented');
@@ -491,6 +508,19 @@ test('art manifest records both supplied reference sheets and the approved inven
 test('every catalog card has a packaged artwork file', () => {
   for (const card of CARD_CATALOG) {
     assert.equal(existsSync(new URL(`../public/${card.image.slice(2)}`, import.meta.url)), true, card.id);
+  }
+});
+
+test('reviewed artwork replacements stay connected without removing original card IDs', () => {
+  const repairedLegacyCards = [
+    'easy-c', 'easy-u', 'guma-c', 'sseubi-c', 'sseubi-u',
+    'shanghai-u', 'shanghai-r', 'shanghai-rr',
+  ];
+  const newCocaCards = ['u', 'rr', 'rrr', 'sr', 'hr', 'ur', 'ssr'].map((rarity) => `coca-${rarity}`);
+  for (const cardId of [...repairedLegacyCards, ...newCocaCards]) {
+    const matchingCards = CARD_CATALOG.filter((card) => card.id === cardId);
+    assert.equal(matchingCards.length, 1, `${cardId}: stable, unique card identity`);
+    assert.equal(matchingCards[0].image, `./assets/cards/${cardId}.png`, `${cardId}: approved artwork`);
   }
 });
 

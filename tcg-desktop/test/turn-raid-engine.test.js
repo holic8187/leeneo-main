@@ -12,10 +12,11 @@ import {
 
 const card = (id, attack = 1000, enhancement = 0) => ({ id, name: id, combatPower: attack, enhancement });
 const deck = () => [card('nanche-c'), card('winter-c'), card('hoi-c'), card('simsim-c')];
+const cocaVariants = ['coca-u', 'coca-rr', 'coca-rrr', 'coca-sr', 'coca-hr', 'coca-ur', 'coca-ssr'];
 
-test('all 76 main cards and 8 legacy cards have explicit skill information', () => {
-  assert.equal(CARD_SKILLS.length, 84);
-  assert.equal(ALL_CARDS.length, 84);
+test('all 83 main cards and 8 legacy cards have explicit skill information', () => {
+  assert.equal(CARD_SKILLS.length, 91);
+  assert.equal(ALL_CARDS.length, 91);
   for (const item of ALL_CARDS) {
     const skill = skillForCard(item.id, 0);
     assert.ok(skill, `${item.id} skill`);
@@ -218,6 +219,31 @@ test('stored party effects use the caster magnitude once instead of scaling agai
   assert.equal(state.cards[1].hp, 54);
 });
 
+test('seed, follow-up, and tiger seal effects each resolve once without recursively triggering each other', () => {
+  let state = startRaidBattle(createRaidBattle({
+    cards: [card('hoi-r'), card('guma-rrr'), card('coca-ur'), card('peach-c')],
+    boss: { maxHp: 1_000_000, baseDamage: 1 },
+    seed: 7,
+  }), 0);
+  for (let turn = 0; turn < 4; turn += 1) {
+    state = performPlayerAction(state, { type: 'skill' }, 1 + turn * 2);
+    state = performBossAction(state, 2 + turn * 2);
+  }
+  assert.equal(state.boss.statuses.some((status) => status.id === 'peach-seed'), true);
+  assert.equal(state.boss.statuses.some((status) => status.id === 'tiger-seal'), true);
+  assert.equal(state.teamStatuses.some((status) => status.name === '극광 급류 추격'), true);
+
+  const damageBefore = state.totalDamage;
+  const logIndex = state.log.length;
+  state = performPlayerAction(state, { type: 'basic' }, 20);
+  const linkedDamage = state.log.slice(logIndex).filter((entry) => entry.type === 'damage').map((entry) => entry.amount);
+  assert.deepEqual(linkedDamage, [1000, 450, 500, 1800]);
+  assert.equal(state.totalDamage - damageBefore, 3750);
+  assert.equal(state.boss.statuses.some((status) => status.id === 'peach-seed'), false);
+  assert.equal(state.boss.statuses.some((status) => status.id === 'tiger-seal'), false);
+  assert.equal(state.teamStatuses.find((status) => status.name === '극광 급류 추격')?.charges, 2);
+});
+
 test('솜주먹 U receives its shielded-boss damage bonus without requiring an unrelated debuff', () => {
   const cards = [card('somfist-u'), card('nanche-c'), card('hoi-c'), card('simsim-c')];
   let state = startRaidBattle(createRaidBattle({
@@ -228,7 +254,7 @@ test('솜주먹 U receives its shielded-boss damage bonus without requiring an u
   assert.equal(state.boss.shield, 98_115);
 });
 
-test('every one of the 84 card skills applies a battle effect instead of being metadata only', () => {
+test('every one of the 91 card skills applies a battle effect instead of being metadata only', () => {
   const fallbackIds = ['winter-c', 'hoi-c', 'nanche-c', 'simsim-c'];
   const effectSnapshot = (state) => JSON.stringify({
     boss: { hp: state.boss.hp, shield: state.boss.shield, breakGauge: state.boss.breakGauge, statuses: state.boss.statuses },
@@ -247,6 +273,175 @@ test('every one of the 84 card skills applies a battle effect instead of being m
     state = performPlayerAction(state, { type: 'skill', targetId: state.cards[1].id, choice: 'misfortune' }, 1);
     assert.notEqual(effectSnapshot(state), before, `${skill.id} (${skill.name}) must change combat state`);
   }
+});
+
+test('all seven added Coca skills apply their described immediate and persistent effects', () => {
+  let state = startRaidBattle(createRaidBattle({
+    cards: [card('coca-u'), card('winter-c'), card('hoi-c'), card('simsim-c')],
+    boss: { maxHp: 100_000, baseDamage: 1 },
+  }), 0);
+  state = performPlayerAction(state, { type: 'skill' }, 1);
+  assert.equal(state.cards.every((member) => member.statuses.some((status) => status.id === 'evasion' && status.value === 10)), true);
+  assert.equal(state.cards.every((member) => member.statuses.some((status) => status.id === 'debuff-resist' && status.value === 18)), true);
+
+  state = startRaidBattle(createRaidBattle({
+    cards: [card('coca-rr'), card('winter-c'), card('hoi-c'), card('simsim-c')],
+    boss: { maxHp: 100_000, baseDamage: 1 },
+  }), 0);
+  state = performPlayerAction(state, { type: 'skill' }, 1);
+  assert.equal(state.totalDamage, 1800);
+  assert.equal(state.boss.breakGauge, 24);
+  assert.equal(state.cards[0].cooldown, 3);
+
+  state = startRaidBattle(createRaidBattle({
+    cards: [card('coca-rrr'), card('winter-c'), card('hoi-c'), card('simsim-c')],
+    boss: { maxHp: 100_000, baseDamage: 1 },
+  }), 0);
+  state = performPlayerAction(state, { type: 'skill' }, 1);
+  assert.deepEqual(state.cards.map((member) => member.shield), [15, 15, 15, 15]);
+  assert.equal(state.cards.every((member) => member.statuses.some((status) => status.id === 'damage-reduction' && status.value === 18)), true);
+
+  state = startRaidBattle(createRaidBattle({
+    cards: [card('coca-sr'), card('winter-c'), card('hoi-c'), card('simsim-c')],
+    boss: { maxHp: 100_000, baseDamage: 1 },
+  }), 0);
+  state.cards.forEach((member) => {
+    member.hp = 50;
+    member.statuses.push({ id: 'test-debuff', name: '시험 약화', kind: 'debuff', duration: 2, sourceId: 'boss' });
+  });
+  state = performPlayerAction(state, { type: 'skill' }, 1);
+  assert.deepEqual(state.cards.map((member) => member.hp), [68, 68, 68, 68]);
+  assert.equal(state.cards.every((member) => member.statuses.every((status) => status.id !== 'test-debuff')), true);
+  assert.equal(state.teamStatuses.find((status) => status.id === 'lotus-regen')?.charges, 3);
+  state = performBossAction(state, 2);
+  state = performPlayerAction(state, { type: 'basic' }, 3);
+  assert.equal(state.teamStatuses.find((status) => status.id === 'lotus-regen')?.charges, 2);
+  assert.equal(state.cards.reduce((sum, member) => sum + member.hp, 0), 291);
+
+  state = startRaidBattle(createRaidBattle({
+    cards: [card('coca-hr'), card('winter-c'), card('hoi-c'), card('simsim-c')],
+    boss: { maxHp: 100_000, baseDamage: 1 },
+  }), 0);
+  state = performPlayerAction(state, { type: 'skill' }, 1);
+  assert.equal(state.totalDamage, 2850);
+  assert.equal(state.boss.breakGauge, 35);
+  assert.equal(state.boss.statuses.some((status) => status.id === 'break-taken-up' && status.value === 25), true);
+
+  state = startRaidBattle(createRaidBattle({
+    cards: [card('coca-ur'), card('winter-c'), card('hoi-c'), card('simsim-c')],
+    boss: { maxHp: 100_000, baseDamage: 1 },
+  }), 0);
+  state = performPlayerAction(state, { type: 'skill' }, 1);
+  assert.equal(state.totalDamage, 1900);
+  assert.equal(state.teamStatuses.find((status) => status.name === '극광 급류 추격')?.charges, 4);
+  state = performBossAction(state, 2);
+  state = performPlayerAction(state, { type: 'basic' }, 3);
+  assert.equal(state.totalDamage, 3400);
+  assert.equal(state.boss.breakGauge, 23);
+  assert.equal(state.teamStatuses.find((status) => status.name === '극광 급류 추격')?.charges, 3);
+
+  state = startRaidBattle(createRaidBattle({
+    cards: [card('coca-ssr'), card('nanche-c'), card('winter-c'), card('hoi-c')],
+    boss: { maxHp: 100_000, baseDamage: 1 },
+  }), 0);
+  state = performPlayerAction(state, { type: 'skill' }, 1);
+  assert.equal(state.totalDamage, 2100);
+  assert.equal(state.teamStatuses.find((status) => status.id === 'prism-torrent')?.charges, 3);
+  for (let index = 0; index < 3; index += 1) {
+    state = performBossAction(state, 2 + index * 2);
+    state = performPlayerAction(state, { type: 'basic' }, 3 + index * 2);
+  }
+  assert.equal(state.totalDamage, 8500);
+  assert.equal(state.boss.breakGauge, 55);
+  assert.equal(state.teamStatuses.some((status) => status.id === 'prism-torrent'), false);
+  assert.equal(state.log.some((entry) => entry.type === 'prism-burst' && entry.storedDamage === 600), true);
+});
+
+test('SSR Hoi copies every new Coca skill after its original caster is defeated', () => {
+  const effectSnapshot = (state) => JSON.stringify({
+    boss: { hp: state.boss.hp, breakGauge: state.boss.breakGauge, statuses: state.boss.statuses },
+    cards: state.cards.map((member) => ({ hp: member.hp, shield: member.shield, statuses: member.statuses })),
+    teamStatuses: state.teamStatuses,
+  });
+  for (const cardId of cocaVariants) {
+    let state = startRaidBattle(createRaidBattle({
+      cards: [card(cardId), card('nanche-c'), card('hoi-ssr'), card('simsim-c')],
+      boss: { maxHp: 1_000_000, baseDamage: 1 },
+    }), 0);
+    state.cards.forEach((member) => { member.hp = 60; });
+    state = performPlayerAction(state, { type: 'skill' }, 1);
+    state = performBossAction(state, 2);
+    state.cards[0].hp = 0;
+    state.cards[0].defeated = true;
+    state = performPlayerAction(state, { type: 'basic' }, 3);
+    state = performBossAction(state, 4);
+    const beforeCopy = effectSnapshot(state);
+    state = performPlayerAction(state, { type: 'skill' }, 5);
+    assert.notEqual(effectSnapshot(state), beforeCopy, `${cardId} copy must apply an observable effect`);
+    if (cardId === 'coca-ssr') {
+      const torrents = state.teamStatuses.filter((status) => status.id === 'prism-torrent');
+      assert.equal(torrents.length, 2);
+      assert.equal(torrents.some((status) => status.sourceId === state.cards[2].id && status.captureRate === 17 && status.finisher === 238), true);
+      assert.equal(torrents.some((status) => status.sourceId === state.cards[0].id), true);
+    }
+  }
+});
+
+test('copied SSR Coca prism torrent resolves from its own snapshot while the original Coca remains defeated', () => {
+  let state = startRaidBattle(createRaidBattle({
+    cards: [card('coca-ssr'), card('nanche-c'), card('hoi-ssr'), card('winter-c')],
+    boss: { maxHp: 1_000_000, baseDamage: 1 },
+  }), 0);
+  state = performPlayerAction(state, { type: 'skill' }, 1);
+  state = performBossAction(state, 2);
+  state.cards[0].hp = 0;
+  state.cards[0].defeated = true;
+  state = performPlayerAction(state, { type: 'basic' }, 3);
+  state = performBossAction(state, 4);
+  state = performPlayerAction(state, { type: 'skill' }, 5);
+  const copied = state.teamStatuses.find((status) => status.id === 'prism-torrent' && status.sourceId === state.cards[2].id);
+  assert.ok(copied);
+  assert.equal(copied.sourceAttack, 1000);
+  state = performBossAction(state, 6);
+  state = performPlayerAction(state, { type: 'basic' }, 7);
+  state = performBossAction(state, 8);
+  state = performPlayerAction(state, { type: 'basic' }, 9);
+  state = performBossAction(state, 10);
+  state = performPlayerAction(state, { type: 'basic' }, 11);
+  assert.equal(state.cards[0].hp, 0);
+  assert.equal(state.log.some((entry) => entry.type === 'prism-burst' && entry.sourceId === state.cards[2].id), true);
+});
+
+test('a lethal contributor attack suppresses the pending prism hit and post-defeat break effects', () => {
+  let state = startRaidBattle(createRaidBattle({
+    cards: [card('coca-ssr'), card('nanche-c'), card('winter-c'), card('hoi-c')],
+    boss: { maxHp: 100_000, baseDamage: 1 },
+  }), 0);
+  state = performPlayerAction(state, { type: 'skill' }, 1);
+  state = performBossAction(state, 2);
+  state = performPlayerAction(state, { type: 'basic' }, 3);
+  state = performBossAction(state, 4);
+  state = performPlayerAction(state, { type: 'basic' }, 5);
+  state = performBossAction(state, 6);
+
+  const prism = state.teamStatuses.find((status) => status.id === 'prism-torrent');
+  assert.equal(prism?.charges, 1);
+  assert.equal(prism?.contributors.length, 2);
+  state.boss.hp = 500;
+  state.boss.breakGauge = 40;
+  const damageBefore = state.totalDamage;
+  const logStart = state.log.length;
+
+  state = performPlayerAction(state, { type: 'basic' }, 7);
+
+  const finalLogs = state.log.slice(logStart);
+  assert.equal(state.status, 'finished');
+  assert.equal(state.result, 'victory');
+  assert.equal(state.totalDamage, damageBefore + 500);
+  assert.equal(state.boss.breakGauge, 40);
+  assert.equal(finalLogs.filter((entry) => entry.type === 'damage').length, 1);
+  assert.equal(finalLogs.some((entry) => entry.type === 'prism-charge' || entry.type === 'prism-burst' || entry.type === 'break'), false);
+  assert.equal(state.teamStatuses.find((status) => status.id === 'prism-torrent')?.charges, 1);
 });
 
 test('a defeated squad slot is skipped without granting the boss an extra action', () => {

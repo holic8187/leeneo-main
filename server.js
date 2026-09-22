@@ -6,6 +6,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const path = require('path');
 const crypto = require('crypto');
+const { releaseHealth } = require('./src/tcg/services/releaseHealth');
 
 const app = express();
 
@@ -3073,7 +3074,7 @@ app.get(['/v2', '/v2/'], (req, res) => {
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, message: 'server is running', appMode: APP_MODE });
+  res.json(releaseHealth(APP_MODE));
 });
 
 mongoose.connect(MONGO_URI)

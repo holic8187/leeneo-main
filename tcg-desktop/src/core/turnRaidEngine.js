@@ -14,6 +14,7 @@ const DIRECT_ATTACKS = Object.freeze({
   'morae-r':[145,1,35], 'shanghai-r':[190,1,0], 'chuming-r':[155,1,0], 'pie-r':[105,1,0], 'hoi-r':[180,1,0],
   'somfist-rr':[170,1,40], 'winter-sr':[100,1,25], 'rayeon-sr':[260,1,0],
   'shanghai-sr':[240,1,25], 'hoi-sr':[220,1,20], 'mango-hr':[260,1,35],
+  'coca-rr':[90,2,24], 'coca-hr':[95,3,35], 'coca-ur':[190,1,15], 'coca-ssr':[210,1,20],
   'rookie-analyst':[100,1,10], 'sales-fox':[110,1,0], 'hwang-manager':[180,1,0],
   'kim-manager':[250,1,25], 'deadline-dragon':[220,1,30],
 });
@@ -23,6 +24,7 @@ const HEALS = Object.freeze({
   'pie-c':[['ally',10]], 'hoi-c':[['lowest',4]], 'gyullak-u':[['all',8],['lowest',6]],
   'peach-u':[['ally',14]], 'hoi-u':[['all',8]], 'mango-rr':[['all',16]],
   'hoi-rr':[['ally',25]], 'winter-rrr':[['all',18]],
+  'coca-sr':[['all',18]],
   'pantry-cat':[['all',10]],
 });
 
@@ -31,6 +33,7 @@ const SHIELDS = Object.freeze({
   'choonsik-c':[['self',5]], 'winter-u':[['ally',16]], 'nanche-u':[['all',9]],
   'mango-u':[['all',10]], 'sseubi-u':[['all',10]], 'rayeon-r':[['all',8]],
   'mond-r':[['all',14]], 'guma-r':[['all',16]], 'winter-rr':[['self',30]],
+  'coca-rrr':[['all',15]],
   'peach-sentry':[['all',12]], 'gammam-neo':[['self',20]],
 });
 
@@ -303,6 +306,9 @@ function applyBreak(state, actor, base, scale = 1) {
 }
 
 function damageBoss(state, actor, multiplier, hits = 1, breakDamage = 0, scale = 1, options = {}) {
+  // Once lethal damage has landed, no queued follow-up may create a zero-
+  // damage hit, extra break, or another combat animation on the defeated boss.
+  if (state.boss.hp <= 0) return false;
   let conditional = 1;
   if (options.selfHpAbove && actor.hp / actor.maxHp >= options.selfHpAbove) conditional *= options.bonus || 1;
   if (options.bossHpAbove && state.boss.hp / state.boss.maxHp >= options.bossHpAbove) conditional *= options.bonus || 1;
@@ -321,40 +327,81 @@ function damageBoss(state, actor, multiplier, hits = 1, breakDamage = 0, scale =
   const scaledMultiplier = options.scaleMagnitude === false
     ? Math.max(0, Number(multiplier) || 0) * scale
     : magnitude(multiplier, actor, scale);
-  const total = Math.max(1, Math.round(actor.attack * scaledMultiplier / 100 * hits * conditional * outgoing * incoming));
+  const flatBonus = Math.max(0, Number(options.flatBonus) || 0);
+  const total = Math.max(1, Math.round(actor.attack * scaledMultiplier / 100 * hits * conditional * outgoing * incoming + flatBonus));
   const shieldDamage = Math.min(state.boss.shield, total); state.boss.shield -= shieldDamage;
   const applied = Math.min(state.boss.hp, total - shieldDamage); state.boss.hp -= applied; state.totalDamage += applied;
   log(state, options.counter ? 'counter' : 'damage', `${actor.name}이(가) ${applied} 피해를 입혔습니다.`, { sourceId: actor.id, targetId: state.boss.id, amount: applied, hits });
   const broken = applyBreak(state, actor, breakDamage, scale);
+  if (state.boss.hp <= 0) return broken;
   const seeds = activeStatuses(state.boss, 'peach-seed');
-  if (seeds.length && !options.seed) {
+  if (seeds.length && !options.secondary && !options.seed && !options.prism) {
     for (const seed of seeds) {
-      damageBoss(state, actor, seed.value, 1, 0, scale, { seed: true, scaleMagnitude: false });
       seed.charges -= 1;
+      damageBoss(state, actor, seed.value, 1, 0, 1, { seed: true, secondary: true, scaleMagnitude: false });
     }
     removeExpired(state.boss);
   }
   const stars = state.teamStatuses.filter((status) => status.id === 'star-follow-up' && statusIsActive(status));
-  if (stars.length && !options.followUp) {
+  if (stars.length && !options.secondary && !options.followUp && !options.prism) {
     for (const star of stars) {
-      damageBoss(state, actor, star.value, 1, star.break || 0, scale, { followUp: true, scaleMagnitude: false });
       star.charges -= 1;
+      damageBoss(state, actor, star.value, 1, star.break || 0, 1, { followUp: true, secondary: true, scaleMagnitude: false });
     }
     state.teamStatuses = state.teamStatuses.filter((s) => s.charges == null || s.charges > 0);
   }
   const seals = activeStatuses(state.boss, 'tiger-seal');
-  if (seals.length && !options.seal) {
+  if (seals.length && !options.secondary && !options.seal && !options.prism) {
     for (const seal of seals) {
       seal.attackers ||= [];
       if (!seal.attackers.includes(actor.id)) seal.attackers.push(actor.id);
       if (seal.attackers.length >= 3) {
-        damageBoss(state, actor, seal.value, 1, seal.break || 0, 1, { seal: true, scaleMagnitude: false });
-        addBossStatus(state, actor, 'attack-down', '봉인 공격 약화', 25, null, 1);
         state.boss.statuses = state.boss.statuses.filter((status) => status !== seal);
+        damageBoss(state, actor, seal.value, 1, seal.break || 0, 1, { seal: true, secondary: true, scaleMagnitude: false });
+        addBossStatus(state, actor, 'attack-down', '봉인 공격 약화', 25, null, 1);
       }
     }
   }
+  resolvePrismTorrents(state, actor, applied, options);
   return broken;
+}
+
+function resolvePrismTorrents(state, actor, appliedDamage, options = {}) {
+  if (state.boss.hp <= 0 || appliedDamage <= 0 || options.secondary || options.prism || options.followUp || options.counter || options.seed || options.seal) return;
+  const torrents = state.teamStatuses.filter((status) => status.id === 'prism-torrent' && statusIsActive(status));
+  for (const torrent of torrents) {
+    torrent.contributors ||= [];
+    if (torrent.contributors.includes(actor.id)) continue;
+    torrent.contributors.push(actor.id);
+    const captured = Math.max(0, Math.round(appliedDamage * clamp(Number(torrent.captureRate) || 0, 0, 100) / 100));
+    torrent.storedDamage = Math.max(0, Number(torrent.storedDamage) || 0) + captured;
+    torrent.charges -= 1;
+    log(state, 'prism-charge', `프리즘 급류가 ${captured} 피해를 저장했습니다.`, {
+      sourceId: torrent.sourceId, contributorId: actor.id, amount: captured, storedDamage: torrent.storedDamage,
+    });
+    if (torrent.charges > 0) continue;
+    const source = {
+      id: torrent.sourceId,
+      cardId: torrent.sourceCardId,
+      name: torrent.sourceName,
+      attack: torrent.sourceAttack,
+      enhancement: torrent.sourceEnhancement,
+      hp: 1,
+      maxHp: 1,
+      statuses: [],
+    };
+    damageBoss(state, source, torrent.finisher, 1, torrent.break, 1, {
+      skill: true,
+      prism: true,
+      secondary: true,
+      scaleMagnitude: false,
+      flatBonus: torrent.storedDamage,
+    });
+    log(state, 'prism-burst', `저장한 피해 ${torrent.storedDamage}을 더해 성하 프리즘 급류가 폭발했습니다.`, {
+      sourceId: torrent.sourceId, storedDamage: torrent.storedDamage,
+    });
+  }
+  state.teamStatuses = state.teamStatuses.filter((status) => status.charges == null || status.charges > 0);
 }
 
 function addCardStatus(targets, actor, id, name, value, duration, kind = 'buff', charges = null) {
@@ -464,6 +511,17 @@ function specialEffects(state, actor, targetId, choice, scale, broken) {
       }
       break;
     }
+    case 'coca-u': addCardStatus(all,actor,'evasion','잔물결 회피',10,2); addCardStatus(all,actor,'debuff-resist','잔물결 약화 저항',18,2); break;
+    case 'coca-rr': addCardStatus([actor],actor,'quick','파도 가속',0,null,'buff',1); break;
+    case 'coca-rrr': addCardStatus(all,actor,'damage-reduction','우산물막',18,2); break;
+    case 'coca-sr': cleanse(all,1); state.teamStatuses.push({id:'lotus-regen',name:'달연꽃 물방울',kind:'buff',value:magnitude(5,actor,scale),charges:3,sourceId:actor.id}); break;
+    case 'coca-hr': addBossStatus(state,actor,'break-taken-up','폭포선 균열',25,2); break;
+    case 'coca-ur': state.teamStatuses.push({id:'star-follow-up',name:'극광 급류 추격',kind:'buff',value:magnitude(50,actor,scale),break:magnitude(8,actor,scale),charges:4,sourceId:actor.id}); break;
+    case 'coca-ssr': state.teamStatuses.push({
+      id:'prism-torrent',name:'성하 프리즘 급류',kind:'buff',charges:3,contributors:[],storedDamage:0,
+      captureRate:magnitude(20,actor,scale),finisher:magnitude(280,actor,scale),break:magnitude(35,actor,scale),
+      sourceId:actor.id,sourceCardId:actor.cardId,sourceName:actor.name,sourceAttack:actor.attack,sourceEnhancement:actor.enhancement,
+    }); break;
     case 'rookie-analyst': addCardStatus([actor],actor,'evasion','회피율 증가',15,1); break;
     case 'sales-fox': addBossStatus(state,actor,'attack-down','공격력 감소',10,2); break;
     case 'pantry-cat': addCardStatus(all,actor,'healing-taken-up','받는 회복 증가',10,2); break;
@@ -493,6 +551,7 @@ function prePlayerAction(state, actor) {
   }
   const sourceFor = (status) => state.cards.find((card) => card.id === status.sourceId) || actor;
   for (const regen of state.teamStatuses.filter(s=>s.id==='regen'&&statusIsActive(s))) heal(state,state.cards.filter(alive),regen.value,sourceFor(regen),1,{scaleMagnitude:false});
+  for (const lotus of state.teamStatuses.filter(s=>s.id==='lotus-regen'&&statusIsActive(s))){heal(state,state.cards.filter(alive),lotus.value,sourceFor(lotus),1,{scaleMagnitude:false});lotus.charges-=1;}
   for (const fruit of state.teamStatuses.filter(s=>s.id==='golden-fruit'&&statusIsActive(s))){heal(state,targetsFor(state,actor,'lowest'),fruit.value,sourceFor(fruit),1,{scaleMagnitude:false});fruit.charges-=1;}
   for (const season of state.teamStatuses.filter(s=>s.id==='season-cycle'&&statusIsActive(s))){ const source=sourceFor(season); if(season.step===0)heal(state,state.cards.filter(alive),8,source); if(season.step===1)addCardStatus([actor],source,'effect-up','여름 효과 강화',20,null,'buff',1); if(season.step===2)addCardStatus([actor],source,'break-up','가을 브레이크',20,null,'buff',1); if(season.step===3)shield(state,state.cards.filter(alive),10,source); season.step+=1;season.charges-=1; }
   for (const route of state.teamStatuses.filter(s=>s.id==='world-tree-route'&&statusIsActive(s))){const source=sourceFor(route);if(route.step===0)addCardStatus([actor],source,'break-up','세계수 브레이크',30,null,'buff',1);if(route.step===1)heal(state,targetsFor(state,actor,'lowest'),15,source);if(route.step===2)reduceCooldown(state.cards.filter(alive));route.step+=1;route.charges-=1;}

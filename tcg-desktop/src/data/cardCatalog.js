@@ -47,27 +47,37 @@ const CHARACTERS = Object.freeze({
 const CARD_VARIANTS = Object.freeze([
   ['simsim-c', '무심한 유령'], ['winter-c', '눈꽃의 소녀'], ['kkamdung-c', '달빛의 고양이'], ['nanche-c', '퍼즐 친구'],
   ['rayeon-c', '달을 읽는 이'], ['mango-c', '잎새 드래곤'], ['morae-c', '사막의 길잡이'], ['mond-c', '새내기 탐험가'],
-  ['somfist-c', '폭신한 주먹'], ['shanghai-c', '푸른 검객'], ['meongpeu-c', '졸린 신입 인턴'], ['sseubi-c', '먹빛 기록가'],
-  ['gyullak-c', '귤빛 강아지'], ['guma-c', '여우 신사의 수습'], ['wollu-c', '느긋한 직장인'], ['easy-c', '헤드폰 소년'],
+  ['somfist-c', '폭신한 주먹'], ['shanghai-c', '푸른 검객'], ['meongpeu-c', '졸린 신입 인턴'], ['sseubi-c', '먹빛 기록가', './assets/cards/sseubi-c.png'],
+  ['gyullak-c', '귤빛 강아지'], ['guma-c', '여우 신사의 수습', './assets/cards/guma-c.png'], ['wollu-c', '느긋한 직장인'], ['easy-c', '헤드폰 소년', './assets/cards/easy-c.png'],
   ['eungga-c', '작은 왕'], ['peach-c', '복숭아 요정'], ['jandi-c', '꽃피는 사슴'], ['chuming-c', '별빛 연습생'],
   ['choonsik-c', '배낭 여행가'], ['coca-c', '붉은 물새'], ['pie-c', '작은 제빵 마녀'], ['hoi-c', '별을 줍는 토끼'],
   ['winter-u', '첫눈의 온기'], ['kkamdung-u', '골목의 달지기'], ['nanche-u', '맞물린 해답'], ['rayeon-u', '초승달의 서가'],
   ['mango-u', '과수원의 수호자'], ['morae-u', '푸른 스카프의 길'], ['mond-u', '새벽 탐사대'], ['somfist-u', '폭신한 정면돌파'],
-  ['shanghai-u', '방파제의 맹세'], ['sseubi-u', '먹구름 한 획'], ['gyullak-u', '상큼한 배달부'], ['guma-u', '붉은 부적의 밤'],
-  ['easy-u', '옥상의 리듬'], ['peach-u', '봄바람의 우편'], ['choonsik-u', '소풍의 대장'], ['hoi-u', '별길 안내인'],
+  ['shanghai-u', '방파제의 맹세', './assets/cards/shanghai-u.png'], ['sseubi-u', '먹구름 한 획', './assets/cards/sseubi-u.png'], ['gyullak-u', '상큼한 배달부'], ['guma-u', '붉은 부적의 밤'],
+  ['easy-u', '옥상의 리듬', './assets/cards/easy-u.png'], ['peach-u', '봄바람의 우편'], ['choonsik-u', '소풍의 대장'], ['hoi-u', '별길 안내인'],
   ['winter-r', '빙정의 무도회'], ['kkamdung-r', '월광 잠입자'], ['rayeon-r', '달의 항해사'], ['mango-r', '태양잎 비행'],
-  ['morae-r', '사막별 추적자'], ['mond-r', '미지의 유적'], ['shanghai-r', '해류의 검무'], ['guma-r', '백호의 결계'],
+  ['morae-r', '사막별 추적자'], ['mond-r', '미지의 유적'], ['shanghai-r', '해류의 검무', './assets/cards/shanghai-r.png'], ['guma-r', '백호의 결계'],
   ['chuming-r', '유성 데뷔 무대'], ['coca-r', '붉은 항로'], ['pie-r', '달콤한 연금술'], ['hoi-r', '혜성 배달부'],
   ['winter-rr', '서리왕관의 서약'], ['rayeon-rr', '만월의 예언'], ['mango-rr', '황금 수확제'], ['somfist-rr', '빙하를 여는 주먹'],
-  ['shanghai-rr', '폭풍해의 결투'], ['jandi-rr', '사계의 정원'], ['chuming-rr', '은하수 앙코르'], ['hoi-rr', '밤하늘 수선공'],
+  ['shanghai-rr', '폭풍해의 결투', './assets/cards/shanghai-rr.png'], ['jandi-rr', '사계의 정원'], ['chuming-rr', '은하수 앙코르'], ['hoi-rr', '밤하늘 수선공'],
   ['winter-rrr', '백야의 심장'], ['guma-rrr', '천년 여우불'], ['mond-rrr', '세계수의 발견'], ['pie-rrr', '별가루 만찬'],
   ['kkamdung-rrr', '월식의 경계'], ['hoi-rrr', '천체의 문지기'],
   ['winter-sr', '얼어붙은 시간'], ['rayeon-sr', '달의 군주'], ['shanghai-sr', '심해의 왕검'], ['hoi-sr', '태양별의 계승자'],
   ['guma-hr', '구미의 신탁'], ['chuming-hr', '초신성 피날레'], ['mango-hr', '황금 세계수룡'],
   ['winter-ur', '영원의 백색 여왕'], ['hoi-ur', '별의 탄생'], ['hoi-ssr', '첫빛의 창세'],
+  // New variants stay after the original 76-card sequence. createCard derives
+  // combat power from cardIndex, so inserting them into the rarity groups would
+  // silently change every following card's established stats.
+  ['coca-u', '갈대연못의 길잡이', './assets/cards/coca-u.png'],
+  ['coca-rr', '윙크 웨이브 라이더', './assets/cards/coca-rr.png'],
+  ['coca-rrr', '폭우의 물장막', './assets/cards/coca-rrr.png'],
+  ['coca-sr', '달연꽃 치유사', './assets/cards/coca-sr.png'],
+  ['coca-hr', '협곡폭포 급강하', './assets/cards/coca-hr.png'],
+  ['coca-ur', '오로라 수평선의 순례자', './assets/cards/coca-ur.png'],
+  ['coca-ssr', '성하 프리즘 항해왕', './assets/cards/coca-ssr.png'],
 ]);
 
-function createCard([id, epithet], cardIndex) {
+function createCard([id, epithet, suppliedImage], cardIndex) {
   const separator = id.lastIndexOf('-');
   const characterId = id.slice(0, separator);
   const rarityId = id.slice(separator + 1);
@@ -87,7 +97,7 @@ function createCard([id, epithet], cardIndex) {
     rarity: rarityId,
     department: character.department,
     category: character.category,
-    image: `./assets/cards/${id}.webp`,
+    image: suppliedImage || `./assets/cards/${id}.webp`,
     combatPower,
     trait: character.trait,
     traitText: `${rarityInfo.label} 등급의 ${character.specialty} 중심 전력으로 자동 모험을 지원합니다.`,
