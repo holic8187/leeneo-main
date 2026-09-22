@@ -1,5 +1,6 @@
 import { MAX_SQUAD_SIZE, availableRaidSquad, uniqueSquadByIdentity } from './squadSelection.js';
 import { equipmentById } from './equipment.js';
+import { ownedRelic } from './relics.js';
 
 export const MAX_DECK_PRESETS = 5;
 
@@ -69,6 +70,7 @@ export function createDeckPresetDraft(preset, slot, { identityForId = null } = {
 export function saveDeckPresetLoadout(presets, slot, {
   cardIds = [],
   equipmentCardId = '',
+  artifactCardId,
   updatedAt = Date.now(),
   identityForId = null,
 } = {}) {
@@ -79,9 +81,11 @@ export function saveDeckPresetLoadout(presets, slot, {
     name: existing?.name || '',
     cardIds,
     equipmentCardId,
-    // The artifact slot is not editable yet, so replacing only the loadout
-    // must not erase data written by a newer client or a future release.
-    artifactCardId: existing?.artifactCardId || '',
+    // Omitted metadata is preserved for older callers, while an explicit
+    // empty string unequips the relic in releases where the slot is editable.
+    artifactCardId: artifactCardId === undefined
+      ? (existing?.artifactCardId || '')
+      : String(artifactCardId || '').trim(),
     updatedAt,
     identityForId,
   });
@@ -101,6 +105,7 @@ export function deckPresetCards(preset, {
 export function resolveDeckPresetLoadout(preset, {
   collection = {},
   equipmentInventory = [],
+  relicInventory = {},
   expedition = null,
   context = 'adventure',
   identityForId = null,
@@ -112,8 +117,9 @@ export function resolveDeckPresetLoadout(preset, {
   return {
     cardIds,
     equipmentCardId: equipmentById(equipmentInventory, preset?.equipmentCardId)?.id || '',
-    // Relics are reserved until their release.
-    artifactCardId: '',
+    artifactCardId: ownedRelic(relicInventory, preset?.artifactCardId)
+      ? String(preset.artifactCardId).trim()
+      : '',
     omittedCardCount: Math.max(0, (preset?.cardIds?.length || 0) - cardIds.length),
   };
 }

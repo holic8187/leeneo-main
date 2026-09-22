@@ -10,6 +10,7 @@ import {
   progressionForCard,
 } from './cardProgression.js';
 import { MAX_SQUAD_SIZE } from './squadSelection.js';
+import { expeditionCoinMultiplierForRelic, ownedRelic } from './relics.js';
 import {
   addEquipmentToInventory,
   equipmentPartyAttackMultiplier,
@@ -67,6 +68,8 @@ export function startExpedition({
   cardEnhancements = {},
   cardProgression = {},
   equipment = null,
+  relicId = '',
+  relicInventory = {},
   catalog,
   now = Date.now(),
 }) {
@@ -87,6 +90,7 @@ export function startExpedition({
       progressionForCard(cardProgression, cardId).level,
     ])),
     equipment: equipment ? { ...equipment } : null,
+    relicId: ownedRelic(relicInventory, relicId) ? relicId : '',
     score,
     combatPower: score,
     powerScale: COMBAT_POWER_SCALE,
@@ -181,7 +185,9 @@ export function settleExpedition({ expedition, mission, now = Date.now(), random
     Math.max(0, scoreRatio - 1) * Math.max(0, bonusRate),
   );
   const scaledCoins = Math.round(baseCoins * powerMultiplier);
-  const coins = Math.max(minimum, scaledCoins);
+  const coinsBeforeRelic = Math.max(minimum, scaledCoins);
+  const relicMultiplier = expeditionCoinMultiplierForRelic(expedition.relicId);
+  const coins = Math.round(coinsBeforeRelic * relicMultiplier);
   const packChance = Math.min(
     1,
     Math.max(0, Number(mission.reward.packChance) || 0) * Math.min(1.3, powerMultiplier),
@@ -195,6 +201,8 @@ export function settleExpedition({ expedition, mission, now = Date.now(), random
     successChance: 1,
     effectivePower,
     powerMultiplier,
+    relicBonusCoins: coins - coinsBeforeRelic,
+    relicMultiplier,
   };
 }
 
@@ -235,6 +243,36 @@ export function completeDueExpedition({ state, mission, now = Date.now(), random
         ? addEquipmentToInventory(state.equipmentInventory, equipment)
         : [...(state.equipmentInventory || [])],
       expedition: null,
+      lastCompletedExpedition: {
+        missionId: expedition.missionId,
+        squad: [...expedition.squad],
+        equipmentCardId: expedition.equipment?.id || '',
+        artifactCardId: expedition.relicId || '',
+        completedAt,
+      },
     },
   };
+}
+
+// Revalidate the original party against current ownership and levels. Never
+// silently substitute another card/equipment when repeating a saved adventure.
+export function repeatExpedition({ state, missions = [], catalog = [], now = Date.now() }) {
+  if (state?.expedition) throw new Error('이미 진행 중인 모험이 있습니다.');
+  const previous = state?.lastCompletedExpedition;
+  const mission = missions.find((entry) => entry.id === previous?.missionId);
+  if (!mission) throw new Error('다시 보낼 완료 모험이 없습니다.');
+  if (!Array.isArray(previous.squad) || !previous.squad.length || previous.squad.some((id) => !state.collection?.[id] || !catalog.some((card) => card.id === id))) {
+    throw new Error('이전 모험의 카드가 부족합니다. 덱을 다시 편성해 주세요.');
+  }
+  const equipment = (state.equipmentInventory || []).find((item) => item.id === previous.equipmentCardId) || null;
+  if (previous.equipmentCardId && !equipment) throw new Error('이전 모험의 장비가 없습니다. 덱을 다시 편성해 주세요.');
+  if (previous.artifactCardId && !ownedRelic(state.relicInventory, previous.artifactCardId)) {
+    throw new Error('이전 모험의 유물이 없습니다. 덱을 다시 편성해 주세요.');
+  }
+  return startExpedition({
+    mission, cardIds: previous.squad, collection: state.collection,
+    cardEnhancements: state.cardEnhancements, cardProgression: state.cardProgression,
+    equipment, relicId: previous.artifactCardId, relicInventory: state.relicInventory,
+    catalog, now,
+  });
 }

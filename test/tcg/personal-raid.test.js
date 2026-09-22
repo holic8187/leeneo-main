@@ -4,10 +4,14 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const jwt = require('jsonwebtoken');
 const TcgPersonalRaidDailyModel = require('../../src/tcg/models/TcgPersonalRaidDaily');
+const CARD_COMBAT_POWER = require('../../src/tcg/data/cardCombatPower.json');
 const {
   PERSONAL_RAID_BOSSES,
   PERSONAL_RAID_MAX_SQUAD_SCORE,
+  RAID_RELIC_ID,
   RAID_SCHEMA_VERSION,
+  RAID_SR_PLUS_CARD_POOLS,
+  RAID_SR_PLUS_RARITY_WEIGHTS,
   STAGE_HP,
   PersonalRaidError,
   clearRewardForStage,
@@ -17,6 +21,8 @@ const {
   getKstRaidWeekWindow,
   getPersonalRaidRanking,
   getPersonalRaidState,
+  relicDropChanceForStage,
+  rollStageClearBonuses,
   startPersonalRaid,
   validatePersonalRaidSquad
 } = require('../../src/tcg/services/personalRaidService');
@@ -121,6 +127,7 @@ test('model preserves the production unique index and adds a weekly ranking inde
   const ranking = indexes.find(([, options]) => options.name === 'personal_raid_weekly_ranking');
   assert.deepEqual(ranking[0], { weekKey: 1, bossId: 1, schemaVersion: 1, contribution: -1, updatedAt: 1 });
   assert.equal(TcgPersonalRaidDailyModel.schema.path('currentStage').options.max, 10);
+  assert.ok(TcgPersonalRaidDailyModel.schema.path('bonusRewards'));
   assert.equal(PERSONAL_RAID_MAX_SQUAD_SCORE, 200_000);
 });
 
@@ -150,6 +157,33 @@ test('each cleared stage grants three more packs through thirty at stage ten', (
   assert.deepEqual(clearRewardForStage(1), { coins: 0, packs: 3 });
   assert.deepEqual(clearRewardForStage(10), { coins: 0, packs: 30 });
   assert.deepEqual(cumulativeClearRewards(10), { coins: 0, packs: 165 });
+});
+
+test('stage clear bonus rates and SR-or-higher rarity weights match the raid contract', () => {
+  assert.deepEqual([1, 4, 5, 6, 7, 8, 9, 10].map(relicDropChanceForStage), [
+    0, 0, 0.005, 0.01, 0.015, 0.02, 0.025, 0.03,
+  ]);
+  assert.deepEqual(RAID_SR_PLUS_RARITY_WEIGHTS, [
+    { rarity: 'sr', weight: 70 },
+    { rarity: 'hr', weight: 22 },
+    { rarity: 'ur', weight: 7 },
+    { rarity: 'ssr', weight: 1 },
+  ]);
+  for (const [rarity, cards] of Object.entries(RAID_SR_PLUS_CARD_POOLS)) {
+    assert.deepEqual(cards, Object.keys(CARD_COMBAT_POWER).filter((cardId) => cardId.endsWith(`-${rarity}`)));
+  }
+
+  const values = [0.019, 0.91, 0.999];
+  const bonuses = rollStageClearBonuses({
+    stage: 8,
+    weekKey: '2026-09-14',
+    bossId: 'deadline-dragon-raid',
+    random: () => values.shift(),
+  });
+  assert.equal(bonuses[0].relicId, RAID_RELIC_ID);
+  assert.equal(bonuses[0].id, '2026-09-14:deadline-dragon-raid:stage-8:relic');
+  assert.equal(bonuses[1].rarity, 'hr');
+  assert.equal(bonuses[1].cardId, RAID_SR_PLUS_CARD_POOLS.hr.at(-1));
 });
 
 test('squad validation preserves selection order, verifies enhancement, and blocks expedition cards', () => {
@@ -197,7 +231,7 @@ test('start consumes one daily entry, creates a bound session, and prevents para
   await assert.rejects(() => startPersonalRaid({ TcgPersonalRaidDaily: Model, account: user, verifiedSquad: verifiedSquad(), now: now + 1000 }), (error) => error.code === 'RAID_SESSION_ACTIVE');
 });
 
-test('finish validates HP math, caps damage, advances stages, and rejects duplicate submissions', async () => {
+test('finish validates HP math, caps damage, advances stages, and replays duplicate submissions idempotently', async () => {
   const Model = createFakeRaidModel(); const user = account(); let now = Date.parse('2026-09-16T03:00:00Z');
   const started = await startPersonalRaid({ TcgPersonalRaidDaily: Model, account: user, verifiedSquad: verifiedSquad(), now });
   await assert.rejects(() => finishPersonalRaid({ TcgPersonalRaidDaily: Model, account: user, sessionId: started.session.sessionId, damageDealt: 100_001, now: now + 1000 }), (error) => error.code === 'RAID_DAMAGE_EXCEEDS_LIMIT' && error.details.maximumDamage === 100_000);
@@ -208,8 +242,81 @@ test('finish validates HP math, caps damage, advances stages, and rejects duplic
   assert.equal(finished.record.currentStage, 2);
   assert.equal(finished.record.currentHp, 200_000);
   assert.equal(finished.record.contribution, 100_000);
-  assert.deepEqual(finished.result.reward, { coins: 0, packs: 3 });
-  await assert.rejects(() => finishPersonalRaid({ TcgPersonalRaidDaily: Model, account: user, sessionId: started.session.sessionId, damageDealt: 100_000, now: now + 2000 }), (error) => error.code === 'RAID_SESSION_ALREADY_FINISHED');
+  assert.deepEqual(finished.result.reward, { coins: 0, packs: 3, bonuses: [] });
+  const repeated = await finishPersonalRaid({ TcgPersonalRaidDaily: Model, account: user, sessionId: started.session.sessionId, damageDealt: 100_000, now: now + 2000 });
+  assert.deepEqual(repeated.result, finished.result);
+  assert.equal(repeated.record.clearCount, 1);
+});
+
+test('stage eight clear rolls and persists one SR+ card plus an eligible relic only once', async () => {
+  const user = account();
+  const now = Date.parse('2026-09-16T03:00:00Z');
+  const sessionId = 'stage-eight-session';
+  const Model = createFakeRaidModel([{
+    accountId: user._id,
+    dayKey: '2026-09-14',
+    weekKey: '2026-09-14',
+    bossId: 'deadline-dragon-raid',
+    nickname: user.nickname,
+    schemaVersion: RAID_SCHEMA_VERSION,
+    currentStage: 8,
+    currentHp: STAGE_HP[8],
+    contribution: STAGE_HP.slice(1, 8).reduce((sum, hp) => sum + hp, 0),
+    dispatchCount: 8,
+    clearCount: 7,
+    bonusRewards: [],
+    weeklyCompleted: false,
+    activeSession: {
+      sessionId,
+      stage: 8,
+      bossHpBefore: STAGE_HP[8],
+      stageMaxHp: STAGE_HP[8],
+      squad: verifiedSquad().squad,
+      squadScore: verifiedSquad().squadScore,
+      startedAt: new Date(now - 1000),
+      expiresAt: new Date(now + 60_000),
+    },
+  }]);
+  const rolls = [0, 0.995, 0];
+  let randomCalls = 0;
+  const random = () => { randomCalls += 1; return rolls.shift(); };
+  const finished = await finishPersonalRaid({
+    TcgPersonalRaidDaily: Model,
+    account: user,
+    sessionId,
+    damageDealt: STAGE_HP[8],
+    bossHpRemaining: 0,
+    turns: 7,
+    now,
+    random,
+  });
+  assert.equal(finished.result.reward.packs, 24);
+  assert.deepEqual(finished.result.reward.bonuses.map(({ type }) => type), ['relic', 'card']);
+  assert.equal(finished.result.reward.bonuses[0].relicId, RAID_RELIC_ID);
+  assert.equal(finished.result.reward.bonuses[1].rarity, 'ssr');
+  assert.equal(finished.result.reward.bonuses[1].cardId, 'hoi-ssr');
+  assert.equal(finished.record.bonusRewards.length, 2);
+  assert.equal(randomCalls, 3);
+
+  const repeated = await finishPersonalRaid({
+    TcgPersonalRaidDaily: Model,
+    account: user,
+    sessionId,
+    damageDealt: STAGE_HP[8],
+    bossHpRemaining: 0,
+    now: now + 1000,
+    random,
+  });
+  assert.deepEqual(repeated.result, finished.result);
+  assert.equal(repeated.record.bonusRewards.length, 2);
+  assert.equal(randomCalls, 3);
+
+  const refreshed = await getPersonalRaidState({
+    TcgPersonalRaidDaily: Model,
+    account: user,
+    now: now + 2000,
+  });
+  assert.deepEqual(refreshed.state.earnedRewards.bonuses, finished.record.bonusRewards);
 });
 
 test('ranking score equals cleared-stage HP plus accumulated current-stage damage', async () => {
@@ -252,7 +359,7 @@ test('legacy daily record is reset into current weekly progress at the first sta
   }]);
   const beforeStart = await getPersonalRaidState({ TcgPersonalRaidDaily: Model, account: user, now });
   assert.equal(beforeStart.state.clears, 0);
-  assert.deepEqual(beforeStart.state.earnedRewards, { coins: 0, packs: 0 });
+  assert.deepEqual(beforeStart.state.earnedRewards, { coins: 0, packs: 0, bonuses: [] });
   const started = await startPersonalRaid({ TcgPersonalRaidDaily: Model, account: user, verifiedSquad: verifiedSquad(), now });
   assert.equal(started.session.stage, 1);
   assert.equal(started.session.bossHpBefore, 100_000);
@@ -263,7 +370,7 @@ test('legacy daily record is reset into current weekly progress at the first sta
   assert.equal(Model.records[0].lastFinishedSessionId, '');
   const state = await getPersonalRaidState({ TcgPersonalRaidDaily: Model, account: user, now: now + 1 });
   assert.equal(state.state.clears, 0);
-  assert.deepEqual(state.state.earnedRewards, { coins: 0, packs: 0 });
+  assert.deepEqual(state.state.earnedRewards, { coins: 0, packs: 0, bonuses: [] });
 });
 
 function routeHarness() {

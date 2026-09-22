@@ -1,3 +1,5 @@
+import { normalizeRaidRewardBonuses } from '../core/raidRewards.js';
+
 const DEFAULT_TIMEOUT_MS = 10000;
 
 export class RaidGatewayError extends Error {
@@ -83,6 +85,7 @@ function normalizeState(value) {
     earnedRewards: {
       coins: earnedCoins,
       packs: earnedPacks,
+      bonuses: normalizeRaidRewardBonuses(value.earnedRewards?.bonuses),
     },
     resetsAt: Number(value.resetsAt) || 0,
     dailyResetsAt: Number(value.dailyResetsAt) || 0,

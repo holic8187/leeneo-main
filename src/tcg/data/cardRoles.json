@@ -18,6 +18,8 @@
   "kkamdung-rrr": "defense", "hoi-rrr": "support", "winter-sr": "attack", "rayeon-sr": "attack",
   "shanghai-sr": "attack", "hoi-sr": "attack", "guma-hr": "support", "chuming-hr": "defense",
   "mango-hr": "attack", "winter-ur": "defense", "hoi-ur": "support", "hoi-ssr": "support",
+  "coca-u": "support", "coca-rr": "attack", "coca-rrr": "defense", "coca-sr": "support",
+  "coca-hr": "attack", "coca-ur": "attack", "coca-ssr": "attack",
   "rookie-analyst": "attack", "sales-fox": "attack", "pantry-cat": "support", "peach-sentry": "defense",
   "hwang-manager": "attack", "gammam-neo": "defense", "kim-manager": "attack", "deadline-dragon": "attack"
 }

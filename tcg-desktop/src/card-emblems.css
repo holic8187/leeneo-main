@@ -1,0 +1,221 @@
+/* Shared overlay for illustrated card surfaces. Import after styles.css. */
+.card-emblem-host {
+  position: relative;
+  isolation: isolate;
+}
+
+/* Small portrait wrappers preserve the grid sizing expected by legacy rows. */
+.card-emblem-thumb,
+.squad-card__art-frame,
+.deck-preset-member,
+.deployed-card-art {
+  position: relative;
+  display: block;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+}
+
+.card-emblem-thumb {
+  width: 42px;
+  height: 42px;
+  border-radius: 4px;
+}
+
+.card-emblem-thumb--batch {
+  width: 42px;
+  height: 42px;
+}
+
+.card-emblem-thumb > img,
+.squad-card__art-frame > .squad-card__art,
+.deck-preset-member > img,
+.deployed-card-art > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.squad-card__art-frame {
+  width: 43px;
+  height: 43px;
+  border-radius: 3px;
+}
+
+.deck-preset-member {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 3px;
+}
+
+.deployed-card-art {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  border-radius: 5px;
+}
+
+.card-art-emblems {
+  --card-emblem-enhancement-width: 56px;
+  --card-emblem-role-size: 30px;
+  --card-emblem-inset: 9px;
+  --card-emblem-caption-offset: 0px;
+  position: absolute;
+  z-index: 7;
+  inset: 0;
+  display: block;
+  overflow: visible;
+  font-style: normal;
+  pointer-events: none;
+}
+
+.card-art-emblems--micro {
+  --card-emblem-enhancement-width: 30px;
+  --card-emblem-role-size: 18px;
+  --card-emblem-inset: 3px;
+}
+
+.card-emblem-thumb .card-art-emblems--micro {
+  --card-emblem-enhancement-width: 26px;
+  --card-emblem-role-size: 16px;
+}
+
+.card-art-emblems--compact {
+  --card-emblem-enhancement-width: 42px;
+  --card-emblem-role-size: 24px;
+  --card-emblem-inset: 5px;
+}
+
+.card-art-emblems--large {
+  --card-emblem-enhancement-width: 70px;
+  --card-emblem-role-size: 38px;
+  --card-emblem-inset: 12px;
+}
+
+.card-art-emblems.has-caption {
+  --card-emblem-caption-offset: 24px;
+}
+
+.card-art-emblems > img,
+.deck-preset-members .card-art-emblems > img {
+  position: absolute;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  object-fit: contain;
+  aspect-ratio: auto;
+  transform: none;
+}
+
+.card-art-emblems > .card-enhancement-emblem {
+  top: var(--card-emblem-inset);
+  right: var(--card-emblem-inset);
+  left: auto;
+  width: var(--card-emblem-enhancement-width) !important;
+  height: auto !important;
+  filter: drop-shadow(0 2px 3px rgb(0 0 0 / 48%));
+}
+
+.card-art-emblems > .card-enhancement-emblem.is-max {
+  filter:
+    drop-shadow(0 0 3px rgb(116 226 255 / 82%))
+    drop-shadow(0 2px 3px rgb(0 0 0 / 58%));
+}
+
+.card-art-emblems > .card-role-emblem {
+  bottom: calc(var(--card-emblem-inset) + var(--card-emblem-caption-offset));
+  left: var(--card-emblem-inset);
+  width: var(--card-emblem-role-size) !important;
+  height: var(--card-emblem-role-size) !important;
+  filter: drop-shadow(0 2px 3px rgb(0 0 0 / 48%));
+}
+
+/* Existing selected-state check occupies the same corner as enhancement. */
+.card-emblem-host:has(.card-art-emblems--micro) > .selection-check {
+  top: 28px;
+  right: 3px;
+  transform: scale(0.72);
+  transform-origin: top right;
+}
+
+.card-emblem-host:has(.card-art-emblems--compact) > .selection-check {
+  top: 39px;
+  right: 5px;
+  transform: scale(0.82);
+  transform-origin: top right;
+}
+
+.card-emblem-host:has(.card-art-emblems--standard) > .selection-check {
+  top: 49px;
+  right: 9px;
+}
+
+.card-emblem-host:has(.card-art-emblems--large) > .selection-check {
+  top: 59px;
+  right: 12px;
+}
+
+.card-emblem-host:has(.card-art-emblems--standard) > .card-lock-badge {
+  top: 49px;
+}
+
+.card-emblem-host:has(.card-art-emblems--standard):has(> .selection-check) > .card-lock-badge {
+  top: 82px;
+}
+
+/* Lobby hover/payroll rules intentionally target every descendant image. */
+.lobby-hero__card:hover .card-art-emblems > img {
+  transform: none;
+}
+
+:is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"])
+  .lobby .lobby-hero__card .card-art-emblems > img {
+  visibility: visible !important;
+}
+
+/* Payroll mode hides illustration art but keeps progression information. */
+:is(.payroll-mode, .is-payroll-mode, [data-payroll-mode="true"]) .card-art-emblems > img {
+  visibility: visible !important;
+}
+
+@media (max-width: 380px) {
+  .result-card__art .card-art-emblems--compact {
+    --card-emblem-enhancement-width: 30px;
+    --card-emblem-role-size: 18px;
+    --card-emblem-inset: 3px;
+  }
+
+  .card-art-emblems--standard {
+    --card-emblem-enhancement-width: 48px;
+    --card-emblem-role-size: 27px;
+    --card-emblem-inset: 7px;
+  }
+
+  .card-art-emblems--large {
+    --card-emblem-enhancement-width: 60px;
+    --card-emblem-role-size: 34px;
+    --card-emblem-inset: 9px;
+  }
+}
+
+@media (max-width: 700px) {
+  .squad-card__art-frame {
+    width: 48px;
+    height: 66px;
+  }
+
+  .deck-preset-card .deck-preset-member {
+    height: 46px;
+    aspect-ratio: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-art-emblems > img {
+    animation: none;
+  }
+}

@@ -33,6 +33,8 @@ export const EFFECT_PRESENTATION = Object.freeze({
   'white-night-heart': { icon: 'heart-pulse', label: '백야의 심장', tone: 'buff', description: 'HP가 낮아지면 추가로 회복합니다.' },
   'peach-seed': { icon: 'sparkles', label: '복숭아 씨앗', tone: 'debuff', description: '다음 아군 공격에 추가 피해가 발동합니다.' },
   'star-follow-up': { icon: 'zap', label: '별빛 추가 피해', tone: 'buff', description: '다음 아군 공격에 추가 피해가 발동합니다.' },
+  'lotus-regen': { icon: 'heart-pulse', label: '달연꽃 물방울', tone: 'buff', description: '다음 아군 행동 시작마다 파티 전체 HP를 회복합니다. 숫자는 남은 회복 횟수입니다.' },
+  'prism-torrent': { icon: 'orbit', label: '성하 프리즘 급류', tone: 'buff', description: '서로 다른 아군 3명의 직접 공격 피해를 저장한 뒤 폭발합니다. 반격·추가 피해는 충전에 포함하지 않습니다.' },
   foresight: { icon: 'eye-off', label: '호수의 예지', tone: 'buff', description: '다음 보스 공격의 피해를 크게 줄입니다.' },
   'golden-fruit': { icon: 'heart-pulse', label: '황금 열매', tone: 'buff', description: '아군 행동마다 가장 HP가 낮은 아군을 회복합니다.' },
   'season-cycle': { icon: 'refresh-cw', label: '사계 순환', tone: 'buff', description: '아군 행동마다 계절 효과가 순서대로 발동합니다.' },
@@ -66,11 +68,14 @@ export function effectPresentation(effect = {}) {
   const id = String(effect.id || effect.type || effect.kind || 'effect');
   const known = EFFECT_PRESENTATION[id];
   const tone = effect.tone === 'debuff' || effect.kind === 'debuff' || effect.negative === true ? 'debuff' : 'buff';
+  const liveDescription = id === 'prism-torrent'
+    ? `${known.description} 현재 ${Array.isArray(effect.contributors) ? effect.contributors.length : 0}/3명 · 저장 피해 ${Math.max(0, Math.round(Number(effect.storedDamage) || 0)).toLocaleString('ko-KR')}.`
+    : '';
   return {
     id,
     icon: String(effect.icon || known?.icon || (tone === 'buff' ? 'sparkles' : 'circle-alert')),
     label: String(effect.label || effect.name || known?.label || '상태 효과'),
-    description: String(effect.description || effect.text || known?.description || known?.label || '현재 전투에 적용되는 상태 효과입니다.'),
+    description: String(effect.description || effect.text || liveDescription || known?.description || known?.label || '현재 전투에 적용되는 상태 효과입니다.'),
     tone: known?.tone || tone,
     count: Math.max(0, Number(effect.count ?? effect.stacks ?? effect.turns ?? effect.remaining ?? effect.charges ?? effect.duration) || 0),
     scope: effect.scope === 'team' || effect.shared === true ? 'team' : 'single',

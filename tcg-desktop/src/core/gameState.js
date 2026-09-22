@@ -1,12 +1,13 @@
 import { INCIDENT_ACTIVE_DURATION_MS } from './incidentEngine.js';
 import { normalizeCardEnhancements } from './cardManagement.js';
 import { hydratePendingPackOpening } from './packOpeningSession.js';
-import { hydrateRaidRewardClaims } from './raidRewards.js';
+import { hydrateRaidBonusRewardClaims, hydrateRaidRewardClaims } from './raidRewards.js';
 import { uniqueSquadByIdentity } from './squadSelection.js';
 import { normalizeCardProgression } from './cardProgression.js';
 import { normalizeDeckPresets } from './deckPresets.js';
 import { cardById } from '../data/cardCatalog.js';
 import { normalizeEquipmentInventory } from './equipment.js';
+import { normalizeRelicInventory } from './relics.js';
 
 export const STORAGE_KEY = 'hoi-card-desk-state-v1';
 export const ACCOUNT_STORAGE_PREFIX = 'hoi-card-desk-state-v2:';
@@ -45,6 +46,7 @@ export function createDefaultState(now = Date.now()) {
     },
     deckPresets: Array.from({ length: 5 }, () => null),
     equipmentInventory: [],
+    relicInventory: {},
     selectedExpeditionEquipmentId: '',
     selectedRaidEquipmentId: '',
     selectedExpeditionArtifactId: '',
@@ -56,6 +58,7 @@ export function createDefaultState(now = Date.now()) {
     selectedExpeditionSquad: ['simsim-c', 'winter-c', 'kkamdung-c', 'nanche-c'],
     selectedRaidSquad: ['simsim-c', 'winter-c', 'kkamdung-c', 'nanche-c'],
     expedition: null,
+    lastCompletedExpedition: null,
     activeIncident: null,
     recentIncidentIds: [],
     completedIncidentInstanceIds: [],
@@ -65,6 +68,7 @@ export function createDefaultState(now = Date.now()) {
     incidentScheduled: false,
     raid: null,
     raidRewardClaims: {},
+    raidBonusRewardClaims: {},
     settings: {
       discreetMode: true,
       payrollMode: false,
@@ -122,6 +126,7 @@ export function hydrateState(saved, now = Date.now()) {
     identityForId: (cardId) => cardById(cardId)?.characterId || cardId,
   });
   state.equipmentInventory = normalizeEquipmentInventory(saved.equipmentInventory);
+  state.relicInventory = normalizeRelicInventory(saved.relicInventory);
   const equipmentIds = new Set(state.equipmentInventory.map((item) => item.id));
   state.selectedExpeditionEquipmentId = equipmentIds.has(String(saved.selectedExpeditionEquipmentId || ''))
     ? String(saved.selectedExpeditionEquipmentId)
@@ -129,10 +134,19 @@ export function hydrateState(saved, now = Date.now()) {
   state.selectedRaidEquipmentId = equipmentIds.has(String(saved.selectedRaidEquipmentId || ''))
     ? String(saved.selectedRaidEquipmentId)
     : '';
-  // Artifact cards have a reserved slot but are intentionally unavailable
-  // until the artifact release ships.
-  state.selectedExpeditionArtifactId = '';
-  state.selectedRaidArtifactId = '';
+  const ownedArtifactId = (value) => {
+    const id = String(value || '').trim();
+    return id && state.relicInventory[id] > 0 ? id : '';
+  };
+  // Keep an owned future relic selected in the save even when this client
+  // cannot render or apply its effect yet.
+  state.selectedExpeditionArtifactId = ownedArtifactId(saved.selectedExpeditionArtifactId);
+  state.selectedRaidArtifactId = ownedArtifactId(saved.selectedRaidArtifactId);
+  state.lastCompletedExpedition = saved.lastCompletedExpedition
+    && typeof saved.lastCompletedExpedition === 'object'
+    && !Array.isArray(saved.lastCompletedExpedition)
+    ? { ...saved.lastCompletedExpedition }
+    : null;
 
   const legacySquad = Array.isArray(saved.selectedSquad) ? saved.selectedSquad : null;
   const squadCharacterIdentity = (cardId) => cardById(cardId)?.characterId || cardId;
@@ -180,6 +194,10 @@ export function hydrateState(saved, now = Date.now()) {
 
   state.pendingPackOpening = hydratePendingPackOpening(saved.pendingPackOpening);
   state.raidRewardClaims = hydrateRaidRewardClaims(saved.raidRewardClaims, saved.raid);
+  state.raidBonusRewardClaims = hydrateRaidBonusRewardClaims(
+    saved.raidBonusRewardClaims,
+    state.raidRewardClaims,
+  );
 
   state.recentIncidentIds = Array.isArray(saved.recentIncidentIds)
     ? [...new Set(saved.recentIncidentIds.filter((id) => typeof id === 'string' && id))].slice(0, 12)

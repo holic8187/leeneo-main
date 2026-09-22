@@ -57,6 +57,30 @@ test('one saved preset loads the same cards and equipment in adventure and raid 
   assert.deepEqual(state.deckPresets, presets);
 });
 
+test('preset relic loadout is saved explicitly and only loads when owned', () => {
+  const presets = saveDeckPresetLoadout([], 0, {
+    cardIds: ['winter-c'],
+    artifactCardId: 'luxury-bag',
+    updatedAt: 99,
+  });
+  assert.equal(presets[0].artifactCardId, 'luxury-bag');
+  assert.equal(resolveDeckPresetLoadout(presets[0], {
+    collection: { 'winter-c': 1 },
+    relicInventory: { 'luxury-bag': 1 },
+  }).artifactCardId, 'luxury-bag');
+  assert.equal(resolveDeckPresetLoadout(presets[0], {
+    collection: { 'winter-c': 1 },
+    relicInventory: {},
+  }).artifactCardId, '');
+
+  const unequipped = saveDeckPresetLoadout(presets, 0, {
+    cardIds: ['winter-c'],
+    artifactCardId: '',
+    updatedAt: 100,
+  });
+  assert.equal(unequipped[0].artifactCardId, '');
+});
+
 test('raid loading skips deployed single copies but retains free duplicates and the shared saved deck', () => {
   const [preset] = normalizeDeckPresets([{ cardIds: ['winter-c', 'hoi-c', 'mango-c', 'simsim-c'], equipmentCardId: 'missing' }]);
   const options = { collection: { 'winter-c': 1, 'hoi-c': 2, 'mango-c': 0, 'simsim-c': 1 }, expedition: { squad: ['winter-c', 'hoi-c'] } };

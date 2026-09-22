@@ -44,6 +44,8 @@ import {
 import './styles.css';
 import './lobby.css';
 import './mobile-game.css';
+import './relics.css';
+import './card-emblems.css';
 import {
   CARD_CATALOG,
   ALL_CARDS,
@@ -74,6 +76,7 @@ import {
   expeditionEffectivePower,
   expeditionProgress,
   missionMinimumPower,
+  repeatExpedition,
   startExpedition,
 } from './core/expeditionEngine.js';
 import { createRaidState } from './core/raidEngine.js';
@@ -112,6 +115,7 @@ import {
   lockedEnhancementCounts,
   synthesisSuccessRateForRarity,
 } from './core/cardManagement.js';
+import { renderCardEmblems } from './core/cardEmblems.js';
 import {
   cardsForPendingPack,
   createPendingPackOpening,
@@ -145,6 +149,7 @@ import {
   equipmentPartyAttackMultiplier,
   equipmentPartyHpMultiplier,
 } from './core/equipment.js';
+import { RELIC_CATALOG, relicById, ownedRelic } from './core/relics.js';
 import { withDeadline } from './core/promiseDeadline.js';
 import { shouldFlushCloudBeforeUpdate, waitForOptionalUpdateRestore } from './core/androidUpdatePreparation.js';
 import {
@@ -881,7 +886,7 @@ function renderDeckPresetPanel(state) {
             <div class="deck-preset-members">
               ${Array.from({ length: MAX_SQUAD_SIZE }, (_, index) => {
                 const card = cards[index];
-                return card ? `<img src="${card.image}" alt="${escapeHtml(cardDisplayName(card))}" title="${escapeHtml(cardDisplayName(card))}" />` : '<span aria-label="빈 카드 슬롯">+</span>';
+                return card ? `<div class="deck-preset-member card-emblem-host"><img src="${card.image}" alt="${escapeHtml(cardDisplayName(card))}" title="${escapeHtml(cardDisplayName(card))}" />${renderCardEmblems(card, cardEnhancement(card, state), { size: 'micro', showEnhancement: Boolean(state.collection[card.id]) })}</div>` : '<span aria-label="빈 카드 슬롯">+</span>';
               }).join('')}
             </div>
             <small>${equipment ? escapeHtml(equipmentEffectText(equipment)) : preset ? '장비 미장착' : '아직 저장한 덱이 없어요'}</small>
@@ -931,8 +936,9 @@ function renderDashboard(state) {
             카드 자세히 보기 <i data-lucide="chevron-right"></i>
           </button>
         </div>
-        <button class="lobby-hero__card" type="button" data-action="open-card" data-card-id="${escapeHtml(heroCard.id)}" aria-label="${escapeHtml(cardDisplayName(heroCard))} 카드 정보 보기">
+        <button class="lobby-hero__card card-emblem-host" type="button" data-action="open-card" data-card-id="${escapeHtml(heroCard.id)}" aria-label="${escapeHtml(cardDisplayName(heroCard))} 카드 정보 보기">
           <img src="${escapeHtml(heroCard.image)}" alt="${escapeHtml(cardDisplayName(heroCard))}" />
+          ${renderCardEmblems(heroCard, heroStage, { size: 'standard', captioned: true })}
           <span>${escapeHtml(rarityLabel(heroCard.rarity))}</span>
         </button>
         <div class="lobby-hero__actions" aria-label="주요 메뉴">
@@ -1063,10 +1069,10 @@ function renderCard(card, count, options = {}) {
   return `
     <article class="collection-card rarity-${card.rarity} ${hidden ? 'is-hidden' : ''} ${selected ? 'is-selected' : ''} ${locked ? 'is-locked' : ''}">
       <button class="card-hitbox" type="button" data-action="${selectable ? 'toggle-squad' : 'open-card'}" data-card-id="${card.id}" ${hidden ? 'disabled' : ''}>
-        <div class="card-art">
+        <div class="card-art card-emblem-host">
           <img class="card-illustration" src="${card.image}" alt="${hidden ? '미발견 카드' : escapeHtml(cardDisplayName(card))}" loading="lazy" />
           <span class="rarity-stamp">${rarityEmblem(card.rarity, { hidden })}</span>
-          ${hidden ? '' : `<span class="card-power">전투력 ${formatNumber(cardPower(card, state))}</span><span class="enhancement-badge">${enhancementLabel(enhancement)}</span>`}
+          ${hidden ? '' : `<span class="card-power">전투력 ${formatNumber(cardPower(card, state))}</span>${renderCardEmblems(card, enhancement, { size: 'standard' })}`}
           ${locked ? '<span class="card-lock-badge" title="잠금됨"><i data-lucide="lock"></i></span>' : ''}
           ${selected ? '<span class="selection-check"><i data-lucide="check"></i></span>' : ''}
         </div>
@@ -1113,18 +1119,42 @@ function equipmentEffectText(item) {
   return `${rarityLabel(item.rarity)} ${EQUIPMENT_TYPES[item.type]?.label || '장비'} · ${effect} +${Number(item.bonusPercent).toFixed(1)}%`;
 }
 
+function selectedRelic(state, context) {
+  const id = context === 'preset' ? ui.modal?.artifactCardId
+    : context === 'raid' ? state.selectedRaidArtifactId : state.selectedExpeditionArtifactId;
+  return ownedRelic(state.relicInventory, id) ? relicById(id) : null;
+}
+
+function renderRelicPicker(state, context) {
+  const selectedId = selectedRelic(state, context)?.id || '';
+  return `<section class="relic-picker" aria-label="유물 카드">
+    <div class="subheading"><h3>유물 카드</h3><small>레이드 5단계부터 획득</small></div>
+    <button type="button" class="equipment-choice ${selectedId ? '' : 'is-selected'}" data-action="select-relic" data-context="${context}" data-relic-id="" aria-pressed="${!selectedId}"><i data-lucide="ban"></i><span class="equipment-choice-copy"><strong>유물 장착 없음</strong></span></button>
+    ${RELIC_CATALOG.map((relic) => {
+      const count = Number(state.relicInventory?.[relic.id]) || 0;
+      return `<article class="relic-card ${count ? '' : 'is-unowned'} ${selectedId === relic.id ? 'is-selected' : ''}">
+        <div class="relic-card__art"><img src="${relic.image}" alt="${escapeHtml(relic.name)}" loading="lazy" /><span>RELIC · 유물</span></div>
+        <div class="relic-card__copy"><h4>${escapeHtml(relic.name)}</h4><strong>모험 재화 보상 +5%</strong><p>${escapeHtml(relic.description)}</p><small>${count ? `${formatNumber(count)}장 보유 · 중복 보유 효과는 중첩되지 않습니다.` : '미보유 · 레이드 5~10단계 클리어 시 확률 획득'}</small>
+        <button type="button" class="${selectedId === relic.id ? 'secondary' : 'primary'}-button" data-action="select-relic" data-context="${context}" data-relic-id="${relic.id}" aria-pressed="${selectedId === relic.id}" ${count ? '' : 'disabled'}>${selectedId === relic.id ? '장착 중' : '유물 장착'}</button></div>
+      </article>`;
+    }).join('')}
+    <p class="equipment-empty">유물 효과는 모험 출발 시 적용됩니다. 레이드에 장착해도 모험 보상이 증가하지 않습니다.</p>
+  </section>`;
+}
+
 function renderLoadoutSlots(state, context) {
   const equipment = selectedEquipment(state, context);
+  const relic = selectedRelic(state, context);
   return `
     <div class="loadout-slots" aria-label="추가 장착 카드">
       <button type="button" class="loadout-slot" data-action="switch-loadout-panel" data-context="${context}" data-panel="equipment">
         <span><i data-lucide="shield"></i><b>장비 카드</b></span>
         <small>${equipment ? escapeHtml(equipmentEffectText(equipment)) : '장착 없음 · 눌러서 선택'}</small>
       </button>
-      <div class="loadout-slot is-coming-soon" aria-disabled="true">
+      <button type="button" class="loadout-slot" data-action="switch-loadout-panel" data-context="${context}" data-panel="equipment">
         <span><i data-lucide="sparkles"></i><b>유물 카드</b></span>
-        <small>출시 예정</small>
-      </div>
+        <small>${relic ? `${escapeHtml(relic.name)} · 모험 재화 +5%` : '장착 없음 · 눌러서 선택'}</small>
+      </button>
     </div>`;
 }
 
@@ -1142,7 +1172,7 @@ function renderPresetQuickLoad(state, context) {
     <div class="preset-quick-buttons">
       ${Array.from({ length: MAX_DECK_PRESETS }, (_, slot) => {
         const preset = state.deckPresets?.[slot];
-        const matches = preset && JSON.stringify(preset.cardIds) === JSON.stringify(selected) && (preset.equipmentCardId || '') === equipmentId;
+        const matches = preset && JSON.stringify(preset.cardIds) === JSON.stringify(selected) && (preset.equipmentCardId || '') === equipmentId && (preset.artifactCardId || '') === (selectedRelic(state, context)?.id || '');
         return `<button type="button" class="${matches ? 'is-selected' : ''}" data-action="load-deck-preset" data-context="${context}" data-slot="${slot}" aria-pressed="${Boolean(matches)}" aria-label="프리셋 ${slot + 1}${preset ? ' 불러오기' : ' 비어 있음'}" ${preset ? '' : 'disabled'}>${slot + 1}<small>${preset ? `${preset.cardIds.length}장` : '비어 있음'}</small></button>`;
       }).join('')}
     </div>
@@ -1165,7 +1195,7 @@ function renderEquipmentPicker(state, context) {
       <i data-lucide="${item.type === 'armor' ? 'shield' : 'swords'}"></i><span class="equipment-choice-copy"><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(equipmentEffectText(item))}</small></span>${item.id === selectedId ? '<i data-lucide="check"></i>' : ''}
     </button>`).join('')}
     ${inventory.length ? '' : '<p class="equipment-empty">보유한 장비가 없습니다. 모험에서 장비를 획득할 수 있습니다.</p>'}
-    <p class="equipment-coming-soon"><i data-lucide="sparkles"></i>유물 카드는 추후 추가됩니다.</p>
+    ${renderRelicPicker(state, context)}
   </div>`;
 }
 
@@ -1176,7 +1206,10 @@ function renderDeckEditor(state, context) {
     ${context === 'preset' ? '' : `<div class="selected-squad-strip" aria-label="편성된 카드, 누르면 제외">
       ${Array.from({ length: MAX_SQUAD_SIZE }, (_, index) => {
         const card = cardById(cards[index]);
-        return card ? `<button type="button" class="selected-squad-slot rarity-${card.rarity}" data-action="toggle-squad" data-context="${context}" data-card-id="${card.id}" aria-label="${index + 1}번 ${escapeHtml(cardDisplayName(card))} 편성 제외"><img src="${card.image}" alt="" /><b>${index + 1}</b><span>${escapeHtml(cardDisplayName(card))}</span></button>` : `<div class="selected-squad-slot is-empty"><b>${index + 1}</b><span>빈 슬롯</span></div>`;
+        const stage = card && context === 'raid'
+          ? Math.max(0, bestAvailableEnhancementForCard(state.collection, state.cardEnhancements, card.id, activeExpeditionCardLocks(state)))
+          : card ? cardEnhancement(card, state) : 0;
+        return card ? `<button type="button" class="selected-squad-slot card-emblem-host rarity-${card.rarity}" data-action="toggle-squad" data-context="${context}" data-card-id="${card.id}" aria-label="${index + 1}번 ${escapeHtml(cardDisplayName(card))} 편성 제외"><img src="${card.image}" alt="" />${renderCardEmblems(card, stage, { size: 'micro', captioned: true })}<b>${index + 1}</b><span>${escapeHtml(cardDisplayName(card))}</span></button>` : `<div class="selected-squad-slot is-empty"><b>${index + 1}</b><span>빈 슬롯</span></div>`;
       }).join('')}
     </div>`}
     ${context === 'preset' ? '' : renderPresetQuickLoad(state, context)}
@@ -1202,7 +1235,7 @@ function renderDeckPresetModal(state) {
       ${ui.modal.saveCopy ? `<div class="preset-slot-tabs" aria-label="저장할 프리셋 번호">${Array.from({ length: MAX_DECK_PRESETS }, (_, index) => `<button type="button" class="${index === slot ? 'is-active' : ''}" data-action="select-preset-save-slot" data-slot="${index}" aria-pressed="${index === slot}">${index + 1}${state.deckPresets[index] ? ' · 덮어쓰기' : ''}</button>`).join('')}</div>` : ''}
       <div class="deck-preset-editor-summary"><div class="deck-preset-members">${Array.from({ length: MAX_SQUAD_SIZE }, (_, index) => {
         const card = cards[index];
-        return card ? `<button type="button" class="preset-member-remove" data-action="remove-preset-card" data-card-id="${card.id}" aria-label="${escapeHtml(cardDisplayName(card))} 프리셋에서 제외"><img src="${card.image}" alt="${escapeHtml(cardDisplayName(card))}" /><small>${state.collection[card.id] ? `${index + 1} · 제외` : '미보유 · 제외'}</small></button>` : '<span aria-label="빈 카드 슬롯">+</span>';
+        return card ? `<button type="button" class="preset-member-remove card-emblem-host" data-action="remove-preset-card" data-card-id="${card.id}" aria-label="${escapeHtml(cardDisplayName(card))} 프리셋에서 제외"><img src="${card.image}" alt="${escapeHtml(cardDisplayName(card))}" />${renderCardEmblems(card, cardEnhancement(card, state), { size: 'micro', captioned: true, showEnhancement: Boolean(state.collection[card.id]) })}<small>${state.collection[card.id] ? `${index + 1} · 제외` : '미보유 · 제외'}</small></button>` : '<span aria-label="빈 카드 슬롯">+</span>';
       }).join('')}</div></div>
       ${renderDeckEditor(state, 'preset')}
       <div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">취소</button><button type="button" class="primary-button" data-action="save-deck-preset" ${cards.length ? '' : 'disabled'}>프리셋 ${slot + 1}에 저장</button></div>
@@ -1348,11 +1381,11 @@ function renderEnhancementPanel(state) {
                 : lockedCount > 0
                   ? `모험 ${formatNumber(lockedCount)}장 · 재료 부족`
                   : availableCount < 2
-                    ? '동일 카드 부족'
+              ? '동일 카드 부족'
                     : '강화 조합 없음';
             return `
               <button type="button" class="management-card-choice rarity-${card.rarity} ${card.id === selectedCard.id ? 'is-selected' : ''}" data-action="select-enhance-card" data-card-id="${card.id}" aria-pressed="${card.id === selectedCard.id}" ${availability.canEnhance ? '' : 'disabled'}>
-                <img src="${card.image}" alt="" loading="lazy" />
+                <div class="card-emblem-thumb card-emblem-host"><img src="${card.image}" alt="" loading="lazy" />${renderCardEmblems(card, best, { size: 'micro' })}</div>
                 <span><strong>${escapeHtml(cardDisplayName(card))}</strong><small>${rarityLabel(card.rarity)} · ${formatNumber(state.collection[card.id])}장</small></span>
                 <b>${availability.canEnhance ? enhancementLabel(best) : unavailableLabel}</b>
               </button>`;
@@ -1362,10 +1395,10 @@ function renderEnhancementPanel(state) {
 
       <section class="management-console" aria-labelledby="enhancement-card-title">
         <div class="enhancement-focus rarity-${selectedCard.rarity}">
-          <div class="enhancement-focus__art">
+          <div class="enhancement-focus__art card-emblem-host">
             <img class="card-illustration" src="${selectedCard.image}" alt="${escapeHtml(cardDisplayName(selectedCard))}" />
             <span class="rarity-stamp">${rarityEmblem(selectedCard.rarity)}</span>
-            <span class="enhancement-badge">${enhancementLabel(hasTarget ? targetStage : cardEnhancement(selectedCard, state))}</span>
+            ${renderCardEmblems(selectedCard, hasTarget ? targetStage : cardEnhancement(selectedCard, state), { size: 'large' })}
           </div>
           <div class="enhancement-focus__copy">
             <span class="eyebrow">${escapeHtml(selectedCard.department)} / ${rarityLabel(selectedCard.rarity)}</span>
@@ -1485,9 +1518,9 @@ function renderSynthesisPanel(state) {
             const material = selectedCards[index];
             if (!material?.card) return '<div class="synthesis-slot is-empty"><span>+</span><small>재료 카드</small></div>';
             return `
-              <button type="button" class="synthesis-slot rarity-${material.card.rarity}" data-action="remove-synthesis-material" data-material-index="${index}" title="선택 해제">
+              <button type="button" class="synthesis-slot card-emblem-host rarity-${material.card.rarity}" data-action="remove-synthesis-material" data-material-index="${index}" title="선택 해제">
                 <img src="${material.card.image}" alt="" />
-                <span>${enhancementLabel(material.enhancement)}</span>
+                ${renderCardEmblems(material.card, material.enhancement, { size: 'compact', captioned: true })}
                 <strong>${escapeHtml(material.card.characterName || material.card.name)}</strong>
               </button>`;
           }).join('')}
@@ -1584,7 +1617,7 @@ function renderSquadPicker(state, context) {
         return `
           <div class="squad-card-shell">
           <button class="squad-card rarity-${card.rarity} ${selected ? 'is-selected' : ''} ${unavailable ? 'is-unavailable' : ''}" type="button" data-action="toggle-squad" data-context="${context}" data-card-id="${card.id}" ${unavailable ? 'disabled' : ''} aria-pressed="${selected ? 'true' : 'false'}">
-            <img class="squad-card__art" src="${card.image}" alt="" />
+            <div class="squad-card__art-frame card-emblem-host"><img class="squad-card__art" src="${card.image}" alt="" />${renderCardEmblems(card, Math.max(0, availableStage), { size: 'micro' })}</div>
             <span><strong>${escapeHtml(cardDisplayName(card))}</strong><small><b>${rarityLabel(card.rarity)} · Lv.${formatNumber(progressionForCard(state.cardProgression, card.id).level)} · ${enhancementLabel(Math.max(0, availableStage))}</b><span class="squad-detail-copy">${unavailable ? (availableStage < 0 ? ' · 모든 복사본이 모험 참여 중 · 레이드 사용 불가' : ' · 고유 스킬 준비 중 · 레이드 사용 불가') : ` · 전투력 ${formatNumber(cardPower(card, state, availableStage))}`}</span></small></span>
             ${selectionOrder ? `<b class="squad-order-badge" aria-label="행동 순서 ${selectionOrder}번">${selectionOrder}</b>` : `<i data-lucide="${unavailable ? 'lock' : 'users'}"></i>`}
           </button>
@@ -1615,6 +1648,7 @@ function renderAdventure(state) {
   const actionMission = active ? activeMission : selectedMission;
   const actionScore = active ? expeditionEffectivePower(active) : score;
   const actionMinimumPower = missionMinimumPower(actionMission);
+  const previousMission = expeditionById(state.lastCompletedExpedition?.missionId);
 
   return `
     <div class="adventure-layout">
@@ -1638,6 +1672,7 @@ function renderAdventure(state) {
           </button>
         </div>
         <button type="button" class="mission-list-toggle" data-action="toggle-mission-list" aria-expanded="${!active && ui.missionListExpanded}" aria-controls="adventure-mission-list" ${active ? 'disabled' : ''}><span><small>${active ? '진행 중인 모험' : `모험 선택 · ${EXPEDITIONS.length}곳`}</small><strong>${escapeHtml(actionMission.name)}</strong></span><i data-lucide="chevron-right"></i></button>
+        ${!active && previousMission ? `<div class="adventure-repeat"><span>최근 완료 · ${escapeHtml(previousMission.name)}<br />같은 카드·장비·유물로 다시 출발합니다.</span><button class="secondary-button" type="button" data-action="repeat-expedition"><i data-lucide="rotate-ccw"></i>같은 모험 다시 보내기</button></div>` : ''}
         <div class="mission-list ${!active && ui.missionListExpanded ? 'is-expanded' : ''}" id="adventure-mission-list">
           ${EXPEDITIONS.map((mission) => `
             <button type="button" class="mission-row ${ui.selectedMissionId === mission.id ? 'is-selected' : ''}" data-action="select-mission" data-mission-id="${mission.id}" ${active ? 'disabled' : ''}>
@@ -1657,13 +1692,14 @@ function renderAdventure(state) {
             <div class="large-countdown" data-countdown="${active.endsAt}">${formatDuration(active.endsAt - Date.now())}</div>
           </div>
           <p class="assignment-description">${activeMission.description}</p>
+          ${active.relicId ? `<p class="relic-bonus-note">${escapeHtml(relicById(active.relicId)?.name || '유물')} · 모험 재화 보상 +5% 적용 중</p>` : ''}
           <p class="local-operation-note">장비 드랍 확률 ${formatDropChance(activeMission)}% · 드랍된 뒤 장비 등급이 결정됩니다.</p>
           <div class="progress-track progress-track--large"><span data-expedition-progress style="width:${Math.round(expeditionProgress(active) * 100)}%"></span></div>
           <div class="deployed-squad">
             ${active.squad.map((id) => {
               const card = cardById(id);
               const stage = Number(active.enhancementStages?.[id] ?? cardEnhancement(card, state)) || 0;
-              return `<div class="rarity-${card.rarity}"><img src="${card.image}" alt="" /><span>${escapeHtml(card.name)}</span><small>${rarityLabel(card.rarity)} · ${enhancementLabel(stage)}</small></div>`;
+              return `<div class="rarity-${card.rarity}"><figure class="deployed-card-art card-emblem-host"><img src="${card.image}" alt="" />${renderCardEmblems(card, stage, { size: 'compact' })}</figure><span>${escapeHtml(card.name)}</span><small>${rarityLabel(card.rarity)} · ${enhancementLabel(stage)}</small></div>`;
             }).join('')}
           </div>
           <button class="danger-text-button" type="button" data-action="cancel-expedition">작전 중단</button>
@@ -1673,6 +1709,7 @@ function renderAdventure(state) {
             <div class="mission-duration"><i data-lucide="clock"></i>${formatDuration(selectedMission.durationMs)}</div>
           </div>
           <p class="assignment-description">${selectedMission.description}</p>
+          ${selectedRelic(state, 'adventure') ? '<p class="relic-bonus-note">명품 가방 · 최종 동전 보상 +5% (소수점 반올림)</p>' : ''}
           <div class="requirement-row">
             <span>합산 전투력 <strong class="${score >= minimumPower ? 'positive' : 'negative'}">${formatNumber(score)}</strong></span>
             <span>최소 합산 전투력 <strong>${formatNumber(minimumPower)}</strong></span>
@@ -1838,9 +1875,10 @@ function renderPersonalRaidBattlefield(state) {
             const skillUnavailable = sealed || member.skillCooldown > 0 || (skill?.oncePerBattle && member.skillUses > 0);
             return `<article class="raid-unit-slot rarity-${card?.rarity || 'c'} ${onTurn ? 'is-active' : ''} ${animation.attacker === index ? 'is-attacking' : ''}">
               ${onTurn ? `<div class="raid-card-actions"><button type="button" data-action="raid-basic-attack" ${ui.raid.battlePending ? 'disabled' : ''}>기본공격</button><button type="button" data-action="raid-skill-attack" ${ui.raid.battlePending || skillUnavailable ? 'disabled' : ''}>스킬${skillUnavailable ? `<small>${sealed ? '봉인됨' : skill?.oncePerBattle && member.skillUses > 0 ? '사용 완료' : `${formatNumber(member.skillCooldown)}턴 남음`}</small>` : ''}</button></div>` : ''}
-              <button class="raid-unit-card ${member.hp <= 0 ? 'is-ko' : ''} ${animationTargets.includes(index) ? 'is-raid-hit' : ''}" type="button" data-action="inspect-raid-card" data-card-index="${index}" data-payroll-label="${escapeHtml(`${rarityLabel(card?.rarity)} · ${cardDisplayName(card)}`)}">
+              <button class="raid-unit-card card-emblem-host ${member.hp <= 0 ? 'is-ko' : ''} ${animationTargets.includes(index) ? 'is-raid-hit' : ''}" type="button" data-action="inspect-raid-card" data-card-index="${index}" data-payroll-label="${escapeHtml(`${rarityLabel(card?.rarity)} · ${cardDisplayName(card)}`)}">
                 <span class="raid-unit-number">${index + 1}</span>
                 <img src="${card?.image || member.image}" alt="${escapeHtml(cardDisplayName(card))}" />
+                ${renderCardEmblems(card || member.cardId, member.enhancement, { size: 'micro', captioned: true })}
                 <span class="raid-unit-name">${escapeHtml(cardDisplayName(card))} ${enhancementLabel(member.enhancement)}</span>
               </button>
               <div class="raid-unit-effects">${renderRaidEffectList(member.effects, String(index), `${cardDisplayName(card)}에게 적용 중인 상태 효과`)}</div>
@@ -1926,6 +1964,7 @@ function renderPersonalRaidBattle(state) {
           <div><span>잔여 업무량</span><strong>${formatNumber(hp)} / ${formatNumber(maxHp)}</strong></div>
           <div class="boss-health-track"><span style="width:${Math.round(hpRatio * 100)}%"></span></div>
         </div>
+        <p class="raid-bonus-guide">${stage}단계 클리어: 카드팩 ${stage * 3}개${stage >= 5 ? ` · 유물 ${((stage - 4) * 0.5).toFixed(1)}%` : ''}${stage >= 8 ? ' · SR 이상 카드 1장 확정' : ''}<br />유물은 5단계 0.5%부터 단계마다 +0.5%p, 8~10단계는 SR 이상 카드도 추가 지급됩니다.</p>
         <div class="raid-stats">
           <div><span>이번 주 총 피해 점수</span><strong>${formatNumber(raid.totalContribution ?? raid.contribution)}</strong></div>
           <div><span>오늘 남은 입장</span><strong>${formatNumber(remainingEntries)} / ${formatNumber(maxEntries)}</strong></div>
@@ -2031,7 +2070,7 @@ function renderPackResultCard(card, index, premiumPack, revealedCards, modal) {
   return `
     <article class="result-card ${rarityClass} ${revealClass} ${isNew ? 'is-new-card' : ''}" data-pack-card-index="${index}" style="--reveal-delay:${Math.min(index, 10) * 70}ms">
       ${isNew ? '<span class="new-card-badge" aria-label="처음 획득한 카드">NEW!!</span>' : ''}
-      <div class="result-card__art ${revealClass}">
+      <div class="result-card__art card-emblem-host ${revealClass}">
         ${faceDown ? `
           <button class="result-card__reveal" type="button" data-action="reveal-pack-card" data-opening-id="${escapeHtml(modal.openingId || '')}" data-card-index="${index}" aria-label="${index + 1}번째 봉인 카드 뒤집기">
             <span class="card-back-mark">HC</span><strong>카드 봉인</strong><small>눌러서 공개</small>
@@ -2040,7 +2079,7 @@ function renderPackResultCard(card, index, premiumPack, revealedCards, modal) {
           <img class="card-illustration" src="${card.image}" alt="${escapeHtml(cardDisplayName(card))}" />
           <span class="rarity-stamp">${rarityEmblem(card.rarity)}</span>
           <b class="card-power">전투력 ${formatNumber(cardPower(card))}</b>
-          <span class="enhancement-badge">+0</span>
+          ${renderCardEmblems(card, 0, { size: 'compact' })}
         `}
       </div>
       <div class="result-card__copy">${faceDown
@@ -2119,7 +2158,7 @@ function renderCardModal(card, state) {
         <button class="modal-close" type="button" data-action="close-modal" aria-label="닫기"><i data-lucide="x"></i></button>
         <button class="detail-card-nav detail-card-nav--previous" type="button" data-action="navigate-card-detail" data-card-id="${previousCard?.id || ''}" aria-label="이전 카드" ${previousCard ? '' : 'disabled'}><i data-lucide="chevron-left"></i></button>
         <button class="detail-card-nav detail-card-nav--next" type="button" data-action="navigate-card-detail" data-card-id="${nextCard?.id || ''}" aria-label="다음 카드" ${nextCard ? '' : 'disabled'}><i data-lucide="chevron-right"></i></button>
-        <div class="detail-card-art"><img class="card-illustration" src="${card.image}" alt="${escapeHtml(cardDisplayName(card))}" /><span class="rarity-stamp">${rarityEmblem(card.rarity)}</span><b class="card-power">전투력 ${formatNumber(cardPower(card, state))}</b><span class="enhancement-badge">${enhancementLabel(enhancement)}</span></div>
+        <div class="detail-card-art card-emblem-host"><img class="card-illustration" src="${card.image}" alt="${escapeHtml(cardDisplayName(card))}" /><span class="rarity-stamp">${rarityEmblem(card.rarity)}</span><b class="card-power">전투력 ${formatNumber(cardPower(card, state))}</b>${renderCardEmblems(card, enhancement, { size: 'large' })}</div>
         <div class="detail-card-copy">
           <span class="eyebrow">${escapeHtml(card.department)} / ${escapeHtml(card.category)}</span>
           <h2 id="card-detail-title">${escapeHtml(cardDisplayName(card))}</h2>
@@ -2180,15 +2219,17 @@ function renderResultModal(result, state) {
         <h2 id="result-title">${escapeHtml(result.title || '처리 완료')}</h2>
         <p>${escapeHtml(result.message)}</p>
         ${resultCard ? `
-          <div class="management-result-card rarity-${resultCard.rarity} ${result.isNew ? 'is-new-card' : ''}">
+          <div class="management-result-card card-emblem-host rarity-${resultCard.rarity} ${result.isNew ? 'is-new-card' : ''}">
             ${result.isNew ? '<span class="new-card-badge" aria-label="처음 획득한 카드">NEW!!</span>' : ''}
             <img class="card-illustration" src="${resultCard.image}" alt="${escapeHtml(cardDisplayName(resultCard))}" />
             <span class="rarity-stamp">${rarityEmblem(resultCard.rarity)}</span>
+            ${renderCardEmblems(resultCard, result.enhancement || 0, { size: 'standard', captioned: true })}
             <strong>${escapeHtml(cardDisplayName(resultCard))}</strong>
             <small>${enhancementLabel(result.enhancement || 0)} · 전투력 ${formatNumber(cardPower(resultCard, null, result.enhancement || 0))}</small>
           </div>
         ` : ''}
         <div class="reward-line">${result.rewardText}</div>
+        ${result.repeatExpedition && !state.expedition ? '<button class="primary-button" type="button" data-action="repeat-expedition"><i data-lucide="rotate-ccw"></i>같은 모험 다시 보내기</button>' : ''}
         ${state.pendingPackOpening ? `
           <div class="modal-actions">
             <button class="secondary-button" type="button" data-action="close-modal">나중에 확인</button>
@@ -2222,7 +2263,7 @@ function renderBatchSynthesisResultModal(result) {
             return `
               <li class="rarity-${card.rarity} ${entry.isNew ? 'is-new-card' : ''}">
                 <b>${formatNumber(index + 1)}</b>
-                <img class="card-illustration" src="${card.image}" alt="" loading="lazy" />
+                <div class="card-emblem-thumb card-emblem-thumb--batch card-emblem-host"><img class="card-illustration" src="${card.image}" alt="" loading="lazy" />${renderCardEmblems(card, 0, { size: 'micro' })}</div>
                 <span><strong>${escapeHtml(cardDisplayName(card))}</strong><small>${entry.success ? `${rarityLabel(entry.sourceRarity)} → ${rarityLabel(entry.resultRarity)} 성공` : `${rarityLabel(entry.sourceRarity)} 카드 반환`}</small></span>
                 <em class="${entry.success ? 'is-success' : 'is-failure'}">${entry.success ? '성공' : '실패'}</em>
                 ${entry.isNew ? '<mark class="batch-new-card-badge">NEW!!</mark>' : ''}
@@ -2569,6 +2610,7 @@ function rewardText(reward = {}) {
   const parts = [];
   if (reward.coins) parts.push(`<span><i data-lucide="coins"></i>${formatNumber(reward.coins)} 동전</span>`);
   if (reward.packs) parts.push(`<span><i data-lucide="package-open"></i>${formatNumber(reward.packs)} 카드팩</span>`);
+  for (const bonus of reward.bonuses || []) parts.push(`<span><i data-lucide="sparkles"></i>${escapeHtml(raidBonusLabel(bonus))}</span>`);
   return parts.join('') || '<span>기록 갱신</span>';
 }
 
@@ -2990,12 +3032,12 @@ function toggleSquadCard(cardId, context = 'adventure') {
   render({ preserveViewScroll: true });
 }
 
-function beginExpedition() {
+function beginExpedition({ repeat = false } = {}) {
   const state = store.getState();
   if (state.expedition) return;
-  const mission = expeditionById(ui.selectedMissionId) || EXPEDITIONS[0];
+  const mission = repeat ? expeditionById(state.lastCompletedExpedition?.missionId) : expeditionById(ui.selectedMissionId) || EXPEDITIONS[0];
   try {
-    const expedition = startExpedition({
+    const expedition = repeat ? repeatExpedition({ state, missions: EXPEDITIONS, catalog: ALL_CARDS }) : startExpedition({
       mission,
       cardIds: state.selectedExpeditionSquad,
       collection: state.collection,
@@ -3003,11 +3045,21 @@ function beginExpedition() {
       cardEnhancements: state.cardEnhancements,
       cardProgression: state.cardProgression,
       equipment: selectedEquipment(state, 'adventure'),
+      relicId: selectedRelic(state, 'adventure')?.id || '',
+      relicInventory: state.relicInventory,
     });
     store.update((draft) => {
       draft.expedition = expedition;
+      if (repeat) {
+        draft.selectedExpeditionSquad = [...expedition.squad];
+        draft.selectedExpeditionEquipmentId = expedition.equipment?.id || '';
+        draft.selectedExpeditionArtifactId = expedition.relicId || '';
+      }
       appendActivity(draft, `${mission.name} 모험을 시작했습니다.`, 'adventure');
     });
+    ui.selectedMissionId = mission.id;
+    ui.modal = null;
+    ui.view = 'adventure';
     void scheduleExpeditionNotification(expedition, mission);
     showNotice('자동 모험을 시작했습니다.', 'success');
   } catch (error) {
@@ -3033,7 +3085,8 @@ function completeExpeditionIfReady() {
   ui.modal = {
     type: 'result',
     message: `${mission.name} 임무를 무사히 마쳤습니다.`,
-    rewardText: `${rewardText({ coins: completion.result.coins, packs: completion.result.packs })} · 카드당 경험치 ${formatNumber(completion.result.experiencePerCard)}${completion.result.equipment ? ` · ${equipmentEffectText(completion.result.equipment)} 획득` : ''}`,
+    repeatExpedition: true,
+    rewardText: `${rewardText({ coins: completion.result.coins, packs: completion.result.packs })}${completion.result.relicBonusCoins ? ` · 명품 가방 보너스 ${formatNumber(completion.result.relicBonusCoins)} 동전 포함` : ''} · 카드당 경험치 ${formatNumber(completion.result.experiencePerCard)}${completion.result.equipment ? ` · ${equipmentEffectText(completion.result.equipment)} 획득` : ''}`,
   };
   render();
   return true;
@@ -3050,7 +3103,7 @@ function applyRaidPayload(payload, { activityMessage = '' } = {}) {
     draft.raid = payload.state;
     reward = reconcileRaidRewards(draft, payload.state);
     if (activityMessage) appendActivity(draft, activityMessage, 'raid');
-    else if (reward.coins || reward.packs) {
+    else if (reward.coins || reward.packs || reward.bonuses?.length) {
       appendActivity(draft, `개인 레이드 미수령 보상을 동기화했습니다. (${plainRewardText(reward)})`, 'raid');
     }
   });
@@ -3372,7 +3425,7 @@ async function completeRaidBattle({ leave = false } = {}) {
         message: result.cleared
           ? `${formatNumber(battle.stage)}단계를 클리어했습니다. 이번 도전 점수 ${formatNumber(battle.totalDamage)}점`
           : `이번 도전에서 ${formatNumber(battle.totalDamage)}점을 획득했습니다.`,
-        rewardText: `주간 누적 ${formatNumber(payload.state?.totalContribution ?? payload.state?.contribution ?? battle.totalDamage)}점 · 카드당 경험치 ${formatNumber(experiencePerCard)}${reward.coins || reward.packs ? ` · ${rewardText(reward)}` : ''}`,
+        rewardText: `주간 누적 ${formatNumber(payload.state?.totalContribution ?? payload.state?.contribution ?? battle.totalDamage)}점 · 카드당 경험치 ${formatNumber(experiencePerCard)}${reward.coins || reward.packs || reward.bonuses?.length ? ` · ${rewardText(reward)}` : ''}`,
       };
     }
   } catch (error) {
@@ -3394,10 +3447,17 @@ function openActiveIncident(incident = null) {
   render();
 }
 
+function raidBonusLabel(bonus) {
+  if (bonus.type === 'relic') return `유물 ${relicById(bonus.relicId)?.name || bonus.relicId} ${bonus.quantity || 1}장`;
+  const card = cardById(bonus.cardId);
+  return `${rarityLabel(card?.rarity || bonus.rarity)} ${cardDisplayName(card) || bonus.cardId} ${bonus.quantity || 1}장`;
+}
+
 function plainRewardText(reward = {}) {
   const parts = [];
   if (reward.coins) parts.push(`${formatNumber(reward.coins)} 동전`);
   if (reward.packs) parts.push(`카드팩 ${formatNumber(reward.packs)}개`);
+  parts.push(...(reward.bonuses || []).map(raidBonusLabel));
   return parts.join(' · ') || '기록 갱신';
 }
 
@@ -3412,6 +3472,7 @@ function openDeckPresetEditor(slot, { copyContext = '' } = {}) {
       ...existing,
       cardIds: [...selectedLoadoutCards(state, copyContext)],
       equipmentCardId: selectedEquipment(state, copyContext)?.id || '',
+      artifactCardId: selectedRelic(state, copyContext)?.id || '',
     }
     : existing;
   ui.loadoutPanel.preset = 'cards';
@@ -3431,11 +3492,13 @@ function saveCurrentDeckPreset() {
   const slot = ui.modal.slot;
   const cardIds = [...(ui.modal.cardIds || [])];
   const equipmentCardId = String(ui.modal.equipmentCardId || '');
+  const artifactCardId = String(ui.modal.artifactCardId || '');
   if (!cardIds.length) return;
   store.update((draft) => {
     draft.deckPresets = saveDeckPresetLoadout(draft.deckPresets, slot, {
       cardIds,
       equipmentCardId,
+      artifactCardId,
       identityForId: cardCharacterIdentity,
     });
     appendActivity(draft, `공통 프리셋 ${slot + 1}에 덱을 저장했습니다.`, 'card');
@@ -3455,6 +3518,7 @@ function loadSavedDeckPreset(slot, context) {
   const loadout = resolveDeckPresetLoadout(preset, {
     collection: state.collection,
     equipmentInventory: state.equipmentInventory,
+    relicInventory: state.relicInventory,
     expedition: state.expedition,
     context,
     identityForId: cardCharacterIdentity,
@@ -3463,9 +3527,11 @@ function loadSavedDeckPreset(slot, context) {
     if (raid) {
       draft.selectedRaidSquad = loadout.cardIds;
       draft.selectedRaidEquipmentId = loadout.equipmentCardId;
+      draft.selectedRaidArtifactId = loadout.artifactCardId;
     } else {
       draft.selectedExpeditionSquad = loadout.cardIds;
       draft.selectedExpeditionEquipmentId = loadout.equipmentCardId;
+      draft.selectedExpeditionArtifactId = loadout.artifactCardId;
     }
     appendActivity(draft, `프리셋 ${slot + 1}을 ${raid ? '레이드' : '모험'} 덱에 불러왔습니다.`, 'card');
   });
@@ -4666,6 +4732,20 @@ app.addEventListener('click', async (event) => {
       });
     }
     render();
+  } else if (action === 'select-relic') {
+    const context = ['raid', 'preset'].includes(button.dataset.context) ? button.dataset.context : 'adventure';
+    const id = String(button.dataset.relicId || '');
+    if (id && !ownedRelic(store.getState().relicInventory, id)) return;
+    if (context === 'preset') {
+      if (ui.modal?.type !== 'deck-preset') return;
+      ui.modal.artifactCardId = id;
+    } else {
+      store.update((draft) => {
+        if (context === 'raid') draft.selectedRaidArtifactId = id;
+        else draft.selectedExpeditionArtifactId = id;
+      });
+    }
+    render({ preserveViewScroll: true });
   } else if (action === 'remove-preset-card') {
     if (ui.modal?.type !== 'deck-preset') return;
     ui.modal.cardIds = ui.modal.cardIds.filter((id) => id !== button.dataset.cardId);
@@ -4692,6 +4772,8 @@ app.addEventListener('click', async (event) => {
     render();
   } else if (action === 'start-expedition') {
     beginExpedition();
+  } else if (action === 'repeat-expedition') {
+    beginExpedition({ repeat: true });
   } else if (action === 'cancel-expedition') {
     const notificationId = expeditionNotificationId(store.getState().expedition);
     store.update((draft) => {

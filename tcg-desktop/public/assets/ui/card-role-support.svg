@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">지원 역할</title>
+  <defs>
+    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#50bd72"/>
+      <stop offset="1" stop-color="#1b7544"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#002616" flood-opacity=".72"/>
+    </filter>
+  </defs>
+  <g filter="url(#shadow)">
+    <rect x="4" y="4" width="56" height="56" rx="10" fill="#145a36" stroke="#abf0c2" stroke-width="3"/>
+    <rect x="8" y="8" width="48" height="48" rx="7" fill="url(#face)"/>
+    <path fill="#fff" d="M26 13h12v13h13v12H38v13H26V38H13V26h13z"/>
+    <path fill="#d9ffe4" d="M30 17h4v13h13v4H34v13h-4V34H17v-4h13z" opacity=".7"/>
+  </g>
+</svg>

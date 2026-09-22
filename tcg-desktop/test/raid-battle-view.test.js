@@ -32,13 +32,21 @@ test('every active combat status has explicit icon metadata', () => {
     'full-course', 'golden-fruit', 'guarded-by', 'guarding', 'healing-down', 'healing-taken-up',
     'ice-spire', 'new-galaxy', 'peach-seed', 'quick', 'regen', 'season-cycle', 'seal', 'shield',
     'shield-break-heal', 'skill-damage-up', 'star-follow-up', 'taunt', 'tiger-seal', 'white-night-heart',
-    'world-tree-route', 'burn',
+    'world-tree-route', 'burn', 'lotus-regen', 'prism-torrent',
   ];
   for (const id of combatStatuses) {
     assert.ok(EFFECT_PRESENTATION[id], `${id} needs icon metadata`);
     assert.ok(EFFECT_PRESENTATION[id].icon, `${id} needs an icon`);
     assert.ok(EFFECT_PRESENTATION[id].description, `${id} needs tooltip text`);
   }
+});
+
+test('Coca prism tooltip exposes distinct contributors and stored damage', () => {
+  const effect = effectPresentation({ id: 'prism-torrent', contributors: ['a', 'b'], storedDamage: 1200, charges: 1, scope: 'team' });
+  assert.match(effect.description, /2\/3명/);
+  assert.match(effect.description, /1,200/);
+  assert.equal(effect.count, 1);
+  assert.equal(effect.scope, 'team');
 });
 
 test('raid view uses non-empty status arrays, exposes shields, and projects party-wide effects', () => {
