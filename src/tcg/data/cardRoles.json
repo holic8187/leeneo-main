@@ -20,6 +20,8 @@
   "mango-hr": "attack", "winter-ur": "defense", "hoi-ur": "support", "hoi-ssr": "support",
   "coca-u": "support", "coca-rr": "attack", "coca-rrr": "defense", "coca-sr": "support",
   "coca-hr": "attack", "coca-ur": "attack", "coca-ssr": "attack",
+  "morae-rr": "defense", "morae-rrr": "attack", "morae-sr": "support",
+  "morae-hr": "support", "morae-ur": "defense", "morae-ssr": "defense",
   "rookie-analyst": "attack", "sales-fox": "attack", "pantry-cat": "support", "peach-sentry": "defense",
   "hwang-manager": "attack", "gammam-neo": "defense", "kim-manager": "attack", "deadline-dragon": "attack"
 }

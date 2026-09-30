@@ -52,6 +52,9 @@ const tcgPlayerStateSchema = new mongoose.Schema({
   revision: { type: Number, default: 0, min: 0 },
   initialized: { type: Boolean, default: false },
   mailbox: { type: [mailboxEntrySchema], default: [] },
+  // Server-owned receipt ledger: never accepted through the client save blob.
+  // A receipt and its inventory mutation are committed in the same document.
+  cooperativeRewardClaims: { type: [String], default: [] },
   activeLease: {
     type: activeLeaseSchema,
     default: () => ({

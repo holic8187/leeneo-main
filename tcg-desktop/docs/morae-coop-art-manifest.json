@@ -1,0 +1,67 @@
+{
+  "mode": "built-in image_gen",
+  "reviewed": true,
+  "reference": "public/assets/cards/morae-c.webp",
+  "assets": [
+    {
+      "path": "public/assets/cards/morae-rr.png",
+      "prompt": "Use case: stylized-concept. Asset: portrait collectible fantasy card art, 3:4 composition, full bleed, no text, lettering, frame, badge, watermark. Input image is an identity and painterly-anime-style REFERENCE, not an edit target. Depict the SAME Morae: small golden sand-colored fennec fox, enormous long pointed ears, cream muzzle/chest and bushy cream-tipped tail, warm amber eyes, unmistakable rich cobalt-blue cloth scarf around neck with two visible trailing ends. Animal paws, four anatomical limbs total, one tail, two ears, no human fingers, no extra paws. Keep recognizable face and scarf, but completely new pose, expression, camera and backdrop. High quality hand-painted anime game illustration, clean expressive silhouette, restrained intentional details. RR rarity '협곡의 푸른 피난처'. Morae calmly crouches on a warm sandstone ledge, three-quarter side view, sheltering behind a softly glowing curved veil of blue sand. Concerned but reassuring gaze toward viewer. Wind funnels through a sunlit rust-red canyon, a safe shaded nook nearby. Mid-level rare art: detailed rocky depth, graceful scarf movement, a few blue particles, not cosmic spectacle. Character fills two-thirds height.",
+      "checks": [
+        "consistent fennec identity and cobalt scarf",
+        "natural paws, two ears and single tail",
+        "tier-specific setting and spectacle",
+        "no text or frame"
+      ]
+    },
+    {
+      "path": "public/assets/cards/morae-rrr.png",
+      "prompt": "Use case: stylized-concept. Asset: portrait collectible fantasy card art, 3:4 composition, full bleed, no text, lettering, frame, badge, watermark. Input image is an identity and painterly-anime-style REFERENCE, not an edit target. Depict the SAME Morae: small golden sand-colored fennec fox, enormous long pointed ears, cream muzzle/chest and bushy cream-tipped tail, warm amber eyes, unmistakable rich cobalt-blue cloth scarf around neck with two visible trailing ends. Animal paws, four anatomical limbs total, one tail, two ears, no human fingers, no extra paws. Keep recognizable face and scarf, but completely new pose, expression, camera and backdrop. High quality hand-painted anime game illustration, clean expressive silhouette, restrained intentional details. RRR rarity '유리사막의 천공자'. Dynamic top-left-to-bottom-right leaping fox seen at low three-quarter angle, fierce determined expression, both front paws clearly tucked into a natural fox pounce and hind legs trailing anatomically. A spiraling turquoise sand lance forms beside the fox without being held, drilling through a sheet of translucent amber desert glass. Sunset crimson dunes and shards floating only in background. Strong crisp action silhouette, brighter spectacle than RR, glass accents do not obscure the face or paws.",
+      "checks": [
+        "consistent fennec identity and cobalt scarf",
+        "natural paws, two ears and single tail",
+        "tier-specific setting and spectacle",
+        "no text or frame"
+      ]
+    },
+    {
+      "path": "public/assets/cards/morae-sr.png",
+      "prompt": "Use case: stylized-concept. Asset: portrait collectible fantasy card art, 3:4 composition, full bleed, no text, lettering, frame, badge, watermark. Input image is an identity and painterly-anime-style REFERENCE, not an edit target. Depict the SAME Morae: small golden sand-colored fennec fox, enormous long pointed ears, cream muzzle/chest and bushy cream-tipped tail, warm amber eyes, unmistakable rich cobalt-blue cloth scarf around neck with two visible trailing ends. Animal paws, four anatomical limbs total, one tail, two ears, no human fingers, no extra paws. Keep recognizable face and scarf, but completely new pose, expression, camera and backdrop. High quality hand-painted anime game illustration, clean expressive silhouette, restrained intentional details. SR rarity '별우물의 인도자'. Intimate gently elevated camera: Morae sits on the ancient circular rim of a luminous desert well, one forepaw resting on smooth rim, the other naturally beside it. A soft relieved smile and tender amber gaze. Deep midnight indigo desert, healing turquoise light wells upward illuminating cream fur from below; tiny points of starlight drift in a spiraling ribbon around the scarf. Weathered stone inscriptions are abstract non-text shapes. Strong graceful storytelling, richly painted but calm; no water reflection or duplicated fox.",
+      "checks": [
+        "consistent fennec identity and cobalt scarf",
+        "natural paws, two ears and single tail",
+        "tier-specific setting and spectacle",
+        "no text or frame"
+      ]
+    },
+    {
+      "path": "public/assets/cards/morae-hr.png",
+      "prompt": "Use case: stylized-concept. Asset: portrait collectible fantasy card art, 3:4 composition, full bleed, no text, lettering, frame, badge, watermark. Input image is an identity and painterly-anime-style REFERENCE, not an edit target. Depict the SAME Morae: small golden sand-colored fennec fox, enormous long pointed ears, cream muzzle/chest and bushy cream-tipped tail, warm amber eyes, unmistakable rich cobalt-blue cloth scarf around neck with two visible trailing ends. Animal paws, four anatomical limbs total, one tail, two ears, no human fingers, no extra paws. Keep recognizable face and scarf, but completely new pose, expression, camera and backdrop. High quality hand-painted anime game illustration, clean expressive silhouette, restrained intentional details. HR rarity '새벽 오아시스의 파수꾼'. Profile close-to-medium full body fox standing alert atop a white stone arch over a lush oasis, looking back over one shoulder with a confident playful small smile. Two naturally planted front paws, two hind paws aligned with body; all identifiable and correctly jointed. Blue scarf trails horizontally in a gentle wind. Sunrise rose and peach cloud layers over turquoise palms, two luminous blue waymarks suspended behind the fox. Very elegant rich high-rarity lighting and fine depth; foreground flowers frame corners but not paws; no mirror reflections.",
+      "checks": [
+        "consistent fennec identity and cobalt scarf",
+        "natural paws, two ears and single tail",
+        "tier-specific setting and spectacle",
+        "no text or frame"
+      ]
+    },
+    {
+      "path": "public/assets/cards/morae-ur.png",
+      "prompt": "Use case: stylized-concept. Asset: portrait collectible fantasy card art, 3:4 composition, full bleed, no text, lettering, frame, badge, watermark. Input image is an identity and painterly-anime-style REFERENCE, not an edit target. Depict the SAME Morae: small golden sand-colored fennec fox, enormous long pointed ears, cream muzzle/chest and bushy cream-tipped tail, warm amber eyes, unmistakable rich cobalt-blue cloth scarf around neck with two visible trailing ends. Animal paws, four anatomical limbs total, one tail, two ears, no human fingers, no extra paws. Keep recognizable face and scarf, but completely new pose, expression, camera and backdrop. High quality hand-painted anime game illustration, clean expressive silhouette, restrained intentional details. UR rarity '사막천궁의 수호자'. Aerial palace guardian composition: Morae shown in dramatic three-quarter rear view turning its head toward viewer, seated proudly on the tip of a sandstone celestial bridge. All paws naturally folded/placed beneath seated fox body, one huge cream-tipped tail curls beside body. Serious watchful expression, cobalt scarf flowing outward. Vast golden sky palace, floating sandstone arches encircled by concentric translucent sapphire protective domes, dawn clouds seen far below. Ornate but clean, immense scale, radiant blue and gold, magical grains forming protective architecture rather than random confetti. Keep character prominently recognizable.",
+      "checks": [
+        "consistent fennec identity and cobalt scarf",
+        "natural paws, two ears and single tail",
+        "tier-specific setting and spectacle",
+        "no text or frame"
+      ]
+    },
+    {
+      "path": "public/assets/cards/morae-ssr.png",
+      "prompt": "Use case: stylized-concept. Asset: portrait collectible fantasy card art, 3:4 composition, full bleed, no text, lettering, frame, badge, watermark. Input image is an identity and painterly-anime-style REFERENCE, not an edit target. Depict the SAME Morae: small golden sand-colored fennec fox, enormous long pointed ears, cream muzzle/chest and bushy cream-tipped tail, warm amber eyes, unmistakable rich cobalt-blue cloth scarf around neck with two visible trailing ends. Animal paws, four anatomical limbs total, one tail, two ears, no human fingers, no extra paws. Keep recognizable face and scarf, but completely new pose, expression, camera and backdrop. High quality hand-painted anime game illustration, clean expressive silhouette, restrained intentional details. SSR highest rarity '불침의 푸른 사막왕'. A magnificent yet adorable DEFENDER fox, frontal low-angle regal stance, all four anatomical paws naturally planted on a fractured circular sandstone dais, two large ears symmetrically visible, calm unwavering amber eyes and gentle confident smile. Scarf deep cobalt and readable, no clothing covering fur. A monumental arc-shaped sapphire shield rises behind and around the fox like a protective desert fortress, catching golden meteoric sand at its outer edge. Huge emerald-turquoise aurora, prismatic stained-glass-like rainbow edge highlights, luminous gilded carved pillars, spiraling blue sand and multicolor star trails. Premium SSR illustration, lavish light and depth but readable anatomy and uncluttered face, no weapons held in paws, no crown, no duplicated fox or reflections. Defensive strength, shelter, majesty.",
+      "checks": [
+        "consistent fennec identity and cobalt scarf",
+        "natural paws, two ears and single tail",
+        "tier-specific setting and spectacle",
+        "no text or frame"
+      ]
+    }
+  ]
+}

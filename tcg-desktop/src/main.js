@@ -46,6 +46,10 @@ import './lobby.css';
 import './mobile-game.css';
 import './relics.css';
 import './card-emblems.css';
+import './cooperative-raid.css';
+import { cooperativeRaidGateway } from './services/cooperativeRaidGateway.js';
+import { createCooperativeRaidClient, toggleCooperativeRepresentative } from './core/cooperativeRaidClient.js';
+import { renderCooperativePanel, renderCooperativeReady } from './ui/cooperativeRaidView.js';
 import {
   CARD_CATALOG,
   ALL_CARDS,
@@ -353,6 +357,7 @@ const ui = {
   raidMode: 'personal',
   raidPanel: 'battle',
   raid: createRaidUiState(),
+  cooperative: { selected: [], targetId: '', choice: 'fortune' },
   auth: {
     phase: 'restoring',
     mode: 'login',
@@ -374,6 +379,12 @@ const ui = {
 };
 
 const scrollPositions = new globalThis.Map();
+
+const cooperativeClient = createCooperativeRaidClient({
+  gateway: cooperativeRaidGateway,
+  getIdentity: () => ({ accountId: String(ui.auth.account?.id || ui.auth.account?._id || ''), token: currentAuthToken() }),
+  onChange: () => { if (store && ui.auth.phase === 'authenticated') render(); },
+});
 
 const cloudGateway = {
   open: openPlaySession,
@@ -1736,27 +1747,34 @@ function renderRaidModeTabs() {
         <i data-lucide="swords"></i><span><strong>개인 레이드</strong><small>내 카드로 매일 도전</small></span>
       </button>
       <button type="button" role="tab" aria-selected="${ui.raidMode === 'cooperative'}" class="${ui.raidMode === 'cooperative' ? 'is-active' : ''}" data-action="switch-raid-mode" data-raid-mode="cooperative">
-        <i data-lucide="users"></i><span><strong>협동 레이드</strong><small>실시간 파티 · 추후 구현</small></span>
+        <i data-lucide="users"></i><span><strong>협동 레이드</strong><small>4인 실시간 파티</small></span>
       </button>
     </div>
   `;
 }
 
 function renderCooperativeRaid() {
-  return `
-    <section class="coop-raid-placeholder" aria-labelledby="coop-raid-title">
-      <div class="coop-raid-symbol"><i data-lucide="users"></i></div>
-      <span class="eyebrow">REAL-TIME PARTY RAID</span>
-      <h2 id="coop-raid-title">협동 레이드 준비 중</h2>
-      <p>다른 사원들과 실시간 파티를 만들고 함께 보스를 공략하는 모드입니다. 파티 매칭과 동기화 서버를 갖춘 뒤 제공됩니다.</p>
-      <div class="coop-feature-list">
-        <span><i data-lucide="wifi"></i>실시간 파티 입장</span>
-        <span><i data-lucide="users"></i>공동 기여도 집계</span>
-        <span><i data-lucide="trophy"></i>파티 보상</span>
-      </div>
-      <button class="secondary-button" type="button" disabled>추후 업데이트 예정</button>
-    </section>
-  `;
+  const client = cooperativeClient.getState();
+  return renderCooperativePanel({
+    client,
+    selected: ui.cooperative.selected,
+    cards: cooperativeAvailableCards(),
+    accountId: String(ui.auth.account?.id || ui.auth.account?._id || ''),
+    now: Date.now() + client.clockOffset,
+    targetId: ui.cooperative.targetId,
+    choice: ui.cooperative.choice,
+    personalBattle: Boolean(ui.raid.battle),
+  });
+}
+
+function renderCooperativeGlobal() {
+  const client = cooperativeClient.getState();
+  if (ui.cloud.phase !== 'active') return '';
+  const popup = renderCooperativeReady({ ...client, accountId: String(ui.auth.account?.id || ui.auth.account?._id || ''), now: Date.now() + client.clockOffset });
+  const away = ui.view !== 'raid' || ui.raidMode !== 'cooperative';
+  const banner = away && ['queued', 'battle', 'finished'].includes(client.data?.phase)
+    ? `<button class="coop-return-banner" type="button" data-action="coop-open">${client.data.phase === 'queued' ? '협동 매칭 대기 중' : client.data.phase === 'finished' ? '협동 레이드 보상 받기' : '협동 전투로 돌아가기'}</button>` : '';
+  return `${banner}${popup}`;
 }
 
 function renderPersonalRaidRanking(state) {
@@ -2576,6 +2594,9 @@ function restoreScrollPositions() {
 }
 
 function render() {
+  const previousReadyDialog = Boolean(app.querySelector('.coop-ready-dialog'));
+  const focusedCoopAction = document.activeElement?.dataset?.action?.startsWith('coop-')
+    ? document.activeElement.dataset.action : '';
   captureScrollPositions();
   if (ui.auth.phase !== 'authenticated' || !store) {
     ui.renderedView = null;
@@ -2596,6 +2617,7 @@ function render() {
       </main>
       ${ui.notice ? `<div class="app-notice app-notice--${ui.notice.tone}">${escapeHtml(ui.notice.message)}</div>` : ''}
       ${renderModal(state)}
+      ${renderCooperativeGlobal()}
       ${renderCloudGate()}
       ${renderUpdateGate()}
     </div>
@@ -2604,6 +2626,8 @@ function render() {
   refreshIcons();
   assignScrollKeys();
   restoreScrollPositions();
+  if (focusedCoopAction) app.querySelector(`.coop-ready-dialog [data-action="${focusedCoopAction}"]:not(:disabled)`)?.focus({ preventScroll: true });
+  else if (!previousReadyDialog) app.querySelector('.coop-ready-dialog [data-action="coop-accept"]:not(:disabled)')?.focus({ preventScroll: true });
 }
 
 function rewardText(reward = {}) {
@@ -3903,6 +3927,123 @@ function currentAuthToken() {
   return String(authSession.get()?.token || '');
 }
 
+function cooperativeAvailableCards() {
+  if (!store) return [];
+  const state = store.getState();
+  const locks = activeExpeditionCardLocks(state);
+  return ALL_CARDS.filter((card) => Number(state.collection[card.id]) > 0)
+    .map((card) => {
+      const enhancement = bestAvailableEnhancementForCard(state.collection, state.cardEnhancements, card.id, locks);
+      return { card, enhancement, power: cardPower(card, state, enhancement) };
+    })
+    .filter((item) => item.enhancement >= 0)
+    .sort((a, b) => b.power - a.power);
+}
+
+function cooperativeLeasePayload() {
+  const lease = cloudPlay?.getSnapshot().lease;
+  if (ui.cloud.phase !== 'active' || !lease?.leaseId) throw new Error('플레이 연결을 다시 확인해 주세요.');
+  return { leaseId: lease.leaseId, deviceId, generation: lease.generation };
+}
+
+async function performCooperativeRequest(method, extra = {}) {
+  const activeCloudPlay = cloudPlay;
+  const requestIdentity = currentMailboxIdentity();
+  let authoritativeMutation = false;
+  try {
+    return await cooperativeClient.mutate(method, async () => {
+      if (['queue', 'accept', 'claim'].includes(method)) await flushCloudStateOrThrow();
+      const body = { ...extra, ...cooperativeLeasePayload() };
+      if (method === 'queue') {
+        if (ui.raid.battle) throw new Error('개인 레이드를 마친 뒤 협동 대기열에 등록해 주세요.');
+        const available = cooperativeAvailableCards();
+        body.cards = ui.cooperative.selected.map((id) => {
+          const entry = available.find((item) => item.card.id === id);
+          if (!entry) throw new Error('모험 중이거나 보유하지 않은 대표 카드가 있습니다. 다시 선택해 주세요.');
+          return { cardId: id, enhancement: entry.enhancement };
+        });
+        if (body.cards.length !== 3) throw new Error('서로 다른 인물의 대표 카드 3장을 선택해 주세요.');
+      }
+      if (method === 'claim') {
+        const reservation = activeCloudPlay.beginAuthoritativeMutation(store.getState());
+        authoritativeMutation = true;
+        body.baseRevision = reservation.baseRevision;
+      }
+      return body;
+    }, async (result, identity) => {
+      if (method !== 'claim') return;
+      if (!result.snapshot?.state) throw new Error('보상 저장 응답을 확인할 수 없습니다. 다시 수령해 주세요.');
+      activeCloudPlay.commitAuthoritativeMutation(result.snapshot);
+      authoritativeMutation = false;
+      await flushCloudStateOrThrow();
+      if (identity.token === currentAuthToken() && identity.accountId === String(ui.auth.account?.id || ui.auth.account?._id || '')) {
+        showNotice('협동 레이드 보상을 클라우드에 저장했습니다.', 'success');
+      }
+    });
+  } catch (error) {
+    if (!isAuthorizedMailboxRequest(requestIdentity)) return null;
+    if (method === 'claim' && error.code === 'SAVE_CONFLICT' && authoritativeMutation && error.snapshot?.state) {
+      // The server declined this grant but returned its newer inventory. Rebase
+      // activity made during the request before allowing a claim at that revision.
+      try {
+        activeCloudPlay.commitAuthoritativeMutation(error.snapshot);
+        authoritativeMutation = false;
+        await flushCloudStateOrThrow();
+        if (isAuthorizedMailboxRequest(requestIdentity)) showNotice('최신 저장 기록을 반영했습니다. 협동 보상을 다시 받아 주세요.', 'warning');
+      } catch (_syncError) {
+        if (authoritativeMutation) { activeCloudPlay.cancelAuthoritativeMutation(); authoritativeMutation = false; }
+        await retryCloudConnection();
+      }
+    }
+    if (method === 'claim' && ['NETWORK_ERROR', 'TIMEOUT'].includes(error.code)) {
+      if (authoritativeMutation) { activeCloudPlay?.cancelAuthoritativeMutation(); authoritativeMutation = false; }
+      await retryCloudConnection();
+    }
+    if (['PLAY_SESSION_LOST', 'PLAYING_ELSEWHERE'].includes(error.code)) void retryCloudConnection();
+    // After an uncertain network result, ask the server what actually happened
+    // instead of retrying an action with another id and risking a duplicate turn.
+    window.setTimeout(() => { if (ui.auth.phase === 'authenticated' && ui.cloud.phase === 'active') void cooperativeClient.refresh(); }, 1000);
+    return null;
+  } finally {
+    if (authoritativeMutation) activeCloudPlay?.cancelAuthoritativeMutation();
+  }
+}
+
+async function handleCooperativeAction(action, button) {
+  const client = cooperativeClient.getState();
+  const data = client.data;
+  if (action === 'coop-open') {
+    ui.view = 'raid'; ui.raidMode = 'cooperative'; ui.modal = null; render();
+    void cooperativeClient.refresh();
+  } else if (action === 'coop-refresh') {
+    await cooperativeClient.refresh();
+  } else if (action === 'coop-select-card') {
+    if (client.pending || ['queued', 'ready', 'battle'].includes(data?.phase)) return;
+    const cardId = String(button.dataset.cardId || '');
+    if (!cardId) return;
+    try { ui.cooperative.selected = toggleCooperativeRepresentative(ui.cooperative.selected, cardId); render(); }
+    catch (error) { showNotice(error.message, 'warning'); }
+  } else if (action === 'coop-queue') {
+    await performCooperativeRequest('queue');
+  } else if (action === 'coop-leave') {
+    await performCooperativeRequest('leave');
+  } else if (action === 'coop-accept') {
+    if (data?.match?.id) await performCooperativeRequest('accept', { matchId: data.match.id });
+  } else if (action === 'coop-claim') {
+    if (data?.room?.id) await performCooperativeRequest('claim', { roomId: data.room.id });
+  } else if (action === 'coop-basic' || action === 'coop-skill') {
+    if (data?.phase !== 'battle' || data.room?.activeAccountId !== String(ui.auth.account?.id || ui.auth.account?._id || '')) return;
+    const actionId = globalThis.crypto?.randomUUID?.() || `action-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const target = (data.room.battle?.cards || []).find((card) => card.id === ui.cooperative.targetId && card.hp > 0);
+    await performCooperativeRequest('action', {
+      roomId: data.room.id, expectedRevision: data.room.revision, actionId,
+      action: action === 'coop-skill' ? 'skill' : 'basic',
+      targetId: action === 'coop-skill' ? target?.id : undefined,
+      choice: ui.cooperative.choice || 'fortune',
+    });
+  }
+}
+
 function currentMailboxIdentity() {
   return {
     accountId: ui.auth.account?.id || ui.auth.account?._id || '',
@@ -4169,6 +4310,7 @@ async function finishCloudActivation() {
   await refreshPersonalRaid({ silent: true });
   render();
   void refreshMailbox({ silent: true });
+  void cooperativeClient.refresh();
   void checkForAppUpdates();
 }
 
@@ -4183,6 +4325,8 @@ async function activateAuthenticatedSession(session, { newAccount = false } = {}
   ui.auth.error = '';
   ui.auth.offline = true;
   ui.auth.account = account;
+  ui.cooperative = { selected: [], targetId: '', choice: 'fortune' };
+  cooperativeClient.reset();
   ui.auth.form.password = '';
   ui.auth.form.passwordConfirm = '';
   ui.raid = createRaidUiState();
@@ -4340,6 +4484,8 @@ async function logout() {
   ui.auth.error = '';
   ui.auth.offline = false;
   ui.auth.account = null;
+  ui.cooperative = { selected: [], targetId: '', choice: 'fortune' };
+  cooperativeClient.reset();
   ui.auth.form = { username: '', nickname: '', password: '', passwordConfirm: '' };
   ui.raid = createRaidUiState();
   ui.mailbox = { loading: false, claimingId: '', items: [], error: '', lastLoadedAt: 0 };
@@ -4561,6 +4707,17 @@ app.addEventListener('click', async (event) => {
   if (ui.auth.phase === 'authenticated'
     && ((ui.cloud.phase !== 'active' && !actionsAllowedWhileCloudBlocked.has(action))
       || (updateBlocksGameplay() && !actionsAllowedWhileCloudBlocked.has(action)))) return;
+
+  if (action.startsWith('coop-')) {
+    await handleCooperativeAction(action, button);
+    return;
+  }
+  const cooperativePhase = cooperativeClient.getState().data?.phase;
+  if (['queued', 'ready', 'battle'].includes(cooperativePhase)
+    && ['enhance-card', 'synthesize-cards', 'batch-synthesize-cards', 'level-up-card', 'start-expedition', 'repeat-expedition', 'enter-raid-battle', 'begin-raid-battle'].includes(action)) {
+    showNotice('협동 대기·전투 중에는 카드 변경과 다른 전투 출발이 제한됩니다. 대기 중이라면 먼저 대기를 취소해 주세요.', 'warning');
+    return;
+  }
 
   if (action === 'switch-auth-mode') {
     switchAuthMode(button.dataset.mode);
@@ -4823,6 +4980,7 @@ app.addEventListener('click', async (event) => {
     ui.raidMode = button.dataset.raidMode === 'cooperative' ? 'cooperative' : 'personal';
     render();
     if (ui.raidMode === 'personal') void refreshPersonalRaid({ silent: true });
+    else void cooperativeClient.refresh();
   } else if (action === 'switch-raid-panel') {
     ui.raidPanel = button.dataset.raidPanel === 'ranking' ? 'ranking' : 'battle';
     render();
@@ -4996,6 +5154,10 @@ app.addEventListener('change', (event) => {
 
 function updateLiveTimers() {
   if (!store || ui.auth.phase !== 'authenticated' || ui.cloud.phase !== 'active') return;
+  document.querySelectorAll('[data-coop-deadline]').forEach((node) => {
+    const now = Date.now() + cooperativeClient.getState().clockOffset;
+    node.textContent = String(Math.max(0, Math.ceil((Number(node.dataset.coopDeadline) - now) / 1000)));
+  });
   if (isIncidentExpired(store.getState().activeIncident)) {
     void expireActiveIncidentIfNeeded();
     return;
@@ -5115,6 +5277,27 @@ if (clientPlatform === 'android') {
     .then(() => checkForAppUpdates());
 }
 window.setInterval(updateLiveTimers, 1000);
+window.setInterval(() => {
+  if (ui.auth.phase !== 'authenticated' || ui.cloud.phase !== 'active' || ui.auth.offline) return;
+  const client = cooperativeClient.getState();
+  const active = ['queued', 'ready', 'battle', 'finished'].includes(client.data?.phase);
+  const interval = client.error ? 5000 : active || (ui.view === 'raid' && ui.raidMode === 'cooperative') ? 1000 : 15000;
+  if (Date.now() - client.lastAttemptAt >= interval) void cooperativeClient.refresh();
+}, 1000);
+app.addEventListener('change', (event) => {
+  if (event.target.matches('[data-coop-target]')) ui.cooperative.targetId = event.target.value;
+  if (event.target.matches('[data-coop-choice]')) ui.cooperative.choice = event.target.value;
+});
+app.addEventListener('keydown', (event) => {
+  if (event.key !== 'Tab') return;
+  const dialog = app.querySelector('.coop-ready-dialog');
+  if (!dialog) return;
+  const buttons = [...dialog.querySelectorAll('button:not(:disabled)')];
+  const first = buttons[0];
+  const last = buttons.at(-1);
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+});
 window.setInterval(() => {
   if (ui.view !== 'raid' || ui.raidMode !== 'personal' || ui.auth.phase !== 'authenticated' || ui.cloud.phase !== 'active') return;
   void refreshPersonalRaid({ rankingOnly: ui.raidPanel === 'ranking', silent: true });

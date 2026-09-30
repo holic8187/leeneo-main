@@ -35,6 +35,11 @@ export const EFFECT_PRESENTATION = Object.freeze({
   'star-follow-up': { icon: 'zap', label: '별빛 추가 피해', tone: 'buff', description: '다음 아군 공격에 추가 피해가 발동합니다.' },
   'lotus-regen': { icon: 'heart-pulse', label: '달연꽃 물방울', tone: 'buff', description: '다음 아군 행동 시작마다 파티 전체 HP를 회복합니다. 숫자는 남은 회복 횟수입니다.' },
   'prism-torrent': { icon: 'orbit', label: '성하 프리즘 급류', tone: 'buff', description: '서로 다른 아군 3명의 직접 공격 피해를 저장한 뒤 폭발합니다. 반격·추가 피해는 충전에 포함하지 않습니다.' },
+  'after-hit-cleanse': { icon: 'sparkles', label: '푸른 새벽의 예비정화', tone: 'buff', description: '적 공격과 약화 적용이 끝난 뒤 약화 효과 1개를 제거합니다. 정화할 약화가 없으면 횟수를 소비하지 않습니다.' },
+  'dune-recovery': { icon: 'heart-pulse', label: '사구 재생', tone: 'buff', description: '보호막이 파괴되었을 때 생존해 있다면 1회 HP를 회복합니다. 행동불능 카드는 부활시키지 않습니다.' },
+  'sand-citadel': { icon: 'shield-alert', label: '푸른 사막의 불침성', tone: 'buff', description: '남은 횟수만큼 아군 피격 피해를 줄이고 막은 피해를 저장합니다. 마지막 피격 뒤 시전자 전력으로 반격하며 시전자가 쓰러져도 유지됩니다.' },
+  'resonance-target': { icon: 'crosshair', label: '공명 낙인', tone: 'debuff', description: '다음 보스 행동에 이 대상에게 폭발합니다. 폭발 전 브레이크로 끊을 수 있으며 일반 정화로는 지워지지 않습니다.' },
+  'prism-carapace': { icon: 'shield', label: '분광 장갑', tone: 'buff', description: '받는 피해가 감소합니다. 서로 다른 아군의 직접 공격이나 브레이크로 해제할 수 있습니다. 반격·추가 피해는 인원수에 포함되지 않습니다.' },
   foresight: { icon: 'eye-off', label: '호수의 예지', tone: 'buff', description: '다음 보스 공격의 피해를 크게 줄입니다.' },
   'golden-fruit': { icon: 'heart-pulse', label: '황금 열매', tone: 'buff', description: '아군 행동마다 가장 HP가 낮은 아군을 회복합니다.' },
   'season-cycle': { icon: 'refresh-cw', label: '사계 순환', tone: 'buff', description: '아군 행동마다 계절 효과가 순서대로 발동합니다.' },
@@ -70,6 +75,10 @@ export function effectPresentation(effect = {}) {
   const tone = effect.tone === 'debuff' || effect.kind === 'debuff' || effect.negative === true ? 'debuff' : 'buff';
   const liveDescription = id === 'prism-torrent'
     ? `${known.description} 현재 ${Array.isArray(effect.contributors) ? effect.contributors.length : 0}/3명 · 저장 피해 ${Math.max(0, Math.round(Number(effect.storedDamage) || 0)).toLocaleString('ko-KR')}.`
+    : id === 'sand-citadel'
+      ? `${known.description} 저장 피해 ${Math.max(0,Math.round(Number(effect.storedDamage)||0)).toLocaleString('ko-KR')}.`
+    : id === 'prism-carapace'
+      ? `${known.description} 현재 ${Array.isArray(effect.attackers)?effect.attackers.length:0}/${Number(effect.requiredAttackers)||3}명.`
     : '';
   return {
     id,

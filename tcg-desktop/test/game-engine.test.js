@@ -41,7 +41,7 @@ import {
   hydrateState,
 } from '../src/core/gameState.js';
 
-const rarityCounts = { c: 24, u: 17, r: 12, rr: 9, rrr: 7, sr: 5, hr: 4, ur: 3, ssr: 2 };
+const rarityCounts = { c: 24, u: 17, r: 12, rr: 10, rrr: 8, sr: 6, hr: 5, ur: 4, ssr: 3 };
 const powerRanges = {
   c: [1800, 2999],
   u: [3200, 4499],
@@ -56,9 +56,9 @@ const powerRanges = {
 
 const rankOf = (rarity) => RARITY_ORDER.indexOf(rarity);
 
-test('catalog contains 83 unique cards in the requested nine-rarity distribution', () => {
-  assert.equal(CARD_CATALOG.length, 83);
-  assert.equal(new Set(CARD_CATALOG.map((card) => card.id)).size, 83);
+test('catalog contains 89 unique cards in the requested nine-rarity distribution', () => {
+  assert.equal(CARD_CATALOG.length, 89);
+  assert.equal(new Set(CARD_CATALOG.map((card) => card.id)).size, 89);
   assert.deepEqual(RARITY_ORDER, Object.keys(rarityCounts));
   assert.deepEqual(
     Object.fromEntries(RARITY_ORDER.map((rarity) => [
@@ -78,7 +78,7 @@ test('new Coca variants are appended without changing the original catalog order
     .update(JSON.stringify(CARD_CATALOG.slice(0, 76).map(({ id, combatPower }) => [id, combatPower])))
     .digest('hex');
   assert.equal(originalPowerDigest, '50c6c1f1ba0cf87f423dde87d7f6e6871dfefa610d3541c16af91eb43e6fddef');
-  assert.deepEqual(CARD_CATALOG.slice(76).map(({ id, combatPower, image }) => [id, combatPower, image]), [
+  assert.deepEqual(CARD_CATALOG.slice(76,83).map(({ id, combatPower, image }) => [id, combatPower, image]), [
     ['coca-u', 4132, './assets/cards/coca-u.png'],
     ['coca-rr', 7347, './assets/cards/coca-rr.png'],
     ['coca-rrr', 8373, './assets/cards/coca-rrr.png'],
@@ -102,9 +102,9 @@ test('rarity combat-power bands are exact, ascending, and non-overlapping', () =
   });
 });
 
-test('legacy cards remain readable without entering the 83-card collectible catalog', () => {
+test('legacy cards remain readable without entering the 89-card collectible catalog', () => {
   assert.equal(LEGACY_CARDS.length, 8);
-  assert.equal(ALL_CARDS.length, 91);
+  assert.equal(ALL_CARDS.length, 97);
   assert.equal(CARD_CATALOG.some((card) => card.id === 'rookie-analyst'), false);
   assert.equal(cardById('rookie-analyst')?.legacy, true);
   assert.equal(cardById('hoi-ssr')?.rarity, 'ssr');

@@ -1,0 +1,12 @@
+{
+  "mode": "built-in image_gen",
+  "path": "public/assets/bosses/coop-tetra.png",
+  "prompt": "Use case: stylized-concept. Asset type: wide 3:2 fantasy cooperative raid boss illustration for an anime collectible card game. New original boss '사중공명체 테트라': a massive ancient quadrilateral celestial automaton, NOT humanoid or dragon, consisting of exactly four large levitating obsidian-and-pale-stone faceted keystones arranged around a single luminous sapphire core. Four separate stone satellites are connected visually by thin golden resonance arcs, one ruby, one jade, one amber and one violet jewel embedded distinctly in each. The central core has a subtly ominous eye-shaped aperture, not a human face. Sweeping broken observatory colonnades and fractured circular floor below, distant deep-indigo starfield, dynamic diagonal composition with clear silhouette, intimidating monumental scale. Rich hand-painted anime game illustration, gold dust and restrained rainbow prism refractions communicate shared resonant shield mechanics. Keep boss centered with room around silhouette for game health bar above, no people, no hands, no fox, no text, no letters, no frame, no watermark. Luminous readable core, controlled clean structure and premium polished detail.",
+  "reviewed": true,
+  "checks": [
+    "four distinct stone satellites",
+    "readable central core",
+    "matches six resonance/shield patterns",
+    "no lettering or humanoid anatomy"
+  ]
+}
