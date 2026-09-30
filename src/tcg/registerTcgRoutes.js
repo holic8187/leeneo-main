@@ -3,6 +3,8 @@
 const DefaultTcgAccount = require('./models/TcgAccount');
 const DefaultTcgPersonalRaidDaily = require('./models/TcgPersonalRaidDaily');
 const DefaultTcgPlayerState = require('./models/TcgPlayerState');
+const DefaultTcgCooperativeRaid = require('./models/TcgCooperativeRaid');
+const { CooperativeRaidError, createCooperativeRaidService } = require('./services/cooperativeRaidService');
 const {
   PersonalRaidError,
   dispatchPersonalRaid,
@@ -268,6 +270,7 @@ function registerTcgRoutes({
   TcgAccount = DefaultTcgAccount,
   TcgPersonalRaidDaily = DefaultTcgPersonalRaidDaily,
   TcgPlayerState = DefaultTcgPlayerState,
+  TcgCooperativeRaid = DefaultTcgCooperativeRaid,
   now = Date.now,
   random = undefined
 }) {
@@ -753,6 +756,24 @@ function registerTcgRoutes({
       ownRecord: raidState.record
     });
     return { state: raidState.state, ranking };
+  }
+
+  const cooperativeRaid = createCooperativeRaidService({
+    TcgCooperativeRaid, TcgPlayerState, TcgPersonalRaidDaily, ...(random ? { random } : {})
+  });
+  for (const operation of ['state', 'queue', 'leave', 'accept', 'action', 'claim']) {
+    app[operation === 'state' ? 'get' : 'post'](`/api/tcg/raids/cooperative/${operation}`, async (req, res) => {
+      const account = await requireTcgAccount(req, res);
+      if (!account) return;
+      try {
+        return res.json(await cooperativeRaid[operation]({ account, request: req.body || {}, now: now() }));
+      } catch (error) {
+        if (sendPlayerStateError(error, res)) return;
+        if (error instanceof CooperativeRaidError) return res.status(error.status).json({ code: error.code, msg: error.message });
+        console.error(`TCG cooperative raid ${operation} error:`, error);
+        return res.status(500).json({ code: 'COOP_REQUEST_FAILED', msg: '협동 레이드 요청을 처리하지 못했습니다.' });
+      }
+    });
   }
 
   app.get('/api/tcg/raids/personal/state', async (req, res) => {

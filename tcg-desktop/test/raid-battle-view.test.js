@@ -33,6 +33,7 @@ test('every active combat status has explicit icon metadata', () => {
     'ice-spire', 'new-galaxy', 'peach-seed', 'quick', 'regen', 'season-cycle', 'seal', 'shield',
     'shield-break-heal', 'skill-damage-up', 'star-follow-up', 'taunt', 'tiger-seal', 'white-night-heart',
     'world-tree-route', 'burn', 'lotus-regen', 'prism-torrent',
+    'after-hit-cleanse', 'dune-recovery', 'sand-citadel', 'resonance-target', 'prism-carapace',
   ];
   for (const id of combatStatuses) {
     assert.ok(EFFECT_PRESENTATION[id], `${id} needs icon metadata`);
@@ -47,6 +48,18 @@ test('Coca prism tooltip exposes distinct contributors and stored damage', () =>
   assert.match(effect.description, /1,200/);
   assert.equal(effect.count, 1);
   assert.equal(effect.scope, 'team');
+});
+
+test('Morae and cooperative pattern tooltips expose stored damage, progress and break counterplay',()=>{
+  const citadel=effectPresentation({id:'sand-citadel',storedDamage:45,charges:2,scope:'team'});
+  assert.match(citadel.description,/저장 피해 45/);
+  assert.equal(citadel.count,2);
+  const armor=effectPresentation({id:'prism-carapace',attackers:['a'],requiredAttackers:3});
+  assert.match(armor.description,/1\/3명/);
+  const mark=effectPresentation({id:'resonance-target',kind:'mechanic'});
+  assert.equal(mark.tone,'debuff');
+  assert.match(mark.description,/브레이크/);
+  assert.match(mark.description,/일반 정화로는 지워지지/);
 });
 
 test('raid view uses non-empty status arrays, exposes shields, and projects party-wide effects', () => {

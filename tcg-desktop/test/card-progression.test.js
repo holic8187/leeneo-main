@@ -30,6 +30,9 @@ test('every playable card is assigned to defense, attack, or support', () => {
   assert.equal(roleForCard('coca-u').id, 'support');
   assert.equal(roleForCard('coca-rrr').id, 'defense');
   assert.equal(roleForCard('coca-ssr').id, 'attack');
+  assert.equal(roleForCard('morae-ssr').id, 'defense');
+  assert.equal(roleForCard('morae-rrr').id, 'attack');
+  assert.equal(roleForCard('morae-hr').id, 'support');
 });
 
 test('level requirements rise through level 100', () => {

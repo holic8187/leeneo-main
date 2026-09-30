@@ -75,6 +75,12 @@ const CARD_VARIANTS = Object.freeze([
   ['coca-hr', '협곡폭포 급강하', './assets/cards/coca-hr.png'],
   ['coca-ur', '오로라 수평선의 순례자', './assets/cards/coca-ur.png'],
   ['coca-ssr', '성하 프리즘 항해왕', './assets/cards/coca-ssr.png'],
+  ['morae-rr', '협곡의 푸른 피난처', './assets/cards/morae-rr.png'],
+  ['morae-rrr', '유리사막의 천공자', './assets/cards/morae-rrr.png'],
+  ['morae-sr', '별우물의 인도자', './assets/cards/morae-sr.png'],
+  ['morae-hr', '새벽 오아시스의 파수꾼', './assets/cards/morae-hr.png'],
+  ['morae-ur', '사막천궁의 수호자', './assets/cards/morae-ur.png'],
+  ['morae-ssr', '불침의 푸른 사막왕', './assets/cards/morae-ssr.png'],
 ]);
 
 function createCard([id, epithet, suppliedImage], cardIndex) {

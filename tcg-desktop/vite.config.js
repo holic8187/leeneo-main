@@ -26,7 +26,7 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
     watch: {
-      ignored: ['**/release/**'],
+      ignored: ['**/release/**', '**/android/**'],
     },
   },
 });

@@ -15,6 +15,7 @@ const DIRECT_ATTACKS = Object.freeze({
   'somfist-rr':[170,1,40], 'winter-sr':[100,1,25], 'rayeon-sr':[260,1,0],
   'shanghai-sr':[240,1,25], 'hoi-sr':[220,1,20], 'mango-hr':[260,1,35],
   'coca-rr':[90,2,24], 'coca-hr':[95,3,35], 'coca-ur':[190,1,15], 'coca-ssr':[210,1,20],
+  'morae-rrr':[190,1,30],
   'rookie-analyst':[100,1,10], 'sales-fox':[110,1,0], 'hwang-manager':[180,1,0],
   'kim-manager':[250,1,25], 'deadline-dragon':[220,1,30],
 });
@@ -25,6 +26,7 @@ const HEALS = Object.freeze({
   'peach-u':[['ally',14]], 'hoi-u':[['all',8]], 'mango-rr':[['all',16]],
   'hoi-rr':[['ally',25]], 'winter-rrr':[['all',18]],
   'coca-sr':[['all',18]],
+  'morae-sr':[['all',20]],
   'pantry-cat':[['all',10]],
 });
 
@@ -34,6 +36,7 @@ const SHIELDS = Object.freeze({
   'mango-u':[['all',10]], 'sseubi-u':[['all',10]], 'rayeon-r':[['all',8]],
   'mond-r':[['all',14]], 'guma-r':[['all',16]], 'winter-rr':[['self',30]],
   'coca-rrr':[['all',15]],
+  'morae-rr':[['all',16]], 'morae-ur':[['all',28]], 'morae-ssr':[['all',24]],
   'peach-sentry':[['all',12]], 'gammam-neo':[['self',20]],
 });
 
@@ -261,7 +264,7 @@ function targetsFor(state, actor, mode, targetId) {
 
 function heal(state, targets, percent, actor, scale = 1, { scaleMagnitude = true } = {}) {
   for (const target of targets) {
-    const boost = 1 + (statusValue(target, 'healing-taken-up') + statusValue(actor, 'effect-up')) / 100;
+    const boost = Math.max(0, 1 + (statusValue(target, 'healing-taken-up') + statusValue(actor, 'effect-up') - statusValue(target, 'healing-down')) / 100);
     const magnitudeValue = scaleMagnitude ? magnitude(percent, actor, scale) : Math.max(0, Number(percent) || 0);
     const amount = Math.max(1, Math.round(target.maxHp * magnitudeValue / 100 * boost));
     const applied = Math.min(target.maxHp - target.hp, amount); target.hp += applied;
@@ -297,6 +300,17 @@ function applyBreak(state, actor, base, scale = 1) {
   log(state, 'break', `브레이크 게이지가 ${amount} 올랐습니다.`, { sourceId: actor.id, amount });
   if (state.boss.breakGauge < state.boss.breakMax) return false;
   state.boss.breakGauge = 0; state.boss.stunned = true;
+  // Cooperative telegraphs are interrupted by a real break, not by a client
+  // submitted flag. The shared engine applies the same rule on the server.
+  if (state.boss.pendingResonance) {
+    delete state.boss.pendingResonance;
+    state.cards.forEach(card=>{card.statuses=card.statuses.filter(status=>status.id!=='resonance-target');});
+    log(state,'pattern-cancel','브레이크로 공명 낙인의 폭발을 끊었습니다.');
+  }
+  if(activeStatuses(state.boss,'prism-carapace').length){
+    state.boss.statuses=state.boss.statuses.filter(status=>status.id!=='prism-carapace');
+    log(state,'pattern-cancel','브레이크로 분광 장갑을 무너뜨렸습니다.');
+  }
   // The boss stays stunned through the breaker card's next action, then wakes
   // before the following card. This scales with the current squad size.
   state.boss.stunReleaseAtPlayerAction = state.playerActionCount + state.cards.length + 2;
@@ -323,7 +337,8 @@ function damageBoss(state, actor, multiplier, hits = 1, breakDamage = 0, scale =
     + (options.skill ? statusValue(actor, 'effect-up') : 0)
     - statusValue(actor, 'damage-down')
   ) / 100);
-  const incoming = 1 + statusValue(state.boss, 'damage-taken-up') / 100;
+  const incoming = (1 + statusValue(state.boss, 'damage-taken-up') / 100)
+    * damageRemainingMultiplier(activeStatuses(state.boss,'prism-carapace'));
   const scaledMultiplier = options.scaleMagnitude === false
     ? Math.max(0, Number(multiplier) || 0) * scale
     : magnitude(multiplier, actor, scale);
@@ -332,6 +347,16 @@ function damageBoss(state, actor, multiplier, hits = 1, breakDamage = 0, scale =
   const shieldDamage = Math.min(state.boss.shield, total); state.boss.shield -= shieldDamage;
   const applied = Math.min(state.boss.hp, total - shieldDamage); state.boss.hp -= applied; state.totalDamage += applied;
   log(state, options.counter ? 'counter' : 'damage', `${actor.name}이(가) ${applied} 피해를 입혔습니다.`, { sourceId: actor.id, targetId: state.boss.id, amount: applied, hits });
+  if(!options.secondary&&!options.counter&&!options.followUp&&!options.seed&&!options.seal&&!options.prism){
+    for(const carapace of activeStatuses(state.boss,'prism-carapace')){
+      carapace.attackers ||= [];
+      if(!carapace.attackers.includes(actor.id))carapace.attackers.push(actor.id);
+      if(carapace.attackers.length>=carapace.requiredAttackers){
+        state.boss.statuses=state.boss.statuses.filter(status=>status!==carapace);
+        log(state,'pattern-cancel','서로 다른 아군의 공격으로 분광 장갑이 붕괴했습니다.');
+      }
+    }
+  }
   const broken = applyBreak(state, actor, breakDamage, scale);
   if (state.boss.hp <= 0) return broken;
   const seeds = activeStatuses(state.boss, 'peach-seed');
@@ -506,8 +531,14 @@ function specialEffects(state, actor, targetId, choice, scale, broken) {
         // defeated. Share/copy mutable self state back so copied self-buffs do
         // not disappear with the temporary skill identity.
         const fake={...actor,statuses:actor.statuses,cardId:copied.cardId,enhancement:copied.enhancement,attack:actor.attack,skillScale:.85};
+        // Team targets must reference this same temporary actor too; otherwise
+        // assigning the copied self state back would erase a team heal/shield
+        // that was applied to the real Hoi object during execution.
+        const actorIndex=state.cards.findIndex(card=>card.id===actor.id);
+        state.cards[actorIndex]=fake;
         executeSkill(state,fake,copied.targetId,copied.choice,.85,true);
         actor.hp=fake.hp; actor.shield=fake.shield; actor.statuses=fake.statuses;
+        state.cards[actorIndex]=actor;
       }
       break;
     }
@@ -521,6 +552,26 @@ function specialEffects(state, actor, targetId, choice, scale, broken) {
       id:'prism-torrent',name:'성하 프리즘 급류',kind:'buff',charges:3,contributors:[],storedDamage:0,
       captureRate:magnitude(20,actor,scale),finisher:magnitude(280,actor,scale),break:magnitude(35,actor,scale),
       sourceId:actor.id,sourceCardId:actor.cardId,sourceName:actor.name,sourceAttack:actor.attack,sourceEnhancement:actor.enhancement,
+    }); break;
+    case 'morae-rr': addCardStatus(all,actor,'dot-reduction','모래바람 대피소',35,3); break;
+    case 'morae-rrr': {
+      const removed=Math.min(state.boss.shield,Math.round(actor.attack*magnitude(80,actor,scale)/100));
+      state.boss.shield-=removed;
+      if(removed>0)log(state,'shield-erode',`청사 천공창이 보호막 ${removed}을 제거했습니다.`,{sourceId:actor.id,targetId:state.boss.id,amount:removed});
+      break;
+    }
+    case 'morae-sr': cleanse(all,1); addBossStatus(state,actor,'attack-down','별우물의 평온',15,2); break;
+    case 'morae-hr': {
+      const protectedCards=all.toSorted((a,b)=>b.attack-a.attack).slice(0,2);
+      shield(state,protectedCards,20,actor,scale);
+      addCardStatus(protectedCards,actor,'after-hit-cleanse','푸른 새벽의 예비정화',0,3,'buff',2);
+      break;
+    }
+    case 'morae-ur': addCardStatus(all,actor,'dune-recovery','사구 재생',16,3,'buff',1); break;
+    case 'morae-ssr': state.teamStatuses.push({
+      id:'sand-citadel',name:'푸른 사막의 불침성',kind:'buff',charges:3,value:magnitude(25,actor,scale),
+      counter:magnitude(120,actor,scale),break:magnitude(15,actor,scale),storedDamage:0,
+      sourceId:actor.id,sourceCardId:actor.cardId,sourceName:actor.name,sourceAttack:actor.attack,
     }); break;
     case 'rookie-analyst': addCardStatus([actor],actor,'evasion','회피율 증가',15,1); break;
     case 'sales-fox': addBossStatus(state,actor,'attack-down','공격력 감소',10,2); break;
@@ -625,6 +676,7 @@ export function performPlayerAction(input, action = {}, now = Date.now()) {
   resolveGalaxy(state,actor,actionType,usedSkill,action.galaxyChoice);
   actor.statuses.filter(s=>s.id==='effect-up'||s.id==='break-up').forEach(s=>{if(s.charges!=null)s.charges-=1;}); removeExpired(actor);
   state.playerActionCount += 1;
+  state.lastPlayerAction={actorId:actor.id,type:actionType};
   if(state.boss.stunned && state.playerActionCount >= state.boss.stunReleaseAtPlayerAction){state.boss.stunned=false;state.boss.statuses=state.boss.statuses.filter(s=>s.id!=='break-stun');}
   advance(state,now); return state;
 }
@@ -638,6 +690,7 @@ function pickBossTarget(state) {
 function hurtCard(state, target, rawDamage, source = 'boss') {
   if(!target||!alive(target))return 0;
   const bossSource = source === 'boss' || source === state.boss.id || state.boss.skills.some((skill) => skill.id === source);
+  if(bossSource&&state.boss.hp<=0)return 0;
   const accuracyDown = bossSource ? clamp(statusValue(state.boss, 'accuracy-down'), 0, 90) : 0;
   if(accuracyDown>0&&nextRandom(state)<accuracyDown/100){log(state,'miss',`${state.boss.name}의 공격이 빗나갔습니다.`,{targetId:target.id});return 0;}
   const evasion=statusValue(target,'evasion'); if(evasion>0&&nextRandom(state)<evasion/100){log(state,'evade',`${target.name}이(가) 공격을 피했습니다.`,{targetId:target.id});return 0;}
@@ -661,15 +714,33 @@ function hurtCard(state, target, rawDamage, source = 'boss') {
   const eclipse=state.teamStatuses.find(s=>s.id==='eclipse-guard'&&statusIsActive(s)); if(eclipse){if(eclipse.shadow>0){eclipse.shadow=0;rawDamage=0;addStatus(state.boss,{id:'accuracy-down',name:'그림자 교란',kind:'debuff',value:eclipse.accuracyDown||20,duration:2,sourceId:eclipse.sourceId});}else remainingMultiplier*=1-clamp(eclipse.value,0,100)/100;eclipse.charges-=1;}
   const finale=state.teamStatuses.find(s=>s.id==='finale-guard'&&statusIsActive(s)); if(finale){const saved=rawDamage*clamp(finale.value,0,100)/100;finale.stored+=saved;rawDamage-=saved;finale.charges-=1;}
   const spire=state.teamStatuses.find(s=>s.id==='ice-spire'&&statusIsActive(s)); if(spire){remainingMultiplier*=1-clamp(spire.value,0,100)/100;spire.charges-=1;const sourceCard=state.cards.find(c=>c.id===spire.sourceId);if(sourceCard)damageBoss(state,sourceCard,spire.counter,1,spire.break,1,{counter:true});}
+  const citadels=state.teamStatuses.filter(s=>s.id==='sand-citadel'&&statusIsActive(s));
+  for(const citadel of citadels){
+    const saved=rawDamage*remainingMultiplier*clamp(citadel.value,0,100)/100;
+    citadel.storedDamage+=saved;
+    remainingMultiplier*=1-clamp(citadel.value,0,100)/100;
+    citadel.charges-=1;
+  }
   let damage=Math.max(0,Math.round(rawDamage*remainingMultiplier));
   const absorbed=Math.min(target.shield,damage);target.shield-=absorbed;damage-=absorbed;
   const hpDamage=Math.min(target.hp,damage);target.hp-=hpDamage;target.defeated=target.hp<=0;
-  if(absorbed>0&&target.shield<=0){const recovery=statusValue(target,'shield-break-heal');if(recovery)heal(state,[target],recovery,target,1,{scaleMagnitude:false});}
+  if(absorbed>0&&target.shield<=0&&alive(target)){
+    const recovery=statusValue(target,'shield-break-heal');if(recovery)heal(state,[target],recovery,target,1,{scaleMagnitude:false});
+    for(const dune of activeStatuses(target,'dune-recovery')){heal(state,[target],dune.value,target,1,{scaleMagnitude:false});dune.charges-=1;}
+  }
+  // Split shared shield absorption among simultaneous citadels. Copies stack
+  // multiplicatively but may never record the same absorbed HP twice.
+  for(const citadel of citadels)citadel.storedDamage+=absorbed/citadels.length;
   const emergency=target.statuses.find(s=>s.id==='emergency-shield');if(target.hp>0&&target.hp<50&&statusIsActive(emergency)){shield(state,[target],emergency.value,target,1,{scaleMagnitude:false});emergency.charges=0;}
   const heart=target.statuses.find(s=>s.id==='white-night-heart');if(target.hp>0&&target.hp<50&&statusIsActive(heart)){heal(state,[target],heart.value,target,1,{scaleMagnitude:false});if(heart.charges!=null)heart.charges-=1;else if(heart.duration!=null)heart.duration=0;}
   log(state,'boss-damage',`${target.name}이(가) ${hpDamage} 피해를 받았습니다.`,{sourceId:source,targetId:target.id,amount:hpDamage,absorbed});
   const counter=target.statuses.find(s=>s.id==='counter'&&s.charges>0);if(counter){damageBoss(state,target,counter.value,1,target.cardId==='shanghai-rr'?10:0,1,{counter:true});counter.charges-=1;}
   if(finale&&finale.charges<=0){const sourceCard=state.cards.find(card=>card.id===finale.sourceId);if(sourceCard){damageBoss(state,sourceCard,finale.counter||160,1,0,1,{counter:true});const extra=Math.min(state.boss.hp,Math.round(finale.stored));state.boss.hp-=extra;state.totalDamage+=extra;log(state,'counter',`저장한 피해 ${extra}을 되돌려주었습니다.`,{sourceId:sourceCard.id,targetId:state.boss.id,amount:extra});}}
+  for(const citadel of citadels.filter(status=>status.charges<=0)){
+    const snapshot={id:citadel.sourceId,cardId:citadel.sourceCardId,name:citadel.sourceName,attack:citadel.sourceAttack,enhancement:0,statuses:[]};
+    damageBoss(state,snapshot,citadel.counter,1,citadel.break,1,{counter:true,secondary:true,scaleMagnitude:false,flatBonus:Math.round(citadel.storedDamage)});
+    log(state,'citadel-counter','푸른 사막의 불침성이 저장한 피해를 돌려주었습니다.',{sourceId:citadel.sourceId,storedDamage:Math.round(citadel.storedDamage)});
+  }
   state.teamStatuses=state.teamStatuses.filter(s=>s.charges==null||s.charges>0);
   removeExpired(target); return hpDamage;
 }
@@ -680,6 +751,7 @@ function consumeBossAttackDebuffs(state) {
 }
 
 function applyBossStatusToCard(state, target, effect) {
+  if(!alive(target)||state.boss.hp<=0)return;
   const blocker=target.statuses.find(status=>status.id==='debuff-block'&&status.charges>0);
   if(blocker){blocker.charges-=1;removeExpired(target);return;}
   const resistance = clamp(statusValue(target, 'debuff-resist'), 0, 90);
@@ -696,13 +768,104 @@ function applyBossStatusToCard(state, target, effect) {
   });
 }
 
+function reactiveCleanse(state, target) {
+  if(!alive(target)||!target.statuses.some(status=>status.kind==='debuff'))return;
+  // Only one available ward is consumed for an attack, even when a copied
+  // ward coexists with the original. Do not consume a charge on a clean hit.
+  const ward=activeStatuses(target,'after-hit-cleanse')[0];
+  if(!ward)return;
+  cleanse([target],1);ward.charges-=1;removeExpired(target);
+  log(state,'cleanse',`${target.name}의 예비정화가 약화 효과를 제거했습니다.`,{sourceId:ward.sourceId,targetId:target.id});
+}
+
+/** Cooperative-only patterns. These never depend on browser-submitted damage. */
+function cooperativeBossPattern(state, skill, attackRate) {
+  const living=state.cards.filter(alive);
+  const damage=Math.max(0,Number(skill.damage)||0);
+  switch(skill.cooperativePattern){
+    case 'linked-pulse': {
+      const shared=Math.max(0,Number(skill.totalDamage)||36)/Math.max(1,living.length);
+      for(const target of living){if(state.boss.hp<=0)break;hurtCard(state,target,shared*attackRate,skill.id);reactiveCleanse(state,target);}
+      log(state,'boss-pattern','공명 파동을 생존한 아군이 나누어 받았습니다.',{pattern:skill.cooperativePattern,targetCount:living.length});
+      return true;
+    }
+    case 'resonance-mark': {
+      const target=living.toSorted((a,b)=>b.attack-a.attack)[0];
+      if(target){
+        state.boss.pendingResonance={targetId:target.id,damage:Math.max(0,Number(skill.markDamage)||30),skillId:skill.id};
+        addStatus(target,{id:'resonance-target',name:'공명 낙인 · 다음 보스 행동에 폭발',kind:'mechanic',sourceId:state.boss.id});
+        log(state,'boss-telegraph',`${target.name}에게 공명 낙인! 다음 보스 행동 전 브레이크로 끊을 수 있습니다.`,{targetId:target.id,pattern:skill.cooperativePattern});
+      }
+      return true;
+    }
+    case 'prism-shift':
+      addStatus(state.boss,{id:'prism-carapace',name:'분광 장갑 · 서로 다른 아군의 공격으로 해제',kind:'buff',value:clamp(Number(skill.value)||40,0,80),duration:3,requiredAttackers:clamp(Math.floor(Number(skill.requiredAttackers)||3),1,4),attackers:[],sourceId:state.boss.id});
+      log(state,'boss-pattern','분광 장갑이 펼쳐졌습니다. 서로 다른 아군의 공격이나 브레이크로 무너뜨리세요.',{pattern:skill.cooperativePattern});
+      return true;
+    case 'echo-strike': {
+      const target=pickBossTarget(state);
+      const echo=state.lastPlayerAction?.type==='skill'?Math.max(0,Number(skill.skillBonusDamage)||12):0;
+      hurtCard(state,target,(damage+echo)*attackRate,skill.id);if(target)reactiveCleanse(state,target);
+      log(state,'boss-pattern',echo?'스킬의 메아리가 증폭되어 돌아왔습니다.':'기본 공격으로 메아리 증폭을 피했습니다.',{pattern:skill.cooperativePattern,amplified:echo>0});
+      return true;
+    }
+    case 'shield-siphon': {
+      let drained=0;
+      for(const target of living){
+        if(state.boss.hp<=0)break;
+        const taken=Math.floor(target.shield*clamp(Number(skill.drainPercent)||30,0,100)/100);
+        target.shield-=taken;drained+=taken;
+        hurtCard(state,target,damage*attackRate,skill.id);reactiveCleanse(state,target);
+      }
+      // Player HP and boss HP have different units. The explicit conversion
+      // is part of the boss rule, not an arbitrary client power submission.
+      const converted=Math.round(drained*Math.max(1,Number(skill.shieldConversion)||100));
+      if(state.boss.hp>0)state.boss.shield+=converted;
+      log(state,'boss-pattern',`보호막 ${drained}을 흡수해 공명 보호막 ${converted}을 만들었습니다.`,{pattern:skill.cooperativePattern,drained,amount:converted});
+      return true;
+    }
+    case 'cross-current': {
+      const pool=[...living];const picked=[];
+      while(pool.length&&picked.length<Math.max(1,Math.floor(Number(skill.targetCount)||2)))picked.push(pool.splice(Math.floor(nextRandom(state)*pool.length),1)[0]);
+      picked.forEach((target,index)=>{
+        if(state.boss.hp<=0)return;
+        hurtCard(state,target,damage*attackRate,skill.id);
+        applyBossStatusToCard(state,target,{id:index%2?'healing-down':'damage-down',name:index%2?'역류 · 회복 감소':'역류 · 피해량 감소',value:Number(skill.debuffPercent)||20,duration:Number(skill.duration)||2});
+        reactiveCleanse(state,target);
+      });
+      log(state,'boss-pattern','엇갈린 역류가 서로 다른 약화를 남겼습니다.',{pattern:skill.cooperativePattern,targetIds:picked.map(target=>target.id)});
+      return true;
+    }
+    default:return false;
+  }
+}
+
 function defaultBossAction(state) {
+  if(state.boss.pendingResonance){
+    const pending=state.boss.pendingResonance;
+    delete state.boss.pendingResonance;
+    state.cards.forEach(card=>{card.statuses=card.statuses.filter(status=>status.id!=='resonance-target');});
+    const target=state.cards.find(card=>card.id===pending.targetId&&alive(card));
+    const rate=Math.max(0,1+(statusValue(state.boss,'attack-up')-statusValue(state.boss,'attack-down'))/100);
+    if(target){hurtCard(state,target,pending.damage*rate,pending.skillId);reactiveCleanse(state,target);}
+    consumeBossAttackDebuffs(state);
+    log(state,'boss-pattern',target?'공명 낙인이 폭발했습니다.':'공명 낙인의 대상이 사라져 폭발이 무산되었습니다.',{pattern:'resonance-detonate',targetId:pending.targetId});
+    return;
+  }
   const usable=state.boss.skills
     .filter(skill=>(state.boss.cooldowns[skill.id]||0)<=0&&(!skill.minStage||state.boss.stage>=skill.minStage)&&(!skill.oncePerBattle||!(state.boss.skillUses[skill.id]>0)))
     .toSorted((a,b)=>(Number(b.priority)||0)-(Number(a.priority)||0));
   const skill=usable[0];
   const attackRate=Math.max(0,1+(statusValue(state.boss,'attack-up')-statusValue(state.boss,'attack-down'))/100);
   if(skill){
+    if(cooperativeBossPattern(state,skill,attackRate)){
+      state.boss.cooldowns[skill.id]=Math.max(1,Number(skill.cooldown)||3);
+      state.boss.skillUses[skill.id]=(state.boss.skillUses[skill.id]||0)+1;
+      state.boss.statuses.filter(status=>status.kind==='buff'&&status.charges!=null).forEach(status=>{status.charges-=1;});
+      consumeBossAttackDebuffs(state);
+      log(state,'boss-skill',`${state.boss.name}이(가) ${skill.name||'공명 패턴'}을 사용했습니다.`,{skillId:skill.id});
+      return;
+    }
     const living=state.cards.filter(alive);
     const requested=skill.target==='all'||skill.allTargets?living.length:(skill.targetCount??skill.targets??1);
     const count=Math.max(1,Math.floor(requested));const picked=[];
@@ -713,7 +876,7 @@ function defaultBossAction(state) {
       for(let i=0;i<count;i+=1){const candidates=living.filter(card=>!picked.includes(card));if(!candidates.length)break;picked.push(candidates[Math.floor(nextRandom(state)*candidates.length)]);}
     }
     const hits=Math.max(1,Math.floor(Number(skill.hits)||1));
-    for(const target of picked){hurtCard(state,target,(Number(skill.damage)||state.boss.baseDamage)*hits*attackRate,skill.id);for(const effect of skill.statusEffects||skill.statuses||[])applyBossStatusToCard(state,target,effect);}
+    for(const target of picked){if(state.boss.hp<=0)break;hurtCard(state,target,(Number(skill.damage)||state.boss.baseDamage)*hits*attackRate,skill.id);for(const effect of skill.statusEffects||skill.statuses||[])applyBossStatusToCard(state,target,effect);reactiveCleanse(state,target);}
     if(skill.selfShield)state.boss.shield+=Math.max(0,Number(skill.selfShield)||0);
     if(skill.selfShieldPercent)state.boss.shield+=Math.max(0,Math.round(state.boss.maxHp*skill.selfShieldPercent/100));
     if(skill.selfBuff){
@@ -728,7 +891,9 @@ function defaultBossAction(state) {
     if (!skill.selfBuff) state.boss.statuses.filter(status=>status.kind==='buff'&&status.charges!=null).forEach(status=>{status.charges-=1;});
     consumeBossAttackDebuffs(state);log(state,'boss-skill',`${state.boss.name}이(가) ${skill.name||'스킬'}을 사용했습니다.`,{skillId:skill.id});return;
   }
-  hurtCard(state,pickBossTarget(state),state.boss.baseDamage*attackRate,state.boss.id);
+  const target=pickBossTarget(state);
+  hurtCard(state,target,state.boss.baseDamage*attackRate,state.boss.id);
+  if(target)reactiveCleanse(state,target);
   state.boss.statuses.filter(status=>status.kind==='buff'&&status.charges!=null).forEach(status=>{status.charges-=1;});
   consumeBossAttackDebuffs(state);log(state,'boss-basic',`${state.boss.name}의 기본 공격!`);
 }
