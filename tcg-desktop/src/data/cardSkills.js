@@ -594,7 +594,7 @@ const RAW_CARD_SKILLS = [
     "id": "winter-ur",
     "displayName": "영원의 백색 여왕 겨울",
     "name": "영원빙궁의 칙령",
-    "description": "얼음 첨탑 3개를 세운다. 적 공격마다 하나를 소비해 아군 피해를 30% 줄이고 공격력 70% 피해와 브레이크 피해 10으로 반격한다. 남은 첨탑은 각각 아군 전체 회복 8%로 전환된다.",
+    "description": "3턴간 얼음 첨탑 3개를 세운다. 적의 공격 행동당 하나만 소비해 그 행동의 모든 아군 피격 피해를 30% 줄이고 공격력 70% 피해와 브레이크 피해 10으로 한 번 반격한다. 3턴 후 남은 첨탑은 각각 아군 전체 회복 8%로 전환된다.",
     "cooldown": 0,
     "oncePerBattle": true,
     "role": "요새형 탱킹"
@@ -603,7 +603,7 @@ const RAW_CARD_SKILLS = [
     "id": "hoi-ur",
     "displayName": "별의 탄생 호이",
     "name": "신생은하 육성",
-    "description": "다음 세 아군 행동을 공격, 회복, 지원으로 기록한다. 가장 많이 기록된 행동에 따라 다음 효과 중 하나가 발동한다. - 공격: 공격력 320% 피해 및 브레이크 피해 30 - 회복: 아군 전체 HP 25% 회복 및 HP 15% 보호막 - 지원: 아군 전체 쿨다운 2턴 감소 및 적 피해량 2턴간 25% 감소 동률이면 플레이어가 효과를 직접 선택한다.",
+    "description": "사용 직후부터 다음 세 아군 행동을 공격, 회복, 지원으로 기록한다. 가장 많이 기록된 행동에 따라 발동한다. - 공격: 공격력 320% 피해 및 브레이크 피해 30 - 회복: 아군 전체 HP 25% 회복 및 HP 15% 보호막 - 지원: 아군 전체 쿨다운 2턴 감소 및 적 공격력 2턴간 25% 감소. 동률이면 사용 시 선택한 효과를 우선한다.",
     "cooldown": 0,
     "oncePerBattle": true,
     "role": "성장형 선택 지원"
@@ -612,7 +612,7 @@ const RAW_CARD_SKILLS = [
     "id": "hoi-ssr",
     "displayName": "첫빛의 창세 호이",
     "name": "첫빛 재현",
-    "description": "직전에 다른 아군이 사용한 일반 액티브 스킬을 85% 위력으로 재현한다. 전투당 1회 스킬, 부활, 추가 행동, 복제 효과는 복제할 수 없다.",
+    "description": "직전에 다른 아군이 사용한 복제 가능한 액티브 스킬을 85% 위력으로 재현한다. 원래 시전자가 행동불능이어도 재현하며, 전투당 1회 스킬도 복제할 수 있다. 부활, 추가 행동, 복제 효과는 복제할 수 없다.",
     "cooldown": 3,
     "role": "전략형 복제"
   },
@@ -726,14 +726,15 @@ export function skillDescriptionAtEnhancement(skillOrId, enhancement = 0) {
   const stage = clampStage(enhancement);
   if (!stage) return skill.description;
   const protectedValues = [];
-  const protectedDescription = skill.description.replace(/\d+%\s*(?:이상|이하|아래|초과)/g, (value) => {
+  const protectedDescription = (skill.id==='wollu-ssr'?skill.description.replace('18%','__REST_CAP__'):skill.description).replace(/\d+%\s*(?:이상|이하|아래|초과)/g, (value) => {
     protectedValues.push(value);
     return `__SKILL_CONDITION_${protectedValues.length - 1}__`;
   });
   return protectedDescription
     .replace(/(\d+)%/g, (_, value) => `${scaled(value, stage)}%`)
     .replace(/(브레이크 피해(?:를)?\s*)(\d+)/g, (_, prefix, value) => `${prefix}${scaled(value, stage)}`)
-    .replace(/__SKILL_CONDITION_(\d+)__/g, (_, index) => protectedValues[Number(index)]);
+    .replace(/__SKILL_CONDITION_(\d+)__/g, (_, index) => protectedValues[Number(index)])
+    .replace('__REST_CAP__',`${Number((18/(1+SKILL_ENHANCEMENT_BONUSES[stage])).toFixed(1))}%`);
 }
 
 export function skillMagnitude(value, enhancement = 0) { return scaled(value, enhancement); }
@@ -745,5 +746,7 @@ export function cardSkillAtEnhancement(cardId, enhancement = 0) {
   return { ...skill, enhancement: stage, magnitudeMultiplier: 1 + SKILL_ENHANCEMENT_BONUSES[stage], description: skillDescriptionAtEnhancement(skill, stage) };
 }
 
-export const CARD_SKILLS = Object.freeze([...RAW_CARD_SKILLS, ...LEGACY_CARD_SKILLS].map((skill) => Object.freeze({ ...skill, oncePerBattle: Boolean(skill.oncePerBattle) })));
+import { FOUR_CHARACTER_SKILLS } from './fourCharacterSkills.js';
+
+export const CARD_SKILLS = Object.freeze([...RAW_CARD_SKILLS, ...FOUR_CHARACTER_SKILLS, ...LEGACY_CARD_SKILLS].map((skill) => Object.freeze({ ...skill, oncePerBattle: Boolean(skill.oncePerBattle) })));
 export const CARD_SKILL_BY_ID = Object.freeze(Object.fromEntries(CARD_SKILLS.map((skill) => [skill.id, skill])));

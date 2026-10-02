@@ -256,12 +256,11 @@
 .lobby-side-stack {
   min-width: 0;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: 1fr;
   gap: 18px;
 }
 
 .lobby-pack,
-.lobby-incident,
 .lobby-collection,
 .lobby-log {
   min-width: 0;
@@ -472,64 +471,8 @@
   border-color: #9c8d73;
   background: transparent;
 }
-
-.lobby-incident,
 .lobby-collection {
   padding: 18px;
-}
-
-.lobby-incident.is-active {
-  border-color: #b4755e;
-  border-left: 3px solid #9d4f3f;
-  background: #fff5e9;
-}
-
-.lobby-incident__copy {
-  display: grid;
-  gap: 6px;
-  margin-top: 18px;
-}
-
-.lobby-incident__copy strong {
-  font-size: 13px;
-}
-
-.lobby-incident__copy p,
-.lobby-incident__empty p {
-  margin: 0;
-  color: #716c63;
-  font-size: 10px;
-  line-height: 1.55;
-}
-
-.lobby-incident__copy time {
-  color: #9d4f3f;
-  font-family: Consolas, monospace;
-  font-size: 10px;
-  font-weight: 900;
-}
-
-.lobby-incident .alert-button {
-  width: 100%;
-  min-height: 42px;
-  margin-top: 15px;
-  border-radius: 3px;
-  box-shadow: none;
-}
-
-.lobby-incident__empty {
-  min-height: 92px;
-  display: grid;
-  place-items: center;
-  align-content: center;
-  gap: 8px;
-  text-align: center;
-}
-
-.lobby-incident__empty svg {
-  width: 22px;
-  height: 22px;
-  color: #a59a87;
 }
 
 .lobby-collection .lobby-section-heading > button {
@@ -865,16 +808,10 @@
   .lobby-pack__buy {
     font-size: 9px;
   }
-
-  .lobby-incident,
   .lobby-collection,
   .lobby-log {
     padding: 16px 14px;
     border-radius: 4px;
-  }
-
-  .lobby-incident.is-active {
-    order: -1;
   }
 
   .lobby-collection__stats > div {

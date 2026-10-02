@@ -48,8 +48,11 @@ export const EFFECT_PRESENTATION = Object.freeze({
   'full-course': { icon: 'package-open', label: '별가루 풀코스', tone: 'buff', description: '아군 행동마다 전채·본식·디저트 효과가 순서대로 발동합니다.' },
   'eclipse-guard': { icon: 'shield', label: '월식 경계선', tone: 'buff', description: '보스 공격을 막고 아군 피해를 줄입니다.' },
   'finale-guard': { icon: 'shield-alert', label: '피날레 스타링', tone: 'buff', description: '감소시킨 피해를 저장했다가 반격합니다.' },
-  'ice-spire': { icon: 'snowflake', label: '얼음 첨탑', tone: 'buff', description: '보스 공격을 줄이고 반격합니다.' },
-  'new-galaxy': { icon: 'sparkles', label: '신생은하 육성', tone: 'buff', description: '다음 아군 행동을 기록해 보너스 효과를 준비합니다.' },
+  'ice-spire': { icon: 'snowflake', label: '얼음 첨탑', tone: 'buff', description: '광역·다단 공격도 보스 행동당 첨탑 1개만 소비하여 모두 줄이고 한 번 반격합니다. 숫자는 남은 첨탑 수이며 3턴 후 잔여 첨탑은 회복으로 전환됩니다.' },
+  'new-galaxy': { icon: 'sparkles', label: '신생은하 육성', tone: 'buff', description: '사용한 행동은 제외하고 이후 세 아군 행동을 기록합니다. 마지막 기록 직후 가장 많은 유형의 효과가 발동합니다.' },
+  'golden-delivery': { icon: 'package', label: '황금 배송 특급', tone: 'buff', description: '아군 직접 공격 뒤 적 보호막을 제거하고 시전자 전력으로 추가 피해를 줍니다. 시전자가 쓰러져도 유지되며 숫자는 남은 배송 횟수입니다.' },
+  'royal-reprieve': { icon: 'crown', label: '왕의 유예령', tone: 'buff', description: '피격 후 생존한 대상의 HP가 35% 이하이면 회복하고 약화 효과 1개를 정화합니다. 대상마다 한 번 발동하며 부활시키지 않습니다.' },
+  'rest-contract': { icon: 'shield', label: '휴식 보장 협약', tone: 'buff', description: '보스 행동당 각 아군의 직접 피해 총량을 제한합니다. 광역·다단 공격 모두 적용되며 지속 피해와 대신 받는 피해는 제외됩니다.' },
   'tiger-seal': { icon: 'ban', label: '백호야행 봉인진', tone: 'debuff', description: '서로 다른 아군 3명이 공격하면 큰 피해가 발동합니다.' },
   'attack-down': { icon: 'shield-minus', label: '공격력 감소', tone: 'debuff', description: '주는 공격 피해가 감소합니다.' },
   'damage-down': { icon: 'shield-minus', label: '주는 피해 감소', tone: 'debuff', description: '보스에게 주는 피해가 감소합니다.' },
@@ -79,6 +82,10 @@ export function effectPresentation(effect = {}) {
       ? `${known.description} 저장 피해 ${Math.max(0,Math.round(Number(effect.storedDamage)||0)).toLocaleString('ko-KR')}.`
     : id === 'prism-carapace'
       ? `${known.description} 현재 ${Array.isArray(effect.attackers)?effect.attackers.length:0}/${Number(effect.requiredAttackers)||3}명.`
+    : id === 'new-galaxy'
+      ? `${known.description} 기록 ${Array.isArray(effect.records)?effect.records.length:0}/3: ${(effect.records||[]).map(role=>({attack:'공격',heal:'회복',support:'지원'}[role]||role)).join(' · ')||'대기'}. 동률 우선: ${{attack:'공격',heal:'회복',support:'지원'}[effect.preferred]||'공격'}.`
+    : id === 'rest-contract'
+      ? `${known.description} 현재 행동당 최대 HP의 ${Number(effect.value||18).toFixed(1)}%까지.`
     : '';
   return {
     id,

@@ -17,7 +17,7 @@ function atBoss(state){state.currentActor='boss';state.currentActorIndex=null;re
 
 test('Morae has all nine rarities, appended powers and SSR defense role',()=>{
   assert.deepEqual(CARD_CATALOG.filter(card=>card.characterId==='morae').map(card=>card.rarity),RARITY_ORDER);
-  assert.deepEqual(CARD_CATALOG.slice(83).map(card=>[card.id,card.combatPower]),[
+  assert.deepEqual(CARD_CATALOG.slice(83,89).map(card=>[card.id,card.combatPower]),[
     ['morae-rr',7804],['morae-rrr',8230],['morae-sr',10856],['morae-hr',11882],['morae-ur',14308],['morae-ssr',17924],
   ]);
   assert.equal(roleForCard('morae-ssr').id,'defense');

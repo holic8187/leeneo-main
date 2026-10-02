@@ -42,7 +42,7 @@ export function createCooperativeRaidGateway({ apiBase = '', fetchImpl = globalT
       throw new CooperativeRaidError('협동 레이드 서버에 연결할 수 없습니다.', { code: 'NETWORK_ERROR' });
     }
   }
-  const gateway = Object.fromEntries(['state', 'queue', 'leave', 'accept', 'action', 'claim'].map((name) => [name, (token, body) => request(name, token, body)]));
+  const gateway = Object.fromEntries(['state', 'queue', 'leave', 'accept', 'action', 'auto', 'claim'].map((name) => [name, (token, body) => request(name, token, body)]));
   // A reward may be saved even when the response is lost. Reuse its immutable
   // room receipt to recover the snapshot; never create a second reward request.
   gateway.claim = async (token, body) => {

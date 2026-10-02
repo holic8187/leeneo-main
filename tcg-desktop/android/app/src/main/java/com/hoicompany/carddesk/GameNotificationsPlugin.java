@@ -26,11 +26,10 @@ import org.json.JSONObject;
 )
 public class GameNotificationsPlugin extends Plugin {
 
-    private static final long DEFAULT_INCIDENT_LIFETIME_MS = 10L * 60L * 1000L;
-
     @Override
     public void load() {
         GameNotificationScheduler.ensureChannel(getContext());
+        GameNotificationScheduler.purgeRetiredNotifications(getContext());
         consumeNotificationIntent(getActivity() == null ? null : getActivity().getIntent());
     }
 
@@ -114,7 +113,7 @@ public class GameNotificationsPlugin extends Plugin {
             call.reject("알림 식별자가 올바르지 않습니다.", "INVALID_NOTIFICATION_ID");
             return;
         }
-        if (!GameNotificationScheduler.TYPE_EXPEDITION.equals(type) && !GameNotificationScheduler.TYPE_INCIDENT.equals(type)) {
+        if (!GameNotificationScheduler.TYPE_EXPEDITION.equals(type)) {
             call.reject("지원하지 않는 게임 알림 종류입니다.", "INVALID_NOTIFICATION_TYPE");
             return;
         }
@@ -124,18 +123,13 @@ public class GameNotificationsPlugin extends Plugin {
         }
 
         long expiresAt = call.getLong("expiresAt", 0L);
-        if (expiresAt <= 0L && GameNotificationScheduler.TYPE_INCIDENT.equals(type)) {
-            expiresAt = requestedAt + DEFAULT_INCIDENT_LIFETIME_MS;
-        }
         if (expiresAt > 0L && expiresAt < requestedAt) {
             call.reject("알림 만료 시간이 발생 시간보다 빠릅니다.", "INVALID_NOTIFICATION_EXPIRY");
             return;
         }
         String quietBehavior = trimmed(call.getString(
             "quietBehavior",
-            GameNotificationScheduler.TYPE_INCIDENT.equals(type)
-                ? GameNotificationScheduler.QUIET_SKIP
-                : GameNotificationScheduler.QUIET_DELAY
+            GameNotificationScheduler.QUIET_DELAY
         ));
         if (
             !GameNotificationScheduler.QUIET_DELAY.equals(quietBehavior)
@@ -180,7 +174,7 @@ public class GameNotificationsPlugin extends Plugin {
     @PluginMethod
     public void cancelType(PluginCall call) {
         String type = trimmed(call.getString("type"));
-        if (!GameNotificationScheduler.TYPE_EXPEDITION.equals(type) && !GameNotificationScheduler.TYPE_INCIDENT.equals(type)) {
+        if (!GameNotificationScheduler.TYPE_EXPEDITION.equals(type) && !GameNotificationScheduler.RETIRED_TYPE_INCIDENT.equals(type)) {
             call.reject("지원하지 않는 게임 알림 종류입니다.", "INVALID_NOTIFICATION_TYPE");
             return;
         }
@@ -257,6 +251,13 @@ public class GameNotificationsPlugin extends Plugin {
 
     private void consumeNotificationIntent(Intent intent) {
         if (intent == null || !GameNotificationScheduler.ACTION_OPEN.equals(intent.getAction())) return;
+        if (!GameNotificationScheduler.TYPE_EXPEDITION.equals(intent.getStringExtra(GameNotificationScheduler.EXTRA_NOTIFICATION_TYPE))) {
+            intent.setAction(null);
+            intent.removeExtra(GameNotificationScheduler.EXTRA_NOTIFICATION_ID);
+            intent.removeExtra(GameNotificationScheduler.EXTRA_NOTIFICATION_TYPE);
+            intent.removeExtra(GameNotificationScheduler.EXTRA_NOTIFICATION_PAYLOAD);
+            return;
+        }
         GameNotificationScheduler.rememberOpenedNotification(getContext(), intent);
         JSONObject opened = GameNotificationScheduler.consumeOpenedNotification(getContext());
         if (opened == null) return;

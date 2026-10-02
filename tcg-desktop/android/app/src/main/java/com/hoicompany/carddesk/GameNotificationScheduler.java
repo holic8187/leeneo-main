@@ -2,6 +2,7 @@ package com.hoicompany.carddesk;
 
 import android.Manifest;
 import android.app.AlarmManager;
+import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -11,6 +12,7 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
+import android.service.notification.StatusBarNotification;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
@@ -24,7 +26,8 @@ import org.json.JSONObject;
 final class GameNotificationScheduler {
 
     static final String TYPE_EXPEDITION = "expedition";
-    static final String TYPE_INCIDENT = "incident";
+    // Only retained to remove alarms and posted notifications from old builds.
+    static final String RETIRED_TYPE_INCIDENT = "incident";
     static final String QUIET_DELAY = "delay";
     static final String QUIET_SKIP = "skip";
 
@@ -47,7 +50,7 @@ final class GameNotificationScheduler {
 
     private static final String CHANNEL_ID = "game-events";
     private static final String CHANNEL_NAME = "게임 알림";
-    private static final String CHANNEL_DESCRIPTION = "모험 완료와 돌발 임무를 알려드립니다.";
+    private static final String CHANNEL_DESCRIPTION = "모험 완료를 알려드립니다.";
     private static final String NOTIFICATION_GROUP = "game-events";
     private static final long MIN_ALARM_DELAY_MS = 250L;
 
@@ -173,6 +176,10 @@ final class GameNotificationScheduler {
     }
 
     static synchronized void schedule(Context context, NotificationSpec spec) {
+        if (!TYPE_EXPEDITION.equals(spec.type)) {
+            cancel(context, spec.id);
+            return;
+        }
         putSpec(context, spec);
         cancelAlarm(context, spec.id);
         if (isEnabled(context)) scheduleAlarm(context, spec);
@@ -192,6 +199,7 @@ final class GameNotificationScheduler {
         for (NotificationSpec spec : specs) {
             if (!type.equals(spec.type)) continue;
             cancelAlarm(context, spec.id);
+            NotificationManagerCompat.from(context).cancel(requestCode(spec.id));
             removeSpec(context, spec.id);
             cancelled += 1;
         }
@@ -207,11 +215,13 @@ final class GameNotificationScheduler {
     }
 
     static synchronized List<NotificationSpec> getPending(Context context) {
+        purgeRetiredNotifications(context);
         pruneExpired(context, System.currentTimeMillis());
         return getAllSpecs(context);
     }
 
     static synchronized void rescheduleAll(Context context) {
+        purgeRetiredNotifications(context);
         if (!isEnabled(context)) return;
         long now = System.currentTimeMillis();
         pruneExpired(context, now);
@@ -220,6 +230,10 @@ final class GameNotificationScheduler {
 
     static synchronized void handleAlarm(Context context, String id) {
         NotificationSpec spec = getSpec(context, id);
+        if (spec != null && !TYPE_EXPEDITION.equals(spec.type)) {
+            cancel(context, id);
+            return;
+        }
         if (spec == null || !isEnabled(context)) return;
 
         long now = System.currentTimeMillis();
@@ -255,6 +269,7 @@ final class GameNotificationScheduler {
     }
 
     static synchronized void rememberOpenedNotification(Context context, Intent intent) {
+        if (!TYPE_EXPEDITION.equals(intent.getStringExtra(EXTRA_NOTIFICATION_TYPE))) return;
         String id = intent.getStringExtra(EXTRA_NOTIFICATION_ID);
         if (id == null || id.trim().isEmpty()) return;
         try {
@@ -275,7 +290,8 @@ final class GameNotificationScheduler {
         preferences(context).edit().remove(LAST_OPENED_KEY).commit();
         if (raw == null) return null;
         try {
-            return new JSONObject(raw);
+            JSONObject opened = new JSONObject(raw);
+            return TYPE_EXPEDITION.equals(opened.optString("type")) ? opened : null;
         } catch (JSONException ignored) {
             return null;
         }
@@ -308,13 +324,32 @@ final class GameNotificationScheduler {
             .setShowWhen(true)
             .setGroup(NOTIFICATION_GROUP)
             .setCategory(NotificationCompat.CATEGORY_EVENT)
-            .setPriority(TYPE_INCIDENT.equals(spec.type)
-                ? NotificationCompat.PRIORITY_HIGH
-                : NotificationCompat.PRIORITY_DEFAULT);
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT);
         try {
             NotificationManagerCompat.from(context).notify(requestCode(spec.id), builder.build());
         } catch (SecurityException ignored) {
             // Permission can be revoked between the check and this call.
+        }
+    }
+
+    static synchronized void purgeRetiredNotifications(Context context) {
+        cancelType(context, RETIRED_TYPE_INCIDENT);
+        // Old delivered notifications no longer have a scheduled record. Their
+        // fixed title identifies them without clearing expedition notifications.
+        NotificationManager manager = context.getSystemService(NotificationManager.class);
+        if (manager != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            for (StatusBarNotification posted : manager.getActiveNotifications()) {
+                CharSequence title = posted.getNotification().extras.getCharSequence(Notification.EXTRA_TITLE);
+                if ("돌발 임무 도착".contentEquals(title == null ? "" : title)) manager.cancel(posted.getTag(), posted.getId());
+            }
+        }
+        String raw = preferences(context).getString(LAST_OPENED_KEY, null);
+        if (raw != null) {
+            try {
+                if (!TYPE_EXPEDITION.equals(new JSONObject(raw).optString("type"))) preferences(context).edit().remove(LAST_OPENED_KEY).commit();
+            } catch (JSONException ignored) {
+                preferences(context).edit().remove(LAST_OPENED_KEY).commit();
+            }
         }
     }
 

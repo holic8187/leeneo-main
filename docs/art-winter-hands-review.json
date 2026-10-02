@@ -1,0 +1,68 @@
+{
+  "mode": "built-in",
+  "reviewed": [
+    "winter-c",
+    "winter-u",
+    "winter-r",
+    "winter-rr",
+    "winter-rrr",
+    "winter-sr",
+    "winter-ur"
+  ],
+  "unchanged": [
+    {
+      "id": "winter-u",
+      "reason": "Holding cape/bird; naturally occluded fingers, no clear digit-count or joint defect."
+    },
+    {
+      "id": "winter-rr",
+      "reason": "Crown held with plausible finger positions and natural occlusion."
+    },
+    {
+      "id": "winter-rrr",
+      "reason": "Hands around crystal heart use plausible bending/occlusion; no clear excess or missing digit."
+    }
+  ],
+  "corrected": [
+    {
+      "id": "winter-c",
+      "mode": "built-in",
+      "intent": "precise-object-edit",
+      "reference": "C:\\Users\\USER\\.codex\\worktrees\\tcg-turn-battle-20260916\\tcg-desktop\\public\\assets\\cards\\winter-c.webp",
+      "prompt": "Use case: precise-object-edit.\nAsset type: full-bleed 3:4 anime collectible card illustration.\nInput image: EDIT TARGET.\nPrimary request: Correct only hand anatomy. The small raised hand on image left needs a relaxed natural open palm under the snowflake, one thumb and four separate fingers, natural joints and finger proportions. The right hand near the chest should softly hold the fur/cape with plausible thumb and four fingers and natural occlusion.\nInvariants: retain the identical face, hairstyle, silver-blue hair, blue eyes, facial expression, navy white-fur costume, blue gemstone brooch, gold jewelry, pose, framing and original background/lighting. Preserve all non-hand details. Clean precise professional anime drawing. No lettering, borders or watermark.",
+      "output": "C:\\Users\\USER\\.codex\\worktrees\\tcg-turn-battle-20260916\\tcg-desktop\\public\\assets\\cards\\winter-c.png",
+      "generatedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a0a925-efd8-7570-94c6-d4665865a34c\\exec-8a44356f-1b11-479c-b62c-e4a345c349aa.png",
+      "review": "Preserved identity/costume/background; corrected natural finger roots/joints and count with plausible occlusion."
+    },
+    {
+      "id": "winter-r",
+      "mode": "built-in",
+      "intent": "precise-object-edit",
+      "reference": "C:\\Users\\USER\\.codex\\worktrees\\tcg-turn-battle-20260916\\tcg-desktop\\public\\assets\\cards\\winter-r.webp",
+      "prompt": "Use case: precise-object-edit.\nAsset type: portrait anime collectible card illustration, 3:4 aspect ratio, full bleed with no border or lettering.\nInput image 1: EDIT TARGET.\nPrimary request: Correct only the hands. The large raised hand in the upper left must have a relaxed natural wrist, one thumb and four distinct fingers with anatomically correct knuckles, finger roots and proportions, a graceful open palm casting the snowflake. Correct the partially visible far-right hand to a natural consistent five-digit hand with reasonable occlusion. Preserve hand locations and overall gesture.\nInvariants: preserve the exact character face, silver-blue hair, blue eyes, hairstyle, snowflake ornaments, navy-and-white fur dress, gold jewelry, blue brooch, expression, camera framing, icy palace and snow/aurora lighting from the input. Change no other element; do not redesign the scene or add limbs. Professional clean hand-drawn anime linework. No text, no watermark.",
+      "output": "C:\\Users\\USER\\.codex\\worktrees\\tcg-turn-battle-20260916\\tcg-desktop\\public\\assets\\cards\\winter-r.png",
+      "generatedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a0a925-efd8-7570-94c6-d4665865a34c\\exec-d1bcddae-66df-487b-a713-b186bbcab3f0.png",
+      "review": "Preserved identity/costume/background; corrected natural finger roots/joints and count with plausible occlusion."
+    },
+    {
+      "id": "winter-sr",
+      "mode": "built-in",
+      "intent": "precise-object-edit",
+      "reference": "C:\\Users\\USER\\.codex\\worktrees\\tcg-turn-battle-20260916\\tcg-desktop\\public\\assets\\cards\\winter-sr.webp",
+      "prompt": "Use case: precise-object-edit.\nAsset type: full-bleed 3:4 anime collectible card illustration.\nInput image: EDIT TARGET.\nPrimary request: Correct only hand anatomy. Both raised hands must have anatomically correct, graceful relaxed open palms under the snowflakes: one thumb plus four fingers each, naturally bent knuckles, realistic finger lengths and clear unmerged roots. Keep hands at the same locations, visible within frame; avoid spidery spread or duplicate digits.\nInvariants: retain the identical face, hairstyle, silver-blue hair, blue eyes, facial expression, navy white-fur costume, blue gemstone brooch, gold jewelry, pose, framing and original background/lighting. Preserve all non-hand details. Clean precise professional anime drawing. No lettering, borders or watermark.",
+      "output": "C:\\Users\\USER\\.codex\\worktrees\\tcg-turn-battle-20260916\\tcg-desktop\\public\\assets\\cards\\winter-sr.png",
+      "generatedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a0a925-efd8-7570-94c6-d4665865a34c\\exec-d17ae9ca-16f4-4637-b0ac-bfb2f0501c6b.png",
+      "review": "Preserved identity/costume/background; corrected natural finger roots/joints and count with plausible occlusion."
+    },
+    {
+      "id": "winter-ur",
+      "mode": "built-in",
+      "intent": "precise-object-edit",
+      "reference": "C:\\Users\\USER\\.codex\\worktrees\\tcg-turn-battle-20260916\\tcg-desktop\\public\\assets\\cards\\winter-ur.webp",
+      "prompt": "Use case: precise-object-edit.\nAsset type: portrait anime collectible card illustration, 3:4 aspect ratio, full bleed with no border or lettering.\nInput image 1: EDIT TARGET.\nPrimary request: Correct only the hands, most importantly the prominent reaching hand on image left. Draw a graceful relaxed open hand reaching toward the viewer, anatomically correct palm, one clearly separated thumb and four fingers with natural bending, correct knuckles and proportionate lengths; no fused fingers or abrupt finger roots. The other hand gently touches the blue brooch with correct five-digit anatomy and natural occlusion.\nInvariants: preserve the exact character face, silver-blue hair, blue eyes, hairstyle, snowflake ornaments, navy-and-white fur dress, gold jewelry, blue brooch, expression, camera framing, icy palace and snow/aurora lighting from the input. Change no other element; do not redesign the scene or add limbs. Professional clean hand-drawn anime linework. No text, no watermark.",
+      "output": "C:\\Users\\USER\\.codex\\worktrees\\tcg-turn-battle-20260916\\tcg-desktop\\public\\assets\\cards\\winter-ur.png",
+      "generatedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a0a925-efd8-7570-94c6-d4665865a34c\\exec-b570a68f-b2c1-454c-99d9-3e32e951fdca.png",
+      "review": "Preserved identity/costume/background; corrected natural finger roots/joints and count with plausible occlusion."
+    }
+  ]
+}

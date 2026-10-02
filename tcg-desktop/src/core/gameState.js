@@ -1,4 +1,3 @@
-import { INCIDENT_ACTIVE_DURATION_MS } from './incidentEngine.js';
 import { normalizeCardEnhancements } from './cardManagement.js';
 import { hydratePendingPackOpening } from './packOpeningSession.js';
 import { hydrateRaidBonusRewardClaims, hydrateRaidRewardClaims } from './raidRewards.js';
@@ -17,7 +16,7 @@ const clone = (value) => JSON.parse(JSON.stringify(value));
 
 export function createDefaultState(now = Date.now()) {
   return {
-    version: 9,
+    version: 10,
     profile: {
       displayName: '익명 사원',
       rank: '대리석 책상',
@@ -59,20 +58,14 @@ export function createDefaultState(now = Date.now()) {
     selectedRaidSquad: ['simsim-c', 'winter-c', 'kkamdung-c', 'nanche-c'],
     expedition: null,
     lastCompletedExpedition: null,
-    activeIncident: null,
-    recentIncidentIds: [],
-    completedIncidentInstanceIds: [],
-    nextIncidentAt: null,
-    pendingIncident: null,
-    resolvedIncidents: 0,
-    incidentScheduled: false,
     raid: null,
     raidRewardClaims: {},
     raidBonusRewardClaims: {},
     settings: {
       discreetMode: true,
       payrollMode: false,
-      incidentNotifications: true,
+      expeditionNotifications: true,
+      raidSecretMode: false,
       quietHoursNotifications: false,
     },
     activity: [
@@ -166,31 +159,16 @@ export function hydrateState(saved, now = Date.now()) {
   state.selectedSquad = state.selectedExpeditionSquad;
   state.activity = Array.isArray(saved.activity) ? saved.activity.slice(0, 30) : defaults.activity;
 
-  let expiredActiveIncident = false;
-  if (saved.activeIncident && typeof saved.activeIncident === 'object' && typeof saved.activeIncident.id === 'string') {
-    const arrivedAt = saved.activeIncident.arrivedAt != null
-      && Number.isFinite(Number(saved.activeIncident.arrivedAt))
-      ? Number(saved.activeIncident.arrivedAt)
-      : now;
-    const expiresAt = saved.activeIncident.expiresAt != null
-      && Number.isFinite(Number(saved.activeIncident.expiresAt))
-      ? Number(saved.activeIncident.expiresAt)
-      : arrivedAt + INCIDENT_ACTIVE_DURATION_MS;
-    expiredActiveIncident = expiresAt <= now;
-    state.activeIncident = expiredActiveIncident
-      ? null
-      : {
-        ...saved.activeIncident,
-        id: saved.activeIncident.id,
-        instanceId: typeof saved.activeIncident.instanceId === 'string' && saved.activeIncident.instanceId
-          ? saved.activeIncident.instanceId
-          : `legacy-${saved.activeIncident.id}-${arrivedAt}`,
-        arrivedAt,
-        expiresAt,
-      };
-  } else {
-    state.activeIncident = null;
+  // Retire only obsolete incident scheduling; keep all acquired rewards/history.
+  for (const key of ['activeIncident', 'recentIncidentIds', 'completedIncidentInstanceIds',
+    'completedInstanceIds', 'nextIncidentAt', 'pendingIncident', 'resolvedIncidents', 'incidentScheduled']) {
+    delete state[key];
   }
+  state.settings.expeditionNotifications = typeof saved.settings?.expeditionNotifications === 'boolean'
+    ? saved.settings.expeditionNotifications
+    : saved.settings?.incidentNotifications !== false;
+  state.settings.raidSecretMode = saved.settings?.raidSecretMode === true;
+  delete state.settings.incidentNotifications;
 
   state.pendingPackOpening = hydratePendingPackOpening(saved.pendingPackOpening);
   state.raidRewardClaims = hydrateRaidRewardClaims(saved.raidRewardClaims, saved.raid);
@@ -199,29 +177,6 @@ export function hydrateState(saved, now = Date.now()) {
     state.raidRewardClaims,
   );
 
-  state.recentIncidentIds = Array.isArray(saved.recentIncidentIds)
-    ? [...new Set(saved.recentIncidentIds.filter((id) => typeof id === 'string' && id))].slice(0, 12)
-    : defaults.recentIncidentIds;
-  const savedCompletedInstances = Array.isArray(saved.completedIncidentInstanceIds)
-    ? saved.completedIncidentInstanceIds
-    : saved.completedInstanceIds;
-  state.completedIncidentInstanceIds = Array.isArray(savedCompletedInstances)
-    ? [...new Set(savedCompletedInstances.filter((id) => typeof id === 'string' && id))].slice(-200)
-    : defaults.completedIncidentInstanceIds;
-  state.nextIncidentAt = saved.nextIncidentAt != null
-    && Number.isFinite(Number(saved.nextIncidentAt))
-    ? Number(saved.nextIncidentAt)
-    : null;
-  state.pendingIncident = Object.prototype.hasOwnProperty.call(saved, 'pendingIncident')
-    ? saved.pendingIncident
-    : (saved.incidentScheduled ? true : null);
-  state.resolvedIncidents = Math.max(0, Math.floor(Number(saved.resolvedIncidents) || 0));
-  state.incidentScheduled = Boolean(saved.incidentScheduled || state.pendingIncident);
-  if (expiredActiveIncident) {
-    state.pendingIncident = null;
-    state.nextIncidentAt = null;
-    state.incidentScheduled = false;
-  }
   return state;
 }
 

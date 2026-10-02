@@ -66,7 +66,7 @@ test('save hydration migrates every owned card to level 1 and repairs invalid pr
   assert.deepEqual(hydrated.cardProgression['winter-ur'], { level: 100, experience: 0 });
   assert.deepEqual(hydrated.cardProgression['simsim-c'], { level: 1, experience: 0 });
   assert.equal(hydrated.cardProgression['not-owned'], undefined);
-  assert.equal(hydrated.version, 9);
+  assert.equal(hydrated.version, 10);
 
   const newlyOwned = normalizeCardProgression(hydrated.cardProgression, {
     ...hydrated.collection,

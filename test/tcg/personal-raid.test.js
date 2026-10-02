@@ -242,7 +242,7 @@ test('finish validates HP math, caps damage, advances stages, and replays duplic
   assert.equal(finished.record.currentStage, 2);
   assert.equal(finished.record.currentHp, 200_000);
   assert.equal(finished.record.contribution, 100_000);
-  assert.deepEqual(finished.result.reward, { coins: 0, packs: 3, bonuses: [] });
+  assert.deepEqual(finished.result.reward, { coins: 0, packs: 3, bonuses: [], extraEntries: 1 });
   const repeated = await finishPersonalRaid({ TcgPersonalRaidDaily: Model, account: user, sessionId: started.session.sessionId, damageDealt: 100_000, now: now + 2000 });
   assert.deepEqual(repeated.result, finished.result);
   assert.equal(repeated.record.clearCount, 1);
@@ -348,6 +348,56 @@ test('daily entry count resets at KST midnight while weekly progress remains', a
   started = await startPersonalRaid({ TcgPersonalRaidDaily: Model, account: user, verifiedSquad: verifiedSquad(), now: nextDay });
   assert.equal(Model.records[0].dailyEntryCount, 1);
   assert.equal(started.session.stage, 1);
+});
+
+test('stage clears award exactly one same-day entry beyond five including final stage', async () => {
+  const Model = createFakeRaidModel(); const user = account(); const now = Date.parse('2026-09-16T03:00:00Z');
+  assert.equal(TcgPersonalRaidDailyModel.schema.path('dailyEntryCount').options.max, undefined);
+  for (let stage = 1; stage <= 10; stage += 1) {
+    const started = await startPersonalRaid({ TcgPersonalRaidDaily: Model, account: user, verifiedSquad: verifiedSquad(), now: now + stage * 2000 });
+    const request = { TcgPersonalRaidDaily: Model, account: user, sessionId: started.session.sessionId, damageDealt: STAGE_HP[stage], bossHpRemaining: 0, now: now + stage * 2000 + 500, random: () => .5 };
+    const results = await Promise.all([finishPersonalRaid(request), finishPersonalRaid(request)]);
+    assert.equal(results[0].result.reward.extraEntries, 1);
+    assert.deepEqual(results[0].result, results[1].result);
+    assert.equal(Model.records[0].dailyBonusEntryCount, stage);
+    const { state } = await getPersonalRaidState({ TcgPersonalRaidDaily: Model, account: user, now: request.now });
+    assert.equal(state.entriesToday, stage);
+    assert.equal(state.bonusEntriesToday, stage);
+    assert.equal(state.maxDailyEntries, 5 + stage);
+    assert.equal(state.remainingEntries, 5);
+    assert.equal(state.weeklyCompleted, stage === 10);
+  }
+  const { state } = await getPersonalRaidState({ TcgPersonalRaidDaily: Model, account: user, now: Date.parse('2026-09-16T15:00:00Z') });
+  assert.equal(state.bonusEntriesToday, 0);
+  assert.equal(state.remainingEntries, 5);
+  assert.equal(state.weeklyCompleted, true);
+});
+
+test('entry bonus is not inferred from old clears and crossing midnight credits the finish day', async () => {
+  const user = account(); const now = Date.parse('2026-09-16T14:59:59Z');
+  const Model = createFakeRaidModel([{
+    accountId: user._id, dayKey: '2026-09-14', weekKey: '2026-09-14', bossId: 'deadline-dragon-raid', nickname: user.nickname,
+    schemaVersion: RAID_SCHEMA_VERSION, currentStage: 3, currentHp: STAGE_HP[3], clearCount: 2,
+    dailyEntryDayKey: '2026-09-16', dailyEntryCount: 4,
+  }]);
+  const before = await getPersonalRaidState({ TcgPersonalRaidDaily: Model, account: user, now });
+  assert.equal(before.state.bonusEntriesToday, 0);
+  assert.equal(before.state.remainingEntries, 1);
+  const started = await startPersonalRaid({ TcgPersonalRaidDaily: Model, account: user, verifiedSquad: verifiedSquad(), now });
+  const finish = { TcgPersonalRaidDaily: Model, account: user, sessionId: started.session.sessionId, damageDealt: STAGE_HP[3], bossHpRemaining: 0, now: now + 1000 };
+  await finishPersonalRaid(finish);
+  const after = await getPersonalRaidState({ TcgPersonalRaidDaily: Model, account: user, now: finish.now });
+  assert.equal(after.state.entriesToday, 0);
+  assert.equal(after.state.bonusEntriesToday, 1);
+  assert.equal(after.state.remainingEntries, 6);
+  await finishPersonalRaid({ ...finish, now: finish.now + 1000 });
+  assert.equal(Model.records[0].dailyBonusEntryCount, 1);
+  // A slow request sampled before midnight cannot move the day ledger back.
+  const delayed = await getPersonalRaidState({ TcgPersonalRaidDaily: Model, account: user, now });
+  assert.equal(delayed.state.dayKey, '2026-09-17');
+  assert.equal(delayed.state.remainingEntries, 6);
+  await assert.rejects(startPersonalRaid({ TcgPersonalRaidDaily: Model, account: user, verifiedSquad: verifiedSquad(), now }), { code: 'RAID_DAY_CHANGED' });
+  assert.equal(Model.records[0].dailyEntryDayKey, '2026-09-17');
 });
 
 test('legacy daily record is reset into current weekly progress at the first start', async () => {

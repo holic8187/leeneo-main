@@ -106,3 +106,20 @@ export function unrevealedPackCardCount(opening, cards, requiresReveal) {
     count + (requiresReveal(card, index) && !normalized.revealedIndices.includes(index) ? 1 : 0)
   ), 0);
 }
+
+export function revealAllPendingPackCards(opening, cards, requiresReveal) {
+  const normalized = hydratePendingPackOpening(opening);
+  if (!normalized || !Array.isArray(cards) || cards.length !== normalized.cardIds.length) {
+    return { opening: normalized, changed: false, completed: false };
+  }
+  const required = cards.flatMap((card, index) => requiresReveal(card, index) ? [index] : []);
+  const revealedIndices = [...new Set([...normalized.revealedIndices, ...required])].sort((a, b) => a - b);
+  return { opening: { ...normalized, revealedIndices }, changed: revealedIndices.length !== normalized.revealedIndices.length, completed: true };
+}
+
+export function packFocusIndex(cards, revealed = [], requested = 0, requiresReveal = () => false) {
+  if (!cards?.length) return 0;
+  if (Number.isInteger(requested) && requested >= 0 && requested < cards.length) return requested;
+  const hidden = cards.findIndex((card, index) => requiresReveal(card, index) && !revealed.includes(index));
+  return hidden >= 0 ? hidden : 0;
+}

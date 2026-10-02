@@ -21,7 +21,9 @@ const tcgPersonalRaidDailySchema = new mongoose.Schema({
   dispatchCount: { type: Number, default: 0, min: 0 },
   clearCount: { type: Number, default: 0, min: 0 },
   dailyEntryDayKey: { type: String, default: '' },
-  dailyEntryCount: { type: Number, default: 0, min: 0, max: 5 },
+  dailyEntryCount: { type: Number, default: 0, min: 0 },
+  // Earned only by a newly committed clear, never inferred from old clearCount.
+  dailyBonusEntryCount: { type: Number, default: 0, min: 0, max: 10 },
   activeSession: { type: mongoose.Schema.Types.Mixed, default: null },
   lastFinishedSessionId: { type: String, default: '' },
   lastFinishedResult: { type: mongoose.Schema.Types.Mixed, default: null },

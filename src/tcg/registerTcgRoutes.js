@@ -761,7 +761,7 @@ function registerTcgRoutes({
   const cooperativeRaid = createCooperativeRaidService({
     TcgCooperativeRaid, TcgPlayerState, TcgPersonalRaidDaily, ...(random ? { random } : {})
   });
-  for (const operation of ['state', 'queue', 'leave', 'accept', 'action', 'claim']) {
+  for (const operation of ['state', 'queue', 'leave', 'accept', 'action', 'auto', 'claim']) {
     app[operation === 'state' ? 'get' : 'post'](`/api/tcg/raids/cooperative/${operation}`, async (req, res) => {
       const account = await requireTcgAccount(req, res);
       if (!account) return;

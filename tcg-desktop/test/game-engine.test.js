@@ -41,7 +41,7 @@ import {
   hydrateState,
 } from '../src/core/gameState.js';
 
-const rarityCounts = { c: 24, u: 17, r: 12, rr: 10, rrr: 8, sr: 6, hr: 5, ur: 4, ssr: 3 };
+const rarityCounts = { c: 24, u: 20, r: 15, rr: 14, rrr: 11, sr: 10, hr: 9, ur: 8, ssr: 7 };
 const powerRanges = {
   c: [1800, 2999],
   u: [3200, 4499],
@@ -56,9 +56,9 @@ const powerRanges = {
 
 const rankOf = (rarity) => RARITY_ORDER.indexOf(rarity);
 
-test('catalog contains 89 unique cards in the requested nine-rarity distribution', () => {
-  assert.equal(CARD_CATALOG.length, 89);
-  assert.equal(new Set(CARD_CATALOG.map((card) => card.id)).size, 89);
+test('catalog contains 118 unique cards in the requested nine-rarity distribution', () => {
+  assert.equal(CARD_CATALOG.length, 118);
+  assert.equal(new Set(CARD_CATALOG.map((card) => card.id)).size, 118);
   assert.deepEqual(RARITY_ORDER, Object.keys(rarityCounts));
   assert.deepEqual(
     Object.fromEntries(RARITY_ORDER.map((rarity) => [
@@ -102,9 +102,9 @@ test('rarity combat-power bands are exact, ascending, and non-overlapping', () =
   });
 });
 
-test('legacy cards remain readable without entering the 89-card collectible catalog', () => {
+test('legacy cards remain readable without entering the 118-card collectible catalog', () => {
   assert.equal(LEGACY_CARDS.length, 8);
-  assert.equal(ALL_CARDS.length, 97);
+  assert.equal(ALL_CARDS.length, 126);
   assert.equal(CARD_CATALOG.some((card) => card.id === 'rookie-analyst'), false);
   assert.equal(cardById('rookie-analyst')?.legacy, true);
   assert.equal(cardById('hoi-ssr')?.rarity, 'ssr');
@@ -403,20 +403,20 @@ test('pending ten-pack opening preserves new markers and all fifty cards', () =>
   assert.deepEqual(restored.newCardIndices, [0, 17, 49]);
 });
 
-test('expired incidents are removed during saved-state hydration so scheduling can resume', () => {
+test('all legacy incident scheduling is retired during hydration', () => {
   const hydrated = hydrateState({
     activeIncident: { id: 'coffee-order', instanceId: 'expired', arrivedAt: 1000 },
     pendingIncident: { id: 'boss-footsteps', scheduledAt: 5000 },
     nextIncidentAt: 5000,
     incidentScheduled: true,
   }, 601000);
-  assert.equal(hydrated.activeIncident, null);
-  assert.equal(hydrated.pendingIncident, null);
-  assert.equal(hydrated.nextIncidentAt, null);
-  assert.equal(hydrated.incidentScheduled, false);
+  assert.equal(hydrated.activeIncident, undefined);
+  assert.equal(hydrated.pendingIncident, undefined);
+  assert.equal(hydrated.nextIncidentAt, undefined);
+  assert.equal(hydrated.incidentScheduled, undefined);
 });
 
-test('saved state hydration preserves legacy squads and migrates incident fields', () => {
+test('saved state hydration preserves legacy squads and wealth while retiring incident fields', () => {
   const hydrated = hydrateState({
     version: 1,
     wallet: { coins: 99 },
@@ -429,23 +429,18 @@ test('saved state hydration preserves legacy squads and migrates incident fields
     resolvedIncidents: 3,
   }, 5000);
 
-  assert.equal(hydrated.version, 9);
+  assert.equal(hydrated.version, 10);
   assert.equal(hydrated.wallet.coins, 99);
   assert.equal(hydrated.wallet.linkPoints, undefined);
   assert.deepEqual(hydrated.selectedSquad, ['pantry-cat']);
   assert.deepEqual(hydrated.selectedExpeditionSquad, ['pantry-cat']);
   assert.deepEqual(hydrated.selectedRaidSquad, ['pantry-cat']);
-  assert.deepEqual(hydrated.activeIncident, {
-    id: 'coffee-order',
-    instanceId: 'legacy-coffee-order-4000',
-    arrivedAt: 4000,
-    expiresAt: 604000,
-  });
-  assert.deepEqual(hydrated.completedIncidentInstanceIds, ['done-1']);
-  assert.deepEqual(hydrated.recentIncidentIds, ['coffee-order', 'boss-footsteps']);
-  assert.equal(hydrated.nextIncidentAt, null);
-  assert.equal(hydrated.pendingIncident, true);
-  assert.equal(hydrated.resolvedIncidents, 3);
+  assert.equal(hydrated.activeIncident, undefined);
+  assert.equal(hydrated.completedIncidentInstanceIds, undefined);
+  assert.equal(hydrated.recentIncidentIds, undefined);
+  assert.equal(hydrated.nextIncidentAt, undefined);
+  assert.equal(hydrated.pendingIncident, undefined);
+  assert.equal(hydrated.resolvedIncidents, undefined);
 });
 
 test('store updates and flushes surface storage failures without changing memory state', () => {
@@ -483,7 +478,7 @@ test('successful store updates persist the committed state', () => {
 
   assert.equal(result.wallet.coins, 321);
   assert.equal(store.getState().wallet.coins, 321);
-  assert.equal(store.getState().nextIncidentAt, null);
+  assert.equal(store.getState().nextIncidentAt, undefined);
   assert.equal(persisted.wallet.coins, 321);
 });
 

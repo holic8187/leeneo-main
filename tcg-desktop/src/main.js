@@ -47,6 +47,9 @@ import './mobile-game.css';
 import './relics.css';
 import './card-emblems.css';
 import './cooperative-raid.css';
+import './raid-qol.css';
+import { chooseRaidAutoAction } from './core/raidAutoBattle.js';
+import { renderRaidControls, renderSecretRaidCard } from './ui/raidControls.js';
 import { cooperativeRaidGateway } from './services/cooperativeRaidGateway.js';
 import { createCooperativeRaidClient, toggleCooperativeRepresentative } from './core/cooperativeRaidClient.js';
 import { renderCooperativePanel, renderCooperativeReady } from './ui/cooperativeRaidView.js';
@@ -61,17 +64,8 @@ import {
   cardById,
   expeditionById,
 } from './data/cardCatalog.js';
-import { incidentById } from './data/incidentCatalog.js';
 import { addCardsToCollection, openPacks } from './core/packEngine.js';
 import { newCardIndices, registerDiscoveredCards } from './core/cardDiscovery.js';
-import {
-  chooseIncident,
-  incidentExpiresAt,
-  isIncidentExpired,
-  nextIncidentDelay,
-  pendingIncidentWindow,
-  resolveIncidentChoice,
-} from './core/incidentEngine.js';
 import {
   calculateSquadScore,
   cardExpeditionPower,
@@ -124,6 +118,8 @@ import {
   cardsForPendingPack,
   createPendingPackOpening,
   revealPendingPackCard,
+  revealAllPendingPackCards,
+  packFocusIndex,
   unrevealedPackCardCount,
 } from './core/packOpeningSession.js';
 import { createAuthSessionStore } from './core/authSession.js';
@@ -295,6 +291,9 @@ function createRaidUiState() {
     inspector: null,
     bossActionTimer: null,
     timeoutActionPending: false,
+    autoBattle: false,
+    autoActionTimer: null,
+    galaxyChoice: 'attack',
   };
 }
 
@@ -352,12 +351,10 @@ const ui = {
     activePlatform: '',
     generation: 0,
   },
-  incidentScheduling: false,
-  incidentExpiring: false,
   raidMode: 'personal',
   raidPanel: 'battle',
   raid: createRaidUiState(),
-  cooperative: { selected: [], targetId: '', choice: 'fortune' },
+  cooperative: { selected: [], targetId: '', choice: 'fortune', galaxyChoice: 'attack' },
   auth: {
     phase: 'restoring',
     mode: 'login',
@@ -434,12 +431,6 @@ function expeditionNotificationId(expedition) {
   return `expedition:${expedition.missionId}:${Number(expedition.endsAt)}`;
 }
 
-function incidentNotificationId(incident) {
-  const at = Number(incident?.scheduledAt ?? incident?.arrivedAt);
-  if (!incident?.id || !at) return '';
-  return `incident:${incident.id}:${at}`;
-}
-
 async function scheduleExpeditionNotification(expedition, mission = expeditionById(expedition?.missionId)) {
   if (clientPlatform !== 'android' || !expedition || !mission) return false;
   const id = expeditionNotificationId(expedition);
@@ -461,33 +452,10 @@ async function scheduleExpeditionNotification(expedition, mission = expeditionBy
   }
 }
 
-async function scheduleIncidentNotification(pending, incident = incidentById(pending?.id)) {
-  if (clientPlatform !== 'android' || !pending || !incident) return false;
-  const id = incidentNotificationId(pending);
-  if (!id) return false;
-  const scheduledAt = Number(pending.scheduledAt);
-  try {
-    await desktopBridge.scheduleGameNotification({
-      id,
-      type: 'incident',
-      title: '돌발 임무 도착',
-      body: incident.title,
-      at: scheduledAt,
-      expiresAt: incidentExpiresAt(scheduledAt),
-      quietBehavior: 'skip',
-      payload: { type: 'incident', incidentId: incident.id },
-    });
-    return true;
-  } catch (error) {
-    console.warn('Could not schedule the incident notification:', error);
-    return false;
-  }
-}
-
 async function syncMobileGameNotifications() {
   if (clientPlatform !== 'android' || !store) return false;
   const state = store.getState();
-  const enabled = state.settings.incidentNotifications === true;
+  const enabled = state.settings.expeditionNotifications === true;
   try {
     let permission = await desktopBridge.getGameNotificationPermission();
     ui.notificationPermission = String(permission?.display || 'unknown');
@@ -502,9 +470,6 @@ async function syncMobileGameNotifications() {
     if (!enabled) return false;
     const scheduled = [];
     if (state.expedition) scheduled.push(scheduleExpeditionNotification(state.expedition));
-    if (state.pendingIncident && Number(state.pendingIncident.scheduledAt) > Date.now()) {
-      scheduled.push(scheduleIncidentNotification(state.pendingIncident));
-    }
     await Promise.allSettled(scheduled);
     return permission?.granted === true;
   } catch (error) {
@@ -793,7 +758,6 @@ function renderSidebar(state) {
     <button class="nav-button ${ui.view === id ? 'is-active' : ''}" type="button" data-action="navigate" data-view="${id}" aria-label="${view.label}" title="${view.label}" ${ui.view === id ? 'aria-current="page"' : ''}>
       <i data-lucide="${view.icon}"></i>
       <span>${view.label}</span>
-      ${id === 'dashboard' && state.activeIncident ? '<span class="nav-alert" aria-label="새 돌발 업무"></span>' : ''}
       ${id === 'mailbox' && pendingMailCount ? `<span class="nav-count" aria-label="수령 가능한 우편 ${pendingMailCount}개">${Math.min(99, pendingMailCount)}</span>` : ''}
     </button>
   `).join('');
@@ -929,10 +893,6 @@ function renderDashboard(state) {
   const mission = expedition ? expeditionById(expedition.missionId) : null;
   const progress = expedition ? expeditionProgress(expedition) : 0;
   const recent = (state.activity || []).slice(0, 5);
-  const activeIncident = state.activeIncident
-    ? (incidentById(state.activeIncident.id) || state.activeIncident)
-    : null;
-
   return `
     <div class="lobby">
       <section class="lobby-hero rarity-${heroCard.rarity}" aria-labelledby="lobby-hero-title">
@@ -1011,26 +971,6 @@ function renderDashboard(state) {
         </section>
 
         <div class="lobby-side-stack">
-          <section class="lobby-incident ${activeIncident ? 'is-active' : 'is-idle'}" aria-labelledby="lobby-incident-title">
-            <div class="lobby-section-heading">
-              <div><span>${activeIncident ? '새 알림' : '대기 중'}</span><h2 id="lobby-incident-title">돌발 업무</h2></div>
-              <i data-lucide="${activeIncident ? 'bell' : 'wifi'}"></i>
-            </div>
-            ${activeIncident ? `
-              <div class="lobby-incident__copy">
-                <strong>${escapeHtml(activeIncident.title)}</strong>
-                <p>${escapeHtml(activeIncident.summary)}</p>
-                <time data-incident-countdown="${state.activeIncident.expiresAt}">남은 시간 ${formatDuration(state.activeIncident.expiresAt - Date.now())}</time>
-              </div>
-              <button class="alert-button" type="button" data-action="open-incident">지금 확인하기</button>
-            ` : `
-              <div class="lobby-incident__empty">
-                <i data-lucide="bell"></i>
-                <p>새 업무가 도착하면 이곳에서 바로 알려드릴게요.</p>
-              </div>
-            `}
-          </section>
-
           <section class="lobby-collection" aria-labelledby="lobby-collection-title">
             <div class="lobby-section-heading">
               <div><span>나의 카드</span><h2 id="lobby-collection-title">수집 현황</h2></div>
@@ -1039,7 +979,6 @@ function renderDashboard(state) {
             <dl class="lobby-collection__stats">
               <div><dt>발견</dt><dd>${ownedUniqueCount(state)} / ${CARD_CATALOG.length}</dd></div>
               <div><dt>보유</dt><dd>${totalOwnedCount(state)}장</dd></div>
-              <div><dt>완료 업무</dt><dd>${formatNumber(state.resolvedIncidents)}건</dd></div>
               <div><dt>클라우드</dt><dd>${ui.cloud.phase === 'active' ? '연결됨' : '확인 중'}</dd></div>
             </dl>
           </section>
@@ -1764,13 +1703,15 @@ function renderCooperativeRaid() {
     targetId: ui.cooperative.targetId,
     choice: ui.cooperative.choice,
     personalBattle: Boolean(ui.raid.battle),
+    secret: store.getState().settings.raidSecretMode,
+    galaxyChoice: ui.cooperative.galaxyChoice,
   });
 }
 
 function renderCooperativeGlobal() {
   const client = cooperativeClient.getState();
   if (ui.cloud.phase !== 'active') return '';
-  const popup = renderCooperativeReady({ ...client, accountId: String(ui.auth.account?.id || ui.auth.account?._id || ''), now: Date.now() + client.clockOffset });
+  const popup = renderCooperativeReady({ ...client, secret: store.getState().settings.raidSecretMode, accountId: String(ui.auth.account?.id || ui.auth.account?._id || ''), now: Date.now() + client.clockOffset });
   const away = ui.view !== 'raid' || ui.raidMode !== 'cooperative';
   const banner = away && ['queued', 'battle', 'finished'].includes(client.data?.phase)
     ? `<button class="coop-return-banner" type="button" data-action="coop-open">${client.data.phase === 'queued' ? '협동 매칭 대기 중' : client.data.phase === 'finished' ? '협동 레이드 보상 받기' : '협동 전투로 돌아가기'}</button>` : '';
@@ -1850,6 +1791,9 @@ function renderPersonalRaidBattlefield(state) {
   const remaining = raidTurnSecondsRemaining(battle);
   const bossHpRatio = Math.round((battle.boss.hp / battle.boss.maxHp) * 100);
   const animation = ui.raid.animation || {};
+  const secret = state.settings.raidSecretMode === true;
+  const actor = battle.squad[activeIndex];
+  const galaxySelector = actor && (actor.cardId === 'hoi-ur' || (actor.cardId === 'hoi-ssr' && ui.raid.battle.lastCopyableSkill?.cardId === 'hoi-ur'));
   const latestLog = battle.battleLog.at(-1)?.message || (battle.status === 'ready' ? '전투 시작을 기다리고 있습니다.' : '행동을 선택하세요.');
   const bossCard = cardById('deadline-dragon');
   const finished = raidBattleFinished(battle);
@@ -1861,7 +1805,7 @@ function renderPersonalRaidBattlefield(state) {
     ? animation.targets
     : animation.target == null ? [] : [animation.target];
   return `
-    <section class="raid-battle-screen" aria-label="개인 레이드 전투 화면">
+    <section class="raid-battle-screen ${secret ? 'is-secret' : ''} ${battle.status === 'ready' ? 'is-ready' : ''} ${finished ? 'is-complete' : ''}" aria-label="개인 레이드 전투 화면">
       <header class="raid-battle-topbar">
         <button class="raid-battle-exit" type="button" data-action="leave-raid-battle" ${ui.raid.finishing ? 'disabled' : ''}><i data-lucide="chevron-left"></i><span>편성으로 돌아가기</span></button>
         <div class="raid-boss-hud">
@@ -1874,11 +1818,13 @@ function renderPersonalRaidBattlefield(state) {
         </div>
         <div class="raid-turn-counter"><small>전투 턴</small><strong>${formatNumber(battle.turn || 1)}</strong></div>
       </header>
+      ${renderRaidControls({ automatic: ui.raid.autoBattle, secret, finished })}
+      ${galaxySelector && playerTurn ? `<label class="raid-galaxy-choice">은하수 동률 시 우선 효과<select data-raid-galaxy-choice><option value="attack" ${ui.raid.galaxyChoice === 'attack' ? 'selected' : ''}>공격</option><option value="heal" ${ui.raid.galaxyChoice === 'heal' ? 'selected' : ''}>회복</option><option value="support" ${ui.raid.galaxyChoice === 'support' ? 'selected' : ''}>지원</option></select></label>` : ''}
       <div class="raid-battle-arena">
         ${playerTurn ? `<div class="raid-battle-countdown ${remaining <= 5 ? 'is-urgent' : ''}" data-raid-turn-deadline="${battle.turnDeadlineAt}" aria-label="행동 제한 시간">${formatNumber(remaining)}</div>` : ''}
         <div class="raid-boss-zone">
           <div class="raid-boss-card ${battle.boss.stunned ? 'is-stunned' : ''} ${animation.attacker === 'boss' ? 'is-attacking' : ''} ${animationTargets.includes('boss') ? 'is-raid-hit' : ''}">
-            <img src="${battle.boss.image || bossCard?.image || './assets/cards/deadline-dragon.webp'}" alt="${escapeHtml(battle.boss.name)}" />
+            ${secret ? renderSecretRaidCard(battle.boss.name) : `<img src="${battle.boss.image || bossCard?.image || './assets/cards/deadline-dragon.webp'}" alt="${escapeHtml(battle.boss.name)}" />`}
             ${battle.boss.stunned ? '<span class="raid-stun-orbit" aria-label="브레이크 스턴"></span>' : ''}
           </div>
           ${animation.damageAmount ? `<strong class="raid-floating-number is-damage">${formatNumber(animation.damageAmount)}</strong>` : ''}
@@ -1892,10 +1838,10 @@ function renderPersonalRaidBattlefield(state) {
             const sealed = (member.statuses || []).some((status) => status.id === 'seal' && (status.charges == null || status.charges > 0));
             const skillUnavailable = sealed || member.skillCooldown > 0 || (skill?.oncePerBattle && member.skillUses > 0);
             return `<article class="raid-unit-slot rarity-${card?.rarity || 'c'} ${onTurn ? 'is-active' : ''} ${animation.attacker === index ? 'is-attacking' : ''}">
-              ${onTurn ? `<div class="raid-card-actions"><button type="button" data-action="raid-basic-attack" ${ui.raid.battlePending ? 'disabled' : ''}>기본공격</button><button type="button" data-action="raid-skill-attack" ${ui.raid.battlePending || skillUnavailable ? 'disabled' : ''}>스킬${skillUnavailable ? `<small>${sealed ? '봉인됨' : skill?.oncePerBattle && member.skillUses > 0 ? '사용 완료' : `${formatNumber(member.skillCooldown)}턴 남음`}</small>` : ''}</button></div>` : ''}
+              ${onTurn ? `<div class="raid-card-actions"><button type="button" data-action="raid-basic-attack" ${ui.raid.battlePending || ui.raid.animation ? 'disabled' : ''}>기본공격</button><button type="button" data-action="raid-skill-attack" ${ui.raid.battlePending || ui.raid.animation || skillUnavailable ? 'disabled' : ''}>스킬${skillUnavailable ? `<small>${sealed ? '봉인됨' : skill?.oncePerBattle && member.skillUses > 0 ? '사용 완료' : `${formatNumber(member.skillCooldown)}턴 남음`}</small>` : ''}</button></div>` : ''}
               <button class="raid-unit-card card-emblem-host ${member.hp <= 0 ? 'is-ko' : ''} ${animationTargets.includes(index) ? 'is-raid-hit' : ''}" type="button" data-action="inspect-raid-card" data-card-index="${index}" data-payroll-label="${escapeHtml(`${rarityLabel(card?.rarity)} · ${cardDisplayName(card)}`)}">
                 <span class="raid-unit-number">${index + 1}</span>
-                <img src="${card?.image || member.image}" alt="${escapeHtml(cardDisplayName(card))}" />
+                ${secret ? renderSecretRaidCard(cardDisplayName(card), card?.rarity) : `<img src="${card?.image || member.image}" alt="${escapeHtml(cardDisplayName(card))}" />`}
                 ${renderCardEmblems(card || member.cardId, member.enhancement, { size: 'micro', captioned: true })}
                 <span class="raid-unit-name">${escapeHtml(cardDisplayName(card))} ${enhancementLabel(member.enhancement)}</span>
               </button>
@@ -1908,7 +1854,7 @@ function renderPersonalRaidBattlefield(state) {
       </div>
       ${battle.status === 'ready' ? `<div class="raid-battle-start-panel"><div class="raid-battle-start-card"><span class="eyebrow">PERSONAL RAID · STAGE ${formatNumber(battle.stage)}</span><h2>전투 준비 완료</h2><p>편성 순서대로 카드가 행동합니다. 내 차례에는 20초 안에 기본공격이나 스킬을 선택하세요. 전투는 최대 7턴 진행됩니다.</p><button class="alert-button" type="button" data-action="begin-raid-battle" ${ui.raid.battlePending ? 'disabled' : ''}><i data-lucide="swords"></i>${ui.raid.battlePending ? '전투 준비 중' : '전투 시작'}</button></div></div>` : ''}
       ${finished ? `<div class="raid-battle-result-panel"><div class="raid-battle-result-card"><span class="eyebrow">${victory ? 'RAID CLEAR' : 'BATTLE ENDED'}</span><h2>${endTitle}</h2><p>이번 도전 획득 점수</p><strong class="raid-earned-score">${formatNumber(battle.totalDamage || 0)}</strong><small>보스에게 실제로 입힌 총 피해량입니다.</small><button class="primary-button" type="button" data-action="finish-raid-battle" ${ui.raid.finishing ? 'disabled' : ''}>${ui.raid.finishing ? '점수 저장 중' : '점수 반영하기'}</button></div></div>` : ''}
-      ${animation.skillCutIn ? `<div class="raid-skill-cut-in"><img src="${escapeHtml(animation.skillCutIn.image)}" alt="" /><strong>${escapeHtml(animation.skillCutIn.name)}</strong></div>` : ''}
+      ${animation.skillCutIn ? `<div class="raid-skill-cut-in ${secret ? 'is-secret' : ''}">${secret ? '' : `<img src="${escapeHtml(animation.skillCutIn.image)}" alt="" />`}<strong>${escapeHtml(animation.skillCutIn.name)}</strong></div>` : ''}
       ${renderRaidBattleInspector(battle)}
     </section>`;
 }
@@ -1982,10 +1928,10 @@ function renderPersonalRaidBattle(state) {
           <div><span>잔여 업무량</span><strong>${formatNumber(hp)} / ${formatNumber(maxHp)}</strong></div>
           <div class="boss-health-track"><span style="width:${Math.round(hpRatio * 100)}%"></span></div>
         </div>
-        <p class="raid-bonus-guide">${stage}단계 클리어: 카드팩 ${stage * 3}개${stage >= 5 ? ` · 유물 ${((stage - 4) * 0.5).toFixed(1)}%` : ''}${stage >= 8 ? ' · SR 이상 카드 1장 확정' : ''}<br />유물은 5단계 0.5%부터 단계마다 +0.5%p, 8~10단계는 SR 이상 카드도 추가 지급됩니다.</p>
+        <p class="raid-bonus-guide">${stage}단계 클리어: 카드팩 ${stage * 3}개 · 입장 +1회${stage >= 5 ? ` · 유물 ${((stage - 4) * 0.5).toFixed(1)}%` : ''}${stage >= 8 ? ' · SR 이상 카드 1장 확정' : ''}<br />클리어로 얻은 추가 입장은 오늘 24시까지 사용합니다. 유물은 5단계부터, SR 이상 카드는 8단계부터 지급됩니다.</p>
         <div class="raid-stats">
           <div><span>이번 주 총 피해 점수</span><strong>${formatNumber(raid.totalContribution ?? raid.contribution)}</strong></div>
-          <div><span>오늘 남은 입장</span><strong>${formatNumber(remainingEntries)} / ${formatNumber(maxEntries)}</strong></div>
+          <div><span>오늘 남은 입장${raid.bonusEntriesToday ? ` · 클리어 +${formatNumber(raid.bonusEntriesToday)}` : ''}</span><strong>${formatNumber(remainingEntries)} / ${formatNumber(maxEntries)}</strong></div>
           <div><span>현재 단계 클리어</span><strong>${formatNumber(clears)}회</strong></div>
           <div><span>일일 입장 초기화</span><strong>${dailyResetsAt ? `<span data-countdown="${dailyResetsAt}">${formatDuration(dailyResetsAt - Date.now())}</span>` : '매일 00:00'}</strong></div>
            <div><span>주간 단계 초기화</span><strong>${weeklyResetsAt ? `<span data-countdown="${weeklyResetsAt}">${formatDuration(weeklyResetsAt - Date.now())}</span>` : '월요일 00:00'}</strong></div>
@@ -2086,7 +2032,7 @@ function renderPackResultCard(card, index, premiumPack, revealedCards, modal) {
   const revealClass = gated ? (faceDown ? 'is-face-down' : 'is-revealed') : '';
   const rarityClass = faceDown ? 'rarity-concealed' : `rarity-${card.rarity}`;
   return `
-    <article class="result-card ${rarityClass} ${revealClass} ${isNew ? 'is-new-card' : ''}" data-pack-card-index="${index}" style="--reveal-delay:${Math.min(index, 10) * 70}ms">
+    <article class="result-card ${rarityClass} ${revealClass} ${isNew ? 'is-new-card' : ''}" data-pack-card-index="${index}" style="--reveal-delay:0ms">
       ${isNew ? '<span class="new-card-badge" aria-label="처음 획득한 카드">NEW!!</span>' : ''}
       <div class="result-card__art card-emblem-host ${revealClass}">
         ${faceDown ? `
@@ -2106,45 +2052,36 @@ function renderPackResultCard(card, index, premiumPack, revealedCards, modal) {
     </article>`;
 }
 
-function renderPackModalActions(state, unrevealedCount) {
-  const pack = PACK_DEFINITION.standard;
-  const hasPack = state.packs.standard > 0;
-  const canBuy = state.wallet.coins >= pack.coinPrice;
-  return `
-    <button class="secondary-button" type="button" data-action="navigate-from-modal" data-view="collection">도감 보기</button>
-    ${unrevealedCount > 0 ? `
-      <button class="primary-button" type="button" disabled>봉인 카드 ${formatNumber(unrevealedCount)}장 먼저 공개</button>
-    ` : hasPack ? `
-      <button class="primary-button" type="button" data-action="open-another-pack" data-pack-count="1">1팩 더 개봉 · ${formatNumber(state.packs.standard)}팩 보유</button>
-      ${state.packs.standard >= 10 ? '<button class="primary-button pack-open-ten" type="button" data-action="open-another-pack" data-pack-count="10">10팩 한 번에 개봉</button>' : ''}
-    ` : `
-      <button class="secondary-button" type="button" disabled>미개봉 카드팩 없음</button>
-      <button class="primary-button" type="button" data-action="buy-and-open-pack" ${canBuy ? '' : 'disabled'}>
-        ${canBuy ? `${formatNumber(pack.coinPrice)} 동전으로 구매 후 개봉` : `동전 부족 · ${formatNumber(pack.coinPrice)} 필요`}
-      </button>
-    `}`;
-}
-
 function renderPackModal(cards, pityTriggered, state, modal) {
   const highest = modal.highestRarity || highestRarity(cards);
   const premiumPack = rarityRank(highest) >= PACK_FLIP_THRESHOLD;
   const revealedCards = new Set(modal.revealedCards || []);
-  const unrevealedCount = cards.reduce((count, card, index) => (
-    count + (premiumPack && requiresPackReveal(card) && !revealedCards.has(index) ? 1 : 0)
-  ), 0);
+  const hidden = cards.flatMap((card, index) => premiumPack && requiresPackReveal(card) && !revealedCards.has(index) ? [index] : []);
+  const index = packFocusIndex(cards, [...revealedCards], modal.focusIndex, requiresPackReveal);
+  modal.focusIndex = index;
+  const sealed = hidden.includes(index);
+  const nextIndex = index < cards.length - 1 ? index + 1 : (hidden[0] ?? -1);
+  const pack = PACK_DEFINITION.standard;
   return `
-    <div class="modal-backdrop pack-backdrop rarity-${highest} ${unrevealedCount ? 'has-sealed-cards' : 'is-reveal-complete'}" data-action="close-modal">
-      <section class="modal-sheet pack-opening-modal" role="dialog" aria-modal="true" aria-labelledby="pack-result-title" data-modal-panel>
-        <button class="modal-close" type="button" data-action="close-modal" aria-label="닫기"><i data-lucide="x"></i></button>
-        <div class="modal-heading"><span class="eyebrow">PERSONNEL DISCOVERED</span><h2 id="pack-result-title">${modal.packCount > 1 ? `${formatNumber(modal.packCount)}팩 · ${formatNumber(cards.length)}장` : '인물 파일 개봉 결과'}</h2><p>${premiumPack ? '봉인된 카드는 직접 눌러 확인하세요.' : '새 카드가 인사기록에 등록되었습니다.'}</p></div>
-        ${premiumPack ? `<div class="pack-reveal-hint" data-pack-reveal-hint><i data-lucide="sparkles"></i><span>${unrevealedCount ? `빛나는 봉인 카드를 눌러 한 장씩 확인하세요 · ${formatNumber(unrevealedCount)}장 남음` : '모든 봉인 카드를 확인했습니다.'}</span></div>` : ''}
-        <div class="pack-result-grid ${modal.packCount > 1 ? 'is-batch' : ''}">
-          ${cards.map((card, index) => renderPackResultCard(card, index, premiumPack, revealedCards, modal)).join('')}
+    <div class="modal-backdrop pack-backdrop pack-focus-backdrop rarity-${highest} ${hidden.length ? 'has-sealed-cards' : 'is-reveal-complete'}" data-action="close-modal">
+      <section class="modal-sheet pack-opening-modal pack-focus-modal" role="dialog" aria-modal="true" aria-labelledby="pack-result-title" data-modal-panel>
+        <header class="pack-focus-heading"><div><span class="eyebrow">${modal.packCount > 1 ? `${modal.packCount}팩 개봉` : '인물 파일 개봉'}</span><h2 id="pack-result-title">새로운 만남 <small>${index + 1} / ${cards.length}</small></h2></div><button class="modal-close" type="button" data-action="close-modal" aria-label="닫기 · 미공개 카드는 저장됩니다"><i data-lucide="x"></i></button></header>
+        <div class="pack-focus-status" aria-live="polite"><span>${hidden.length ? `봉인 카드 ${hidden.length}장 · 눌러서 공개` : '카드가 모두 인사기록에 등록되었습니다.'}${pityTriggered ? ' · 확정 보상' : ''}</span>${hidden.length ? '<button type="button" data-action="reveal-all-pack-cards">모두 공개</button>' : ''}</div>
+        <div class="pack-focus-stage">
+          <button class="pack-focus-arrow" type="button" data-action="focus-pack-card" data-card-index="${index - 1}" aria-label="이전 카드" ${index === 0 ? 'disabled' : ''}><i data-lucide="chevron-left"></i></button>
+          ${renderPackResultCard(cards[index], index, premiumPack, revealedCards, modal)}
+          <button class="pack-focus-arrow" type="button" data-action="focus-pack-card" data-card-index="${index + 1}" aria-label="다음 카드" ${index === cards.length - 1 ? 'disabled' : ''}><i data-lucide="chevron-right"></i></button>
         </div>
-        <div class="modal-actions" data-pack-modal-actions>${renderPackModalActions(state, unrevealedCount)}</div>
+        <nav class="pack-focus-progress" aria-label="개봉 카드 선택">${cards.map((card, candidate) => {
+          const isHidden = hidden.includes(candidate);
+          return `<button type="button" class="${candidate === index ? 'is-current' : ''} ${isHidden ? 'is-sealed' : `rarity-${card.rarity}`}" data-action="focus-pack-card" data-card-index="${candidate}" aria-current="${candidate === index ? 'true' : 'false'}" aria-label="${candidate + 1}번째 카드${isHidden ? ' · 봉인' : ` · ${escapeHtml(cardDisplayName(card))}`}"><b>${candidate + 1}</b><small>${isHidden ? '봉인' : rarityLabel(card.rarity)}</small></button>`;
+        }).join('')}</nav>
+        <footer class="pack-focus-footer">
+          <div class="pack-focus-primary"><button class="secondary-button" type="button" data-action="close-modal">${hidden.length ? '저장 후 닫기' : '닫기'}</button>${sealed ? `<button class="primary-button" type="button" data-action="reveal-pack-card" data-opening-id="${escapeHtml(modal.openingId || '')}" data-card-index="${index}">봉인 카드 공개하기</button>` : nextIndex >= 0 ? `<button class="primary-button" type="button" data-action="focus-pack-card" data-card-index="${nextIndex}">${index === cards.length - 1 ? '남은 봉인 카드 보기' : '다음 카드'} <i data-lucide="chevron-right"></i></button>` : '<button class="primary-button" type="button" data-action="navigate-from-modal" data-view="collection">도감에서 확인</button>'}</div>
+          <div class="pack-focus-secondary">${hidden.length ? '<small>나중에 이어서 공개해도 같은 카드가 유지됩니다.</small>' : state.packs.standard > 0 ? `<button class="text-button" type="button" data-action="open-another-pack" data-pack-count="1">1팩 더 개봉 · ${formatNumber(state.packs.standard)}팩 보유</button>${state.packs.standard >= 10 ? '<button class="text-button" type="button" data-action="open-another-pack" data-pack-count="10">10팩 개봉</button>' : ''}` : `<button class="text-button" type="button" data-action="buy-and-open-pack" ${state.wallet.coins < pack.coinPrice ? 'disabled' : ''}>${formatNumber(pack.coinPrice)} 동전으로 1팩 개봉</button>`}</div>
+        </footer>
       </section>
-    </div>
-  `;
+    </div>`;
 }
 
 function renderCardModal(card, state) {
@@ -2199,28 +2136,6 @@ function renderCardModal(card, state) {
             ${owned ? `<button class="secondary-button detail-lock-button ${locked ? 'is-locked' : ''}" type="button" data-action="toggle-card-lock" data-card-id="${card.id}"><i data-lucide="${locked ? 'unlock' : 'lock'}"></i>${locked ? '카드 잠금 해제' : '카드 잠금'}</button>` : ''}
             ${owned && RARITY_META[card.rarity] ? `<button class="secondary-button detail-manage-button" type="button" data-action="manage-card" data-card-id="${card.id}">이 카드 강화하기</button>` : ''}
           </div>
-        </div>
-      </section>
-    </div>
-  `;
-}
-
-function renderIncidentModal(incident) {
-  const tierLabel = incident.tier === 'mythic' ? 'MYTHIC INCIDENT' : incident.tier === 'special' ? 'SPECIAL INCIDENT' : 'RANDOM INCIDENT';
-  return `
-    <div class="modal-backdrop modal-backdrop--incident">
-      <section class="modal-sheet incident-modal" role="dialog" aria-modal="true" aria-labelledby="incident-modal-title" data-modal-panel>
-        <button class="modal-close" type="button" data-action="close-modal" aria-label="나중에 확인"><i data-lucide="x"></i></button>
-        <div class="incident-symbol"><i data-lucide="bell"></i></div>
-        <span class="eyebrow">${tierLabel}</span>
-        <h2 id="incident-modal-title">${escapeHtml(incident.title)}</h2>
-        <p>${escapeHtml(incident.summary)}</p>
-        <div class="incident-choices">
-          ${incident.choices.map((choice) => `
-            <button type="button" data-action="resolve-incident" data-choice-id="${choice.id}">
-              <span>${escapeHtml(choice.label)}</span><i data-lucide="arrow-right"></i>
-            </button>
-          `).join('')}
         </div>
       </section>
     </div>
@@ -2338,9 +2253,8 @@ function renderAdminModal() {
 
 function renderSettingsModal(state) {
   const account = ui.auth.account;
-  const notificationLabel = desktopBridge.isDesktop ? '데스크톱 팝업 알림' : '모바일 알림';
   const mobileNotificationSettings = clientPlatform === 'android' ? `
-    <label class="toggle-row"><span><strong>야간 알림 끄기 (22:00~06:00)</strong><small>야간에는 돌발 임무 알림을 보내지 않고, 모험 완료 알림은 오전 6시 이후에 알려드립니다.</small></span><input type="checkbox" data-action="toggle-quiet-hours" ${state.settings.quietHoursNotifications ? 'checked' : ''} ${state.settings.incidentNotifications ? '' : 'disabled'} /><i></i></label>
+    <label class="toggle-row"><span><strong>야간 알림 끄기 (22:00~06:00)</strong><small>모험 완료 알림을 오전 6시 이후에 알려드립니다.</small></span><input type="checkbox" data-action="toggle-quiet-hours" ${state.settings.quietHoursNotifications ? 'checked' : ''} ${state.settings.expeditionNotifications ? '' : 'disabled'} /><i></i></label>
     ${ui.notificationPermission === 'denied' ? '<button class="secondary-button settings-notification-button" type="button" data-action="open-notification-settings">휴대폰 알림 권한 열기</button>' : ''}
   ` : '';
   const desktopOnlySettings = desktopBridge.isDesktop
@@ -2356,7 +2270,7 @@ function renderSettingsModal(state) {
           <span><strong>${escapeHtml(account?.nickname || state.profile.displayName)}</strong><small>@${escapeHtml(account?.username || '')} · ${ui.cloud.phase === 'active' ? '클라우드 연결됨' : '연결 확인 중'}</small></span>
           <button class="secondary-button" type="button" data-action="logout">로그아웃</button>
         </div>
-        <label class="toggle-row"><span><strong>${notificationLabel}</strong><small>꺼도 돌발 업무는 계속 발생하며 업무판에서 10분간 유지됩니다.</small></span><input type="checkbox" data-action="toggle-notifications" ${state.settings.incidentNotifications ? 'checked' : ''} /><i></i></label>
+        ${clientPlatform === 'android' ? `<label class="toggle-row"><span><strong>모험 완료 알림</strong><small>모험이 끝나면 알려드립니다. 꺼도 모험과 보상은 유지됩니다.</small></span><input type="checkbox" data-action="toggle-notifications" ${state.settings.expeditionNotifications ? 'checked' : ''} /><i></i></label>` : ''}
         ${mobileNotificationSettings}
         ${desktopOnlySettings}
         <div class="settings-utility-actions"><button class="secondary-button" type="button" data-action="check-update"><i data-lucide="download"></i>업데이트 확인</button><button class="secondary-button" type="button" data-action="open-donation"><i data-lucide="gift"></i>후원 안내</button></div>
@@ -2402,8 +2316,8 @@ function renderNotificationPermissionModal() {
         <span class="eyebrow">ANDROID NOTIFICATION</span>
         <h2 id="notification-permission-title">${needsSettings ? '휴대폰 설정에서 알림을 켜주세요.' : '게임 알림을 받아볼까요?'}</h2>
         <p>${needsSettings
-          ? '알림 권한이 꺼져 있습니다. 권한을 켜면 앱을 닫아도 모험 완료와 돌발 임무를 놓치지 않습니다.'
-          : 'Android 알림 권한을 허용하면 앱을 닫아도 모험 완료와 돌발 임무를 알려드립니다. 야간 알림은 설정에서 따로 끌 수 있습니다.'}</p>
+          ? '알림 권한이 꺼져 있습니다. 권한을 켜면 앱을 닫아도 모험 완료를 놓치지 않습니다.'
+          : 'Android 알림 권한을 허용하면 앱을 닫아도 모험 완료를 알려드립니다. 야간 알림은 설정에서 따로 끌 수 있습니다.'}</p>
         <div class="modal-actions notification-permission-actions">
           <button class="secondary-button" type="button" data-action="dismiss-notification-permission">나중에</button>
           <button class="primary-button" type="button" data-action="${needsSettings ? 'open-notification-settings-from-prompt' : 'request-notification-permission'}">
@@ -2420,7 +2334,6 @@ function renderModal(state) {
   if (ui.modal.type === 'deck-preset') return renderDeckPresetModal(state);
   if (ui.modal.type === 'pack') return renderPackModal(ui.modal.cards, ui.modal.pityTriggered, state, ui.modal);
   if (ui.modal.type === 'card') return renderCardModal(cardById(ui.modal.cardId), state);
-  if (ui.modal.type === 'incident') return renderIncidentModal(ui.modal.incident);
   if (ui.modal.type === 'result') return renderResultModal(ui.modal, state);
   if (ui.modal.type === 'batch-synthesis-result') return renderBatchSynthesisResultModal(ui.modal);
   if (ui.modal.type === 'settings') return renderSettingsModal(state);
@@ -2595,6 +2508,9 @@ function restoreScrollPositions() {
 
 function render() {
   const previousReadyDialog = Boolean(app.querySelector('.coop-ready-dialog'));
+  const previousPackDialog = Boolean(app.querySelector('.pack-focus-modal'));
+  const focusedPackAction = document.activeElement?.closest('.pack-focus-modal')
+    ? document.activeElement.dataset.action : '';
   const focusedCoopAction = document.activeElement?.dataset?.action?.startsWith('coop-')
     ? document.activeElement.dataset.action : '';
   captureScrollPositions();
@@ -2623,9 +2539,16 @@ function render() {
     </div>
   `;
   ui.renderedView = ui.view;
+  scheduleRaidAutoAction();
   refreshIcons();
   assignScrollKeys();
   restoreScrollPositions();
+  const packProgress = app.querySelector('.pack-focus-progress');
+  const focusedPack = packProgress?.querySelector('[aria-current="true"]');
+  if (focusedPack) packProgress.scrollLeft = focusedPack.offsetLeft - packProgress.clientWidth / 2 + focusedPack.offsetWidth / 2;
+  if (focusedPackAction || (!previousPackDialog && ui.modal?.type === 'pack')) {
+    app.querySelector('.pack-focus-primary .primary-button:not(:disabled)')?.focus({ preventScroll: true });
+  }
   if (focusedCoopAction) app.querySelector(`.coop-ready-dialog [data-action="${focusedCoopAction}"]:not(:disabled)`)?.focus({ preventScroll: true });
   else if (!previousReadyDialog) app.querySelector('.coop-ready-dialog [data-action="coop-accept"]:not(:disabled)')?.focus({ preventScroll: true });
 }
@@ -2649,6 +2572,7 @@ function showPackOpeningModal(opening, cards, { renderNow = true } = {}) {
     revealedCards: opening.revealedIndices,
     openingId: opening.id,
     pendingOpening: true,
+    focusIndex: packFocusIndex(cards, opening.revealedIndices, -1, requiresPackReveal),
   };
   if (renderNow) render();
 }
@@ -2662,37 +2586,18 @@ function addPendingPackToCollection(draft, opening, cards) {
   return true;
 }
 
-function patchPackReveal(cardIndex, opening) {
+function revealAllPackCards() {
   if (ui.modal?.type !== 'pack') return false;
-  const cards = ui.modal.cards || [];
-  const card = cards[cardIndex];
-  const cardNode = app.querySelector(`[data-pack-card-index="${cardIndex}"]`);
-  if (!card || !cardNode) return false;
-
-  const highest = ui.modal.highestRarity || highestRarity(cards);
-  const premiumPack = rarityRank(highest) >= PACK_FLIP_THRESHOLD;
-  const revealedCards = new Set(opening.revealedIndices || []);
-  const template = document.createElement('template');
-  template.innerHTML = renderPackResultCard(card, cardIndex, premiumPack, revealedCards, ui.modal).trim();
-  cardNode.replaceWith(template.content.firstElementChild);
-
-  const unrevealedCount = cards.reduce((count, candidate, index) => (
-    count + (premiumPack && requiresPackReveal(candidate) && !revealedCards.has(index) ? 1 : 0)
-  ), 0);
-  const hint = app.querySelector('[data-pack-reveal-hint] span');
-  if (hint) {
-    hint.textContent = unrevealedCount
-      ? `빛나는 봉인 카드를 눌러 한 장씩 확인하세요 · ${formatNumber(unrevealedCount)}장 남음`
-      : '모든 봉인 카드를 확인했습니다.';
-  }
-  const actions = app.querySelector('[data-pack-modal-actions]');
-  if (actions) actions.innerHTML = renderPackModalActions(store.getState(), unrevealedCount);
-  const backdrop = app.querySelector('.pack-backdrop');
-  if (backdrop && unrevealedCount === 0) {
-    backdrop.classList.remove('has-sealed-cards');
-    backdrop.classList.add('is-reveal-complete');
-  }
-  refreshIcons();
+  const opening = store.getState().pendingPackOpening;
+  if (!opening || opening.id !== ui.modal.openingId) return false;
+  const cards = cardsForPendingPack(opening, cardById);
+  if (!cards) return false;
+  const result = revealAllPendingPackCards(opening, cards, requiresPackReveal);
+  if (!result.completed) return false;
+  store.update((draft) => { addPendingPackToCollection(draft, result.opening, cards); });
+  ui.modal.revealedCards = result.opening.revealedIndices;
+  ui.modal.pendingOpening = false;
+  render();
   return true;
 }
 
@@ -2739,7 +2644,8 @@ function revealPackCardAtIndex(cardIndex, openingId) {
   if (nextOpening === current) return false;
   ui.modal.revealedCards = nextOpening.revealedIndices;
   ui.modal.pendingOpening = !finalized;
-  if (!patchPackReveal(cardIndex, nextOpening)) render();
+  ui.modal.focusIndex = Number(cardIndex);
+  render();
   return true;
 }
 
@@ -3218,6 +3124,9 @@ function enterRaidBattle() {
       seed: Date.now(),
     });
     ui.raid.serverBattle = null;
+    ui.raid.autoBattle = false;
+    window.clearTimeout(ui.raid.autoActionTimer);
+    ui.raid.autoActionTimer = null;
     ui.raid.error = '';
     ui.raid.inspector = null;
     ui.raid.animation = null;
@@ -3233,7 +3142,7 @@ function maybeShowMobileNotificationPermissionPrompt() {
     platform: clientPlatform,
     authenticated: ui.auth.phase === 'authenticated',
     cloudActive: ui.cloud.phase === 'active',
-    notificationsEnabled: store.getState().settings.incidentNotifications === true,
+    notificationsEnabled: store.getState().settings.expeditionNotifications === true,
     permissionDisplay: ui.notificationPermission,
     alreadyShown: ui.notificationPermissionPromptShown,
   });
@@ -3322,22 +3231,23 @@ async function beginRaidBattle() {
 }
 
 function clearRaidAnimation(delay = 680) {
+  const animation = ui.raid.animation;
   window.setTimeout(() => {
-    if (!ui.raid.animation) return;
+    if (!animation || ui.raid.animation !== animation) return;
     ui.raid.animation = null;
     render();
     scheduleBossRaidAction();
   }, delay);
 }
 
-function performRaidPlayerTurn(type = 'basic', { automatic = false, choice = null } = {}) {
+function performRaidPlayerTurn(type = 'basic', { automatic = false, timedOut = false, choice = null, targetId = null, galaxyChoice = ui.raid.galaxyChoice } = {}) {
   const before = ui.raid.battle;
-  if (!before || before.status !== 'active' || before.currentActor !== 'card' || ui.raid.battlePending) return;
+  if (!before || before.status !== 'active' || before.currentActor !== 'card' || ui.raid.battlePending || ui.raid.animation) return;
   const actorIndex = Number(before.currentActorIndex);
   const actor = before.cards?.[actorIndex];
   if (!actor) return;
   try {
-    const next = performPlayerAction(before, { type, choice }, Date.now());
+    const next = performPlayerAction(before, { type, choice, targetId, galaxyChoice }, Date.now());
     const dealtDamage = Math.max(0, Number(before.boss?.hp) - Number(next.boss?.hp));
     const newLogs = (next.log || []).slice((before.log || []).length);
     const damageAmount = newLogs
@@ -3352,7 +3262,7 @@ function performRaidPlayerTurn(type = 'basic', { automatic = false, choice = nul
     ui.raid.animation = {
       attacker: dealtDamage > 0 ? actorIndex : null,
       targets: dealtDamage > 0 ? ['boss'] : [],
-      message: automatic ? `${actor.name}이(가) 시간 초과로 기본공격을 사용했습니다.` : `${actor.name}의 ${skill?.name || '기본공격'}!`,
+      message: timedOut ? `${actor.name}이(가) 시간 초과로 기본공격을 사용했습니다.` : `${automatic ? '[자동] ' : ''}${actor.name}의 ${skill?.name || '기본공격'}!`,
       skillCutIn: skill ? { image: actor.image || cardById(actor.cardId)?.image, name: skill.name } : null,
       damageAmount,
       breakAmount,
@@ -3362,6 +3272,25 @@ function performRaidPlayerTurn(type = 'basic', { automatic = false, choice = nul
   } catch (error) {
     showNotice(error.message || '행동을 처리하지 못했습니다.', 'warning');
   }
+}
+
+function scheduleRaidAutoAction() {
+  const battle = ui.raid.battle;
+  const allowed = ui.raid.autoBattle && ui.cloud.phase === 'active'
+    && battle?.status === 'active' && battle.currentActor === 'card'
+    && !ui.raid.animation && !ui.raid.battlePending && !ui.raid.finishing;
+  if (!allowed) {
+    window.clearTimeout(ui.raid.autoActionTimer);
+    ui.raid.autoActionTimer = null;
+    return;
+  }
+  if (ui.raid.autoActionTimer) return;
+  ui.raid.autoActionTimer = window.setTimeout(() => {
+    ui.raid.autoActionTimer = null;
+    if (!ui.raid.autoBattle || ui.raid.battle !== battle || ui.raid.animation || ui.cloud.phase !== 'active') return;
+    const action = chooseRaidAutoAction(battle);
+    if (action) performRaidPlayerTurn(action.type, { ...action, automatic: true });
+  }, 500);
 }
 
 function scheduleBossRaidAction() {
@@ -3447,7 +3376,7 @@ async function completeRaidBattle({ leave = false } = {}) {
       ui.modal = {
         type: 'result',
         message: result.cleared
-          ? `${formatNumber(battle.stage)}단계를 클리어했습니다. 이번 도전 점수 ${formatNumber(battle.totalDamage)}점`
+          ? `${formatNumber(battle.stage)}단계를 클리어했습니다. 이번 도전 점수 ${formatNumber(battle.totalDamage)}점${result.reward?.extraEntries ? ' · 오늘의 입장 기회 +1회' : ''}`
           : `이번 도전에서 ${formatNumber(battle.totalDamage)}점을 획득했습니다.`,
         rewardText: `주간 누적 ${formatNumber(payload.state?.totalContribution ?? payload.state?.contribution ?? battle.totalDamage)}점 · 카드당 경험치 ${formatNumber(experiencePerCard)}${reward.coins || reward.packs || reward.bonuses?.length ? ` · ${rewardText(reward)}` : ''}`,
       };
@@ -3459,15 +3388,6 @@ async function completeRaidBattle({ leave = false } = {}) {
   } finally {
     ui.raid.finishing = false;
   }
-  render();
-}
-
-function openActiveIncident(incident = null) {
-  const state = store.getState();
-  const target = incident || state.activeIncident;
-  if (!target) return;
-  const full = incidentById(target.id) || target;
-  ui.modal = { type: 'incident', incident: full };
   render();
 }
 
@@ -3564,230 +3484,6 @@ function loadSavedDeckPreset(slot, context) {
   render();
 }
 
-async function resolveActiveIncident({ choiceId, instanceId = null, incidentId = null, fromToast = false }) {
-  if (ui.cloud.phase !== 'active') throw new Error('클라우드 연결을 확인한 뒤 다시 선택해 주세요.');
-  const state = store.getState();
-  const active = state.activeIncident;
-  const nativeNotificationId = incidentNotificationId(active);
-  const targetInstanceId = instanceId || active?.instanceId;
-  if (incidentId && active?.id !== incidentId) throw new Error('이미 종료되었거나 이전 돌발 업무입니다.');
-  const resolution = resolveIncidentChoice({
-    activeIncident: active,
-    instanceId: targetInstanceId,
-    choiceId,
-    completedInstanceIds: state.completedIncidentInstanceIds,
-  });
-  store.update((draft) => {
-    if (draft.activeIncident?.instanceId !== targetInstanceId) throw new Error('이미 처리된 돌발 업무입니다.');
-    draft.wallet.coins += Number(resolution.reward.coins) || 0;
-    draft.packs.standard += Number(resolution.reward.packs) || 0;
-    draft.activeIncident = null;
-    draft.resolvedIncidents += 1;
-    draft.completedIncidentInstanceIds = resolution.completedInstanceIds;
-    draft.pendingIncident = null;
-    draft.nextIncidentAt = null;
-    draft.incidentScheduled = false;
-    appendActivity(draft, resolution.result, 'incident');
-  });
-  // The reward is already committed atomically. A transient desktop IPC failure
-  // must not make the user lose the result or retry it for a second reward.
-  try {
-    await desktopBridge.clearActiveIncident(targetInstanceId, { keepToast: fromToast });
-    if (nativeNotificationId) await desktopBridge.cancelGameNotification(nativeNotificationId);
-  } catch (error) {
-    console.warn('Could not close the incident notification:', error);
-  }
-  if (!fromToast) {
-    ui.modal = { type: 'result', message: resolution.result, rewardText: rewardText(resolution.reward) };
-    render();
-  }
-  await scheduleNextIncident();
-  return { ok: true, message: `${resolution.result} (${plainRewardText(resolution.reward)})` };
-}
-
-async function scheduleNextIncident() {
-  if (!store || ui.auth.phase !== 'authenticated' || ui.cloud.phase !== 'active') return false;
-  const state = store.getState();
-  if (ui.incidentScheduling || state.activeIncident) return false;
-  ui.incidentScheduling = true;
-  const leaseKey = activeCloudLeaseKey();
-  let restartForCurrentSession = false;
-  try {
-    const now = Date.now();
-    const savedIncident = state.pendingIncident ? incidentById(state.pendingIncident.id) : null;
-    const incident = savedIncident || chooseIncident({ recentIds: state.recentIncidentIds });
-    const persistedScheduledAt = Number(state.pendingIncident?.scheduledAt ?? state.nextIncidentAt);
-    const scheduledAt = savedIncident && persistedScheduledAt > now
-      ? persistedScheduledAt
-      : now + nextIncidentDelay();
-    const delayMs = Math.max(1000, scheduledAt - now);
-    store.update((draft) => {
-      draft.pendingIncident = { id: incident.id, scheduledAt };
-      draft.nextIncidentAt = scheduledAt;
-      draft.incidentScheduled = true;
-    });
-    const scheduled = await desktopBridge.scheduleIncident(incident, delayMs);
-    if (activeCloudLeaseKey() !== leaseKey) {
-      await desktopBridge.cancelIncident().catch(() => {});
-      restartForCurrentSession = ui.cloud.phase === 'active';
-      return false;
-    }
-    if (!scheduled?.scheduled) {
-      store.update((draft) => {
-        draft.pendingIncident = null;
-        draft.nextIncidentAt = null;
-        draft.incidentScheduled = false;
-      });
-    } else {
-      await scheduleIncidentNotification({ id: incident.id, scheduledAt }, incident);
-    }
-  } catch (error) {
-    // Keep the pending incident so the next startup/retry can schedule it again.
-    if (ui.cloud.phase === 'active' && activeCloudLeaseKey() === leaseKey) {
-      try {
-        store.update((draft) => { draft.incidentScheduled = false; });
-      } catch (storeError) {
-        console.warn('Could not persist incident retry state:', storeError);
-      }
-    }
-    console.warn('Could not schedule the next incident:', error);
-    return false;
-  } finally {
-    ui.incidentScheduling = false;
-    if (restartForCurrentSession) void scheduleNextIncident();
-  }
-}
-
-function restorePendingIncidentIfDue(now = Date.now()) {
-  if (!store || ui.auth.phase !== 'authenticated' || ui.cloud.phase !== 'active') return 'none';
-  const state = store.getState();
-  if (state.activeIncident) return 'none';
-  const pending = state.pendingIncident;
-  if (!pending) return 'none';
-  const canonical = incidentById(pending.id);
-  const window = pendingIncidentWindow(pending, now);
-  if (window?.status === 'scheduled') return 'scheduled';
-
-  if (!canonical || !window || window.status === 'expired') {
-    store.update((draft) => {
-      if (draft.pendingIncident?.id !== pending.id) return;
-      draft.pendingIncident = null;
-      draft.nextIncidentAt = null;
-      draft.incidentScheduled = false;
-      if (canonical && window) {
-        appendActivity(draft, `돌발 업무 만료: ${canonical.title}`, 'incident', window.expiresAt);
-      }
-    });
-    return 'expired';
-  }
-
-  const instanceId = typeof pending.instanceId === 'string' && pending.instanceId
-    ? pending.instanceId
-    : `scheduled-${pending.id}-${window.scheduledAt}`;
-  store.update((draft) => {
-    if (draft.activeIncident || draft.pendingIncident?.id !== pending.id) return;
-    draft.activeIncident = {
-      id: pending.id,
-      instanceId,
-      arrivedAt: window.scheduledAt,
-      expiresAt: window.expiresAt,
-    };
-    draft.recentIncidentIds = [pending.id, ...(draft.recentIncidentIds || []).filter((id) => id !== pending.id)].slice(0, 5);
-    draft.pendingIncident = null;
-    draft.nextIncidentAt = null;
-    draft.incidentScheduled = false;
-    appendActivity(draft, `돌발 업무 도착: ${canonical.title}`, 'incident', window.scheduledAt);
-  });
-  showNotice('앱을 비운 사이 도착한 돌발 업무가 있습니다.', 'warning');
-  return 'active';
-}
-
-function handleIncidentArrived(incident) {
-  if (!store || ui.auth.phase !== 'authenticated' || ui.cloud.phase !== 'active') return;
-  if (!incident?.id || !incident?.instanceId) return;
-  const canonical = incidentById(incident.id);
-  if (!canonical) return;
-  const state = store.getState();
-  const current = state.activeIncident;
-  if (current) return;
-  const now = Date.now();
-  const persistedWindow = state.pendingIncident?.id === incident.id
-    ? pendingIncidentWindow(state.pendingIncident, now)
-    : null;
-  if (persistedWindow?.status === 'expired') {
-    store.update((draft) => {
-      if (draft.pendingIncident?.id !== incident.id) return;
-      draft.pendingIncident = null;
-      draft.nextIncidentAt = null;
-      draft.incidentScheduled = false;
-      appendActivity(draft, `돌발 업무 만료: ${canonical.title}`, 'incident', persistedWindow.expiresAt);
-    });
-    void scheduleNextIncident();
-    return;
-  }
-  const arrivedAt = persistedWindow?.status === 'active' ? persistedWindow.scheduledAt : now;
-  store.update((draft) => {
-    draft.activeIncident = {
-      id: incident.id,
-      instanceId: incident.instanceId,
-      arrivedAt,
-      expiresAt: persistedWindow?.status === 'active'
-        ? persistedWindow.expiresAt
-        : incidentExpiresAt(arrivedAt),
-    };
-    draft.recentIncidentIds = [incident.id, ...(draft.recentIncidentIds || []).filter((id) => id !== incident.id)].slice(0, 5);
-    draft.pendingIncident = null;
-    draft.nextIncidentAt = null;
-    draft.incidentScheduled = false;
-    appendActivity(draft, `돌발 업무 도착: ${canonical.title}`, 'incident');
-  });
-  showNotice('새 돌발 업무가 도착했습니다.', 'warning');
-}
-
-async function expireActiveIncidentIfNeeded() {
-  if (!store || ui.auth.phase !== 'authenticated' || ui.cloud.phase !== 'active' || ui.incidentExpiring) return false;
-  const active = store.getState().activeIncident;
-  if (!isIncidentExpired(active)) return false;
-  ui.incidentExpiring = true;
-  const canonical = incidentById(active.id);
-  try {
-    store.update((draft) => {
-      if (draft.activeIncident?.instanceId !== active.instanceId) return;
-      draft.activeIncident = null;
-      draft.pendingIncident = null;
-      draft.nextIncidentAt = null;
-      draft.incidentScheduled = false;
-      appendActivity(draft, `돌발 업무 만료: ${canonical?.title || active.id}`, 'incident');
-    });
-    if (ui.modal?.type === 'incident'
-      && ui.modal.incident?.id === active.id) ui.modal = null;
-    showNotice('돌발 업무의 10분 제한 시간이 끝났습니다.', 'warning');
-    try {
-      await desktopBridge.clearActiveIncident(active.instanceId);
-      const nativeNotificationId = incidentNotificationId(active);
-      if (nativeNotificationId) await desktopBridge.cancelGameNotification(nativeNotificationId);
-    } catch (error) {
-      console.warn('Could not clear an expired incident notification:', error);
-    }
-  } finally {
-    ui.incidentExpiring = false;
-  }
-  await scheduleNextIncident();
-  return true;
-}
-
-async function startIncidentRuntime() {
-  if (!store || ui.auth.phase !== 'authenticated' || ui.cloud.phase !== 'active') return;
-  try {
-    await desktopBridge.setIncidentNotifications(store.getState().settings.incidentNotifications);
-  } catch (error) {
-    console.warn('Could not sync the desktop incident notification setting:', error);
-  }
-  if (await expireActiveIncidentIfNeeded()) return;
-  if (restorePendingIncidentIfDue() === 'active') return;
-  await scheduleNextIncident();
-}
-
 function handleGameNotificationOpened(notification) {
   if (!notification) return;
   if (!store || ui.auth.phase !== 'authenticated' || ui.cloud.phase !== 'active') {
@@ -3795,15 +3491,6 @@ function handleGameNotificationOpened(notification) {
     return;
   }
   const type = String(notification.type || notification.payload?.type || '');
-  if (type === 'incident') {
-    restorePendingIncidentIfDue();
-    if (store.getState().activeIncident) openActiveIncident();
-    else {
-      ui.view = 'dashboard';
-      render();
-    }
-    return;
-  }
   if (type === 'expedition') {
     ui.view = 'adventure';
     if (!completeExpeditionIfReady()) render();
@@ -3875,7 +3562,6 @@ function updateCloudUi(status = {}) {
   };
   ui.auth.offline = ui.cloud.phase !== 'active';
   if (previousPhase === 'active' && ui.cloud.phase !== 'active') {
-    void desktopBridge.cancelIncident().catch(() => {});
     void desktopBridge.cancelAllGameNotifications().catch(() => {});
   }
   if (ui.auth.phase === 'authenticated' && store) {
@@ -4031,6 +3717,10 @@ async function handleCooperativeAction(action, button) {
     if (data?.match?.id) await performCooperativeRequest('accept', { matchId: data.match.id });
   } else if (action === 'coop-claim') {
     if (data?.room?.id) await performCooperativeRequest('claim', { roomId: data.room.id });
+  } else if (action === 'coop-auto') {
+    if (data?.phase !== 'battle' || !data.room?.id) return;
+    const accountId = String(ui.auth.account?.id || ui.auth.account?._id || '');
+    await performCooperativeRequest('auto', { roomId: data.room.id, enabled: !(data.room.autoAccountIds || []).includes(accountId) });
   } else if (action === 'coop-basic' || action === 'coop-skill') {
     if (data?.phase !== 'battle' || data.room?.activeAccountId !== String(ui.auth.account?.id || ui.auth.account?._id || '')) return;
     const actionId = globalThis.crypto?.randomUUID?.() || `action-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -4040,6 +3730,7 @@ async function handleCooperativeAction(action, button) {
       action: action === 'coop-skill' ? 'skill' : 'basic',
       targetId: action === 'coop-skill' ? target?.id : undefined,
       choice: ui.cooperative.choice || 'fortune',
+      galaxyChoice: ui.cooperative.galaxyChoice || 'attack',
     });
   }
 }
@@ -4300,7 +3991,6 @@ async function finishCloudActivation() {
   // Expeditions use an absolute end timestamp, so an overdue run is settled
   // immediately after the authoritative cloud record is restored.
   if (!completeExpeditionIfReady()) render();
-  await startIncidentRuntime();
   await syncMobileGameNotifications();
   maybeShowMobileNotificationPermissionPrompt();
   const openedNotification = pendingGameNotificationOpen
@@ -4469,9 +4159,6 @@ async function logout() {
   } catch (error) {
     console.warn('Could not release cloud session during logout:', error);
   }
-  await desktopBridge.cancelIncident().catch((error) => {
-    console.warn('Could not cancel the incident during logout:', error);
-  });
   await desktopBridge.cancelAllGameNotifications().catch((error) => {
     console.warn('Could not cancel Android game notifications during logout:', error);
   });
@@ -4625,7 +4312,6 @@ async function downloadAndroidUpdate() {
         }
         releasedCloudSession = !cloudPlay?.getSnapshot().lease;
       }
-      await desktopBridge.cancelIncident();
 
       if (clientPlatform === 'android') {
         if (ui.updateStatus.updateMode === 'reinstall') {
@@ -4800,6 +4486,14 @@ app.addEventListener('click', async (event) => {
     buyStandardPack();
   } else if (action === 'buy-and-open-pack') {
     if (buyStandardPack({ notify: false })) openStandardPacks(1);
+  } else if (action === 'focus-pack-card') {
+    if (ui.modal?.type !== 'pack') return;
+    const index = Number(button.dataset.cardIndex);
+    if (!Number.isInteger(index) || index < 0 || index >= ui.modal.cards.length) return;
+    ui.modal.focusIndex = index;
+    render();
+  } else if (action === 'reveal-all-pack-cards') {
+    revealAllPackCards();
   } else if (action === 'reveal-pack-card') {
     if (ui.modal?.type !== 'pack') return;
     const index = Number(button.dataset.cardIndex);
@@ -4987,14 +4681,6 @@ app.addEventListener('click', async (event) => {
     if (ui.raidPanel === 'ranking') void refreshPersonalRaid({ rankingOnly: true, silent: true });
   } else if (action === 'refresh-raid-ranking') {
     await refreshPersonalRaid({ rankingOnly: true });
-  } else if (action === 'open-incident') {
-    openActiveIncident();
-  } else if (action === 'resolve-incident') {
-    try {
-      await resolveActiveIncident({ choiceId: button.dataset.choiceId });
-    } catch (error) {
-      showNotice(error.message, 'warning');
-    }
   } else if (action === 'hide-window') {
     await desktopBridge.hideWindow();
   } else if (action === 'open-settings') {
@@ -5024,16 +4710,15 @@ app.addEventListener('click', async (event) => {
       enabled = permission?.granted === true;
     }
     store.update((draft) => {
-      draft.settings.incidentNotifications = enabled;
+      draft.settings.expeditionNotifications = enabled;
     });
     if (clientPlatform === 'android') await syncMobileGameNotifications();
-    else await desktopBridge.setIncidentNotifications(enabled);
     showNotice(
       enabled
         ? `${notificationKind} 알림을 켰습니다.`
         : (button.checked && clientPlatform === 'android'
           ? '휴대폰 알림 권한이 필요합니다. 설정에서 권한을 허용해 주세요.'
-          : `${notificationKind} 알림만 껐습니다. 돌발 업무는 업무판에 계속 표시됩니다.`),
+          : `${notificationKind} 모험 완료 알림을 껐습니다.`),
       enabled || !button.checked ? 'success' : 'warning',
     );
   } else if (action === 'toggle-quiet-hours') {
@@ -5046,7 +4731,7 @@ app.addEventListener('click', async (event) => {
     const permission = await desktopBridge.openGameNotificationSettings().catch(() => ({ display: 'denied', granted: false }));
     ui.notificationPermission = String(permission?.display || 'denied');
     if (permission?.granted) {
-      store.update((draft) => { draft.settings.incidentNotifications = true; });
+      store.update((draft) => { draft.settings.expeditionNotifications = true; });
       await syncMobileGameNotifications();
       showNotice('휴대폰 알림 권한을 확인했습니다.', 'success');
     } else {
@@ -5057,7 +4742,7 @@ app.addEventListener('click', async (event) => {
       .catch(() => ({ display: 'unavailable', granted: false }));
     ui.notificationPermission = String(permission?.display || 'unavailable');
     if (permission?.granted) {
-      store.update((draft) => { draft.settings.incidentNotifications = true; });
+      store.update((draft) => { draft.settings.expeditionNotifications = true; });
       ui.modal = null;
       await syncMobileGameNotifications();
       showNotice('휴대폰 알림을 켰습니다.', 'success');
@@ -5075,7 +4760,7 @@ app.addEventListener('click', async (event) => {
       .catch(() => ({ display: 'denied', granted: false }));
     ui.notificationPermission = String(permission?.display || 'denied');
     if (permission?.granted) {
-      store.update((draft) => { draft.settings.incidentNotifications = true; });
+      store.update((draft) => { draft.settings.expeditionNotifications = true; });
       ui.modal = null;
       await syncMobileGameNotifications();
       showNotice('휴대폰 알림을 켰습니다.', 'success');
@@ -5090,6 +4775,14 @@ app.addEventListener('click', async (event) => {
     store.update((draft) => {
       draft.settings.discreetMode = button.checked;
     });
+  } else if (action === 'toggle-raid-secret') {
+    store.update((draft) => { draft.settings.raidSecretMode = !draft.settings.raidSecretMode; });
+    render();
+  } else if (action === 'toggle-raid-auto') {
+    if (!ui.raid.battle || raidBattleFinished(normalizeRaidBattle(ui.raid.battle))) return;
+    ui.raid.autoBattle = !ui.raid.autoBattle;
+    ui.raid.inspector = null;
+    render();
   } else if (action === 'toggle-payroll-mode') {
     const state = store.getState();
     const nextValue = button.matches('input[type="checkbox"]') ? button.checked : !state.settings.payrollMode;
@@ -5158,16 +4851,9 @@ function updateLiveTimers() {
     const now = Date.now() + cooperativeClient.getState().clockOffset;
     node.textContent = String(Math.max(0, Math.ceil((Number(node.dataset.coopDeadline) - now) / 1000)));
   });
-  if (isIncidentExpired(store.getState().activeIncident)) {
-    void expireActiveIncidentIfNeeded();
-    return;
-  }
   if (completeExpeditionIfReady()) return;
   document.querySelectorAll('[data-countdown]').forEach((node) => {
     node.textContent = formatDuration(Number(node.dataset.countdown) - Date.now());
-  });
-  document.querySelectorAll('[data-incident-countdown]').forEach((node) => {
-    node.textContent = `남은 시간 ${formatDuration(Number(node.dataset.incidentCountdown) - Date.now())}`;
   });
   const state = store.getState();
   if (state.expedition) {
@@ -5188,7 +4874,7 @@ function updateLiveTimers() {
     if (remainingSeconds <= 0 && !ui.raid.timeoutActionPending) {
       ui.raid.timeoutActionPending = true;
       try {
-        performRaidPlayerTurn('basic', { automatic: true });
+        performRaidPlayerTurn('basic', { timedOut: true });
       } finally {
         ui.raid.timeoutActionPending = false;
       }
@@ -5196,22 +4882,6 @@ function updateLiveTimers() {
   }
 }
 
-desktopBridge.onIncident(handleIncidentArrived);
-desktopBridge.onOpenIncident((incident) => {
-  if (!store || ui.auth.phase !== 'authenticated' || ui.cloud.phase !== 'active') return;
-  const active = store.getState().activeIncident;
-  if (active?.id === incident?.id && active?.instanceId === incident?.instanceId) openActiveIncident();
-});
-desktopBridge.onIncidentChoice(async ({ incidentId, instanceId, choiceId }) => {
-  if (!store || ui.auth.phase !== 'authenticated' || ui.cloud.phase !== 'active') {
-    return { ok: false, message: '카드부에 로그인한 뒤 다시 선택해 주세요.' };
-  }
-  try {
-    return await resolveActiveIncident({ incidentId, instanceId, choiceId, fromToast: true });
-  } catch (error) {
-    return { ok: false, message: error.message || '돌발 업무를 처리하지 못했습니다.' };
-  }
-});
 desktopBridge.onBeforeUpdate(async () => {
   try {
     flushLocalGameCache();
@@ -5287,8 +4957,25 @@ window.setInterval(() => {
 app.addEventListener('change', (event) => {
   if (event.target.matches('[data-coop-target]')) ui.cooperative.targetId = event.target.value;
   if (event.target.matches('[data-coop-choice]')) ui.cooperative.choice = event.target.value;
+  if (event.target.matches('[data-coop-galaxy-choice]')) ui.cooperative.galaxyChoice = event.target.value;
+  if (event.target.matches('[data-raid-galaxy-choice]')) ui.raid.galaxyChoice = event.target.value;
 });
 app.addEventListener('keydown', (event) => {
+  const packDialog = app.querySelector('.pack-focus-modal');
+  if (packDialog && ui.modal?.type === 'pack') {
+    if (event.key === 'Escape') { event.preventDefault(); ui.modal = null; render(); return; }
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      event.preventDefault();
+      ui.modal.focusIndex = Math.max(0, Math.min(ui.modal.cards.length - 1, (ui.modal.focusIndex || 0) + (event.key === 'ArrowRight' ? 1 : -1)));
+      render(); return;
+    }
+    if (event.key === 'Tab') {
+      const buttons = [...packDialog.querySelectorAll('button:not(:disabled)')];
+      if (event.shiftKey && document.activeElement === buttons[0]) { event.preventDefault(); buttons.at(-1)?.focus(); }
+      else if (!event.shiftKey && document.activeElement === buttons.at(-1)) { event.preventDefault(); buttons[0]?.focus(); }
+    }
+    return;
+  }
   if (event.key !== 'Tab') return;
   const dialog = app.querySelector('.coop-ready-dialog');
   if (!dialog) return;
