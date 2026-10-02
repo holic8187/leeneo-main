@@ -1,0 +1,148 @@
+{
+  "mode": "built-in",
+  "assets": [
+    {
+      "id": "gyullak-r",
+      "title": "귤꽃 질주대",
+      "mode": "built-in",
+      "intent": "generate",
+      "reference": "C:\\Users\\USER\\.codex\\worktrees\\tcg-turn-battle-20260916\\tcg-desktop\\public\\assets\\cards\\gyullak-u.webp",
+      "prompt": "Use case: stylized-concept.\nAsset type: R rarity collectible card portrait illustration, full bleed 3:4.\nInput image 1: character IDENTITY and drawing STYLE reference only; create a different composition, expression and background.\nCard concept: 귤꽃 질주대.\nScene and pose: A side three-quarter view of the tangerine puppy joyfully bounding over a low orchard stone wall in a spring breeze. Eyes determined but cheerful, mouth open smiling, leaf mane and white citrus blossoms flutter. A small wicker delivery basket sits safely on the path behind. Grounded rustic orchard, bright blue sky, a few petals. R-rarity modest embellishment, energetic clean silhouette.\nIdentity invariants: The same cute tangerine-orange puppy from the reference: orange fur, white muzzle/chest, large amber-brown eyes, small triangular ears, broad green citrus leaf mane with white blossoms, round canine paws, one curled orange tail. Quadruped, exactly four legs, no human fingers.\nStyle: polished hand-painted anime game illustration, precise linework, coherent perspective, dimensional lighting, textured environmental detail appropriate to rarity. Main face and relevant limbs inside frame. No printed text, no numbers, no rank badge, no border, no logo, no watermark. Avoid duplicate body parts, tangled limbs, malformed hands, cloned objects and inconsistent reflections.",
+      "output": "tcg-desktop/public/assets/cards/gyullak-r.png",
+      "generatedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a0a925-efd8-7570-94c6-d4665865a34c\\exec-913a5612-250a-4996-b6b0-a202cd96e663.png",
+      "review": "Identity preserved; four canine limbs with plausible occlusion, one tail, varied scene and tiered detail."
+    },
+    {
+      "id": "gyullak-rr",
+      "title": "노을 택배 기사",
+      "mode": "built-in",
+      "intent": "generate",
+      "reference": "C:\\Users\\USER\\.codex\\worktrees\\tcg-turn-battle-20260916\\tcg-desktop\\public\\assets\\cards\\gyullak-u.webp",
+      "prompt": "Use case: stylized-concept.\nAsset type: RR rarity collectible card portrait illustration, full bleed 3:4.\nInput image 1: character IDENTITY and drawing STYLE reference only; create a different composition, expression and background.\nCard concept: 노을 택배 기사.\nScene and pose: The tangerine puppy pauses proudly at the top of a winding seaside village lane at sunset, three-quarter back view turning its face toward us. One forepaw on a closed orange parcel, woven carrier at its side, green leaf mane edged with warm light. Terracotta roofs and citrus groves below. RR-rarity richer golden-orange sunset and drifting petals, no text on parcel.\nIdentity invariants: The same cute tangerine-orange puppy from the reference: orange fur, white muzzle/chest, large amber-brown eyes, small triangular ears, broad green citrus leaf mane with white blossoms, round canine paws, one curled orange tail. Quadruped, exactly four legs, no human fingers.\nStyle: polished hand-painted anime game illustration, precise linework, coherent perspective, dimensional lighting, textured environmental detail appropriate to rarity. Main face and relevant limbs inside frame. No printed text, no numbers, no rank badge, no border, no logo, no watermark. Avoid duplicate body parts, tangled limbs, malformed hands, cloned objects and inconsistent reflections.",
+      "output": "tcg-desktop/public/assets/cards/gyullak-rr.png",
+      "generatedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a0a925-efd8-7570-94c6-d4665865a34c\\exec-4e4c012e-10bc-40f0-a140-84ec1a509275.png",
+      "review": "Identity preserved; four canine limbs with plausible occlusion, one tail, varied scene and tiered detail."
+    },
+    {
+      "id": "gyullak-rrr",
+      "title": "폭풍우 특급 배송",
+      "mode": "built-in",
+      "intent": "generate",
+      "reference": "C:\\Users\\USER\\.codex\\worktrees\\tcg-turn-battle-20260916\\tcg-desktop\\public\\assets\\cards\\gyullak-u.webp",
+      "prompt": "Use case: stylized-concept.\nAsset type: RRR rarity collectible card portrait illustration, full bleed 3:4.\nInput image 1: character IDENTITY and drawing STYLE reference only; create a different composition, expression and background.\nCard concept: 폭풍우 특급 배송.\nScene and pose: Low angle tracking view of the tangerine puppy sprinting diagonally through a rain-soaked cobblestone lane, focused serious brows, wet orange fur and white muzzle, four legs arranged in a clear running cycle. A securely strapped small satchel at its side. Orange magic arcs protect a single delivery parcel floating beside it, storm clouds and sharp blue rain contrast warm citrus glow. RRR-rarity dramatic rain and speed, no duplicate limbs.\nIdentity invariants: The same cute tangerine-orange puppy from the reference: orange fur, white muzzle/chest, large amber-brown eyes, small triangular ears, broad green citrus leaf mane with white blossoms, round canine paws, one curled orange tail. Quadruped, exactly four legs, no human fingers.\nStyle: polished hand-painted anime game illustration, precise linework, coherent perspective, dimensional lighting, textured environmental detail appropriate to rarity. Main face and relevant limbs inside frame. No printed text, no numbers, no rank badge, no border, no logo, no watermark. Avoid duplicate body parts, tangled limbs, malformed hands, cloned objects and inconsistent reflections.",
+      "output": "tcg-desktop/public/assets/cards/gyullak-rrr.png",
+      "generatedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a0a925-efd8-7570-94c6-d4665865a34c\\exec-d56f4867-b4c1-48a9-bca0-fba31bdbd7ad.png",
+      "review": "Identity preserved; four canine limbs with plausible occlusion, one tail, varied scene and tiered detail."
+    },
+    {
+      "id": "gyullak-sr",
+      "title": "황금 과수원 추격자",
+      "mode": "built-in",
+      "intent": "generate",
+      "reference": "C:\\Users\\USER\\.codex\\worktrees\\tcg-turn-battle-20260916\\tcg-desktop\\public\\assets\\cards\\gyullak-u.webp",
+      "prompt": "Use case: stylized-concept.\nAsset type: SR rarity collectible card portrait illustration, full bleed 3:4.\nInput image 1: character IDENTITY and drawing STYLE reference only; create a different composition, expression and background.\nCard concept: 황금 과수원 추격자.\nScene and pose: Dynamic leaping side profile of the tangerine puppy with bold brave expression, luminous citrus leaves fanning behind its head, tail curled naturally. It pursues a trail of golden light through an enchanted terraced orchard at twilight; one beautiful giant gold-leaf orange tree and drifting blossoms behind. SR-rarity intricate gold lighting, rich teal shadows, crisp action silhouette, an orange magical shockwave beneath paws.\nIdentity invariants: The same cute tangerine-orange puppy from the reference: orange fur, white muzzle/chest, large amber-brown eyes, small triangular ears, broad green citrus leaf mane with white blossoms, round canine paws, one curled orange tail. Quadruped, exactly four legs, no human fingers.\nStyle: polished hand-painted anime game illustration, precise linework, coherent perspective, dimensional lighting, textured environmental detail appropriate to rarity. Main face and relevant limbs inside frame. No printed text, no numbers, no rank badge, no border, no logo, no watermark. Avoid duplicate body parts, tangled limbs, malformed hands, cloned objects and inconsistent reflections.",
+      "output": "tcg-desktop/public/assets/cards/gyullak-sr.png",
+      "generatedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a0a925-efd8-7570-94c6-d4665865a34c\\exec-959d6139-b2e5-40ae-ae3e-5b7a20079d22.png",
+      "review": "Identity preserved; four canine limbs with plausible occlusion, one tail, varied scene and tiered detail."
+    },
+    {
+      "id": "gyullak-hr",
+      "title": "태양궤도 배달왕",
+      "mode": "built-in",
+      "intent": "generate",
+      "reference": "C:\\Users\\USER\\.codex\\worktrees\\tcg-turn-battle-20260916\\tcg-desktop\\public\\assets\\cards\\gyullak-u.webp",
+      "prompt": "Use case: stylized-concept.\nAsset type: HR rarity collectible card portrait illustration, full bleed 3:4.\nInput image 1: character IDENTITY and drawing STYLE reference only; create a different composition, expression and background.\nCard concept: 태양궤도 배달왕.\nScene and pose: A proud seated tangerine puppy on a round floating stone platform above the clouds, looking down toward the viewer with a playful confident wink. Emerald citrus leaf mane, delicate golden collar ornament shaped like an orange blossom, one tail. Three sweeping distant rings of sunlit delivery lights orbit behind it like an astronomical mechanism, tiny parcel-shaped stars kept separate from body. HR-rarity glorious radiant gold and turquoise, detailed cinematic cloudscape.\nIdentity invariants: The same cute tangerine-orange puppy from the reference: orange fur, white muzzle/chest, large amber-brown eyes, small triangular ears, broad green citrus leaf mane with white blossoms, round canine paws, one curled orange tail. Quadruped, exactly four legs, no human fingers.\nStyle: polished hand-painted anime game illustration, precise linework, coherent perspective, dimensional lighting, textured environmental detail appropriate to rarity. Main face and relevant limbs inside frame. No printed text, no numbers, no rank badge, no border, no logo, no watermark. Avoid duplicate body parts, tangled limbs, malformed hands, cloned objects and inconsistent reflections.",
+      "output": "tcg-desktop/public/assets/cards/gyullak-hr.png",
+      "generatedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a0a925-efd8-7570-94c6-d4665865a34c\\exec-abd036b4-de4c-4242-bac7-a39fecc4a0d5.png",
+      "review": "Identity preserved; four canine limbs with plausible occlusion, one tail, varied scene and tiered detail."
+    },
+    {
+      "id": "gyullak-ur",
+      "title": "여명의 귤빛 혜성",
+      "mode": "built-in",
+      "intent": "generate",
+      "reference": "C:\\Users\\USER\\.codex\\worktrees\\tcg-turn-battle-20260916\\tcg-desktop\\public\\assets\\cards\\gyullak-u.webp",
+      "prompt": "Use case: stylized-concept.\nAsset type: UR rarity collectible card portrait illustration, full bleed 3:4.\nInput image 1: character IDENTITY and drawing STYLE reference only; create a different composition, expression and background.\nCard concept: 여명의 귤빛 혜성.\nScene and pose: The tangerine puppy races in midair on a brilliant ribbon of orange dawn light, seen from high three-quarter angle with face turned upward smiling fearlessly. Its white muzzle, amber eyes, leaf mane and orange paws remain highly readable. A sunrise between immense sky islands, long citrus blossom comet trail, restrained iridescent highlights, gold motes and soft peach clouds. UR-rarity epic celestial delivery hero, no wings/no extra limbs.\nIdentity invariants: The same cute tangerine-orange puppy from the reference: orange fur, white muzzle/chest, large amber-brown eyes, small triangular ears, broad green citrus leaf mane with white blossoms, round canine paws, one curled orange tail. Quadruped, exactly four legs, no human fingers.\nStyle: polished hand-painted anime game illustration, precise linework, coherent perspective, dimensional lighting, textured environmental detail appropriate to rarity. Main face and relevant limbs inside frame. No printed text, no numbers, no rank badge, no border, no logo, no watermark. Avoid duplicate body parts, tangled limbs, malformed hands, cloned objects and inconsistent reflections.",
+      "output": "tcg-desktop/public/assets/cards/gyullak-ur.png",
+      "generatedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a0a925-efd8-7570-94c6-d4665865a34c\\exec-51206956-879c-46cf-b7a6-b1ed4c284f2a.png",
+      "review": "Identity preserved; four canine limbs with plausible occlusion, one tail, varied scene and tiered detail."
+    },
+    {
+      "id": "gyullak-ssr",
+      "title": "천공을 가르는 황금 질주",
+      "mode": "built-in",
+      "intent": "generate",
+      "reference": "C:\\Users\\USER\\.codex\\worktrees\\tcg-turn-battle-20260916\\tcg-desktop\\public\\assets\\cards\\gyullak-u.webp",
+      "prompt": "Use case: stylized-concept.\nAsset type: SSR rarity collectible card portrait illustration, full bleed 3:4.\nInput image 1: character IDENTITY and drawing STYLE reference only; create a different composition, expression and background.\nCard concept: 천공을 가르는 황금 질주.\nScene and pose: SSR pinnacle splash illustration: the heroic tangerine puppy lunges toward the viewer along a diagonal bridge of pure golden sunlight, determined amber eyes and exhilarated grin, leaf mane studded with white blossoms and jewel-like dewdrops, intricately luminous golden blossom collar. Four clearly separated anatomically plausible paws, one curled fluffy tail. Behind it, enormous broken celestial rings open onto layered emerald and gold sky palaces, rainbow refractions and spectacular orange comet ribbons. Rich hand-painted micro-detail, brilliant focal lighting but uncluttered face and limbs, strongest rare-card grandeur.\nIdentity invariants: The same cute tangerine-orange puppy from the reference: orange fur, white muzzle/chest, large amber-brown eyes, small triangular ears, broad green citrus leaf mane with white blossoms, round canine paws, one curled orange tail. Quadruped, exactly four legs, no human fingers.\nStyle: polished hand-painted anime game illustration, precise linework, coherent perspective, dimensional lighting, textured environmental detail appropriate to rarity. Main face and relevant limbs inside frame. No printed text, no numbers, no rank badge, no border, no logo, no watermark. Avoid duplicate body parts, tangled limbs, malformed hands, cloned objects and inconsistent reflections.",
+      "output": "tcg-desktop/public/assets/cards/gyullak-ssr.png",
+      "generatedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a0a925-efd8-7570-94c6-d4665865a34c\\exec-25139572-67d6-4d86-b510-2b7dd1edf754.png",
+      "review": "Identity preserved; four canine limbs with plausible occlusion, one tail, varied scene and tiered detail."
+    },
+    {
+      "id": "pie-u",
+      "title": "새벽 오븐의 향기",
+      "mode": "built-in",
+      "intent": "generate",
+      "reference": "C:\\Users\\USER\\.codex\\worktrees\\tcg-turn-battle-20260916\\tcg-desktop\\public\\assets\\cards\\pie-r.webp",
+      "prompt": "Use case: stylized-concept.\nAsset type: U rarity collectible card portrait illustration, full bleed 3:4.\nInput image 1: character IDENTITY and drawing STYLE reference only; create a different composition, expression and background.\nCard concept: 새벽 오븐의 향기.\nScene and pose: Quiet dawn in a modest rustic bakery. Waist-up side view of the brown-haired bakery witch gently lifting a wooden peel with fresh bread from the oven using both hands, a soft satisfied smile and sleepy amber eyes. Keep oversized brown witch hat with white ruffle and yellow daisy, two braids, white blouse, brown gingham apron. Orange-and-white corgi assistant sitting on the floor beside the oven, safely away from fire. Warm window light and flour dust, U-rarity restrained everyday atmosphere.\nIdentity invariants: The same brown-haired baking witch and orange-white corgi from the reference. Preserve recognizable face, brown twin braids, amber eyes, daisy/white-ruffle brown witch hat and gingham baking costume. Human hands each one thumb/four fingers with correct joints; corgi exactly four dog legs and natural paws.\nStyle: polished hand-painted anime game illustration, precise linework, coherent perspective, dimensional lighting, textured environmental detail appropriate to rarity. Main face and relevant limbs inside frame. No printed text, no numbers, no rank badge, no border, no logo, no watermark. Avoid duplicate body parts, tangled limbs, malformed hands, cloned objects and inconsistent reflections.",
+      "output": "tcg-desktop/public/assets/cards/pie-u.png",
+      "generatedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a0a925-efd8-7570-94c6-d4665865a34c\\exec-f657437b-13d2-4f03-84b3-115d4d120299.png",
+      "review": "Identity, braids/hat/daisy/corgi retained; human hands and grip/occlusion visually checked; distinct pose/background and tiered ornament."
+    },
+    {
+      "id": "pie-rr",
+      "title": "구름 위 티타임",
+      "mode": "built-in",
+      "intent": "generate",
+      "reference": "C:\\Users\\USER\\.codex\\worktrees\\tcg-turn-battle-20260916\\tcg-desktop\\public\\assets\\cards\\pie-r.webp",
+      "prompt": "Use case: stylized-concept.\nAsset type: RR rarity collectible card portrait illustration, full bleed 3:4.\nInput image 1: character IDENTITY and drawing STYLE reference only; create a different composition, expression and background.\nCard concept: 구름 위 티타임.\nScene and pose: The bakery witch sits sideways at a little round tea table resting on a large fluffy cloud, laughing with eyes gently closed, holding a porcelain teacup with one hand and resting other hand naturally beside a plate. Brown daisy witch hat and twin braids, brown gingham dress. Her orange-white corgi sits on a separate cushion near her feet looking at a floating pie. Pastel blue and peach sky, distant cloud islands, RR-rarity whimsical delicate sugar sparkles, peaceful mid-distance full-body composition.\nIdentity invariants: The same brown-haired baking witch and orange-white corgi from the reference. Preserve recognizable face, brown twin braids, amber eyes, daisy/white-ruffle brown witch hat and gingham baking costume. Human hands each one thumb/four fingers with correct joints; corgi exactly four dog legs and natural paws.\nStyle: polished hand-painted anime game illustration, precise linework, coherent perspective, dimensional lighting, textured environmental detail appropriate to rarity. Main face and relevant limbs inside frame. No printed text, no numbers, no rank badge, no border, no logo, no watermark. Avoid duplicate body parts, tangled limbs, malformed hands, cloned objects and inconsistent reflections.",
+      "output": "tcg-desktop/public/assets/cards/pie-rr.png",
+      "generatedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a0a925-efd8-7570-94c6-d4665865a34c\\exec-9bf3d178-1cd1-4bf0-99b8-fb016caf554c.png",
+      "review": "Identity, braids/hat/daisy/corgi retained; human hands and grip/occlusion visually checked; distinct pose/background and tiered ornament."
+    },
+    {
+      "id": "pie-sr",
+      "title": "달빛 정원의 파티시에",
+      "mode": "built-in",
+      "intent": "generate",
+      "reference": "C:\\Users\\USER\\.codex\\worktrees\\tcg-turn-battle-20260916\\tcg-desktop\\public\\assets\\cards\\pie-r.webp",
+      "prompt": "Use case: stylized-concept.\nAsset type: SR rarity collectible card portrait illustration, full bleed 3:4.\nInput image 1: character IDENTITY and drawing STYLE reference only; create a different composition, expression and background.\nCard concept: 달빛 정원의 파티시에.\nScene and pose: Three-quarter waist-up view of the bakery witch under a moonlit garden arbor, focused tender expression, both hands gently offering a daisy-shaped golden pastry on a porcelain plate. Twinned brown braids, oversized daisy/cream-trim witch hat and ornate brown gingham apron with modest gold thread. Orange-white corgi peeks beside her at ground level. Softly glowing edible flowers and healing gold motes mingle with luminous blue hydrangeas, crescent moon and glass garden pavilion. SR-rarity rich deep blue/gold contrast, exquisite pastry details.\nIdentity invariants: The same brown-haired baking witch and orange-white corgi from the reference. Preserve recognizable face, brown twin braids, amber eyes, daisy/white-ruffle brown witch hat and gingham baking costume. Human hands each one thumb/four fingers with correct joints; corgi exactly four dog legs and natural paws.\nStyle: polished hand-painted anime game illustration, precise linework, coherent perspective, dimensional lighting, textured environmental detail appropriate to rarity. Main face and relevant limbs inside frame. No printed text, no numbers, no rank badge, no border, no logo, no watermark. Avoid duplicate body parts, tangled limbs, malformed hands, cloned objects and inconsistent reflections.",
+      "output": "tcg-desktop/public/assets/cards/pie-sr.png",
+      "generatedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a0a925-efd8-7570-94c6-d4665865a34c\\exec-fbc40612-ded5-4b40-a374-90190cd12379.png",
+      "review": "Identity, braids/hat/daisy/corgi retained; human hands and grip/occlusion visually checked; distinct pose/background and tiered ornament."
+    },
+    {
+      "id": "pie-hr",
+      "title": "시간의 제과 마법사",
+      "mode": "built-in",
+      "intent": "generate",
+      "reference": "C:\\Users\\USER\\.codex\\worktrees\\tcg-turn-battle-20260916\\tcg-desktop\\public\\assets\\cards\\pie-r.webp",
+      "prompt": "Use case: stylized-concept.\nAsset type: HR rarity collectible card portrait illustration, full bleed 3:4.\nInput image 1: character IDENTITY and drawing STYLE reference only; create a different composition, expression and background.\nCard concept: 시간의 제과 마법사.\nScene and pose: A dynamic three-quarter view of the bakery witch in an antique clockwork bakery, smiling confidently as one hand grips a wooden mixing spoon stirring a floating copper bowl, other hand holds a small closed recipe book against her torso. Both hands anatomically natural. Recognizable daisy-decorated brown witch hat, brown twin braids, amber eyes, layered white and gingham outfit with bronze trim. Corgi assistant curled asleep in a wicker basket safely below. Grand brass clock gears and curved magical time ribbons with no legible text, suspended golden pastries. HR-rarity intricate warm clockwork magic, strong diagonal composition.\nIdentity invariants: The same brown-haired baking witch and orange-white corgi from the reference. Preserve recognizable face, brown twin braids, amber eyes, daisy/white-ruffle brown witch hat and gingham baking costume. Human hands each one thumb/four fingers with correct joints; corgi exactly four dog legs and natural paws.\nStyle: polished hand-painted anime game illustration, precise linework, coherent perspective, dimensional lighting, textured environmental detail appropriate to rarity. Main face and relevant limbs inside frame. No printed text, no numbers, no rank badge, no border, no logo, no watermark. Avoid duplicate body parts, tangled limbs, malformed hands, cloned objects and inconsistent reflections.",
+      "output": "tcg-desktop/public/assets/cards/pie-hr.png",
+      "generatedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a0a925-efd8-7570-94c6-d4665865a34c\\exec-95c0679f-b274-494a-b6b9-822a46a17189.png",
+      "review": "Identity, braids/hat/daisy/corgi retained; human hands and grip/occlusion visually checked; distinct pose/background and tiered ornament."
+    },
+    {
+      "id": "pie-ur",
+      "title": "은하 오븐의 연금술사",
+      "mode": "built-in",
+      "intent": "generate",
+      "reference": "C:\\Users\\USER\\.codex\\worktrees\\tcg-turn-battle-20260916\\tcg-desktop\\public\\assets\\cards\\pie-r.webp",
+      "prompt": "Use case: stylized-concept.\nAsset type: UR rarity collectible card portrait illustration, full bleed 3:4.\nInput image 1: character IDENTITY and drawing STYLE reference only; create a different composition, expression and background.\nCard concept: 은하 오븐의 연금술사.\nScene and pose: An intimate low-angle portrait of the bakery witch concentrating as she holds a small glowing star pastry delicately between both cupped palms. Keep expressive amber eyes, brown twin braids, daisy-decorated brown oversized witch hat; elevate existing gingham apron into fine chocolate-brown/gold celestial embroidery with white puff sleeves. Her orange-white corgi floats comfortably sitting on a small cloud beside her. A vast arched oven door behind opens into a swirling purple and golden nebula, flour becomes stardust. UR-rarity luminous galaxy baking alchemy, beautifully detailed warm rimlight, natural five-digit hands with believable occlusion.\nIdentity invariants: The same brown-haired baking witch and orange-white corgi from the reference. Preserve recognizable face, brown twin braids, amber eyes, daisy/white-ruffle brown witch hat and gingham baking costume. Human hands each one thumb/four fingers with correct joints; corgi exactly four dog legs and natural paws.\nStyle: polished hand-painted anime game illustration, precise linework, coherent perspective, dimensional lighting, textured environmental detail appropriate to rarity. Main face and relevant limbs inside frame. No printed text, no numbers, no rank badge, no border, no logo, no watermark. Avoid duplicate body parts, tangled limbs, malformed hands, cloned objects and inconsistent reflections.",
+      "output": "tcg-desktop/public/assets/cards/pie-ur.png",
+      "generatedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a0a925-efd8-7570-94c6-d4665865a34c\\exec-dbe536d4-45ce-44c3-90d9-7917e062ca63.png",
+      "review": "Identity, braids/hat/daisy/corgi retained; human hands and grip/occlusion visually checked; distinct pose/background and tiered ornament."
+    },
+    {
+      "id": "pie-ssr",
+      "title": "세계를 굽는 별의 마녀",
+      "mode": "built-in",
+      "intent": "generate",
+      "reference": "C:\\Users\\USER\\.codex\\worktrees\\tcg-turn-battle-20260916\\tcg-desktop\\public\\assets\\cards\\pie-r.webp",
+      "prompt": "Use case: stylized-concept.\nAsset type: SSR rarity collectible card portrait illustration, full bleed 3:4.\nInput image 1: character IDENTITY and drawing STYLE reference only; create a different composition, expression and background.\nCard concept: 세계를 굽는 별의 마녀.\nScene and pose: SSR pinnacle splash illustration: full-body bakery witch floating above an immense circular celestial bakery with tiny world-like glowing pastries revolving in distant rings. Joyful confident face and wide amber eyes, brown twin braids flow in a controlled arc, oversized brown witch hat crowned with white daisy ornaments and gold star embroidery, sumptuous layered white-and-brown gingham gown retaining baker identity. One hand gracefully holds a long wooden baking peel as a staff, the other open hand guides a luminous little planet pastry with five natural fingers. Her orange-white corgi companion leaps on a separate nearby cloud, four normal paws. Vast prismatic starry sky, gold sugar comet ribbons, radiant moonlike oven halo behind, spectacular polished anime fantasy art, readable anatomy and focal face.\nIdentity invariants: The same brown-haired baking witch and orange-white corgi from the reference. Preserve recognizable face, brown twin braids, amber eyes, daisy/white-ruffle brown witch hat and gingham baking costume. Human hands each one thumb/four fingers with correct joints; corgi exactly four dog legs and natural paws.\nStyle: polished hand-painted anime game illustration, precise linework, coherent perspective, dimensional lighting, textured environmental detail appropriate to rarity. Main face and relevant limbs inside frame. No printed text, no numbers, no rank badge, no border, no logo, no watermark. Avoid duplicate body parts, tangled limbs, malformed hands, cloned objects and inconsistent reflections.",
+      "output": "tcg-desktop/public/assets/cards/pie-ssr.png",
+      "generatedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a0a925-efd8-7570-94c6-d4665865a34c\\exec-349fd6eb-bae4-4cd8-aac5-6bdcc78998ce.png",
+      "review": "Identity, braids/hat/daisy/corgi retained; human hands and grip/occlusion visually checked; distinct pose/background and tiered ornament."
+    }
+  ]
+}

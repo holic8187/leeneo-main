@@ -1,0 +1,73 @@
+{
+  "version": "0.12.0",
+  "date": "2026-10-02",
+  "checks": {
+    "client": {
+      "passed": 277,
+      "failed": 0
+    },
+    "server": {
+      "passed": 62,
+      "failed": 0
+    },
+    "mixedVersion": "Pinned 0.11 hydration/cloud-save roundtrip preserves all 29 unknown cards, enhancement, progression, presets and pending pack records.",
+    "mongo": "Disposable localhost Mongo integration passed concurrent auto/manual, restart/catch-up, idempotent claims, bonus entries and KST midnight/stale-request tests.",
+    "ui": {
+      "viewports": [
+        "360x640",
+        "390x844",
+        "1280x900"
+      ],
+      "scripts": [
+        "scripts/check-raid-qol-ui.mjs",
+        "scripts/check-cooperative-ui.mjs"
+      ],
+      "verified": [
+        "50-card pack core controls need no vertical scrolling",
+        "single reveal, reveal-all and reload do not duplicate inventory",
+        "auto on/off and default-off on new battle",
+        "secret preference persisted and actual image src omitted"
+      ]
+    },
+    "android": {
+      "command": "gradlew --no-daemon test assembleDebug",
+      "status": "BUILD SUCCESSFUL",
+      "java": 21,
+      "compileSdk": 36,
+      "versionCode": 12000,
+      "artCount": 33,
+      "artHashesMatch": true,
+      "unitTestNote": "app unit-test tasks had NO-SOURCE; native source compile/build and JS static tests verified, not physical-device execution"
+    },
+    "windows": {
+      "status": "NSIS packaging successful",
+      "version": "0.12.0",
+      "artCount": 33,
+      "productionApiOrigin": "https://leeneo-main.onrender.com",
+      "updateMetadataValidated": true,
+      "authenticode": "NotSigned; unchanged existing release configuration"
+    },
+    "art": {
+      "newCards": 29,
+      "reviewedWinter": 7,
+      "correctedWinter": [
+        "c",
+        "r",
+        "sr",
+        "ur"
+      ],
+      "tool": "built-in imagegen",
+      "manifests": [
+        "../../docs/art-four-characters-gyullak-pie.json",
+        "art-four-characters-eungga-wollu.json",
+        "../../docs/art-winter-hands-review.json"
+      ]
+    }
+  },
+  "limitations": [
+    "No physical Android device install/notification check",
+    "Four-person live network test on four physical devices not performed",
+    "Pre-existing personal-raid finish trusts bounded client damage; no anti-cheat protocol redesign in this release"
+  ],
+  "deployment": "Final signed release CI and public download verification follow the source commit; local debug APK is not the user release."
+}

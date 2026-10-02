@@ -14,6 +14,7 @@ const MAX_QUEUE = 128;
 const MAX_ROOMS = 64;
 const QUEUE_TTL_MS = 90_000;
 const READY_MS = 30_000;
+const AUTO_ACTION_DELAY_MS = 1_000;
 const MAX_CAS_ATTEMPTS = 12;
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const accountKey = (account) => String(account?._id || account?.id || '');
@@ -29,9 +30,9 @@ let sharedPromise;
 function loadCooperativeModules() {
   sharedPromise ||= Promise.all([
     'core/cooperativeRaidRules.js', 'core/turnRaidEngine.js', 'data/cardCatalog.js',
-    'core/cardProgression.js', 'core/equipment.js', 'core/relics.js'
+    'core/cardProgression.js', 'core/equipment.js', 'core/relics.js', 'core/raidAutoBattle.js'
   ].map((file) => import(pathToFileURL(path.resolve(__dirname, '../../..', 'tcg-desktop/src', file)).href)))
-    .then(([rules, engine, catalog, progression, equipment, relics]) => ({ rules, engine, catalog, progression, equipment, relics }))
+    .then(([rules, engine, catalog, progression, equipment, relics, autoBattle]) => ({ rules, engine, catalog, progression, equipment, relics, autoBattle }))
     .catch((error) => { sharedPromise = null; throw error; });
   return sharedPromise;
 }
@@ -90,6 +91,7 @@ function publicRoom(room, accountId) {
   const actor = room.battle.cards[room.battle.currentActorIndex];
   return {
     id: room.id, revision: room.revision, stageSum: room.stageSum, participants: room.participants,
+    autoAccountIds: room.autoAccountIds || [],
     // Keep original event indexes: clients can reconcile effects while polling
     // without retransmitting a full battle's log every second.
     battle: { ...room.battle, log: room.battle.log.slice(-100) }, startedAt: room.startedAt, finishedAt: room.finishedAt || null,
@@ -204,9 +206,19 @@ function createCooperativeRaidService({ TcgCooperativeRaid, TcgPlayerState, TcgP
     while (room.battle.status === 'active' && steps++ < 160) {
       if (room.battle.currentActor === 'boss') {
         room.battle = shared.engine.performBossAction(room.battle, Number(room.battle.turnStartedAt) || now);
-      } else if (Number(room.battle.turnDeadlineAt) <= now) {
-        room.battle = shared.engine.performPlayerAction(room.battle, { type: 'basic', automatic: true }, Number(room.battle.turnDeadlineAt) || now);
-      } else break;
+      } else {
+        const actor = room.battle.cards[room.battle.currentActorIndex];
+        const owner = room.participants.find((player) => player.instanceId === actor?.id)?.accountId;
+        const auto = room.autoAccountIds?.includes(owner);
+        // A toggle cannot retroactively advance turns before it was enabled.
+        const autoDue = Math.max(Number(room.battle.turnStartedAt) || now, Number(room.autoEnabledAt?.[owner]) || 0) + AUTO_ACTION_DELAY_MS;
+        const timeoutDue = Number(room.battle.turnDeadlineAt) || now;
+        if (auto && autoDue <= now && autoDue <= timeoutDue) {
+          room.battle = shared.engine.performPlayerAction(room.battle, { ...shared.autoBattle.chooseRaidAutoAction(room.battle), automatic: true }, autoDue);
+        } else if (timeoutDue <= now) {
+          room.battle = shared.engine.performPlayerAction(room.battle, { type: 'basic', automatic: true }, timeoutDue);
+        } else break;
+      }
       room.revision += 1;
     }
     finishRoom(room, now, shared);
@@ -343,7 +355,7 @@ function createCooperativeRaidService({ TcgCooperativeRaid, TcgPlayerState, TcgP
       for (let i = participants.length - 1; i > 0; i -= 1) { const j = Math.floor(random() * (i + 1)); [participants[i], participants[j]] = [participants[j], participants[i]]; }
       const boss = shared.rules.createCooperativeBoss(match.stageSum);
       const battle = shared.engine.startRaidBattle(shared.engine.createRaidBattle({ cards: participants.map((p) => p.card), boss, seed: Math.floor(random() * 0x100000000) || 1, now }), now);
-      current.rooms.push({ id: randomUUID(), matchId: match.id, revision: 0, stageSum: match.stageSum, participants, battle, startedAt: now, entryDay: current.entryDay, actionReceipts: [], claimedAccountIds: [], rewards: null });
+      current.rooms.push({ id: randomUUID(), matchId: match.id, revision: 0, stageSum: match.stageSum, participants, battle, startedAt: now, entryDay: current.entryDay, actionReceipts: [], autoAccountIds: [], autoEnabledAt: {}, claimedAccountIds: [], rewards: null });
       for (const participant of participants) current.entries[participant.accountId] = Number(current.entries[participant.accountId] || 0) + 1;
       current.matches = current.matches.filter((entry) => entry.id !== match.id);
     });
@@ -362,10 +374,25 @@ function createCooperativeRaidService({ TcgCooperativeRaid, TcgPlayerState, TcgP
       const active = publicRoom(room, id).activeAccountId;
       if (active !== id) throw new CooperativeRaidError('COOP_NOT_YOUR_TURN', '지금은 다른 플레이어의 차례입니다.', 409);
       if (request.targetId && !room.battle.cards.some((card) => card.id === request.targetId && card.hp > 0)) throw new CooperativeRaidError('COOP_INVALID_TARGET', '대상 카드를 다시 선택해주세요.');
-      try { room.battle = shared.engine.performPlayerAction(room.battle, { type: request.action, targetId: request.targetId, choice: request.choice }, now); }
+      try { room.battle = shared.engine.performPlayerAction(room.battle, { type: request.action, targetId: request.targetId, choice: request.choice, galaxyChoice: request.galaxyChoice }, now); }
       catch (error) { throw new CooperativeRaidError('COOP_ACTION_UNAVAILABLE', error.message, 409); }
       room.revision += 1; room.actionReceipts.push(receiptId);
       stepRoom(room, now, shared);
+    });
+    return response(data, id, now);
+  }
+  async function auto({ account, request = {}, now = Date.now() }) {
+    await requireSession(account, request, now); const id = accountKey(account);
+    if (typeof request.enabled !== 'boolean') throw new CooperativeRaidError('COOP_INVALID_AUTO', '자동전투 설정이 올바르지 않습니다.');
+    const { data } = await mutate(now, (current) => {
+      const room = current.rooms.find((entry) => entry.id === request.roomId);
+      if (!ownsRoom(room, id)) throw new CooperativeRaidError('COOP_ROOM_NOT_FOUND', '참가 중인 협동 전투를 찾을 수 없습니다.', 404);
+      if (room.battle.status !== 'active') throw new CooperativeRaidError('COOP_BATTLE_FINISHED', '이미 종료된 협동 전투입니다.', 409);
+      room.autoAccountIds ||= []; room.autoEnabledAt ||= {};
+      if (room.autoAccountIds.includes(id) === request.enabled) return;
+      if (request.enabled) { room.autoAccountIds.push(id); room.autoEnabledAt[id] = now; }
+      else { room.autoAccountIds = room.autoAccountIds.filter((accountId) => accountId !== id); delete room.autoEnabledAt[id]; }
+      room.revision += 1;
     });
     return response(data, id, now);
   }
@@ -401,7 +428,7 @@ function createCooperativeRaidService({ TcgCooperativeRaid, TcgPlayerState, TcgP
     });
     return response(data, id, now, { snapshot: serializePlayerState(saved, now), reward: room.rewards[id], alreadyClaimed: Boolean(alreadyClaimed) });
   }
-  return { state, queue, leave, accept, action, claim };
+  return { state, queue, leave, accept, action, auto, claim };
 }
 
-module.exports = { COORDINATOR_ID, MAX_QUEUE, MAX_ROOMS, QUEUE_TTL_MS, READY_MS, CooperativeRaidError, applyCooperativeReward, createCooperativeRaidService, loadCooperativeModules, serializeCooperative, validateRepresentatives };
+module.exports = { COORDINATOR_ID, MAX_QUEUE, MAX_ROOMS, QUEUE_TTL_MS, READY_MS, AUTO_ACTION_DELAY_MS, CooperativeRaidError, applyCooperativeReward, createCooperativeRaidService, loadCooperativeModules, serializeCooperative, validateRepresentatives };

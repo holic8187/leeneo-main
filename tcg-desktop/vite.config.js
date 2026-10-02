@@ -17,7 +17,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: fileURLToPath(new URL('./index.html', import.meta.url)),
-        toast: fileURLToPath(new URL('./toast.html', import.meta.url)),
       },
     },
   },

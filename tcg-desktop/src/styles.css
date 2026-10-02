@@ -770,7 +770,6 @@ svg {
 .pack-desk,
 .daily-ledger,
 .operation-panel,
-.incident-panel,
 .activity-panel,
 .deck-preset-panel,
 .mission-board,
@@ -1036,7 +1035,6 @@ svg {
 }
 
 .operation-panel,
-.incident-panel,
 .activity-panel,
 .deck-preset-panel {
   min-height: 220px;
@@ -1149,13 +1147,7 @@ svg {
   min-height: 40px;
 }
 
-.incident-panel.has-incident {
-  border-top-color: var(--coral);
-  background: #fff9f4;
-}
-
-.active-operation,
-.incident-copy {
+.active-operation{
   display: flex;
   gap: 12px;
   align-items: center;
@@ -1163,20 +1155,17 @@ svg {
   margin-top: 25px;
 }
 
-.operation-copy,
-.incident-copy > div {
+.operation-copy{
   min-width: 0;
   display: grid;
   gap: 5px;
 }
 
-.operation-copy strong,
-.incident-copy strong {
+.operation-copy strong{
   font-size: 13px;
 }
 
-.operation-copy span,
-.incident-copy span:not(.incident-pulse) {
+.operation-copy span{
   overflow: hidden;
   color: var(--muted);
   font-size: 10px;
@@ -1235,20 +1224,6 @@ svg {
   line-height: 1.5;
 }
 
-.incident-pulse {
-  width: 9px;
-  height: 40px;
-  flex: 0 0 9px;
-  border-radius: 2px;
-  background: var(--coral);
-  animation: incident-pulse 1.3s ease-in-out infinite;
-}
-
-.incident-panel .alert-button {
-  width: 100%;
-  margin-top: 16px;
-}
-
 .activity-list {
   margin-top: 17px;
 }
@@ -1285,7 +1260,6 @@ svg {
 
 .activity-icon--pack { background: var(--gold); }
 .activity-icon--adventure { background: var(--teal); }
-.activity-icon--incident { background: var(--coral); }
 .activity-icon--raid { background: var(--blue); }
 
 .collection-header {
@@ -2556,12 +2530,6 @@ button.loadout-slot:hover:not(:disabled) {
   text-align: center;
 }
 
-.incident-copy .incident-expiry {
-  color: #b74839;
-  font-family: Consolas, monospace;
-  font-weight: 800;
-}
-
 .deployed-squad small {
   color: var(--muted);
   font-size: 9px;
@@ -3462,7 +3430,6 @@ button.loadout-slot:hover:not(:disabled) {
 }
 
 .modal-heading h2,
-.incident-modal h2,
 .compact-modal h2,
 .settings-modal h2 {
   margin: 6px 0 0;
@@ -3470,7 +3437,6 @@ button.loadout-slot:hover:not(:disabled) {
 }
 
 .modal-heading p,
-.incident-modal > p,
 .compact-modal > p {
   margin: 7px 0 0;
   color: var(--muted);
@@ -3748,32 +3714,13 @@ button.loadout-slot:hover:not(:disabled) {
 .owned-line strong {
   color: var(--ink);
 }
-
-.incident-modal,
 .compact-modal {
   width: min(100%, 460px);
   text-align: center;
 }
 
-.incident-modal {
-  border-top-color: var(--coral);
-}
-
 @media (min-width: 761px) {
-  .incident-modal {
-    width: min(100%, 300px);
-    max-height: min(520px, calc(100vh - 36px));
-    padding: 14px 16px;
-  }
-  .incident-modal .modal-close { top: 8px; right: 8px; width: 27px; height: 27px; }
-  .incident-modal .incident-symbol { width: 34px; height: 34px; margin-bottom: 8px; }
-  .incident-modal h2 { margin-top: 3px; font-size: 16px; }
-  .incident-modal > p { margin-top: 4px; font-size: 8px; line-height: 1.35; }
-  .incident-modal .incident-choices { gap: 5px; margin-top: 11px; }
-  .incident-modal .incident-choices button { min-height: 34px; padding: 0 8px; font-size: 8px; }
 }
-
-.incident-symbol,
 .result-symbol {
   display: grid;
   width: 52px;
@@ -3789,36 +3736,6 @@ button.loadout-slot:hover:not(:disabled) {
 .result-symbol {
   border-color: var(--teal);
   background: var(--teal);
-}
-
-.incident-choices {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 9px;
-  margin-top: 25px;
-}
-
-.incident-choices button {
-  display: flex;
-  min-height: 48px;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 14px;
-  border: 1px solid var(--line-dark);
-  border-radius: 4px;
-  background: transparent;
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.incident-choices button:hover {
-  color: #fff;
-  background: var(--forest);
-}
-
-.incident-choices svg {
-  width: 15px;
 }
 
 .compact-modal .primary-button {
@@ -4292,10 +4209,6 @@ button.loadout-slot:hover:not(:disabled) {
   20% { opacity: .08; }
   52% { opacity: .86; }
   100% { opacity: 0; background-position: -35% 0; }
-}
-
-@keyframes incident-pulse {
-  50% { opacity: 0.42; }
 }
 
 @keyframes backdrop-in {
@@ -6125,7 +6038,6 @@ button.loadout-slot:hover:not(:disabled) {
   .pack-desk,
   .daily-ledger,
   .operation-panel,
-  .incident-panel,
   .activity-panel,
   .mission-board,
   .assignment-sheet,
@@ -6401,10 +6313,6 @@ button.loadout-slot:hover:not(:disabled) {
     gap: 6px;
   }
 
-  .incident-choices {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .settings-account {
     grid-template-columns: 30px minmax(0, 1fr);
   }
@@ -6462,7 +6370,6 @@ button.loadout-slot:hover:not(:disabled) {
   .pack-desk,
   .daily-ledger,
   .operation-panel,
-  .incident-panel,
   .activity-panel,
   .mission-board,
   .assignment-sheet,
@@ -6486,7 +6393,6 @@ button.loadout-slot:hover:not(:disabled) {
   }
 
   .modal-heading h2,
-  .incident-modal h2,
   .compact-modal h2,
   .settings-modal h2 {
     font-size: 19px;
@@ -7056,7 +6962,6 @@ button.loadout-slot:hover:not(:disabled) {
   .board-rule,
   .pack-sleeve span,
   .pack-sleeve small,
-  .incident-copy span:not(.incident-pulse),
   .empty-operation span,
   .activity-row p,
   .activity-row time,

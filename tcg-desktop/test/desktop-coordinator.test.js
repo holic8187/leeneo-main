@@ -6,18 +6,11 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 
 const require = createRequire(import.meta.url);
-const {
-  normalizeIncident,
-  createIncidentCoordinator,
-  createIncidentDeliveryCoordinator,
-  createUpdateCoordinator,
-  toastBounds,
-} = require('../electron/desktop-coordinator.cjs');
+const { createUpdateCoordinator } = require('../electron/desktop-coordinator.cjs');
 const {
   findLatestDesktopRelease,
   resolveDesktopReleaseFeed,
 } = require('../electron/desktop-release-feed.cjs');
-const sourceIncident = { id: 'lucky-box', title: '상자 발견', summary: '확인해 볼까요?', choices: [{ id: 'open', label: '열기', reward: { packs: 999 } }, { id: 'pass', label: '지나가기' }] };
 const deferred = () => {
   let resolve;
   let reject;
@@ -25,108 +18,6 @@ const deferred = () => {
   return { resolve, reject, promise };
 };
 const tick = () => new Promise((resolve) => setImmediate(resolve));
-
-test('toast payload gives each event a unique instance and never accepts reward data from its UI', () => {
-  const first = normalizeIncident(sourceIncident);
-  const second = normalizeIncident(sourceIncident);
-  assert.notEqual(first.instanceId, second.instanceId);
-  assert.deepEqual(first.choices[0], { id: 'open', label: '열기' });
-  assert.equal(normalizeIncident({ ...sourceIncident, choices: [{ id: 'x', label: 'X' }, { id: 'x', label: 'Y' }] }), null);
-  assert.equal(normalizeIncident(null), null);
-});
-
-test('a stale or invalid popup cannot grant a reward', async () => {
-  let count = 0;
-  const manager = createIncidentCoordinator({ resolveChoice: async () => { count += 1; return { ok: true }; } });
-  manager.activate(normalizeIncident(sourceIncident, 'current'));
-  assert.equal((await manager.choose({ incidentId: 'lucky-box', instanceId: 'old', choiceId: 'open' })).code, 'stale');
-  assert.equal((await manager.choose({ incidentId: 'other', instanceId: 'current', choiceId: 'open' })).code, 'stale');
-  assert.equal((await manager.choose({ incidentId: 'lucky-box', instanceId: 'current', choiceId: 'forged' })).code, 'invalid');
-  assert.equal(count, 0);
-});
-
-test('double click and delayed duplicate messages resolve an incident once', async () => {
-  const saving = deferred();
-  let count = 0;
-  const manager = createIncidentCoordinator({ resolveChoice: async () => { count += 1; return saving.promise; } });
-  manager.activate(normalizeIncident(sourceIncident, 'current'));
-  const payload = { incidentId: 'lucky-box', instanceId: 'current', choiceId: 'open' };
-  const first = manager.choose(payload);
-  assert.equal((await manager.choose(payload)).code, 'busy');
-  assert.ok(manager.active, 'active event remains until persistence acknowledges success');
-  saving.resolve({ ok: true, message: '팩 1개 획득' });
-  assert.deepEqual(await first, { ok: true, message: '팩 1개 획득' });
-  assert.equal(manager.active, null);
-  assert.equal((await manager.choose(payload)).code, 'stale');
-  assert.equal(count, 1);
-});
-
-test('failed save keeps the active incident available for a retry', async () => {
-  let success = false;
-  const manager = createIncidentCoordinator({ resolveChoice: async () => ({ ok: success, message: '저장 상태' }) });
-  manager.activate(normalizeIncident(sourceIncident, 'current'));
-  const payload = { incidentId: 'lucky-box', instanceId: 'current', choiceId: 'open' };
-  assert.equal((await manager.choose(payload)).ok, false);
-  assert.ok(manager.active);
-  success = true;
-  assert.equal((await manager.choose(payload)).ok, true);
-  assert.equal(manager.active, null);
-});
-
-test('a delayed reply for a resolved popup cannot clear a newly active event', async () => {
-  const reply = deferred();
-  const manager = createIncidentCoordinator({ resolveChoice: () => reply.promise });
-  manager.activate(normalizeIncident(sourceIncident, 'old'));
-  const choosing = manager.choose({ incidentId: 'lucky-box', instanceId: 'old', choiceId: 'open' });
-  assert.equal(manager.clear('old'), true);
-  manager.activate(normalizeIncident(sourceIncident, 'new'));
-  reply.resolve({ ok: true });
-  await choosing;
-  assert.equal(manager.active.instanceId, 'new');
-  assert.equal(manager.clear('old'), false);
-});
-
-test('desktop popup preference never suppresses delivery to the main game', () => {
-  const delivered = [];
-  const toasts = [];
-  let closedToasts = 0;
-  const delivery = createIncidentDeliveryCoordinator({
-    activate: (incident) => incident,
-    sendToMain: (incident) => delivered.push(incident),
-    showToast: (incident) => toasts.push(incident),
-    closeToast: () => { closedToasts += 1; },
-  });
-  const quietIncident = normalizeIncident(sourceIncident, 'quiet');
-  delivery.setNotificationsEnabled(false);
-  delivery.deliver(quietIncident);
-  assert.deepEqual(delivered, [quietIncident]);
-  assert.deepEqual(toasts, []);
-  assert.equal(closedToasts, 1);
-
-  const notifiedIncident = normalizeIncident(sourceIncident, 'notified');
-  delivery.setNotificationsEnabled(true);
-  delivery.deliver(notifiedIncident);
-  assert.deepEqual(delivered, [quietIncident, notifiedIncident]);
-  assert.deepEqual(toasts, [notifiedIncident]);
-});
-
-test('popup bounds remain inside offset and small display work areas', () => {
-  for (const area of [{ x: -1280, y: -80, width: 1280, height: 680 }, { x: 200, y: 90, width: 320, height: 260 }]) {
-    const bounds = toastBounds(area, 4);
-    assert.ok(bounds.x >= area.x && bounds.y >= area.y);
-    assert.ok(bounds.x + bounds.width <= area.x + area.width);
-    assert.ok(bounds.y + bounds.height <= area.y + area.height);
-  }
-});
-
-test('desktop incident popup uses the compact half-size layout', () => {
-  assert.deepEqual(toastBounds({ x: 0, y: 0, width: 1920, height: 1080 }, 2), {
-    width: 300,
-    height: 172,
-    x: 1612,
-    y: 900,
-  });
-});
 
 function updaterHarness(overrides = {}) {
   const updater = new EventEmitter();
@@ -251,22 +142,16 @@ test('preload converts renderer persistence exceptions to failure acknowledgemen
   runInNewContext(readFileSync(new URL('../electron/preload.cjs', import.meta.url), 'utf8'), {
     require: () => ({ ipcRenderer: ipc, contextBridge: { exposeInMainWorld: (_name, value) => { bridge = value; } } }),
   });
-  bridge.onIncidentChoice(() => { throw new Error('disk full'); });
-  ipc.emit('incident:choice', {}, { requestId: 'choice-1', incidentId: 'lucky-box', instanceId: '1', choiceId: 'open' });
+  bridge.onBeforeUpdate(() => { throw new Error('disk full'); });
+  ipc.emit('update:before-install', {}, { requestId: 'save-2' });
   await tick();
   assert.equal(sent[0][1].ok, false);
   assert.equal(sent[0][1].message, 'disk full');
 });
 
-test('preload exposes the desktop popup preference independently from incident cancellation', async () => {
-  const ipc = new EventEmitter();
-  const invoked = [];
-  ipc.invoke = async (...args) => { invoked.push(args); return true; };
-  ipc.send = () => {};
-  let bridge;
-  runInNewContext(readFileSync(new URL('../electron/preload.cjs', import.meta.url), 'utf8'), {
-    require: () => ({ ipcRenderer: ipc, contextBridge: { exposeInMainWorld: (_name, value) => { bridge = value; } } }),
-  });
-  await bridge.setIncidentNotifications(false);
-  assert.deepEqual(invoked, [['incident:notifications', false]]);
+test('desktop shell no longer exposes incident or toast IPC', () => {
+  const main = readFileSync(new URL('../electron/main.cjs', import.meta.url), 'utf8');
+  const preload = readFileSync(new URL('../electron/preload.cjs', import.meta.url), 'utf8');
+  assert.doesNotMatch(main, /incident:|toast:|scheduleIncident|toastWindow/);
+  assert.doesNotMatch(preload, /Incident|incident:|toast:/);
 });

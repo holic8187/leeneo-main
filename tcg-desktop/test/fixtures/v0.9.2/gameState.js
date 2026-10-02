@@ -1,7 +1,8 @@
 // Frozen 0.9.2 source from 7ac19967e6d69ec089194f27b7a5174f8cbc45b6.
 // Only gameState import paths are adjusted for this fixture directory.
 // Keep legacy hydration/claim behavior unchanged for mixed-version save tests.
-import { INCIDENT_ACTIVE_DURATION_MS } from '../../../src/core/incidentEngine.js';
+// Frozen historical migration fixture; the live incident system was retired.
+const INCIDENT_ACTIVE_DURATION_MS = 10 * 60 * 1000;
 import { normalizeCardEnhancements } from '../../../src/core/cardManagement.js';
 import { hydratePendingPackOpening } from '../../../src/core/packOpeningSession.js';
 import { hydrateRaidRewardClaims } from './raidRewards.js';

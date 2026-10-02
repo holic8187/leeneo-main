@@ -1,22 +1,16 @@
-const { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, screen, shell } = require('electron');
+const { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, shell } = require('electron');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { randomUUID } = require('node:crypto');
 const { autoUpdater } = require('electron-updater');
 const {
-  normalizeIncident,
-  createIncidentCoordinator,
-  createIncidentDeliveryCoordinator,
   createUpdateCoordinator,
-  toastBounds,
 } = require('./desktop-coordinator.cjs');
 const { resolveDesktopReleaseFeed } = require('./desktop-release-feed.cjs');
 
 const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL || '';
 let mainWindow = null;
-let toastWindow = null;
 let tray = null;
-let incidentTimer = null;
 let isQuitting = false;
 let lastUpdateStatus = { status: 'idle', detail: '' };
 const rendererRequests = new Map();
@@ -57,7 +51,6 @@ function createMainWindow() {
   configureWindowSecurity(window);
   window.webContents.on('did-finish-load', () => {
     window.webContents.send('update:status', lastUpdateStatus);
-    if (incidents.active) window.webContents.send('incident:triggered', incidents.active);
   });
   if (DEV_SERVER_URL) void window.loadURL(DEV_SERVER_URL);
   else void window.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
@@ -106,7 +99,6 @@ function requestRenderer(channel, payload = {}) {
   });
 }
 
-const incidents = createIncidentCoordinator({ resolveChoice: (payload) => requestRenderer('incident:choice', payload) });
 const updates = createUpdateCoordinator({
   updater: autoUpdater, isPackaged: () => app.isPackaged,
   async prepareCheck() {
@@ -128,84 +120,11 @@ const updates = createUpdateCoordinator({
     catch (error) { isQuitting = false; throw error; }
   },
 });
-const incidentDelivery = createIncidentDeliveryCoordinator({
-  activate: (incident) => incidents.activate(incident),
-  sendToMain(incident) {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('incident:triggered', incident);
-  },
-  showToast: (incident) => showIncidentToast(incident),
-  closeToast: () => closeToast(),
-});
-
 autoUpdater.on('error', () => { isQuitting = false; });
 
-function closeToast() {
-  const window = toastWindow;
-  if (window && !window.isDestroyed()) window.close();
-}
-
-function positionToast() {
-  if (!toastWindow || toastWindow.isDestroyed()) return;
-  toastWindow.setBounds(toastBounds(screen.getPrimaryDisplay().workArea, incidents.active?.choices.length || 2), false);
-}
-
-function showIncidentToast(incident) {
-  closeToast();
-  if (!incident) return;
-  const window = new BrowserWindow({
-    ...toastBounds(screen.getPrimaryDisplay().workArea, incident.choices.length),
-    frame: false, transparent: false, resizable: false, movable: false,
-    alwaysOnTop: true, skipTaskbar: true, show: false, backgroundColor: '#171b19',
-    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
-  });
-  toastWindow = window;
-  configureWindowSecurity(window);
-  const loaded = DEV_SERVER_URL ? window.loadURL(new URL('toast.html', DEV_SERVER_URL).href)
-    : window.loadFile(path.join(__dirname, '..', 'dist', 'toast.html'));
-  loaded.then(() => {
-    if (window.isDestroyed() || toastWindow !== window) return;
-    window.webContents.send('incident:triggered', incident);
-    positionToast();
-    window.showInactive();
-  }).catch(() => { if (!window.isDestroyed()) window.close(); });
-  const closeTimer = setTimeout(() => { if (!window.isDestroyed()) window.close(); }, 30000);
-  window.on('closed', () => {
-    clearTimeout(closeTimer);
-    if (toastWindow === window) toastWindow = null;
-  });
-}
-
-function scheduleIncident(payload) {
-  if (incidents.active) return { scheduled: false, reason: 'active-incident' };
-  const incident = normalizeIncident(payload.incident);
-  if (!incident) return { scheduled: false, reason: 'invalid-incident' };
-  if (incidentTimer) clearTimeout(incidentTimer);
-  const delayMs = Math.min(2147483647, Math.max(1000, Number(payload.delayMs) || 60000));
-  incidentTimer = setTimeout(() => { incidentTimer = null; incidentDelivery.deliver(incident); }, delayMs);
-  return { scheduled: true, delayMs, instanceId: incident.instanceId };
-}
-
 function registerIpc() {
-  ipcMain.handle('app:get-version', (event) => isSender(event, mainWindow) || isSender(event, toastWindow) ? app.getVersion() : null);
+  ipcMain.handle('app:get-version', (event) => isSender(event, mainWindow) ? app.getVersion() : null);
   ipcMain.handle('window:hide', (event) => { if (!isSender(event, mainWindow)) return false; mainWindow.hide(); return true; });
-  ipcMain.handle('incident:schedule', (event, payload) => isSender(event, mainWindow) ? scheduleIncident(payload || {}) : { scheduled: false });
-  ipcMain.handle('incident:cancel', (event) => {
-    if (!isSender(event, mainWindow)) return false;
-    if (incidentTimer) clearTimeout(incidentTimer);
-    incidentTimer = null;
-    closeToast();
-    if (incidents.active) incidents.clear(incidents.active.instanceId);
-    return true;
-  });
-  ipcMain.handle('incident:notifications', (event, enabled) => (
-    isSender(event, mainWindow) ? incidentDelivery.setNotificationsEnabled(enabled) : false
-  ));
-  ipcMain.handle('incident:clear', (event, payload) => {
-    if (!isSender(event, mainWindow)) return false;
-    const cleared = incidents.clear(payload?.instanceId);
-    if (cleared && payload.keepToast !== true) closeToast();
-    return cleared;
-  });
   ipcMain.handle('update:check', (event) => isSender(event, mainWindow) ? updates.check() : { status: 'denied' });
   ipcMain.on('renderer:reply', (event, payload) => {
     if (!isSender(event, mainWindow) || typeof payload?.requestId !== 'string') return;
@@ -214,21 +133,6 @@ function registerIpc() {
     clearTimeout(request.timer);
     rendererRequests.delete(payload.requestId);
     request.resolve({ ok: payload.ok === true, message: typeof payload.message === 'string' ? payload.message.slice(0, 500) : '' });
-  });
-  ipcMain.handle('toast:choose', async (event, payload) => {
-    if (!isSender(event, toastWindow)) return { ok: false, message: '팝업이 만료되었습니다.' };
-    return incidents.choose(payload);
-  });
-  ipcMain.on('toast:dismiss', (event) => { if (isSender(event, toastWindow)) closeToast(); });
-  ipcMain.on('toast:open', (event, incident) => {
-    if (!isSender(event, toastWindow) || !incidents.matches(incident)) return;
-    showMainWindow();
-    const payload = incidents.active;
-    const target = mainWindow;
-    const open = () => { if (!target.isDestroyed() && incidents.matches(payload)) target.webContents.send('incident:open', payload); };
-    if (target.webContents.isLoadingMainFrame()) target.webContents.once('did-finish-load', open);
-    else open();
-    if (mainWindow.isFocused()) closeToast();
   });
 }
 
@@ -246,8 +150,6 @@ else {
     registerIpc();
     createMainWindow();
     createTray();
-    screen.on('display-metrics-changed', positionToast);
-    screen.on('display-removed', positionToast);
     mainWindow.webContents.once('did-finish-load', () => { void updates.check(); });
   });
 }

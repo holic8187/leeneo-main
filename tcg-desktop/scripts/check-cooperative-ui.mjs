@@ -16,7 +16,7 @@ await mkdir(output, { recursive: true });
 const browser = await chromium.launch({ headless: true, ...(process.env.BROWSER_EXECUTABLE ? { executablePath: process.env.BROWSER_EXECUTABLE } : {}) });
 
 try {
-  for (const [name, viewport] of [['small-mobile', { width: 360, height: 800 }], ['mobile', { width: 390, height: 844 }], ['desktop', { width: 1280, height: 900 }]]) {
+  for (const [name, viewport] of [['small-mobile', { width: 360, height: 640 }], ['mobile', { width: 390, height: 844 }], ['desktop', { width: 1280, height: 900 }]]) {
     const context = await browser.newContext({ viewport, isMobile: name !== 'desktop', hasTouch: name !== 'desktop' });
     const page = await context.newPage();
     const errors = [];
@@ -33,6 +33,7 @@ try {
     let match = null;
     let entered = false;
     const actions = [];
+    const autoRequests = [];
     const claimBodies = [];
     let claimApplied = false;
     let releaseRead = null;
@@ -67,6 +68,12 @@ try {
       } else if (path.endsWith('/cooperative/accept')) {
         assert.equal(route.request().postDataJSON().matchId, match.id);
         entered = true; room = makeRoom(); phase = 'battle'; payload = { cooperative: cooperative() };
+      } else if (path.endsWith('/cooperative/auto')) {
+        const body = route.request().postDataJSON(); autoRequests.push(body);
+        assert.equal(body.roomId, room.id); assert.ok(body.leaseId);
+        room.autoAccountIds = body.enabled ? [account.id] : [];
+        room.revision += 1;
+        payload = { cooperative: cooperative() };
       } else if (path.endsWith('/cooperative/action')) {
         const action = route.request().postDataJSON(); actions.push(action);
         assert.equal(action.expectedRevision, room.revision);
@@ -139,6 +146,17 @@ try {
       await click('.coop-return-banner');
       await page.locator('[data-action="coop-basic"]').waitFor();
       assert.equal(await page.locator('.coop-combat-card').count(), 4);
+      assert.equal(await page.locator('[data-action="coop-auto"]').getAttribute('aria-pressed'), 'false');
+      await click('[data-action="coop-auto"]');
+      await page.locator('[data-action="coop-auto"][aria-pressed="true"]').waitFor();
+      await click('[data-action="coop-auto"]');
+      await page.locator('[data-action="coop-auto"][aria-pressed="false"]').waitFor();
+      assert.deepEqual(autoRequests.map(body => body.enabled), [true, false]);
+      await click('[data-action="toggle-raid-secret"]');
+      assert.equal(await page.locator('.coop-battle img[src*="/cards/"], .coop-boss-art').count(), 0);
+      await shot('secret');
+      await click('[data-action="toggle-raid-secret"]');
+      assert.equal(await page.locator('.coop-combat-card .coop-card-art > img').count(), 4);
       await noOverflow(); await shot('battle');
       await page.locator('.coop-action-panel').scrollIntoViewIfNeeded(); await shot('battle-actions', true);
       await click('[data-action="coop-basic"]');

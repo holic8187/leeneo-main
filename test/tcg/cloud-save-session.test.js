@@ -19,6 +19,16 @@ const {
 
 const JWT_SECRET = 'tcg-cloud-save-test-secret-with-enough-entropy';
 
+test('cloud validation preserves version 10 privacy and expedition settings without restoring retired incidents', () => {
+  const state = { version: 10, settings: { raidSecretMode: true, expeditionNotifications: false }, wallet: { coins: 1290 }, collection: { 'hoi-ur': 1 } };
+  const saved = normalizeGameState(state);
+  assert.deepEqual(saved, state);
+  assert.equal(Object.hasOwn(saved.settings, 'incidentNotifications'), false);
+  assert.equal(Object.hasOwn(saved, 'activeIncident'), false);
+  saved.settings.raidSecretMode = false;
+  assert.equal(state.settings.raidSecretMode, true);
+});
+
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
 function pathValue(value, path) {

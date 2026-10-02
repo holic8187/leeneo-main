@@ -363,7 +363,7 @@ async function ensureWeeklyRecord(Model, key, account, boss) {
     await Model.updateOne(key, { $setOnInsert: {
       ...key, weekKey: key.dayKey, schemaVersion: RAID_SCHEMA_VERSION, nickname: String(account.nickname || ''),
       currentStage: 1, currentHp: boss.stageHp[1], contribution: 0, dispatchCount: 0, clearCount: 0,
-      dailyEntryDayKey: '', dailyEntryCount: 0, activeSession: null, lastFinishedSessionId: '',
+      dailyEntryDayKey: '', dailyEntryCount: 0, dailyBonusEntryCount: 0, activeSession: null, lastFinishedSessionId: '',
       lastDamage: 0, lastSquadScore: 0, bonusRewards: [], weeklyCompleted: false, revision: 0
     } }, { upsert: true });
   } catch (error) { if (error?.code !== 11000) throw error; }
@@ -382,15 +382,20 @@ function sessionPublicView(session) {
 function serializePersonalRaidState(record, account, boss, window, now = Date.now()) {
   const nowMs = toTimestamp(now);
   const week = window?.weekKey ? window : getKstRaidWeekWindow(nowMs);
-  const day = getKstDayWindow(nowMs);
+  // A response captured before midnight must not display an already rotated
+  // ledger as yesterday's unused budget.
+  const ledgerStart = Date.parse(`${record?.dailyEntryDayKey || ''}T00:00:00+09:00`);
+  const day = getKstDayWindow(Math.max(nowMs, ledgerStart || 0));
   const currentRules = Number(record?.schemaVersion) === RAID_SCHEMA_VERSION;
   const progress = normalizedProgress(record, boss);
   const entriesToday = record?.dailyEntryDayKey === day.dayKey ? Math.max(0, Number(record.dailyEntryCount) || 0) : 0;
+  const bonusEntriesToday = currentRules && record?.dailyEntryDayKey === day.dayKey ? Math.max(0, Number(record.dailyBonusEntryCount) || 0) : 0;
+  const entryBudget = boss.maxDailyEntries + bonusEntriesToday;
   const activeSession = currentRules && record?.activeSession && new Date(record.activeSession.expiresAt).getTime() > nowMs ? sessionPublicView(record.activeSession) : null;
   const clears = currentRules ? Math.max(0, Number(record?.clearCount) || 0) : 0;
   const dispatches = currentRules ? Math.max(0, Number(record?.dispatchCount) || 0) : 0;
   const stageConfig = getBossStage(boss, progress.stage);
-  const canEnter = !progress.completed && entriesToday < boss.maxDailyEntries && !activeSession;
+  const canEnter = !progress.completed && entriesToday < entryBudget && !activeSession;
   return {
     mode: 'personal', rulesVersion: RAID_SCHEMA_VERSION, resetRule: week.resetRule, weekKey: week.weekKey, dayKey: day.dayKey,
     resetsAt: week.resetsAt.getTime(), dailyResetsAt: day.resetsAt.getTime(), serverNow: nowMs,
@@ -398,10 +403,11 @@ function serializePersonalRaidState(record, account, boss, window, now = Date.no
     id: boss.id, bossId: boss.id, bossName: boss.name, stage: progress.stage, maxStage: boss.maxStage,
     hp: progress.hp, currentHp: progress.hp, maxHp: stageConfig.maxHp, boss: stageConfig,
     contribution: progress.contribution, totalContribution: progress.contribution, score: progress.contribution,
-    entriesToday, remainingEntries: Math.max(0, boss.maxDailyEntries - entriesToday), maxDailyEntries: boss.maxDailyEntries,
+    entriesToday, bonusEntriesToday, baseDailyEntries: boss.maxDailyEntries,
+    remainingEntries: Math.max(0, entryBudget - entriesToday), maxDailyEntries: entryBudget,
     dispatches, clears,
     weeklyCompleted: progress.completed, activeSession, canEnter, canDispatch: canEnter,
-    limitReached: entriesToday >= boss.maxDailyEntries, cooldownMs: 0, remainingCooldownMs: 0,
+    limitReached: entriesToday >= entryBudget, cooldownMs: 0, remainingCooldownMs: 0,
     rewardKey: `${week.weekKey}:${boss.id}`,
     earnedRewards: {
       ...cumulativeClearRewards(clears),
@@ -427,12 +433,15 @@ async function startPersonalRaid({ TcgPersonalRaidDaily, account, bossId = 'dead
   await ensureWeeklyRecord(TcgPersonalRaidDaily, key, account, boss);
   for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {
     const snapshot = await findRecord(TcgPersonalRaidDaily, key); if (!snapshot) continue;
+    if (String(snapshot.dailyEntryDayKey || '') > day.dayKey) throw new PersonalRaidError('RAID_DAY_CHANGED', '일일 입장 횟수가 갱신되었습니다. 다시 입장해주세요.', 409);
     const migrating = Number(snapshot.schemaVersion) !== RAID_SCHEMA_VERSION;
     const progress = normalizedProgress(snapshot, boss);
     if (progress.completed) throw new PersonalRaidError('RAID_WEEKLY_COMPLETE', `이번 주 개인 레이드 ${boss.maxStage}단계를 모두 완료했습니다.`, 409);
     if (!migrating && snapshot.activeSession && new Date(snapshot.activeSession.expiresAt).getTime() > nowMs) throw new PersonalRaidError('RAID_SESSION_ACTIVE', '이미 진행 중인 개인 레이드가 있습니다.', 409, { activeSession: sessionPublicView(snapshot.activeSession) });
     const used = snapshot.dailyEntryDayKey === day.dayKey ? Math.max(0, Number(snapshot.dailyEntryCount) || 0) : 0;
-    if (used >= boss.maxDailyEntries) throw new PersonalRaidError('DAILY_ENTRY_LIMIT', '개인 레이드는 하루에 5회까지 입장할 수 있습니다.', 429, { entriesToday: used, maxDailyEntries: 5, dailyResetsAt: day.resetsAt.getTime() });
+    const bonus = !migrating && snapshot.dailyEntryDayKey === day.dayKey ? Math.max(0, Number(snapshot.dailyBonusEntryCount) || 0) : 0;
+    const entryBudget = boss.maxDailyEntries + bonus;
+    if (used >= entryBudget) throw new PersonalRaidError('DAILY_ENTRY_LIMIT', '오늘의 개인 레이드 입장 기회를 모두 사용했습니다. 단계 클리어 시 입장 기회를 1회 추가로 받습니다.', 429, { entriesToday: used, maxDailyEntries: entryBudget, bonusEntriesToday: bonus, dailyResetsAt: day.resetsAt.getTime() });
     const session = { sessionId: crypto.randomUUID(), stage: progress.stage, bossHpBefore: progress.hp, stageMaxHp: boss.stageHp[progress.stage], squad: verified.squad, squadScore: verified.squadScore, startedAt: nowDate, expiresAt: new Date(nowMs + PERSONAL_RAID_SESSION_MS), dayKey: day.dayKey };
     await revalidate();
     const resetFields = migrating ? {
@@ -448,7 +457,7 @@ async function startPersonalRaid({ TcgPersonalRaidDaily, account, bossId = 'dead
       ...resetFields,
       schemaVersion: RAID_SCHEMA_VERSION, weekKey: week.weekKey, nickname: String(account.nickname || snapshot.nickname || ''),
       currentStage: progress.stage, currentHp: progress.hp, contribution: progress.contribution, weeklyCompleted: false,
-      dailyEntryDayKey: day.dayKey, dailyEntryCount: used + 1, activeSession: session,
+      dailyEntryDayKey: day.dayKey, dailyEntryCount: used + 1, dailyBonusEntryCount: bonus, activeSession: session,
       lastSquadScore: verified.squadScore, lastDispatchAt: nowDate, updatedAt: nowDate
     }, $inc: incrementFields }, { new: true, runValidators: true });
     if (!updated) continue;
@@ -497,11 +506,16 @@ async function finishPersonalRaid({ TcgPersonalRaidDaily, account, bossId = 'dea
       random
     }) : [];
     const bonusRewards = appendRaidBonusRewards(snapshot.bonusRewards, bonuses);
-    const result = { sessionId: id, stage: progress.stage, squadScore: Number(session.squadScore) || 0, damage, damageDealt: damage, bossHpBefore: progress.hp, bossHpAfter: remaining, bossHpRemaining: remaining, turns: Number(turns) || 0, cleared, weeklyCompleted: completed, nextStage, totalContribution: progress.contribution + damage, reward: { ...(cleared ? clearRewardForStage(progress.stage) : { coins: 0, packs: 0 }), bonuses } };
+    const ledgerStart = Date.parse(`${snapshot.dailyEntryDayKey || ''}T00:00:00+09:00`);
+    const day = getKstDayWindow(Math.max(nowMs, ledgerStart || 0));
+    const sameEntryDay = snapshot.dailyEntryDayKey === day.dayKey;
+    const dailyEntryCount = sameEntryDay ? Math.max(0, Number(snapshot.dailyEntryCount) || 0) : 0;
+    const dailyBonusEntryCount = (sameEntryDay ? Math.max(0, Number(snapshot.dailyBonusEntryCount) || 0) : 0) + (cleared ? 1 : 0);
+    const result = { sessionId: id, stage: progress.stage, squadScore: Number(session.squadScore) || 0, damage, damageDealt: damage, bossHpBefore: progress.hp, bossHpAfter: remaining, bossHpRemaining: remaining, turns: Number(turns) || 0, cleared, weeklyCompleted: completed, nextStage, totalContribution: progress.contribution + damage, reward: { ...(cleared ? clearRewardForStage(progress.stage) : { coins: 0, packs: 0 }), bonuses, extraEntries: cleared ? 1 : 0 } };
     const updated = await TcgPersonalRaidDaily.findOneAndUpdate({ _id: snapshot._id, revision: Number(snapshot.revision) || 0, 'activeSession.sessionId': id }, { $set: {
       nickname: String(account.nickname || snapshot.nickname || ''), currentStage: nextStage, currentHp: storedHp,
       weeklyCompleted: completed, activeSession: null, lastFinishedSessionId: id, lastFinishedResult: result,
-      lastDamage: damage, bonusRewards, updatedAt: nowDate
+      lastDamage: damage, bonusRewards, dailyEntryDayKey: day.dayKey, dailyEntryCount, dailyBonusEntryCount, updatedAt: nowDate
     }, $inc: { contribution: damage, clearCount: cleared ? 1 : 0, revision: 1 } }, { new: true, runValidators: true });
     if (!updated) continue;
     return { record: typeof updated.toObject === 'function' ? updated.toObject() : updated, boss, window: week, result };

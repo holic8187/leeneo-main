@@ -55,6 +55,22 @@ test('Android notification probing cannot block authenticated cloud startup', ()
   assert.match(bridge, /NOTIFICATION_PERMISSION_TIMEOUT/);
 });
 
+test('retired incidents are purged at startup and restore without affecting expedition notifications', () => {
+  const plugin = androidFile('java/com/hoicompany/carddesk/GameNotificationsPlugin.java');
+  const scheduler = androidFile('java/com/hoicompany/carddesk/GameNotificationScheduler.java');
+  const restore = androidFile('java/com/hoicompany/carddesk/GameNotificationRestoreReceiver.java');
+  assert.match(plugin.slice(plugin.indexOf('public void load()'), plugin.indexOf('protected void handleOnNewIntent')), /purgeRetiredNotifications/);
+  assert.match(scheduler, /rescheduleAll\(Context context\) \{\s*purgeRetiredNotifications\(context\);/);
+  assert.match(restore, /ACTION_MY_PACKAGE_REPLACED/);
+  assert.match(restore, /rescheduleAll/);
+  const schedule = plugin.slice(plugin.indexOf('public void schedule('), plugin.indexOf('public void cancel('));
+  assert.match(schedule, /if \(!GameNotificationScheduler.TYPE_EXPEDITION.equals\(type\)\)/);
+  assert.doesNotMatch(schedule, /TYPE_INCIDENT|DEFAULT_INCIDENT/);
+  assert.match(scheduler, /cancelType\(context, RETIRED_TYPE_INCIDENT\)/);
+  assert.match(scheduler, /"돌발 임무 도착"\.contentEquals/);
+  assert.match(scheduler, /TYPE_EXPEDITION.equals\(opened.optString\("type"\)\) \? opened : null/);
+});
+
 test('Android updater streams the APK into app-private cache and reports byte progress', () => {
   const updater = androidFile('java/com/hoicompany/carddesk/AndroidUpdaterPlugin.java');
   assert.doesNotMatch(updater, /import android\.app\.DownloadManager/);
