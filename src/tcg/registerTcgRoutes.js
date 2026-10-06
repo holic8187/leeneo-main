@@ -303,13 +303,14 @@ function registerTcgRoutes({
   );
 
   async function requireTcgAccount(req, res) {
+    let payload;
     try {
       const token = getBearerToken(req);
       if (!token) {
         res.status(401).json({ code: 'AUTH_REQUIRED', msg: '로그인이 필요합니다.' });
         return null;
       }
-      const payload = jwt.verify(token, jwtSecret, {
+      payload = jwt.verify(token, jwtSecret, {
         algorithms: ['HS256'],
         issuer: TCG_TOKEN_ISSUER,
         audience: TCG_TOKEN_AUDIENCE
@@ -318,20 +319,34 @@ function registerTcgRoutes({
         res.status(401).json({ code: 'INVALID_TOKEN', msg: '로그인 정보가 올바르지 않습니다.' });
         return null;
       }
-      const account = await TcgAccount.findById(payload.sub);
-      if (!account || Number(account.tokenVersion || 0) !== Number(payload.tokenVersion || 0)) {
-        res.status(401).json({ code: 'INVALID_TOKEN', msg: '로그인이 만료되었습니다.' });
-        return null;
-      }
-      if (account.status !== 'active') {
-        res.status(403).json({ code: 'ACCOUNT_DISABLED', msg: '사용할 수 없는 계정입니다.' });
-        return null;
-      }
-      return account;
-    } catch (error) {
+    } catch {
       res.status(401).json({ code: 'INVALID_TOKEN', msg: '로그인이 만료되었습니다.' });
       return null;
     }
+
+    let account;
+    try {
+      account = await TcgAccount.findById(payload.sub);
+    } catch {
+      // The database may fail after the readiness guard has accepted a request.
+      // Keep a valid session intact so it can recover without another login.
+      res.set('Retry-After', '5');
+      res.set('Cache-Control', 'no-store');
+      res.status(503).json({
+        code: 'DB_UNAVAILABLE',
+        msg: '데이터베이스 연결을 복구하고 있습니다. 잠시 후 다시 시도해 주세요.'
+      });
+      return null;
+    }
+    if (!account || Number(account.tokenVersion || 0) !== Number(payload.tokenVersion || 0)) {
+      res.status(401).json({ code: 'INVALID_TOKEN', msg: '로그인이 만료되었습니다.' });
+      return null;
+    }
+    if (account.status !== 'active') {
+      res.status(403).json({ code: 'ACCOUNT_DISABLED', msg: '사용할 수 없는 계정입니다.' });
+      return null;
+    }
+    return account;
   }
 
   function requireTcgAdmin(req, res) {

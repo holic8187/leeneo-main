@@ -1,0 +1,94 @@
+{
+  "date": "2026-10-06",
+  "request": "Repair physical walking gait, not only playback order",
+  "imageGenerationMode": "Built-in image_gen (imagegen skill); no direct pixel editing",
+  "assetDirectory": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/loading",
+  "assetFilenamePattern": "<characterId>-walk.png",
+  "assetCount": 32,
+  "promptSets": [
+    "loading-gait-fix-first.json",
+    "loading-gait-fix-second.json",
+    "loading-gait-fix-third.json"
+  ],
+  "gait": {
+    "sourcePoses": [
+      "left/near foot forward",
+      "passing feet under hips",
+      "right/far foot forward"
+    ],
+    "playback": [
+      1,
+      2,
+      3,
+      2
+    ],
+    "exactIntermediateReuse": true,
+    "durationMilliseconds": 720,
+    "fourthSourceCellUsed": false,
+    "nonBipedAdaptations": "Quadrupeds alternate diagonal leg pairs; legless ghost uses matching left/neutral/right/neutral sway.",
+    "alignment": "One shared scale per character fitting first three content bounds to 92px, baseline aligned, passing pose 1px bob.",
+    "repairedBoundaryAssets": [
+      "rayeon",
+      "easy",
+      "hoi",
+      "chuming",
+      "pantry-cat"
+    ]
+  },
+  "verification": {
+    "sourceIllustrations": "All 32 final source sheets visually reviewed for opposite gait/passing pose; winter, mond, wollu, easy, hoi received an additional independent review.",
+    "pngAudit": {
+      "count": 32,
+      "width": 1254,
+      "height": 1254,
+      "format": "RGBA",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "distinctFirstThreePoses": true,
+      "cellBoundaryContacts": 0
+    },
+    "provenance": {
+      "count": 32,
+      "uniqueIds": 32,
+      "finalGeneratedSourcesMatchProjectHashes": true
+    },
+    "focusedTests": {
+      "passed": 10,
+      "failed": 0
+    },
+    "clientTests": {
+      "passed": 306,
+      "failed": 0
+    },
+    "webBuild": {
+      "result": "passed",
+      "apiBase": "https://leeneo-main.onrender.com",
+      "finalAssetHashesMatch": 32
+    },
+    "browser": {
+      "tool": "CUA",
+      "checks": [
+        "All 32 rendered source sequences are 0,1,2,1 with equal B transforms",
+        "Winter individual A/B/C poses and normal/slow preview",
+        "Desktop gallery and 390x844 mobile blur-loader with Winter/Hoi",
+        "Final padded Hoi and updated content-fit scale verified on mobile-size preview"
+      ],
+      "sourcePoseReviewDoesNotProve": "Actual-device temporal smoothness on every supported display"
+    },
+    "android": {
+      "sync": "passed",
+      "gradle": "test assembleDebug BUILD SUCCESSFUL; no Java test sources",
+      "packedAssets": 32,
+      "assetHashMismatches": [],
+      "debugApk": "android/app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "5D923007C7D75178E381B264B16237D387FE224BFD4FABCFCEB38FD5C066A454",
+      "realDevice": "Not run; no connected Android device",
+      "releaseDistribution": false
+    }
+  },
+  "regressionSkillImpact": "Verified final artwork, frame contract, boundary padding, equal B transforms, whole client suite, web bundle and APK contents.",
+  "deployment": "Not deployed, committed, pushed or published in this gait-repair turn.",
+  "previousReconnectFeatureReport": "reconnect-verification.json (earlier sprite/build snapshot; this report supersedes its sprite and APK hash details)"
+}

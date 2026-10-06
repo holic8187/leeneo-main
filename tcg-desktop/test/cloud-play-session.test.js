@@ -29,6 +29,110 @@ function response(overrides = {}) {
   };
 }
 
+test('late initial open after disposal cannot apply an old account or start a heartbeat', async () => {
+  let resolve; let applied = 0; let heartbeats = 0;
+  const cloud = createCloudPlaySession({
+    gateway: { open: () => new Promise((done) => { resolve = done; }) },
+    token: 'old', accountId: 'old-account', deviceId: 'device-123456789',
+    onRemoteState: () => applied++, setIntervalImpl: () => { heartbeats++; return 1; },
+  });
+  const pending = cloud.open();
+  assert.equal(cloud.open(), pending);
+  cloud.dispose(); resolve(response()); await pending;
+  assert.equal(applied, 0); assert.equal(heartbeats, 0); assert.equal(cloud.getSnapshot().lease, null);
+});
+
+test('foreground resume is single-flight and suspended acquisition stays durable until acknowledgement', async () => {
+  const storage = memoryStorage(); let heartbeatResolve; let heartbeats = 0; let saves = 0;
+  const cloud = createCloudPlaySession({
+    gateway: {
+      async open() { return response(); },
+      heartbeat: () => { heartbeats++; return new Promise((resolve) => { heartbeatResolve = resolve; }); },
+      async saveState() { saves++; return response({ revision: 4 }); },
+    },
+    token: 'token', accountId: 'account-a', deviceId: 'device-123456789', storage,
+  });
+  await cloud.open();
+  cloud.queueState({ collection: { 'hoi-ssr': 1 } });
+  cloud.suspend();
+  assert.equal(cloud.getSnapshot().phase, 'suspended');
+  assert.equal(cloud.queueState({ collection: {} }), false);
+  assert.ok(storage.getItem(cloudSaveOutboxKey('account-a')));
+  const resume = cloud.resume(); assert.equal(cloud.resume(), resume);
+  assert.equal(cloud.getSnapshot().phase, 'connecting'); assert.equal(heartbeats, 1);
+  heartbeatResolve(response({ state: null })); assert.equal(await resume, true);
+  assert.equal(saves, 1); assert.equal(storage.getItem(cloudSaveOutboxKey('account-a')), null); cloud.dispose();
+});
+
+test('disposal during resume ignores a late heartbeat and cannot reactivate gameplay', async () => {
+  let resolve; const phases = [];
+  const cloud = createCloudPlaySession({
+    gateway: { async open() { return response(); }, heartbeat: () => new Promise((done) => { resolve = done; }) },
+    token: 'token', deviceId: 'device-123456789', onPhase: ({ phase }) => phases.push(phase),
+  });
+  await cloud.open(); cloud.suspend(); const pending = cloud.resume(); cloud.dispose();
+  resolve(response()); assert.equal(await pending, false);
+  assert.equal(phases.at(-1), 'connecting'); assert.equal(cloud.getSnapshot().lease, null);
+});
+
+test('cancelled or uncertain server reward refreshes authoritative inventory before accepting a new save', async () => {
+  const remote = []; const saved = []; let opens = 0;
+  const cloud = createCloudPlaySession({
+    gateway: {
+      async open() { return response(++opens === 1 ? {} : { revision: 4, state: { wallet: { coins: 700 } } }); },
+      async heartbeat() { return response({ revision: 4, state: null }); },
+      async saveState(_token, body) { saved.push(body); return response({ revision: 5 }); },
+    }, token: 'token', deviceId: 'device-123456789', onRemoteState: state => remote.push(state),
+  });
+  await cloud.open(); cloud.beginAuthoritativeMutation({ wallet: { coins: 100 } });
+  cloud.suspend(); cloud.cancelAuthoritativeMutation();
+  assert.equal(cloud.queueState({ wallet: { coins: 101 } }), false);
+  assert.equal(await cloud.resume(), true); assert.equal(opens, 2);
+  assert.deepEqual(remote.at(-1), { wallet: { coins: 700 } });
+  cloud.queueState({ wallet: { coins: 701 } }); await cloud.flush();
+  assert.equal(saved[0].baseRevision, 4); assert.equal(saved[0].state.wallet.coins, 701); cloud.dispose();
+});
+
+test('a newer heartbeat revision is never adopted without its corresponding server inventory', async () => {
+  const remote = []; let opens = 0;
+  const cloud = createCloudPlaySession({
+    gateway: {
+      async open() { return response(++opens === 1 ? {} : { revision: 9, state: { collection: { 'hoi-ssr': 1 } } }); },
+      async heartbeat() { return response({ revision: 9, state: null }); },
+    }, token: 'token', deviceId: 'device-123456789', onRemoteState: state => remote.push(state),
+  });
+  await cloud.open(); await cloud.heartbeat();
+  assert.equal(cloud.getSnapshot().phase, 'connection-error'); assert.equal(cloud.getSnapshot().revision, 3);
+  assert.equal(await cloud.resume(), true); assert.equal(cloud.getSnapshot().revision, 9);
+  assert.deepEqual(remote.at(-1), { collection: { 'hoi-ssr': 1 } }); cloud.dispose();
+});
+
+test('a conflict kept across backgrounding can be explicitly resolved and revalidated', async () => {
+  const storage = memoryStorage();
+  storage.setItem(cloudSaveOutboxKey('account'), JSON.stringify({ version: 1, entryId: 'unsent', baseRevision: 1, state: { wallet: { coins: 101 } } }));
+  const cloud = createCloudPlaySession({
+    gateway: { async open() { return response(); }, async heartbeat() { return response({ state: null }); } },
+    token: 'token', accountId: 'account', storage, deviceId: 'device-123456789',
+  });
+  await cloud.open(); assert.equal(cloud.getSnapshot().phase, 'save-conflict');
+  cloud.suspend(); assert.equal(cloud.getSnapshot().phase, 'save-conflict');
+  assert.equal(await cloud.resolveConflict('server'), true);
+  assert.equal(await cloud.resume(), true); assert.equal(cloud.getSnapshot().phase, 'active'); cloud.dispose();
+});
+
+test('an in-flight authoritative reward can settle after resume without losing local deltas', async () => {
+  const remote = [];
+  const cloud = createCloudPlaySession({
+    gateway: { async open() { return response(); }, async heartbeat() { return response({ revision: 4 }); }, async saveState() { return response({ revision: 5 }); } },
+    token: 'token', deviceId: 'device-123456789', onRemoteState: state => remote.push(state),
+  });
+  await cloud.open(); cloud.beginAuthoritativeMutation({ wallet: { coins: 100 } });
+  cloud.queueState({ wallet: { coins: 101 } }); cloud.suspend();
+  await cloud.resume(); assert.equal(cloud.getSnapshot().revision, 3);
+  cloud.commitAuthoritativeMutation(response({ revision: 4, state: { wallet: { coins: 700 } } }));
+  assert.equal(remote.at(-1).wallet.coins, 701); await cloud.flush(); cloud.dispose();
+});
+
 test('cloud session opens with bootstrap metadata, applies remote state, and saves only the newest debounced snapshot', async () => {
   const calls = [];
   const remoteStates = [];

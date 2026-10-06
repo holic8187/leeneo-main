@@ -378,3 +378,85 @@ test('IP rate limiter returns retry metadata and resets after its window', () =>
   currentTime = 2_001;
   assert.equal(limiter(req, createResponse()), true);
 });
+
+test('HTTP authentication preserves valid tokens across a mid-request database outage', async (t) => {
+  const express = require('express');
+  const { requireDatabaseReady } = require('../../src/databaseConnection');
+  const Account = createFakeAccountModel([{
+    _id: 'recovery-account',
+    username: 'recovery-user',
+    nickname: '복구사원',
+    tokenVersion: 2
+  }]);
+  const originalFindById = Account.findById.bind(Account);
+  let databaseUnavailable = true;
+  let accountLookups = 0;
+  Account.findById = async (id) => {
+    accountLookups += 1;
+    if (databaseUnavailable) throw new Error('synthetic-database-secret-must-not-leak');
+    return originalFindById(id);
+  };
+  const app = express();
+  // A healthy preflight does not guarantee that the subsequent query succeeds.
+  app.use('/api/tcg', requireDatabaseReady({ isReady: () => true }));
+  registerTcgRoutes({ app, bcrypt: fakeBcrypt, jwt, jwtSecret: JWT_SECRET, TcgAccount: Account });
+  const server = await new Promise((resolve, reject) => {
+    const instance = app.listen(0, '127.0.0.1', () => resolve(instance));
+    instance.once('error', reject);
+  });
+  t.after(() => new Promise((resolve, reject) => {
+    server.close((error) => error ? reject(error) : resolve());
+    server.closeAllConnections();
+  }));
+  const url = `http://127.0.0.1:${server.address().port}/api/tcg/auth/me`;
+  const sign = (overrides = {}, options = {}) => jwt.sign({
+    sub: 'recovery-account', kind: 'tcg', tokenVersion: 2, ...overrides
+  }, JWT_SECRET, {
+    issuer: TCG_TOKEN_ISSUER, audience: TCG_TOKEN_AUDIENCE, expiresIn: '1d', ...options
+  });
+  const request = async (token) => {
+    const response = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    return { status: response.status, headers: response.headers, payload: await response.json() };
+  };
+  const validToken = sign();
+  const unavailable = await request(validToken);
+  assert.equal(unavailable.status, 503);
+  assert.equal(unavailable.payload.code, 'DB_UNAVAILABLE');
+  assert.equal(unavailable.headers.get('retry-after'), '5');
+  assert.equal(unavailable.headers.get('cache-control'), 'no-store');
+  assert.equal(JSON.stringify(unavailable.payload).includes('synthetic-database-secret'), false);
+  assert.equal(accountLookups, 1);
+
+  const invalidTokens = [
+    'not-a-valid-jwt',
+    sign({}, { expiresIn: -1 }),
+    jwt.sign({ sub: 'recovery-account', kind: 'tcg', tokenVersion: 2 }, 'wrong-secret', {
+      issuer: TCG_TOKEN_ISSUER, audience: TCG_TOKEN_AUDIENCE
+    }),
+    sign({ kind: 'legacy' })
+  ];
+  for (const token of invalidTokens) {
+    const rejected = await request(token);
+    assert.equal(rejected.status, 401);
+    assert.equal(rejected.payload.code, 'INVALID_TOKEN');
+  }
+  const missingToken = await request('');
+  assert.equal(missingToken.status, 401);
+  assert.equal(missingToken.payload.code, 'AUTH_REQUIRED');
+  assert.equal(accountLookups, 1, 'invalid credentials never query the unavailable database');
+
+  databaseUnavailable = false;
+  const recovered = await request(validToken);
+  assert.equal(recovered.status, 200);
+  assert.equal(recovered.payload.account.id, 'recovery-account');
+  assert.ok(recovered.payload.token, 'the same valid token can resume after recovery');
+  for (const token of [sign({ sub: 'missing-account' }), sign({ tokenVersion: 1 })]) {
+    const rejected = await request(token);
+    assert.equal(rejected.status, 401);
+    assert.equal(rejected.payload.code, 'INVALID_TOKEN');
+  }
+  Account.records[0].status = 'disabled';
+  const disabled = await request(validToken);
+  assert.equal(disabled.status, 403);
+  assert.equal(disabled.payload.code, 'ACCOUNT_DISABLED');
+});

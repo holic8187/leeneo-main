@@ -1,0 +1,47 @@
+{
+  "date": "2026-10-06",
+  "feature": "Cached screen restoration, automatic reconnect, chibi loader",
+  "tests": {
+    "client": {
+      "passed": 304,
+      "failed": 0
+    },
+    "serverTcg": {
+      "passed": 69,
+      "failed": 0
+    },
+    "loadingSprites": {
+      "count": 32,
+      "framesEach": 4,
+      "format": "1254x1254 RGBA PNG",
+      "rendering": "Per-frame cropped and baseline-aligned; generated pixels unchanged"
+    },
+    "webBuild": "passed",
+    "android": {
+      "sync": "passed",
+      "gradle": "test assembleDebug passed; Java test sources absent",
+      "jdk": 21,
+      "sdk": 36,
+      "deviceRuntime": "Not verified; no Android device connected",
+      "apk": "android/app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "6DCBBDBC4BC6E780E5C7A766C7C4D5A886AC65C6AAE3342DDB4FD76549BB181C"
+    }
+  },
+  "manualBrowserChecks": {
+    "mode": "CUA, localhost fixture with mocked API; no production account mutations",
+    "viewport": "390x844 and desktop",
+    "passed": [
+      "Cached card details behind full-screen blur",
+      "Automatic recovery without game retry click",
+      "Collection scroll844 preserved across cold reload",
+      "New loading episode selects different character (morae -> deadline-dragon observed)",
+      "Expired credentials show login rather than endless retry",
+      "32-character gallery loads"
+    ]
+  },
+  "limitations": [
+    "A force-killed personal battle is not durably restored; last raid tab/panel is restored. Existing in-memory battle survives ordinary app background/foreground after server verification.",
+    "Native Android real-device behavior remains unverified.",
+    "Not deployed; debug APK is not a release-signed distribution."
+  ]
+}

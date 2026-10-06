@@ -7,6 +7,7 @@ const jwt = require('jsonwebtoken');
 const path = require('path');
 const crypto = require('crypto');
 const { releaseHealth } = require('./src/tcg/services/releaseHealth');
+const { createDatabaseConnection, requireDatabaseReady } = require('./src/databaseConnection');
 
 const app = express();
 
@@ -3074,11 +3075,15 @@ app.get(['/v2', '/v2/'], (req, res) => {
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
 app.get('/api/health', (req, res) => {
-  res.json(releaseHealth(APP_MODE));
+  const health = releaseHealth(APP_MODE, databaseConnection.isReady());
+  res.set('Cache-Control', 'no-store');
+  res.status(health.ok ? 200 : 503).json(health);
 });
 
-mongoose.connect(MONGO_URI)
-  .then(() => {
+const databaseConnection = createDatabaseConnection({
+  mongoose,
+  uri: MONGO_URI,
+  onFirstConnected: () => {
     console.log(`MongoDB connected (APP_MODE=${APP_MODE})`);
     if (IS_V2_MODE) {
       console.log('V2 cutover mode enabled: V1 APIs and V1 weekly jobs are disabled.');
@@ -3117,8 +3122,12 @@ mongoose.connect(MONGO_URI)
         console.error('Weekly PVP season interval error:', err);
       });
     }, PVP_WEEKLY_SEASON_CHECK_INTERVAL_MS);
-  })
-  .catch((err) => console.error('MongoDB connection error:', err));
+  }
+});
+// Readiness is checked before authentication and save handlers so a database
+// outage cannot be mistaken for expired credentials or leave buffered writes.
+app.use('/api/tcg', requireDatabaseReady(databaseConnection));
+void databaseConnection.start();
 
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
