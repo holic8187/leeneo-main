@@ -136,6 +136,10 @@ export function createCloudPlaySession({
   let heartbeatPromise = null;
   let authoritativeMutation = null;
   let disposed = false;
+  let suspended = false;
+  let openingPromise = null;
+  let resumePromise = null;
+  let needsAuthoritativeRefresh = false;
 
   function readOutbox() {
     if (!outboxKey) return null;
@@ -245,6 +249,8 @@ export function createCloudPlaySession({
   );
 
   function emit(nextPhase, details = {}) {
+    if (disposed) return;
+    if (suspended && nextPhase === 'active') nextPhase = 'suspended';
     phase = nextPhase;
     onPhase({ phase, ...details, lease: lease ? { ...lease } : null, revision });
   }
@@ -332,6 +338,7 @@ export function createCloudPlaySession({
       expiresAt: response.expiresAt || 0,
       serverNow: response.serverNow || 0,
     };
+    needsAuthoritativeRefresh = false;
     const responseRevision = Math.max(0, Number(response.revision) || 0);
     revision = responseRevision;
     conflict = null;
@@ -364,7 +371,13 @@ export function createCloudPlaySession({
         if (disposed || !ownsCredentials(heartbeatCredentials)) return response;
         if (response?.expiresAt) lease.expiresAt = response.expiresAt;
         if (response?.serverNow) lease.serverNow = response.serverNow;
-        if (Number(response?.revision) > revision) revision = Number(response.revision);
+        // A heartbeat acknowledges a lease, not the inventory at that revision.
+        // Advancing a bare revision could let stale local inventory overwrite a
+        // server-side grant after a suspended/ambiguous reward request.
+        if (Number(response?.revision) > revision && !authoritativeMutation && !savePromise) {
+          needsAuthoritativeRefresh = true;
+          lose(Object.assign(new Error('최신 서버 기록을 다시 확인하고 있습니다.'), { code: 'CLOUD_STATE_CHANGED' }));
+        }
         return response;
       })
       .catch((error) => {
@@ -377,12 +390,19 @@ export function createCloudPlaySession({
 
   function startHeartbeat() {
     clearHeartbeat();
-    if (disposed || !lease) return;
+    if (disposed || suspended || !lease) return;
     heartbeatTimer = setIntervalImpl(() => { void heartbeat().catch(() => {}); }, heartbeatMs);
   }
 
-  async function open({ bootstrapState = null, allowBootstrap = false } = {}) {
+  function open(options = {}) {
+    if (openingPromise) return openingPromise;
+    openingPromise = openSession(options).finally(() => { openingPromise = null; });
+    return openingPromise;
+  }
+
+  async function openSession({ bootstrapState = null, allowBootstrap = false } = {}) {
     if (disposed) throw new Error('Cloud play session is disposed.');
+    suspended = false;
     clearHeartbeat();
     emit('connecting');
     try {
@@ -393,10 +413,12 @@ export function createCloudPlaySession({
         ...(bootstrapState ? { bootstrapState } : {}),
         allowBootstrap: allowBootstrap === true,
       });
+      if (disposed) return null;
       const accepted = acceptSession(response);
       if (phase === 'active' && pendingEntry) await drainSaves();
       return accepted;
     } catch (error) {
+      if (disposed) throw error;
       if (Number(error?.status) === 428 || error?.code === 'CLOUD_SAVE_MIGRATION_REQUIRED') {
         emit('migration-required', { error, code: error.code, message: error.message });
       } else if (phase !== 'save-conflict') {
@@ -408,6 +430,7 @@ export function createCloudPlaySession({
 
   async function takeover({ expectedGeneration } = {}) {
     if (disposed) throw new Error('Cloud play session is disposed.');
+    suspended = false;
     clearHeartbeat();
     emit('taking-over');
     try {
@@ -417,11 +440,12 @@ export function createCloudPlaySession({
         appVersion,
         ...(expectedGeneration ? { expectedGeneration } : {}),
       });
+      if (disposed) return null;
       const accepted = acceptSession(response);
       if (phase === 'active' && pendingEntry) await drainSaves();
       return accepted;
     } catch (error) {
-      if (phase !== 'save-conflict') lose(error);
+      if (!disposed && phase !== 'save-conflict') lose(error);
       throw error;
     }
   }
@@ -508,7 +532,8 @@ export function createCloudPlaySession({
   }
 
   async function resolveConflict(strategy) {
-    if (!conflict || !pendingEntry || !lease) return false;
+    if (disposed || !conflict || !pendingEntry || !lease) return false;
+    suspended = false;
     if (strategy === 'server') {
       const serverState = conflict.serverState;
       if (!serverState) return false;
@@ -647,7 +672,8 @@ export function createCloudPlaySession({
   function cancelAuthoritativeMutation() {
     if (!authoritativeMutation) return false;
     authoritativeMutation = null;
-    if (pendingEntry && lease && phase === 'active') schedulePendingSave();
+    needsAuthoritativeRefresh = true;
+    if (!disposed) lose(Object.assign(new Error('보상 처리 결과를 서버에서 다시 확인하고 있습니다.'), { code: 'CLOUD_STATE_CHANGED' }));
     return true;
   }
 
@@ -673,11 +699,25 @@ export function createCloudPlaySession({
     return true;
   }
 
-  async function resume({ bootstrapState = null, allowBootstrap = false } = {}) {
-    if (phase === 'save-conflict') return false;
-    if (lease) {
+  function resume(options = {}) {
+    if (resumePromise) return resumePromise;
+    resumePromise = resumeSession(options).finally(() => { resumePromise = null; });
+    return resumePromise;
+  }
+
+  async function resumeSession({ bootstrapState = null, allowBootstrap = false } = {}) {
+    if (disposed || ['save-conflict', 'playing-elsewhere'].includes(phase)) return false;
+    suspended = false;
+    clearHeartbeat();
+    emit('connecting');
+    if (lease && !needsAuthoritativeRefresh) {
       try {
         await heartbeat();
+        if (disposed || suspended) return false;
+        if (needsAuthoritativeRefresh) {
+          await open({ bootstrapState, allowBootstrap });
+          return phase === 'active';
+        }
         emit('active');
         startHeartbeat();
         if (pendingEntry) await drainSaves();
@@ -692,6 +732,15 @@ export function createCloudPlaySession({
     } catch {
       return false;
     }
+  }
+
+  function suspend() {
+    if (disposed) return;
+    suspended = true;
+    clearHeartbeat();
+    if (saveTimer != null) clearTimeoutImpl(saveTimer);
+    saveTimer = null;
+    if (!['save-conflict', 'playing-elsewhere', 'migration-required'].includes(phase)) emit('suspended');
   }
 
   function dispose() {
@@ -718,6 +767,8 @@ export function createCloudPlaySession({
     cancelAuthoritativeMutation,
     release,
     resume,
+    suspend,
+    updateToken(nextToken) { if (!disposed && nextToken) token = String(nextToken); },
     dispose,
     getSnapshot: () => ({
       phase,

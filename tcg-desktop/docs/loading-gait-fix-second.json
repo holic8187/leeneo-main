@@ -1,0 +1,367 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Repair walking sprites into a natural A-B-C-B cycle for the reconnect loading overlay.",
+  "date": "2026-10-06",
+  "tool": "Built-in image_gen.imagegen",
+  "skill": "imagegen",
+  "scope": [
+    "eungga",
+    "peach",
+    "jandi",
+    "chuming",
+    "choonsik",
+    "coca",
+    "pie",
+    "rookie-analyst",
+    "sales-fox",
+    "pantry-cat",
+    "peach-sentry"
+  ],
+  "layout": {
+    "rows": 2,
+    "columns": 2,
+    "order": [
+      "A contact, near leg ahead-right",
+      "B passing, feet beneath hips",
+      "C opposite contact, near leg rear-left",
+      "unused; runtime reuses B"
+    ],
+    "runtimeFrameSequence": [
+      0,
+      1,
+      2,
+      1
+    ]
+  },
+  "policy": {
+    "method": "AI image editing only. Existing assets viewed first; all generated source files preserved. Accepted final files copied into project asset paths.",
+    "notPerformed": [
+      "No Python/CLI raster editing",
+      "No code or geometry edits",
+      "No deployment",
+      "No loop smoothness claim based on hashes"
+    ]
+  },
+  "verification": {
+    "method": "Manual inspection of generated keyframes for near/far leg lead, passing stance, right-facing feet, accessories and 2x2 layout; read-only System.Drawing dimensions/format/alpha check.",
+    "allAssets": {
+      "width": 1254,
+      "height": 1254,
+      "pixelFormat": "Format32bppArgb",
+      "cornerAlpha": 0,
+      "cellCenterBoundaryAlpha": 0
+    },
+    "remaining": "Runtime loop playback and head/hip anchor alignment are coordinated with the parent/reviewer; source-keyframe gait inspection alone does not establish final temporal smoothness."
+  },
+  "assets": [
+    {
+      "id": "eungga",
+      "projectPath": "tcg-desktop/public/assets/loading/eungga-walk.png",
+      "originalGeneratedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a10f15-7dc6-7711-8e55-3a3c6c630a49\\exec-baaab431-e0bb-4a2c-b90a-d7bfb4430340.png",
+      "finalGeneratedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a10f15-7dc6-7711-8e55-3a3c6c630a49\\exec-7ec13005-9af0-4e77-a0e6-deeac8ccc0e1.png",
+      "acceptedAfterVisualInspection": true,
+      "visualInspection": "A has foreground foot ahead toward right; C foreground leg moves rear-left. B feet gather beneath hips. Rounded feet have no sharp shoe direction.",
+      "prompts": [
+        {
+          "step": 0,
+          "prompt": "Use case: precise-object-edit. Image1 is EDIT TARGET sprite sheet. Fix animation gait, keep character identity/colors/clothes/accessories and original cute style. Transparent RGBA background, invisible 2x2 square sheet. Four characters face SAME three-quarter SCREEN RIGHT direction, same head/body scale and baseline; never mirror body. Redraw lower body/arms as needed. TOP-LEFT A is contact pose: bright camera-near foreground leg extends FORWARD screen-right; darker camera-far leg behind screen-left. TOP-RIGHT B passing: both feet directly UNDER hips, almost same horizontal position, nearly overlapping, knees only slightly bent, no high knee, no kicks. BOTTOM-LEFT C MUST BE CLEAR OPPOSITE CONTACT: LARGE/LIGHT FOREGROUND FOOT must be on the LEFT of its stance, SMALLER/DARK BACKGROUND FOOT on RIGHT. Near leg runs from near hip down-LEFT and crosses IN FRONT of other leg; far leg runs down-RIGHT BEHIND it. This is the opposite crossing order from A. Do not copy A legs into C. BOTH FEET still face RIGHT, including rear foot heel raised and toe forward. Arms counter-swing naturally. BOTTOM-RIGHT same B neutral passing. Runtime loops A-B-C-B. Make legs visibly different between A and C; not just arm changes. No ground, black fill, checkerboard, letters, borders or scenery. Preserve full bodies without clipping, generous margins. Brown crowned swirl spirit. Tiny brown feet must visibly swap front/rear, head and golden crown identical all cells."
+        }
+      ]
+    },
+    {
+      "id": "peach",
+      "projectPath": "tcg-desktop/public/assets/loading/peach-walk.png",
+      "originalGeneratedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a10f15-7dc6-7711-8e55-3a3c6c630a49\\exec-69538657-85a6-4ab1-95c3-c8fed099a6e3.png",
+      "finalGeneratedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a10f15-7dc6-7711-8e55-3a3c6c630a49\\exec-8a34f6a9-1c06-41e2-b704-52fbd0e0d9fb.png",
+      "acceptedAfterVisualInspection": true,
+      "visualInspection": "Initial C repeated A. Targeted C-only redraw reverses the foreground leg slope; shoes face right. B feet collect under hips.",
+      "prompts": [
+        {
+          "step": 0,
+          "prompt": "Use case: precise-object-edit. Image1 is EDIT TARGET sprite sheet. Fix animation gait, keep character identity/colors/clothes/accessories and original cute style. Transparent RGBA background, invisible 2x2 square sheet. Four characters face SAME three-quarter SCREEN RIGHT direction, same head/body scale and baseline; never mirror body. Redraw lower body/arms as needed. TOP-LEFT A is contact pose: bright camera-near foreground leg extends FORWARD screen-right; darker camera-far leg behind screen-left. TOP-RIGHT B passing: both feet directly UNDER hips, almost same horizontal position, nearly overlapping, knees only slightly bent, no high knee, no kicks. BOTTOM-LEFT C MUST BE CLEAR OPPOSITE CONTACT: LARGE/LIGHT FOREGROUND FOOT must be on the LEFT of its stance, SMALLER/DARK BACKGROUND FOOT on RIGHT. Near leg runs from near hip down-LEFT and crosses IN FRONT of other leg; far leg runs down-RIGHT BEHIND it. This is the opposite crossing order from A. Do not copy A legs into C. BOTH FEET still face RIGHT, including rear foot heel raised and toe forward. Arms counter-swing naturally. BOTTOM-RIGHT same B neutral passing. Runtime loops A-B-C-B. Make legs visibly different between A and C; not just arm changes. No ground, black fill, checkerboard, letters, borders or scenery. Preserve full bodies without clipping, generous margins. Pink bob-haired peach fairy. Preserve flower shoes, petal skirt, hair flowers; near pale leg at FRONT-RIGHT in A and REAR-LEFT in C, far leg visibly darker."
+        },
+        {
+          "step": 1,
+          "prompt": "Use case: precise-object-edit. EDIT TARGET sprite sheet. Perform an OBVIOUS REDRAW of the BOTTOM-LEFT character's TWO LEGS and BOTH ARMS. Do not preserve those legs; their pose is wrong. Preserve head/torso and other three cells. New bottom-left: nearer leg is a broad foreground leg leaning toward LOWER LEFT with its large shoe near the LEFT edge of stance. Its outline must lie OVER other leg at crossing. Farther leg is narrower, darker and stretches toward LOWER RIGHT. Thus large/light foreground shoe LEFT and smaller/dark background shoe RIGHT. Top-left has foreground shoe RIGHT, so exchange which leg leads. Both shoes still face RIGHT; keep toe on RIGHT of each foot and heel on LEFT. Heel of rear LEFT shoe may lift, toes stay pointing RIGHT. Near arm swings forward screen-right, far arm back. Keep face/body/camera facing right, not mirrored. Do not recreate original C pose. Standard opposite-contact walk keyframe. Genuine transparent RGBA, no scene, no shadow, no letters, same chibi art style and invisible 2x2 grid."
+        }
+      ]
+    },
+    {
+      "id": "jandi",
+      "projectPath": "tcg-desktop/public/assets/loading/jandi-walk.png",
+      "originalGeneratedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a10f15-7dc6-7711-8e55-3a3c6c630a49\\exec-588930d5-332a-4117-b974-4fcac4d23951.png",
+      "finalGeneratedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a10f15-7dc6-7711-8e55-3a3c6c630a49\\exec-510afa76-350b-4ea3-8faf-cb7311d8bbc4.png",
+      "acceptedAfterVisualInspection": true,
+      "visualInspection": "Quadruped opposite contact: near foreleg is ahead-right in A and rear-left in C, with hindleg opposition. B hooves cluster under shoulders/hips.",
+      "prompts": [
+        {
+          "step": 0,
+          "prompt": "Use case: precise-object-edit. Image1 EDIT TARGET. Preserve identical animal head/body/species/colors/accessories and 3/4 view facingSCREEN RIGHT in all4cells. Correct QUADRUPED walk animation, invisible2x2sheet genuineRGBAtransparent no scene/text/grid. Exactly4legs eachpose. TOP-LEFT A: visible NEAR FORELEG reaches FORWARD screenRIGHT, visible NEAR HINDLEG reaches BACK screenLEFT; far pair opposite. TOP-RIGHT B passing: two forepaws nearly overlap directly under SHOULDERS and two hindpaws nearly overlap under HIPS; allpaws lownearbaseline, no jumping or highkicks. BOTTOM-LEFT C: OPPOSITE fromA; bright foreground NEAR FORELEG must angle BACK screenLEFT from shoulder, with near front paw toLEFT of far frontpaw. FAR FORELEG is darker and reaches FORWARD screenRIGHT BEHIND nearerforeleg. NEAR HINDLEG now reaches FORWARDscreenRIGHT, far hindleg backscreenLEFT. Reverse leg crossing/overlap, do not repeatA. Feet/toes always pointSCREEN RIGHT, never flipbody/head. BOTTOM-RIGHT copyB. Character same scale/headanchor/baseline, generousmargins. RuntimeplaysA-B-C-B. Preserve green deer, cream muzzle/legs, green leafy antlers/flowers/white blossom pattern. Four HOOVES, not humanfeet."
+        }
+      ]
+    },
+    {
+      "id": "chuming",
+      "projectPath": "tcg-desktop/public/assets/loading/chuming-walk.png",
+      "originalGeneratedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a10f15-7dc6-7711-8e55-3a3c6c630a49\\exec-6224c033-e320-4c6c-80fa-620026344876.png",
+      "finalGeneratedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a10f15-7dc6-7711-8e55-3a3c6c630a49\\exec-92788e1f-5852-4b46-bd65-10a36b619f2a.png",
+      "acceptedAfterVisualInspection": true,
+      "visualInspection": "C-only opposite-contact redraw followed by shoe-only correction. Near foreground leg rear-left in C; both shoes point right. B feet under hips.",
+      "prompts": [
+        {
+          "step": 0,
+          "prompt": "Use case: precise-object-edit. Image1 is EDIT TARGET sprite sheet. Fix animation gait, keep character identity/colors/clothes/accessories and original cute style. Transparent RGBA background, invisible 2x2 square sheet. Four characters face SAME three-quarter SCREEN RIGHT direction, same head/body scale and baseline; never mirror body. Redraw lower body/arms as needed. TOP-LEFT A is contact pose: bright camera-near foreground leg extends FORWARD screen-right; darker camera-far leg behind screen-left. TOP-RIGHT B passing: both feet directly UNDER hips, almost same horizontal position, nearly overlapping, knees only slightly bent, no high knee, no kicks. BOTTOM-LEFT C MUST BE CLEAR OPPOSITE CONTACT: LARGE/LIGHT FOREGROUND FOOT must be on the LEFT of its stance, SMALLER/DARK BACKGROUND FOOT on RIGHT. Near leg runs from near hip down-LEFT and crosses IN FRONT of other leg; far leg runs down-RIGHT BEHIND it. This is the opposite crossing order from A. Do not copy A legs into C. BOTH FEET still face RIGHT, including rear foot heel raised and toe forward. Arms counter-swing naturally. BOTTOM-RIGHT same B neutral passing. Runtime loops A-B-C-B. Make legs visibly different between A and C; not just arm changes. No ground, black fill, checkerboard, letters, borders or scenery. Preserve full bodies without clipping, generous margins. Blue/pink twin-tailed idol in navy/white/gold star dress, no microphone. Preserve twin tails and face. Navy star shoes: near shoe FRONT-RIGHT in A, REAR-LEFT in C; passing B both shoes under skirt."
+        },
+        {
+          "step": 1,
+          "prompt": "Use case: precise-object-edit. EDIT TARGET sprite sheet. Perform an OBVIOUS REDRAW of the BOTTOM-LEFT character's TWO LEGS and BOTH ARMS. Do not preserve those legs; their pose is wrong. Preserve head/torso and other three cells. New bottom-left: nearer leg is a broad foreground leg leaning toward LOWER LEFT with its large shoe near the LEFT edge of stance. Its outline must lie OVER other leg at crossing. Farther leg is narrower, darker and stretches toward LOWER RIGHT. Thus large/light foreground shoe LEFT and smaller/dark background shoe RIGHT. Top-left has foreground shoe RIGHT, so exchange which leg leads. Both shoes still face RIGHT; keep toe on RIGHT of each foot and heel on LEFT. Heel of rear LEFT shoe may lift, toes stay pointing RIGHT. Near arm swings forward screen-right, far arm back. Keep face/body/camera facing right, not mirrored. Do not recreate original C pose. Standard opposite-contact walk keyframe. Genuine transparent RGBA, no scene, no shadow, no letters, same chibi art style and invisible 2x2 grid."
+        },
+        {
+          "step": 2,
+          "prompt": "Use case: precise-object-edit. EDIT TARGET. Change ONLY the TWO NAVY STAR SHOES of BOTTOM-LEFT character (pose C). Both shoe TOES MUST POINT SCREEN RIGHT and both HEELS SCREEN LEFT. The rear shoe on screen LEFT needs toe on its RIGHT side; redraw only foot orientation, not whole leg. Preserve existing opposite-leg positions and crossing: near foreground LEG points down-left, far darker LEG points down-right. DO NOT flip legs or body. Keep A/B/D completely unchanged, keep C head/arms/skin/dress unchanged. Genuine transparent RGBA, no text or shadows."
+        }
+      ],
+      "preMarginGeneratedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a10f15-7dc6-7711-8e55-3a3c6c630a49\\exec-7e5288f4-ea79-40e8-b41c-c269c7fe9c86.png",
+      "marginCorrection": {
+        "reason": "Reviewer found silhouette crossing a 627px frame boundary; preserve poses and improve safe transparent padding.",
+        "method": "Built-in imagegen edits only; no direct raster modifications.",
+        "prompts": [
+          "Use case: precise-object-edit.\nInput image: edit target, a 2x2 walking sprite sheet.\nPrimary request: MARGIN/PADDING CORRECTION ONLY. Return the complete same 2x2 four-frame sheet, genuine transparent RGBA. Preserve every character pose and artwork exactly; proportionally shrink each entire character to 90% of its present size within its own quarter, and recenter inside its quarter. Do not shrink the sheet as one picture. Each frame must have at least 25px fully transparent breathing room on ALL sides of its own cell (each original cell is 627x627, sheet1254x1254). No hair, feet, ears, whiskers, clothing or accessories may cross x=627 or y=627 or touch any cell border. Uniform identical scale factor for all four poses. Keep original phase order A top-left, B top-right, C bottom-left, B bottom-right.\nInvariants: pose angles, opposite leg ordering, limb anatomy, proportions, face, costume, lighting and style unchanged. B feet beneath body; A and C opposite leg lead. Do not regenerate a new walk pose or copy A legs into C. Preserve limb crossings. All feet continue to point right.\nRemove every isolated stray pixel/speck not attached to the character. Clean native alpha, no checkerboard, no grid lines, no letters, no background, no shadows, no decoration. Chuming: long cyan/pink twin-tails and every blue-shoe tip must fit entirely within each quadrant. C near foreground leg slopes down-left, far leg right. A near leg leads down-right. Keep star outfit and empty tiny hands."
+        ],
+        "visualInspection": "A/C opposite leg lead and B passing pose preserved after padding correction. Hair/paw tips now fully within their own frame.",
+        "alphaBoundsThreshold": 32,
+        "marginsPixels": [
+          {
+            "frame": 0,
+            "left": 86,
+            "top": 84,
+            "right": 65,
+            "bottom": 50
+          },
+          {
+            "frame": 1,
+            "left": 61,
+            "top": 83,
+            "right": 89,
+            "bottom": 56
+          },
+          {
+            "frame": 2,
+            "left": 88,
+            "top": 60,
+            "right": 60,
+            "bottom": 82
+          },
+          {
+            "frame": 3,
+            "left": 61,
+            "top": 60,
+            "right": 88,
+            "bottom": 81
+          }
+        ],
+        "note": "Very low-alpha antialiasing/noise below32 is excluded by the shared reviewer bounds criterion; native generated alpha is preserved without filtering."
+      }
+    },
+    {
+      "id": "choonsik",
+      "projectPath": "tcg-desktop/public/assets/loading/choonsik-walk.png",
+      "originalGeneratedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a10f15-7dc6-7711-8e55-3a3c6c630a49\\exec-81cad989-0ae4-4057-8815-2482dbc52611.png",
+      "finalGeneratedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a10f15-7dc6-7711-8e55-3a3c6c630a49\\exec-bf1083c6-d0fb-47e1-bf89-679411fa4e03.png",
+      "acceptedAfterVisualInspection": true,
+      "visualInspection": "C foreground leg is rear-left, farther leg ahead-right. Paw-only correction removes the backward-facing/full-sole appearance on C rear paw. B feet together.",
+      "prompts": [
+        {
+          "step": 0,
+          "prompt": "Use case: precise-object-edit. Image1 is EDIT TARGET sprite sheet. Fix animation gait, keep character identity/colors/clothes/accessories and original cute style. Transparent RGBA background, invisible 2x2 square sheet. Four characters face SAME three-quarter SCREEN RIGHT direction, same head/body scale and baseline; never mirror body. Redraw lower body/arms as needed. TOP-LEFT A is contact pose: bright camera-near foreground leg extends FORWARD screen-right; darker camera-far leg behind screen-left. TOP-RIGHT B passing: both feet directly UNDER hips, almost same horizontal position, nearly overlapping, knees only slightly bent, no high knee, no kicks. BOTTOM-LEFT C MUST BE CLEAR OPPOSITE CONTACT: LARGE/LIGHT FOREGROUND FOOT must be on the LEFT of its stance, SMALLER/DARK BACKGROUND FOOT on RIGHT. Near leg runs from near hip down-LEFT and crosses IN FRONT of other leg; far leg runs down-RIGHT BEHIND it. This is the opposite crossing order from A. Do not copy A legs into C. BOTH FEET still face RIGHT, including rear foot heel raised and toe forward. Arms counter-swing naturally. BOTTOM-RIGHT same B neutral passing. Runtime loops A-B-C-B. Make legs visibly different between A and C; not just arm changes. No ground, black fill, checkerboard, letters, borders or scenery. Preserve full bodies without clipping, generous margins. Preserve yellow bear, green sprout/scarf/backpack. Brown paw pads. Tiny paws follow alternating humanlike TWO-legged walk, no quadrupled feet."
+        },
+        {
+          "step": 1,
+          "prompt": "Use case: precise-object-edit. EDIT TARGET sprite sheet. Perform an OBVIOUS REDRAW of the BOTTOM-LEFT character's TWO LEGS and BOTH ARMS. Do not preserve those legs; their pose is wrong. Preserve head/torso and other three cells. New bottom-left: nearer leg is a broad foreground leg leaning toward LOWER LEFT with its large paw near the LEFT edge of stance. Its outline must lie OVER other leg at crossing. Farther leg is narrower, darker and stretches toward LOWER RIGHT. Thus large/light foreground paw LEFT and smaller/dark background paw RIGHT. Top-left has foreground paw RIGHT, so exchange which leg leads. Both paws still face RIGHT; keep toe on RIGHT of each foot and heel on LEFT. Heel of rear LEFT paw may lift, toes stay pointing RIGHT. Near arm swings forward screen-right, far arm back. Keep face/body/camera facing right, not mirrored. Do not recreate original C pose. Standard opposite-contact walk keyframe. Genuine transparent RGBA, no scene, no shadow, no letters, same chibi art style and invisible 2x2 grid. Keep entire yellow bear's head/white belly/sprout/scarf/backpack unmirrored and identical to top-left. Rear near paw must be LEFT, toe pads pointing RIGHT."
+        },
+        {
+          "step": 2,
+          "prompt": " Use case precise-object-edit. Genuine transparent RGBA sprite sheet invisible2x2grid. Preserve top-left,top-right,bottom-right unchanged. Preserve character identity,lighting,style,scale and camera. No background,no text. In BOTTOM-LEFT ONLY, correct the TWO FEET orientation. Keep exact existing C leg placement: the big near leg goes down-left and the far small leg goes down-right. DO NOT CHANGE LEGS or swap their locations. Redraw only paws at ends so both feet TOE direction points SCREEN RIGHT, heel on left. Left rear paw shows side/top, its toes touching ground towards right and heel lifting a little; it must NOT point at camera or left and its full sole must NOT face viewer. Right leading far paw toes also right. Keep everything above ankles unchanged. No shoes; same yellow bear paws."
+        }
+      ]
+    },
+    {
+      "id": "coca",
+      "projectPath": "tcg-desktop/public/assets/loading/coca-walk.png",
+      "originalGeneratedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a10f15-7dc6-7711-8e55-3a3c6c630a49\\exec-e451321f-a15c-4958-ba2d-e0d16eda5bbb.png",
+      "finalGeneratedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a10f15-7dc6-7711-8e55-3a3c6c630a49\\exec-77708cba-45b1-45bd-81f7-c53836226ee8.png",
+      "acceptedAfterVisualInspection": true,
+      "visualInspection": "Body/necklace orientation was preserved, then C legs redrawn and rear-left foot toes separately corrected to right. Near larger foot moves from ahead-right in A to rear-left in C. Blue-bead necklace and waterdrop pendant retained.",
+      "prompts": [
+        {
+          "step": 0,
+          "prompt": "Use case: precise-object-edit. Image1 is EDIT TARGET sprite sheet. Fix animation gait, keep character identity/colors/clothes/accessories and original cute style. Transparent RGBA background, invisible 2x2 square sheet. Four characters face SAME three-quarter SCREEN RIGHT direction, same head/body scale and baseline; never mirror body. Redraw lower body/arms as needed. TOP-LEFT A is contact pose: bright camera-near foreground leg extends FORWARD screen-right; darker camera-far leg behind screen-left. TOP-RIGHT B passing: both feet directly UNDER hips, almost same horizontal position, nearly overlapping, knees only slightly bent, no high knee, no kicks. BOTTOM-LEFT C MUST BE CLEAR OPPOSITE CONTACT: LARGE/LIGHT FOREGROUND FOOT must be on the LEFT of its stance, SMALLER/DARK BACKGROUND FOOT on RIGHT. Near leg runs from near hip down-LEFT and crosses IN FRONT of other leg; far leg runs down-RIGHT BEHIND it. This is the opposite crossing order from A. Do not copy A legs into C. BOTH FEET still face RIGHT, including rear foot heel raised and toe forward. Arms counter-swing naturally. BOTTOM-RIGHT same B neutral passing. Runtime loops A-B-C-B. Make legs visibly different between A and C; not just arm changes. No ground, black fill, checkerboard, letters, borders or scenery. Preserve full bodies without clipping, generous margins. Preserve red waterbird and BLUE BEADED NECKLACE WITH GOLD-RIMMED WATER-DROP MEDALLION ALL FRAMES. Two orange webbed bird feet, NOT SHOES. Foreground webbed foot bright orange FRONT-RIGHT in A, REAR-LEFT in C. All toes face SCREEN RIGHT in both feet. Short folded wings stay."
+        },
+        {
+          "step": 1,
+          "prompt": "Use case: precise-object-edit. EDIT TARGET. Fix only BOTTOM-LEFT frameC of this waterbird spritesheet. Keep C's alternate leg lead: NEAR foreground leg extends toward LEFT (rear) and FAR darker leg extends toward RIGHT (front). Correct TWO WEBBED FEET: all three main toe tips point screen RIGHT, heels screenLEFT, both feet. Currently both foot toes point the wrong way. Also replace C upper BODY/wing/chest/necklace with SAME right-facing orientation as A(TOP LEFT): tail LEFT, near WING on left of torso, blue medallion toward front RIGHT of chest, no bodymirror. Keep C head/beak facing RIGHT unchanged. PreserveA/B/D frames, transparentRGBA, no additionalart/labels."
+        },
+        {
+          "step": 2,
+          "prompt": " Use case precise-object-edit. Genuine transparent RGBA sprite sheet invisible2x2grid. Preserve top-left,top-right,bottom-right unchanged. Preserve character identity,lighting,style,scale and camera. No background,no text. BOTTOM-LEFT ONLY: redraw ONLY TWO ORANGE LEGS and FEET below bird's belly, with opposite stride to top-left. Leave all pixels above belly unchanged: head/body/necklace/wings/tail face same right direction. Existing C has same forward near foot as A and is WRONG. NEW C nearer leg rooted under foreground left side belly slopes clearly down-LEFT: its larger/brighter foreground foot is on LEFT of stance. Far leg behind slopes down-RIGHT, smaller/darker foot on RIGHT. Foreground leg crosses OVER other leg. Both feet have toes towards RIGHT and heels LEFT (rear left heel can lift). Do not mirror torso or shift necklace. It is NOT top-left pose. Keep blue-bead necklace and gold-rimmed waterdrop medal visible."
+        },
+        {
+          "step": 3,
+          "prompt": "Use case: precise-object-edit. Single tiny correction only: bottom-left cell bird's LARGE FOOT ON LEFT SIDE OF STANCE. Its toes erroneously point LEFT. Redraw that one orange webbed foot to face RIGHT: ankle heel toward left, toes toward right. Keep its exact rear-left LOCATION and attached leg location/angle unchanged. DO NOT change other leg or right foot. The large foreground leg remains rear-left, opposite from top-left frame. Preserve the whole body,head,necklace,legs and all other cells pixel-for-pixel. Turn the FOOT only, not the leg or character. Both feet now point screen RIGHT, but are still spread left-right. Genuine RGBA transparent invisible 2x2 sprite sheet, same art."
+        }
+      ]
+    },
+    {
+      "id": "pie",
+      "projectPath": "tcg-desktop/public/assets/loading/pie-walk.png",
+      "originalGeneratedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a10f15-7dc6-7711-8e55-3a3c6c630a49\\exec-606e4d38-b321-439e-a304-63234a57e35f.png",
+      "finalGeneratedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a10f15-7dc6-7711-8e55-3a3c6c630a49\\exec-56dada5e-5726-4b6e-8784-56e26807f1fb.png",
+      "acceptedAfterVisualInspection": true,
+      "visualInspection": "C has opposite leg lead and corrected right-facing boots. B feet below hips. Both hands continue holding the pie instead of a conflicting arm swing.",
+      "prompts": [
+        {
+          "step": 0,
+          "prompt": "Use case: precise-object-edit. Image1 is EDIT TARGET sprite sheet. Fix animation gait, keep character identity/colors/clothes/accessories and original cute style. Transparent RGBA background, invisible 2x2 square sheet. Four characters face SAME three-quarter SCREEN RIGHT direction, same head/body scale and baseline; never mirror body. Redraw lower body/arms as needed. TOP-LEFT A is contact pose: bright camera-near foreground leg extends FORWARD screen-right; darker camera-far leg behind screen-left. TOP-RIGHT B passing: both feet directly UNDER hips, almost same horizontal position, nearly overlapping, knees only slightly bent, no high knee, no kicks. BOTTOM-LEFT C MUST BE CLEAR OPPOSITE CONTACT: LARGE/LIGHT FOREGROUND FOOT must be on the LEFT of its stance, SMALLER/DARK BACKGROUND FOOT on RIGHT. Near leg runs from near hip down-LEFT and crosses IN FRONT of other leg; far leg runs down-RIGHT BEHIND it. This is the opposite crossing order from A. Do not copy A legs into C. BOTH FEET still face RIGHT, including rear foot heel raised and toe forward. Arms counter-swing naturally. BOTTOM-RIGHT same B neutral passing. Runtime loops A-B-C-B. Make legs visibly different between A and C; not just arm changes. No ground, black fill, checkerboard, letters, borders or scenery. Preserve full bodies without clipping, generous margins. Preserve brown braids, brown witch hat, cream floral dress/apron, brown boots, small pie held with both mittens in ALL frames. Arms do not swing as she holds pie; only gait changes. Big lighter near boot RIGHT in A, LEFT in C, both boot toes always right."
+        },
+        {
+          "step": 1,
+          "prompt": "Use case: precise-object-edit. EDIT TARGET. Change ONLY TWO BROWN BOOTS in BOTTOM-LEFT frameC. Both boot toes point SCREEN RIGHT, heels SCREEN LEFT. LeaveClegspositions/nearlegdownleft/farlegdownright/crossing untouched. Fix orientation ONLY boots, not legs. Preserve ALL other frames and C face/hair/hat/dress/pie/arms. Genuine transparent RGBA background, no text/shadow."
+        }
+      ]
+    },
+    {
+      "id": "rookie-analyst",
+      "projectPath": "tcg-desktop/public/assets/loading/rookie-analyst-walk.png",
+      "originalGeneratedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a10f15-7dc6-7711-8e55-3a3c6c630a49\\exec-f086a3cc-cf2c-41b7-8a1c-cbf7d7e301b7.png",
+      "finalGeneratedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a10f15-7dc6-7711-8e55-3a3c6c630a49\\exec-759a51be-2734-4bfa-b1e8-58c58dd442fd.png",
+      "acceptedAfterVisualInspection": true,
+      "visualInspection": "Pilot required targeted C leg reversal and toe-only repair. C foreground trouser leg slopes rear-left across narrower far leg; B feet collect under hips.",
+      "prompts": [
+        {
+          "step": 0,
+          "prompt": "Use case: precise-object-edit. Image 1 is EDIT TARGET. Correct this 2x2 chibi walking sprite sheet into a true alternating walk. Preserve SAME character face, hair, green vest, badge, charcoal trousers, brown shoes, art style and camera in ALL panels. All face screen RIGHT. Actual transparent RGBA background, invisible 2x2 grid, no text or markers. MAIN CORRECTION: replace leg poses, because current first and third have the SAME leading leg. TOP-LEFT A: camera-near leg (light-facing foreground leg, continuously attached to camera-near hip) extends diagonally DOWN-RIGHT, foot ahead; far shadowed leg extends DOWN-LEFT, foot behind. TOP-RIGHT B: calm passing position BOTH shoes directly UNDER hips, nearly overlapping horizontally, knees only slightly flexed, no high knee or jumping. BOTTOM-LEFT C: the camera-near foreground leg MUST now extend DOWN-LEFT from hip to shoe, foot BEHIND; the far shadowed leg extends DOWN-RIGHT, foot AHEAD and its upper leg visibly goes BEHIND near leg. This is the opposite leg lead of A, not A duplicated and not whole-character horizontal flip. BOTH SHOE TOES still point RIGHT even the rear shoe. BOTTOM-RIGHT repeat B. The near leg is clearly foreground brighter in A AND C; track the SAME hip through the stride. Arms counter-swing. Upper body unchanged. Modest stride rather than big kicks. Same body scale, head position, foot baseline, generous transparent margins in each cell. Need loop A-B-C-B. No scene, no shadow, no checkerboard."
+        },
+        {
+          "step": 1,
+          "prompt": "Use case: precise-object-edit. Correct ONLY the BOTTOM-LEFT character below the waist. This is animation pose C and currently the wrong leg is leading. Leave other THREE characters, every head, every torso, grid and background unchanged. In BOTTOM-LEFT: REVERSE THE CROSSING ORDER of the trouser legs at the crotch. The long pants leg currently going diagonally from upper-left hip toward lower-right shoe must instead run from upper-left hip DOWN-LEFT toward the rear shoe. Make that rearward leg the FOREGROUND one crossing OVER the other leg. The other leg emerges BEHIND it from the farther hip and runs diagonally DOWN-RIGHT to forward shoe. The front-facing trouser leg should lean like / on screen in this C pose, not like \\ as in A. Arms counter-swing: near arm goes forward screen-right while near leg goes backward screen-left. Shoes still point screen-right. No mirroring the head/body, no sideways gliding. Preserve exact identity, scale and art. Keep genuine transparent RGBA background, no black fill, no ground, no text. Three untouched poses must remain visually unchanged."
+        },
+        {
+          "step": 2,
+          "prompt": "EDIT TARGET sprite sheet. Perform an OBVIOUS REDRAW of the BOTTOM-LEFT character's TWO LEGS and BOTH ARMS. Do not preserve those legs; their pose is wrong. Preserve the head/torso and other three cells. New bottom-left: nearer leg is a broad foreground leg leaning toward the LOWER LEFT with its large shoe near the left edge of the stance. Its dark pant outline must lie OVER the other leg's outline at crossing. Farther leg is narrower and darker and stretches toward the LOWER RIGHT. Thus the large/light foreground shoe is the LEFT shoe and the smaller/dark background shoe is the RIGHT shoe. In the top-left cell the large/light foreground shoe is on RIGHT. This visibly exchanges which leg leads. Both shoes point right. Draw the near arm lifted forward toward screen right and far arm back. Keep eye direction/body/camera facing right, not mirrored. Do not simply recreate the existing bottom-left pose. This is a standard opposite-contact walk animation keyframe. Transparent background, no shadows, same chibi style, no text, retain invisible 2x2 grid."
+        },
+        {
+          "step": 3,
+          "prompt": "Use case: precise-object-edit. EDIT TARGET. Change ONLY the TWO BROWN SHOES of BOTTOM-LEFT character (pose C). Both shoe TOES MUST POINT SCREEN RIGHT and both HEELS SCREEN LEFT. The rear shoe on screen LEFT needs toe on its RIGHT side; redraw only that foot orientation, not whole leg. Preserve the existing opposite-leg positions and crossing: near foreground LEG points down-left, far darker LEG points down-right. DO NOT flip whole legs or body. Keep the A/B/D frames completely unchanged, keep C head/arms/trousers exactly unchanged. Genuine transparent RGBA background, no text or shadows."
+        }
+      ]
+    },
+    {
+      "id": "sales-fox",
+      "projectPath": "tcg-desktop/public/assets/loading/sales-fox-walk.png",
+      "originalGeneratedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a10f15-7dc6-7711-8e55-3a3c6c630a49\\exec-6e0007b0-6ec3-47fc-8a05-f19f14c4c5e1.png",
+      "finalGeneratedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a10f15-7dc6-7711-8e55-3a3c6c630a49\\exec-23bea0b1-87a5-495d-86d8-7576daa32a62.png",
+      "acceptedAfterVisualInspection": true,
+      "visualInspection": "Rejected a correction that returned only one portrait. Reused the valid four-cell opposite-contact sheet, corrected shoes only, then changed the near hand only to hold its folio. Final C retains broad foreground leg down-left; both shoes face right. B feet under hips.",
+      "prompts": [
+        {
+          "step": 0,
+          "prompt": "Use case: precise-object-edit. Image1 is EDIT TARGET sprite sheet. Fix animation gait, keep character identity/colors/clothes/accessories and original cute style. Transparent RGBA background, invisible 2x2 square sheet. Four characters face SAME three-quarter SCREEN RIGHT direction, same head/body scale and baseline; never mirror body. Redraw lower body/arms as needed. TOP-LEFT A is contact pose: bright camera-near foreground leg extends FORWARD screen-right; darker camera-far leg behind screen-left. TOP-RIGHT B passing: both feet directly UNDER hips, almost same horizontal position, nearly overlapping, knees only slightly bent, no high knee, no kicks. BOTTOM-LEFT C MUST BE CLEAR OPPOSITE CONTACT: LARGE/LIGHT FOREGROUND FOOT must be on the LEFT of its stance, SMALLER/DARK BACKGROUND FOOT on RIGHT. Near leg runs from near hip down-LEFT and crosses IN FRONT of other leg; far leg runs down-RIGHT BEHIND it. This is the opposite crossing order from A. Do not copy A legs into C. BOTH FEET still face RIGHT, including rear foot heel raised and toe forward. Arms counter-swing naturally. BOTTOM-RIGHT same B neutral passing. Runtime loops A-B-C-B. Make legs visibly different between A and C; not just arm changes. No ground, black fill, checkerboard, letters, borders or scenery. Preserve full bodies without clipping, generous margins. Preserve orangefox/headset/tealsuit/greentie/brownfolio alwaysunder SAME arm. DO NOT switch arms holdingfolio. Near pantslegdownRIGHTinA/downLEFTinC. BothbrownshoetoesalwaysRIGHT."
+        },
+        {
+          "step": 1,
+          "prompt": " Use case precise-object-edit. Genuine transparent RGBA sprite sheet invisible2x2grid. Preserve top-left,top-right,bottom-right unchanged. Preserve character identity,lighting,style,scale and camera. No background,no text. BOTTOM-LEFT ONLY: Preserve the exact current crossed LEG poses below belt (near broad foreground trouser leg slopes DOWN-LEFT, far leg DOWN-RIGHT). Fix only (1) feet: both shoe TOES point SCREEN RIGHT and heels left, keeping shoe positions exactly, no leg reversal. (2) folio grip: near arm on LEFT must bend across chest to securely HOLD the same brown folio tucked under near arm as TOP-LEFT. Remove floating folio at waist; same book firmly held higher near-left chest. Keep head/body facing right, tie, headset,tail unchanged. Do NOT replace legs with top-left legs; opposite-contact legs must remain."
+        },
+        {
+          "step": 2,
+          "prompt": "Use case: precise-object-edit. Target bottom-left character ONLY. Existing C legs WRONG: same stride as top-left. Redraw ONLY BOTH TROUSER LEGS and SHOES below belt into the opposite-contact walk pose. Preserve all above belt (especially secure folio grip,torso,face,tail), and the other3cells. Near broad foreground leg rooted on left hip must slope diagonally DOWN-LEFT. Large near shoe on LEFT of stance, farther from body and behind. Far narrow shadowed leg slopes DOWN-RIGHT behind near leg; smaller far shoe on RIGHT of stance,forward. Foreground leg must overlap far leg at crossing. This REVERSES C foreground leg slope relative to A. BOTH SHOES still point RIGHT: toe extension on right side,heel left. Front-right shoe points right; rear-left shoe also points right with lifted heel. No mirroring body. It is a normal opposite-contact step, not a new top-left pose. No changes above belt. True transparent RGBA,no text,no ground."
+        },
+        {
+          "step": 3,
+          "prompt": "Edit image preserving the entire 2x2 four character sprite sheet, output MUST remain 4 frames with transparent background, identical same size square canvas. Not a single-character portrait. Only edit TWO SHOES in BOTTOM-LEFT quadrant. These shoes currently point LEFT. Redraw both shoes in their EXACT existing positions pointing RIGHT: toes on right of EACH shoe and heels left. Do NOT edit any pants or legs. Preserve C near foreground leg leaning DOWN-LEFT, far background leg DOWN-RIGHT, their crossing and color, exactly as shown. Do not copy top-left legs. Do not move shoes to different positions. Preserve every pixel outside those 2 bottom-left shoes including torso,folio,arms,face,other3frames. This is shoe-only orientation correction, NOT pose regeneration. Genuine RGBA transparent 2x2 sprite sheet, no text/grid/background."
+        },
+        {
+          "step": 4,
+          "prompt": "Precise tiny inpaint in bottom-left quadrant ONLY: the fox's NEAR ARM on LEFT must firmly hold the brown folio. Currently the fist is away from book and book floats. Bend that elbow so the LEFT fist rests ON the lower-left edge of the EXISTING folio. Raise forearm to wrap hand around book, don't move book. Preserve all existing C head,torso,body,tail,book location. Most importantly do NOT modify anything BELOW THE BELT: keep the crossed legs, large near shoe on LEFT and small far shoe on RIGHT exactly as shown. Preserve all legs/shoes pixels; do not regenerate body pose. Keep all other3cells exactly. Output remains same FOUR-FRAME 2x2 transparent RGBA sprite sheet, same dimensions, no cropping into a portrait. This is only one forearm/fist position correction."
+        }
+      ]
+    },
+    {
+      "id": "pantry-cat",
+      "projectPath": "tcg-desktop/public/assets/loading/pantry-cat-walk.png",
+      "originalGeneratedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a10f15-7dc6-7711-8e55-3a3c6c630a49\\exec-dd6a5e72-8e83-47f4-a3ef-df216f4bfe13.png",
+      "finalGeneratedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a10f15-7dc6-7711-8e55-3a3c6c630a49\\exec-60459ca3-91d4-4503-9d9a-637e2768ea2a.png",
+      "acceptedAfterVisualInspection": true,
+      "visualInspection": "C near front leg trails left while far front leg leads right. Hindlegs corrected separately to reverse their A ordering. B has paws underneath the body; exactly four legs retained.",
+      "prompts": [
+        {
+          "step": 0,
+          "prompt": "Use case: precise-object-edit. Image1 EDIT TARGET. Preserve identical animal head/body/species/colors/accessories and 3/4 view facingSCREEN RIGHT in all4cells. Correct QUADRUPED walk animation, invisible2x2sheet genuineRGBAtransparent no scene/text/grid. Exactly4legs eachpose. TOP-LEFT A: visible NEAR FORELEG reaches FORWARD screenRIGHT, visible NEAR HINDLEG reaches BACK screenLEFT; far pair opposite. TOP-RIGHT B passing: two forepaws nearly overlap directly under SHOULDERS and two hindpaws nearly overlap under HIPS; allpaws lownearbaseline, no jumping or highkicks. BOTTOM-LEFT C: OPPOSITE fromA; bright foreground NEAR FORELEG must angle BACK screenLEFT from shoulder, with near front paw toLEFT of far frontpaw. FAR FORELEG is darker and reaches FORWARD screenRIGHT BEHIND nearerforeleg. NEAR HINDLEG now reaches FORWARDscreenRIGHT, far hindleg backscreenLEFT. Reverse leg crossing/overlap, do not repeatA. Feet/toes always pointSCREEN RIGHT, never flipbody/head. BOTTOM-RIGHT copyB. Character same scale/headanchor/baseline, generousmargins. RuntimeplaysA-B-C-B. Preserve black/white tuxedocat, greeneyes, pinklanyard/pawbadge, tail. Fourcatpaws. Near foreleg iswhitewithblackupperpatch. InC nearfrontpawisREARLEFTofshoulder while darkerfarfrontpawisAHEADRIGHT."
+        },
+        {
+          "step": 1,
+          "prompt": " Use case precise-object-edit. Genuine transparent RGBA sprite sheet invisible2x2grid. Preserve top-left,top-right,bottom-right unchanged. Preserve character identity,lighting,style,scale and camera. No background,no text. BOTTOM-LEFT ONLY: correctly complete opposite quadruped contact stride. Preserve cat head/body/tail/collar and front leg positions except tiny clarity adjustment. Near foreleg (foreground front leg left of other front leg) slopes backward screen-LEFT; farther foreleg slopes forward screen-RIGHT, already correct. Need FIX HIND LEGS: near foreground hindleg must now slope FORWARD screen-RIGHT from rump, broad light lower paw between hindquarters and chest; farther background hindleg must slope BACKWARD screen-LEFT, narrow darker paw behind rump. Currently hindlegs repeat A; reverse their lead. Exactly4legs, no extra paw. All paws/toes point right. Near foreleg back-left paired with near hindleg forward-right; farfore forward-right paired farhindback-left. In B (top-right), feet remain under body,don'tedit."
+        }
+      ],
+      "preMarginGeneratedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a10f15-7dc6-7711-8e55-3a3c6c630a49\\exec-ec8f1e08-ad58-47de-bacd-8e5e758a5dae.png",
+      "marginCorrection": {
+        "reason": "Reviewer found silhouette crossing a 627px frame boundary; preserve poses and improve safe transparent padding.",
+        "method": "Built-in imagegen edits only; no direct raster modifications.",
+        "prompts": [
+          "Use case: precise-object-edit.\nInput image: edit target, a 2x2 walking sprite sheet.\nPrimary request: MARGIN/PADDING CORRECTION ONLY. Return the complete same 2x2 four-frame sheet, genuine transparent RGBA. Preserve every character pose and artwork exactly; proportionally shrink each entire character to 90% of its present size within its own quarter, and recenter inside its quarter. Do not shrink the sheet as one picture. Each frame must have at least 25px fully transparent breathing room on ALL sides of its own cell (each original cell is 627x627, sheet1254x1254). No hair, feet, ears, whiskers, clothing or accessories may cross x=627 or y=627 or touch any cell border. Uniform identical scale factor for all four poses. Keep original phase order A top-left, B top-right, C bottom-left, B bottom-right.\nInvariants: pose angles, opposite leg ordering, limb anatomy, proportions, face, costume, lighting and style unchanged. B feet beneath body; A and C opposite leg lead. Do not regenerate a new walk pose or copy A legs into C. Preserve limb crossings. All feet continue to point right.\nRemove every isolated stray pixel/speck not attached to the character. Clean native alpha, no checkerboard, no grid lines, no letters, no background, no shadows, no decoration. Pantry-cat: protect all four paw tips, especially bottom-left cell's far forward front paw that currently reaches right cell boundary. Keep C front and hind legs in their exact opposite stride arrangement, not the A leg layout. Pink collar/paw badge unchanged.",
+          "Use case precise-object-edit. Padding adjustment only to complete the same 2x2 four-frame transparent RGBA sprite sheet. In BOTTOM-LEFT quadrant ONLY, move the ENTIRE cat and all its whiskers/tail/paws left by 30 pixels, preserving exact size, pose,shape and every detail. This is a whole-character reposition, NOT a leg change. Leave the other3frames unchanged. Its farthest forward paw must have at least30px transparent margin from center vertical boundary x=627; currently it has only11px. Keep canvas1254square, invisible2x2grid, no cropping or new framing. No scales changed. Preserve A/C opposite foreleg and hindleg lead, B under-body paws, identity,pink collar/paw badge. Remove stray detached pixels only. True alpha background, no scene,grid,text,shadow. Output fullfourframes not portrait."
+        ],
+        "visualInspection": "A/C opposite leg lead and B passing pose preserved after padding correction. Hair/paw tips now fully within their own frame.",
+        "alphaBoundsThreshold": 32,
+        "marginsPixels": [
+          {
+            "frame": 0,
+            "left": 114,
+            "top": 99,
+            "right": 33,
+            "bottom": 65
+          },
+          {
+            "frame": 1,
+            "left": 113,
+            "top": 99,
+            "right": 56,
+            "bottom": 66
+          },
+          {
+            "frame": 2,
+            "left": 23,
+            "top": 77,
+            "right": 92,
+            "bottom": 92
+          },
+          {
+            "frame": 3,
+            "left": 113,
+            "top": 77,
+            "right": 56,
+            "bottom": 93
+          }
+        ],
+        "note": "Very low-alpha antialiasing/noise below32 is excluded by the shared reviewer bounds criterion; native generated alpha is preserved without filtering."
+      }
+    },
+    {
+      "id": "peach-sentry",
+      "projectPath": "tcg-desktop/public/assets/loading/peach-sentry-walk.png",
+      "originalGeneratedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a10f15-7dc6-7711-8e55-3a3c6c630a49\\exec-bd7f4493-38e1-470a-9f40-76807cc8842f.png",
+      "finalGeneratedSource": "C:\\Users\\USER\\.codex\\generated_images\\01a10f15-7dc6-7711-8e55-3a3c6c630a49\\exec-e1b93a5d-bfdb-406a-b6f4-3a0448adecc0.png",
+      "acceptedAfterVisualInspection": true,
+      "visualInspection": "C foreground leg moves rear-left and far leg ahead-right. Shoe-only correction keeps both armored toes to right. B feet under chassis.",
+      "prompts": [
+        {
+          "step": 0,
+          "prompt": "Use case: precise-object-edit. Image1 is EDIT TARGET sprite sheet. Fix animation gait, keep character identity/colors/clothes/accessories and original cute style. Transparent RGBA background, invisible 2x2 square sheet. Four characters face SAME three-quarter SCREEN RIGHT direction, same head/body scale and baseline; never mirror body. Redraw lower body/arms as needed. TOP-LEFT A is contact pose: bright camera-near foreground leg extends FORWARD screen-right; darker camera-far leg behind screen-left. TOP-RIGHT B passing: both feet directly UNDER hips, almost same horizontal position, nearly overlapping, knees only slightly bent, no high knee, no kicks. BOTTOM-LEFT C MUST BE CLEAR OPPOSITE CONTACT: LARGE/LIGHT FOREGROUND FOOT must be on the LEFT of its stance, SMALLER/DARK BACKGROUND FOOT on RIGHT. Near leg runs from near hip down-LEFT and crosses IN FRONT of other leg; far leg runs down-RIGHT BEHIND it. This is the opposite crossing order from A. Do not copy A legs into C. BOTH FEET still face RIGHT, including rear foot heel raised and toe forward. Arms counter-swing naturally. BOTTOM-RIGHT same B neutral passing. Runtime loops A-B-C-B. Make legs visibly different between A and C; not just arm changes. No ground, black fill, checkerboard, letters, borders or scenery. Preserve full bodies without clipping, generous margins. Preserve pink security robot. Near foreground mechanical leg angled downright inA, downLEFT inC. Huge gray/black armored boot on LEFT inC has TOE protruding RIGHT and heelLEFT. Arms counterrotate; cyan round eye/antennas/chest same in allframes."
+        },
+        {
+          "step": 1,
+          "prompt": "Use case: precise-object-edit. EDITTARGET. Change ONLY TWO BLACK/GRAY ARMORED BOOTS of BOTTOM-LEFT frameC. Both BOOT TOES must pointSCREEN RIGHT, heelsSCREEN LEFT. Preserve legs EXACT current positions: nearforegroundleg extendsDOWN-LEFT, fardarkerlegextendsDOWN-RIGHT. Rotate/redrawONLYboots, notlegs orbody. Keepnearlegcrossingoverfarleg. Keepother3frames unchanged, andCchest/head/eye/antennas/armsunchanged. TransparentRGBA, no scene/text."
+        }
+      ]
+    }
+  ]
+}

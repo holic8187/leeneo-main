@@ -124,6 +124,11 @@ import {
 } from './core/packOpeningSession.js';
 import { createAuthSessionStore } from './core/authSession.js';
 import { createCloudPlaySession } from './core/cloudPlaySession.js';
+import { createReconnectController, reconnectErrorKind } from './core/reconnectController.js';
+import { createNavigationSnapshotStore, sanitizeNavigationSnapshot } from './core/navigationSnapshot.js';
+import { renderReconnectOverlay } from './ui/reconnectOverlay.js';
+import { createLoadingCharacterPicker } from './data/loadingCharacters.js';
+import './reconnect-overlay.css';
 import { mobileNotificationPermissionPrompt } from './core/mobileNotificationPermission.js';
 import {
   cardCombatPowerAtLevel,
@@ -199,6 +204,16 @@ import {
 
 const app = document.querySelector('#app');
 const authSession = createAuthSessionStore();
+const navigationStore = createNavigationSnapshotStore();
+const loadingCharacterPicker = createLoadingCharacterPicker();
+let reconnect = null;
+let reconnectState = { phase: 'idle', startedAt: 0, nextRetryAt: 0 };
+let appForeground = document.visibilityState !== 'hidden';
+let authenticationEpoch = 0;
+let navigationAccountId = '';
+let navigationScrollTimer = null;
+let reconnectFocus = null;
+const connectionWaiters = new Set();
 const deviceId = getOrCreateDeviceId();
 const clientPlatform = desktopBridge.platform;
 let store = null;
@@ -376,6 +391,101 @@ const ui = {
 };
 
 const scrollPositions = new globalThis.Map();
+
+function gameplayAvailable() {
+  return appForeground && ui.auth.phase === 'authenticated' && ui.cloud.phase === 'active'
+    && reconnectState.phase === 'connected' && !updateBlocksGameplay();
+}
+
+function requestContext() { return { epoch: authenticationEpoch, gameStore: store }; }
+function ownsRequest(context) { return context.epoch === authenticationEpoch && context.gameStore === store && Boolean(store); }
+function waitForGameplayConnection(context) {
+  if (!ownsRequest(context)) return Promise.resolve(false);
+  if (gameplayAvailable()) return Promise.resolve(true);
+  return new Promise((resolve) => { connectionWaiters.add({ context, resolve }); });
+}
+function settleConnectionWaiters() {
+  for (const waiter of connectionWaiters) {
+    if (!ownsRequest(waiter.context) || gameplayAvailable()) {
+      connectionWaiters.delete(waiter);
+      waiter.resolve(ownsRequest(waiter.context) && gameplayAvailable());
+    }
+  }
+}
+
+function persistNavigation() {
+  if (!store || !navigationAccountId || navigationAccountId !== ui.auth.account?.id) return;
+  navigationStore.save(navigationAccountId, { ...ui, scroll: Object.fromEntries(scrollPositions) });
+}
+
+function reconcileNavigationModal() {
+  if (!store || !ui.modal) return;
+  const state = store.getState();
+  if (ui.modal.type === 'card' && !cardById(ui.modal.cardId)) ui.modal = null;
+  if (ui.modal?.type === 'deck-preset') {
+    ui.modal.cardIds = ui.modal.cardIds.filter((id) => cardById(id) && state.collection[id]);
+    if (!equipmentById(state.equipmentInventory, ui.modal.equipmentCardId)) ui.modal.equipmentCardId = '';
+    if (!ownedRelic(state.relicInventory, ui.modal.artifactCardId)) ui.modal.artifactCardId = '';
+  }
+  if (ui.modal?.type === 'pack') {
+    const saved = ui.modal;
+    const opening = state.pendingPackOpening;
+    const cards = opening?.id === saved.openingId ? cardsForPendingPack(opening, cardById) : null;
+    if (!cards) { ui.modal = null; return; }
+    showPackOpeningModal(opening, cards, { renderNow: false });
+    ui.modal.focusIndex = Math.min(cards.length - 1, saved.focusIndex || 0);
+  }
+}
+
+function restoreNavigation(accountId) {
+  scrollPositions.clear();
+  navigationAccountId = accountId;
+  const snapshot = navigationStore.read(accountId) || sanitizeNavigationSnapshot();
+  const { scroll, version, ...navigation } = snapshot;
+  Object.assign(ui, navigation);
+  if (!expeditionById(ui.selectedMissionId)) ui.selectedMissionId = EXPEDITIONS[0].id;
+  for (const [key, value] of Object.entries(scroll)) scrollPositions.set(key, value);
+  reconcileNavigationModal();
+}
+
+function reconnectOverlayVisible() {
+  return ui.auth.phase === 'authenticated' && store
+    && !updateBlocksGameplay()
+    && !['playing-elsewhere', 'save-conflict', 'migration-required', 'taking-over', 'releasing', 'released', 'updating'].includes(ui.cloud.phase)
+    && ['connecting', 'waiting', 'suspended'].includes(reconnectState.phase);
+}
+
+function reconnectOverlayMarkup() {
+  if (!reconnectOverlayVisible()) { loadingCharacterPicker.endEpisode(); return ''; }
+  return renderReconnectOverlay({
+    character: loadingCharacterPicker.beginEpisode(),
+    phase: navigator.onLine === false ? 'offline' : reconnectState.phase,
+    elapsedMs: Math.max(0, Date.now() - reconnectState.startedAt),
+    nextRetryMs: reconnectState.nextRetryAt ? Math.max(0, reconnectState.nextRetryAt - Date.now()) : null,
+    detail: ui.cloud.message || reconnectState.error?.message || '',
+    secretMode: Boolean(store.getState().settings.raidSecretMode && ui.view === 'raid'),
+  });
+}
+
+function updateReconnectOverlay() {
+  const old = app.querySelector('#reconnect-overlay');
+  if (!old || !reconnectOverlayVisible()) return;
+  const walker = old.querySelector('.reconnect-walker');
+  const focusedAction = old.contains(document.activeElement) ? document.activeElement.dataset.action : '';
+  const template = document.createElement('template');
+  template.innerHTML = reconnectOverlayMarkup();
+  const next = template.content.firstElementChild;
+  if (old.classList.contains('is-secret') === next.classList.contains('is-secret')) next.querySelector('.reconnect-walker')?.replaceWith(walker);
+  old.replaceWith(next);
+  (focusedAction ? next.querySelector(`[data-action="${focusedAction}"]`) : next)?.focus({ preventScroll: true });
+}
+
+function pauseGameplayTimers() {
+  window.clearTimeout(ui.raid.bossActionTimer);
+  window.clearTimeout(ui.raid.autoActionTimer);
+  ui.raid.bossActionTimer = null;
+  ui.raid.autoActionTimer = null;
+}
 
 const cooperativeClient = createCooperativeRaidClient({
   gateway: cooperativeRaidGateway,
@@ -2482,6 +2592,7 @@ function assignScrollKeys() {
 }
 
 function captureScrollPositions() {
+  if (navigationAccountId && navigationAccountId !== ui.auth.account?.id) return;
   app.querySelectorAll('[data-scroll-key]').forEach((element) => {
     scrollPositions.set(element.dataset.scrollKey, {
       top: element.scrollTop,
@@ -2491,7 +2602,9 @@ function captureScrollPositions() {
 }
 
 function restoreScrollPositions() {
+  const epoch = authenticationEpoch;
   const apply = () => {
+    if (epoch !== authenticationEpoch) return;
     app.querySelectorAll('[data-scroll-key]').forEach((element) => {
       const saved = scrollPositions.get(element.dataset.scrollKey);
       if (!saved) return;
@@ -2507,6 +2620,16 @@ function restoreScrollPositions() {
 }
 
 function render() {
+  const oldOverlay = app.querySelector('#reconnect-overlay');
+  const oldWalker = oldOverlay?.querySelector('.reconnect-walker');
+  const overlayAction = oldOverlay?.contains(document.activeElement) ? document.activeElement.dataset.action : '';
+  const hadOverlay = Boolean(oldOverlay);
+  const showOverlay = reconnectOverlayVisible();
+  if (!showOverlay && !['connecting', 'waiting', 'suspended'].includes(reconnectState.phase)) loadingCharacterPicker.endEpisode();
+  if (showOverlay && !hadOverlay) {
+    const focused = document.activeElement;
+    reconnectFocus = focused?.dataset?.action ? { ...focused.dataset } : null;
+  }
   const previousReadyDialog = Boolean(app.querySelector('.coop-ready-dialog'));
   const previousPackDialog = Boolean(app.querySelector('.pack-focus-modal'));
   const focusedPackAction = document.activeElement?.closest('.pack-focus-modal')
@@ -2525,7 +2648,7 @@ function render() {
   }
   const state = store.getState();
   app.innerHTML = `
-    <div class="app-shell ${state.settings.payrollMode ? 'payroll-mode' : ''}" data-payroll-mode="${state.settings.payrollMode ? 'true' : 'false'}">
+    <div class="app-shell ${state.settings.payrollMode ? 'payroll-mode' : ''}" data-payroll-mode="${state.settings.payrollMode ? 'true' : 'false'}" ${!gameplayAvailable() ? 'inert aria-hidden="true"' : ''}>
       ${renderSidebar(state)}
       <main class="main-shell">
         ${renderTopbar(state)}
@@ -2534,15 +2657,27 @@ function render() {
       ${ui.notice ? `<div class="app-notice app-notice--${ui.notice.tone}">${escapeHtml(ui.notice.message)}</div>` : ''}
       ${renderModal(state)}
       ${renderCooperativeGlobal()}
-      ${renderCloudGate()}
-      ${renderUpdateGate()}
     </div>
+    ${showOverlay ? reconnectOverlayMarkup() : renderCloudGate()}
+    ${renderUpdateGate()}
   `;
   ui.renderedView = ui.view;
   scheduleRaidAutoAction();
   refreshIcons();
   assignScrollKeys();
   restoreScrollPositions();
+  persistNavigation();
+  if (showOverlay) {
+    if (oldWalker && oldOverlay.classList.contains('is-secret') === app.querySelector('#reconnect-overlay')?.classList.contains('is-secret')) app.querySelector('#reconnect-overlay .reconnect-walker')?.replaceWith(oldWalker);
+    (overlayAction ? app.querySelector(`#reconnect-overlay [data-action="${overlayAction}"]`) : app.querySelector('#reconnect-overlay'))?.focus({ preventScroll: true });
+    return;
+  }
+  if (!gameplayAvailable()) return;
+  if (hadOverlay && reconnectFocus) {
+    const candidates = [...app.querySelectorAll('[data-action]')];
+    candidates.find((node) => Object.entries(reconnectFocus).every(([key, value]) => node.dataset[key] === value))?.focus({ preventScroll: true });
+    reconnectFocus = null;
+  }
   const packProgress = app.querySelector('.pack-focus-progress');
   const focusedPack = packProgress?.querySelector('[aria-current="true"]');
   if (focusedPack) packProgress.scrollLeft = focusedPack.offsetLeft - packProgress.clientWidth / 2 + focusedPack.offsetWidth / 2;
@@ -2998,7 +3133,7 @@ function beginExpedition({ repeat = false } = {}) {
 }
 
 function completeExpeditionIfReady() {
-  if (!store || ui.cloud.phase !== 'active') return false;
+  if (!store || !gameplayAvailable()) return false;
   const state = store.getState();
   const mission = expeditionById(state.expedition?.missionId);
   const completion = completeDueExpedition({ state, mission });
@@ -3137,7 +3272,7 @@ function enterRaidBattle() {
 }
 
 function maybeShowMobileNotificationPermissionPrompt() {
-  if (!store) return false;
+  if (!store || ui.modal || !gameplayAvailable()) return false;
   const prompt = mobileNotificationPermissionPrompt({
     platform: clientPlatform,
     authenticated: ui.auth.phase === 'authenticated',
@@ -3170,6 +3305,7 @@ async function prepareMobileNotificationPermissionPrompt({ accountId = '' } = {}
 }
 
 async function beginRaidBattle() {
+  const request = requestContext();
   if (ui.raid.battlePending || !ui.raid.battle || ui.raid.battle.status !== 'ready') return;
   if (ui.auth.offline || !isRaidGatewayConfigured()) {
     showNotice('개인 레이드는 온라인 연결이 필요합니다.', 'warning');
@@ -3180,6 +3316,7 @@ async function beginRaidBattle() {
   render();
   try {
     await flushCloudStateOrThrow();
+    if (!await waitForGameplayConnection(request)) return;
     const state = store.getState();
     const cards = selectedRaidBattleCards(state);
     const lease = cloudPlay?.getSnapshot().lease;
@@ -3193,6 +3330,7 @@ async function beginRaidBattle() {
       deviceId,
       generation: lease.generation,
     });
+    if (!await waitForGameplayConnection(request)) return;
     const serverBattle = payload.battle || {};
     const serverMembers = Array.isArray(serverBattle.squad) ? serverBattle.squad : [];
     const battleCards = cards.map((card) => ({
@@ -3221,19 +3359,19 @@ async function beginRaidBattle() {
     render();
     scheduleBossRaidAction();
   } catch (error) {
+    if (!ownsRequest(request)) return;
     if (error?.code === 'PLAY_SESSION_LOST' || error?.code === 'PLAYING_ELSEWHERE') void retryCloudConnection();
     ui.raid.error = error.message || '레이드 전투를 시작하지 못했습니다.';
     showNotice(ui.raid.error, 'warning');
   } finally {
-    ui.raid.battlePending = false;
-    render();
+    if (ownsRequest(request)) { ui.raid.battlePending = false; render(); }
   }
 }
 
 function clearRaidAnimation(delay = 680) {
   const animation = ui.raid.animation;
   window.setTimeout(() => {
-    if (!animation || ui.raid.animation !== animation) return;
+    if (!gameplayAvailable() || !animation || ui.raid.animation !== animation) return;
     ui.raid.animation = null;
     render();
     scheduleBossRaidAction();
@@ -3241,6 +3379,7 @@ function clearRaidAnimation(delay = 680) {
 }
 
 function performRaidPlayerTurn(type = 'basic', { automatic = false, timedOut = false, choice = null, targetId = null, galaxyChoice = ui.raid.galaxyChoice } = {}) {
+  if (!gameplayAvailable()) return;
   const before = ui.raid.battle;
   if (!before || before.status !== 'active' || before.currentActor !== 'card' || ui.raid.battlePending || ui.raid.animation) return;
   const actorIndex = Number(before.currentActorIndex);
@@ -3276,7 +3415,7 @@ function performRaidPlayerTurn(type = 'basic', { automatic = false, timedOut = f
 
 function scheduleRaidAutoAction() {
   const battle = ui.raid.battle;
-  const allowed = ui.raid.autoBattle && ui.cloud.phase === 'active'
+  const allowed = ui.raid.autoBattle && gameplayAvailable()
     && battle?.status === 'active' && battle.currentActor === 'card'
     && !ui.raid.animation && !ui.raid.battlePending && !ui.raid.finishing;
   if (!allowed) {
@@ -3287,7 +3426,7 @@ function scheduleRaidAutoAction() {
   if (ui.raid.autoActionTimer) return;
   ui.raid.autoActionTimer = window.setTimeout(() => {
     ui.raid.autoActionTimer = null;
-    if (!ui.raid.autoBattle || ui.raid.battle !== battle || ui.raid.animation || ui.cloud.phase !== 'active') return;
+    if (!gameplayAvailable() || !ui.raid.autoBattle || ui.raid.battle !== battle || ui.raid.animation) return;
     const action = chooseRaidAutoAction(battle);
     if (action) performRaidPlayerTurn(action.type, { ...action, automatic: true });
   }, 500);
@@ -3296,6 +3435,7 @@ function scheduleRaidAutoAction() {
 function scheduleBossRaidAction() {
   window.clearTimeout(ui.raid.bossActionTimer);
   ui.raid.bossActionTimer = null;
+  if (!gameplayAvailable()) return;
   const battle = ui.raid.battle;
   if (!battle || battle.status !== 'active' || battle.currentActor !== 'boss' || ui.raid.animation || ui.raid.battlePending) return;
   ui.raid.bossActionTimer = window.setTimeout(() => {
@@ -3305,6 +3445,7 @@ function scheduleBossRaidAction() {
 }
 
 function performRaidBossTurn() {
+  if (!gameplayAvailable()) return;
   const before = ui.raid.battle;
   if (!before || before.status !== 'active' || before.currentActor !== 'boss') return;
   try {
@@ -3327,6 +3468,7 @@ function performRaidBossTurn() {
 }
 
 async function completeRaidBattle({ leave = false } = {}) {
+  const request = requestContext();
   const battle = ui.raid.battle;
   if (!battle || ui.raid.finishing) return;
   if (battle.status === 'ready') {
@@ -3350,6 +3492,7 @@ async function completeRaidBattle({ leave = false } = {}) {
       deviceId,
       generation: lease?.generation,
     });
+    if (!await waitForGameplayConnection(request)) return;
     const result = payload.result || {};
     const reward = applyRaidPayload(payload, {
       activityMessage: `개인 레이드 ${formatNumber(battle.stage)}단계에서 ${formatNumber(battle.totalDamage)} 피해를 기록했습니다.`,
@@ -3382,11 +3525,12 @@ async function completeRaidBattle({ leave = false } = {}) {
       };
     }
   } catch (error) {
+    if (!ownsRequest(request)) return;
     ui.raid.error = error.message || '레이드 결과를 저장하지 못했습니다.';
     showNotice(ui.raid.error, 'warning');
     return;
   } finally {
-    ui.raid.finishing = false;
+    if (ownsRequest(request)) ui.raid.finishing = false;
   }
   render();
 }
@@ -3486,7 +3630,7 @@ function loadSavedDeckPreset(slot, context) {
 
 function handleGameNotificationOpened(notification) {
   if (!notification) return;
-  if (!store || ui.auth.phase !== 'authenticated' || ui.cloud.phase !== 'active') {
+  if (!store || !gameplayAvailable()) {
     pendingGameNotificationOpen = notification;
     return;
   }
@@ -3557,13 +3701,23 @@ function updateCloudUi(status = {}) {
     phase: status.phase || ui.cloud.phase,
     message: String(status.message || status.error?.message || ''),
     code: String(status.code || status.error?.code || ''),
+    errorStatus: Number(status.error?.status || status.errorStatus || 0),
     activePlatform: String(status.activePlatform || status.error?.activePlatform || ''),
     generation: Math.max(0, Number(status.generation ?? status.lease?.generation ?? ui.cloud.generation) || 0),
   };
   ui.auth.offline = ui.cloud.phase !== 'active';
   if (previousPhase === 'active' && ui.cloud.phase !== 'active') {
+    pauseGameplayTimers();
     void desktopBridge.cancelAllGameNotifications().catch(() => {});
   }
+  if (ui.cloud.phase === 'connection-error' && reconnect) {
+    if (reconnectErrorKind({ status: ui.cloud.errorStatus, code: ui.cloud.code }) === 'expired') {
+      expireAuthentication();
+      return;
+    }
+    void reconnect.start();
+  }
+  if (['playing-elsewhere', 'save-conflict', 'migration-required'].includes(ui.cloud.phase)) reconnect?.block();
   if (ui.auth.phase === 'authenticated' && store) {
     try {
       render();
@@ -3600,10 +3754,10 @@ function disposeCloudSession() {
 
 function applyRemoteGameState(nextState) {
   if (!store || !nextState) return;
-  if (ui.modal?.type === 'deck-preset') ui.modal = null;
   applyingRemoteState = true;
   try {
     store.replace(nextState);
+    reconcileNavigationModal();
   } finally {
     applyingRemoteState = false;
   }
@@ -3633,6 +3787,7 @@ function cooperativeLeasePayload() {
 }
 
 async function performCooperativeRequest(method, extra = {}) {
+  const request = requestContext();
   const activeCloudPlay = cloudPlay;
   const requestIdentity = currentMailboxIdentity();
   let authoritativeMutation = false;
@@ -3658,6 +3813,7 @@ async function performCooperativeRequest(method, extra = {}) {
       return body;
     }, async (result, identity) => {
       if (method !== 'claim') return;
+      if (!await waitForGameplayConnection(request) || activeCloudPlay !== cloudPlay) return;
       if (!result.snapshot?.state) throw new Error('보상 저장 응답을 확인할 수 없습니다. 다시 수령해 주세요.');
       activeCloudPlay.commitAuthoritativeMutation(result.snapshot);
       authoritativeMutation = false;
@@ -3800,6 +3956,7 @@ async function readMailboxItem(mailId) {
 }
 
 async function claimMailboxRewards(mailId = '') {
+  const requestContextAtStart = requestContext();
   const activeCloudPlay = cloudPlay;
   if (!activeCloudPlay || ui.cloud.phase !== 'active' || ui.mailbox.claimingId) return false;
   const mailboxRequest = mailboxRequestGuard.capture(currentMailboxIdentity());
@@ -3826,6 +3983,7 @@ async function claimMailboxRewards(mailId = '') {
     const result = mailId
       ? await claimMailboxItem(mailboxRequest.token, { ...request, mailId })
       : await claimAllMailboxItems(mailboxRequest.token, request);
+    if (!await waitForGameplayConnection(requestContextAtStart) || activeCloudPlay !== cloudPlay) return false;
     // A refresh can supersede this request's mailbox list epoch.  The cloud
     // claim still belongs to the same authenticated account, so commit its
     // authoritative state even when the UI will be refreshed by that newer
@@ -3862,9 +4020,8 @@ async function claimMailboxRewards(mailId = '') {
     if (isAuthorizedMailboxRequest(mailboxRequest)) {
       ui.mailbox.claimingId = '';
       render();
-    } else if (ui.auth.phase === 'authenticated'
+    } else if (ownsRequest(requestContextAtStart)
       && currentMailboxIdentity().accountId === mailboxRequest.accountId
-      && currentMailboxIdentity().token === mailboxRequest.token
       && ui.mailbox.claimingId === (mailId || '*')) {
       // A newer list request superseded this claim while the account stayed
       // the same. Clear only this request's spinner; never touch a new
@@ -3975,8 +4132,9 @@ async function submitAdminMail(form) {
   }
 }
 
-async function finishCloudActivation() {
-  if (ui.cloud.phase !== 'active' || !store) return;
+async function finishCloudActivation(epoch = authenticationEpoch, activeCloud = cloudPlay) {
+  const currentSession = () => epoch === authenticationEpoch && cloudPlay === activeCloud && gameplayAvailable() && store;
+  if (!currentSession()) return;
   const current = store.getState();
   if (current.profile.displayName !== ui.auth.account?.nickname
     || !current.raid
@@ -3990,14 +4148,21 @@ async function finishCloudActivation() {
   }
   // Expeditions use an absolute end timestamp, so an overdue run is settled
   // immediately after the authoritative cloud record is restored.
+  const previousModal = ui.modal;
   if (!completeExpeditionIfReady()) render();
+  if (previousModal) { ui.modal = previousModal; render(); }
   await syncMobileGameNotifications();
+  if (!currentSession()) return;
   maybeShowMobileNotificationPermissionPrompt();
   const openedNotification = pendingGameNotificationOpen
     || await desktopBridge.consumeLastOpenedGameNotification().catch(() => null);
+  if (!currentSession()) return;
   pendingGameNotificationOpen = null;
   if (openedNotification) handleGameNotificationOpened(openedNotification);
   await refreshPersonalRaid({ silent: true });
+  if (!currentSession()) return;
+  if (ui.raid.animation) clearRaidAnimation(200);
+  else scheduleBossRaidAction();
   render();
   void refreshMailbox({ silent: true });
   void cooperativeClient.refresh();
@@ -4006,6 +4171,12 @@ async function finishCloudActivation() {
 
 async function activateAuthenticatedSession(session, { newAccount = false } = {}) {
   const account = session.account;
+  const epoch = ++authenticationEpoch;
+  settleConnectionWaiters();
+  reconnect?.cancel();
+  reconnect = null;
+  reconnectState = { phase: 'connecting', startedAt: Date.now(), nextRetryAt: 0 };
+  pauseGameplayTimers();
   invalidateMailboxRequests();
   disposeCloudSession();
   const hadPersistedState = hasStoredGameState(globalThis.localStorage, account.id);
@@ -4026,14 +4197,12 @@ async function activateAuthenticatedSession(session, { newAccount = false } = {}
     draft: { target: 'all', presetId: 'custom', title: '', message: '', coins: '0', standardPacks: '0', expiresInHours: '168' },
     pendingMailRequest: null,
   };
-  ui.view = 'dashboard';
-  ui.modal = null;
+  // The cached UI is a read-only preview until both credentials and lease are
+  // verified. Never bootstrap from this preview when the platform forbids it.
+  app.innerHTML = '';
+  restoreNavigation(account.id);
   ui.cloud = { phase: 'connecting', message: '', code: '', activePlatform: '', generation: 0 };
   render();
-
-  if (ui.appVersion === '...') {
-    ui.appVersion = await desktopBridge.getVersion().catch(() => '0.0.0');
-  }
   // Notification permission is local to Android and must not depend on winning
   // the single-device cloud lease. More importantly, a stalled OEM permission
   // bridge must never prevent the cloud-session request from starting.
@@ -4043,36 +4212,123 @@ async function activateAuthenticatedSession(session, { newAccount = false } = {}
     newAccount,
     hasPersistedState: hadPersistedState,
   });
-  cloudPlay = createCloudPlaySession({
-    gateway: cloudGateway,
-    token: session.token,
-    accountId: account.id,
-    deviceId,
-    platform: clientPlatform,
-    appVersion: ui.appVersion,
-    onPhase: updateCloudUi,
-    onRemoteState: applyRemoteGameState,
+  reconnect = createReconnectController({
+    async attempt({ signal, isCurrent }) {
+      const ownsAccount = () => epoch === authenticationEpoch && isCurrent() && ui.auth.account?.id === account.id;
+      const saved = authSession.get();
+      if (!saved || saved.account.id !== account.id) throw Object.assign(new Error('로그인이 필요합니다.'), { status: 401 });
+      const restored = await loadCurrentTcgAccount(saved.token);
+      if (!ownsAccount()) return { blocked: true };
+      const remoteAccount = restored.account || restored;
+      if (remoteAccount.id !== account.id) throw Object.assign(new Error('로그인 계정이 변경되었습니다.'), { status: 401 });
+      const nextToken = restored.token || saved.token;
+      // This client's in-flight cooperative work is keyed by token as well as
+      // account. Drop that request identity on JWT refresh; never replay it.
+      if (nextToken !== saved.token) {
+        invalidateMailboxRequests();
+        cooperativeClient.reset();
+      }
+      const refreshed = authSession.save({ token: nextToken, account: remoteAccount });
+      ui.auth.account = refreshed.account;
+      if (!cloudPlay) {
+        let createdCloud;
+        createdCloud = createCloudPlaySession({
+          gateway: cloudGateway, token: refreshed.token, accountId: account.id, deviceId,
+          platform: clientPlatform, appVersion: ui.appVersion === '...' ? '0.0.0' : ui.appVersion,
+          onPhase: (status) => { if (epoch === authenticationEpoch && cloudPlay === createdCloud) updateCloudUi(status); },
+          onRemoteState: (nextState) => { if (epoch === authenticationEpoch && cloudPlay === createdCloud) applyRemoteGameState(nextState); },
+        });
+        cloudPlay = createdCloud;
+        unsubscribeCloudStore = store.subscribe((nextState) => {
+          if (epoch === authenticationEpoch && !applyingRemoteState) createdCloud.queueState(nextState);
+        });
+      } else cloudPlay.updateToken(refreshed.token);
+      const attemptCloud = cloudPlay;
+      const abandonAttempt = () => {
+        if (epoch === authenticationEpoch && cloudPlay === attemptCloud) disposeCloudSession();
+      };
+      signal.addEventListener('abort', abandonAttempt, { once: true });
+      try {
+        const connected = await attemptCloud.resume({
+          bootstrapState: cloudBootstrapAllowed ? store.getState() : null,
+          allowBootstrap: cloudBootstrapAllowed,
+        });
+        if (!ownsAccount()) return { blocked: true };
+        if (connected) {
+          // Recheck the current server room/session before releasing input;
+          // a resumed screen is not permission to replay a cached raid turn.
+          if (ui.view === 'raid' && ui.raidMode === 'cooperative') {
+            const result = await cooperativeClient.refresh();
+            if (!result) throw Object.assign(new Error('협동 레이드 상태를 다시 확인하고 있습니다.'), { code: 'NETWORK_ERROR' });
+          } else if (ui.raid.battle && ui.raid.serverBattle) {
+            const result = await loadPersonalRaid(currentRaidToken());
+            if (!ownsAccount()) return { blocked: true };
+            const sessionId = result.state?.activeSession?.sessionId;
+            if (Object.hasOwn(result.state || {}, 'activeSession') && sessionId !== ui.raid.serverBattle.sessionId) {
+              pauseGameplayTimers();
+              ui.raid.battle = null;
+              ui.raid.serverBattle = null;
+              ui.raid.inspector = null;
+              ui.raid.autoBattle = false;
+            }
+          }
+          return ownsAccount() ? true : { blocked: true };
+        }
+        if (['playing-elsewhere', 'save-conflict', 'migration-required'].includes(ui.cloud.phase)) return { blocked: true };
+        throw Object.assign(new Error(ui.cloud.message || '서버 연결을 다시 확인하고 있습니다.'), {
+          code: ui.cloud.code || 'NETWORK_ERROR', status: ui.cloud.errorStatus || 0,
+        });
+      } finally { signal.removeEventListener('abort', abandonAttempt); }
+    },
+    onChange(status) {
+      if (epoch !== authenticationEpoch) return;
+      const previousPhase = reconnectState.phase;
+      reconnectState = status;
+      if (status.phase === 'connecting') {
+        ui.auth.offline = true;
+        ui.cloud = { ...ui.cloud, phase: 'connecting' };
+        pauseGameplayTimers();
+      }
+      if (status.error && ['waiting', 'blocked'].includes(status.phase)) {
+        ui.cloud = { ...ui.cloud, phase: 'connection-error', message: status.error.message, code: status.error.code || '', errorStatus: status.error.status || 0 };
+      }
+      render();
+      settleConnectionWaiters();
+      if (status.phase === 'connected' && previousPhase !== 'connected') void finishCloudActivation(epoch, cloudPlay);
+    },
+    onExpired: expireAuthentication,
   });
-  unsubscribeCloudStore = store.subscribe((nextState) => {
-    if (!applyingRemoteState) cloudPlay?.queueState(nextState);
-  });
+  if (!appForeground) return reconnect.setForeground(false);
+  return reconnect.start();
+}
 
-  try {
-    await cloudPlay.open({
-      bootstrapState: cloudBootstrapAllowed ? store.getState() : null,
-      allowBootstrap: cloudBootstrapAllowed,
-    });
-    await finishCloudActivation();
-  } catch (error) {
-    console.warn('Could not activate cloud play session:', error);
-    if (ui.cloud.phase === 'connecting' || ui.cloud.phase === 'taking-over') {
-      updateCloudUi({
-        phase: 'connection-error',
-        message: error.message || '클라우드 기록을 불러오지 못했습니다.',
-        code: error.code || 'CLOUD_ACTIVATION_FAILED',
-      });
-    }
-  }
+function expireAuthentication() {
+  captureScrollPositions();
+  persistNavigation();
+  authenticationEpoch += 1;
+  settleConnectionWaiters();
+  reconnect?.cancel();
+  reconnect = null;
+  reconnectState = { phase: 'idle', startedAt: 0, nextRetryAt: 0 };
+  pauseGameplayTimers();
+  disposeCloudSession();
+  invalidateMailboxRequests();
+  authSession.clear();
+  store = null;
+  ui.auth.phase = 'signedOut';
+  ui.auth.pending = false;
+  ui.auth.account = null;
+  ui.auth.offline = false;
+  ui.auth.error = '로그인이 만료되었습니다. 다시 로그인해 주세요. 저장되지 않은 기록은 이 기기에 보관되어 있습니다.';
+  ui.auth.form.password = '';
+  ui.auth.form.passwordConfirm = '';
+  ui.admin.token = '';
+  ui.modal = null;
+  ui.raid = createRaidUiState();
+  cooperativeClient.reset();
+  navigationAccountId = '';
+  scrollPositions.clear();
+  render();
 }
 
 async function submitLogin(form) {
@@ -4132,6 +4388,10 @@ async function submitSignup(form) {
 }
 
 async function logout() {
+  if (ui.raid.battlePending || ui.raid.finishing || ui.mailbox.claimingId || cooperativeClient.getState().pending === 'claim') {
+    showNotice('진행 중인 전투·보상 요청을 확인한 뒤 로그아웃할 수 있습니다. 연결이 돌아오면 자동으로 확인합니다.', 'warning');
+    return false;
+  }
   invalidateMailboxRequests();
   ui.mailbox.loading = false;
   try {
@@ -4154,6 +4414,14 @@ async function logout() {
     }
     return false;
   }
+  captureScrollPositions();
+  persistNavigation();
+  authenticationEpoch += 1;
+  settleConnectionWaiters();
+  reconnect?.cancel();
+  reconnect = null;
+  reconnectState = { phase: 'idle', startedAt: 0, nextRetryAt: 0 };
+  pauseGameplayTimers();
   try {
     await cloudPlay?.release({ flushPending: false });
   } catch (error) {
@@ -4165,6 +4433,8 @@ async function logout() {
   disposeCloudSession();
   authSession.clear();
   store = null;
+  navigationAccountId = '';
+  scrollPositions.clear();
   ui.auth.phase = 'signedOut';
   ui.auth.mode = 'login';
   ui.auth.pending = false;
@@ -4195,37 +4465,19 @@ async function restoreAuthentication() {
     render();
     return;
   }
-  try {
-    const restored = await loadCurrentTcgAccount(saved.token);
-    const account = restored.account || restored;
-    const refreshed = authSession.save({ token: restored.token || saved.token, account });
-    await activateAuthenticatedSession(refreshed);
-  } catch (error) {
-    if ([401, 403, 410].includes(Number(error.status))) {
-      authSession.clear();
-      ui.auth.phase = 'signedOut';
-      ui.auth.error = '로그인이 만료되었습니다. 다시 로그인해 주세요.';
-      render();
-      return;
-    }
-    await activateAuthenticatedSession(saved);
-  }
+  return activateAuthenticatedSession(saved);
 }
 
 async function retryCloudConnection() {
-  if (!cloudPlay || !store) return;
-  const connected = await cloudPlay.resume({
-    bootstrapState: cloudBootstrapAllowed ? store.getState() : null,
-    allowBootstrap: cloudBootstrapAllowed,
-  });
-  if (connected) await finishCloudActivation();
+  if (!store || !reconnect) return false;
+  return reconnect.retry();
 }
 
 async function takeOverCloudSession() {
   if (!cloudPlay) return;
   try {
     await cloudPlay.takeover({ expectedGeneration: ui.cloud.generation || undefined });
-    await finishCloudActivation();
+    if (ui.cloud.phase === 'active') reconnect?.connected();
   } catch (error) {
     console.warn('Could not take over cloud play session:', error);
   }
@@ -4235,7 +4487,7 @@ async function resolveCloudSaveConflict(strategy) {
   if (!cloudPlay) return false;
   try {
     const resolved = await cloudPlay.resolveConflict(strategy);
-    if (resolved) await finishCloudActivation();
+    if (resolved) await reconnect?.retry();
     return resolved;
   } catch (error) {
     updateCloudUi({
@@ -4391,7 +4643,7 @@ app.addEventListener('click', async (event) => {
     'logout',
   ]);
   if (ui.auth.phase === 'authenticated'
-    && ((ui.cloud.phase !== 'active' && !actionsAllowedWhileCloudBlocked.has(action))
+    && ((!gameplayAvailable() && !actionsAllowedWhileCloudBlocked.has(action))
       || (updateBlocksGameplay() && !actionsAllowedWhileCloudBlocked.has(action)))) return;
 
   if (action.startsWith('coop-')) {
@@ -4846,7 +5098,7 @@ app.addEventListener('change', (event) => {
 });
 
 function updateLiveTimers() {
-  if (!store || ui.auth.phase !== 'authenticated' || ui.cloud.phase !== 'active') return;
+  if (!store || !gameplayAvailable()) return;
   document.querySelectorAll('[data-coop-deadline]').forEach((node) => {
     const now = Date.now() + cooperativeClient.getState().clockOffset;
     node.textContent = String(Math.max(0, Math.ceil((Number(node.dataset.coopDeadline) - now) / 1000)));
@@ -4905,17 +5157,25 @@ desktopBridge.onGameNotificationOpened((notification) => {
   handleGameNotificationOpened(notification);
 });
 
-desktopBridge.onAppStateChange((isActive) => {
+function handleAppForeground(isActive) {
+  if (appForeground === Boolean(isActive)) return;
+  appForeground = Boolean(isActive);
   if (!isActive) {
+    captureScrollPositions();
+    persistNavigation();
+    pauseGameplayTimers();
+    ui.raid.requestEpoch += 1;
+    ui.raid.loading = false;
+    cloudPlay?.suspend();
+    void reconnect?.setForeground(false);
     try {
       flushLocalGameCache();
     } catch (error) {
       console.warn('Could not persist local cache before backgrounding:', error);
     }
-    void cloudPlay?.flush().catch(() => {});
     return;
   }
-  if (ui.auth.phase === 'authenticated') void retryCloudConnection();
+  if (ui.auth.phase === 'authenticated') void reconnect?.setForeground(true);
   if (clientPlatform === 'android') {
     if (['permission-required', 'installing'].includes(ui.updateStatus?.status) && ui.updateStatus?.downloadUrl) {
       ui.updateStatus = {
@@ -4927,9 +5187,37 @@ desktopBridge.onAppStateChange((isActive) => {
     }
     window.setTimeout(() => { void checkForAppUpdates(); }, 750);
   }
+}
+desktopBridge.onAppStateChange(handleAppForeground);
+document.addEventListener('visibilitychange', () => handleAppForeground(document.visibilityState !== 'hidden'));
+window.addEventListener('pagehide', () => handleAppForeground(false));
+window.addEventListener('pageshow', () => handleAppForeground(document.visibilityState !== 'hidden'));
+window.addEventListener('online', () => { if (appForeground) void reconnect?.start(); });
+window.addEventListener('offline', () => {
+  if (!store || !appForeground) return;
+  cloudPlay?.suspend();
+  pauseGameplayTimers();
+  void reconnect?.start();
 });
+window.addEventListener('beforeunload', () => { captureScrollPositions(); persistNavigation(); flushLocalGameCache(); });
+app.addEventListener('scroll', () => {
+  if (!gameplayAvailable()) return;
+  window.clearTimeout(navigationScrollTimer);
+  navigationScrollTimer = window.setTimeout(() => { captureScrollPositions(); persistNavigation(); }, 200);
+}, true);
 
-render();
+// Inert covers native input; this capture guard also rejects dispatched events
+// and keyboard shortcuts aimed at the cached UI while a gate is visible.
+for (const eventName of ['click', 'input', 'change', 'submit', 'keydown']) {
+  app.addEventListener(eventName, (event) => {
+    if (ui.auth.phase !== 'authenticated' || gameplayAvailable()) return;
+    if (appForeground && event.target.closest('#reconnect-overlay, .cloud-session-gate')) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }, true);
+}
+
+authenticationRestorePromise = restoreAuthentication();
 appVersionPromise = desktopBridge.getVersion()
   .then((version) => {
     ui.appVersion = version;
@@ -4941,14 +5229,14 @@ appVersionPromise = desktopBridge.getVersion()
     render();
     return ui.appVersion;
   });
-authenticationRestorePromise = restoreAuthentication();
 if (clientPlatform === 'android') {
   void Promise.allSettled([appVersionPromise, authenticationRestorePromise])
     .then(() => checkForAppUpdates());
 }
 window.setInterval(updateLiveTimers, 1000);
+window.setInterval(() => { if (appForeground) updateReconnectOverlay(); }, 1000);
 window.setInterval(() => {
-  if (ui.auth.phase !== 'authenticated' || ui.cloud.phase !== 'active' || ui.auth.offline) return;
+  if (!gameplayAvailable()) return;
   const client = cooperativeClient.getState();
   const active = ['queued', 'ready', 'battle', 'finished'].includes(client.data?.phase);
   const interval = client.error ? 5000 : active || (ui.view === 'raid' && ui.raidMode === 'cooperative') ? 1000 : 15000;
@@ -4961,6 +5249,18 @@ app.addEventListener('change', (event) => {
   if (event.target.matches('[data-raid-galaxy-choice]')) ui.raid.galaxyChoice = event.target.value;
 });
 app.addEventListener('keydown', (event) => {
+  const reconnectDialog = app.querySelector('#reconnect-overlay');
+  if (reconnectDialog) {
+    if (event.key === 'Escape') { event.preventDefault(); return; }
+    if (event.key === 'Tab') {
+      const buttons = [...reconnectDialog.querySelectorAll('button:not(:disabled)')];
+      const first = buttons[0] || reconnectDialog;
+      const last = buttons.at(-1) || reconnectDialog;
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === reconnectDialog)) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && (document.activeElement === last || document.activeElement === reconnectDialog)) { event.preventDefault(); first.focus(); }
+    }
+    return;
+  }
   const packDialog = app.querySelector('.pack-focus-modal');
   if (packDialog && ui.modal?.type === 'pack') {
     if (event.key === 'Escape') { event.preventDefault(); ui.modal = null; render(); return; }
@@ -4986,6 +5286,6 @@ app.addEventListener('keydown', (event) => {
   else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
 });
 window.setInterval(() => {
-  if (ui.view !== 'raid' || ui.raidMode !== 'personal' || ui.auth.phase !== 'authenticated' || ui.cloud.phase !== 'active') return;
+  if (ui.view !== 'raid' || ui.raidMode !== 'personal' || !gameplayAvailable()) return;
   void refreshPersonalRaid({ rankingOnly: ui.raidPanel === 'ranking', silent: true });
 }, 10000);

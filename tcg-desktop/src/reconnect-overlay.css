@@ -1,0 +1,175 @@
+.reconnect-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  padding: max(24px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+  overflow: auto;
+  overscroll-behavior: contain;
+  isolation: isolate;
+  color: #293c38;
+  background: rgb(244 242 234 / 76%);
+  -webkit-backdrop-filter: blur(13px) saturate(.65);
+  backdrop-filter: blur(13px) saturate(.65);
+  touch-action: pan-y;
+  pointer-events: auto;
+  outline: none;
+}
+
+.reconnect-overlay.is-secret { background: rgb(244 242 234 / 96%); }
+
+.reconnect-overlay-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: min(100%, 320px);
+  margin: auto;
+  text-align: center;
+  font-family: inherit;
+}
+
+.reconnect-walker {
+  position: relative;
+  flex: 0 0 auto;
+  width: 128px;
+  height: 128px;
+  margin: 0 0 12px;
+}
+
+.reconnect-walker-shadow {
+  position: absolute;
+  bottom: 7px;
+  left: 33px;
+  width: 62px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgb(63 71 57 / 13%);
+  filter: blur(2px);
+}
+
+.reconnect-walker-sprite {
+  position: absolute;
+  inset: 8px;
+  display: block;
+  width: 112px;
+  height: 112px;
+  overflow: hidden;
+}
+.reconnect-walker-frame {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 112px;
+  height: 112px;
+  background-repeat: no-repeat;
+  background-size: 200% 200%;
+  transform-origin: 0 0;
+  opacity: 0;
+  animation: reconnect-character-walk calc(var(--walk-frame-ms, 180ms) * 4) steps(1, end) infinite;
+  animation-delay: calc((var(--walk-frame) - 4) * var(--walk-frame-ms, 180ms));
+}
+
+/* Privacy mode has no character asset URL, including hidden image sources. */
+.reconnect-walker-neutral {
+  position: absolute;
+  top: 55px;
+  left: 46px;
+  width: 36px;
+  height: 42px;
+  border-radius: 18px 18px 10px 10px;
+  background: #819289;
+}
+.reconnect-walker-neutral::before {
+  position: absolute;
+  top: -27px;
+  left: 1px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: inherit;
+  content: '';
+}
+.reconnect-walker-neutral::after {
+  position: absolute;
+  bottom: -12px;
+  left: 3px;
+  width: 10px;
+  height: 20px;
+  border-radius: 0 0 6px 6px;
+  background: inherit;
+  box-shadow: 20px 0 #819289;
+  content: '';
+}
+
+/* Four beats use source poses 1 -> 2 -> 3 -> 2; no interpolation or mirroring. */
+@keyframes reconnect-character-walk {
+  0% { opacity: 1; }
+  25%, 100% { opacity: 0; }
+}
+
+.reconnect-overlay-status { width: 100%; }
+.reconnect-overlay-status h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 750;
+  line-height: 1.45;
+  letter-spacing: -.025em;
+  color: inherit;
+}
+.reconnect-overlay-status p,
+.reconnect-overlay-detail {
+  margin: 9px 0 0;
+  color: #52615a;
+  font-size: 12px;
+  line-height: 1.75;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.reconnect-overlay-detail { max-width: 100%; color: #637068; }
+.reconnect-overlay-countdown {
+  margin-top: 9px;
+  min-height: 18px;
+  color: #637068;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.reconnect-overlay-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin-top: 20px;
+}
+.reconnect-overlay-actions button {
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid #83968a;
+  border-radius: 12px;
+  color: #314b3e;
+  background: rgb(255 253 247 / 88%);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.reconnect-overlay-actions button:hover { background: #fffdf7; }
+.reconnect-overlay-actions button:focus-visible { outline: 3px solid #427564; outline-offset: 3px; }
+.reconnect-overlay-actions .reconnect-overlay-logout {
+  border-color: transparent;
+  color: #57685e;
+  background: transparent;
+  font-weight: 500;
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .reconnect-overlay { background: rgb(244 242 234 / 97%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reconnect-walker-frame { animation: none; opacity: 0; }
+  .reconnect-walker-frame:first-child { opacity: 1; }
+}

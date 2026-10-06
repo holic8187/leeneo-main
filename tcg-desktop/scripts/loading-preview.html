@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><base href="/">
+  <title>치비 로딩 애니메이션 점검</title>
+  <link rel="stylesheet" href="/src/reconnect-overlay.css">
+  <style>
+    *{box-sizing:border-box}body{margin:0;padding:24px;background:#f5f2e9;color:#293c38;font:14px system-ui,sans-serif}h1{font-size:22px}p{line-height:1.6}.gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}.character{border:1px solid #dadbd1;border-radius:18px;background:#fffdf7;padding:12px;text-align:center}.character .reconnect-walker{margin:0 auto}.character h2{font-size:14px;margin:4px 0 8px}button,select{min-height:44px;padding:8px 12px;margin:3px;border:1px solid #b9c5b8;background:white;border-radius:10px;color:inherit;font:inherit}button{cursor:pointer}button[aria-pressed="true"]{background:#355b49;color:#fff;border-color:#355b49}button:focus-visible,select:focus-visible{outline:3px solid #427564;outline-offset:3px}.controls{display:flex;flex-wrap:wrap;align-items:center;margin:16px 0}.pose-controls{display:flex;flex-wrap:wrap;justify-content:center;gap:2px}.pose-caption{font-size:12px;color:#56695d;margin:8px 0 0}.preview-controls{position:fixed;left:50%;bottom:max(18px,env(safe-area-inset-bottom));transform:translateX(-50%);z-index:1300;display:flex;flex-wrap:wrap;justify-content:center;width:min(94vw,620px);background:#fffdf7;padding:10px;border:1px solid #c5cec3;border-radius:16px;box-shadow:0 8px 30px #253c321c}.preview-controls strong{width:100%;text-align:center;margin:4px 0}.character[data-selected="true"]{border:2px solid #427564;padding:11px}.mode-label{min-height:18px}
+  </style>
+</head>
+<body>
+<h1>치비 로딩 · 32종</h1>
+<p>실제 게임과 같은 <strong>1 → 2 → 3 → 2</strong> 순서입니다. 1은 왼발이 앞으로, 2는 두 다리가 교차하는 중간 자세, 3은 오른발이 앞으로 나옵니다. 두 번째 2는 같은 이미지와 위치를 그대로 다시 사용합니다.</p>
+<div class="controls"><label>미리보기 캐릭터 <select id="character"></select></label><button id="preview">전체 화면 로딩 보기</button><button id="all-normal">전체 보통 재생</button><button id="all-slow">전체 느리게 재생</button><button id="all-middle">전체 중간 자세 보기</button></div>
+<main class="gallery"></main><div id="overlay-preview"></div>
+<script type="module">
+  import {LOADING_CHARACTERS} from '/src/data/loadingCharacters.js';
+  import {renderReconnectOverlay} from '/src/ui/reconnectOverlay.js';
+  const gallery=document.querySelector('.gallery');
+  const select=document.querySelector('#character');
+  const overlayHost=document.querySelector('#overlay-preview');
+  const requested=new URLSearchParams(location.search).get('character')||'winter';
+
+  function poseControls(name){
+    const controls=document.createElement('div');controls.className='pose-controls';
+    for(const [mode,text,label] of [['pose-0','1','왼발 앞 자세 1'],['pose-1','2','중간 자세 2'],['pose-2','3','오른발 앞 자세 3'],['normal','보통','보통 속도로 1 2 3 2 반복'],['slow','느리게','느린 속도로 1 2 3 2 반복']]){
+      const button=document.createElement('button');button.type='button';button.dataset.mode=mode;button.textContent=text;button.setAttribute('aria-label',`${name} ${label}`);button.setAttribute('aria-pressed',String(mode==='normal'));controls.append(button);
+    }
+    return controls;
+  }
+
+  function setMode(host,mode){
+    const walker=host.querySelector('.reconnect-walker');
+    if(!walker)return;
+    const pose=mode.startsWith('pose-')?Number(mode.slice(-1)):null;
+    walker.style.setProperty('--walk-frame-ms',mode==='slow'?'600ms':'180ms');
+    let poseShown=false;
+    walker.querySelectorAll('.reconnect-walker-frame').forEach(frame=>{
+      frame.style.removeProperty('animation');frame.style.removeProperty('opacity');
+      if(pose!==null){
+        const show=!poseShown&&Number(frame.dataset.walkSourceFrame)===pose;
+        frame.style.animation='none';frame.style.opacity=show?'1':'0';
+        if(show)poseShown=true;
+      }
+    });
+    host.dataset.mode=mode;
+    host.querySelectorAll('[data-mode]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.mode===mode)));
+    const label=host.querySelector('.mode-label');
+    if(label)label.textContent=pose!==null?`자세 ${pose+1} 정지`:mode==='slow'?'1 → 2 → 3 → 2 · 느리게 (2.4초)':'1 → 2 → 3 → 2 · 보통 (0.72초)';
+  }
+
+  for(const character of LOADING_CHARACTERS){
+    const holder=document.createElement('template');holder.innerHTML=renderReconnectOverlay({character});
+    const tile=document.createElement('article');tile.className='character';tile.dataset.character=character.id;
+    tile.append(holder.content.querySelector('.reconnect-walker'));
+    const label=document.createElement('h2');label.textContent=character.name;tile.append(label);
+    tile.append(poseControls(character.name));
+    const caption=document.createElement('p');caption.className='pose-caption mode-label';tile.append(caption);
+    tile.addEventListener('click',event=>{const button=event.target.closest('button[data-mode]');if(button)setMode(tile,button.dataset.mode);});
+    gallery.append(tile);setMode(tile,'normal');
+    const option=document.createElement('option');option.value=character.id;option.textContent=character.name;select.append(option);
+  }
+  select.value=LOADING_CHARACTERS.some(character=>character.id===requested)?requested:LOADING_CHARACTERS[0].id;
+  const markSelected=()=>gallery.querySelectorAll('.character').forEach(tile=>{tile.dataset.selected=String(tile.dataset.character===select.value);});
+  select.onchange=markSelected;markSelected();
+  document.querySelector('#preview').onclick=()=>{
+    const character=LOADING_CHARACTERS.find(entry=>entry.id===select.value);
+    overlayHost.innerHTML=renderReconnectOverlay({character});
+    const controls=document.createElement('div');controls.className='preview-controls';
+    const title=document.createElement('strong');title.textContent=`${character.name} · 1 → 2 → 3 → 2`;controls.append(title,poseControls(character.name));
+    const caption=document.createElement('p');caption.className='pose-caption mode-label';controls.append(caption);
+    const close=document.createElement('button');close.textContent='미리보기 닫기';close.onclick=()=>{overlayHost.replaceChildren();document.querySelector('#preview').focus();};controls.append(close);
+    controls.addEventListener('click',event=>{const button=event.target.closest('button[data-mode]');if(button)setMode(overlayHost,button.dataset.mode);});
+    overlayHost.append(controls);setMode(overlayHost,'normal');close.focus();
+  };
+  for(const [id,mode] of [['all-normal','normal'],['all-slow','slow'],['all-middle','pose-1']]){
+    document.getElementById(id).onclick=()=>{gallery.querySelectorAll('.character').forEach(tile=>setMode(tile,mode));setMode(overlayHost,mode);};
+  }
+  document.addEventListener('keydown',event=>{if(event.key==='Escape'&&overlayHost.childElementCount){overlayHost.replaceChildren();document.querySelector('#preview').focus();}});
+</script>
+</body>
+</html>
