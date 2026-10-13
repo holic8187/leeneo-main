@@ -190,17 +190,20 @@ test('cooperative auto is owner-scoped, durable and uses skills before basic att
   assert.ok(fallback.battle.totalDamage > 0);
 });
 
-test('auto catch-up uses one-second persisted action times without retroactive toggle actions', async () => {
+test('auto catch-up preserves separate one-second player and boss deadlines after restart', async () => {
   const h = await harness(); const room = await h.enter();
   for (let index = 0; index < 4; index += 1) await h.call('auto', index, { roomId: room.id, enabled: true }, h.now + 5000);
   assert.equal(h.data().rooms[0].battle.playerActionCount, 0);
   const result = (await h.call('state', 0, {}, h.now + 8999)).cooperative.room;
-  assert.equal(result.battle.playerActionCount, 3);
+  assert.equal(result.battle.playerActionCount, 2);
   assert.equal(result.battle.turnStartedAt, h.now + 8000);
   h.restart();
   const fourth = (await h.call('state', 0, {}, h.now + 9000)).cooperative.room;
-  assert.equal(fourth.battle.playerActionCount, 4);
+  assert.equal(fourth.battle.playerActionCount, 2);
   assert.equal(fourth.battle.turnStartedAt, h.now + 9000);
+  assert.equal(fourth.battle.currentActor, 'card');
+  const third = (await h.call('state', 0, {}, h.now + 10000)).cooperative.room;
+  assert.equal(third.battle.playerActionCount, 3);
 });
 
 test('manual input can beat auto delay and knockout skips do not manufacture boss actions', async () => {
@@ -221,7 +224,9 @@ test('manual input can beat auto delay and knockout skips do not manufacture bos
   assert.equal(skipped.battle.log.filter((event) => ['boss-basic', 'boss-skill'].includes(event.type)).length, 0);
   const next = (await h2.call('state', 0, {}, h2.now + 2000)).cooperative.room;
   assert.equal(next.battle.playerActionCount, 1);
-  assert.equal(next.battle.log.filter((event) => ['boss-basic', 'boss-skill'].includes(event.type)).length, 1);
+  assert.equal(next.battle.log.filter((event) => ['boss-basic', 'boss-skill'].includes(event.type)).length, 0);
+  const boss = (await h2.call('state', 0, {}, h2.now + 3000)).cooperative.room;
+  assert.equal(boss.battle.log.filter((event) => ['boss-basic', 'boss-skill'].includes(event.type)).length, 1);
 });
 
 test('reward inventory and server-owned receipt commit atomically; retries cannot duplicate loot', async () => {
@@ -306,11 +311,12 @@ test('production shared modules run four authenticated clients through matching 
   const shared = await loadCooperativeModules();
   assert.equal(shared.rules.createCooperativeBoss(32).skills.length, 5);
   const routes = new Map();
+  let routeNow = h.now;
   const secret = 'cooperative-integration-secret';
   for (const account of h.accounts) Object.assign(account, { status: 'active', tokenVersion: 0 });
   registerTcgRoutes({
     app: { get(route, handler) { routes.set(`GET ${route}`, handler); }, post(route, handler) { routes.set(`POST ${route}`, handler); }, put() {} },
-    bcrypt: {}, jwt, jwtSecret: secret, now: () => h.now, random: () => .25,
+    bcrypt: {}, jwt, jwtSecret: secret, now: () => routeNow, random: () => .25,
     TcgAccount: { async findById(id) { return h.accounts.find((account) => account._id === id); } },
     TcgPlayerState: h.deps.TcgPlayerState, TcgPersonalRaidDaily: h.deps.TcgPersonalRaidDaily,
     TcgCooperativeRaid: h.deps.TcgCooperativeRaid
@@ -337,5 +343,32 @@ test('production shared modules run four authenticated clients through matching 
   assert.equal(action.statusCode, 200);
   assert.ok(action.body.cooperative.room.battle.totalDamage > 0);
   assert.ok(action.body.cooperative.room.battle.totalDamage < 99999999);
-  assert.ok(action.body.cooperative.room.battle.log.some((entry) => entry.type === 'boss-skill'));
+  assert.equal(action.body.cooperative.room.battle.currentActor, 'boss');
+  assert.equal(action.body.cooperative.room.battle.log.some((entry) => entry.type === 'boss-skill'), false);
+  routeNow += 1000;
+  const boss = await call('state', owner);
+  assert.ok(boss.body.cooperative.room.battle.log.some((entry) => entry.type === 'boss-skill'));
+});
+
+test('cooperative follow-up persists, animates before the boss and resumes once after restart', async () => {
+  const h = await harness(); const room = await h.enter();
+  const original = room.battle.cards;
+  room.battle.cards = original.map((card, index) => ({ ...card, cardId: index === 0 ? 'hoi-ur' : card.cardId }));
+  room.battle.teamStatuses.push({ id: 'new-galaxy', name: '신생은하 육성', kind: 'buff', charges: 1, records: ['attack', 'attack'], sourceId: original[0].id, sourceSnapshot: { ...room.battle.cards[0], attack: 1000, enhancement: 0 }, preferred: 'attack' });
+  const status = (await h.call('state', 0)).cooperative.room;
+  const owner = Number(status.activeAccountId.split('-').at(-1));
+  const result = await h.call('action', owner, { roomId: room.id, expectedRevision: status.revision, actionId: 'follow-up-test', action: 'basic' });
+  assert.equal(result.cooperative.room.battle.currentActor, 'follow-up');
+  const directDamage = result.cooperative.room.battle.totalDamage;
+  assert.equal(result.cooperative.room.activeAccountId, '');
+  h.restart();
+  assert.equal((await h.call('state', 0, {}, h.now + 1299)).cooperative.room.battle.totalDamage, directDamage);
+  const follow = (await h.call('state', 0, {}, h.now + 1300)).cooperative.room.battle;
+  assert.equal(follow.totalDamage, directDamage + 3200);
+  assert.equal(follow.currentActor, 'boss');
+  assert.equal(follow.playerActionCount, 1);
+  assert.equal(follow.log.filter(entry => entry.type === 'boss-basic').length, 0);
+  const boss = (await h.call('state', 0, {}, h.now + 2300)).cooperative.room.battle;
+  assert.equal(boss.log.filter(entry => entry.type === 'boss-basic').length, 1);
+  assert.equal(boss.log.filter(entry => entry.type === 'galaxy-resolve').length, 1);
 });

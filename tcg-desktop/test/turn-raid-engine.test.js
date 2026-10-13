@@ -5,18 +5,25 @@ import { CARD_SKILLS, skillDescriptionAtEnhancement } from '../src/data/cardSkil
 import {
   createRaidBattle,
   performBossAction,
-  performPlayerAction,
+  performPlayerAction as performPrimaryAction,
+  performFollowUpAction,
   skillForCard,
   startRaidBattle,
 } from '../src/core/turnRaidEngine.js';
 
 const card = (id, attack = 1000, enhancement = 0) => ({ id, name: id, combatPower: attack, enhancement });
+// Effect tests settle presentation phases; phase ordering has its own regressions.
+function performPlayerAction(...args) {
+  let state = performPrimaryAction(...args);
+  while (state.currentActor === 'follow-up') state = performFollowUpAction(state, args[2]);
+  return state;
+}
 const deck = () => [card('nanche-c'), card('winter-c'), card('hoi-c'), card('simsim-c')];
 const cocaVariants = ['coca-u', 'coca-rr', 'coca-rrr', 'coca-sr', 'coca-hr', 'coca-ur', 'coca-ssr'];
 
-test('all 118 main cards and 8 legacy cards have explicit skill information', () => {
-  assert.equal(CARD_SKILLS.length, 126);
-  assert.equal(ALL_CARDS.length, 126);
+test('all 132 main cards and 8 legacy cards have explicit skill information', () => {
+  assert.equal(CARD_SKILLS.length, 140);
+  assert.equal(ALL_CARDS.length, 140);
   for (const item of ALL_CARDS) {
     const skill = skillForCard(item.id, 0);
     assert.ok(skill, `${item.id} skill`);
@@ -254,7 +261,7 @@ test('솜주먹 U receives its shielded-boss damage bonus without requiring an u
   assert.equal(state.boss.shield, 98_115);
 });
 
-test('every one of the 126 card skills applies a battle effect instead of being metadata only', () => {
+test('every catalog card skill applies a battle effect instead of being metadata only', () => {
   const fallbackIds = ['winter-c', 'hoi-c', 'nanche-c', 'simsim-c'];
   const effectSnapshot = (state) => JSON.stringify({
     boss: { hp: state.boss.hp, shield: state.boss.shield, breakGauge: state.boss.breakGauge, statuses: state.boss.statuses },

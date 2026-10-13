@@ -701,7 +701,21 @@ const RAW_CARD_SKILLS = [
     "id": "morae-ssr", "displayName": "불침의 푸른 사막왕 모래", "name": "푸른 사막의 불침성",
     "description": "아군 전체에게 HP 24% 보호막을 부여한다. 다음 3회의 아군 피격 피해를 25% 줄이고, 이 효과와 보호막으로 막은 피해를 저장한다. 세 번째 피격 뒤 공격력 120%와 저장 피해를 합친 피해 및 브레이크 피해 15로 반격한다.",
     "cooldown": 6, "role": "방어·반격"
-  }
+  },
+  { id: 'winter-hr', displayName: '오로라의 맹약 겨울', name: '오로라 성벽', description: '아군 전체에게 HP 26% 보호막을 부여하고 2턴간 받는 피해를 22% 줄인다. 자신의 다음 단일 피격을 유도한다.', cooldown: 5, role: '방어·탱킹' },
+  { id: 'winter-ssr', displayName: '천공 설원의 성좌 겨울', name: '설원 성좌의 심판', description: '공격력 340% 피해와 브레이크 피해 45를 주고 적의 다음 행동을 동결한다. 적이 받는 피해를 2턴간 25% 높인다.', cooldown: 6, role: '공격·브레이크' },
+  { id: 'nanche-r', displayName: '퍼즐 공방의 견습 난체', name: '딱 맞는 충돌', description: '공격력 165% 피해와 브레이크 피해 25를 준다. 적 공격력을 2턴간 12% 낮춘다.', cooldown: 4, role: '공격·약화' },
+  { id: 'nanche-rr', displayName: '미궁을 여는 열쇠 난체', name: '탈출구의 정답', description: '아군 전체의 약화 효과를 1개씩 제거하고 HP를 16% 회복한다. 아군 1명의 쿨다운을 1턴 줄인다.', cooldown: 4, role: '회복·지원' },
+  { id: 'nanche-rrr', displayName: '뒤틀린 방의 설계자 난체', name: '뒤집힌 방정식', description: '공격력 220% 피해와 브레이크 피해 32를 준다. 적이 받는 브레이크 피해를 2턴간 25% 높인다.', cooldown: 5, role: '공격·브레이크' },
+  { id: 'nanche-sr', displayName: '만화경의 조율자 난체', name: '일곱 빛 정렬', description: '아군 전체에게 HP 22% 보호막을 부여하고 2턴간 고유 스킬 피해를 25% 높인다. 약화 효과를 1개씩 제거한다.', cooldown: 5, role: '지원' },
+  { id: 'nanche-hr', displayName: '운명의 조각 수호자 난체', name: '깨지지 않는 정답', description: '자신에게 HP 38% 보호막과 도발 2회를 부여한다. 다음 두 번의 피격 피해를 35% 줄이고 공격력 110%로 반격한다.', cooldown: 5, role: '방어·반격' },
+  { id: 'nanche-ur', displayName: '차원을 잇는 완성식 난체', name: '차원 완성식', description: '아군 전체 HP를 26% 회복하고 쿨다운을 1턴 줄인다. 다음 세 번의 아군 공격에 공격력 65% 추가 피해와 브레이크 피해 12를 부여한다.', cooldown: 6, role: '회복·지원' },
+  { id: 'nanche-ssr', displayName: '만상의 해답을 엮는 자 난체', name: '만상의 완성 해답', description: '아군 전체의 모든 약화 효과를 제거하고 쿨다운을 2턴 줄인다. HP 24% 보호막을 부여하고 2턴간 회복·보호막·스킬 효과량을 30% 높인다.', cooldown: 6, role: '지원' },
+  { id: 'chuming-u', displayName: '별여우와 첫 연습 츄밍', name: '하나 둘 별빛 박자', description: '아군 전체 HP를 10% 회복하고 2턴간 공격력을 10% 높인다.', cooldown: 4, role: '회복·지원' },
+  { id: 'chuming-rrr', displayName: '혜성빛 듀엣 츄밍', name: '쌍성 하모니', description: '공격력 115% 피해를 2회 주고 브레이크 피해 25를 준다. 아군 전체의 다음 기본 공격 피해를 35% 높인다.', cooldown: 5, role: '공격·연타' },
+  { id: 'chuming-sr', displayName: '달빛 커튼콜 츄밍', name: '달빛 보호 커튼', description: '아군 전체에게 HP 25% 보호막을 부여하고 2턴간 받는 피해를 20% 줄인다. 다음 약화 효과를 1개씩 막는다.', cooldown: 5, role: '방어' },
+  { id: 'chuming-ur', displayName: '우주를 잇는 노래 츄밍', name: '별자리 연결음', description: '아군 전체 HP를 28% 회복하고 약화 효과를 1개씩 제거한다. 3턴간 받는 회복량과 공격력을 각각 22% 높인다.', cooldown: 6, role: '회복·지원' },
+  { id: 'chuming-ssr', displayName: '은하를 깨우는 앙코르 츄밍', name: '은하를 깨우는 앙코르', description: '아군 전체 HP를 30% 회복하고 2턴간 공격력을 25% 높인다. 이후 다른 아군의 스킬 사용 뒤 공격력 100%로 추가 공격하고 해당 아군 쿨다운을 1턴 줄인다. 최대 3회 발동한다.', cooldown: 6, role: '회복·지원' }
 ];
 
 // Legacy collection cards remain playable while their future illustrated variants are planned.

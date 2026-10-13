@@ -16,6 +16,7 @@ function openingId(openedAt) {
 
 export function createPendingPackOpening({
   cards,
+  packId = 'standard',
   pityTriggered = false,
   highestRarity = '',
   newCardIndices = [],
@@ -32,7 +33,7 @@ export function createPendingPackOpening({
   const safeOpenedAt = Number.isFinite(Number(openedAt)) ? Number(openedAt) : Date.now();
   return {
     id: typeof id === 'string' && id ? id : openingId(safeOpenedAt),
-    packId: 'standard',
+    packId: typeof packId === 'string' && packId.trim() ? packId.trim() : 'standard',
     cardIds,
     pityTriggered: Boolean(pityTriggered),
     highestRarity: typeof highestRarity === 'string' ? highestRarity : '',
@@ -54,7 +55,7 @@ export function hydratePendingPackOpening(value) {
   const openedAt = Number.isFinite(Number(value.openedAt)) ? Number(value.openedAt) : 0;
   return {
     id: value.id,
-    packId: 'standard',
+    packId: typeof value.packId === 'string' && value.packId.trim() ? value.packId.trim() : 'standard',
     cardIds,
     pityTriggered: Boolean(value.pityTriggered),
     highestRarity: typeof value.highestRarity === 'string' ? value.highestRarity : '',

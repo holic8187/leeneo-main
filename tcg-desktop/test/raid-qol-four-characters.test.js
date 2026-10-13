@@ -7,7 +7,10 @@ import { FOUR_CHARACTER_SKILLS } from '../src/data/fourCharacterSkills.js';
 import { roleForCard } from '../src/core/cardProgression.js';
 import { chooseRaidAutoAction } from '../src/core/raidAutoBattle.js';
 import { effectPresentation } from '../src/core/raidBattleView.js';
-import { createRaidBattle,startRaidBattle,performPlayerAction,performBossAction } from '../src/core/turnRaidEngine.js';
+import { createRaidBattle,startRaidBattle,performPlayerAction as performPrimaryAction,performFollowUpAction,performBossAction } from '../src/core/turnRaidEngine.js';
+
+// These tests assert skill effects after the extra animation actions complete.
+function performPlayerAction(...args) { let state=performPrimaryAction(...args); while(state.currentActor==='follow-up')state=performFollowUpAction(state,args[2]); return state; }
 
 const member=(id,attack=1000,enhancement=0)=>({id,attack,enhancement});
 function battle(first='winter-ur',boss={},enhancement=0){return startRaidBattle(createRaidBattle({cards:[member(first,1000,enhancement),member('winter-c',2000),member('hoi-ssr',3000),member('simsim-c',500)],boss:{maxHp:1_000_000,baseDamage:10,...boss},seed:123}),0);}
@@ -248,7 +251,7 @@ test('auto respects exhausted UR skills and active seals through actual engine e
   assert.equal(state.log.some(entry=>entry.type==='boss-basic'||entry.type==='boss-skill'),false);
 });
 
-test('automatic policy completes real seven-round battles without invalid actions, including each of126 skills',()=>{
+test('automatic policy completes real seven-round battles without invalid actions for every catalog skill',()=>{
   for(const card of ALL_CARDS){
     // Distinct IDs required; swap the support slot when this card is Winter C.
     const fillers=['nanche-c','winter-c','hoi-ssr','simsim-c'].filter(id=>id!==card.id).slice(0,3);

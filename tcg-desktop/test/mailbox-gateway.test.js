@@ -23,7 +23,7 @@ test('mailbox gateway normalizes mail and adopts claim snapshots', async () => {
     }, calls),
   });
   const listed = await gateway.list('player-token');
-  assert.deepEqual(listed.mailbox[0].rewards, { coins: 10, standardPacks: 1 });
+  assert.deepEqual(listed.mailbox[0].rewards, { coins: 10, standardPacks: 1, premiumPacks: 0, ssrTickets: 0 });
   const claimed = await gateway.claim('player-token', { mailId: 'm1', baseRevision: 7 });
   assert.equal(claimed.snapshot.revision, 8);
   assert.deepEqual(claimed.snapshot.state, { wallet: { coins: 10 } });
@@ -55,6 +55,8 @@ test('mail normalization clamps invalid rewards', () => {
   assert.deepEqual(normalizeMail({ id: 'm', rewards: { coins: -5, packs: '2.9' } }).rewards, {
     coins: 0,
     standardPacks: 2,
+    premiumPacks: 0,
+    ssrTickets: 0,
   });
 });
 

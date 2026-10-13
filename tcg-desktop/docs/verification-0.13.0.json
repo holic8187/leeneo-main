@@ -1,0 +1,63 @@
+{
+  "version": "0.13.0",
+  "verifiedAtLocalDate": "2026-10-13",
+  "timezone": "Asia/Seoul",
+  "branch": "codex/tcg-premium-packs-raid-effects-0.13.0",
+  "baseCommit": "0dc15568a85cafbf9cfc8ae5ca3b3c500bf90d60",
+  "deployment": "local-only; no push, tags, GitHub release, or production deployment",
+  "automated": {
+    "client": { "passed": 340, "failed": 0, "log": "release/verification-0.13.0/client-tests.log" },
+    "serverTcg": { "passed": 72, "failed": 0, "log": "release/verification-0.13.0/server-tests.log" },
+    "productionWebBuild": "passed via android:sync with production API base",
+    "capacitorSync": "passed; release/verification-0.13.0/android-sync.log",
+    "androidGradleTest": "passed; no app unit-test sources, not device verification",
+    "androidAssembleDebug": "passed; release/verification-0.13.0/android-build.log",
+    "windowsNsis": "passed; release/verification-0.13.0/windows-build.log; publish never",
+    "productDiffCheck": "passed; node_modules excluded"
+  },
+  "artifacts": [
+    {
+      "path": "release/Hoi-Card-Desk-0.13.0-x64.exe",
+      "sha256": "249B90F1AE58F73AC3DFB2BF014B1C5FD63DE9DA76B618EC14646E498824823F",
+      "purpose": "local Windows installer; server changes still require coordinated deployment"
+    },
+    {
+      "path": "android/app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "450AA37CC393356FA1148C8361991D83DD2EE63306058D28B92B93211E9ECB3B",
+      "purpose": "debug-signed build validation only; not an update package for released installations"
+    }
+  ],
+  "browserQa": {
+    "fixture": "scripts/manual-013-preview.mjs",
+    "environment": "localhost mock account and API; production data untouched",
+    "viewports": ["desktop 1280x720", "mobile 390x844"],
+    "passed": [
+      "Premium purchase subtracts 15000 coins; opening 10 packs consumes 10 and draws 50 cards",
+      "New or SR+ cards appear in horizontal reveal carousel; duplicate summary does not disclose hidden copies",
+      "Individual reveal, horizontal navigation, reveal all, and close/reload/resume preserve results",
+      "SSR voucher yields one SSR and consumes one ticket; no purchase action",
+      "Three cooperative representatives immediately enable confirmation",
+      "Common cooperative battlefield renders four cards, action controls, HP and break HUD",
+      "UR Winter skill creates three ice pillars; boss hit destroys one and leaves two",
+      "Ice pillar tooltip and card skill inspector are accessible",
+      "New Chuming SSR art and enhanced-skill description render in card details",
+      "Collection search submit returns Chuming's nine rarity entries"
+    ],
+    "limitations": [
+      "No physical Android-device installation or live four-user production session was tested",
+      "Local cooperative fixture uses one synthetic owner for all four actors and does not auto-act on player timeout; server tests cover authoritative phases"
+    ],
+    "cleanup": "temporary viewport override reset"
+  },
+  "catalog": {
+    "collectibleCards": 132,
+    "legacyCompatibilityCards": 8,
+    "ssrCards": 10,
+    "newMissingRarities": { "winter": ["HR", "SSR"], "nanche": ["R", "RR", "RRR", "SR", "HR", "UR", "SSR"], "chuming": ["U", "RRR", "SR", "UR", "SSR"] },
+    "allThreeCharactersHaveNineRarities": true,
+    "artManifest": "docs/art-0.13.0.json",
+    "artDeliverables": "23 card illustrations and one transparent loading sprite sheet, generated with the built-in image tool"
+  },
+  "migration": "Schema v11 adds zero-default premium packs and SSR tickets while retaining existing cards, currency, and pending pack reveal state. No historical ownership or rankings reset.",
+  "deploymentRequirement": "Publish server and client together for premium/SSR mail rewards and cooperative follow-up phases. A signed release APK must be built before Android distribution."
+}

@@ -1,0 +1,58 @@
+.pack-shop { border:1px solid var(--line,#ccd5cb); border-radius:18px; padding:22px; background:var(--paper,#f8f9f2); margin:22px 0; }
+.pack-shop-products { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; margin-top:18px; }
+.pack-shop-product { display:grid; gap:12px; min-width:0; padding:18px; border:1px solid #c6d2c7; border-radius:14px; background:#fff9; }
+.pack-shop-product.is-premium { border-color:#b8a1d5; background:linear-gradient(140deg,#f5efff,#fff8e9); }
+.pack-shop-product h3 { margin:0 0 7px; font-size:20px; }
+.pack-shop-product p,.pack-shop-product small { font-size:13px; line-height:1.65; margin:4px 0; }
+.pack-shop-product > button { justify-content:center; min-height:44px; }
+.pack-shop-seal { display:flex; align-items:center; gap:10px; color:#705489; font-size:20px; font-weight:800; }
+.pack-shop-open { display:flex; gap:8px; }
+.pack-shop-open button { flex:1; justify-content:center; min-height:42px; }
+.pack-shop-product details { font-size:13px; }
+.pack-shop-product summary { cursor:pointer; }
+.ssr-ticket-inventory { display:flex; align-items:center; gap:15px; border-top:1px solid #cdd3cb; margin-top:20px; padding-top:18px; }
+.ssr-ticket-inventory > span { flex:1; }
+.ssr-ticket-inventory small { display:block; font-size:12px; margin-top:5px; }
+.ssr-ticket-inventory b { white-space:nowrap; }
+.modal-backdrop.pack-carousel-backdrop { padding:16px; overflow:hidden; }
+.pack-carousel-backdrop .pack-carousel-modal { box-sizing:border-box; width:min(100%,1000px); height:min(900px,calc(100dvh - 32px)); max-height:calc(100dvh - 32px); display:grid; grid-template-rows:auto minmax(50px,auto) auto minmax(0,1fr) auto; gap:12px; padding:20px; overflow:hidden; border-radius:18px; }
+.pack-duplicate-summary { max-height:120px; overflow:auto; padding:10px 14px; background:#edf1e9; border-radius:10px; font-size:13px; line-height:1.65; }
+.pack-duplicate-summary > strong { font-size:12px; color:#526556; }
+.pack-duplicate-summary ul { margin:4px 0 0; padding:0; list-style:none; }
+.pack-duplicate-summary li { display:inline; margin-right:15px; overflow-wrap:anywhere; }
+.pack-duplicate-summary p { margin:3px 0; }
+.pack-carousel-wrap { min-height:0; min-width:0; display:grid; grid-template-columns:32px minmax(0,1fr) 32px; gap:10px; align-items:center; }
+.pack-carousel { height:100%; min-height:0; min-width:0; display:flex; align-items:center; overflow-x:auto; overflow-y:hidden; gap:18px; scroll-snap-type:x mandatory; overscroll-behavior-x:contain; touch-action:pan-x; padding:8px 8px 14px; scrollbar-width:thin; }
+.pack-carousel-item { flex:0 0 min(72%,290px); min-width:0; height:100%; max-height:470px; scroll-snap-align:center; display:grid; place-items:center; }
+.pack-carousel .result-card { width:100%; height:100%; display:grid; grid-template-rows:minmax(0,1fr) auto; border-radius:13px; min-width:0; min-height:0; }
+.pack-carousel .result-card__art { min-height:0; height:auto; aspect-ratio:auto; }
+.pack-carousel .result-card__art > img.card-illustration { width:100%; height:100%; object-fit:cover; }
+.pack-carousel .result-card__copy { min-height:63px; padding:9px 10px; text-align:center; }
+.pack-carousel .result-card__copy strong { font-size:14px; min-height:0; }
+.pack-carousel .result-card__copy small { font-size:11px; }
+.pack-carousel .result-card__copy > span { display:none; }
+.pack-carousel .result-card__art.is-revealed { animation:pack-carousel-flip .5s ease both; }
+.pack-summary-complete { display:grid; place-content:center; justify-items:center; text-align:center; gap:12px; }
+.pack-summary-complete > svg { width:52px; height:52px; color:var(--forest); }
+.pack-carousel-modal .pack-focus-status { font-size:13px; }
+.pack-carousel-modal .pack-focus-secondary { flex-wrap:wrap; gap:8px 18px; }
+.pack-carousel-modal .pack-focus-secondary button { font-size:13px; }
+@keyframes pack-carousel-flip { from { transform:rotateY(90deg); opacity:.2; } to { transform:rotateY(0); opacity:1; } }
+@media(max-width:600px) {
+ .pack-shop { padding:15px; }
+ .pack-shop-products { grid-template-columns:1fr; gap:12px; }
+ .ssr-ticket-inventory { flex-wrap:wrap; gap:10px; }
+ .ssr-ticket-inventory > span { flex-basis:75%; }
+ .ssr-ticket-inventory button { width:100%; justify-content:center; }
+ .modal-backdrop.pack-carousel-backdrop { padding:0; }
+ .pack-carousel-backdrop .pack-carousel-modal { height:100dvh; max-height:100dvh; border-radius:0; padding:max(10px,env(safe-area-inset-top)) 10px max(10px,env(safe-area-inset-bottom)); gap:8px; }
+ .pack-duplicate-summary { max-height:90px; padding:8px 10px; }
+ .pack-carousel-wrap { grid-template-columns:24px minmax(0,1fr) 24px; gap:4px; }
+ .pack-carousel-wrap .pack-focus-arrow { width:24px; }
+ .pack-carousel { gap:12px; padding:6px 0 12px; }
+ .pack-carousel-item { flex-basis:86%; }
+ .pack-carousel-modal .pack-focus-heading h2 { font-size:21px; }
+ .pack-carousel-modal .pack-focus-status { font-size:12px; }
+ .pack-carousel-modal .pack-focus-status button { padding:6px 2px; }
+}
+@media(prefers-reduced-motion:reduce) { .pack-carousel-backdrop::before,.pack-carousel .result-card__art.is-revealed { animation:none; } }

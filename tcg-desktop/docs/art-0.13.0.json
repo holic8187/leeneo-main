@@ -1,0 +1,588 @@
+{
+  "date": "2026-10-13",
+  "mode": "built-in image_gen",
+  "status": "complete",
+  "counts": {
+    "deliverables": 24,
+    "cardIllustrations": 23,
+    "loadingSpriteSheets": 1,
+    "builtinRequests": 29
+  },
+  "constraints": {
+    "pixelEditing": "None; generated PNGs copied byte-for-byte; no Python or programmatic raster edits",
+    "transparentAlpha": "Original builtin alpha retained for Eungga C and loading sheet",
+    "codeScope": "Only eungga entry in src/data/loadingSpriteGeometry.js changed by art agent",
+    "deployment": "No commit, push, deployment or publication by art agent"
+  },
+  "assets": [
+    {
+      "id": "winter-ssr",
+      "title": "천공 설원의 성좌",
+      "ref": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/winter-ur.png",
+      "prompt": "Use case: stylized-concept. Asset type: SSR collectible fantasy card original artwork, portrait 3:4, full bleed. The reference image is solely an identity and anime painting style reference. Create a new illustration of Winter, the same silver-haired blue-eyed winter girl, snowflake hair jewelry, elaborate navy-and-white dress with gold embroidery and luxurious white fur snow cape. Scene 'Constellation of the Celestial Snowfield': she stands in a vast starlit alpine snowfield elevated above clouds, gazing upward with serene wonder as a gigantic luminous constellation of snow crystals quietly unfolds overhead. Distinct composition: three-quarter side view, upper body prominent, one hand gracefully raising a snow crystal at chest height and the other holding the cape edge, both anatomically clear hands with five natural fingers. Wind flows hair and cape to one side; celestial blue, silver, violet and delicate gold. Intricate SSR-grade costume details, layered spatial depth, frost sparkling like stars, beautiful face and coherent anatomy. Keep the same character identity. No text, letters, labels, UI, border, card frame, watermarks; no extra arms/fingers, no duplicate character. Output a single 3:4 portrait PNG.",
+      "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-406bfa00-4412-4c2b-95c7-ff3de8efecdf.png",
+      "output": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/winter-ssr.png",
+      "qa": "Identity consistent with viewed existing reference; distinct rarity scene, no text or card border. Visual anatomy review performed.",
+      "fileVerification": {
+        "width": 1086,
+        "height": 1448,
+        "bitDepth": 8,
+        "pngColorType": 2,
+        "bytes": 3048766,
+        "sha256": "8dad89672aff3e3c6a09f0d6b0f7c42fb13af428c0b26f24cf973401eb9618ae",
+        "matchesGeneratedSource": true
+      }
+    },
+    {
+      "id": "nanche-ssr",
+      "title": "만상의 해답을 엮는 자",
+      "ref": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/nanche-u.webp",
+      "prompt": "Use case: stylized-concept. Asset type: SSR collectible fantasy card original artwork, portrait 3:4, full bleed. Reference image is an identity and art-style reference: preserve Nanche, the same adorable white and lime-green puzzle spirit, rounded quadruped body, huge mismatched dark and green eyes, black nose patch, jigsaw-shaped green crown sprouts and irregular puzzle patches, tiny paws. Create a new SSR scene titled 'The Weaver of All Answers': Nanche floats in a celestial puzzle observatory, joyfully and intently placing one luminous green puzzle piece into a vast interlocking mandala of cosmic worlds, streams of emerald and gold light connecting completed puzzle arches. Dynamic three-quarter full-body composition from slightly below, one forepaw offering the final piece, other forepaw balancing; keep four coherent short limbs, cute recognizable face, no human hands. High-detail painterly anime fantasy, brilliant emerald-white-gold magic, crystalline puzzle surfaces, deep indigo cosmic distance, majestic yet warm. More elaborate than lower-tier art. One character only, no writing, text, letters, logos, labels, UI, frame or watermark. Output single 3:4 portrait PNG.",
+      "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-bf1ad082-e8be-4b00-a82d-9b6fc4befdae.png",
+      "output": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/nanche-ssr.png",
+      "qa": "Identity consistent with viewed existing reference; distinct rarity scene, no text or card border. Visual anatomy review performed.",
+      "fileVerification": {
+        "width": 1086,
+        "height": 1448,
+        "bitDepth": 8,
+        "pngColorType": 6,
+        "bytes": 3565537,
+        "sha256": "7976f555e5c6d29b2bd07265e0f01e0b7076881e9748936562cae4fca87a8225",
+        "matchesGeneratedSource": true
+      }
+    },
+    {
+      "id": "chuming-ssr",
+      "title": "은하를 깨우는 앙코르",
+      "ref": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/chuming-hr.webp",
+      "prompt": "Use case: stylized-concept. Asset type: SSR collectible fantasy card original artwork, portrait 3:4, full bleed. The reference is for character identity and detailed anime-painting style only. Preserve Chuming: sky-blue long twin-tails with subtle pink streaks, star ornaments, navy-white-gold elaborate idol outfit, and her small fluffy white fox companion. New scene 'Encore That Awakens the Galaxy': final triumphant encore on a suspended crystal stage among the stars, eye-level dramatic three-quarter composition with Chuming facing toward viewer, bright open eyes and radiant smile, one hand holding a microphone naturally at mouth height, other hand opened gracefully across her heart, five clear natural fingers each. Her white fox leaps beside her, paws clear, fluffy tail curved. A huge rising dawn-like galaxy expands behind them with blue pink gold star trails, sparkling floor reflections and flowing ribbons, extraordinary SSR couture detailing, luminous layered depth, expressive face. Distinct pose and camera from reference. No extra characters, no extra fingers or limbs, no text, typography, logos, border, card frame, UI or watermark. Output one 3:4 portrait PNG.",
+      "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-6a0e0e5c-0c3c-496c-8dbd-d52680870386.png",
+      "output": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/chuming-ssr.png",
+      "iterations": [
+        {
+          "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-54328ac8-1c90-474a-b51e-7faeba397cf0.png",
+          "prompt": "Use case: stylized-concept. Asset type: SSR collectible fantasy card original artwork, portrait 3:4, full bleed. The reference is for character identity and detailed anime-painting style only. Preserve Chuming: sky-blue long twin-tails with subtle pink streaks, star ornaments, navy-white-gold elaborate idol outfit, and her small fluffy white fox companion. New scene 'Encore That Awakens the Galaxy': final triumphant encore on a suspended crystal stage among the stars, eye-level dramatic three-quarter composition with Chuming facing toward viewer, bright open eyes and radiant smile, one hand holding a microphone naturally at mouth height, other hand opened gracefully across her heart, five clear natural fingers each. Her white fox leaps beside her, paws clear, fluffy tail curved. A huge rising dawn-like galaxy expands behind them with blue pink gold star trails, sparkling floor reflections and flowing ribbons, extraordinary SSR couture detailing, luminous layered depth, expressive face. Distinct pose and camera from reference. No extra characters, no extra fingers or limbs, no text, typography, logos, border, card frame, UI or watermark. Output one 3:4 portrait PNG.",
+          "rejectedReason": "Extra third arm on viewer-right"
+        }
+      ],
+      "correctionPrompt": "Use case: precise-object-edit. Edit target: the supplied Chuming SSR illustration. Fix ONLY the anatomical error: there is an extra outstretched open hand and extra forearm on the viewer-right side of the image, in front of the right twin-tail, emerging near the shoulder. REMOVE that entire extra outstretched hand/forearm completely and naturally reconstruct the background hair/stars/dress behind it. Chuming must have exactly TWO arms and TWO hands total: keep the viewer-left hand holding the microphone unchanged and keep the hand resting over her heart unchanged, with their natural arm connections. Preserve her face, outfit, both twin-tails, fox companion, galaxy, lighting, palette, 3:4 portrait composition, all other details. No new hands, no extra arms, no text or border. This is a precise cleanup of the extra third arm only.",
+      "qa": "Extra third arm removed; two coherent arms and hands remain.",
+      "fileVerification": {
+        "width": 1086,
+        "height": 1448,
+        "bitDepth": 8,
+        "pngColorType": 2,
+        "bytes": 3101561,
+        "sha256": "085e99d9247aac6a208318b6be298f55e19c5853b05a8eabafda88f2422eaf5d",
+        "matchesGeneratedSource": true
+      }
+    },
+    {
+      "id": "eungga-c",
+      "title": "작은 왕",
+      "prompt": "Use case: stylized-concept. Asset type: C-tier collectible game mascot portrait, 3:4 aspect ratio PNG with genuinely transparent background. Completely new Eungga character design: an adorable round chestnut plush spirit king, a SINGLE uninterrupted plump round oval chestnut-brown body, soft short plush fabric, exactly two tiny rounded mitten arms and two tiny rounded feet, small black oval eyes, small smiling mouth, warm cream circular cheek patches, a simple shiny gold crown on its smoothly rounded head. It must look like a huggable chestnut plush, no point on the head, no layered or stacked silhouette. Simple relaxed front three-quarter standing pose, gentle proud smile, centered full body with ample transparent padding, clear tidy anime game illustration, restrained C-tier detail, no scenery, no ground, no decorative aura, no cape, no props besides one gold crown. No text, frame or watermark. FORBIDDEN: poop, feces, excrement, poop emoji, soft-serve shape, swirl, spiral, mound, conical body, stacked coils, ridges, pile, brown goo. Maintain one smooth oval silhouette, dry cuddly plush surface. Single character only. Actual transparent background and alpha, not painted checkerboard.",
+      "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-eb0adab1-91d9-486f-a1dc-944f9c275ec4.png",
+      "output": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/eungga-c.png",
+      "qa": "Smooth oval plush chestnut design, crown and cream cheeks consistent, distinct rarity scene; no stacked or spiral body.",
+      "fileVerification": {
+        "width": 1086,
+        "height": 1448,
+        "bitDepth": 8,
+        "pngColorType": 6,
+        "bytes": 1884927,
+        "sha256": "2da9b4178137ee5ebba13ad3c3f58c770630bcb3ccef4c284556a52b03bfe360",
+        "matchesGeneratedSource": true
+      }
+    },
+    {
+      "id": "eungga-u",
+      "title": "벨벳 왕좌의 오후",
+      "ref": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/eungga-c.png",
+      "prompt": "Use case: stylized-concept. Asset type: collectible fantasy game character original artwork, portrait 3:4, full bleed PNG. Image 1 is the EXACT Eungga character identity reference. Preserve the adorable chestnut-brown plush spirit king: SINGLE smooth uninterrupted oval chubby body, no separate head bulb, no pointed head, soft plush fabric, cream circular cheeks and cream belly patch, small black oval eyes, simple embroidered smiling mouth, exactly two tiny rounded mitten arms and two rounded feet, one golden crown. Keep this new huggable plush design consistent in a polished anime-fantasy painted world. Make a NEW composition and pose, do not paste the reference. Scene: U tier, modest cozy interior: lazily reclining sideways in a small burgundy velvet throne near a sunny palace window, one foot comfortably resting on a cushion and another hanging, one arm at side and another lightly touching cheek, sleepy satisfied half-closed eyes. Eye-level full-body framing, warm quiet afternoon glow, simple wood and fabric detail, no magic. Clear coherent limbs and object contact. One character only, no text, letters, numerals, labels, logos, UI, card borders or watermarks. No poop, excrement, soft-serve form, spiral body, layered mound, stacked coils, conical body, brown slime or gross imagery. No animal ears. No duplicate character, extra arms, extra feet. Keep the plush body warm chestnut brown with cream cheeks and gold crown.",
+      "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-adaf415e-31bc-4e30-af6b-b02249afccf7.png",
+      "output": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/eungga-u.png",
+      "qa": "Smooth oval plush chestnut design, crown and cream cheeks consistent, distinct rarity scene; no stacked or spiral body.",
+      "fileVerification": {
+        "width": 1086,
+        "height": 1448,
+        "bitDepth": 8,
+        "pngColorType": 2,
+        "bytes": 2583156,
+        "sha256": "f4bfbe66af0bcb37444598f28f8fb5fdebb71bda5937be67aea7301707d40b31",
+        "matchesGeneratedSource": true
+      }
+    },
+    {
+      "id": "eungga-r",
+      "title": "왕실 산책 대장",
+      "ref": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/eungga-c.png",
+      "prompt": "Use case: stylized-concept. Asset type: collectible fantasy game character original artwork, portrait 3:4, full bleed PNG. Image 1 is the EXACT Eungga character identity reference. Preserve the adorable chestnut-brown plush spirit king: SINGLE smooth uninterrupted oval chubby body, no separate head bulb, no pointed head, soft plush fabric, cream circular cheeks and cream belly patch, small black oval eyes, simple embroidered smiling mouth, exactly two tiny rounded mitten arms and two rounded feet, one golden crown. Keep this new huggable plush design consistent in a polished anime-fantasy painted world. Make a NEW composition and pose, do not paste the reference. Scene: R tier: proudly marching along a sunny palace garden path, one short foot stepping forward, one mitten hand lifted in a friendly wave, lively delighted open smile. Low three-quarter full-body view, roses and neatly clipped hedges, small royal blue neck ribbon, crown securely on head. Cheerful lively daylight with little sparkle, no cosmic scene. Clear coherent limbs and object contact. One character only, no text, letters, numerals, labels, logos, UI, card borders or watermarks. No poop, excrement, soft-serve form, spiral body, layered mound, stacked coils, conical body, brown slime or gross imagery. No animal ears. No duplicate character, extra arms, extra feet. Keep the plush body warm chestnut brown with cream cheeks and gold crown.",
+      "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-6249000c-5037-47d6-8334-966a3d2c7df7.png",
+      "output": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/eungga-r.png",
+      "qa": "Smooth oval plush chestnut design, crown and cream cheeks consistent, distinct rarity scene; no stacked or spiral body.",
+      "fileVerification": {
+        "width": 1086,
+        "height": 1448,
+        "bitDepth": 8,
+        "pngColorType": 6,
+        "bytes": 2909324,
+        "sha256": "855167b32e0e496b147a349ef9ffee6af119abb93afbc730273b321e757164fa",
+        "matchesGeneratedSource": true
+      }
+    },
+    {
+      "id": "eungga-rr",
+      "title": "호박빛 연회의 주인",
+      "ref": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/eungga-c.png",
+      "prompt": "Use case: stylized-concept. Asset type: collectible fantasy game character original artwork, portrait 3:4, full bleed PNG. Image 1 is the EXACT Eungga character identity reference. Preserve the adorable chestnut-brown plush spirit king: SINGLE smooth uninterrupted oval chubby body, no separate head bulb, no pointed head, soft plush fabric, cream circular cheeks and cream belly patch, small black oval eyes, simple embroidered smiling mouth, exactly two tiny rounded mitten arms and two rounded feet, one golden crown. Keep this new huggable plush design consistent in a polished anime-fantasy painted world. Make a NEW composition and pose, do not paste the reference. Scene: RR tier: laughing with crescent eyes beside an amber-lit banquet table, one tiny hand lifting a little golden goblet in a toast and the other resting on the table edge, full chubby body and feet visible. Close three-quarter view with sumptuous amber bokeh, candles, gilded tabletop, warm regal hospitality, elegant embroidered short burgundy mantle. Clear coherent limbs and object contact. One character only, no text, letters, numerals, labels, logos, UI, card borders or watermarks. No poop, excrement, soft-serve form, spiral body, layered mound, stacked coils, conical body, brown slime or gross imagery. No animal ears. No duplicate character, extra arms, extra feet. Keep the plush body warm chestnut brown with cream cheeks and gold crown.",
+      "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-b1d4d056-de6b-453b-87c9-cd19b0d0079e.png",
+      "output": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/eungga-rr.png",
+      "qa": "Smooth oval plush chestnut design, crown and cream cheeks consistent, distinct rarity scene; no stacked or spiral body.",
+      "fileVerification": {
+        "width": 1086,
+        "height": 1448,
+        "bitDepth": 8,
+        "pngColorType": 2,
+        "bytes": 2519680,
+        "sha256": "02cf3ba5b023d8e3732d5515e4d5d083c18b01d972a41ad0e25fba337b897f8c",
+        "matchesGeneratedSource": true
+      }
+    },
+    {
+      "id": "eungga-rrr",
+      "title": "달그림자 비밀 칙사",
+      "ref": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/eungga-c.png",
+      "prompt": "Use case: stylized-concept. Asset type: collectible fantasy game character original artwork, portrait 3:4, full bleed PNG. Image 1 is the EXACT Eungga character identity reference. Preserve the adorable chestnut-brown plush spirit king: SINGLE smooth uninterrupted oval chubby body, no separate head bulb, no pointed head, soft plush fabric, cream circular cheeks and cream belly patch, small black oval eyes, simple embroidered smiling mouth, exactly two tiny rounded mitten arms and two rounded feet, one golden crown. Keep this new huggable plush design consistent in a polished anime-fantasy painted world. Make a NEW composition and pose, do not paste the reference. Scene: RRR tier: secret royal envoy on a moonlit palace balcony, wearing a short deep-indigo cloak and same gold crown, glancing back with alert mischievous eyes. One mitten hand firmly holding a sealed rolled scroll without lettering, other hand gently at side. Over-the-shoulder three-quarter full-body perspective, cool silver moonlight and luminous blue rooftops, discreet drifting petals and regal intrigue. Clear coherent limbs and object contact. One character only, no text, letters, numerals, labels, logos, UI, card borders or watermarks. No poop, excrement, soft-serve form, spiral body, layered mound, stacked coils, conical body, brown slime or gross imagery. No animal ears. No duplicate character, extra arms, extra feet. Keep the plush body warm chestnut brown with cream cheeks and gold crown.",
+      "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-22a2dd74-1c80-44d5-b390-d9174ba8c42f.png",
+      "output": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/eungga-rrr.png",
+      "qa": "Smooth oval plush chestnut design, crown and cream cheeks consistent, distinct rarity scene; no stacked or spiral body.",
+      "fileVerification": {
+        "width": 1086,
+        "height": 1448,
+        "bitDepth": 8,
+        "pngColorType": 2,
+        "bytes": 2531557,
+        "sha256": "30fee146d78599d4f1fb2546be71b835fc82ca194d354f27f2660b8176e60f6e",
+        "matchesGeneratedSource": true
+      }
+    },
+    {
+      "id": "eungga-sr",
+      "title": "황금 궁정의 지휘자",
+      "ref": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/eungga-c.png",
+      "prompt": "Use case: stylized-concept. Asset type: collectible fantasy game character original artwork, portrait 3:4, full bleed PNG. Image 1 is the EXACT Eungga character identity reference. Preserve the adorable chestnut-brown plush spirit king: SINGLE smooth uninterrupted oval chubby body, no separate head bulb, no pointed head, soft plush fabric, cream circular cheeks and cream belly patch, small black oval eyes, simple embroidered smiling mouth, exactly two tiny rounded mitten arms and two rounded feet, one golden crown. Keep this new huggable plush design consistent in a polished anime-fantasy painted world. Make a NEW composition and pose, do not paste the reference. Scene: SR tier: conducting magical lights in a golden royal hall on a small dais, joyful determined face, one arm raised holding a short golden conductor baton and the other outstretched mitten arm keeping time. Full body low angle, two feet firmly grounded, violet fur-trimmed short cape, ornate gold crown, soaring arches and spiraling golden musical light motifs without written notes, rich courtly detail and bright magic. Clear coherent limbs and object contact. One character only, no text, letters, numerals, labels, logos, UI, card borders or watermarks. No poop, excrement, soft-serve form, spiral body, layered mound, stacked coils, conical body, brown slime or gross imagery. No animal ears. No duplicate character, extra arms, extra feet. Keep the plush body warm chestnut brown with cream cheeks and gold crown.",
+      "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-d3ef2abb-bec0-4b94-a713-0653f44e5d7d.png",
+      "output": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/eungga-sr.png",
+      "qa": "Smooth oval plush chestnut design, crown and cream cheeks consistent, distinct rarity scene; no stacked or spiral body.",
+      "fileVerification": {
+        "width": 1086,
+        "height": 1448,
+        "bitDepth": 8,
+        "pngColorType": 6,
+        "bytes": 2912807,
+        "sha256": "6df53b967561d6e56c608ff83af5f000f7949b6096bab9add075d059fed44c0e",
+        "matchesGeneratedSource": true
+      }
+    },
+    {
+      "id": "eungga-hr",
+      "title": "유성 왕관의 군주",
+      "ref": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/eungga-c.png",
+      "prompt": "Use case: stylized-concept. Asset type: collectible fantasy game character original artwork, portrait 3:4, full bleed PNG. Image 1 is the EXACT Eungga character identity reference. Preserve the adorable chestnut-brown plush spirit king: SINGLE smooth uninterrupted oval chubby body, no separate head bulb, no pointed head, soft plush fabric, cream circular cheeks and cream belly patch, small black oval eyes, simple embroidered smiling mouth, exactly two tiny rounded mitten arms and two rounded feet, one golden crown. Keep this new huggable plush design consistent in a polished anime-fantasy painted world. Make a NEW composition and pose, do not paste the reference. Scene: HR tier: commanding a meteor shower on a palace rooftop at night, calm confident focused gaze and tiny proud smile, one hand reaching upward under a luminous shooting star and the other holding a short royal scepter. Dramatic diagonal low-angle full-body view, cloak blowing sideways, crown jewels refracting meteor light, deep indigo sky streaked with gold and emerald, exquisite high-rarity detailing. Clear coherent limbs and object contact. One character only, no text, letters, numerals, labels, logos, UI, card borders or watermarks. No poop, excrement, soft-serve form, spiral body, layered mound, stacked coils, conical body, brown slime or gross imagery. No animal ears. No duplicate character, extra arms, extra feet. Keep the plush body warm chestnut brown with cream cheeks and gold crown.",
+      "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-1e1c12d2-7af2-4262-ac32-94b2079312fc.png",
+      "output": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/eungga-hr.png",
+      "qa": "Smooth oval plush chestnut design, crown and cream cheeks consistent, distinct rarity scene; no stacked or spiral body.",
+      "fileVerification": {
+        "width": 1086,
+        "height": 1448,
+        "bitDepth": 8,
+        "pngColorType": 6,
+        "bytes": 3103988,
+        "sha256": "6d2c5c83aff19d65363f57864eb060d06826c109752c0083a09c89128d5e3f7d",
+        "matchesGeneratedSource": true
+      }
+    },
+    {
+      "id": "eungga-ur",
+      "title": "천상의 대관식",
+      "ref": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/eungga-c.png",
+      "prompt": "Use case: stylized-concept. Asset type: collectible fantasy game character original artwork, portrait 3:4, full bleed PNG. Image 1 is the EXACT Eungga character identity reference. Preserve the adorable chestnut-brown plush spirit king: SINGLE smooth uninterrupted oval chubby body, no separate head bulb, no pointed head, soft plush fabric, cream circular cheeks and cream belly patch, small black oval eyes, simple embroidered smiling mouth, exactly two tiny rounded mitten arms and two rounded feet, one golden crown. Keep this new huggable plush design consistent in a polished anime-fantasy painted world. Make a NEW composition and pose, do not paste the reference. Scene: UR tier: sacred celestial coronation atop a gleaming ivory-gold staircase in the clouds, eyes softly closed with reverent happy expression, both short mitten arms open in welcome, standing upright with two tiny feet, a radiant elaborate GOLD crown and flowing white-and-gold royal mantle. Elevated front three-quarter full-body composition, luminous golden rays, floating crystal petals, celestial arches and lavish fabric, serene spectacular detail. Clear coherent limbs and object contact. One character only, no text, letters, numerals, labels, logos, UI, card borders or watermarks. No poop, excrement, soft-serve form, spiral body, layered mound, stacked coils, conical body, brown slime or gross imagery. No animal ears. No duplicate character, extra arms, extra feet. Keep the plush body warm chestnut brown with cream cheeks and gold crown.",
+      "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-252c813c-1799-4ad0-8488-616ece06a628.png",
+      "output": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/eungga-ur.png",
+      "qa": "Smooth oval plush chestnut design, crown and cream cheeks consistent, distinct rarity scene; no stacked or spiral body.",
+      "fileVerification": {
+        "width": 1086,
+        "height": 1448,
+        "bitDepth": 8,
+        "pngColorType": 6,
+        "bytes": 2982930,
+        "sha256": "997216ee37136cda3a2b5143393ee79ab4d75d2941efd056f19b9a35a7dedcf9",
+        "matchesGeneratedSource": true
+      }
+    },
+    {
+      "id": "eungga-ssr",
+      "title": "만상을 품은 별빛 황제",
+      "ref": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/eungga-c.png",
+      "prompt": "Use case: stylized-concept. Asset type: collectible fantasy game character original artwork, portrait 3:4, full bleed PNG. Image 1 is the EXACT Eungga character identity reference. Preserve the adorable chestnut-brown plush spirit king: SINGLE smooth uninterrupted oval chubby body, no separate head bulb, no pointed head, soft plush fabric, cream circular cheeks and cream belly patch, small black oval eyes, simple embroidered smiling mouth, exactly two tiny rounded mitten arms and two rounded feet, one golden crown. Keep this new huggable plush design consistent in a polished anime-fantasy painted world. Make a NEW composition and pose, do not paste the reference. Scene: SSR tier: the star emperor cradles a miniature radiant galaxy between both short mitten hands, kind confident eyes and gentle smile, round plush figure floating above an immense cosmic palace, feet visible. Dramatic close three-quarter composition from below, lavish indigo velvet mantle lined with white fur, radiant jeweled GOLD crown, gold star chains, violet blue golden nebulae and tiny orbiting planets. Highest tier extraordinary layered magical detail and majestic intimate warmth, yet recognizable cute plush silhouette. Clear coherent limbs and object contact. One character only, no text, letters, numerals, labels, logos, UI, card borders or watermarks. No poop, excrement, soft-serve form, spiral body, layered mound, stacked coils, conical body, brown slime or gross imagery. No animal ears. No duplicate character, extra arms, extra feet. Keep the plush body warm chestnut brown with cream cheeks and gold crown.",
+      "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-23942f04-9fcd-4d7d-8f2c-8994724c4095.png",
+      "output": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/eungga-ssr.png",
+      "qa": "Smooth oval plush chestnut design, crown and cream cheeks consistent, distinct rarity scene; no stacked or spiral body.",
+      "fileVerification": {
+        "width": 1086,
+        "height": 1448,
+        "bitDepth": 8,
+        "pngColorType": 6,
+        "bytes": 3358277,
+        "sha256": "2e0c94909fabb4b3140d30290b504a1bbcfa15862cc7aec7e6b529ddc2ade7a7",
+        "matchesGeneratedSource": true
+      }
+    },
+    {
+      "id": "eungga-walk",
+      "title": "응가 로딩 걷기",
+      "ref": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/eungga-c.png",
+      "loading": true,
+      "prompt": "Use case: stylized-concept. Asset type: transparent PNG animation sprite sheet, a square 2x2 GRID with four equal cells; no grid lines. Reference image supplies exact NEW Eungga identity: single smoothly rounded chestnut-brown plush oval body, cream circular cheeks and cream belly patch, two little mitten arms and two little feet, black oval eyes, stitched smile, gold crown. No separate bulb head, no pointed or layered silhouette. Create four coherent full-body walking poses of this SAME character, facing three-quarter right in ALL cells, same lighting and size. Top-left A: near/left foot steps forward and far/right foot back, arms swing opposite. Top-right B: passing pose both feet beneath hips. Bottom-left C: far/right foot forward and near/left foot back, opposite arms. Bottom-right B: repeat same passing pose as top-right. DO NOT simply mirror the body; change leg and arm poses while face and view direction stay fixed. Each sprite completely contained within its own cell with generous 12% padding from every cell edge, including crown, feet, hands. Equal head height and scale. Exactly one character per cell, no extra feet or arms, no motion blur, no shadows outside character, no backdrop, no floor, no text, numbers, letters, border, watermark. TRUE transparent background preserving alpha, no checkerboard. Forbidden poop/excrement, soft-serve, spirals, mounds, conical body, stacked layers. Cute plush illustration consistent with reference, clean silhouette readable at 92 pixels tall. Output square 2x2 RGBA PNG.",
+      "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-f8401311-c119-4a08-995e-3cd6e5857360.png",
+      "output": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/loading/eungga-walk.png",
+      "iterations": [
+        {
+          "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-5a7b04f4-9dbb-4f90-b4f2-08634e27a616.png",
+          "prompt": "Use case: stylized-concept. Asset type: transparent PNG animation sprite sheet, a square 2x2 GRID with four equal cells; no grid lines. Reference image supplies exact NEW Eungga identity: single smoothly rounded chestnut-brown plush oval body, cream circular cheeks and cream belly patch, two little mitten arms and two little feet, black oval eyes, stitched smile, gold crown. No separate bulb head, no pointed or layered silhouette. Create four coherent full-body walking poses of this SAME character, facing three-quarter right in ALL cells, same lighting and size. Top-left A: near/left foot steps forward and far/right foot back, arms swing opposite. Top-right B: passing pose both feet beneath hips. Bottom-left C: far/right foot forward and near/left foot back, opposite arms. Bottom-right B: repeat same passing pose as top-right. DO NOT simply mirror the body; change leg and arm poses while face and view direction stay fixed. Each sprite completely contained within its own cell with generous 12% padding from every cell edge, including crown, feet, hands. Equal head height and scale. Exactly one character per cell, no extra feet or arms, no motion blur, no shadows outside character, no backdrop, no floor, no text, numbers, letters, border, watermark. TRUE transparent background preserving alpha, no checkerboard. Forbidden poop/excrement, soft-serve, spirals, mounds, conical body, stacked layers. Cute plush illustration consistent with reference, clean silhouette readable at 92 pixels tall. Output square 2x2 RGBA PNG.",
+          "rejectedReason": "A and C lead with the same foot"
+        },
+        {
+          "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-6f9a236f-cae7-4a2b-84af-d5651378bbdb.png",
+          "prompt": "Use case: precise-object-edit. Edit the supplied transparent 2x2 four-pose plush mascot sprite sheet. Preserve identical brown oval plush character, cream cheeks and belly, crown, face, view direction, scale and alpha transparency. Correct ONLY bottom-left cell C's leg and arm gait so it is the opposite of top-left A. TOP-LEFT A already has the viewer-right foot reaching forward/down and viewer-left foot trailing back. BOTTOM-LEFT C MUST clearly have the VIEWER-LEFT FOOT enlarged and extended forward/down, with the VIEWER-RIGHT FOOT tucked backward/up behind the body. Swing bottom-left arms opposite its new leg arrangement. Character's face MUST remain looking three-quarter right, do not mirror the whole character. Keep top-left A and top-right/bottom-right passing poses B unchanged. Exactly two arms and two feet per character, no extra limbs. Four clean equal cells with fully contained sprites and transparent padding, no background, no floor, no grid lines, no writing. Output the same square 2x2 RGBA PNG with genuine transparent background and preserve generated alpha. No poop form, no spiral or mound body.",
+          "rejectedReason": "Targeted edit still leads with same foot"
+        }
+      ],
+      "correctionPrompt": "Use case: stylized-concept. Make a completely new animation sprite sheet using the reference only for character identity: adorable single smooth ROUND oval chestnut-brown PLUSH spirit with cream round cheek patches, cream belly patch, small black eyes, tiny stitched smile, one golden crown, two mitten arms and two short feet. Square 2x2 grid, four equal cells, TRUE TRANSPARENT BACKGROUND, no lines or labels, ample padding in each cell. ALL FOUR views face STRAIGHT FORWARD TOWARD CAMERA, identical centered head/body scale and crown height. Strongly distinct ALTERNATING WALK CYCLE toward camera. TOP-LEFT pose A: the foot on the LEFT SIDE OF THE PICTURE is extended toward the viewer, much lower and larger, exposing its ROUND SOLE; the foot on picture RIGHT is tucked back and smaller under belly. TOP-RIGHT pose B: both feet under hips at equal height, passing pose. BOTTOM-LEFT pose C: the foot on the RIGHT SIDE OF THE PICTURE is extended toward viewer, much lower and larger, exposing ROUND SOLE; foot on picture LEFT tucked back and smaller under belly. BOTTOM-RIGHT repeats B. Swing arms opposite feet. Most important: A has LARGE LOW LEFT foot, C has LARGE LOW RIGHT foot. Feet must be distinct opposite poses, not identical forward legs. Consistent front-facing round plush body, do not turn sideways. Character fully contained in each cell, do not touch boundaries. Clear illustrative rendering and high-quality soft plush texture. Exactly two arms and two feet per sprite. No floor, shadow, scenery, text, numbers, watermark, extra limbs, poop, spiral, pointed or stacked body. Generate true RGBA PNG alpha transparency.",
+      "qa": "A extends picture-left sole, C picture-right sole; B passing; 0,1,2,1 runtime repeats B.",
+      "fileVerification": {
+        "width": 1254,
+        "height": 1254,
+        "bitDepth": 8,
+        "pngColorType": 6,
+        "bytes": 1762507,
+        "sha256": "781e5532037f5701e017246ac2910016686ec8f25f6399bd20c5bee8266abe06",
+        "matchesGeneratedSource": true
+      }
+    },
+    {
+      "id": "winter-hr",
+      "title": "오로라의 맹약",
+      "ref": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/winter-sr.png",
+      "prompt": "Use case: stylized-concept. Asset type: collectible fantasy game card original art, single portrait 3:4 PNG, full bleed. Image 1 is an identity and polished painterly anime art style reference only. Produce a NEW composition and pose. Preserve Winter: beautiful silver-haired blue-eyed winter girl, snowflake hair ornaments, navy and white dress with gold embroidery, white fur cape. HR scene 'Oath of the Aurora': she kneels with quiet resolute eyes upon an icy lake at dusk, both hands gently enclosing a glowing snow crystal at her chest, five natural fingers per hand, full figure and flowing cloak visible. Side three-quarter camera, towering northern lights form an arch of green violet light, frost blossoms along the lake without any duplicate reflection. Elaborate but restrained below SSR cosmic scope, intricate frost and fur, solemn promise mood. One coherent main character, anatomically natural limbs and object contact. No text, letters, numerals, UI, logos, labels, border, card frame or watermark. No duplicate characters or reflections. Keep clear face and silhouette, layered appealing fantasy lighting.",
+      "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-38966203-794a-43da-8935-b6641427250a.png",
+      "output": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/winter-hr.png",
+      "qa": "Identity consistent with viewed existing reference; distinct rarity scene, no text or card border. Visual anatomy review performed.",
+      "fileVerification": {
+        "width": 1086,
+        "height": 1448,
+        "bitDepth": 8,
+        "pngColorType": 2,
+        "bytes": 3023059,
+        "sha256": "462747a6f065492c50021bc8b3d3ee0f108d166505407494708ae1010e1b72ef",
+        "matchesGeneratedSource": true
+      }
+    },
+    {
+      "id": "nanche-r",
+      "title": "퍼즐 공방의 견습",
+      "ref": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/nanche-u.webp",
+      "prompt": "Use case: stylized-concept. Asset type: collectible fantasy game card original art, single portrait 3:4 PNG, full bleed. Image 1 is an identity and polished painterly anime art style reference only. Produce a NEW composition and pose. Nanche is the same cute white-and-lime-green puzzle spirit as reference: round quadruped body, huge mismatched dark and green eyes, black nose patch, green jigsaw-shaped crown sprouts, puzzle patches, tiny paws, no human hands. Scene: R tier: in a cozy sunlit wooden puzzle workshop, crouching at a low workbench with focused slightly puzzled eyes, holding a single lime puzzle piece between two forepaws above an unfinished wooden puzzle, rear paws grounded, scattered neat pieces and simple tools in background. Eye-level close view, modest handcrafted detail, no cosmic magic. One coherent main character, anatomically natural limbs and object contact. No text, letters, numerals, UI, logos, labels, border, card frame or watermark. No duplicate characters or reflections. Keep clear face and silhouette, layered appealing fantasy lighting.",
+      "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-8014053e-65fa-46e7-9e0a-92f71262504f.png",
+      "output": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/nanche-r.png",
+      "iterations": [
+        {
+          "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-4429dfaa-70f4-474b-9abd-b218cc2551c2.png",
+          "prompt": "Use case: stylized-concept. Asset type: collectible fantasy game card original art, single portrait 3:4 PNG, full bleed. Image 1 is an identity and polished painterly anime art style reference only. Produce a NEW composition and pose. Nanche is the same cute white-and-lime-green puzzle spirit as reference: round quadruped body, huge mismatched dark and green eyes, black nose patch, green jigsaw-shaped crown sprouts, puzzle patches, tiny paws, no human hands. Scene: R tier: in a cozy sunlit wooden puzzle workshop, crouching at a low workbench with focused slightly puzzled eyes, holding a single lime puzzle piece between two forepaws above an unfinished wooden puzzle, rear paws grounded, scattered neat pieces and simple tools in background. Eye-level close view, modest handcrafted detail, no cosmic magic. One coherent main character, anatomically natural limbs and object contact. No text, letters, numerals, UI, logos, labels, border, card frame or watermark. No duplicate characters or reflections. Keep clear face and silhouette, layered appealing fantasy lighting.",
+          "rejectedReason": "Extra center grounded paw"
+        }
+      ],
+      "correctionPrompt": "Use case: precise-object-edit. Edit target: supplied Nanche illustration. Fix ONLY the extra fifth limb. The character currently has two forepaws holding the glowing puzzle piece, and THREE paws touching the ground. REMOVE the SMALL MIDDLE GROUNDED PAW directly underneath the belly, between the two outer grounded legs. Reconstruct the floor/background naturally in that exact area. Keep only TWO grounded hind feet total, one on left and one on right; keep exactly two foreground paws holding puzzle. Four limbs total. Keep the entire face, expression, puzzle-shaped ears/crown, all white/green pattern markings, tail, held puzzle, outer hind legs, both forearms, scene, lighting and 3:4 composition otherwise unchanged. Do not add any limb, toe clump, foot, hand or extra appendage. Preserve premium anime fantasy rendering. No text or border.",
+      "qa": "Identity consistent with viewed existing reference; distinct rarity scene, no text or card border. Visual anatomy review performed.",
+      "fileVerification": {
+        "width": 1086,
+        "height": 1448,
+        "bitDepth": 8,
+        "pngColorType": 2,
+        "bytes": 2046837,
+        "sha256": "040ccce28e910da7af5ceddd340bbc1f950cf87d52aad02695b56a617bf29e34",
+        "matchesGeneratedSource": true
+      }
+    },
+    {
+      "id": "nanche-rr",
+      "title": "미궁을 여는 열쇠",
+      "ref": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/nanche-u.webp",
+      "prompt": "Use case: stylized-concept. Asset type: collectible fantasy game card original art, single portrait 3:4 PNG, full bleed. Image 1 is an identity and polished painterly anime art style reference only. Produce a NEW composition and pose. Nanche is the same cute white-and-lime-green puzzle spirit as reference: round quadruped body, huge mismatched dark and green eyes, black nose patch, green jigsaw-shaped crown sprouts, puzzle patches, tiny paws, no human hands. Scene: RR tier: excited discovery, standing in a mossy ancient stone labyrinth doorway, lifting a large glowing key shaped like a jigsaw piece with one forepaw while bracing the other against the door, rear paws visible. Three-quarter low view, emerald light emerges from a puzzle-shaped lock, vines and warm shafts of light, curious open-mouth smile. One coherent main character, anatomically natural limbs and object contact. No text, letters, numerals, UI, logos, labels, border, card frame or watermark. No duplicate characters or reflections. Keep clear face and silhouette, layered appealing fantasy lighting.",
+      "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-7c342d39-7668-4c30-a743-ece303215fda.png",
+      "output": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/nanche-rr.png",
+      "qa": "Identity consistent with viewed existing reference; distinct rarity scene, no text or card border. Visual anatomy review performed.",
+      "fileVerification": {
+        "width": 1086,
+        "height": 1448,
+        "bitDepth": 8,
+        "pngColorType": 6,
+        "bytes": 2998777,
+        "sha256": "5b19769ebaa2680cbf012871ac7dcaf1cd5cc2827077892f8eb539ca0cbf9958",
+        "matchesGeneratedSource": true
+      }
+    },
+    {
+      "id": "nanche-rrr",
+      "title": "뒤틀린 방의 설계자",
+      "ref": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/nanche-u.webp",
+      "prompt": "Use case: stylized-concept. Asset type: collectible fantasy game card original art, single portrait 3:4 PNG, full bleed. Image 1 is an identity and polished painterly anime art style reference only. Produce a NEW composition and pose. Nanche is the same cute white-and-lime-green puzzle spirit as reference: round quadruped body, huge mismatched dark and green eyes, black nose patch, green jigsaw-shaped crown sprouts, puzzle patches, tiny paws, no human hands. Scene: RRR tier: playfully calculating and tilting its head while perched on a floating lime puzzle block, one paw pulling a glowing puzzle tile into alignment. A surreal room with gently folded staircases and rotating geometric rooms around it, tilted camera, white-and-green architectural puzzle motifs, clear silhouette. Intricate but localized dimensional magic, no cosmic galaxies. One coherent main character, anatomically natural limbs and object contact. No text, letters, numerals, UI, logos, labels, border, card frame or watermark. No duplicate characters or reflections. Keep clear face and silhouette, layered appealing fantasy lighting.",
+      "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-ccfd4f87-416c-40f2-aa62-b4aced67f251.png",
+      "output": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/nanche-rrr.png",
+      "qa": "Identity consistent with viewed existing reference; distinct rarity scene, no text or card border. Visual anatomy review performed.",
+      "fileVerification": {
+        "width": 1086,
+        "height": 1448,
+        "bitDepth": 8,
+        "pngColorType": 6,
+        "bytes": 2852730,
+        "sha256": "74b505b4faa14755a84376d81faeb36f4b79e6f0ac3b10e28bf7c37be3f1439d",
+        "matchesGeneratedSource": true
+      }
+    },
+    {
+      "id": "nanche-sr",
+      "title": "만화경의 조율자",
+      "ref": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/nanche-u.webp",
+      "prompt": "Use case: stylized-concept. Asset type: collectible fantasy game card original art, single portrait 3:4 PNG, full bleed. Image 1 is an identity and polished painterly anime art style reference only. Produce a NEW composition and pose. Nanche is the same cute white-and-lime-green puzzle spirit as reference: round quadruped body, huge mismatched dark and green eyes, black nose patch, green jigsaw-shaped crown sprouts, puzzle patches, tiny paws, no human hands. Scene: SR tier: joyfully dancing on an emerald circular platform, forepaws spread to arrange luminous puzzle shards into a radiant kaleidoscope behind its head, coherent four short limbs. Frontal full-body view from slightly above, multicolored glass refractions and green-gold light, beautiful detailed crystal surfaces, magical artistry. One coherent main character, anatomically natural limbs and object contact. No text, letters, numerals, UI, logos, labels, border, card frame or watermark. No duplicate characters or reflections. Keep clear face and silhouette, layered appealing fantasy lighting.",
+      "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-5eebb597-7aa0-4af4-b072-5ee8d940dfc3.png",
+      "output": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/nanche-sr.png",
+      "qa": "Identity consistent with viewed existing reference; distinct rarity scene, no text or card border. Visual anatomy review performed.",
+      "fileVerification": {
+        "width": 1086,
+        "height": 1448,
+        "bitDepth": 8,
+        "pngColorType": 6,
+        "bytes": 3219073,
+        "sha256": "e6ec14c48c1f6c29d0e07923d9b0bc3e0b3fda53710b8d092d7abd2700faff19",
+        "matchesGeneratedSource": true
+      }
+    },
+    {
+      "id": "nanche-hr",
+      "title": "운명의 조각 수호자",
+      "ref": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/nanche-u.webp",
+      "prompt": "Use case: stylized-concept. Asset type: collectible fantasy game card original art, single portrait 3:4 PNG, full bleed. Image 1 is an identity and polished painterly anime art style reference only. Produce a NEW composition and pose. Nanche is the same cute white-and-lime-green puzzle spirit as reference: round quadruped body, huge mismatched dark and green eyes, black nose patch, green jigsaw-shaped crown sprouts, puzzle patches, tiny paws, no human hands. Scene: HR tier: determined protective face, Nanche planted firmly before a giant radiant puzzle crystal, front paws embracing and guarding a luminous fragment at chest level. Low three-quarter full-body camera, ornate emerald sanctuary and floating gold threads of fate woven through green puzzle arches, dramatic protective aura, polished high-rarity detail. One coherent main character, anatomically natural limbs and object contact. No text, letters, numerals, UI, logos, labels, border, card frame or watermark. No duplicate characters or reflections. Keep clear face and silhouette, layered appealing fantasy lighting.",
+      "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-73066cd9-1f50-4b8f-b083-b3921e72458f.png",
+      "output": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/nanche-hr.png",
+      "iterations": [
+        {
+          "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-50f6b6f0-53b2-4deb-ad48-b5db76edcfff.png",
+          "prompt": "Use case: stylized-concept. Asset type: collectible fantasy game card original art, single portrait 3:4 PNG, full bleed. Image 1 is an identity and polished painterly anime art style reference only. Produce a NEW composition and pose. Nanche is the same cute white-and-lime-green puzzle spirit as reference: round quadruped body, huge mismatched dark and green eyes, black nose patch, green jigsaw-shaped crown sprouts, puzzle patches, tiny paws, no human hands. Scene: HR tier: determined protective face, Nanche planted firmly before a giant radiant puzzle crystal, front paws embracing and guarding a luminous fragment at chest level. Low three-quarter full-body camera, ornate emerald sanctuary and floating gold threads of fate woven through green puzzle arches, dramatic protective aura, polished high-rarity detail. One coherent main character, anatomically natural limbs and object contact. No text, letters, numerals, UI, logos, labels, border, card frame or watermark. No duplicate characters or reflections. Keep clear face and silhouette, layered appealing fantasy lighting.",
+          "rejectedReason": "Extra center grounded paw"
+        }
+      ],
+      "correctionPrompt": "Use case: precise-object-edit. Edit target: supplied Nanche illustration. Fix ONLY the extra fifth limb. The character currently has two forepaws holding the glowing puzzle piece, and THREE paws touching the ground. REMOVE the SMALL MIDDLE GROUNDED PAW directly underneath the belly, between the two outer grounded legs. Reconstruct the floor/background naturally in that exact area. Keep only TWO grounded hind feet total, one on left and one on right; keep exactly two foreground paws holding puzzle. Four limbs total. Keep the entire face, expression, puzzle-shaped ears/crown, all white/green pattern markings, tail, held puzzle, outer hind legs, both forearms, scene, lighting and 3:4 composition otherwise unchanged. Do not add any limb, toe clump, foot, hand or extra appendage. Preserve premium anime fantasy rendering. No text or border.",
+      "qa": "Identity consistent with viewed existing reference; distinct rarity scene, no text or card border. Visual anatomy review performed.",
+      "fileVerification": {
+        "width": 1086,
+        "height": 1448,
+        "bitDepth": 8,
+        "pngColorType": 2,
+        "bytes": 2579959,
+        "sha256": "e4fd503453d822fb6e23d330888230a26513b625acfcda8c918c6a70c6cd82d1",
+        "matchesGeneratedSource": true
+      }
+    },
+    {
+      "id": "nanche-ur",
+      "title": "차원을 잇는 완성식",
+      "ref": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/nanche-u.webp",
+      "prompt": "Use case: stylized-concept. Asset type: collectible fantasy game card original art, single portrait 3:4 PNG, full bleed. Image 1 is an identity and polished painterly anime art style reference only. Produce a NEW composition and pose. Nanche is the same cute white-and-lime-green puzzle spirit as reference: round quadruped body, huge mismatched dark and green eyes, black nose patch, green jigsaw-shaped crown sprouts, puzzle patches, tiny paws, no human hands. Scene: UR tier: leaping gracefully through the center of a huge emerald dimensional puzzle gate, forepaws fitting one bright piece between two entire luminous worlds, rear paws trailing naturally. Dynamic side perspective, magical interlocking arches connecting a flowering world and a celestial city, golden-white completion light, extraordinary layered crystals and elegant green glow. Wonder-filled bright eyes and delighted smile, monumental but distinct from the cosmic observatory SSR. One coherent main character, anatomically natural limbs and object contact. No text, letters, numerals, UI, logos, labels, border, card frame or watermark. No duplicate characters or reflections. Keep clear face and silhouette, layered appealing fantasy lighting.",
+      "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-b794b71c-3a22-4ac0-9d3f-5f61c22a1675.png",
+      "output": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/nanche-ur.png",
+      "qa": "Identity consistent with viewed existing reference; distinct rarity scene, no text or card border. Visual anatomy review performed.",
+      "fileVerification": {
+        "width": 1086,
+        "height": 1448,
+        "bitDepth": 8,
+        "pngColorType": 6,
+        "bytes": 3249294,
+        "sha256": "c1f437d2fec27c6e1e857c3e4e24b584289160331c8f0a42eb656396af67f0be",
+        "matchesGeneratedSource": true
+      }
+    },
+    {
+      "id": "chuming-u",
+      "title": "별여우와 첫 연습",
+      "ref": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/chuming-r.webp",
+      "prompt": "Use case: stylized-concept. Asset type: collectible fantasy game card original art, single portrait 3:4 PNG, full bleed. Image 1 is an identity and polished painterly anime art style reference only. Produce a NEW composition and pose. Preserve Chuming, the same sky-blue long twin-tailed idol with subtle pink streaks, bright blue eyes, star ornaments, navy-white-gold outfit, plus exactly one small fluffy white fox companion with blue eyes and pastel-tipped fluffy tail. Scene: U tier: a quiet sunny rehearsal room, Chuming sitting on a low practice-room bench, leaning forward with a shy warm smile to sing into a handheld microphone while her little fox listens perched beside her. Modest simplified navy-white practice idol dress with one star ribbon, one hand holding mic correctly, other resting naturally on knee. Cozy eye-level medium full figure view, warm wood floor and simple star curtain, no cosmic spectacle. One coherent main character, anatomically natural limbs and object contact. No text, letters, numerals, UI, logos, labels, border, card frame or watermark. No duplicate characters or reflections. Keep clear face and silhouette, layered appealing fantasy lighting. Exactly two arms and natural hands for Chuming, four legs for fox, no extra digits.",
+      "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-a0e086dc-3320-4546-8f61-2db8cf8248c5.png",
+      "output": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/chuming-u.png",
+      "qa": "Identity consistent with viewed existing reference; distinct rarity scene, no text or card border. Visual anatomy review performed.",
+      "fileVerification": {
+        "width": 1086,
+        "height": 1448,
+        "bitDepth": 8,
+        "pngColorType": 2,
+        "bytes": 2369301,
+        "sha256": "50a0dc7c9567317bef5311338d2582b48357474399a95e3dc6b7ccaa9ec189b0",
+        "matchesGeneratedSource": true
+      }
+    },
+    {
+      "id": "chuming-rrr",
+      "title": "혜성빛 듀엣",
+      "ref": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/chuming-hr.webp",
+      "prompt": "Use case: stylized-concept. Asset type: collectible fantasy game card original art, single portrait 3:4 PNG, full bleed. Image 1 is an identity and polished painterly anime art style reference only. Produce a NEW composition and pose. Preserve Chuming, the same sky-blue long twin-tailed idol with subtle pink streaks, bright blue eyes, star ornaments, navy-white-gold outfit, plus exactly one small fluffy white fox companion with blue eyes and pastel-tipped fluffy tail. Scene: RRR tier: singing a playful duet with the white fox on a small outdoor night stage, Chuming in a dynamic turning pose, one hand naturally holding mic near her lips, other reaching down in friendly timekeeping gesture toward fox, both looking happily at each other. Three-quarter full-figure camera, a single bright comet traverses the blue sky behind, flowing twin-tails and navy-white gold stage dress, magical star confetti. One coherent main character, anatomically natural limbs and object contact. No text, letters, numerals, UI, logos, labels, border, card frame or watermark. No duplicate characters or reflections. Keep clear face and silhouette, layered appealing fantasy lighting. Exactly two arms and natural hands for Chuming, four legs for fox, no extra digits.",
+      "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-c95c206f-13fe-4857-aa49-c1170f5d9d38.png",
+      "output": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/chuming-rrr.png",
+      "qa": "Identity consistent with viewed existing reference; distinct rarity scene, no text or card border. Visual anatomy review performed.",
+      "fileVerification": {
+        "width": 1086,
+        "height": 1448,
+        "bitDepth": 8,
+        "pngColorType": 2,
+        "bytes": 2980917,
+        "sha256": "75f44a4241a538e3eb0bb069dab2be315555130c2b57e6963ff58cf4585d35b7",
+        "matchesGeneratedSource": true
+      }
+    },
+    {
+      "id": "chuming-sr",
+      "title": "달빛 커튼콜",
+      "ref": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/chuming-hr.webp",
+      "prompt": "Use case: stylized-concept. Asset type: collectible fantasy game card original art, single portrait 3:4 PNG, full bleed. Image 1 is an identity and polished painterly anime art style reference only. Produce a NEW composition and pose. Preserve Chuming, the same sky-blue long twin-tailed idol with subtle pink streaks, bright blue eyes, star ornaments, navy-white-gold outfit, plus exactly one small fluffy white fox companion with blue eyes and pastel-tipped fluffy tail. Scene: SR tier: graceful curtain call after a show, Chuming making a gentle formal bow with a grateful tender smile and open blue eyes, one hand resting across her heart, the other lowering the microphone at her side, five natural fingers each. White fox sits proudly beside her and bows slightly, a large silver moon and velvet blue theater curtains behind them, soft moonlit roses and crystalline stage lights. Three-quarter full-figure view, elegant detailed costume, silver blue gold palette. One coherent main character, anatomically natural limbs and object contact. No text, letters, numerals, UI, logos, labels, border, card frame or watermark. No duplicate characters or reflections. Keep clear face and silhouette, layered appealing fantasy lighting. Exactly two arms and natural hands for Chuming, four legs for fox, no extra digits.",
+      "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-64d11a71-f099-460f-a392-df5f38bc8227.png",
+      "output": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/chuming-sr.png",
+      "qa": "Identity consistent with viewed existing reference; distinct rarity scene, no text or card border. Visual anatomy review performed.",
+      "fileVerification": {
+        "width": 1086,
+        "height": 1448,
+        "bitDepth": 8,
+        "pngColorType": 2,
+        "bytes": 2970932,
+        "sha256": "5a9a1fc4a247a8968461f9e62c316110d610a47445554a8c0eb09a58c2f251ff",
+        "matchesGeneratedSource": true
+      }
+    },
+    {
+      "id": "chuming-ur",
+      "title": "우주를 잇는 노래",
+      "ref": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/chuming-hr.webp",
+      "prompt": "Use case: stylized-concept. Asset type: collectible fantasy game card original art, single portrait 3:4 PNG, full bleed. Image 1 is an identity and polished painterly anime art style reference only. Produce a NEW composition and pose. Preserve Chuming, the same sky-blue long twin-tailed idol with subtle pink streaks, bright blue eyes, star ornaments, navy-white-gold outfit, plus exactly one small fluffy white fox companion with blue eyes and pastel-tipped fluffy tail. Scene: UR tier: singing an emotionally powerful sustained note while walking across a luminous crystal bridge connecting two distant star islands, eyes gently closed, one hand holding microphone naturally and the other extending softly toward the far island. White fox trots faithfully beside her on bridge. Flowing blue-pink twin-tails, elaborate navy-white-gold star couture, sweeping diagonal medium-full composition, vast aurora river, cosmic light ribbons and golden star arches, extraordinary polished details but distinct from SSR encore galaxy. One coherent main character, anatomically natural limbs and object contact. No text, letters, numerals, UI, logos, labels, border, card frame or watermark. No duplicate characters or reflections. Keep clear face and silhouette, layered appealing fantasy lighting. Exactly two arms and natural hands for Chuming, four legs for fox, no extra digits.",
+      "source": "C:\\Users\\USER\\.codex\\generated_images\\01a10f75-1cba-7a30-a25c-e194e76b6e10\\exec-b77ca91e-25af-46c5-b22e-942f2413bb76.png",
+      "output": "C:/Users/USER/.codex/worktrees/tcg-turn-battle-20260916/tcg-desktop/public/assets/cards/chuming-ur.png",
+      "qa": "Identity consistent with viewed existing reference; distinct rarity scene, no text or card border. Visual anatomy review performed.",
+      "fileVerification": {
+        "width": 1086,
+        "height": 1448,
+        "bitDepth": 8,
+        "pngColorType": 2,
+        "bytes": 3214731,
+        "sha256": "21cb1fb6bccead7cc70c0d4cacdc40107fcc54f29fccfae31085c8b93a066e4a",
+        "matchesGeneratedSource": true
+      }
+    }
+  ],
+  "visualReview": {
+    "result": "24 final assets passed creator and independent visual review",
+    "corrections": [
+      "Chuming SSR extra third arm removed",
+      "Nanche R and HR extra grounded paws removed",
+      "Eungga walk regenerated front-facing to make opposite A/C lead feet unambiguous"
+    ],
+    "scope": "Visible artwork anatomy, identity consistency, rarity scene distinction, no text or card frames; sprite A/C lead-foot opposition. Runtime temporal smoothness is left to integration checks."
+  },
+  "loadingAudit": {
+    "width": 1254,
+    "height": 1254,
+    "alphaMin": 0,
+    "alphaMax": 255,
+    "cells": [
+      {
+        "bounds": [
+          48,
+          27,
+          589,
+          602
+        ],
+        "transparent": 198358,
+        "opaque": 189,
+        "visible": 185284
+      },
+      {
+        "bounds": [
+          45,
+          27,
+          581,
+          600
+        ],
+        "transparent": 196061,
+        "opaque": 165,
+        "visible": 186849
+      },
+      {
+        "bounds": [
+          51,
+          20,
+          584,
+          581
+        ],
+        "transparent": 206969,
+        "opaque": 147,
+        "visible": 178490
+      },
+      {
+        "bounds": [
+          38,
+          20,
+          581,
+          582
+        ],
+        "transparent": 200434,
+        "opaque": 189,
+        "visible": 183946
+      }
+    ],
+    "frameHashes": [
+      "f5466c63cb68f7e0cecfcda1d42a5fbd9d6de7af8bb04575d89e5c876956834b",
+      "e012c7ba5ea3213e414982ee116e2fbdec2372e4186cb46df88bcdf5beb386e8",
+      "39c6f6c0fcaeff96485a01951b68d6be0f055751272c93d64f05671041b4194b",
+      "648266e55fdd7d0aacd83b64b09d686939590f1f968903c57c7d8a47d39b87ef"
+    ],
+    "geometry": {
+      "width": 1254,
+      "height": 1254,
+      "bounds": [
+        [
+          48,
+          27,
+          589,
+          602
+        ],
+        [
+          45,
+          27,
+          581,
+          600
+        ],
+        [
+          51,
+          20,
+          584,
+          581
+        ],
+        [
+          38,
+          20,
+          581,
+          582
+        ]
+      ]
+    },
+    "geometryMatches": true,
+    "missing": [],
+    "cellBoundaryContacts": 0
+  }
+}

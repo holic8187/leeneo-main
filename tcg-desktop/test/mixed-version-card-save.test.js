@@ -21,8 +21,8 @@ function memoryStorage() {
   };
 }
 
-test('0.11 PC/mobile roundtrip retains all 29 new card IDs, progression, hidden pack and 0.12 settings', async () => {
-  assert.equal(newCards.length, 29);
+test('0.11 PC/mobile roundtrip retains all 43 new card IDs, progression, hidden pack and new settings', async () => {
+  assert.equal(newCards.length, 43);
   assert.ok(newCards.every(card => legacyCardById(card.id) === null));
   const latest = createDefaultState(1000);
   for (const card of newCards) {
