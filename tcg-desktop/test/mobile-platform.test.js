@@ -33,6 +33,7 @@ test('device identity is generated once and platform labels match the takeover m
   assert.equal(values.get(DEVICE_ID_STORAGE_KEY), first);
   assert.equal(detectClientPlatform({ hoiDesktop: { isDesktop: true } }), 'pc');
   assert.equal(detectClientPlatform({ Capacitor: { getPlatform: () => 'android' } }), 'android');
+  assert.equal(detectClientPlatform({ Capacitor: { getPlatform: () => 'ios' } }), 'ios');
   assert.equal(detectClientPlatform({}), 'web');
   assert.equal(platformLabel('ios'), '모바일');
   assert.equal(platformLabel('pc'), 'PC');
@@ -40,6 +41,8 @@ test('device identity is generated once and platform labels match the takeover m
   assert.equal(shouldBootstrapCloudState({ platform: 'pc', hasPersistedState: false }), false);
   assert.equal(shouldBootstrapCloudState({ platform: 'android', hasPersistedState: true }), false);
   assert.equal(shouldBootstrapCloudState({ platform: 'android', newAccount: true }), true);
+  assert.equal(shouldBootstrapCloudState({ platform: 'ios', hasPersistedState: true }), false);
+  assert.equal(shouldBootstrapCloudState({ platform: 'ios', newAccount: true }), true);
 });
 
 test('a stalled native version lookup falls back so cloud login can continue', async () => {

@@ -68,5 +68,5 @@ export function renderCooperativeInspector(battle, inspector) {
   const member = battle.squad[inspector.cardIndex];
   const info = inspector.type === 'effect' ? effectPresentation(effects?.[inspector.index]) : member && skillForCard(member.cardId,member.enhancement);
   if (!info) return '';
-  return `<aside class="raid-skill-tooltip" role="dialog" aria-label="전투 정보"><button type="button" data-action="coop-close-inspector" aria-label="닫기"><i data-lucide="x"></i></button><h3>${esc(info.label || info.name)}</h3><p>${esc(info.description)}</p>${member ? `<p>공격력 ${num(member.attack)} · HP ${num(member.hp)} / ${num(member.maxHp)}</p>` : ''}</aside>`;
+  return `<aside class="raid-skill-tooltip" role="dialog" aria-label="전투 정보"><button type="button" data-action="coop-close-inspector" aria-label="닫기"><i data-lucide="x"></i></button><h3>${esc(info.label || info.name)}</h3><p>${esc(info.description)}</p>${member ? `<p>공격력 <span data-raid-inspector-value="attack">${num(member.attack)}</span> · HP <span data-raid-inspector-value="hp">${num(member.hp)}</span> / <span data-raid-inspector-value="maxHp">${num(member.maxHp)}</span></p>` : ''}</aside>`;
 }
