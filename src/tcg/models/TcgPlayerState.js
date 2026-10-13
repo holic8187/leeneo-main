@@ -21,7 +21,9 @@ const activeLeaseSchema = new mongoose.Schema({
 
 const mailboxRewardSchema = new mongoose.Schema({
   coins: { type: Number, default: 0, min: 0 },
-  standardPacks: { type: Number, default: 0, min: 0 }
+  standardPacks: { type: Number, default: 0, min: 0 },
+  premiumPacks: { type: Number, default: 0, min: 0 },
+  ssrTickets: { type: Number, default: 0, min: 0 }
 }, {
   _id: false,
   id: false

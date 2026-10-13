@@ -204,8 +204,14 @@ function createCooperativeRaidService({ TcgCooperativeRaid, TcgPlayerState, TcgP
     // At most 28 player actions exist in a seven-round battle.
     let steps = 0;
     while (room.battle.status === 'active' && steps++ < 160) {
-      if (room.battle.currentActor === 'boss') {
-        room.battle = shared.engine.performBossAction(room.battle, Number(room.battle.turnStartedAt) || now);
+      if (room.battle.currentActor === 'follow-up') {
+        const due = (Number(room.battle.turnStartedAt) || now) + 1300;
+        if (due > now) break;
+        room.battle = shared.engine.performFollowUpAction(room.battle, due);
+      } else if (room.battle.currentActor === 'boss') {
+        const due = (Number(room.battle.turnStartedAt) || now) + 1000;
+        if (due > now) break;
+        room.battle = shared.engine.performBossAction(room.battle, due);
       } else {
         const actor = room.battle.cards[room.battle.currentActorIndex];
         const owner = room.participants.find((player) => player.instanceId === actor?.id)?.accountId;

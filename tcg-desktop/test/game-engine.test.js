@@ -41,7 +41,7 @@ import {
   hydrateState,
 } from '../src/core/gameState.js';
 
-const rarityCounts = { c: 24, u: 20, r: 15, rr: 14, rrr: 11, sr: 10, hr: 9, ur: 8, ssr: 7 };
+const rarityCounts = { c: 24, u: 21, r: 16, rr: 15, rrr: 13, sr: 12, hr: 11, ur: 10, ssr: 10 };
 const powerRanges = {
   c: [1800, 2999],
   u: [3200, 4499],
@@ -56,9 +56,9 @@ const powerRanges = {
 
 const rankOf = (rarity) => RARITY_ORDER.indexOf(rarity);
 
-test('catalog contains 118 unique cards in the requested nine-rarity distribution', () => {
-  assert.equal(CARD_CATALOG.length, 118);
-  assert.equal(new Set(CARD_CATALOG.map((card) => card.id)).size, 118);
+test('catalog contains 132 unique cards in the requested nine-rarity distribution', () => {
+  assert.equal(CARD_CATALOG.length, 132);
+  assert.equal(new Set(CARD_CATALOG.map((card) => card.id)).size, 132);
   assert.deepEqual(RARITY_ORDER, Object.keys(rarityCounts));
   assert.deepEqual(
     Object.fromEntries(RARITY_ORDER.map((rarity) => [
@@ -102,9 +102,9 @@ test('rarity combat-power bands are exact, ascending, and non-overlapping', () =
   });
 });
 
-test('legacy cards remain readable without entering the 118-card collectible catalog', () => {
+test('legacy cards remain readable without entering the 132-card collectible catalog', () => {
   assert.equal(LEGACY_CARDS.length, 8);
-  assert.equal(ALL_CARDS.length, 126);
+  assert.equal(ALL_CARDS.length, 140);
   assert.equal(CARD_CATALOG.some((card) => card.id === 'rookie-analyst'), false);
   assert.equal(cardById('rookie-analyst')?.legacy, true);
   assert.equal(cardById('hoi-ssr')?.rarity, 'ssr');
@@ -429,7 +429,7 @@ test('saved state hydration preserves legacy squads and wealth while retiring in
     resolvedIncidents: 3,
   }, 5000);
 
-  assert.equal(hydrated.version, 10);
+  assert.equal(hydrated.version, 11);
   assert.equal(hydrated.wallet.coins, 99);
   assert.equal(hydrated.wallet.linkPoints, undefined);
   assert.deepEqual(hydrated.selectedSquad, ['pantry-cat']);

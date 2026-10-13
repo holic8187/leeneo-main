@@ -48,8 +48,14 @@ import './relics.css';
 import './card-emblems.css';
 import './cooperative-raid.css';
 import './raid-qol.css';
+import './pack-carousel.css';
+import './raid-effects.css';
+import { renderPackShop } from './ui/packShop.js';
+import { renderRaidArena, renderRaidBossHud } from './ui/raidArena.js';
+import { renderPackResults } from './ui/packResults.js';
+import { packCardRequiresReveal, packPresentation } from './core/packPresentation.js';
 import { chooseRaidAutoAction } from './core/raidAutoBattle.js';
-import { renderRaidControls, renderSecretRaidCard } from './ui/raidControls.js';
+import { renderRaidControls } from './ui/raidControls.js';
 import { cooperativeRaidGateway } from './services/cooperativeRaidGateway.js';
 import { createCooperativeRaidClient, toggleCooperativeRepresentative } from './core/cooperativeRaidClient.js';
 import { renderCooperativePanel, renderCooperativeReady } from './ui/cooperativeRaidView.js';
@@ -66,6 +72,7 @@ import {
 } from './data/cardCatalog.js';
 import { addCardsToCollection, openPacks } from './core/packEngine.js';
 import { newCardIndices, registerDiscoveredCards } from './core/cardDiscovery.js';
+import { adminMailRewards, createAdminMailDraft, hasMailRewards, mailRewardEntries } from './core/mailRewards.js';
 import {
   calculateSquadScore,
   cardExpeditionPower,
@@ -81,6 +88,7 @@ import { createRaidState } from './core/raidEngine.js';
 import {
   createRaidBattle,
   performBossAction,
+  performFollowUpAction,
   performPlayerAction,
   skillForCard,
   startRaidBattle,
@@ -88,10 +96,10 @@ import {
 import {
   activeRaidCardIndex,
   effectPresentation,
+  getRaidActionFeedback,
   isPlayerRaidTurn,
   normalizeRaidBattle,
   raidBattleFinished,
-  raidTurnSecondsRemaining,
 } from './core/raidBattleView.js';
 import { reconcileRaidRewards } from './core/raidRewards.js';
 import { appendActivity, createGameStore, hasStoredGameState } from './core/gameState.js';
@@ -271,9 +279,6 @@ const iconSet = {
   Zap,
 };
 
-const availableLucideIconNames = new Set(Object.keys(iconSet).map((name) => (
-  name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()
-)));
 
 const views = {
   dashboard: { label: '로비', icon: 'briefcase' },
@@ -347,15 +352,7 @@ const ui = {
     users: [],
     packages: [],
     error: '',
-    draft: {
-      target: 'all',
-      presetId: 'custom',
-      title: '',
-      message: '',
-      coins: '0',
-      standardPacks: '0',
-      expiresInHours: '168',
-    },
+    draft: createAdminMailDraft(),
     pendingMailRequest: null,
   },
   appVersion: '...',
@@ -644,7 +641,6 @@ function rarityEmblem(rarity, { hidden = false, compact = false } = {}) {
   return `<img class="rarity-emblem ${compact ? 'rarity-emblem--compact' : ''}" src="./assets/ui/rarity-${rarity}.svg" alt="${escapeHtml(label)} 등급" />`;
 }
 
-const PACK_FLIP_THRESHOLD = RARITY_ORDER.indexOf('sr');
 const LEGACY_RARITY_ALIASES = Object.freeze({
   common: 'c',
   rare: 'r',
@@ -678,8 +674,9 @@ function enhancementLabel(stage) {
   return `+${Math.max(0, Math.min(MAX_ENHANCEMENT, Number(stage) || 0))}`;
 }
 
-function requiresPackReveal(card) {
-  return rarityRank(card?.rarity) >= PACK_FLIP_THRESHOLD;
+function requiresPackReveal(card, index) {
+  const newIndices = store?.getState()?.pendingPackOpening?.newCardIndices || ui.modal?.newCardIndices || [];
+  return packCardRequiresReveal(card, index, newIndices);
 }
 
 function cardDisplayName(card) {
@@ -862,7 +859,7 @@ function syncAuthFormControls() {
 function renderSidebar(state) {
   const pendingMailCount = ui.mailbox.items.filter((mail) => (
     mail.status === 'pending'
-    && (!mail.readAt || mail.rewards.coins || mail.rewards.standardPacks)
+    && (!mail.readAt || hasMailRewards(mail))
   )).length;
   const nav = Object.entries(views).map(([id, view]) => `
     <button class="nav-button ${ui.view === id ? 'is-active' : ''}" type="button" data-action="navigate" data-view="${id}" aria-label="${view.label}" title="${view.label}" ${ui.view === id ? 'aria-current="page"' : ''}>
@@ -1095,6 +1092,7 @@ function renderDashboard(state) {
         </div>
       </div>
 
+      ${renderPackShop(state)}
       <div class="lobby-presets">${renderDeckPresetPanel(state)}</div>
 
       <section class="lobby-log" aria-labelledby="lobby-log-title">
@@ -1815,6 +1813,7 @@ function renderCooperativeRaid() {
     personalBattle: Boolean(ui.raid.battle),
     secret: store.getState().settings.raidSecretMode,
     galaxyChoice: ui.cooperative.galaxyChoice,
+    inspector: ui.cooperative.inspector,
   });
 }
 
@@ -1859,20 +1858,6 @@ function renderPersonalRaidRanking(state) {
   `;
 }
 
-function renderRaidEffectIcon(rawEffect, owner, index) {
-  const effect = effectPresentation(rawEffect);
-  const icon = availableLucideIconNames.has(effect.icon) ? effect.icon : 'circle-alert';
-  const shared = rawEffect?.shared === true || rawEffect?.scope === 'team';
-  const count = effect.count ? `<b aria-label="${formatNumber(effect.count)}회 남음">${formatNumber(effect.count)}</b>` : '';
-  return `<button class="raid-effect-icon is-${effect.tone}${shared ? ' is-shared' : ''}" type="button" data-action="inspect-raid-effect" data-effect-owner="${owner}" data-effect-index="${index}" title="${escapeHtml(effect.label)}" aria-label="${escapeHtml(`${effect.label}${effect.count ? ` ${formatNumber(effect.count)}회 남음` : ''} 정보 보기`)}"><i data-lucide="${escapeHtml(icon)}"></i>${shared ? '<em aria-hidden="true">파티</em>' : ''}${count}</button>`;
-}
-
-function renderRaidEffectList(effects, owner, label = '적용 중인 상태 효과') {
-  const visibleEffects = Array.isArray(effects) ? effects : [];
-  if (!visibleEffects.length) return '';
-  return `<div class="raid-effect-list" aria-label="${escapeHtml(label)}">${visibleEffects.map((effect, index) => renderRaidEffectIcon(effect, owner, index)).join('')}</div>`;
-}
-
 function renderRaidBattleInspector(battle) {
   const inspector = ui.raid.inspector;
   if (!inspector) return '';
@@ -1898,73 +1883,27 @@ function renderPersonalRaidBattlefield(state) {
   const battle = normalizeRaidBattle(ui.raid.battle);
   const activeIndex = activeRaidCardIndex(battle);
   const playerTurn = isPlayerRaidTurn(battle);
-  const remaining = raidTurnSecondsRemaining(battle);
-  const bossHpRatio = Math.round((battle.boss.hp / battle.boss.maxHp) * 100);
   const animation = ui.raid.animation || {};
   const secret = state.settings.raidSecretMode === true;
   const actor = battle.squad[activeIndex];
   const galaxySelector = actor && (actor.cardId === 'hoi-ur' || (actor.cardId === 'hoi-ssr' && ui.raid.battle.lastCopyableSkill?.cardId === 'hoi-ur'));
-  const latestLog = battle.battleLog.at(-1)?.message || (battle.status === 'ready' ? '전투 시작을 기다리고 있습니다.' : '행동을 선택하세요.');
-  const bossCard = cardById('deadline-dragon');
   const finished = raidBattleFinished(battle);
   const victory = battle.result === 'victory' || battle.boss.hp <= 0;
   const allDefeated = battle.terminationReason === 'party-defeated' || battle.squad.every((member) => member.hp <= 0);
   const turnLimited = battle.terminationReason === 'round-limit' || battle.result === 'turn-limit';
   const endTitle = victory ? '단계 클리어!' : allDefeated ? '아군 전원 행동불능' : turnLimited ? '7턴 전투 종료' : '도전 종료';
-  const animationTargets = Array.isArray(animation.targets)
-    ? animation.targets
-    : animation.target == null ? [] : [animation.target];
   return `
     <section class="raid-battle-screen ${secret ? 'is-secret' : ''} ${battle.status === 'ready' ? 'is-ready' : ''} ${finished ? 'is-complete' : ''}" aria-label="개인 레이드 전투 화면">
       <header class="raid-battle-topbar">
         <button class="raid-battle-exit" type="button" data-action="leave-raid-battle" ${ui.raid.finishing ? 'disabled' : ''}><i data-lucide="chevron-left"></i><span>편성으로 돌아가기</span></button>
-        <div class="raid-boss-hud">
-          <div class="raid-boss-title"><span>STAGE ${formatNumber(battle.stage)}</span><strong>${escapeHtml(battle.boss.name)}</strong></div>
-          <div class="raid-boss-health-label"><span>HP${battle.boss.shield ? ` +${formatNumber(battle.boss.shield)}` : ''}</span><strong>${formatNumber(battle.boss.hp)} / ${formatNumber(battle.boss.maxHp)}</strong></div>
-          <div class="raid-boss-health-track" role="progressbar" aria-valuenow="${battle.boss.hp}" aria-valuemax="${battle.boss.maxHp}"><span style="width:${bossHpRatio}%"></span></div>
-          <div class="raid-break-label"><span>BREAK</span><strong>${formatNumber(battle.boss.breakGauge)} / 100</strong></div>
-          <div class="raid-break-track" role="progressbar" aria-valuenow="${battle.boss.breakGauge}" aria-valuemax="100"><span style="width:${battle.boss.breakGauge}%"></span></div>
-          <div class="raid-boss-effects">${renderRaidEffectList(battle.boss.effects, 'boss', '보스에게 적용 중인 상태 효과')}</div>
-        </div>
+        ${renderRaidBossHud(battle)}
         <div class="raid-turn-counter"><small>전투 턴</small><strong>${formatNumber(battle.turn || 1)}</strong></div>
       </header>
       ${renderRaidControls({ automatic: ui.raid.autoBattle, secret, finished })}
       ${galaxySelector && playerTurn ? `<label class="raid-galaxy-choice">은하수 동률 시 우선 효과<select data-raid-galaxy-choice><option value="attack" ${ui.raid.galaxyChoice === 'attack' ? 'selected' : ''}>공격</option><option value="heal" ${ui.raid.galaxyChoice === 'heal' ? 'selected' : ''}>회복</option><option value="support" ${ui.raid.galaxyChoice === 'support' ? 'selected' : ''}>지원</option></select></label>` : ''}
-      <div class="raid-battle-arena">
-        ${playerTurn ? `<div class="raid-battle-countdown ${remaining <= 5 ? 'is-urgent' : ''}" data-raid-turn-deadline="${battle.turnDeadlineAt}" aria-label="행동 제한 시간">${formatNumber(remaining)}</div>` : ''}
-        <div class="raid-boss-zone">
-          <div class="raid-boss-card ${battle.boss.stunned ? 'is-stunned' : ''} ${animation.attacker === 'boss' ? 'is-attacking' : ''} ${animationTargets.includes('boss') ? 'is-raid-hit' : ''}">
-            ${secret ? renderSecretRaidCard(battle.boss.name) : `<img src="${battle.boss.image || bossCard?.image || './assets/cards/deadline-dragon.webp'}" alt="${escapeHtml(battle.boss.name)}" />`}
-            ${battle.boss.stunned ? '<span class="raid-stun-orbit" aria-label="브레이크 스턴"></span>' : ''}
-          </div>
-          ${animation.damageAmount ? `<strong class="raid-floating-number is-damage">${formatNumber(animation.damageAmount)}</strong>` : ''}
-          ${animation.breakAmount ? `<strong class="raid-floating-number is-break">BREAK ${formatNumber(animation.breakAmount)}</strong>` : ''}
-        </div>
-        <div class="raid-squad-zone">
-          ${battle.squad.map((member, index) => {
-            const card = cardById(member.cardId);
-            const skill = skillForCard(member.cardId, member.enhancement);
-            const onTurn = index === activeIndex && playerTurn;
-            const sealed = (member.statuses || []).some((status) => status.id === 'seal' && (status.charges == null || status.charges > 0));
-            const skillUnavailable = sealed || member.skillCooldown > 0 || (skill?.oncePerBattle && member.skillUses > 0);
-            return `<article class="raid-unit-slot rarity-${card?.rarity || 'c'} ${onTurn ? 'is-active' : ''} ${animation.attacker === index ? 'is-attacking' : ''}">
-              ${onTurn ? `<div class="raid-card-actions"><button type="button" data-action="raid-basic-attack" ${ui.raid.battlePending || ui.raid.animation ? 'disabled' : ''}>기본공격</button><button type="button" data-action="raid-skill-attack" ${ui.raid.battlePending || ui.raid.animation || skillUnavailable ? 'disabled' : ''}>스킬${skillUnavailable ? `<small>${sealed ? '봉인됨' : skill?.oncePerBattle && member.skillUses > 0 ? '사용 완료' : `${formatNumber(member.skillCooldown)}턴 남음`}</small>` : ''}</button></div>` : ''}
-              <button class="raid-unit-card card-emblem-host ${member.hp <= 0 ? 'is-ko' : ''} ${animationTargets.includes(index) ? 'is-raid-hit' : ''}" type="button" data-action="inspect-raid-card" data-card-index="${index}" data-payroll-label="${escapeHtml(`${rarityLabel(card?.rarity)} · ${cardDisplayName(card)}`)}">
-                <span class="raid-unit-number">${index + 1}</span>
-                ${secret ? renderSecretRaidCard(cardDisplayName(card), card?.rarity) : `<img src="${card?.image || member.image}" alt="${escapeHtml(cardDisplayName(card))}" />`}
-                ${renderCardEmblems(card || member.cardId, member.enhancement, { size: 'micro', captioned: true })}
-                <span class="raid-unit-name">${escapeHtml(cardDisplayName(card))} ${enhancementLabel(member.enhancement)}</span>
-              </button>
-              <div class="raid-unit-effects">${renderRaidEffectList(member.effects, String(index), `${cardDisplayName(card)}에게 적용 중인 상태 효과`)}</div>
-              <div class="raid-unit-hp"><div class="raid-unit-hp-label"><span>HP${member.shield ? ` +${formatNumber(member.shield)}` : ''}</span><strong>${formatNumber(member.hp)} / ${formatNumber(member.maxHp)}</strong></div><div class="raid-unit-hp-track"><span style="width:${Math.round(member.hp / member.maxHp * 100)}%"></span></div></div>
-            </article>`;
-          }).join('')}
-        </div>
-        <div class="raid-battle-message" aria-live="polite">${escapeHtml(animation.message || latestLog)}</div>
-      </div>
+      ${renderRaidArena({ battle, animation, secret, activeIndex, canAct: playerTurn, pending: ui.raid.battlePending || Boolean(ui.raid.animation), countdown: playerTurn ? battle.turnDeadlineAt : 0 })}
       ${battle.status === 'ready' ? `<div class="raid-battle-start-panel"><div class="raid-battle-start-card"><span class="eyebrow">PERSONAL RAID · STAGE ${formatNumber(battle.stage)}</span><h2>전투 준비 완료</h2><p>편성 순서대로 카드가 행동합니다. 내 차례에는 20초 안에 기본공격이나 스킬을 선택하세요. 전투는 최대 7턴 진행됩니다.</p><button class="alert-button" type="button" data-action="begin-raid-battle" ${ui.raid.battlePending ? 'disabled' : ''}><i data-lucide="swords"></i>${ui.raid.battlePending ? '전투 준비 중' : '전투 시작'}</button></div></div>` : ''}
       ${finished ? `<div class="raid-battle-result-panel"><div class="raid-battle-result-card"><span class="eyebrow">${victory ? 'RAID CLEAR' : 'BATTLE ENDED'}</span><h2>${endTitle}</h2><p>이번 도전 획득 점수</p><strong class="raid-earned-score">${formatNumber(battle.totalDamage || 0)}</strong><small>보스에게 실제로 입힌 총 피해량입니다.</small><button class="primary-button" type="button" data-action="finish-raid-battle" ${ui.raid.finishing ? 'disabled' : ''}>${ui.raid.finishing ? '점수 저장 중' : '점수 반영하기'}</button></div></div>` : ''}
-      ${animation.skillCutIn ? `<div class="raid-skill-cut-in ${secret ? 'is-secret' : ''}">${secret ? '' : `<img src="${escapeHtml(animation.skillCutIn.image)}" alt="" />`}<strong>${escapeHtml(animation.skillCutIn.name)}</strong></div>` : ''}
       ${renderRaidBattleInspector(battle)}
     </section>`;
 }
@@ -2080,9 +2019,9 @@ function renderRaid(state) {
 
 function renderMailbox() {
   const pending = ui.mailbox.items.filter((mail) => mail.status === 'pending');
-  const pendingRewards = pending.filter((mail) => mail.rewards.coins || mail.rewards.standardPacks);
+  const pendingRewards = pending.filter(hasMailRewards);
   const attentionCount = pending.filter((mail) => (
-    !mail.readAt || mail.rewards.coins || mail.rewards.standardPacks
+    !mail.readAt || hasMailRewards(mail)
   )).length;
   const hasClaimableRewards = pendingRewards.length > 0;
   return `
@@ -2100,9 +2039,9 @@ function renderMailbox() {
         ${ui.mailbox.loading && !ui.mailbox.items.length ? '<div class="mailbox-empty"><div class="cloud-session-loader"><span></span></div><strong>우편을 불러오고 있습니다.</strong></div>' : ''}
         ${!ui.mailbox.loading && !ui.mailbox.items.length ? '<div class="mailbox-empty"><i data-lucide="mail"></i><strong>도착한 우편이 없습니다.</strong><span>새 소식이 오면 이곳에 표시됩니다.</span></div>' : ''}
         ${ui.mailbox.items.map((mail) => {
-          const rewardParts = [];
-          if (mail.rewards.coins) rewardParts.push(`<span><i data-lucide="coins"></i>${formatNumber(mail.rewards.coins)} 동전</span>`);
-          if (mail.rewards.standardPacks) rewardParts.push(`<span><i data-lucide="package-open"></i>${formatNumber(mail.rewards.standardPacks)} 카드팩</span>`);
+          const rewardParts = mailRewardEntries(mail.rewards).map(({ icon, amount, label }) => (
+            `<span><i data-lucide="${icon}"></i>${formatNumber(amount)} ${escapeHtml(label)}</span>`
+          ));
           const expired = mail.status === 'expired';
           const claimable = mail.status === 'pending' && rewardParts.length;
           return `
@@ -2136,7 +2075,7 @@ function renderCurrentView(state) {
 }
 
 function renderPackResultCard(card, index, premiumPack, revealedCards, modal) {
-  const gated = premiumPack && requiresPackReveal(card);
+  const gated = packCardRequiresReveal(card, index, modal.newCardIndices || []);
   const faceDown = gated && !revealedCards.has(index);
   const isNew = !faceDown && new Set(modal.newCardIndices || []).has(index);
   const revealClass = gated ? (faceDown ? 'is-face-down' : 'is-revealed') : '';
@@ -2162,36 +2101,17 @@ function renderPackResultCard(card, index, premiumPack, revealedCards, modal) {
     </article>`;
 }
 
+function focusPackCarousel(index, smooth = true) {
+  const carousel = app.querySelector('.pack-carousel');
+  const target = carousel?.querySelector('[data-showcase-index="' + Number(index) + '"]');
+  if (!target || ui.modal?.type !== 'pack') return;
+  ui.modal.focusIndex = Number(index);
+  const left = target.getBoundingClientRect().left - carousel.getBoundingClientRect().left + carousel.scrollLeft - (carousel.clientWidth - target.clientWidth) / 2;
+  carousel.scrollTo({ left, behavior: smooth && !window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'smooth' : 'instant' });
+}
+
 function renderPackModal(cards, pityTriggered, state, modal) {
-  const highest = modal.highestRarity || highestRarity(cards);
-  const premiumPack = rarityRank(highest) >= PACK_FLIP_THRESHOLD;
-  const revealedCards = new Set(modal.revealedCards || []);
-  const hidden = cards.flatMap((card, index) => premiumPack && requiresPackReveal(card) && !revealedCards.has(index) ? [index] : []);
-  const index = packFocusIndex(cards, [...revealedCards], modal.focusIndex, requiresPackReveal);
-  modal.focusIndex = index;
-  const sealed = hidden.includes(index);
-  const nextIndex = index < cards.length - 1 ? index + 1 : (hidden[0] ?? -1);
-  const pack = PACK_DEFINITION.standard;
-  return `
-    <div class="modal-backdrop pack-backdrop pack-focus-backdrop rarity-${highest} ${hidden.length ? 'has-sealed-cards' : 'is-reveal-complete'}" data-action="close-modal">
-      <section class="modal-sheet pack-opening-modal pack-focus-modal" role="dialog" aria-modal="true" aria-labelledby="pack-result-title" data-modal-panel>
-        <header class="pack-focus-heading"><div><span class="eyebrow">${modal.packCount > 1 ? `${modal.packCount}팩 개봉` : '인물 파일 개봉'}</span><h2 id="pack-result-title">새로운 만남 <small>${index + 1} / ${cards.length}</small></h2></div><button class="modal-close" type="button" data-action="close-modal" aria-label="닫기 · 미공개 카드는 저장됩니다"><i data-lucide="x"></i></button></header>
-        <div class="pack-focus-status" aria-live="polite"><span>${hidden.length ? `봉인 카드 ${hidden.length}장 · 눌러서 공개` : '카드가 모두 인사기록에 등록되었습니다.'}${pityTriggered ? ' · 확정 보상' : ''}</span>${hidden.length ? '<button type="button" data-action="reveal-all-pack-cards">모두 공개</button>' : ''}</div>
-        <div class="pack-focus-stage">
-          <button class="pack-focus-arrow" type="button" data-action="focus-pack-card" data-card-index="${index - 1}" aria-label="이전 카드" ${index === 0 ? 'disabled' : ''}><i data-lucide="chevron-left"></i></button>
-          ${renderPackResultCard(cards[index], index, premiumPack, revealedCards, modal)}
-          <button class="pack-focus-arrow" type="button" data-action="focus-pack-card" data-card-index="${index + 1}" aria-label="다음 카드" ${index === cards.length - 1 ? 'disabled' : ''}><i data-lucide="chevron-right"></i></button>
-        </div>
-        <nav class="pack-focus-progress" aria-label="개봉 카드 선택">${cards.map((card, candidate) => {
-          const isHidden = hidden.includes(candidate);
-          return `<button type="button" class="${candidate === index ? 'is-current' : ''} ${isHidden ? 'is-sealed' : `rarity-${card.rarity}`}" data-action="focus-pack-card" data-card-index="${candidate}" aria-current="${candidate === index ? 'true' : 'false'}" aria-label="${candidate + 1}번째 카드${isHidden ? ' · 봉인' : ` · ${escapeHtml(cardDisplayName(card))}`}"><b>${candidate + 1}</b><small>${isHidden ? '봉인' : rarityLabel(card.rarity)}</small></button>`;
-        }).join('')}</nav>
-        <footer class="pack-focus-footer">
-          <div class="pack-focus-primary"><button class="secondary-button" type="button" data-action="close-modal">${hidden.length ? '저장 후 닫기' : '닫기'}</button>${sealed ? `<button class="primary-button" type="button" data-action="reveal-pack-card" data-opening-id="${escapeHtml(modal.openingId || '')}" data-card-index="${index}">봉인 카드 공개하기</button>` : nextIndex >= 0 ? `<button class="primary-button" type="button" data-action="focus-pack-card" data-card-index="${nextIndex}">${index === cards.length - 1 ? '남은 봉인 카드 보기' : '다음 카드'} <i data-lucide="chevron-right"></i></button>` : '<button class="primary-button" type="button" data-action="navigate-from-modal" data-view="collection">도감에서 확인</button>'}</div>
-          <div class="pack-focus-secondary">${hidden.length ? '<small>나중에 이어서 공개해도 같은 카드가 유지됩니다.</small>' : state.packs.standard > 0 ? `<button class="text-button" type="button" data-action="open-another-pack" data-pack-count="1">1팩 더 개봉 · ${formatNumber(state.packs.standard)}팩 보유</button>${state.packs.standard >= 10 ? '<button class="text-button" type="button" data-action="open-another-pack" data-pack-count="10">10팩 개봉</button>' : ''}` : `<button class="text-button" type="button" data-action="buy-and-open-pack" ${state.wallet.coins < pack.coinPrice ? 'disabled' : ''}>${formatNumber(pack.coinPrice)} 동전으로 1팩 개봉</button>`}</div>
-        </footer>
-      </section>
-    </div>`;
+  return renderPackResults({ cards, modal, state, renderCard: renderPackResultCard });
 }
 
 function renderCardModal(card, state) {
@@ -2334,12 +2254,14 @@ function renderAdminModal() {
         ${authenticated ? `
           <form class="admin-mail-form" data-form="admin-mail">
             <label><span>발송 대상</span><select name="target" required><option value="all"${selected('target', 'all', 'all')}>전체 사용자</option>${ui.admin.users.map((user) => `<option value="${escapeHtml(user.id)}"${selected('target', user.id, 'all')}>${escapeHtml(user.label || `${user.nickname} (${user.username})`)}</option>`).join('')}</select></label>
-            <label><span>지급 구성</span><select name="presetId"><option value="custom"${selected('presetId', 'custom', 'custom')}>직접 수량 지정</option>${ui.admin.packages.map((preset) => `<option value="${escapeHtml(preset.id)}"${selected('presetId', preset.id, 'custom')}>${escapeHtml(preset.name)} · ${formatNumber(preset.rewards.standardPacks)}팩${preset.rewards.coins ? ` + ${formatNumber(preset.rewards.coins)}코인` : ''}</option>`).join('')}</select></label>
+            <label><span>지급 구성</span><select name="presetId"><option value="custom"${selected('presetId', 'custom', 'custom')}>직접 수량 지정</option>${ui.admin.packages.map((preset) => `<option value="${escapeHtml(preset.id)}"${selected('presetId', preset.id, 'custom')}>${escapeHtml(preset.name)} · ${mailRewardEntries(preset.rewards).map(({ amount, label }) => `${formatNumber(amount)} ${escapeHtml(label)}`).join(' + ')}</option>`).join('')}</select></label>
             <label><span>우편 제목</span><input name="title" maxlength="80" placeholder="업데이트 기념 선물" value="${draftValue('title')}" required /></label>
             <label><span>내용</span><textarea name="message" maxlength="1000" rows="4" placeholder="사용자에게 전달할 내용을 입력하세요.">${draftValue('message')}</textarea></label>
             <div class="admin-reward-grid">
               <label><span>사내 동전</span><input name="coins" type="number" min="0" max="100000000" step="1" value="${draftValue('coins', '0')}" ${String(draft.presetId || 'custom') !== 'custom' ? 'disabled' : ''} /></label>
               <label><span>표준 카드팩</span><input name="standardPacks" type="number" min="0" max="10000" step="1" value="${draftValue('standardPacks', '0')}" ${String(draft.presetId || 'custom') !== 'custom' ? 'disabled' : ''} /></label>
+              <label><span>고급 카드팩</span><input name="premiumPacks" type="number" min="0" max="10000" step="1" value="${draftValue('premiumPacks', '0')}" ${String(draft.presetId || 'custom') !== 'custom' ? 'disabled' : ''} /></label>
+              <label><span>SSR 확정 랜덤 뽑기권</span><input name="ssrTickets" type="number" min="0" max="10000" step="1" value="${draftValue('ssrTickets', '0')}" ${String(draft.presetId || 'custom') !== 'custom' ? 'disabled' : ''} /></label>
               <label><span>보관 기간</span><select name="expiresInHours"><option value="168"${selected('expiresInHours', '168', '168')}>7일</option><option value="720"${selected('expiresInHours', '720', '168')}>30일</option><option value="2160"${selected('expiresInHours', '2160', '168')}>90일</option></select></label>
             </div>
             <p class="auth-form-error" role="alert">${escapeHtml(ui.admin.error)}</p>
@@ -2631,8 +2553,8 @@ function render() {
     reconnectFocus = focused?.dataset?.action ? { ...focused.dataset } : null;
   }
   const previousReadyDialog = Boolean(app.querySelector('.coop-ready-dialog'));
-  const previousPackDialog = Boolean(app.querySelector('.pack-focus-modal'));
-  const focusedPackAction = document.activeElement?.closest('.pack-focus-modal')
+  const previousPackDialog = Boolean(app.querySelector('.pack-carousel-modal'));
+  const focusedPackAction = document.activeElement?.closest('.pack-carousel-modal')
     ? document.activeElement.dataset.action : '';
   const focusedCoopAction = document.activeElement?.dataset?.action?.startsWith('coop-')
     ? document.activeElement.dataset.action : '';
@@ -2678,9 +2600,8 @@ function render() {
     candidates.find((node) => Object.entries(reconnectFocus).every(([key, value]) => node.dataset[key] === value))?.focus({ preventScroll: true });
     reconnectFocus = null;
   }
-  const packProgress = app.querySelector('.pack-focus-progress');
-  const focusedPack = packProgress?.querySelector('[aria-current="true"]');
-  if (focusedPack) packProgress.scrollLeft = focusedPack.offsetLeft - packProgress.clientWidth / 2 + focusedPack.offsetWidth / 2;
+  const carousel = app.querySelector('.pack-carousel');
+  if (carousel && !previousPackDialog && ui.modal?.type === 'pack') focusPackCarousel(ui.modal.focusIndex, false);
   if (focusedPackAction || (!previousPackDialog && ui.modal?.type === 'pack')) {
     app.querySelector('.pack-focus-primary .primary-button:not(:disabled)')?.focus({ preventScroll: true });
   }
@@ -2699,6 +2620,7 @@ function rewardText(reward = {}) {
 function showPackOpeningModal(opening, cards, { renderNow = true } = {}) {
   ui.modal = {
     type: 'pack',
+    packId: opening.packId || 'standard',
     cards,
     pityTriggered: opening.pityTriggered,
     highestRarity: highestRarity(cards),
@@ -2748,7 +2670,7 @@ function resumePendingPackOpening() {
   if (remaining === 0) {
     store.update((draft) => { addPendingPackToCollection(draft, opening, cards); });
     ui.modal = {
-      type: 'pack', cards, pityTriggered: opening.pityTriggered,
+      type: 'pack', packId: opening.packId || 'standard', cards, pityTriggered: opening.pityTriggered,
       highestRarity: highestRarity(cards),
       newCardIndices: opening.newCardIndices || [], packCount: opening.packCount || 1,
       revealedCards: opening.revealedIndices, openingId: opening.id, pendingOpening: false,
@@ -2784,24 +2706,27 @@ function revealPackCardAtIndex(cardIndex, openingId) {
   return true;
 }
 
-function openStandardPacks(packCount = 1) {
+function openStandardPacks(packCount = 1, packId = 'standard') {
   if (resumePendingPackOpening()) return;
   const state = store.getState();
-  const requestedCount = Number(packCount) === 10 ? 10 : 1;
-  if (state.packs.standard < requestedCount) {
+  const definition = PACK_DEFINITION[packId];
+  if (!definition) return;
+  const requestedCount = packId !== 'ssrTicket' && Number(packCount) === 10 ? 10 : 1;
+  if ((Number(state.packs[packId]) || 0) < requestedCount) {
     showNotice(requestedCount === 10 ? '10팩 개봉에는 카드팩 10개가 필요합니다.' : '미개봉 카드팩이 없습니다.', 'warning');
     return;
   }
   const result = openPacks({
     catalog: CARD_CATALOG,
-    definition: PACK_DEFINITION.standard,
-    pity: state.pity.standard,
+    definition,
+    pity: state.pity[packId] || 0,
     packCount: requestedCount,
   });
   const highest = highestRarity(result.cards);
   const freshIndices = newCardIndices(result.cards, state.discoveredCardIds);
-  const premiumPack = rarityRank(highest) >= PACK_FLIP_THRESHOLD;
-  const opening = premiumPack ? createPendingPackOpening({
+  const needsReveal = result.cards.some((card, index) => packCardRequiresReveal(card, index, freshIndices));
+  const opening = needsReveal ? createPendingPackOpening({
+    packId,
     cards: result.cards,
     pityTriggered: result.pityTriggered,
     highestRarity: highest,
@@ -2809,27 +2734,29 @@ function openStandardPacks(packCount = 1) {
     packCount: result.packCount,
   }) : null;
   store.update((draft) => {
-    draft.packs.standard -= result.packCount;
-    draft.pity.standard = result.nextPity;
+    draft.packs[packId] -= result.packCount;
+    draft.pity[packId] = result.nextPity;
     if (opening) {
       draft.pendingPackOpening = opening;
-      appendActivity(draft, '인물 파일에서 특별 카드 봉인을 발견했습니다.', 'pack');
+      appendActivity(draft, `${definition.name}에서 미공개 카드 결과를 저장했습니다.`, 'pack');
     } else {
       draft.collection = addCardsToCollection(draft.collection, result.cards);
       draft.discoveredCardIds = registerDiscoveredCards(draft.discoveredCardIds, result.cards);
-      appendActivity(draft, `인물 파일에서 카드 ${result.cards.length}장을 발견했습니다.`, 'pack');
+      appendActivity(draft, `${definition.name}에서 카드 ${result.cards.length}장을 획득했습니다.`, 'pack');
     }
   });
   ui.modal = {
-    type: 'pack', cards: result.cards, pityTriggered: result.pityTriggered,
-    highestRarity: highest, newCardIndices: freshIndices, packCount: result.packCount, revealedCards: [],
+    type: 'pack', packId, cards: result.cards, pityTriggered: result.pityTriggered,
+    highestRarity: highest, flashRarity: highest, newCardIndices: freshIndices, packCount: result.packCount, revealedCards: [],
     openingId: opening?.id || '', pendingOpening: Boolean(opening),
   };
   render();
 }
 
-function buyStandardPack({ notify = true } = {}) {
-  const price = PACK_DEFINITION.standard.coinPrice;
+function buyStandardPack({ notify = true, packId = 'standard' } = {}) {
+  const pack = PACK_DEFINITION[packId];
+  if (!pack || pack.adminOnly || !(pack.coinPrice > 0)) return false;
+  const price = pack.coinPrice;
   const state = store.getState();
   if (state.wallet.coins < price) {
     showNotice('사내 동전이 부족합니다.', 'warning');
@@ -2837,10 +2764,10 @@ function buyStandardPack({ notify = true } = {}) {
   }
   store.update((draft) => {
     draft.wallet.coins -= price;
-    draft.packs.standard += 1;
-    appendActivity(draft, '사내 인물 파일 한 팩을 구매했습니다.', 'pack');
+    draft.packs[packId] = (Number(draft.packs[packId]) || 0) + 1;
+    appendActivity(draft, `${pack.name} 한 팩을 구매했습니다.`, 'pack');
   });
-  if (notify) showNotice('카드팩 1개를 구매했습니다.', 'success');
+  if (notify) showNotice(`${pack.name} 1개를 구매했습니다.`, 'success');
   return true;
 }
 
@@ -3387,25 +3314,12 @@ function performRaidPlayerTurn(type = 'basic', { automatic = false, timedOut = f
   if (!actor) return;
   try {
     const next = performPlayerAction(before, { type, choice, targetId, galaxyChoice }, Date.now());
-    const dealtDamage = Math.max(0, Number(before.boss?.hp) - Number(next.boss?.hp));
-    const newLogs = (next.log || []).slice((before.log || []).length);
-    const damageAmount = newLogs
-      .filter((entry) => ['damage', 'counter'].includes(entry.type) && entry.targetId === next.boss.id)
-      .reduce((sum, entry) => sum + Math.max(0, Number(entry.amount) || 0), 0) || dealtDamage;
-    const breakAmount = newLogs
-      .filter((entry) => entry.type === 'break')
-      .reduce((sum, entry) => sum + Math.max(0, Number(entry.amount) || 0), 0);
     const skill = type === 'skill' ? skillForCard(actor.cardId, actor.enhancement) : null;
     ui.raid.battle = next;
     ui.raid.inspector = null;
-    ui.raid.animation = {
-      attacker: dealtDamage > 0 ? actorIndex : null,
-      targets: dealtDamage > 0 ? ['boss'] : [],
-      message: timedOut ? `${actor.name}이(가) 시간 초과로 기본공격을 사용했습니다.` : `${automatic ? '[자동] ' : ''}${actor.name}의 ${skill?.name || '기본공격'}!`,
-      skillCutIn: skill ? { image: actor.image || cardById(actor.cardId)?.image, name: skill.name } : null,
-      damageAmount,
-      breakAmount,
-    };
+    ui.raid.animation = getRaidActionFeedback(before, next);
+    if (timedOut) ui.raid.animation.message = actor.name + '이(가) 시간 초과로 기본공격을 사용했습니다.';
+    else if (automatic) ui.raid.animation.message = '[자동] ' + ui.raid.animation.message;
     render();
     clearRaidAnimation(skill ? 1260 : 680);
   } catch (error) {
@@ -3437,11 +3351,26 @@ function scheduleBossRaidAction() {
   ui.raid.bossActionTimer = null;
   if (!gameplayAvailable()) return;
   const battle = ui.raid.battle;
-  if (!battle || battle.status !== 'active' || battle.currentActor !== 'boss' || ui.raid.animation || ui.raid.battlePending) return;
+  if (!battle || battle.status !== 'active' || !['boss', 'follow-up'].includes(battle.currentActor) || ui.raid.animation || ui.raid.battlePending) return;
   ui.raid.bossActionTimer = window.setTimeout(() => {
     ui.raid.bossActionTimer = null;
-    performRaidBossTurn();
-  }, 1000);
+    if (ui.raid.battle !== battle) return;
+    if (battle.currentActor === 'follow-up') performRaidFollowUpTurn();
+    else performRaidBossTurn();
+  }, battle.currentActor === 'follow-up' ? 250 : 1000);
+}
+
+function performRaidFollowUpTurn() {
+  if (!gameplayAvailable()) return;
+  const before = ui.raid.battle;
+  if (before?.status !== 'active' || before.currentActor !== 'follow-up' || ui.raid.animation) return;
+  try {
+    const next = performFollowUpAction(before, Date.now());
+    ui.raid.battle = next;
+    ui.raid.animation = getRaidActionFeedback(before, next);
+    render();
+    clearRaidAnimation(1260);
+  } catch (error) { showNotice(error.message || '추가 효과를 처리하지 못했습니다.', 'warning'); }
 }
 
 function performRaidBossTurn() {
@@ -3450,18 +3379,10 @@ function performRaidBossTurn() {
   if (!before || before.status !== 'active' || before.currentActor !== 'boss') return;
   try {
     const next = performBossAction(before, Date.now());
-    const targetIndexes = before.cards
-      .map((card, index) => (Number(next.cards[index]?.hp) < Number(card.hp) ? index : -1))
-      .filter((index) => index >= 0);
-    const skipped = before.boss.stunned || next.log.at(-1)?.type === 'boss-skip';
     ui.raid.battle = next;
-    ui.raid.animation = {
-      attacker: skipped ? null : 'boss',
-      targets: targetIndexes,
-      message: next.log.at(-1)?.message || (skipped ? '보스가 행동할 수 없습니다.' : '보스의 공격!'),
-    };
+    ui.raid.animation = getRaidActionFeedback(before, next);
     render();
-    clearRaidAnimation(680);
+    clearRaidAnimation(ui.raid.animation.iceSpires?.some(tower => ['breaking', 'dissolving'].includes(tower.phase)) ? 1260 : 680);
   } catch (error) {
     showNotice(error.message || '보스 행동을 처리하지 못했습니다.', 'warning');
   }
@@ -3857,6 +3778,12 @@ async function handleCooperativeAction(action, button) {
   if (action === 'coop-open') {
     ui.view = 'raid'; ui.raidMode = 'cooperative'; ui.modal = null; render();
     void cooperativeClient.refresh();
+  } else if (action === 'coop-inspect-card') {
+    ui.cooperative.inspector = { type: 'card', cardIndex: Number(button.dataset.cardIndex) }; render();
+  } else if (action === 'coop-inspect-effect') {
+    ui.cooperative.inspector = { type: 'effect', owner: button.dataset.effectOwner, index: Number(button.dataset.effectIndex) }; render();
+  } else if (action === 'coop-close-inspector') {
+    ui.cooperative.inspector = null; render();
   } else if (action === 'coop-refresh') {
     await cooperativeClient.refresh();
   } else if (action === 'coop-select-card') {
@@ -3999,9 +3926,7 @@ async function claimMailboxRewards(mailId = '') {
     if (!isAuthorizedMailboxRequest(mailboxRequest)) return false;
     ui.mailbox.items = result.mailbox;
     ui.mailbox.lastLoadedAt = Date.now();
-    const coins = Number(result.rewards?.coins) || 0;
-    const packs = Number(result.rewards?.standardPacks) || 0;
-    const rewardParts = [coins ? `${formatNumber(coins)} 동전` : '', packs ? `${formatNumber(packs)} 카드팩` : ''].filter(Boolean);
+    const rewardParts = mailRewardEntries(result.rewards).map(({ amount, label }) => `${formatNumber(amount)} ${label}`);
     showNotice(rewardParts.length ? `${rewardParts.join(' · ')}을 받았습니다.` : '우편을 확인했습니다.', 'success');
     return true;
   } catch (error) {
@@ -4083,19 +4008,14 @@ async function submitAdminMail(form) {
   const target = String(data.get('target') || 'all');
   const presetId = String(data.get('presetId') || 'custom');
   const preset = ui.admin.packages.find((entry) => entry.id === presetId);
-  const coins = preset
-    ? Math.max(0, Math.floor(Number(preset.rewards?.coins) || 0))
-    : Math.max(0, Math.floor(Number(data.get('coins')) || 0));
-  const standardPacks = preset
-    ? Math.max(0, Math.floor(Number(preset.rewards?.standardPacks) || 0))
-    : Math.max(0, Math.floor(Number(data.get('standardPacks')) || 0));
+  const rewards = adminMailRewards(data, preset);
   const payload = {
     targetMode: target === 'all' ? 'all' : 'single',
     ...(target === 'all' ? {} : { targetAccountId: target }),
     title: String(data.get('title') || '').trim(),
     message: String(data.get('message') || '').trim(),
     ...(preset ? { presetId } : {}),
-    rewards: { coins, standardPacks },
+    rewards,
     expiresInHours: Math.max(1, Math.floor(Number(data.get('expiresInHours')) || 168)),
   };
   ui.admin.draft = {
@@ -4103,8 +4023,7 @@ async function submitAdminMail(form) {
     presetId,
     title: String(data.get('title') || ''),
     message: String(data.get('message') || ''),
-    coins: String(coins),
-    standardPacks: String(standardPacks),
+    ...Object.fromEntries(Object.entries(rewards).map(([key, amount]) => [key, String(amount)])),
     expiresInHours: String(data.get('expiresInHours') || '168'),
   };
   const payloadFingerprint = JSON.stringify(payload);
@@ -4194,7 +4113,7 @@ async function activateAuthenticatedSession(session, { newAccount = false } = {}
   ui.mailbox = { loading: false, claimingId: '', items: [], error: '', lastLoadedAt: 0 };
   ui.admin = {
     token: '', loading: false, sending: false, users: [], packages: [], error: '',
-    draft: { target: 'all', presetId: 'custom', title: '', message: '', coins: '0', standardPacks: '0', expiresInHours: '168' },
+    draft: createAdminMailDraft(),
     pendingMailRequest: null,
   };
   // The cached UI is a read-only preview until both credentials and lease are
@@ -4448,7 +4367,7 @@ async function logout() {
   ui.mailbox = { loading: false, claimingId: '', items: [], error: '', lastLoadedAt: 0 };
   ui.admin = {
     token: '', loading: false, sending: false, users: [], packages: [], error: '',
-    draft: { target: 'all', presetId: 'custom', title: '', message: '', coins: '0', standardPacks: '0', expiresInHours: '168' },
+    draft: createAdminMailDraft(),
     pendingMailRequest: null,
   };
   resetAuthAvailability();
@@ -4733,17 +4652,17 @@ app.addEventListener('click', async (event) => {
   } else if (action === 'resume-pack-opening') {
     resumePendingPackOpening();
   } else if (action === 'open-pack' || action === 'open-another-pack') {
-    openStandardPacks(Number(button.dataset.packCount) || 1);
+    openStandardPacks(Number(button.dataset.packCount) || 1, button.dataset.packId || 'standard');
   } else if (action === 'buy-pack') {
-    buyStandardPack();
+    buyStandardPack({ packId: button.dataset.packId || 'standard' });
   } else if (action === 'buy-and-open-pack') {
-    if (buyStandardPack({ notify: false })) openStandardPacks(1);
+    const packId = button.dataset.packId || 'standard';
+    if (buyStandardPack({ notify: false, packId })) openStandardPacks(1, packId);
   } else if (action === 'focus-pack-card') {
     if (ui.modal?.type !== 'pack') return;
     const index = Number(button.dataset.cardIndex);
     if (!Number.isInteger(index) || index < 0 || index >= ui.modal.cards.length) return;
-    ui.modal.focusIndex = index;
-    render();
+    focusPackCarousel(index);
   } else if (action === 'reveal-all-pack-cards') {
     revealAllPackCards();
   } else if (action === 'reveal-pack-card') {
@@ -4949,7 +4868,7 @@ app.addEventListener('click', async (event) => {
   } else if (action === 'admin-logout') {
     ui.admin = {
       token: '', loading: false, sending: false, users: [], packages: [], error: '',
-      draft: { target: 'all', presetId: 'custom', title: '', message: '', coins: '0', standardPacks: '0', expiresInHours: '168' },
+      draft: createAdminMailDraft(),
       pendingMailRequest: null,
     };
     render();
@@ -5090,8 +5009,8 @@ app.addEventListener('change', (event) => {
   ui.admin.draft = { ...(ui.admin.draft || {}), [adminInput.name]: adminInput.value };
   if (adminInput.name === 'presetId') {
     const preset = ui.admin.packages.find((entry) => entry.id === adminInput.value);
-    ui.admin.draft.coins = String(Math.max(0, Number(preset?.rewards?.coins) || 0));
-    ui.admin.draft.standardPacks = String(Math.max(0, Number(preset?.rewards?.standardPacks) || 0));
+    Object.assign(ui.admin.draft, Object.fromEntries(Object.entries(adminMailRewards(new FormData(), preset))
+      .map(([key, amount]) => [key, String(amount)])));
     if (preset && !String(ui.admin.draft.title || '').trim()) ui.admin.draft.title = preset.name;
     render({ preserveViewScroll: true });
   }
@@ -5200,7 +5119,19 @@ window.addEventListener('offline', () => {
   void reconnect?.start();
 });
 window.addEventListener('beforeunload', () => { captureScrollPositions(); persistNavigation(); flushLocalGameCache(); });
-app.addEventListener('scroll', () => {
+app.addEventListener('scroll', (event) => {
+  if (event.target.matches?.('.pack-carousel') && ui.modal?.type === 'pack') {
+    const carousel = event.target;
+    const center = carousel.getBoundingClientRect().left + carousel.clientWidth / 2;
+    const items = [...carousel.querySelectorAll('[data-showcase-index]')];
+    const nearest = items.sort((a,b) => Math.abs(a.getBoundingClientRect().left + a.clientWidth/2-center) - Math.abs(b.getBoundingClientRect().left + b.clientWidth/2-center))[0];
+    if (nearest) ui.modal.focusIndex = Number(nearest.dataset.showcaseIndex);
+    const indices = items.map(item=>Number(item.dataset.showcaseIndex)).sort((a,b)=>a-b);
+    const pos = indices.indexOf(ui.modal.focusIndex);
+    const arrows = carousel.parentElement.querySelectorAll('.pack-focus-arrow');
+    if (arrows[0]) { arrows[0].disabled = pos <= 0; arrows[0].dataset.cardIndex = indices[pos-1] ?? -1; }
+    if (arrows[1]) { arrows[1].disabled = pos >= indices.length-1; arrows[1].dataset.cardIndex = indices[pos+1] ?? -1; }
+  }
   if (!gameplayAvailable()) return;
   window.clearTimeout(navigationScrollTimer);
   navigationScrollTimer = window.setTimeout(() => { captureScrollPositions(); persistNavigation(); }, 200);
@@ -5261,13 +5192,14 @@ app.addEventListener('keydown', (event) => {
     }
     return;
   }
-  const packDialog = app.querySelector('.pack-focus-modal');
+  const packDialog = app.querySelector('.pack-carousel-modal');
   if (packDialog && ui.modal?.type === 'pack') {
     if (event.key === 'Escape') { event.preventDefault(); ui.modal = null; render(); return; }
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
       event.preventDefault();
-      ui.modal.focusIndex = Math.max(0, Math.min(ui.modal.cards.length - 1, (ui.modal.focusIndex || 0) + (event.key === 'ArrowRight' ? 1 : -1)));
-      render(); return;
+      const indices = packPresentation(ui.modal.cards, ui.modal.newCardIndices, ui.modal.revealedCards).showcaseIndices;
+      const next = Math.max(0, Math.min(indices.length - 1, indices.indexOf(ui.modal.focusIndex) + (event.key === 'ArrowRight' ? 1 : -1)));
+      focusPackCarousel(indices[next]); return;
     }
     if (event.key === 'Tab') {
       const buttons = [...packDialog.querySelectorAll('button:not(:disabled)')];

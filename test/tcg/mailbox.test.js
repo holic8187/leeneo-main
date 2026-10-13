@@ -16,7 +16,9 @@ const {
   ADMIN_GRANT_PACKAGES,
   MAX_STORED_MAILS,
   adminGrantCatalog,
-  normalizeAdminMail
+  normalizeAdminMail,
+  normalizeMailRewards,
+  applyMailRewards
 } = require('../../src/tcg/services/mailboxService');
 
 const USER_SECRET = 'mailbox-user-secret-with-enough-entropy';
@@ -274,6 +276,8 @@ test('TCG player state embeds server-owned mailbox rewards and claim timestamps'
   assert.equal(TcgPlayerStateModel.schema.path('mailbox').instance, 'Array');
   assert.equal(TcgPlayerStateModel.schema.path('mailbox.rewards.coins').options.min, 0);
   assert.equal(TcgPlayerStateModel.schema.path('mailbox.rewards.standardPacks').options.min, 0);
+  assert.equal(TcgPlayerStateModel.schema.path('mailbox.rewards.premiumPacks').options.min, 0);
+  assert.equal(TcgPlayerStateModel.schema.path('mailbox.rewards.ssrTickets').options.min, 0);
   assert.equal(TcgPlayerStateModel.schema.path('mailbox.claimedAt').options.default, null);
 });
 
@@ -344,7 +348,7 @@ test('admin grant packages are server-owned and deliver their exact configured r
     }
   });
   assert.equal(sent.statusCode, 200);
-  assert.deepEqual(sent.payload.mail.rewards, { coins: 1_500, standardPacks: 15 });
+  assert.deepEqual(sent.payload.mail.rewards, { coins: 1_500, standardPacks: 15, premiumPacks: 0, ssrTickets: 0 });
 });
 
 test('admin mail can be sent once, read, and atomically claimed into cloud state', async () => {
@@ -359,7 +363,7 @@ test('admin mail can be sent once, read, and atomically claimed into cloud state
     targetAccountId: harness.accounts[0]._id,
     title: '점검 보상',
     message: '기다려주셔서 감사합니다.',
-    rewards: { coins: 500, standardPacks: 2 }
+    rewards: { coins: 500, standardPacks: 2, premiumPacks: 3, ssrTickets: 4 }
   };
   const sent = await harness.request('POST', '/api/tcg/admin/mail/send', {
     bearer: adminToken,
@@ -369,6 +373,8 @@ test('admin mail can be sent once, read, and atomically claimed into cloud state
   assert.equal(sent.payload.deliveredCount, 1);
   assert.equal(sent.payload.newlyDeliveredCount, 1);
   assert.equal(sent.payload.mail.rewards.coins, 500);
+  assert.equal(sent.payload.mail.rewards.premiumPacks, 3);
+  assert.equal(sent.payload.mail.rewards.ssrTickets, 4);
 
   const repeated = await harness.request('POST', '/api/tcg/admin/mail/send', {
     bearer: adminToken,
@@ -405,6 +411,8 @@ test('admin mail can be sent once, read, and atomically claimed into cloud state
   assert.equal(claimed.payload.revision, 5);
   assert.equal(claimed.payload.state.wallet.coins, 525);
   assert.equal(claimed.payload.state.packs.standard, 3);
+  assert.equal(claimed.payload.state.packs.premium, 3);
+  assert.equal(claimed.payload.state.packs.ssrTicket, 4);
   assert.equal(claimed.payload.mails[0].status, 'claimed');
 
   const repeatedClaim = await harness.request('POST', '/api/tcg/mail/claim', {
@@ -422,6 +430,28 @@ test('admin mail can be sent once, read, and atomically claimed into cloud state
   const record = harness.TcgPlayerState.records[0];
   assert.equal(record.state.wallet.coins, 525);
   assert.equal(record.state.packs.standard, 3);
+  assert.equal(record.state.packs.premium, 3);
+  assert.equal(record.state.packs.ssrTicket, 4);
+});
+
+test('admin can grant SSR tickets alone with validated independent reward limits', () => {
+  const mail = normalizeAdminMail({ title: 'SSR 지급', rewards: { ssrTickets: 2 } }, 1000);
+  assert.deepEqual(mail.rewards, { coins: 0, standardPacks: 0, premiumPacks: 0, ssrTickets: 2 });
+  assert.deepEqual(normalizeMailRewards({ packs: { premium: 3, ssrTicket: 4 } }),
+    { coins: 0, standardPacks: 0, premiumPacks: 3, ssrTickets: 4 });
+  for (const key of ['premiumPacks', 'ssrTickets']) {
+    assert.ok(adminGrantCatalog().limits[key] > 0);
+    for (const value of [-1, 0.5, Number.MAX_SAFE_INTEGER]) {
+      assert.throws(() => normalizeMailRewards({ [key]: value }), { code: 'INVALID_MAIL_REWARD' });
+    }
+  }
+  const input = { packs: { standard: 1, premium: 2, ssrTicket: 3 }, pity: { standard: 49 } };
+  const result = applyMailRewards(input, [mail, { rewards: { premiumPacks: 2, ssrTickets: 1 } }]);
+  assert.deepEqual(result.state.packs, { standard: 1, premium: 4, ssrTicket: 6 });
+  assert.deepEqual(input.packs, { standard: 1, premium: 2, ssrTicket: 3 });
+  assert.equal(result.state.pity.standard, 49);
+  assert.throws(() => applyMailRewards({ packs: { ssrTicket: Number.MAX_SAFE_INTEGER } }, [mail]),
+    { code: 'MAIL_REWARD_OVERFLOW' });
 });
 
 test('claim requires the active lease and exact cloud revision', async () => {

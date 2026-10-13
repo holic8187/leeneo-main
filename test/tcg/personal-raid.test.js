@@ -30,6 +30,29 @@ const { TCG_TOKEN_AUDIENCE, TCG_TOKEN_ISSUER, registerTcgRoutes } = require('../
 
 const TEST_SECRET = 'personal-raid-test-secret-with-entropy';
 
+test('personal finish accepts real extra-action logs without counting them as additional combat rounds', async () => {
+  const engine = await import('../../tcg-desktop/src/core/turnRaidEngine.js');
+  const Model = createFakeRaidModel(); const user = account(); const now = Date.parse('2026-10-13T03:00:00Z');
+  const ids = ['coca-ssr','winter-c','nanche-c','simsim-c'];
+  const verified = validatePersonalRaidSquad({ playerState:{collection:Object.fromEntries(ids.map(id=>[id,1]))},squad:ids.map(cardId=>({cardId,enhancement:0})),now });
+  const started = await startPersonalRaid({TcgPersonalRaidDaily:Model,account:user,verifiedSquad:verified,now});
+  let battle = engine.startRaidBattle(engine.createRaidBattle({cards:verified.squad.map(card=>({...card,attack:card.power})),boss:{maxHp:started.session.bossHpBefore,baseDamage:1}}),now);
+  let steps=0;
+  while(battle.status==='active'&&steps++<150){
+    if(battle.currentActor==='follow-up')battle=engine.performFollowUpAction(battle,now+steps*1000);
+    else if(battle.currentActor==='boss')battle=engine.performBossAction(battle,now+steps*1000);
+    else battle=engine.performPlayerAction(battle,{type:battle.cards[battle.currentActorIndex].cardId==='coca-ssr'&&battle.cards[battle.currentActorIndex].cooldown===0?'skill':'basic'},now+steps*1000);
+  }
+  assert.equal(battle.status,'finished');
+  assert.ok(battle.log.some(entry=>entry.type==='prism-burst'));
+  assert.ok(battle.round<=7);
+  const submission={TcgPersonalRaidDaily:Model,account:user,sessionId:started.session.sessionId,damageDealt:battle.totalDamage,bossHpRemaining:battle.boss.hp,turns:battle.round,battleLog:battle.log,now:now+180000};
+  const finished=await finishPersonalRaid(submission);
+  assert.equal(finished.result.damageDealt,battle.totalDamage);
+  assert.equal(finished.result.turns,battle.round);
+  assert.deepEqual((await finishPersonalRaid(submission)).result,finished.result);
+});
+
 function clone(value) {
   if (value == null) return value;
   if (value instanceof Date) return new Date(value);

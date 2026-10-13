@@ -16,7 +16,9 @@ export class MailboxGatewayError extends Error {
 function normalizeRewards(value = {}) {
   return {
     coins: Math.max(0, Math.floor(Number(value.coins) || 0)),
-    standardPacks: Math.max(0, Math.floor(Number(value.standardPacks ?? value.packs) || 0)),
+    standardPacks: Math.max(0, Math.floor(Number(value.standardPacks ?? value.packs?.standard ?? value.packs) || 0)),
+    premiumPacks: Math.max(0, Math.floor(Number(value.premiumPacks ?? value.packs?.premium) || 0)),
+    ssrTickets: Math.max(0, Math.floor(Number(value.ssrTickets ?? value.packs?.ssrTicket) || 0)),
   };
 }
 

@@ -129,10 +129,11 @@ function normalizeActor(value) {
   if (!value) return null;
   if (typeof value === 'string') {
     if (value === 'boss') return { type: 'boss', index: -1, cardId: '' };
+    if (value === 'follow-up') return { type: 'follow-up', index: -1, cardId: '' };
     if (value === 'card') return { type: 'card', index: -1, cardId: '' };
     return { type: 'card', index: -1, cardId: value };
   }
-  const type = value.type === 'boss' || value.side === 'boss' ? 'boss' : 'card';
+  const type = value.type === 'follow-up' ? 'follow-up' : value.type === 'boss' || value.side === 'boss' ? 'boss' : 'card';
   return {
     type,
     index: Number.isInteger(value.index) ? value.index : Number(value.slot ?? value.cardIndex ?? -1),
@@ -147,7 +148,7 @@ export function normalizeRaidBattle(value = {}) {
   const status = String(value.status || (value.started ? 'active' : 'ready'));
   const actor = normalizeActor(value.activeActor || value.currentActor || value.actor);
   const teamStatuses = firstEffectArray(value.teamStatuses, value.partyEffects, value.teamEffects);
-  if (actor?.type === 'card' && actor.index < 0 && Number.isInteger(value.currentActorIndex)) {
+  if (['card', 'follow-up'].includes(actor?.type) && actor.index < 0 && Number.isInteger(value.currentActorIndex)) {
     actor.index = value.currentActorIndex;
   }
   const boss = {
@@ -246,4 +247,57 @@ export function raidBattleFinished(battle) {
   return ['won', 'lost', 'finished', 'victory', 'defeat'].includes(battle.status)
     || battle.boss.hp <= 0
     || battle.squad.every((member) => member.hp <= 0);
+}
+
+/** Persistent towers plus the just-destroyed tower retained for its exit animation. */
+export function raidIceSpires(battle = {}, recentLogs = []) {
+  const towers = new Map();
+  for (const status of battle.teamStatuses || []) {
+    if (status.id !== 'ice-spire' || Number(status.charges) <= 0) continue;
+    const visualId = status.visualId || `${status.sourceId}:spire`;
+    for (let index = 0; index < Number(status.charges); index += 1) {
+      const id = `${visualId}:${index}`;
+      towers.set(id, { id, sourceId: status.sourceId, index, phase: 'standing' });
+    }
+  }
+  for (const entry of recentLogs) {
+    if (!['spire-summon', 'spire-break', 'spire-recovery'].includes(entry.type)) continue;
+    const visualId = entry.visualId || `${entry.sourceId}:spire`;
+    const indexes = entry.type === 'spire-break' ? [Number(entry.pillarIndex ?? entry.remaining)]
+      : Array.from({ length: Number(entry.remaining) || 0 }, (_, index) => index);
+    for (const index of indexes) {
+      const id = `${visualId}:${index}`;
+      towers.set(id, { id, sourceId: entry.sourceId, index, phase: entry.type === 'spire-break' ? 'breaking' : entry.type === 'spire-recovery' ? 'dissolving' : 'summoning' });
+    }
+  }
+  return [...towers.values()];
+}
+
+/** Shared animation contract for local battle actions and authoritative cooperative updates. */
+export function getRaidActionFeedback(before = {}, after = {}) {
+  const cards = after.cards || after.squad || [];
+  const bossId = after.boss?.id;
+  const latestIndex = (before.log || before.battleLog || []).at(-1)?.index ?? -1;
+  const recentLogs = (after.log || after.battleLog || []).filter(entry => entry.index > latestIndex);
+  const action = recentLogs.find(entry => ['follow-up', 'skill', 'basic'].includes(entry.type));
+  const bossAction = before.currentActor === 'boss' || recentLogs.some(entry => ['boss-basic', 'boss-skill', 'boss-skip'].includes(entry.type));
+  const sourceId = action?.actorId || action?.sourceId;
+  const index = cards.findIndex(card => card.id === sourceId);
+  const bossHit = recentLogs.some(entry => ['damage', 'counter'].includes(entry.type) && entry.targetId === bossId && entry.amount > 0);
+  const targetIndexes = cards.flatMap((card, i) => {
+    const previous = (before.cards || before.squad || [])[i];
+    return previous && (card.hp < previous.hp || card.shield < previous.shield) ? [i] : [];
+  });
+  const skipped = recentLogs.some(entry => entry.type === 'boss-skip');
+  const member = cards[index];
+  return {
+    attacker: bossAction ? skipped ? null : 'boss' : bossHit && index >= 0 ? index : null,
+    targets: bossAction ? [...targetIndexes, ...(bossHit ? ['boss'] : [])] : bossHit ? ['boss'] : [],
+    damageAmount: recentLogs.filter(entry => ['damage', 'counter'].includes(entry.type) && entry.targetId === bossId).reduce((sum, entry) => sum + (Number(entry.amount) || 0), 0),
+    breakAmount: recentLogs.filter(entry => entry.type === 'break').reduce((sum, entry) => sum + (Number(entry.amount) || 0), 0),
+    message: action?.message || recentLogs.at(-1)?.message || '',
+    skillCutIn: action && ['follow-up', 'skill'].includes(action.type) && member ? { image: member.image, name: action.name || action.message, cardId: member.cardId } : null,
+    recentLogs,
+    iceSpires: raidIceSpires(after, recentLogs),
+  };
 }

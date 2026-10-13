@@ -1,3 +1,5 @@
+import { getRaidActionFeedback } from './raidBattleView.js';
+
 const identityKey = ({ accountId = '', token = '' } = {}) => `${accountId}\u0000${token}`;
 const fingerprint = (data) => JSON.stringify(data ? { ...data, serverNow: 0 } : null);
 
@@ -31,13 +33,12 @@ export function createCooperativeRaidClient({ gateway, getIdentity, onChange = (
     let feedback = state.feedback;
     if (room?.id !== previousRoom?.id) feedback = null;
     else if (room && room.revision !== previousRoom.revision) {
-      const previousLog = previousRoom.battle?.log || [];
-      const latestIndex = previousLog.at(-1)?.index ?? -1;
-      const added = (room.battle?.log || []).filter((entry) => entry.index > latestIndex);
+      const animation = getRaidActionFeedback(previousRoom.battle, room.battle);
       feedback = {
         revision: room.revision, at: now(),
-        damage: added.filter((entry) => ['damage', 'counter'].includes(entry.type) && entry.targetId === room.battle.boss.id).reduce((sum, entry) => sum + (Number(entry.amount) || 0), 0),
-        breakDamage: added.filter((entry) => entry.type === 'break').reduce((sum, entry) => sum + (Number(entry.amount) || 0), 0),
+        ...animation,
+        damage: animation.damageAmount,
+        breakDamage: animation.breakAmount,
       };
     }
     patch({ data: payload.cooperative, loading: false, error: '', lastLoadedAt: now(), clockOffset: Number(payload.cooperative.serverNow) - now() || 0, feedback }, changed);
@@ -49,7 +50,10 @@ export function createCooperativeRaidClient({ gateway, getIdentity, onChange = (
       if (poll || state.pending) return poll;
       const request = capture();
       if (!request.identity.token || !request.identity.accountId) return null;
-      patch({ loading: true, lastAttemptAt: now() }, !state.data);
+      // Background polls must not disable a newly completed selection. Equal
+      // responses intentionally avoid rendering, so transient loading=true
+      // would otherwise remain painted until the next meaningful update.
+      patch({ loading: !state.data, lastAttemptAt: now() }, !state.data);
       const operation = (async () => {
         try {
           const payload = await gateway.state(request.identity.token);

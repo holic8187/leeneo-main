@@ -16,7 +16,7 @@ const clone = (value) => JSON.parse(JSON.stringify(value));
 
 export function createDefaultState(now = Date.now()) {
   return {
-    version: 10,
+    version: 11,
     profile: {
       displayName: '익명 사원',
       rank: '대리석 책상',
@@ -27,6 +27,8 @@ export function createDefaultState(now = Date.now()) {
     },
     packs: {
       standard: 3,
+      premium: 0,
+      ssrTicket: 0,
     },
     collection: {
       'simsim-c': 2,
@@ -52,6 +54,8 @@ export function createDefaultState(now = Date.now()) {
     selectedRaidArtifactId: '',
     pity: {
       standard: 0,
+      premium: 0,
+      ssrTicket: 0,
     },
     pendingPackOpening: null,
     selectedExpeditionSquad: ['simsim-c', 'winter-c', 'kkamdung-c', 'nanche-c'],

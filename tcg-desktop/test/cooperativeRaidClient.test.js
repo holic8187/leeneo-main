@@ -79,6 +79,19 @@ test('cooperative client coalesces polls and updates server clock without redund
   assert.equal(changes, previousChanges);
 });
 
+test('unchanged background polls cannot disable the third representative selection', async () => {
+  const pending = deferred(); let count = 0;
+  const client = createCooperativeRaidClient({ gateway: { state: () => ++count === 1 ? Promise.resolve(payload()) : pending.promise }, getIdentity: () => identity });
+  await client.refresh();
+  const poll = client.refresh();
+  const selected = ['winter-c','coca-c','nanche-c'];
+  const html = renderCooperativePanel({ client: client.getState(), selected, cards: [] });
+  assert.equal(client.getState().loading, false);
+  assert.doesNotMatch(html, /data-action="coop-queue"\s+disabled/);
+  pending.resolve(payload()); await poll;
+  assert.equal(client.getState().loading, false);
+});
+
 test('cooperative client ignores old account reads after logout and reset', async () => {
   let who = { ...identity }; const old = deferred();
   const client = createCooperativeRaidClient({ gateway: { state: (token) => token === 'secret-a' ? old.promise : Promise.resolve(payload('queued')) }, getIdentity: () => who });
@@ -154,7 +167,8 @@ test('cooperative battlefield exposes actions only for the authenticated owner',
   assert.match(mine, /data-coop-target/);
   assert.match(mine, /브레이크로 해제/);
   assert.doesNotMatch(other, /data-action="coop-basic"/);
-  assert.equal((mine.match(/class="coop-combat-card /g) || []).length, 4);
+  assert.equal((mine.match(/class="raid-unit-slot /g) || []).length, 4);
+  assert.match(mine, /raid-battle-arena is-cooperative/);
 });
 
 test('cooperative finished battle exposes server reward claim, not player actions', () => {
