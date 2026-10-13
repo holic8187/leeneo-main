@@ -1,0 +1,16 @@
+.persistent-region { display: contents; }
+
+/* Skill/effect descriptions share a stable viewport layer, so battle polling
+   and automatic turns cannot remove the explanation the player is reading. */
+.persistent-raid-popup { position: fixed; inset: 0; pointer-events: none; z-index: 90; }
+.persistent-raid-popup > :is(.raid-skill-tooltip, .raid-effect-tooltip) {
+  pointer-events: auto;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  max-height: min(70dvh, 600px);
+  overflow-y: auto;
+}
+@media (max-width: 800px) {
+  .persistent-raid-popup > :is(.raid-skill-tooltip, .raid-effect-tooltip) {
+    bottom: calc(76px + env(safe-area-inset-bottom));
+  }
+}

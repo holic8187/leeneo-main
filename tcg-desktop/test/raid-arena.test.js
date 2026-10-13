@@ -104,7 +104,9 @@ test('boss and party statuses retain named icons, counts and inspectable explana
   const tooltip = renderCooperativeInspector(battle,{type:'effect',owner:'0',index:0});
   assert.match(tooltip,/얼음 첨탑/); assert.match(tooltip,/보스 행동당 첨탑 1개/);
   const cardInfo = renderCooperativeInspector(battle,{type:'card',cardIndex:0});
-  assert.match(cardInfo,/공격력 1,000/); assert.match(cardInfo,/HP 100 \/ 100/);
+  const cardInfoText = cardInfo.replace(/<[^>]*>/g, '');
+  assert.match(cardInfoText,/공격력 1,000/); assert.match(cardInfoText,/HP 100 \/ 100/);
+  assert.match(cardInfo,/data-raid-inspector-value="hp"/);
 });
 
 test('privacy mode hides card and boss illustrations while retaining readable names and skill information', () => {

@@ -43,7 +43,11 @@ const fixture = `<script>
     let status = mode === 'down' ? 503 : mode === 'expired' ? 401 : 200;
     let payload = {code: status === 503 ? 'DATABASE_UNAVAILABLE' : 'AUTH_EXPIRED', message:'로컬 연결 시험 중입니다.'};
     if (status === 200) {
-      if (path.endsWith('/auth/me')) payload={account};
+      if (path.endsWith('/admin/auth/login')) payload={token:'local-only-admin',admin:{username:'local-admin'}};
+      else if (path.endsWith('/admin/users')) payload={users:[{id:'local-manual-qa',username:'local_qa',nickname:'로컬 미리보기'}]};
+      else if (path.endsWith('/admin/grants/catalog')) payload={packages:[{id:'tester-1',name:'테스터 패키지',rewards:{standardPacks:6,coins:0}}]};
+      else if (path.endsWith('/admin/mail/send')) payload={recipients:1,message:'로컬 시험 발송'};
+      else if (path.endsWith('/auth/me')) payload={account};
       else if(path.endsWith('/play-session/open')) payload=snapshot();
       else if(path.endsWith('/game-state')) {serverState=JSON.parse(options.body).state;localStorage.setItem('manual-qa-server',JSON.stringify(serverState));payload={revision:++revision};}
       else if(path.includes('/play-session/')) payload={revision,expiresAt:Date.now()+60000};
