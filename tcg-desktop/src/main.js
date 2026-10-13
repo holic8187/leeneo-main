@@ -230,6 +230,7 @@ const connectionWaiters = new Set();
 const deviceId = getOrCreateDeviceId();
 const clientPlatform = desktopBridge.platform;
 const mobileClient = clientPlatform === 'android' || clientPlatform === 'ios';
+document.documentElement.dataset.nativePlatform = clientPlatform;
 let store = null;
 let cloudPlay = null;
 let unsubscribeCloudStore = null;

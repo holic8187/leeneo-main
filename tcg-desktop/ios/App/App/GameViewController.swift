@@ -9,5 +9,6 @@ class GameViewController: CAPBridgeViewController {
         webView?.scrollView.bounces = false
     }
 
+    // The web shell draws a dark strip behind the iOS status bar on every screen.
     override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
 }
