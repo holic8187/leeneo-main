@@ -2,6 +2,7 @@ export const MAIL_REWARD_TYPES = Object.freeze([
   Object.freeze({ key: 'coins', label: '동전', icon: 'coins' }),
   Object.freeze({ key: 'standardPacks', label: '표준 카드팩', icon: 'package-open' }),
   Object.freeze({ key: 'premiumPacks', label: '고급 카드팩', icon: 'package-open' }),
+  Object.freeze({ key: 'srPremiumPacks', label: 'SR 이상 확정 카드팩', icon: 'sparkles' }),
   Object.freeze({ key: 'ssrTickets', label: 'SSR 확정 랜덤 뽑기권', icon: 'sparkles' }),
 ]);
 

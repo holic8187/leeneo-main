@@ -14,6 +14,7 @@ const MAX_MAIL_EXPIRY_HOURS = 90 * 24;
 const MAX_MAIL_COINS = 1_000_000_000;
 const MAX_MAIL_STANDARD_PACKS = 100_000;
 const MAX_MAIL_PREMIUM_PACKS = 100_000;
+const MAX_MAIL_SR_PREMIUM_PACKS = 100_000;
 const MAX_MAIL_SSR_TICKETS = 100_000;
 const MAX_MAIL_TITLE_LENGTH = 80;
 const MAX_MAIL_MESSAGE_LENGTH = 1_000;
@@ -85,6 +86,11 @@ function normalizeMailRewards(value = {}) {
       '고급 카드팩',
       MAX_MAIL_PREMIUM_PACKS
     ),
+    srPremiumPacks: normalizeNonNegativeInteger(
+      rewards.srPremiumPacks ?? rewards.packs?.srPremium,
+      'SR 이상 확정 카드팩',
+      MAX_MAIL_SR_PREMIUM_PACKS
+    ),
     ssrTickets: normalizeNonNegativeInteger(
       rewards.ssrTickets ?? rewards.packs?.ssrTicket,
       'SSR 확정 랜덤 뽑기권',
@@ -100,6 +106,7 @@ function adminGrantCatalog() {
       coins: MAX_MAIL_COINS,
       standardPacks: MAX_MAIL_STANDARD_PACKS,
       premiumPacks: MAX_MAIL_PREMIUM_PACKS,
+      srPremiumPacks: MAX_MAIL_SR_PREMIUM_PACKS,
       ssrTickets: MAX_MAIL_SSR_TICKETS
     }
   };
@@ -134,6 +141,7 @@ function normalizeAdminMail(payload = {}, now = Date.now()) {
     coins: payload.coins,
     standardPacks: payload.standardPacks,
     premiumPacks: payload.premiumPacks,
+    srPremiumPacks: payload.srPremiumPacks,
     ssrTickets: payload.ssrTickets
   });
   if (!title) throw new MailboxError('INVALID_MAIL_TITLE', '우편 제목을 입력해주세요.');
@@ -277,9 +285,10 @@ function applyMailRewards(state, mails) {
       coins: sum.coins + rewards.coins,
       standardPacks: sum.standardPacks + rewards.standardPacks,
       premiumPacks: sum.premiumPacks + rewards.premiumPacks,
+      srPremiumPacks: sum.srPremiumPacks + rewards.srPremiumPacks,
       ssrTickets: sum.ssrTickets + rewards.ssrTickets
     };
-  }, { coins: 0, standardPacks: 0, premiumPacks: 0, ssrTickets: 0 });
+  }, { coins: 0, standardPacks: 0, premiumPacks: 0, srPremiumPacks: 0, ssrTickets: 0 });
   if (!nextState.wallet || typeof nextState.wallet !== 'object' || Array.isArray(nextState.wallet)) {
     nextState.wallet = {};
   }
@@ -289,6 +298,7 @@ function applyMailRewards(state, mails) {
   nextState.wallet.coins = addSafeBalance(nextState.wallet.coins, total.coins, '코인');
   nextState.packs.standard = addSafeBalance(nextState.packs.standard, total.standardPacks, '표준 카드팩');
   nextState.packs.premium = addSafeBalance(nextState.packs.premium, total.premiumPacks, '고급 카드팩');
+  nextState.packs.srPremium = addSafeBalance(nextState.packs.srPremium, total.srPremiumPacks, 'SR 이상 확정 카드팩');
   nextState.packs.ssrTicket = addSafeBalance(nextState.packs.ssrTicket, total.ssrTickets, 'SSR 확정 랜덤 뽑기권');
   return { state: normalizeGameState(nextState), rewards: total };
 }
@@ -380,7 +390,7 @@ async function claimMailbox({
         ...serializeMailbox(snapshot.mailbox, nowMs),
         claimedCount: 0,
         claimedMailIds: [],
-        rewards: { coins: 0, standardPacks: 0, premiumPacks: 0, ssrTickets: 0 }
+        rewards: { coins: 0, standardPacks: 0, premiumPacks: 0, srPremiumPacks: 0, ssrTickets: 0 }
       };
     }
     return explainClaimFailure({
@@ -453,13 +463,14 @@ function initialPlayerState(accountId) {
   };
 }
 
-async function deliverMailToAccount({ TcgPlayerState, accountId, mail, now = Date.now() }) {
+async function deliverMailToAccount({ TcgPlayerState, accountId, mail, receiptId = '', now = Date.now() }) {
   await TcgPlayerState.updateOne(
     { accountId },
     { $setOnInsert: initialPlayerState(accountId) },
     { upsert: true, runValidators: true }
   );
   const current = await findPlayerState(TcgPlayerState, accountId);
+  if (receiptId && current?.weeklyRaidRewardReceipts?.includes(receiptId)) return false;
   const existing = (current?.mailbox || []).find((entry) => String(entry?.id || '') === mail.id);
   if (existing) {
     if (existing.requestHash && existing.requestHash !== mail.requestHash) {
@@ -484,6 +495,7 @@ async function deliverMailToAccount({ TcgPlayerState, accountId, mail, now = Dat
     {
       accountId,
       'mailbox.id': { $ne: mail.id },
+      ...(receiptId ? { weeklyRaidRewardReceipts: { $ne: receiptId } } : {}),
       $expr: {
         $lt: [
           { $size: { $ifNull: ['$mailbox', []] } },
@@ -492,12 +504,13 @@ async function deliverMailToAccount({ TcgPlayerState, accountId, mail, now = Dat
       }
     },
     {
-      $push: { mailbox: clone(mail) }
+      $push: { mailbox: clone(mail), ...(receiptId ? { weeklyRaidRewardReceipts: receiptId } : {}) }
     },
     { runValidators: true }
   );
   if (Number(result?.modifiedCount || result?.nModified || 0) > 0) return true;
   const raced = await findPlayerState(TcgPlayerState, accountId);
+  if (receiptId && raced?.weeklyRaidRewardReceipts?.includes(receiptId)) return false;
   const racedMail = (raced?.mailbox || []).find((entry) => String(entry?.id || '') === mail.id);
   if (racedMail?.requestHash && racedMail.requestHash !== mail.requestHash) {
     throw new MailboxError('MAIL_REQUEST_REUSED', '같은 발송 요청 ID가 다른 내용에 사용되었습니다.', 409);
@@ -510,6 +523,7 @@ async function deliverMailToAccount({ TcgPlayerState, accountId, mail, now = Dat
       { maxStoredMails: MAX_STORED_MAILS }
     );
   }
+  if (receiptId) throw new MailboxError('MAIL_DELIVERY_RETRY', '주간 보상 우편을 다시 확인하고 있습니다.', 409);
   return false;
 }
 
@@ -546,6 +560,7 @@ module.exports = {
   MAX_MAIL_EXPIRY_HOURS,
   MAX_MAIL_STANDARD_PACKS,
   MAX_MAIL_PREMIUM_PACKS,
+  MAX_MAIL_SR_PREMIUM_PACKS,
   MAX_MAIL_SSR_TICKETS,
   MAX_STORED_MAILS,
   MailboxError,
@@ -553,6 +568,7 @@ module.exports = {
   applyMailRewards,
   claimMailbox,
   deliverAdminMail,
+  deliverMailToAccount,
   getMailbox,
   markMailboxRead,
   normalizeAdminMail,

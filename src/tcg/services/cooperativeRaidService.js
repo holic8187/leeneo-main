@@ -133,6 +133,7 @@ function applyCooperativeReward(state, reward, progression = null) {
   next.wallet ||= {}; next.packs ||= {}; next.collection ||= {}; next.cardProgression ||= {};
   next.wallet.coins = Math.max(0, Number(next.wallet.coins) || 0) + Math.max(0, Number(reward.coins) || 0);
   next.packs.standard = Math.max(0, Number(next.packs.standard) || 0) + Math.max(0, Number(reward.packs ?? reward.standardPacks) || 0);
+  next.packs.ssrTicket = Math.max(0, Number(next.packs.ssrTicket) || 0) + Math.max(0, Math.floor(Number(reward.ssrTickets) || 0));
   for (const entry of reward.cards || (reward.cardIds || (reward.cardId ? [reward.cardId] : [])).map((cardId) => ({ cardId, quantity: 1 }))) {
     const { cardId } = entry;
     next.collection[cardId] = Math.max(0, Number(next.collection[cardId]) || 0) + Math.max(1, Number(entry.quantity) || 1);

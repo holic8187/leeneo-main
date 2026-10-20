@@ -1,4 +1,5 @@
 import { cardById } from '../data/cardCatalog.js';
+import { currentRaidSnapshotImage } from '../core/raidSnapshotImages.js';
 import { renderCardEmblems } from '../core/cardEmblems.js';
 import { effectPresentation, raidIceSpires } from '../core/raidBattleView.js';
 import { skillForCard } from '../core/turnRaidEngine.js';
@@ -42,7 +43,7 @@ export function renderRaidArena({ battle, animation = {}, secret = false, active
   const targetX = targetIndex == null ? 0 : (targetIndex - (battle.squad.length - 1)/2) * 70;
   return `<div class="raid-battle-arena${cooperative ? ' is-cooperative' : ''}" data-animation-sequence="${esc(animation.revision || animation.recentLogs?.at(-1)?.index || '')}" style="--boss-target-x:${targetX}px">
     ${countdown > 0 ? `<div class="raid-battle-countdown ${countdown - now <= 5000 ? 'is-urgent' : ''}" ${cooperative ? 'data-coop-deadline' : 'data-raid-turn-deadline'}="${countdown}" aria-label="행동 제한 시간">${num(Math.ceil((countdown-now)/1000))}</div>` : ''}
-    <div class="raid-boss-zone"><div class="raid-boss-card ${battle.boss.stunned ? 'is-stunned' : ''} ${animation.attacker === 'boss' ? 'is-attacking' : ''} ${targets.includes('boss') ? 'is-raid-hit' : ''}">${secret ? renderSecretRaidCard(battle.boss.name) : `<img src="${esc(battle.boss.image || cardById('deadline-dragon')?.image)}" alt="${esc(battle.boss.name)}" />`}${battle.boss.stunned ? '<span class="raid-stun-orbit" aria-label="브레이크 스턴"></span>' : ''}</div>
+    <div class="raid-boss-zone"><div class="raid-boss-card ${battle.boss.stunned ? 'is-stunned' : ''} ${animation.attacker === 'boss' ? 'is-attacking' : ''} ${targets.includes('boss') ? 'is-raid-hit' : ''}">${secret ? renderSecretRaidCard(battle.boss.name) : `<img src="${esc(currentRaidSnapshotImage(battle.boss) || cardById('deadline-dragon')?.image)}" alt="${esc(battle.boss.name)}" />`}${battle.boss.stunned ? '<span class="raid-stun-orbit" aria-label="브레이크 스턴"></span>' : ''}</div>
       ${animation.damageAmount ? `<strong class="raid-floating-number is-damage">${num(animation.damageAmount)}</strong>` : ''}${animation.breakAmount ? `<strong class="raid-floating-number is-break">BREAK ${num(animation.breakAmount)}</strong>` : ''}</div>
     ${renderIceSpires(animation.iceSpires || raidIceSpires(battle))}
     <div class="raid-squad-zone">${battle.squad.map((member,index) => {
@@ -59,7 +60,7 @@ export function renderRaidArena({ battle, animation = {}, secret = false, active
         <div class="raid-unit-effects">${renderRaidEffects(member.effects,String(index),action.effect)}</div><div class="raid-unit-hp"><div class="raid-unit-hp-label"><span>HP${member.shield ? ` +${num(member.shield)}` : ''}</span><strong>${num(member.hp)} / ${num(member.maxHp)}</strong></div><div class="raid-unit-hp-track"><span style="width:${pct(member.hp,member.maxHp)}%"></span></div></div>
       </article>`;
     }).join('')}</div><div class="raid-battle-message" aria-live="polite">${esc(animation.message || lastMessage)}</div>
-  </div>${animation.skillCutIn ? `<div class="raid-skill-cut-in ${secret ? 'is-secret' : ''}">${secret ? '' : `<img src="${esc(animation.skillCutIn.image || cardById(animation.skillCutIn.cardId)?.image)}" alt="" />`}<strong>${esc(animation.skillCutIn.name)}</strong></div>` : ''}`;
+  </div>${animation.skillCutIn ? `<div class="raid-skill-cut-in ${secret ? 'is-secret' : ''}">${secret ? '' : `<img src="${esc(currentRaidSnapshotImage(animation.skillCutIn))}" alt="" />`}<strong>${esc(animation.skillCutIn.name)}</strong></div>` : ''}`;
 }
 
 export function renderCooperativeInspector(battle, inspector) {
@@ -68,5 +69,5 @@ export function renderCooperativeInspector(battle, inspector) {
   const member = battle.squad[inspector.cardIndex];
   const info = inspector.type === 'effect' ? effectPresentation(effects?.[inspector.index]) : member && skillForCard(member.cardId,member.enhancement);
   if (!info) return '';
-  return `<aside class="raid-skill-tooltip" role="dialog" aria-label="전투 정보"><button type="button" data-action="coop-close-inspector" aria-label="닫기"><i data-lucide="x"></i></button><h3>${esc(info.label || info.name)}</h3><p>${esc(info.description)}</p>${member ? `<p>공격력 ${num(member.attack)} · HP ${num(member.hp)} / ${num(member.maxHp)}</p>` : ''}</aside>`;
+  return `<aside class="raid-skill-tooltip" role="dialog" aria-label="전투 정보"><button type="button" data-action="coop-close-inspector" aria-label="닫기"><i data-lucide="x"></i></button><h3>${esc(info.label || info.name)}</h3><p>${esc(info.description)}</p>${member ? `<p>공격력 <span data-raid-inspector-value="attack">${num(member.attack)}</span> · HP <span data-raid-inspector-value="hp">${num(member.hp)}</span> / <span data-raid-inspector-value="maxHp">${num(member.maxHp)}</span></p>` : ''}</aside>`;
 }

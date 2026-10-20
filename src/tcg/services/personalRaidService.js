@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const CARD_COMBAT_POWER = Object.freeze(require('../data/cardCombatPower.json'));
 const CARD_ROLES = Object.freeze(require('../data/cardRoles.json'));
+const { weeklyRaidRewardPolicy, weeklyRaidRewardsForRank } = require('./weeklyRaidRewardPolicy');
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -207,7 +208,7 @@ function playerCardLevel(playerState, cardId) {
 
 function levelAttackBonus(playerState, cardId) {
   const gainedLevels = playerCardLevel(playerState, cardId) - 1;
-  if (CARD_ROLES[cardId] === 'attack') return gainedLevels * 2;
+  if (CARD_ROLES[cardId] === 'attack') return gainedLevels * 8;
   if (CARD_ROLES[cardId] === 'support') return gainedLevels;
   return 0;
 }
@@ -418,13 +419,14 @@ function serializePersonalRaidState(record, account, boss, window, now = Date.no
 
 function createEmptyState(account, boss, window, now) { return serializePersonalRaidState(null, account, boss, window, now); }
 
-async function startPersonalRaid({ TcgPersonalRaidDaily, account, bossId = 'deadline-dragon-raid', verifiedSquad, now = Date.now(), validateSession = null }) {
+async function startPersonalRaid({ TcgPersonalRaidDaily, account, bossId = 'deadline-dragon-raid', verifiedSquad, now = Date.now(), validateSession = null, clock = () => now }) {
   const boss = getPersonalRaidBoss(bossId);
   if (!boss) throw new PersonalRaidError('UNKNOWN_RAID_BOSS', '개인 레이드 보스를 찾을 수 없습니다.', 404);
   const nowMs = toTimestamp(now); const nowDate = new Date(nowMs); const week = getKstRaidWeekWindow(nowMs); const day = getKstDayWindow(nowMs);
   const key = { accountId: account?._id || account?.id, dayKey: week.weekKey, bossId: boss.id };
   let verified = verifiedSquad;
   const revalidate = async () => {
+    if (getKstRaidWeekWindow(clock()).weekKey !== week.weekKey) throw new PersonalRaidError('RAID_WEEK_CHANGED', '새로운 레이드 주간이 시작되었습니다. 다시 입장해주세요.', 409);
     if (typeof validateSession === 'function') verified = await validateSession();
     if (!verified?.squad?.length) throw new PersonalRaidError('INVALID_RAID_SQUAD', '개인 레이드 덱을 확인할 수 없습니다.', 400);
     parseSquadScore(verified.squadScore);
@@ -433,6 +435,7 @@ async function startPersonalRaid({ TcgPersonalRaidDaily, account, bossId = 'dead
   await ensureWeeklyRecord(TcgPersonalRaidDaily, key, account, boss);
   for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {
     const snapshot = await findRecord(TcgPersonalRaidDaily, key); if (!snapshot) continue;
+    if (snapshot.rankingFrozenAt) throw new PersonalRaidError('RAID_WEEK_CHANGED', '이미 마감된 레이드 주간입니다. 다시 입장해주세요.', 409);
     if (String(snapshot.dailyEntryDayKey || '') > day.dayKey) throw new PersonalRaidError('RAID_DAY_CHANGED', '일일 입장 횟수가 갱신되었습니다. 다시 입장해주세요.', 409);
     const migrating = Number(snapshot.schemaVersion) !== RAID_SCHEMA_VERSION;
     const progress = normalizedProgress(snapshot, boss);
@@ -453,7 +456,7 @@ async function startPersonalRaid({ TcgPersonalRaidDaily, account, bossId = 'dead
       bonusRewards: []
     } : {};
     const incrementFields = migrating ? { revision: 1 } : { dispatchCount: 1, revision: 1 };
-    const updated = await TcgPersonalRaidDaily.findOneAndUpdate({ _id: snapshot._id, revision: Number(snapshot.revision) || 0 }, { $set: {
+    const updated = await TcgPersonalRaidDaily.findOneAndUpdate({ _id: snapshot._id, revision: Number(snapshot.revision) || 0, rankingFrozenAt: null }, { $set: {
       ...resetFields,
       schemaVersion: RAID_SCHEMA_VERSION, weekKey: week.weekKey, nickname: String(account.nickname || snapshot.nickname || ''),
       currentStage: progress.stage, currentHp: progress.hp, contribution: progress.contribution, weeklyCompleted: false,
@@ -466,7 +469,7 @@ async function startPersonalRaid({ TcgPersonalRaidDaily, account, bossId = 'dead
   throw new PersonalRaidError('RAID_BUSY', '동시에 처리 중인 레이드 요청이 있습니다.', 409);
 }
 
-async function finishPersonalRaid({ TcgPersonalRaidDaily, account, bossId = 'deadline-dragon-raid', sessionId, damageDealt, bossHpRemaining, turns, battleLog, now = Date.now(), validateSession = null, random = Math.random }) {
+async function finishPersonalRaid({ TcgPersonalRaidDaily, account, bossId = 'deadline-dragon-raid', sessionId, damageDealt, bossHpRemaining, turns, battleLog, now = Date.now(), validateSession = null, random = Math.random, clock = () => now }) {
   const boss = getPersonalRaidBoss(bossId);
   if (!boss) throw new PersonalRaidError('UNKNOWN_RAID_BOSS', '개인 레이드 보스를 찾을 수 없습니다.', 404);
   const damage = parseSubmittedDamage(damageDealt); const id = String(sessionId || '').trim();
@@ -486,6 +489,7 @@ async function finishPersonalRaid({ TcgPersonalRaidDaily, account, bossId = 'dea
       }
       throw new PersonalRaidError('RAID_SESSION_ALREADY_FINISHED', '이미 반영된 레이드 결과입니다.', 409);
     }
+    if (snapshot.rankingFrozenAt || getKstRaidWeekWindow(clock()).weekKey !== week.weekKey) throw new PersonalRaidError('RAID_WEEK_CHANGED', '새로운 레이드 주간이 시작되어 이전 전투는 마감되었습니다.', 409);
     const session = snapshot.activeSession;
     if (!session || String(session.sessionId || '') !== id) throw new PersonalRaidError('RAID_SESSION_MISMATCH', '현재 진행 중인 레이드와 일치하지 않습니다.', 409);
     if (new Date(session.expiresAt).getTime() <= nowMs) throw new PersonalRaidError('RAID_SESSION_EXPIRED', '레이드 전투 시간이 만료되었습니다.', 409);
@@ -496,6 +500,7 @@ async function finishPersonalRaid({ TcgPersonalRaidDaily, account, bossId = 'dea
     const remaining = progress.hp - damage;
     if (bossHpRemaining != null && (!Number.isSafeInteger(Number(bossHpRemaining)) || Number(bossHpRemaining) !== remaining)) throw new PersonalRaidError('RAID_HP_MISMATCH', '남은 보스 HP와 피해량이 일치하지 않습니다.', 409, { expectedBossHpRemaining: remaining });
     if (typeof validateSession === 'function') await validateSession();
+    if (getKstRaidWeekWindow(clock()).weekKey !== week.weekKey) throw new PersonalRaidError('RAID_WEEK_CHANGED', '새로운 레이드 주간이 시작되어 이전 전투는 마감되었습니다.', 409);
     const cleared = remaining === 0; const completed = cleared && progress.stage === boss.maxStage;
     const nextStage = cleared && !completed ? progress.stage + 1 : progress.stage;
     const storedHp = cleared ? (completed ? 0 : boss.stageHp[nextStage]) : remaining;
@@ -512,7 +517,7 @@ async function finishPersonalRaid({ TcgPersonalRaidDaily, account, bossId = 'dea
     const dailyEntryCount = sameEntryDay ? Math.max(0, Number(snapshot.dailyEntryCount) || 0) : 0;
     const dailyBonusEntryCount = (sameEntryDay ? Math.max(0, Number(snapshot.dailyBonusEntryCount) || 0) : 0) + (cleared ? 1 : 0);
     const result = { sessionId: id, stage: progress.stage, squadScore: Number(session.squadScore) || 0, damage, damageDealt: damage, bossHpBefore: progress.hp, bossHpAfter: remaining, bossHpRemaining: remaining, turns: Number(turns) || 0, cleared, weeklyCompleted: completed, nextStage, totalContribution: progress.contribution + damage, reward: { ...(cleared ? clearRewardForStage(progress.stage) : { coins: 0, packs: 0 }), bonuses, extraEntries: cleared ? 1 : 0 } };
-    const updated = await TcgPersonalRaidDaily.findOneAndUpdate({ _id: snapshot._id, revision: Number(snapshot.revision) || 0, 'activeSession.sessionId': id }, { $set: {
+    const updated = await TcgPersonalRaidDaily.findOneAndUpdate({ _id: snapshot._id, revision: Number(snapshot.revision) || 0, rankingFrozenAt: null, 'activeSession.sessionId': id }, { $set: {
       nickname: String(account.nickname || snapshot.nickname || ''), currentStage: nextStage, currentHp: storedHp,
       weeklyCompleted: completed, activeSession: null, lastFinishedSessionId: id, lastFinishedResult: result,
       lastDamage: damage, bonusRewards, dailyEntryDayKey: day.dayKey, dailyEntryCount, dailyBonusEntryCount, updatedAt: nowDate
@@ -546,7 +551,7 @@ async function getPersonalRaidRanking({ TcgPersonalRaidDaily, account, bossId = 
   const accountId = String(account?._id || account?.id || ''); let previous = null; let rank = 0;
   const entries = (records || []).map((record, index) => { const score = Math.max(0, Number(record.contribution) || 0); if (score !== previous) rank = index + 1; previous = score; return { rank, accountId: String(record.accountId || ''), nickname: String(record.nickname || ''), contribution: score, score, stage: Math.max(1, Number(record.currentStage) || 1), clears: Math.max(0, Number(record.clearCount) || 0), entries: Math.max(0, Number(record.dispatchCount) || 0), isMe: String(record.accountId || '') === accountId }; });
   const myEntry = myScore > 0 ? { rank: myRank, accountId, nickname: String(account?.nickname || mine?.nickname || ''), contribution: myScore, score: myScore, stage: Math.max(1, Number(mine.currentStage) || 1), clears: Math.max(0, Number(mine.clearCount) || 0), entries: Math.max(0, Number(mine.dispatchCount) || 0), isMe: true } : null;
-  return { mode: 'personal', period: 'weekly', resetRule: window.resetRule, bossId: boss.id, weekKey: window.weekKey, dayKey: window.weekKey, resetsAt: window.resetsAt.getTime(), serverNow: nowMs, entries, myRank, myEntry };
+  return { mode: 'personal', period: 'weekly', resetRule: window.resetRule, bossId: boss.id, weekKey: window.weekKey, dayKey: window.weekKey, resetsAt: window.resetsAt.getTime(), serverNow: nowMs, entries, myRank, myEntry, rewardPolicy: weeklyRaidRewardPolicy(), myProjectedRewards: weeklyRaidRewardsForRank(myRank) };
 }
 
 function getRemainingCooldownMs() { return 0; }

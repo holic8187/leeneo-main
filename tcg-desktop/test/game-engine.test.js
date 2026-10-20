@@ -41,7 +41,7 @@ import {
   hydrateState,
 } from '../src/core/gameState.js';
 
-const rarityCounts = { c: 24, u: 21, r: 16, rr: 15, rrr: 13, sr: 12, hr: 11, ur: 10, ssr: 10 };
+const rarityCounts = { c: 24, u: 21, r: 19, rr: 19, rrr: 16, sr: 17, hr: 15, ur: 15, ssr: 15 };
 const powerRanges = {
   c: [1800, 2999],
   u: [3200, 4499],
@@ -56,9 +56,9 @@ const powerRanges = {
 
 const rankOf = (rarity) => RARITY_ORDER.indexOf(rarity);
 
-test('catalog contains 132 unique cards in the requested nine-rarity distribution', () => {
-  assert.equal(CARD_CATALOG.length, 132);
-  assert.equal(new Set(CARD_CATALOG.map((card) => card.id)).size, 132);
+test('catalog contains 161 unique cards in the requested nine-rarity distribution', () => {
+  assert.equal(CARD_CATALOG.length, 161);
+  assert.equal(new Set(CARD_CATALOG.map((card) => card.id)).size, 161);
   assert.deepEqual(RARITY_ORDER, Object.keys(rarityCounts));
   assert.deepEqual(
     Object.fromEntries(RARITY_ORDER.map((rarity) => [
@@ -79,13 +79,13 @@ test('new Coca variants are appended without changing the original catalog order
     .digest('hex');
   assert.equal(originalPowerDigest, '50c6c1f1ba0cf87f423dde87d7f6e6871dfefa610d3541c16af91eb43e6fddef');
   assert.deepEqual(CARD_CATALOG.slice(76,83).map(({ id, combatPower, image }) => [id, combatPower, image]), [
-    ['coca-u', 4132, './assets/cards/coca-u.png'],
-    ['coca-rr', 7347, './assets/cards/coca-rr.png'],
-    ['coca-rrr', 8373, './assets/cards/coca-rrr.png'],
-    ['coca-sr', 10199, './assets/cards/coca-sr.png'],
-    ['coca-hr', 12725, './assets/cards/coca-hr.png'],
-    ['coca-ur', 14751, './assets/cards/coca-ur.png'],
-    ['coca-ssr', 17265, './assets/cards/coca-ssr.png'],
+    ['coca-u', 4132, './assets/cards/coca-u.webp'],
+    ['coca-rr', 7347, './assets/cards/coca-rr.webp'],
+    ['coca-rrr', 8373, './assets/cards/coca-rrr.webp'],
+    ['coca-sr', 10199, './assets/cards/coca-sr.webp'],
+    ['coca-hr', 12725, './assets/cards/coca-hr.webp'],
+    ['coca-ur', 14751, './assets/cards/coca-ur.webp'],
+    ['coca-ssr', 17265, './assets/cards/coca-ssr.webp'],
   ]);
 });
 
@@ -102,9 +102,9 @@ test('rarity combat-power bands are exact, ascending, and non-overlapping', () =
   });
 });
 
-test('legacy cards remain readable without entering the 132-card collectible catalog', () => {
+test('legacy cards remain readable without entering the 161-card collectible catalog', () => {
   assert.equal(LEGACY_CARDS.length, 8);
-  assert.equal(ALL_CARDS.length, 140);
+  assert.equal(ALL_CARDS.length, 169);
   assert.equal(CARD_CATALOG.some((card) => card.id === 'rookie-analyst'), false);
   assert.equal(cardById('rookie-analyst')?.legacy, true);
   assert.equal(cardById('hoi-ssr')?.rarity, 'ssr');
@@ -515,7 +515,7 @@ test('reviewed artwork replacements stay connected without removing original car
   for (const cardId of [...repairedLegacyCards, ...newCocaCards]) {
     const matchingCards = CARD_CATALOG.filter((card) => card.id === cardId);
     assert.equal(matchingCards.length, 1, `${cardId}: stable, unique card identity`);
-    assert.equal(matchingCards[0].image, `./assets/cards/${cardId}.png`, `${cardId}: approved artwork`);
+    assert.equal(matchingCards[0].image, `./assets/cards/${cardId}.webp`, `${cardId}: approved artwork`);
   }
 });
 

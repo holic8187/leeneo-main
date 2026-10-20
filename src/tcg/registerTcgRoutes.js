@@ -5,6 +5,7 @@ const DefaultTcgPersonalRaidDaily = require('./models/TcgPersonalRaidDaily');
 const DefaultTcgPlayerState = require('./models/TcgPlayerState');
 const DefaultTcgCooperativeRaid = require('./models/TcgCooperativeRaid');
 const { CooperativeRaidError, createCooperativeRaidService } = require('./services/cooperativeRaidService');
+const { settleWeeklyRaidRewards, startWeeklyRaidRewardScheduler } = require('./services/weeklyRaidRewardService');
 const {
   PersonalRaidError,
   dispatchPersonalRaid,
@@ -301,6 +302,12 @@ function registerTcgRoutes({
     && normalizedAdminPasswordHash
     && normalizedAdminJwtSecret
   );
+  const canSettleWeeklyRewards = () => typeof TcgPersonalRaidDaily.updateMany === 'function'
+    && (TcgPersonalRaidDaily !== DefaultTcgPersonalRaidDaily || TcgPersonalRaidDaily.db.readyState === 1);
+  // Production also settles offline players without relying on a client login.
+  if (TcgPersonalRaidDaily === DefaultTcgPersonalRaidDaily && TcgPlayerState === DefaultTcgPlayerState) {
+    startWeeklyRaidRewardScheduler({ TcgPersonalRaidDaily, TcgPlayerState, now, canRun: canSettleWeeklyRewards });
+  }
 
   async function requireTcgAccount(req, res) {
     let payload;
@@ -606,6 +613,11 @@ function registerTcgRoutes({
     const account = await requireTcgAccount(req, res);
     if (!account) return;
     try {
+      if (canSettleWeeklyRewards()) {
+        try {
+          await settleWeeklyRaidRewards({ TcgPersonalRaidDaily, TcgPlayerState, accountId: account._id || account.id, now: now() });
+        } catch (error) { console.error('TCG weekly reward recovery failed:', error); }
+      }
       return res.json(await getMailbox({
         TcgPlayerState,
         accountId: account._id || account.id,
@@ -854,6 +866,7 @@ function registerTcgRoutes({
         account,
         bossId: request.bossId,
         now: currentTime,
+        clock: now,
         validateSession
       });
       const state = serializePersonalRaidState(started.record, account, started.boss, started.window, currentTime);
@@ -914,6 +927,7 @@ function registerTcgRoutes({
         turns: request.turns,
         battleLog: request.battleLog,
         now: currentTime,
+        clock: now,
         validateSession
       });
       const state = serializePersonalRaidState(finished.record, account, finished.boss, finished.window, currentTime);

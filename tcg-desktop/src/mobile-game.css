@@ -1,4 +1,26 @@
 /* Mobile card-RPG shell. Existing card art stays the visual identity. */
+/* The native iOS web view covers the whole screen. Keep its light status-bar
+   text over a dark strip even on the light login screen and open dialogs. */
+html[data-native-platform="ios"]::before {
+  content: '';
+  position: fixed;
+  z-index: 2147483640;
+  inset: 0 0 auto;
+  height: env(safe-area-inset-top, 0px);
+  background: #182026;
+  pointer-events: none;
+}
+html[data-native-platform="ios"] .auth-shell {
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+}
+html[data-native-platform="ios"] .topbar {
+  padding-top: max(8px, env(safe-area-inset-top, 0px));
+  padding-left: max(12px, env(safe-area-inset-left, 0px));
+  padding-right: max(12px, env(safe-area-inset-right, 0px));
+}
+html[data-native-platform="ios"] .modal-backdrop {
+  padding: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px));
+}
 .mission-list-toggle { display: none; }
 .mission-reward-details { margin: 8px 0 16px; color: var(--muted); font-size: 12px; }
 .mission-reward-details summary { cursor: pointer; padding: 10px 0; }

@@ -14,7 +14,7 @@ test('loading illustration manifest covers every unique current and legacy chara
   assert.equal(new Set(manifestIds).size, manifestIds.length);
   for (const character of LOADING_CHARACTERS) {
     assert.ok(character.name);
-    assert.equal(character.sprite, `./assets/loading/${character.id}-walk.png`);
+    assert.equal(character.sprite, `./assets/loading/${character.id}-walk.webp`);
     assert.ok(Object.isFrozen(character));
   }
   assert.deepEqual(LOADING_SPRITE_LAYOUT, { columns: 2, rows: 2, frames: 4, sourcePoses: 3, durationMs: 720 });
@@ -160,12 +160,13 @@ test('walking preview exposes per-character physical pose stepping and slow or n
   assert.ok(preview.includes('renderReconnectOverlay({character})'));
 });
 
-test('all loading characters ship real transparent three-pose PNGs with current alignment geometry', () => {
-  const { geometry, audits, missing } = auditLoadingSprites();
+test('all loading characters ship real transparent three-pose WebPs with current alignment geometry', async () => {
+  const { geometry, audits, missing } = await auditLoadingSprites();
   assert.deepEqual(missing, [], 'each character needs its generated walking sheet');
   assert.equal(Object.keys(audits).length, LOADING_CHARACTERS.length);
   for (const character of LOADING_CHARACTERS) {
     const audit = audits[character.id];
+    assert.equal(audit.format, 'webp', `${character.id} uses the optimized image format`);
     assert.equal(audit.alphaMin, 0, `${character.id} needs genuine transparent pixels`);
     assert.equal(audit.alphaMax, 255, `${character.id} needs opaque illustration pixels`);
     assert.equal(new Set(audit.frameHashes.slice(0, 3)).size, 3, `${character.id} needs three distinct physical poses`);

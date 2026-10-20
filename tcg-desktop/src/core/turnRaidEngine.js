@@ -1,4 +1,5 @@
 import { CARD_SKILL_BY_ID, cardSkillAtEnhancement, skillMagnitude } from '../data/cardSkills.js';
+import { createFiveCharacterMechanics } from './fiveCharacterMechanics.js';
 
 export const CARD_MAX_HP = 100;
 export const BREAK_GAUGE_MAX = 100;
@@ -54,6 +55,8 @@ const alive = (card) => card.hp > 0;
 const magnitude = (value, member, scale = member?.skillScale ?? 1) => skillMagnitude(value, member.enhancement) * scale;
 const log = (state, type, message, data = {}) => state.log.push({ index: state.log.length, type, message, ...data });
 const NON_COPYABLE_SKILLS = new Set(['hoi-rrr', 'hoi-ssr']);
+const expansion = createFiveCharacterMechanics({ alive, magnitude, log, addStatus, statusIsActive, activeStatuses,
+  heal, shield, addCardStatus, addBossStatus, cleanse, reduceCooldown, damageBoss, applyBreak, targetsFor, queueFollowUp });
 
 function normalizedMember(raw, index) {
   const cardId = String(raw.cardId || raw.id || '');
@@ -470,7 +473,9 @@ export function performFollowUpAction(input, now = Date.now()) {
       const status = state.teamStatuses.find(status => status.id === effect.consume.id && status.sourceId === effect.consume.sourceId);
       if (status) status.charges -= 1;
     }
-    if (effect.type === 'galaxy') {
+    if (expansion.followUp(state, effect)) {
+      // Expansion effects retain the same visible follow-up phase as attacks.
+    } else if (effect.type === 'galaxy') {
       const scale = source.skillScale || 1;
       if (effect.outcome === 'heal') { heal(state, state.cards.filter(alive), 25, source, scale); shield(state, state.cards.filter(alive), 15, source, scale); }
       else if (effect.outcome === 'support') { reduceCooldown(state.cards.filter(alive), 2); addBossStatus(state, source, 'attack-down', '신생은하 약화', 25, 2); }
@@ -518,6 +523,7 @@ function commonEffects(state, actor, skill, targetId, scale) {
 }
 
 function specialEffects(state, actor, targetId, choice, scale, broken, galaxyChoice) {
+  if (expansion.cast(state, actor, targetId, scale)) return;
   const ally = targetsFor(state, actor, 'ally', targetId), all = targetsFor(state, actor, 'all'), low = targetsFor(state, actor, 'lowest');
   switch (actor.cardId) {
     case 'simsim-c': addBossStatus(state,actor,'attack-down','공격력 감소',10,2); addBossStatus(state,actor,'break-taken-flat','브레이크 취약',4,2); break;
@@ -777,6 +783,7 @@ export function performPlayerAction(input, action = {}, now = Date.now()) {
   if (!alive(actor)) { advanceToNextLivingCard(state,now); return state; }
   const actionType = action.type === 'skill' ? 'skill' : 'basic';
   prePlayerAction(state,actor);
+  expansion.beforePlayer(state, actor);
   if (!alive(actor)) {
     log(state, 'skip', `${actor.name}은(는) 지속 피해로 행동불능이 되었습니다.`, { actorId: actor.id });
     state.playerActionCount += 1;
@@ -811,6 +818,7 @@ export function performPlayerAction(input, action = {}, now = Date.now()) {
     damageBoss(state,actor,multiplier,1,0,1,{scaleMagnitude:false}); log(state,'basic',`${actor.name}의 기본 공격!`,{actorId:actor.id});
   }
   resolveGalaxy(state,actor,actionType,usedSkill,action.galaxyChoice,usedChoice);
+  expansion.afterPlayer(state, actor, actionType);
   actor.statuses.filter(s=>s.id==='effect-up'||s.id==='break-up').forEach(s=>{if(s.charges!=null)s.charges-=1;}); removeExpired(actor);
   state.playerActionCount += 1;
   state.lastPlayerAction={actorId:actor.id,type:actionType};
@@ -828,9 +836,16 @@ function hurtCard(state, target, rawDamage, source = 'boss') {
   if(!target||!alive(target))return 0;
   const bossSource = source === 'boss' || source === state.boss.id || state.boss.skills.some((skill) => skill.id === source);
   if(bossSource&&state.boss.hp<=0)return 0;
+  // Attack-action counters count attempts, including a miss, evasion or fully
+  // blocked hit. Mark once on the action record before resolving hit chance.
+  if (bossSource && state.bossActionEffects) state.bossActionEffects.expansionAttacked = true;
   const accuracyDown = bossSource ? clamp(statusValue(state.boss, 'accuracy-down'), 0, 90) : 0;
   if(accuracyDown>0&&nextRandom(state)<accuracyDown/100){log(state,'miss',`${state.boss.name}의 공격이 빗나갔습니다.`,{targetId:target.id});return 0;}
   const evasion=statusValue(target,'evasion'); if(evasion>0&&nextRandom(state)<evasion/100){log(state,'evade',`${target.name}이(가) 공격을 피했습니다.`,{targetId:target.id});return 0;}
+  if (bossSource) {
+    rawDamage = expansion.beforeBossHit(state, target, rawDamage);
+    if (rawDamage <= 0) { removeExpired(target); return 0; }
+  }
   const guarded = target.statuses.find((status) => status.id === 'guarded-by');
   const guardian = guarded ? state.cards.find((card) => card.id === guarded.sourceId && alive(card)) : null;
   if (guardian && guardian !== target) {
@@ -842,6 +857,7 @@ function hurtCard(state, target, rawDamage, source = 'boss') {
     const guardHpDamage = Math.min(guardian.hp, guardedDamage - guardAbsorbed);
     guardian.hp -= guardHpDamage;
     guardian.defeated = guardian.hp <= 0;
+    if (bossSource) expansion.afterBossHit(state, guardian, guardHpDamage, 0);
     log(state, 'guard', `${guardian.name}이(가) ${target.name}의 피해 ${guardHpDamage}을 대신 받았습니다.`, {
       sourceId: source, targetId: guardian.id, protectedId: target.id, amount: guardHpDamage, absorbed: guardAbsorbed,
     });
@@ -871,8 +887,10 @@ function hurtCard(state, target, rawDamage, source = 'boss') {
     damage=Math.min(damage,Math.max(0,cap-received));
     actionEffects.received[target.id]=received+damage;
   }
+  if (bossSource) expansion.beforeShieldAbsorption(state, target, damage);
   const absorbed=Math.min(target.shield,damage);target.shield-=absorbed;damage-=absorbed;
   const hpDamage=Math.min(target.hp,damage);target.hp-=hpDamage;target.defeated=target.hp<=0;
+  if (bossSource) expansion.afterBossHit(state, target, hpDamage, absorbed);
   if(absorbed>0&&target.shield<=0&&alive(target)){
     const recovery=statusValue(target,'shield-break-heal');if(recovery)heal(state,[target],recovery,target,1,{scaleMagnitude:false});
     for(const dune of activeStatuses(target,'dune-recovery')){heal(state,[target],dune.value,target,1,{scaleMagnitude:false});dune.charges-=1;}
@@ -901,6 +919,7 @@ function consumeBossAttackDebuffs(state) {
 
 function applyBossStatusToCard(state, target, effect) {
   if(!alive(target)||state.boss.hp<=0)return;
+  if (expansion.interceptDebuff(state, target)) return;
   const blocker=target.statuses.find(status=>status.id==='debuff-block'&&status.charges>0);
   if(blocker){blocker.charges-=1;removeExpired(target);return;}
   const resistance = clamp(statusValue(target, 'debuff-resist'), 0, 90);
@@ -1077,7 +1096,7 @@ export function performBossAction(input, now = Date.now()) {
     }
     log(state,'boss-skip',`${state.boss.name}은(는) 행동할 수 없습니다.`);
   }
-  else defaultBossAction(state);
+  else { defaultBossAction(state); state.bossActionEffects.performed = true; }
   const effects=state.bossActionEffects;
   if(effects.hit){
     for(const spire of effects.spires){
@@ -1091,6 +1110,7 @@ export function performBossAction(input, now = Date.now()) {
     }
     for(const contract of effects.contracts)contract.charges-=1;
   }
+  expansion.afterBoss(state);
   delete state.bossActionEffects;
   state.teamStatuses=state.teamStatuses.filter(status=>status.charges==null||status.charges>0);
   advance(state,now);checkBattleEnd(state,now);return state;

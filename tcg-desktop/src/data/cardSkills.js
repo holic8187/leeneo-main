@@ -761,6 +761,7 @@ export function cardSkillAtEnhancement(cardId, enhancement = 0) {
 }
 
 import { FOUR_CHARACTER_SKILLS } from './fourCharacterSkills.js';
+import { FIVE_CHARACTER_SKILLS } from './fiveCharacterSkills.js';
 
-export const CARD_SKILLS = Object.freeze([...RAW_CARD_SKILLS, ...FOUR_CHARACTER_SKILLS, ...LEGACY_CARD_SKILLS].map((skill) => Object.freeze({ ...skill, oncePerBattle: Boolean(skill.oncePerBattle) })));
+export const CARD_SKILLS = Object.freeze([...RAW_CARD_SKILLS, ...FOUR_CHARACTER_SKILLS, ...FIVE_CHARACTER_SKILLS, ...LEGACY_CARD_SKILLS].map((skill) => Object.freeze({ ...skill, oncePerBattle: Boolean(skill.oncePerBattle) })));
 export const CARD_SKILL_BY_ID = Object.freeze(Object.fromEntries(CARD_SKILLS.map((skill) => [skill.id, skill])));

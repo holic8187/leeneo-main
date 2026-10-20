@@ -21,9 +21,9 @@ function performPlayerAction(...args) {
 const deck = () => [card('nanche-c'), card('winter-c'), card('hoi-c'), card('simsim-c')];
 const cocaVariants = ['coca-u', 'coca-rr', 'coca-rrr', 'coca-sr', 'coca-hr', 'coca-ur', 'coca-ssr'];
 
-test('all 132 main cards and 8 legacy cards have explicit skill information', () => {
-  assert.equal(CARD_SKILLS.length, 140);
-  assert.equal(ALL_CARDS.length, 140);
+test('all 161 main cards and 8 legacy cards have explicit skill information', () => {
+  assert.equal(CARD_SKILLS.length, 169);
+  assert.equal(ALL_CARDS.length, 169);
   for (const item of ALL_CARDS) {
     const skill = skillForCard(item.id, 0);
     assert.ok(skill, `${item.id} skill`);

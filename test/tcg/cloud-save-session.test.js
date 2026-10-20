@@ -413,6 +413,28 @@ test('an expired lease can be acquired by another device and bootstrap data neve
   assert.equal(second.payload.revision, 1);
 });
 
+test('an older client save preserves unknown SR+ ranking packs while current clients can consume them', async () => {
+  const harness = createHarness();
+  const opened = await harness.request('POST', '/api/tcg/play-session/open', {
+    body: { deviceId: 'old-android', platform: 'android', appVersion: '0.13.0', allowBootstrap: true, bootstrapState: { wallet: { coins: 100 }, packs: { standard: 2, srPremium: 5 } } }
+  });
+  const olderSave = await harness.request('PUT', '/api/tcg/game-state', {
+    body: { ...leaseBody(opened, 'old-android'), baseRevision: opened.payload.revision, state: { wallet: { coins: 125 }, packs: { standard: 1 } } }
+  });
+  assert.equal(olderSave.statusCode, 200);
+  assert.equal(olderSave.payload.state.packs.srPremium, 5);
+  const consumed = await harness.request('PUT', '/api/tcg/game-state', {
+    body: { ...leaseBody(opened, 'old-android'), baseRevision: olderSave.payload.revision, state: { wallet: { coins: 125 }, packs: { standard: 1, srPremium: 4 } } }
+  });
+  assert.equal(consumed.statusCode, 200);
+  assert.equal(consumed.payload.state.packs.srPremium, 4);
+  const stale = await harness.request('PUT', '/api/tcg/game-state', {
+    body: { ...leaseBody(opened, 'old-android'), baseRevision: olderSave.payload.revision, state: { packs: { standard: 0 } } }
+  });
+  assert.equal(stale.statusCode, 409);
+  assert.equal(stale.payload.state.packs.srPremium, 4);
+});
+
 test('cloud state routes require a current bearer token and validate platform and bootstrap payloads', async () => {
   const harness = createHarness();
   const unauthenticated = await harness.request('POST', '/api/tcg/play-session/open', {

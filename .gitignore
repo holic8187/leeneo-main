@@ -9,6 +9,7 @@ node_modules/.pnpm-workspace-state-v1.json
 tcg-desktop/node_modules/
 tcg-desktop/dist/
 tcg-desktop/release/
+tcg-desktop/docs/art-originals-0.15/
 tcg-desktop/.env*
 !tcg-desktop/.env.example
 *.jks

@@ -35,7 +35,7 @@ test('SSR tickets grant one card uniformly from every SSR, including all three n
   assert.equal(ticket.adminOnly, true);
   assert.equal(ticket.coinPrice, null);
   const pool = CARD_CATALOG.filter((card) => card.rarity === 'ssr');
-  assert.equal(pool.length, 10);
+  assert.equal(pool.length, 15);
   const draws = pool.map((_, index) => {
     const result = openPack({
       catalog: CARD_CATALOG, definition: ticket,
@@ -61,13 +61,13 @@ test('all winter, nanche and chuming rarities exist while raid reward pools cove
 
 test('old saves default new pack types to zero and retain independent inventory and pending openings', () => {
   const legacy = { packs: { standard: 4 }, pity: { standard: 32 } };
-  assert.deepEqual(hydrateState(legacy).packs, { standard: 4, premium: 0, ssrTicket: 0 });
-  assert.deepEqual(hydrateState(legacy).pity, { standard: 32, premium: 0, ssrTicket: 0 });
-  for (const packId of ['premium', 'ssrTicket', 'futurePack']) {
+  assert.deepEqual(hydrateState(legacy).packs, { standard: 4, premium: 0, srPremium: 0, ssrTicket: 0 });
+  assert.deepEqual(hydrateState(legacy).pity, { standard: 32, premium: 0, srPremium: 0, ssrTicket: 0 });
+  for (const packId of ['premium', 'srPremium', 'ssrTicket', 'futurePack']) {
     const opening = createPendingPackOpening({
       cards: ['winter-ssr'], packId, newCardIndices: [0], id: `opening-${packId}`, openedAt: 1000,
     });
-    const saved = hydrateState({ ...legacy, packs: { standard: 4, premium: 3, ssrTicket: 2, futurePack: 1 }, pendingPackOpening: opening });
+    const saved = hydrateState({ ...legacy, packs: { standard: 4, premium: 3, srPremium: 0, ssrTicket: 2, futurePack: 1 }, pendingPackOpening: opening });
     assert.equal(saved.pendingPackOpening.packId, packId);
     assert.deepEqual(hydratePendingPackOpening(opening), opening);
     const server = playerStateService.serializePlayerState({
@@ -80,7 +80,7 @@ test('old saves default new pack types to zero and retain independent inventory 
 
 test('mail grants and simultaneous local spends retain separate premium and SSR ticket balances', () => {
   const base = createDefaultState();
-  base.packs = { standard: 10, premium: 4, ssrTicket: 2 };
+  base.packs = { standard: 10, premium: 4, srPremium: 0, ssrTicket: 2 };
   const local = structuredClone(base);
   local.packs.premium -= 1;
   local.packs.ssrTicket -= 1;
@@ -89,8 +89,8 @@ test('mail grants and simultaneous local spends retain separate premium and SSR 
   server.packs.premium += 3;
   server.packs.ssrTicket += 4;
   const restored = hydrateState(mergeAuthoritativeState(base, local, server));
-  assert.deepEqual(restored.packs, { standard: 10, premium: 6, ssrTicket: 5 });
-  assert.deepEqual(restored.pity, { standard: 7, premium: 0, ssrTicket: 0 });
-  assert.deepEqual(normalizeMail({ rewards: { packs: { standard: 1, premium: 2, ssrTicket: 3 } } }).rewards,
-    { coins: 0, standardPacks: 1, premiumPacks: 2, ssrTickets: 3 });
+  assert.deepEqual(restored.packs, { standard: 10, premium: 6, srPremium: 0, ssrTicket: 5 });
+  assert.deepEqual(restored.pity, { standard: 7, premium: 0, srPremium: 0, ssrTicket: 0 });
+  assert.deepEqual(normalizeMail({ rewards: { packs: { standard: 1, premium: 2, srPremium: 0, ssrTicket: 3 } } }).rewards,
+    { coins: 0, standardPacks: 1, premiumPacks: 2, srPremiumPacks: 0, ssrTickets: 3 });
 });

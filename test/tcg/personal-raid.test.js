@@ -63,6 +63,7 @@ function clone(value) {
 
 function getPath(value, path) { return path.split('.').reduce((current, key) => current?.[key], value); }
 function same(left, right) {
+  if (right === null) return left == null;
   if (left instanceof Date || right instanceof Date) return new Date(left).getTime() === new Date(right).getTime();
   return String(left) === String(right);
 }
@@ -235,13 +236,13 @@ test('server raid score applies card role levels and only the equipped owned wea
     equipmentInventory: [{ id: 'weapon-1', type: 'weapon', bonusPercent: 5 }]
   };
   const verified = validatePersonalRaidSquad({ playerState, squad });
-  assert.deepEqual(verified.squad.map((card) => card.power), [1901, 2266, 2621, 3007]);
-  assert.equal(verified.squadScore, 9795);
+  assert.deepEqual(verified.squad.map((card) => card.power), [1901, 2266, 2621, 3070]);
+  assert.equal(verified.squadScore, 9858);
 
   playerState.selectedRaidEquipmentId = 'forged-client-id';
   const withoutOwnedWeapon = validatePersonalRaidSquad({ playerState, squad });
-  assert.deepEqual(withoutOwnedWeapon.squad.map((card) => card.power), [1810, 2158, 2496, 2864]);
-  assert.equal(withoutOwnedWeapon.squadScore, 9328);
+  assert.deepEqual(withoutOwnedWeapon.squad.map((card) => card.power), [1810, 2158, 2496, 2924]);
+  assert.equal(withoutOwnedWeapon.squadScore, 9388);
 });
 
 test('start consumes one daily entry, creates a bound session, and prevents parallel starts', async () => {
@@ -252,6 +253,33 @@ test('start consumes one daily entry, creates a bound session, and prevents para
   assert.equal(started.session.squad[0].slot, 1);
   assert.equal(Model.records[0].dailyEntryCount, 1);
   await assert.rejects(() => startPersonalRaid({ TcgPersonalRaidDaily: Model, account: user, verifiedSquad: verifiedSquad(), now: now + 1000 }), (error) => error.code === 'RAID_SESSION_ACTIVE');
+});
+
+test('weekly settlement freezes racing battle writes before their score can alter paid ranks', async () => {
+  const Model = createFakeRaidModel();
+  const user = account();
+  const now = Date.parse('2026-10-25T14:59:59.900Z');
+  const started = await startPersonalRaid({ TcgPersonalRaidDaily: Model, account: user, verifiedSquad: verifiedSquad(), now });
+  const originalUpdate = Model.findOneAndUpdate.bind(Model);
+  let freezeOnce = true;
+  Model.findOneAndUpdate = async (query, update) => {
+    if (freezeOnce) { freezeOnce = false; Model.records[0].rankingFrozenAt = new Date(now + 100); }
+    return originalUpdate(query, update);
+  };
+  await assert.rejects(finishPersonalRaid({ TcgPersonalRaidDaily: Model, account: user, sessionId: started.session.sessionId, damageDealt: 5000, now }), { code: 'RAID_WEEK_CHANGED' });
+  assert.equal(Model.records[0].contribution, 0);
+  assert.equal(Model.records[0].lastFinishedSessionId, '');
+  await assert.rejects(startPersonalRaid({ TcgPersonalRaidDaily: Model, account: user, verifiedSquad: verifiedSquad(), now }), { code: 'RAID_WEEK_CHANGED' });
+});
+
+test('requests captured before midnight recheck the live clock before committing last-week progress', async () => {
+  const Model = createFakeRaidModel();
+  const user = account();
+  const now = Date.parse('2026-10-25T14:59:59.900Z');
+  const started = await startPersonalRaid({ TcgPersonalRaidDaily: Model, account: user, verifiedSquad: verifiedSquad(), now });
+  await assert.rejects(finishPersonalRaid({ TcgPersonalRaidDaily: Model, account: user, sessionId: started.session.sessionId, damageDealt: 5000, now, clock: () => now + 100 }), { code: 'RAID_WEEK_CHANGED' });
+  assert.equal(Model.records[0].contribution, 0);
+  await assert.rejects(startPersonalRaid({ TcgPersonalRaidDaily: createFakeRaidModel(), account: account('new'), verifiedSquad: verifiedSquad(), now, clock: () => now + 100 }), { code: 'RAID_WEEK_CHANGED' });
 });
 
 test('finish validates HP math, caps damage, advances stages, and replays duplicate submissions idempotently', async () => {

@@ -28,6 +28,7 @@ export function createDefaultState(now = Date.now()) {
     packs: {
       standard: 3,
       premium: 0,
+      srPremium: 0,
       ssrTicket: 0,
     },
     collection: {
@@ -55,6 +56,7 @@ export function createDefaultState(now = Date.now()) {
     pity: {
       standard: 0,
       premium: 0,
+      srPremium: 0,
       ssrTicket: 0,
     },
     pendingPackOpening: null,

@@ -480,6 +480,15 @@ async function saveGameState({
   const lease = normalizeLeaseRequest(request, { requireLease: true });
   const baseRevision = normalizeGeneration(request.baseRevision, 'baseRevision');
   const state = normalizeGameState(request.state);
+  // Clients predating ranking packs omit this key when hydrating a save. Keep
+  // that balance; the revision CAS below still rejects any stale inventory.
+  if (!Object.hasOwn(state.packs || {}, 'srPremium')) {
+    const previous = await findPlayerState(TcgPlayerState, accountId);
+    if (Object.hasOwn(previous?.state?.packs || {}, 'srPremium')) {
+      if (!state.packs || typeof state.packs !== 'object' || Array.isArray(state.packs)) state.packs = {};
+      state.packs.srPremium = previous.state.packs.srPremium;
+    }
+  }
   const updated = await TcgPlayerState.findOneAndUpdate(
     {
       ...exactLeaseFilter(accountId, lease, nowMs),

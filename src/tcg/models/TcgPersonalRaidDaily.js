@@ -32,7 +32,11 @@ const tcgPersonalRaidDailySchema = new mongoose.Schema({
   lastDispatchAt: { type: Date, default: null },
   lastDamage: { type: Number, default: 0, min: 0 },
   lastSquadScore: { type: Number, default: 0, min: 0 },
-  revision: { type: Number, default: 0, min: 0 }
+  revision: { type: Number, default: 0, min: 0 },
+  rankingRewardSettledAt: { type: Date, default: null },
+  rankingFrozenAt: { type: Date, default: null },
+  rankingRewardRetryAt: { type: Date, default: null },
+  rankingReward: { type: mongoose.Schema.Types.Mixed, default: null }
 }, {
   collection: 'tcg_personal_raid_daily',
   timestamps: true,
@@ -47,6 +51,11 @@ tcgPersonalRaidDailySchema.index(
   { weekKey: 1, bossId: 1, schemaVersion: 1, contribution: -1, updatedAt: 1 },
   { name: 'personal_raid_weekly_ranking' }
 );
+tcgPersonalRaidDailySchema.index(
+  { rankingRewardSettledAt: 1, rankingRewardRetryAt: 1, weekKey: 1 },
+  { name: 'pending_personal_raid_weekly_rewards' }
+);
+tcgPersonalRaidDailySchema.index({ rankingFrozenAt: 1, weekKey: 1 }, { name: 'unfrozen_personal_raid_weeks' });
 
 module.exports = mongoose.models.TcgPersonalRaidDaily
   || mongoose.model('TcgPersonalRaidDaily', tcgPersonalRaidDailySchema);

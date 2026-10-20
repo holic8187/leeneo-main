@@ -15,6 +15,18 @@ import {
   Flame,
   Gift,
   HeartPulse,
+  Home,
+  ScrollText,
+  BookOpen,
+  Copy,
+  Moon,
+  ArrowRightLeft,
+  Vault,
+  AudioLines,
+  Rewind,
+  Flower2,
+  HeartHandshake,
+  Crown,
   Library,
   Lock,
   Mail,
@@ -43,6 +55,8 @@ import {
 } from 'lucide';
 import './styles.css';
 import './lobby.css';
+import { renderGameLobby } from './ui/gameLobby.js';
+import { renderWeeklyRewardGuide } from './ui/weeklyRewardGuide.js';
 import './mobile-game.css';
 import './relics.css';
 import './card-emblems.css';
@@ -50,8 +64,13 @@ import './cooperative-raid.css';
 import './raid-qol.css';
 import './pack-carousel.css';
 import './raid-effects.css';
+import './persistent-popups.css';
+import './game-world.css';
+import { createPersistentPopup } from './ui/persistentPopup.js';
+import { updateRaidInspectorValues } from './ui/raidInspectorValues.js';
+import { createPopupQueue } from './core/popupQueue.js';
 import { renderPackShop } from './ui/packShop.js';
-import { renderRaidArena, renderRaidBossHud } from './ui/raidArena.js';
+import { renderRaidArena, renderRaidBossHud, renderCooperativeInspector } from './ui/raidArena.js';
 import { renderPackResults } from './ui/packResults.js';
 import { packCardRequiresReveal, packPresentation } from './core/packPresentation.js';
 import { chooseRaidAutoAction } from './core/raidAutoBattle.js';
@@ -177,6 +196,7 @@ import {
   toggleSquadSelection,
 } from './core/squadSelection.js';
 import { desktopBridge } from './services/desktopBridge.js';
+import { trustedIosDistributionUrl } from './services/iosUpdateGateway.js';
 import {
   checkAccountAvailability,
   isAuthGatewayConfigured,
@@ -224,6 +244,8 @@ let reconnectFocus = null;
 const connectionWaiters = new Set();
 const deviceId = getOrCreateDeviceId();
 const clientPlatform = desktopBridge.platform;
+const mobileClient = clientPlatform === 'android' || clientPlatform === 'ios';
+document.documentElement.dataset.nativePlatform = clientPlatform;
 let store = null;
 let cloudPlay = null;
 let unsubscribeCloudStore = null;
@@ -252,6 +274,18 @@ const iconSet = {
   Flame,
   Gift,
   HeartPulse,
+  Home,
+  ScrollText,
+  BookOpen,
+  Copy,
+  Moon,
+  ArrowRightLeft,
+  Vault,
+  AudioLines,
+  Rewind,
+  Flower2,
+  HeartHandshake,
+  Crown,
   Library,
   Lock,
   Mail,
@@ -281,12 +315,13 @@ const iconSet = {
 
 
 const views = {
-  dashboard: { label: '로비', icon: 'briefcase' },
+  dashboard: { label: '로비', icon: 'home' },
+  adventure: { label: '모험', icon: 'map' },
+  raid: { label: '레이드', icon: 'swords' },
   collection: { label: '도감', icon: 'library' },
   management: { label: '성장', icon: 'sparkles' },
+  shop: { label: '소환', icon: 'package-open' },
   mailbox: { label: '우편함', icon: 'mail' },
-  adventure: { label: '모험', icon: 'map' },
-  raid: { label: '레이드', icon: 'shield' },
 };
 
 const DONATION_PACKAGES = Object.freeze([
@@ -388,6 +423,26 @@ const ui = {
 };
 
 const scrollPositions = new globalThis.Map();
+const disclosureStates = new globalThis.Map();
+const completionPopups = createPopupQueue();
+const popupObjectIds = new WeakMap();
+let nextPopupObjectId = 0;
+let appRegions = null;
+
+function popupObjectId(value) {
+  if (!value) return '';
+  if (!popupObjectIds.has(value)) popupObjectIds.set(value, ++nextPopupObjectId);
+  return popupObjectIds.get(value);
+}
+
+function popupBusy() {
+  return Boolean(ui.modal || (ui.view === 'raid' && (ui.raidMode === 'cooperative' ? ui.cooperative.inspector : ui.raid.inspector))
+    || cooperativeClient.getState().data?.phase === 'ready');
+}
+
+function queueCompletionPopup(popup, key) {
+  completionPopups.enqueue(popup, key);
+}
 
 function gameplayAvailable() {
   return appForeground && ui.auth.phase === 'authenticated' && ui.cloud.phase === 'active'
@@ -428,14 +483,19 @@ function reconcileNavigationModal() {
     const saved = ui.modal;
     const opening = state.pendingPackOpening;
     const cards = opening?.id === saved.openingId ? cardsForPendingPack(opening, cardById) : null;
-    if (!cards) { ui.modal = null; return; }
+    // A completed, still-open result no longer has a pending opening in the
+    // save. Reconnecting must not dismiss that result screen.
+    if (!cards) { if (!saved.pendingOpening && saved.cards?.length) return; ui.modal = null; return; }
+    const focusIndex = saved.focusIndex || 0;
     showPackOpeningModal(opening, cards, { renderNow: false });
-    ui.modal.focusIndex = Math.min(cards.length - 1, saved.focusIndex || 0);
+    Object.assign(saved, ui.modal, { focusIndex: Math.min(cards.length - 1, focusIndex) });
+    ui.modal = saved;
   }
 }
 
 function restoreNavigation(accountId) {
   scrollPositions.clear();
+  disclosureStates.clear();
   navigationAccountId = accountId;
   const snapshot = navigationStore.read(accountId) || sanitizeNavigationSnapshot();
   const { scroll, version, ...navigation } = snapshot;
@@ -539,7 +599,7 @@ function expeditionNotificationId(expedition) {
 }
 
 async function scheduleExpeditionNotification(expedition, mission = expeditionById(expedition?.missionId)) {
-  if (clientPlatform !== 'android' || !expedition || !mission) return false;
+  if (!mobileClient || !expedition || !mission) return false;
   const id = expeditionNotificationId(expedition);
   if (!id) return false;
   try {
@@ -560,7 +620,7 @@ async function scheduleExpeditionNotification(expedition, mission = expeditionBy
 }
 
 async function syncMobileGameNotifications() {
-  if (clientPlatform !== 'android' || !store) return false;
+  if (!mobileClient || !store) return false;
   const state = store.getState();
   const enabled = state.settings.expeditionNotifications === true;
   try {
@@ -581,7 +641,7 @@ async function syncMobileGameNotifications() {
     return permission?.granted === true;
   } catch (error) {
     ui.notificationPermission = 'unavailable';
-    console.warn('Could not sync Android game notifications:', error);
+    console.warn('Could not sync mobile game notifications:', error);
     return false;
   }
 }
@@ -875,7 +935,7 @@ function renderSidebar(state) {
         <div class="brand-mark" aria-hidden="true">HC</div>
         <div class="brand-copy">
           <strong>호이 카드 데스크</strong>
-          <span>독립 카드 게임</span>
+          <span>동료와 함께 쓰는 이야기</span>
         </div>
       </div>
       <nav class="primary-nav" aria-label="주 메뉴">${nav}</nav>
@@ -901,6 +961,7 @@ function renderTopbar(state) {
     installing: '업데이트 적용 중',
     current: '최신 버전',
     development: '개발 버전',
+    'store-managed': 'Apple 앱 업데이트',
     error: '확인 실패',
   }[ui.updateStatus?.status] || '';
 
@@ -916,9 +977,9 @@ function renderTopbar(state) {
           <span>동전</span>
           <strong>${formatNumber(state.wallet.coins)}</strong>
         </div>
-        <div class="resource-item" aria-label="카드팩 ${formatNumber(state.packs.standard)}개">
+        <div class="resource-item" aria-label="표준 카드팩 ${formatNumber(state.packs.standard)}개">
           <i data-lucide="package-open"></i>
-          <span>카드팩</span>
+          <span>표준 팩</span>
           <strong>${formatNumber(state.packs.standard)}</strong>
         </div>
       </div>
@@ -933,10 +994,10 @@ function renderTopbar(state) {
         <button class="icon-button" type="button" data-action="open-settings" title="설정" aria-label="설정">
           <i data-lucide="settings"></i>
         </button>
-        <button class="quiet-button donation-button" type="button" data-action="open-donation" title="도네이션" aria-label="도네이션">
+        ${clientPlatform !== 'ios' ? `<button class="quiet-button donation-button" type="button" data-action="open-donation" title="도네이션" aria-label="도네이션">
           <i data-lucide="gift"></i>
           <span>도네이션</span>
-        </button>
+        </button>` : ''}
         <button class="quiet-button ${state.settings.payrollMode ? 'is-active' : ''}" type="button" data-action="toggle-payroll-mode" aria-label="월급루팡 모드" aria-pressed="${state.settings.payrollMode ? 'true' : 'false'}">
           <i data-lucide="eye-off"></i>
           <span>월급루팡 모드</span>
@@ -946,7 +1007,7 @@ function renderTopbar(state) {
           <span>자리 비우기</span>
         </button>` : ''}
       </div>
-      ${updateText ? `<div class="update-chip" title="${escapeHtml(ui.updateStatus?.message || '')}">${escapeHtml(updateText)}${ui.updateStatus?.downloadUrl && ['available', 'permission-required', 'error'].includes(ui.updateStatus?.status) ? `<button type="button" data-action="download-update">업데이트 받기</button>` : ''}</div>` : ''}
+      ${updateText ? `<div class="update-chip" title="${escapeHtml(ui.updateStatus?.message || '')}">${escapeHtml(updateText)}${ui.updateStatus?.downloadUrl && ['available', 'permission-required', 'error', 'store-managed'].includes(ui.updateStatus?.status) ? `<button type="button" data-action="download-update">${clientPlatform === 'ios' ? 'Apple에서 확인' : '업데이트 받기'}</button>` : ''}</div>` : ''}
     </header>
   `;
 }
@@ -982,136 +1043,23 @@ function renderDeckPresetPanel(state) {
 }
 
 function renderDashboard(state) {
-  const pack = PACK_DEFINITION.standard;
-  const pendingPackOpening = state.pendingPackOpening;
-  const ownedCards = ALL_CARDS
-    .filter((card) => Math.max(0, Number(state.collection?.[card.id]) || 0) > 0)
-    .sort((left, right) => cardPower(right, state) - cardPower(left, state));
-  const heroOwned = ownedCards.length > 0;
-  const heroCard = ownedCards[0] || cardById('simsim-c') || CARD_CATALOG[0];
-  const heroLevel = progressionForCard(state.cardProgression, heroCard.id).level;
-  const heroStage = cardEnhancement(heroCard, state);
-  const featured = [
-    CARD_CATALOG.at(-1),
-    CARD_CATALOG.at(-3),
-    CARD_CATALOG.find((card) => card.rarity === 'sr'),
-  ].filter(Boolean);
+  const owned = ALL_CARDS.filter(card => Number(state.collection?.[card.id]) > 0)
+    .sort((a, b) => cardPower(b, state) - cardPower(a, state));
+  const hero = owned[0] || cardById('simsim-c') || CARD_CATALOG[0];
   const expedition = state.expedition;
-  const mission = expedition ? expeditionById(expedition.missionId) : null;
-  const progress = expedition ? expeditionProgress(expedition) : 0;
-  const recent = (state.activity || []).slice(0, 5);
-  return `
-    <div class="lobby">
-      <section class="lobby-hero rarity-${heroCard.rarity}" aria-labelledby="lobby-hero-title">
-        <div class="lobby-hero__copy">
-          <span class="lobby-hero__greeting">${escapeHtml(state.profile.displayName)}님의 로비</span>
-          <span class="lobby-hero__label">${heroOwned ? '보유 대표 카드' : '시작 카드 미리보기'}</span>
-          <h2 id="lobby-hero-title">${escapeHtml(cardDisplayName(heroCard))}</h2>
-          <p>${heroOwned
-            ? `${escapeHtml(rarityLabel(heroCard.rarity))} · Lv.${formatNumber(heroLevel)} · ${escapeHtml(enhancementLabel(heroStage))} · 전투력 ${formatNumber(cardPower(heroCard, state))}`
-            : '첫 카드를 획득하고 나만의 덱을 만들어 보세요.'}</p>
-          <button class="lobby-hero__detail" type="button" data-action="open-card" data-card-id="${escapeHtml(heroCard.id)}">
-            카드 자세히 보기 <i data-lucide="chevron-right"></i>
-          </button>
-        </div>
-        <button class="lobby-hero__card card-emblem-host" type="button" data-action="open-card" data-card-id="${escapeHtml(heroCard.id)}" aria-label="${escapeHtml(cardDisplayName(heroCard))} 카드 정보 보기">
-          <img src="${escapeHtml(heroCard.image)}" alt="${escapeHtml(cardDisplayName(heroCard))}" />
-          ${renderCardEmblems(heroCard, heroStage, { size: 'standard', captioned: true })}
-          <span>${escapeHtml(rarityLabel(heroCard.rarity))}</span>
-        </button>
-        <div class="lobby-hero__actions" aria-label="주요 메뉴">
-          <button class="lobby-main-action lobby-main-action--adventure" type="button" data-action="navigate" data-view="adventure">
-            <i data-lucide="map"></i>
-            <span>
-              <small>${expedition ? '모험 진행 중' : '카드를 편성하고 출발'}</small>
-              <strong>${expedition ? escapeHtml(mission?.name || '진행 중인 모험') : '모험으로'}</strong>
-            </span>
-            ${expedition
-              ? `<time data-countdown="${expedition.endsAt}">${formatDuration(expedition.endsAt - Date.now())}</time>`
-              : '<i data-lucide="chevron-right"></i>'}
-          </button>
-          <button class="lobby-main-action lobby-main-action--raid" type="button" data-action="navigate" data-view="raid">
-            <i data-lucide="swords"></i>
-            <span><small>보스에게 도전</small><strong>레이드 입장</strong></span>
-            <i data-lucide="chevron-right"></i>
-          </button>
-        </div>
-        ${expedition ? `
-          <div class="lobby-hero__progress" aria-label="${escapeHtml(mission?.name || '모험')} 진행률">
-            <span data-expedition-progress style="width:${Math.round(progress * 100)}%"></span>
-          </div>
-        ` : ''}
-      </section>
-
-      <div class="lobby-feature-grid">
-        <section class="lobby-pack" aria-labelledby="lobby-pack-title">
-          <div class="lobby-section-heading">
-            <div><span>카드 소환</span><h2 id="lobby-pack-title">${escapeHtml(pack.name)}</h2></div>
-            <b>${pendingPackOpening ? '미확인 카드 있음' : `SR 이상 확정까지 ${Math.max(1, pack.pityPacks - state.pity.standard)}팩`}</b>
-          </div>
-          <div class="lobby-pack__body">
-            <div class="lobby-pack__fan" aria-hidden="true">
-              ${featured.map((card, index) => `<img class="lobby-pack__card lobby-pack__card--${index + 1}" src="${escapeHtml(card.image)}" alt="" />`).join('')}
-              <div class="lobby-pack__seal"><i data-lucide="sparkles"></i><strong>인물 파일</strong><small>카드 5장</small></div>
-            </div>
-            <div class="lobby-pack__controls">
-              <div class="lobby-pack__count"><span>보유 카드팩</span><strong>${formatNumber(state.packs.standard)}<small>팩</small></strong></div>
-              ${pendingPackOpening ? `
-                <button class="primary-button lobby-pack__resume" type="button" data-action="resume-pack-opening">
-                  <i data-lucide="sparkles"></i>미확인 카드 이어보기
-                </button>
-              ` : `
-                <div class="lobby-pack__open-buttons">
-                  <button class="primary-button" type="button" data-action="open-pack" data-pack-count="1" ${state.packs.standard <= 0 ? 'disabled' : ''}>
-                    <i data-lucide="package-open"></i><span><strong>1팩 개봉</strong><small>카드 5장</small></span>
-                  </button>
-                  <button class="primary-button" type="button" data-action="open-pack" data-pack-count="10" ${state.packs.standard < 10 ? 'disabled' : ''}>
-                    <i data-lucide="sparkles"></i><span><strong>10팩 개봉</strong><small>카드 50장</small></span>
-                  </button>
-                </div>
-              `}
-              <button class="secondary-button lobby-pack__buy" type="button" data-action="buy-pack" ${state.wallet.coins < pack.coinPrice ? 'disabled' : ''}>
-                <i data-lucide="coins"></i>${formatNumber(pack.coinPrice)} 동전으로 1팩 구매
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <div class="lobby-side-stack">
-          <section class="lobby-collection" aria-labelledby="lobby-collection-title">
-            <div class="lobby-section-heading">
-              <div><span>나의 카드</span><h2 id="lobby-collection-title">수집 현황</h2></div>
-              <button type="button" data-action="navigate" data-view="collection" aria-label="카드 도감 열기"><i data-lucide="arrow-right"></i></button>
-            </div>
-            <dl class="lobby-collection__stats">
-              <div><dt>발견</dt><dd>${ownedUniqueCount(state)} / ${CARD_CATALOG.length}</dd></div>
-              <div><dt>보유</dt><dd>${totalOwnedCount(state)}장</dd></div>
-              <div><dt>클라우드</dt><dd>${ui.cloud.phase === 'active' ? '연결됨' : '확인 중'}</dd></div>
-            </dl>
-          </section>
-        </div>
-      </div>
-
-      ${renderPackShop(state)}
-      <div class="lobby-presets">${renderDeckPresetPanel(state)}</div>
-
-      <section class="lobby-log" aria-labelledby="lobby-log-title">
-        <div class="lobby-section-heading">
-          <div><span>최근 플레이</span><h2 id="lobby-log-title">최근 기록</h2></div>
-          <i data-lucide="clock"></i>
-        </div>
-        <div class="lobby-log__list">
-          ${recent.length ? recent.map((entry) => `
-            <div class="lobby-log__row">
-              <span aria-hidden="true"></span>
-              <p>${escapeHtml(entry.message)}</p>
-              <time>${formatClock(entry.at)}</time>
-            </div>
-          `).join('') : '<p class="lobby-log__empty">아직 남겨진 기록이 없습니다.</p>'}
-        </div>
-      </section>
-    </div>
-  `;
+  return renderGameLobby({
+    state, hero, heroName: cardDisplayName(hero), heroPower: cardPower(hero, state),
+    heroLevel: progressionForCard(state.cardProgression, hero.id).level,
+    heroEnhancement: cardEnhancement(hero, state),
+    heroEmblems: renderCardEmblems(hero, cardEnhancement(hero, state), { size: 'standard', captioned: true }),
+    heroRarity: rarityEmblem(hero.rarity),
+    discovered: ownedUniqueCount(state), total: totalOwnedCount(state), catalogCount: CARD_CATALOG.length,
+    expedition, mission: expedition ? expeditionById(expedition.missionId) : null,
+    countdown: expedition ? formatDuration(expedition.endsAt - Date.now()) : '',
+    progress: expedition ? expeditionProgress(expedition) : 0,
+    presets: renderDeckPresetPanel(state), recent: (state.activity || []).slice(0, 5), clock: formatClock,
+    raidRank: ui.raid.ranking?.myRank, raidEntries: state.raid?.remainingEntries,
+  });
 }
 
 function renderCard(card, count, options = {}) {
@@ -1813,18 +1761,19 @@ function renderCooperativeRaid() {
     personalBattle: Boolean(ui.raid.battle),
     secret: store.getState().settings.raidSecretMode,
     galaxyChoice: ui.cooperative.galaxyChoice,
-    inspector: ui.cooperative.inspector,
+    // The inspector is rendered in a persistent popup region, not the polled
+    // battlefield subtree.
+    inspector: null,
   });
 }
 
 function renderCooperativeGlobal() {
   const client = cooperativeClient.getState();
   if (ui.cloud.phase !== 'active') return '';
-  const popup = renderCooperativeReady({ ...client, secret: store.getState().settings.raidSecretMode, accountId: String(ui.auth.account?.id || ui.auth.account?._id || ''), now: Date.now() + client.clockOffset });
   const away = ui.view !== 'raid' || ui.raidMode !== 'cooperative';
   const banner = away && ['queued', 'battle', 'finished'].includes(client.data?.phase)
     ? `<button class="coop-return-banner" type="button" data-action="coop-open">${client.data.phase === 'queued' ? '협동 매칭 대기 중' : client.data.phase === 'finished' ? '협동 레이드 보상 받기' : '협동 전투로 돌아가기'}</button>` : '';
-  return `${banner}${popup}`;
+  return banner;
 }
 
 function renderPersonalRaidRanking(state) {
@@ -1853,6 +1802,7 @@ function renderPersonalRaidRanking(state) {
         <div class="ranking-empty"><i data-lucide="trophy"></i><strong>이번 주 기록된 피해 점수가 없습니다.</strong><span>개인 레이드 전투를 마치면 즉시 순위에 반영됩니다.</span></div>
       `}
       ${ranking.myRank ? `<div class="my-ranking-summary"><span>내 현재 순위</span><strong>${formatNumber(ranking.myRank)}위</strong></div>` : ''}
+      ${renderWeeklyRewardGuide(ranking)}
       ${ui.raid.error ? `<p class="raid-sync-error"><i data-lucide="circle-alert"></i>${escapeHtml(ui.raid.error)}</p>` : ''}
     </section>
   `;
@@ -1876,7 +1826,7 @@ function renderRaidBattleInspector(battle) {
   const card = cardById(member?.cardId);
   const skill = member ? skillForCard(member.cardId, member.enhancement) : null;
   if (!member || !card) return '';
-  return `<aside class="raid-skill-tooltip" role="dialog" aria-label="카드 스킬 설명"><button type="button" data-action="close-raid-inspector" aria-label="닫기"><i data-lucide="x"></i></button><span class="eyebrow">${rarityLabel(card.rarity)} · ${enhancementLabel(member.enhancement)}</span><h3>${escapeHtml(skill?.name || '고유 스킬 준비 중')}</h3><p>${escapeHtml(skill?.description || '이 카드의 고유 스킬은 준비 중입니다.')}</p><dl><dt>공격력</dt><dd>${formatNumber(member.attack || cardPower(card, store?.getState(), member.enhancement))}</dd><dt>쿨타임</dt><dd>${skill?.oncePerBattle ? '전투당 1회' : `${formatNumber(skill?.cooldown || 0)}턴`}</dd><dt>현재 상태</dt><dd>${member.hp <= 0 ? '행동 불능' : member.cooldown > 0 ? `스킬 ${formatNumber(member.cooldown)}턴 남음` : '행동 가능'}</dd></dl></aside>`;
+  return `<aside class="raid-skill-tooltip" role="dialog" aria-label="카드 스킬 설명"><button type="button" data-action="close-raid-inspector" aria-label="닫기"><i data-lucide="x"></i></button><span class="eyebrow">${rarityLabel(card.rarity)} · ${enhancementLabel(member.enhancement)}</span><h3>${escapeHtml(skill?.name || '고유 스킬 준비 중')}</h3><p>${escapeHtml(skill?.description || '이 카드의 고유 스킬은 준비 중입니다.')}</p><dl><dt>공격력</dt><dd data-raid-inspector-value="attack">${formatNumber(member.attack || cardPower(card, store?.getState(), member.enhancement))}</dd><dt>쿨타임</dt><dd>${skill?.oncePerBattle ? '전투당 1회' : `${formatNumber(skill?.cooldown || 0)}턴`}</dd><dt>현재 상태</dt><dd data-raid-inspector-value="status">${member.hp <= 0 ? '행동 불능' : member.skillCooldown > 0 ? `스킬 ${formatNumber(member.skillCooldown)}턴 남음` : '행동 가능'}</dd></dl></aside>`;
 }
 
 function renderPersonalRaidBattlefield(state) {
@@ -1904,7 +1854,6 @@ function renderPersonalRaidBattlefield(state) {
       ${renderRaidArena({ battle, animation, secret, activeIndex, canAct: playerTurn, pending: ui.raid.battlePending || Boolean(ui.raid.animation), countdown: playerTurn ? battle.turnDeadlineAt : 0 })}
       ${battle.status === 'ready' ? `<div class="raid-battle-start-panel"><div class="raid-battle-start-card"><span class="eyebrow">PERSONAL RAID · STAGE ${formatNumber(battle.stage)}</span><h2>전투 준비 완료</h2><p>편성 순서대로 카드가 행동합니다. 내 차례에는 20초 안에 기본공격이나 스킬을 선택하세요. 전투는 최대 7턴 진행됩니다.</p><button class="alert-button" type="button" data-action="begin-raid-battle" ${ui.raid.battlePending ? 'disabled' : ''}><i data-lucide="swords"></i>${ui.raid.battlePending ? '전투 준비 중' : '전투 시작'}</button></div></div>` : ''}
       ${finished ? `<div class="raid-battle-result-panel"><div class="raid-battle-result-card"><span class="eyebrow">${victory ? 'RAID CLEAR' : 'BATTLE ENDED'}</span><h2>${endTitle}</h2><p>이번 도전 획득 점수</p><strong class="raid-earned-score">${formatNumber(battle.totalDamage || 0)}</strong><small>보스에게 실제로 입힌 총 피해량입니다.</small><button class="primary-button" type="button" data-action="finish-raid-battle" ${ui.raid.finishing ? 'disabled' : ''}>${ui.raid.finishing ? '점수 저장 중' : '점수 반영하기'}</button></div></div>` : ''}
-      ${renderRaidBattleInspector(battle)}
     </section>`;
 }
 
@@ -2066,6 +2015,7 @@ function renderMailbox() {
 }
 
 function renderCurrentView(state) {
+  if (ui.view === 'shop') return renderPackShop(state);
   if (ui.view === 'collection') return renderCollection(state);
   if (ui.view === 'management') return renderManagement(state);
   if (ui.view === 'mailbox') return renderMailbox(state);
@@ -2261,6 +2211,7 @@ function renderAdminModal() {
               <label><span>사내 동전</span><input name="coins" type="number" min="0" max="100000000" step="1" value="${draftValue('coins', '0')}" ${String(draft.presetId || 'custom') !== 'custom' ? 'disabled' : ''} /></label>
               <label><span>표준 카드팩</span><input name="standardPacks" type="number" min="0" max="10000" step="1" value="${draftValue('standardPacks', '0')}" ${String(draft.presetId || 'custom') !== 'custom' ? 'disabled' : ''} /></label>
               <label><span>고급 카드팩</span><input name="premiumPacks" type="number" min="0" max="10000" step="1" value="${draftValue('premiumPacks', '0')}" ${String(draft.presetId || 'custom') !== 'custom' ? 'disabled' : ''} /></label>
+              <label><span>SR 이상 확정 카드팩</span><input name="srPremiumPacks" type="number" min="0" max="10000" step="1" value="${draftValue('srPremiumPacks', '0')}" ${String(draft.presetId || 'custom') !== 'custom' ? 'disabled' : ''} /></label>
               <label><span>SSR 확정 랜덤 뽑기권</span><input name="ssrTickets" type="number" min="0" max="10000" step="1" value="${draftValue('ssrTickets', '0')}" ${String(draft.presetId || 'custom') !== 'custom' ? 'disabled' : ''} /></label>
               <label><span>보관 기간</span><select name="expiresInHours"><option value="168"${selected('expiresInHours', '168', '168')}>7일</option><option value="720"${selected('expiresInHours', '720', '168')}>30일</option><option value="2160"${selected('expiresInHours', '2160', '168')}>90일</option></select></label>
             </div>
@@ -2285,7 +2236,7 @@ function renderAdminModal() {
 
 function renderSettingsModal(state) {
   const account = ui.auth.account;
-  const mobileNotificationSettings = clientPlatform === 'android' ? `
+  const mobileNotificationSettings = mobileClient ? `
     <label class="toggle-row"><span><strong>야간 알림 끄기 (22:00~06:00)</strong><small>모험 완료 알림을 오전 6시 이후에 알려드립니다.</small></span><input type="checkbox" data-action="toggle-quiet-hours" ${state.settings.quietHoursNotifications ? 'checked' : ''} ${state.settings.expeditionNotifications ? '' : 'disabled'} /><i></i></label>
     ${ui.notificationPermission === 'denied' ? '<button class="secondary-button settings-notification-button" type="button" data-action="open-notification-settings">휴대폰 알림 권한 열기</button>' : ''}
   ` : '';
@@ -2302,12 +2253,13 @@ function renderSettingsModal(state) {
           <span><strong>${escapeHtml(account?.nickname || state.profile.displayName)}</strong><small>@${escapeHtml(account?.username || '')} · ${ui.cloud.phase === 'active' ? '클라우드 연결됨' : '연결 확인 중'}</small></span>
           <button class="secondary-button" type="button" data-action="logout">로그아웃</button>
         </div>
-        ${clientPlatform === 'android' ? `<label class="toggle-row"><span><strong>모험 완료 알림</strong><small>모험이 끝나면 알려드립니다. 꺼도 모험과 보상은 유지됩니다.</small></span><input type="checkbox" data-action="toggle-notifications" ${state.settings.expeditionNotifications ? 'checked' : ''} /><i></i></label>` : ''}
+        ${mobileClient ? `<label class="toggle-row"><span><strong>모험 완료 알림</strong><small>모험이 끝나면 알려드립니다. 꺼도 모험과 보상은 유지됩니다.</small></span><input type="checkbox" data-action="toggle-notifications" ${state.settings.expeditionNotifications ? 'checked' : ''} /><i></i></label>` : ''}
         ${mobileNotificationSettings}
         ${desktopOnlySettings}
-        <div class="settings-utility-actions"><button class="secondary-button" type="button" data-action="check-update"><i data-lucide="download"></i>업데이트 확인</button><button class="secondary-button" type="button" data-action="open-donation"><i data-lucide="gift"></i>후원 안내</button></div>
+        <div class="settings-utility-actions"><button class="secondary-button" type="button" data-action="check-update"><i data-lucide="download"></i>업데이트 확인</button>${clientPlatform !== 'ios' ? '<button class="secondary-button" type="button" data-action="open-donation"><i data-lucide="gift"></i>후원 안내</button>' : ''}</div>
         <label class="toggle-row"><span><strong>월급루팡 모드</strong><small>모든 카드 일러스트를 가리고 카드 이름과 등급만 표시합니다.</small></span><input type="checkbox" data-action="toggle-payroll-mode" ${state.settings.payrollMode ? 'checked' : ''} /><i></i></label>
-        ${ui.updateStatus?.downloadUrl ? '<button class="primary-button settings-update-button" type="button" data-action="download-update">새 Android 버전 받기</button>' : ''}
+        ${clientPlatform === 'ios' ? `<p class="muted">${escapeHtml(ui.updateStatus?.message || 'iPhone 업데이트는 TestFlight 또는 App Store에서 설치합니다.')}</p>` : ''}
+        ${ui.updateStatus?.downloadUrl ? `<button class="primary-button settings-update-button" type="button" data-action="download-update">${clientPlatform === 'ios' ? 'Apple 업데이트 열기' : '새 Android 버전 받기'}</button>` : ''}
         <button class="secondary-button settings-admin-button" type="button" data-action="open-admin"><i data-lucide="shield"></i>관리자 모드</button>
         <div class="settings-footer"><span>버전 ${escapeHtml(ui.appVersion)}</span><button class="danger-text-button" type="button" data-action="reset-progress">클라우드 진행 기록 초기화</button></div>
       </section>
@@ -2345,11 +2297,11 @@ function renderNotificationPermissionModal() {
     <div class="modal-backdrop notification-permission-backdrop">
       <section class="modal-sheet compact-modal notification-permission-modal" role="dialog" aria-modal="true" aria-labelledby="notification-permission-title" data-modal-panel>
         <div class="notification-permission-symbol" aria-hidden="true"><i data-lucide="bell"></i></div>
-        <span class="eyebrow">ANDROID NOTIFICATION</span>
+        <span class="eyebrow">MOBILE NOTIFICATION</span>
         <h2 id="notification-permission-title">${needsSettings ? '휴대폰 설정에서 알림을 켜주세요.' : '게임 알림을 받아볼까요?'}</h2>
         <p>${needsSettings
           ? '알림 권한이 꺼져 있습니다. 권한을 켜면 앱을 닫아도 모험 완료를 놓치지 않습니다.'
-          : 'Android 알림 권한을 허용하면 앱을 닫아도 모험 완료를 알려드립니다. 야간 알림은 설정에서 따로 끌 수 있습니다.'}</p>
+          : '휴대폰 알림 권한을 허용하면 앱을 닫아도 모험 완료를 알려드립니다. 야간 알림은 설정에서 따로 끌 수 있습니다.'}</p>
         <div class="modal-actions notification-permission-actions">
           <button class="secondary-button" type="button" data-action="dismiss-notification-permission">나중에</button>
           <button class="primary-button" type="button" data-action="${needsSettings ? 'open-notification-settings-from-prompt' : 'request-notification-permission'}">
@@ -2453,6 +2405,9 @@ function renderUpdateGate() {
 
   if (clientPlatform === 'android' && (status === 'available' || status === 'permission-required' || status === 'installing')) {
     action = `<button class="primary-button" type="button" data-action="download-update">${reinstall ? '새 버전 APK 받기' : status === 'permission-required' ? '설치 권한 확인 후 다시 진행' : status === 'installing' ? '설치 화면 다시 열기' : '지금 업데이트'}</button>`;
+  } else if (clientPlatform === 'ios' && status === 'available') {
+    description = `새 버전 ${version}을 App Store에서 설치한 뒤 앱을 다시 열어 주세요. 진행 기록은 그대로 유지됩니다.`;
+    action = '<button class="primary-button" type="button" data-action="download-update">App Store에서 업데이트</button>';
   } else if (status === 'available') {
     title = '새 버전을 자동으로 받고 있어요.';
     description = '다운로드가 끝나면 진행 기록을 저장한 뒤 업데이트가 자동으로 적용됩니다.';
@@ -2515,6 +2470,10 @@ function assignScrollKeys() {
 
 function captureScrollPositions() {
   if (navigationAccountId && navigationAccountId !== ui.auth.account?.id) return;
+  app.querySelectorAll('.view-host details').forEach((element, index) => {
+    const view = element.closest('[data-view]')?.dataset.view;
+    disclosureStates.set(`${view}:${element.className}:${index}`, element.open);
+  });
   app.querySelectorAll('[data-scroll-key]').forEach((element) => {
     scrollPositions.set(element.dataset.scrollKey, {
       top: element.scrollTop,
@@ -2525,6 +2484,10 @@ function captureScrollPositions() {
 
 function restoreScrollPositions() {
   const epoch = authenticationEpoch;
+  app.querySelectorAll('.view-host details').forEach((element, index) => {
+    const key = `${ui.view}:${element.className}:${index}`;
+    if (disclosureStates.has(key)) element.open = disclosureStates.get(key);
+  });
   const apply = () => {
     if (epoch !== authenticationEpoch) return;
     app.querySelectorAll('[data-scroll-key]').forEach((element) => {
@@ -2539,6 +2502,70 @@ function restoreScrollPositions() {
   if (typeof globalThis.requestAnimationFrame === 'function') {
     globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(apply));
   }
+}
+
+function ensureAppRegions() {
+  if (appRegions?.shell.isConnected) return appRegions;
+  app.innerHTML = `<div class="app-shell"><div data-game-content class="persistent-region"></div><div data-popup-host class="persistent-region"></div><div data-raid-popup-host class="persistent-region"></div><div data-coop-popup-host class="persistent-region"></div></div><div data-gate-host class="persistent-region"></div>`;
+  const modal = app.querySelector('[data-popup-host]');
+  const raid = app.querySelector('[data-raid-popup-host]');
+  const cooperative = app.querySelector('[data-coop-popup-host]');
+  appRegions = {
+    shell: app.querySelector('.app-shell'),
+    content: app.querySelector('[data-game-content]'),
+    gates: app.querySelector('[data-gate-host]'),
+    modal: createPersistentPopup(modal),
+    raid: createPersistentPopup(raid),
+    cooperative: createPersistentPopup(cooperative),
+  };
+  return appRegions;
+}
+
+function modalRenderKey(state) {
+  if (!ui.modal) return '';
+  const { cards, focusIndex, flashRarity, ...modal } = ui.modal;
+  let model = null;
+  if (modal.type === 'card') model = {
+    count: state.collection[modal.cardId],
+    enhancement: state.cardEnhancements?.[modal.cardId],
+    progression: state.cardProgression?.[modal.cardId],
+    locked: state.lockedCardIds?.includes(modal.cardId),
+    coins: state.wallet.coins,
+  };
+  if (modal.type === 'settings') model = { settings: state.settings, permission: ui.notificationPermission, update: ui.updateStatus, version: ui.appVersion };
+  if (modal.type === 'admin') model = {
+    authenticated: Boolean(ui.admin.token), loading: ui.admin.loading,
+    sending: ui.admin.sending, error: ui.admin.error,
+    users: ui.admin.users, packages: ui.admin.packages,
+    // Form drafts are already present in the live inputs. Including every
+    // keystroke here would cause the next background poll to rebuild them.
+  };
+  if (modal.type === 'deck-preset') model = { panel: ui.loadoutPanel.preset };
+  if (modal.type === 'pack') model = { packs: state.packs, coins: state.wallet.coins };
+  return JSON.stringify([popupObjectId(ui.modal), modal, model, state.settings.payrollMode]);
+}
+
+function renderPersistentPopups(regions, state) {
+  const restoreFocus = gameplayAvailable();
+  regions.modal.update({ identity: ui.modal?.type || null, key: modalRenderKey(state), render: () => renderModal(state), restoreFocus });
+  const cooperative = ui.raidMode === 'cooperative';
+  const inspector = ui.view === 'raid' ? (cooperative ? ui.cooperative.inspector : ui.raid.inspector) : null;
+  const battle = cooperative ? cooperativeClient.getState().data?.room?.battle : ui.raid.battle;
+  regions.raid.update({
+    identity: inspector && battle ? `raid:${cooperative ? 'cooperative' : 'personal'}` : null,
+    key: inspector && battle ? popupObjectId(inspector) : '',
+    render: () => `<div class="persistent-raid-popup">${cooperative ? renderCooperativeInspector(normalizeRaidBattle(battle), inspector) : renderRaidBattleInspector(normalizeRaidBattle(battle))}</div>`,
+    restoreFocus,
+  });
+  if (inspector && battle) updateRaidInspectorValues(app.querySelector('[data-raid-popup-host]'), normalizeRaidBattle(battle), inspector);
+  const client = cooperativeClient.getState();
+  const match = client.data?.phase === 'ready' ? client.data.match : null;
+  regions.cooperative.update({
+    identity: match ? 'cooperative-ready' : null,
+    key: match ? JSON.stringify([match, client.pending, client.error, state.settings.raidSecretMode, Number(match.expiresAt) <= Date.now() + client.clockOffset]) : '',
+    render: () => renderCooperativeReady({ ...client, secret: state.settings.raidSecretMode, accountId: String(ui.auth.account?.id || ui.auth.account?._id || ''), now: Date.now() + client.clockOffset }),
+    restoreFocus,
+  });
 }
 
 function render() {
@@ -2560,6 +2587,7 @@ function render() {
     ? document.activeElement.dataset.action : '';
   captureScrollPositions();
   if (ui.auth.phase !== 'authenticated' || !store) {
+    appRegions = null;
     ui.renderedView = null;
     app.innerHTML = renderAuthScreen();
     refreshIcons();
@@ -2569,17 +2597,25 @@ function render() {
     return;
   }
   const state = store.getState();
-  app.innerHTML = `
-    <div class="app-shell ${state.settings.payrollMode ? 'payroll-mode' : ''}" data-payroll-mode="${state.settings.payrollMode ? 'true' : 'false'}" ${!gameplayAvailable() ? 'inert aria-hidden="true"' : ''}>
+  const completedPopup = completionPopups.take({ busy: popupBusy(), allowed: gameplayAvailable() });
+  if (completedPopup) ui.modal = completedPopup;
+  const regions = ensureAppRegions();
+  regions.shell.classList.toggle('payroll-mode', Boolean(state.settings.payrollMode));
+  regions.shell.dataset.payrollMode = state.settings.payrollMode ? 'true' : 'false';
+  regions.shell.inert = !gameplayAvailable();
+  if (gameplayAvailable()) regions.shell.removeAttribute('aria-hidden');
+  else regions.shell.setAttribute('aria-hidden', 'true');
+  regions.content.innerHTML = `
       ${renderSidebar(state)}
       <main class="main-shell">
         ${renderTopbar(state)}
         <div class="view-host" data-view="${ui.view}">${renderCurrentView(state)}</div>
       </main>
       ${ui.notice ? `<div class="app-notice app-notice--${ui.notice.tone}">${escapeHtml(ui.notice.message)}</div>` : ''}
-      ${renderModal(state)}
       ${renderCooperativeGlobal()}
-    </div>
+  `;
+  renderPersistentPopups(regions, state);
+  regions.gates.innerHTML = `
     ${showOverlay ? reconnectOverlayMarkup() : renderCloudGate()}
     ${renderUpdateGate()}
   `;
@@ -2602,11 +2638,11 @@ function render() {
   }
   const carousel = app.querySelector('.pack-carousel');
   if (carousel && !previousPackDialog && ui.modal?.type === 'pack') focusPackCarousel(ui.modal.focusIndex, false);
-  if (focusedPackAction || (!previousPackDialog && ui.modal?.type === 'pack')) {
+  if ((focusedPackAction && !document.activeElement?.closest('.pack-carousel-modal')) || (!previousPackDialog && ui.modal?.type === 'pack')) {
     app.querySelector('.pack-focus-primary .primary-button:not(:disabled)')?.focus({ preventScroll: true });
   }
-  if (focusedCoopAction) app.querySelector(`.coop-ready-dialog [data-action="${focusedCoopAction}"]:not(:disabled)`)?.focus({ preventScroll: true });
-  else if (!previousReadyDialog) app.querySelector('.coop-ready-dialog [data-action="coop-accept"]:not(:disabled)')?.focus({ preventScroll: true });
+  if (focusedCoopAction && !document.activeElement?.closest('.coop-ready-dialog')) app.querySelector(`.coop-ready-dialog [data-action="${focusedCoopAction}"]:not(:disabled)`)?.focus({ preventScroll: true });
+  else if (!previousReadyDialog && !ui.modal) app.querySelector('.coop-ready-dialog [data-action="coop-accept"]:not(:disabled)')?.focus({ preventScroll: true });
 }
 
 function rewardText(reward = {}) {
@@ -3074,12 +3110,12 @@ function completeExpeditionIfReady() {
     completion.completedAt,
   );
   store.replace(completion.state);
-  ui.modal = {
+  queueCompletionPopup({
     type: 'result',
     message: `${mission.name} 임무를 무사히 마쳤습니다.`,
     repeatExpedition: true,
     rewardText: `${rewardText({ coins: completion.result.coins, packs: completion.result.packs })}${completion.result.relicBonusCoins ? ` · 명품 가방 보너스 ${formatNumber(completion.result.relicBonusCoins)} 동전 포함` : ''} · 카드당 경험치 ${formatNumber(completion.result.experiencePerCard)}${completion.result.equipment ? ` · ${equipmentEffectText(completion.result.equipment)} 획득` : ''}`,
-  };
+  }, notificationId);
   render();
   return true;
 }
@@ -3199,7 +3235,7 @@ function enterRaidBattle() {
 }
 
 function maybeShowMobileNotificationPermissionPrompt() {
-  if (!store || ui.modal || !gameplayAvailable()) return false;
+  if (!store || popupBusy() || completionPopups.size || !gameplayAvailable()) return false;
   const prompt = mobileNotificationPermissionPrompt({
     platform: clientPlatform,
     authenticated: ui.auth.phase === 'authenticated',
@@ -3215,7 +3251,7 @@ function maybeShowMobileNotificationPermissionPrompt() {
 }
 
 async function prepareMobileNotificationPermissionPrompt({ accountId = '' } = {}) {
-  if (clientPlatform !== 'android' || !store) return false;
+  if (!mobileClient || !store) return false;
   try {
     const permission = await desktopBridge.getGameNotificationPermission();
     const activeAccountId = String(ui.auth.account?.id || ui.auth.account?._id || '');
@@ -3226,7 +3262,7 @@ async function prepareMobileNotificationPermissionPrompt({ accountId = '' } = {}
     return opened;
   } catch (error) {
     ui.notificationPermission = 'unavailable';
-    console.warn('Could not read Android notification permission:', error);
+    console.warn('Could not read mobile notification permission:', error);
     return false;
   }
 }
@@ -3316,7 +3352,9 @@ function performRaidPlayerTurn(type = 'basic', { automatic = false, timedOut = f
     const next = performPlayerAction(before, { type, choice, targetId, galaxyChoice }, Date.now());
     const skill = type === 'skill' ? skillForCard(actor.cardId, actor.enhancement) : null;
     ui.raid.battle = next;
-    ui.raid.inspector = null;
+    // Informational popups survive automatic turns. A turn-bound effect choice
+    // expires with its action, so it cannot apply an old choice to another card.
+    if ((!automatic && !timedOut) || ui.raid.inspector?.type === 'skill-choice') ui.raid.inspector = null;
     ui.raid.animation = getRaidActionFeedback(before, next);
     if (timedOut) ui.raid.animation.message = actor.name + '이(가) 시간 초과로 기본공격을 사용했습니다.';
     else if (automatic) ui.raid.animation.message = '[자동] ' + ui.raid.animation.message;
@@ -3437,13 +3475,13 @@ async function completeRaidBattle({ leave = false } = {}) {
     ui.raid.serverBattle = null;
     ui.raid.inspector = null;
     if (!leave) {
-      ui.modal = {
+      queueCompletionPopup({
         type: 'result',
         message: result.cleared
           ? `${formatNumber(battle.stage)}단계를 클리어했습니다. 이번 도전 점수 ${formatNumber(battle.totalDamage)}점${result.reward?.extraEntries ? ' · 오늘의 입장 기회 +1회' : ''}`
           : `이번 도전에서 ${formatNumber(battle.totalDamage)}점을 획득했습니다.`,
         rewardText: `주간 누적 ${formatNumber(payload.state?.totalContribution ?? payload.state?.contribution ?? battle.totalDamage)}점 · 카드당 경험치 ${formatNumber(experiencePerCard)}${reward.coins || reward.packs || reward.bonuses?.length ? ` · ${rewardText(reward)}` : ''}`,
-      };
+      }, `raid:${battle.sessionId || ui.raid.serverBattle?.sessionId || battle.startedAt}`);
     }
   } catch (error) {
     if (!ownsRequest(request)) return;
@@ -3957,57 +3995,81 @@ async function claimMailboxRewards(mailId = '') {
   }
 }
 
+function captureAdminRequest({ requireToken = true } = {}) {
+  const admin = ui.admin;
+  const epoch = authenticationEpoch;
+  const token = admin.token;
+  let expectedToken = token;
+  const isCurrent = () => ui.admin === admin && authenticationEpoch === epoch
+    && ui.auth.phase === 'authenticated' && (!requireToken || admin.token === expectedToken);
+  return {
+    admin,
+    token,
+    isCurrent,
+    clearToken() { if (isCurrent()) { admin.token = ''; expectedToken = ''; } },
+  };
+}
+
 async function loadAdminUsers() {
-  if (!ui.admin.token) return false;
-  ui.admin.loading = true;
-  ui.admin.error = '';
+  const request = captureAdminRequest();
+  const { admin, token } = request;
+  if (!token) return false;
+  admin.loading = true;
+  admin.error = '';
   render();
   try {
     const [result, catalog] = await Promise.all([
-      loadTcgAdminUsers(ui.admin.token),
-      loadTcgAdminGrantCatalog(ui.admin.token),
+      loadTcgAdminUsers(token),
+      loadTcgAdminGrantCatalog(token),
     ]);
-    ui.admin.users = Array.isArray(result.users) ? result.users : [];
-    ui.admin.packages = Array.isArray(catalog.packages) ? catalog.packages : [];
+    if (!request.isCurrent()) return false;
+    admin.users = Array.isArray(result.users) ? result.users : [];
+    admin.packages = Array.isArray(catalog.packages) ? catalog.packages : [];
     return true;
   } catch (error) {
-    ui.admin.error = error.message || '사용자 목록을 불러오지 못했습니다.';
-    if ([401, 403].includes(Number(error.status))) ui.admin.token = '';
+    if (!request.isCurrent()) return false;
+    admin.error = error.message || '사용자 목록을 불러오지 못했습니다.';
+    if ([401, 403].includes(Number(error.status))) request.clearToken();
     return false;
   } finally {
-    ui.admin.loading = false;
-    render();
+    if (request.isCurrent()) { admin.loading = false; render(); }
   }
 }
 
 async function submitAdminLogin(form) {
+  const request = captureAdminRequest({ requireToken: false });
+  const { admin } = request;
+  if (admin.loading) return;
   const data = new FormData(form);
-  ui.admin.loading = true;
-  ui.admin.error = '';
+  admin.loading = true;
+  admin.error = '';
   render();
   try {
     const result = await loginTcgAdmin(
       String(data.get('username') || '').normalize('NFKC').trim(),
       String(data.get('password') || '').normalize('NFC').trim(),
     );
+    if (!request.isCurrent()) return;
     if (!result?.token) throw new Error('관리자 로그인 응답이 올바르지 않습니다.');
-    ui.admin.token = result.token;
+    admin.token = result.token;
     await loadAdminUsers();
   } catch (error) {
-    ui.admin.token = '';
-    ui.admin.error = error.message || '관리자 로그인에 실패했습니다.';
+    if (!request.isCurrent()) return;
+    admin.token = '';
+    admin.error = error.message || '관리자 로그인에 실패했습니다.';
   } finally {
-    ui.admin.loading = false;
-    render();
+    if (request.isCurrent()) { admin.loading = false; render(); }
   }
 }
 
 async function submitAdminMail(form) {
-  if (!ui.admin.token || ui.admin.sending) return;
+  const request = captureAdminRequest();
+  const { admin, token } = request;
+  if (!token || admin.sending) return;
   const data = new FormData(form);
   const target = String(data.get('target') || 'all');
   const presetId = String(data.get('presetId') || 'custom');
-  const preset = ui.admin.packages.find((entry) => entry.id === presetId);
+  const preset = admin.packages.find((entry) => entry.id === presetId);
   const rewards = adminMailRewards(data, preset);
   const payload = {
     targetMode: target === 'all' ? 'all' : 'single',
@@ -4018,7 +4080,7 @@ async function submitAdminMail(form) {
     rewards,
     expiresInHours: Math.max(1, Math.floor(Number(data.get('expiresInHours')) || 168)),
   };
-  ui.admin.draft = {
+  admin.draft = {
     target,
     presetId,
     title: String(data.get('title') || ''),
@@ -4027,27 +4089,28 @@ async function submitAdminMail(form) {
     expiresInHours: String(data.get('expiresInHours') || '168'),
   };
   const payloadFingerprint = JSON.stringify(payload);
-  const previousRequest = ui.admin.pendingMailRequest;
+  const previousRequest = admin.pendingMailRequest;
   const requestId = previousRequest?.fingerprint === payloadFingerprint
     ? previousRequest.requestId
     : (globalThis.crypto?.randomUUID?.() || `mail-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   // Keep the id while a send is in flight or failed. If the same form is
   // retried after a timeout, the server can safely return the first result
   // instead of creating a second copy of the mail.
-  ui.admin.pendingMailRequest = { fingerprint: payloadFingerprint, requestId };
-  ui.admin.sending = true;
-  ui.admin.error = '';
+  admin.pendingMailRequest = { fingerprint: payloadFingerprint, requestId };
+  admin.sending = true;
+  admin.error = '';
   render();
   try {
-    const result = await sendTcgAdminMail(ui.admin.token, { ...payload, requestId });
-    ui.admin.pendingMailRequest = null;
+    const result = await sendTcgAdminMail(token, { ...payload, requestId });
+    if (!request.isCurrent()) return;
+    admin.pendingMailRequest = null;
     showNotice(`${formatNumber(result.newlyDeliveredCount)}명에게 우편을 발송했습니다.`, 'success');
   } catch (error) {
-    ui.admin.error = error.message || '우편을 발송하지 못했습니다.';
-    if ([401, 403].includes(Number(error.status))) ui.admin.token = '';
+    if (!request.isCurrent()) return;
+    admin.error = error.message || '우편을 발송하지 못했습니다.';
+    if ([401, 403].includes(Number(error.status))) request.clearToken();
   } finally {
-    ui.admin.sending = false;
-    render();
+    if (request.isCurrent()) { admin.sending = false; render(); }
   }
 }
 
@@ -4067,9 +4130,7 @@ async function finishCloudActivation(epoch = authenticationEpoch, activeCloud = 
   }
   // Expeditions use an absolute end timestamp, so an overdue run is settled
   // immediately after the authoritative cloud record is restored.
-  const previousModal = ui.modal;
   if (!completeExpeditionIfReady()) render();
-  if (previousModal) { ui.modal = previousModal; render(); }
   await syncMobileGameNotifications();
   if (!currentSession()) return;
   maybeShowMobileNotificationPermissionPrompt();
@@ -4091,6 +4152,7 @@ async function finishCloudActivation(epoch = authenticationEpoch, activeCloud = 
 async function activateAuthenticatedSession(session, { newAccount = false } = {}) {
   const account = session.account;
   const epoch = ++authenticationEpoch;
+  completionPopups.clear();
   settleConnectionWaiters();
   reconnect?.cancel();
   reconnect = null;
@@ -4222,6 +4284,7 @@ async function activateAuthenticatedSession(session, { newAccount = false } = {}
 }
 
 function expireAuthentication() {
+  completionPopups.clear();
   captureScrollPositions();
   persistNavigation();
   authenticationEpoch += 1;
@@ -4247,6 +4310,7 @@ function expireAuthentication() {
   cooperativeClient.reset();
   navigationAccountId = '';
   scrollPositions.clear();
+  disclosureStates.clear();
   render();
 }
 
@@ -4354,6 +4418,7 @@ async function logout() {
   store = null;
   navigationAccountId = '';
   scrollPositions.clear();
+  disclosureStates.clear();
   ui.auth.phase = 'signedOut';
   ui.auth.mode = 'login';
   ui.auth.pending = false;
@@ -4372,6 +4437,7 @@ async function logout() {
   };
   resetAuthAvailability();
   ui.modal = null;
+  completionPopups.clear();
   ui.cloud = { phase: 'idle', message: '', code: '', activePlatform: '', generation: 0 };
   render();
   return true;
@@ -4448,6 +4514,25 @@ async function downloadAndroidUpdate() {
   if (updateInstallPromise) return updateInstallPromise;
   const downloadUrl = ui.updateStatus?.downloadUrl;
   if (!downloadUrl) return false;
+  if (clientPlatform === 'ios') {
+    // Apple installs iPhone updates; preserve the local outbox and keep the
+    // current update state instead of entering the APK saving/install flow.
+    updateInstallPromise = (async () => {
+      try {
+        const appleUrl = trustedIosDistributionUrl(downloadUrl);
+        if (!appleUrl) throw new Error('Apple 업데이트 주소를 확인하지 못했습니다.');
+        flushLocalGameCache();
+        const opened = await desktopBridge.openExternal(appleUrl);
+        if (!opened) throw new Error('Apple 업데이트 화면을 열지 못했습니다.');
+        return true;
+      } catch (error) {
+        ui.updateStatus = { ...ui.updateStatus, message: error.message };
+        showNotice(error.message, 'warning');
+        return false;
+      }
+    })().finally(() => { updateInstallPromise = null; });
+    return updateInstallPromise;
+  }
   updateInstallPromise = (async () => {
     let releasedCloudSession = false;
     try {
@@ -4592,6 +4677,13 @@ app.addEventListener('click', async (event) => {
     await resolveCloudSaveConflict('server');
   } else if (action === 'download-update') {
     await downloadAndroidUpdate();
+  } else if (action === 'open-weekly-ranking') {
+    ui.view = 'raid';
+    ui.raidMode = 'personal';
+    ui.raidPanel = 'ranking';
+    ui.modal = null;
+    render();
+    void refreshPersonalRaid({ silent: true });
   } else if (action === 'navigate') {
     ui.view = button.dataset.view;
     ui.modal = null;
@@ -4858,6 +4950,7 @@ app.addEventListener('click', async (event) => {
     ui.modal = { type: 'settings' };
     render();
   } else if (action === 'open-donation') {
+    if (clientPlatform === 'ios') return;
     ui.modal = { type: 'donation' };
     render();
   } else if (action === 'open-admin') {
@@ -4875,7 +4968,7 @@ app.addEventListener('click', async (event) => {
   } else if (action === 'toggle-notifications') {
     const notificationKind = desktopBridge.isDesktop ? '데스크톱 팝업' : '모바일';
     let enabled = button.checked;
-    if (clientPlatform === 'android' && enabled) {
+    if (mobileClient && enabled) {
       const permission = await desktopBridge.requestGameNotificationPermission().catch(() => ({ display: 'unavailable', granted: false }));
       ui.notificationPermission = String(permission?.display || 'unavailable');
       enabled = permission?.granted === true;
@@ -4883,11 +4976,11 @@ app.addEventListener('click', async (event) => {
     store.update((draft) => {
       draft.settings.expeditionNotifications = enabled;
     });
-    if (clientPlatform === 'android') await syncMobileGameNotifications();
+    if (mobileClient) await syncMobileGameNotifications();
     showNotice(
       enabled
         ? `${notificationKind} 알림을 켰습니다.`
-        : (button.checked && clientPlatform === 'android'
+        : (button.checked && mobileClient
           ? '휴대폰 알림 권한이 필요합니다. 설정에서 권한을 허용해 주세요.'
           : `${notificationKind} 모험 완료 알림을 껐습니다.`),
       enabled || !button.checked ? 'success' : 'warning',
@@ -5012,6 +5105,7 @@ app.addEventListener('change', (event) => {
     Object.assign(ui.admin.draft, Object.fromEntries(Object.entries(adminMailRewards(new FormData(), preset))
       .map(([key, amount]) => [key, String(amount)])));
     if (preset && !String(ui.admin.draft.title || '').trim()) ui.admin.draft.title = preset.name;
+    if (ui.modal?.type === 'admin') ui.modal.revision = (ui.modal.revision || 0) + 1;
     render({ preserveViewScroll: true });
   }
 });
@@ -5104,8 +5198,8 @@ function handleAppForeground(isActive) {
       };
       render();
     }
-    window.setTimeout(() => { void checkForAppUpdates(); }, 750);
   }
+  if (mobileClient) window.setTimeout(() => { void checkForAppUpdates(); }, 750);
 }
 desktopBridge.onAppStateChange(handleAppForeground);
 document.addEventListener('visibilitychange', () => handleAppForeground(document.visibilityState !== 'hidden'));
@@ -5160,7 +5254,7 @@ appVersionPromise = desktopBridge.getVersion()
     render();
     return ui.appVersion;
   });
-if (clientPlatform === 'android') {
+if (mobileClient) {
   void Promise.allSettled([appVersionPromise, authenticationRestorePromise])
     .then(() => checkForAppUpdates());
 }

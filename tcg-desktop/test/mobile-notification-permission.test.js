@@ -39,11 +39,21 @@ test('the permission prompt only appears once per app session', () => {
   assert.equal(mobileNotificationPermissionPrompt({ ...eligible, alreadyShown: true }), null);
 });
 
-test('the permission prompt never interrupts signed-out, non-Android, or already granted play', () => {
+test('the permission prompt never interrupts signed-out, desktop, or already granted play', () => {
   assert.equal(mobileNotificationPermissionPrompt({ ...eligible, authenticated: false }), null);
   assert.equal(mobileNotificationPermissionPrompt({ ...eligible, platform: 'pc' }), null);
   assert.equal(mobileNotificationPermissionPrompt({ ...eligible, permissionDisplay: 'granted' }), null);
   assert.equal(mobileNotificationPermissionPrompt({ ...eligible, permissionDisplay: 'unavailable' }), null);
+});
+
+test('iOS uses the same permission and denial recovery flow without requiring the active lease', () => {
+  assert.deepEqual(mobileNotificationPermissionPrompt({ ...eligible, platform: 'ios', cloudActive: false }), {
+    action: 'request', display: 'prompt',
+  });
+  assert.deepEqual(mobileNotificationPermissionPrompt({ ...eligible, platform: 'ios', permissionDisplay: 'denied' }), {
+    action: 'settings', display: 'denied',
+  });
+  assert.equal(mobileNotificationPermissionPrompt({ ...eligible, platform: 'ios', permissionDisplay: 'granted' }), null);
 });
 
 test('Android permission does not wait for the cross-device cloud lease', () => {

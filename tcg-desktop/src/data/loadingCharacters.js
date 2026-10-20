@@ -30,7 +30,7 @@ export const LOADING_CHARACTERS = Object.freeze(CHARACTER_IDS.map((id) => {
     id,
     name: card?.characterName || card?.name || id,
     // Relative paths also work in packaged Electron file:// and Capacitor apps.
-    sprite: `./assets/loading/${id}-walk.png`,
+    sprite: `./assets/loading/${id}-walk.webp`,
     geometry: LOADING_SPRITE_GEOMETRY[id] || null,
   });
 }));

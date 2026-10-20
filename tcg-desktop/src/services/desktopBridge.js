@@ -4,6 +4,7 @@ import {
   isTrustedAndroidReleaseAssetUrl,
 } from './androidUpdateGateway.js';
 import { withDeadline } from '../core/promiseDeadline.js';
+import { checkIosRelease } from './iosUpdateGateway.js';
 
 const mobileUpdateListeners = new Set();
 const gameNotificationOpenListeners = new Set();
@@ -96,7 +97,7 @@ async function capacitorAndroidUpdater() {
 }
 
 async function capacitorGameNotifications() {
-  if (platform !== 'android') return null;
+  if (platform !== 'android' && platform !== 'ios') return null;
   if (gameNotifications) return gameNotifications;
   try {
     const { registerPlugin } = await import('@capacitor/core');
@@ -108,7 +109,7 @@ async function capacitorGameNotifications() {
 }
 
 async function ensureGameNotificationListener() {
-  if (platform !== 'android') return null;
+  if (platform !== 'android' && platform !== 'ios') return null;
   if (!gameNotificationListenerPromise) {
     gameNotificationListenerPromise = (async () => {
       const plugin = await capacitorGameNotifications();
@@ -177,7 +178,7 @@ export const desktopBridge = {
     return () => mobileUpdateListeners.delete(handler);
   },
   async getGameNotificationPermission() {
-    const unsupported = { display: platform === 'android' ? 'unavailable' : 'unsupported', granted: false };
+    const unsupported = { display: ['android', 'ios'].includes(platform) ? 'unavailable' : 'unsupported', granted: false };
     return readGameNotificationPermissionWithFallback(async () => {
       const plugin = await capacitorGameNotifications();
       if (!plugin) return unsupported;
@@ -232,7 +233,7 @@ export const desktopBridge = {
     return result?.notification?.type === 'expedition' ? result.notification : null;
   },
   onGameNotificationOpened(handler) {
-    if (platform !== 'android') return () => {};
+    if (platform !== 'android' && platform !== 'ios') return () => {};
     gameNotificationOpenListeners.add(handler);
     void ensureGameNotificationListener();
     return () => gameNotificationOpenListeners.delete(handler);
@@ -241,6 +242,13 @@ export const desktopBridge = {
     if (desktop?.checkForUpdates) return desktop.checkForUpdates();
     if (platform === 'android') {
       return checkAndroidRelease({ currentVersion: await this.getVersion() });
+    }
+    if (platform === 'ios') {
+      return checkIosRelease({
+        currentVersion: await this.getVersion(),
+        appStoreId: import.meta.env?.VITE_TCG_IOS_APP_STORE_ID,
+        testFlightUrl: import.meta.env?.VITE_TCG_IOS_TESTFLIGHT_URL,
+      });
     }
     return { status: 'web-preview' };
   },

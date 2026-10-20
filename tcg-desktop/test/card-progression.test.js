@@ -48,9 +48,18 @@ test('level requirements rise through level 100', () => {
 test('roles apply their requested attack and HP growth exactly', () => {
   const level = 11;
   assert.equal(cardMaxHpAtLevel('winter-ur', { 'winter-ur': { level, experience: 0 } }), BASE_CARD_HP + 10);
-  assert.equal(cardCombatPowerAtLevel(1000, 'mango-c', { 'mango-c': { level, experience: 0 } }), 1020);
+  assert.equal(cardCombatPowerAtLevel(1000, 'mango-c', { 'mango-c': { level, experience: 0 } }), 1080);
   assert.equal(cardMaxHpAtLevel('meongpeu-c', { 'meongpeu-c': { level, experience: 0 } }), BASE_CARD_HP + 5);
   assert.equal(cardCombatPowerAtLevel(1000, 'meongpeu-c', { 'meongpeu-c': { level, experience: 0 } }), 1010);
+});
+
+test('existing attack cards gain the new eight attack per level without rewriting saved progress', () => {
+  const saved = { 'mango-c': { level: 100, experience: 0 }, 'winter-ur': { level: 25, experience: 12 } };
+  const before = structuredClone(saved);
+  assert.equal(cardCombatPowerAtLevel(3000, 'mango-c', saved), 3792);
+  assert.equal(cardCombatPowerAtLevel(3000, 'winter-ur', saved), 3000);
+  assert.equal(cardMaxHpAtLevel('winter-ur', saved), 124);
+  assert.deepEqual(saved, before);
 });
 
 test('save hydration migrates every owned card to level 1 and repairs invalid progress', () => {
@@ -161,6 +170,6 @@ test('level attack growth contributes to expedition squad power', () => {
     catalog: ALL_CARDS,
     now: 1000,
   });
-  assert.equal(expedition.score, card.combatPower + 20);
+  assert.equal(expedition.score, card.combatPower + 80);
   assert.equal(expedition.cardLevels[card.id], 11);
 });

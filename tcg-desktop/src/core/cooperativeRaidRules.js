@@ -110,7 +110,7 @@ export function createCooperativeBoss(value) {
     },
   ];
   return {
-    id: 'coop-tetra', name: '사중공명체 테트라', image: './assets/bosses/coop-tetra.png',
+    id: 'coop-tetra', name: '사중공명체 테트라', image: './assets/bosses/coop-tetra.webp',
     stage: Math.ceil(stageSum / 4), stageSum, maxHp: difficulty.maxHp,
     baseDamage: difficulty.baseDamage, skills: skills.slice(0, difficulty.skillCount),
   };
@@ -127,6 +127,8 @@ function weightedChoice(weights, random) {
 }
 
 /** Roll once per player on the server, then persist before showing results. */
+export const COOPERATIVE_SSR_TICKET_CHANCE = 0.005;
+
 export function rollCooperativeRewards(value, {
   random = secureRandom, cardPools = {}, equipmentFactory = createEquipment,
   relicIds = ['luxury-bag'], victory = true,
@@ -155,5 +157,7 @@ export function rollCooperativeRewards(value, {
     const item = equipmentFactory({ type: unit(random) < 0.5 ? 'armor' : 'weapon', rarity, random });
     if (item) rewards.equipment.push({ ...item, source: { type: 'cooperative-raid', missionId: 'coop-tetra' } });
   }
+  // Independent of stage, other loot, and the guaranteed SR+ card roll.
+  if (unit(random) < COOPERATIVE_SSR_TICKET_CHANCE) rewards.ssrTickets = 1;
   return rewards;
 }

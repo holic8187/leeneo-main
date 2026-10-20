@@ -5,7 +5,7 @@ export const RELIC_CATALOG = Object.freeze([
     id: 'luxury-bag',
     name: '명품 가방',
     description: '누군가가 극도로 싫어하는 가방입니다. 들리는 소문으로는 그 사람이 누군가에게 속아 비싸게 구매한 가방이라는 소문이 있습니다...',
-    image: './assets/relics/luxury-bag.png',
+    image: './assets/relics/luxury-bag.webp',
     effect: Object.freeze({
       type: 'expedition-coin-multiplier',
       percent: 5,
