@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "startsWithWeek": "2026-10-19",
+  "firstSettlementAt": "2026-10-26T00:00:00+09:00",
+  "claimWithinDays": 30,
+  "bands": [
+    { "minRank": 1, "maxRank": 2, "rewards": { "srPremiumPacks": 5 } },
+    { "minRank": 3, "maxRank": 4, "rewards": { "srPremiumPacks": 4 } },
+    { "minRank": 5, "maxRank": 6, "rewards": { "srPremiumPacks": 3 } },
+    { "minRank": 7, "maxRank": 8, "rewards": { "srPremiumPacks": 2 } },
+    { "minRank": 9, "maxRank": 10, "rewards": { "srPremiumPacks": 1 } },
+    { "minRank": 11, "maxRank": 30, "rewards": { "premiumPacks": 3, "coins": 6000 } },
+    { "minRank": 31, "maxRank": 100, "rewards": { "premiumPacks": 2, "coins": 3000 } },
+    { "minRank": 101, "maxRank": null, "rewards": { "standardPacks": 2, "coins": 1000 } }
+  ]
+}

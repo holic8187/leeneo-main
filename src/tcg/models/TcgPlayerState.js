@@ -23,6 +23,7 @@ const mailboxRewardSchema = new mongoose.Schema({
   coins: { type: Number, default: 0, min: 0 },
   standardPacks: { type: Number, default: 0, min: 0 },
   premiumPacks: { type: Number, default: 0, min: 0 },
+  srPremiumPacks: { type: Number, default: 0, min: 0 },
   ssrTickets: { type: Number, default: 0, min: 0 }
 }, {
   _id: false,
@@ -57,6 +58,7 @@ const tcgPlayerStateSchema = new mongoose.Schema({
   // Server-owned receipt ledger: never accepted through the client save blob.
   // A receipt and its inventory mutation are committed in the same document.
   cooperativeRewardClaims: { type: [String], default: [] },
+  weeklyRaidRewardReceipts: { type: [String], default: [] },
   activeLease: {
     type: activeLeaseSchema,
     default: () => ({

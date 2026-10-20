@@ -235,10 +235,12 @@ test('reward inventory and server-owned receipt commit atomically; retries canno
   const status = (await h.call('state', 0)).cooperative.room;
   const owner = Number(status.activeAccountId.split('-').at(-1));
   await h.call('action', owner, { roomId: room.id, expectedRevision: status.revision, actionId: 'victory-action', action: 'basic' });
+  h.data().rooms.find((entry) => entry.id === room.id).rewards['account-0'].ssrTickets = 1;
   const [one, two] = await Promise.all([h.call('claim', 0, { roomId: room.id, baseRevision: 0 }), h.call('claim', 0, { roomId: room.id, baseRevision: 0 })]);
   assert.equal(one.snapshot.state.wallet.coins, 12000); assert.equal(two.snapshot.state.wallet.coins, 12000);
   assert.equal(one.snapshot.state.collection['winter-sr'], 1); assert.equal(one.snapshot.state.relicInventory['luxury-bag'], 1);
   assert.equal(one.snapshot.state.packs.standard, 6);
+  assert.equal(one.snapshot.state.packs.ssrTicket, 1); assert.equal(two.snapshot.state.packs.ssrTicket, 1);
   const saved = h.deps.TcgPlayerState.records[0];
   assert.deepEqual(saved.cooperativeRewardClaims, [room.id]); assert.equal(saved.revision, 1);
   const selectedCardId = room.participants.find((p) => p.accountId === 'account-0').cardId;
@@ -250,6 +252,7 @@ test('reward inventory and server-owned receipt commit atomically; retries canno
   h.restart(); await h.call('claim', 0, { roomId: room.id, baseRevision: 0 });
   assert.equal(saved.state.wallet.coins, 12000); assert.equal((await h.call('state', 0)).cooperative.phase, 'idle');
   assert.deepEqual(saved.state.cardProgression[selectedCardId], progressionAfter);
+  assert.equal(saved.state.packs.ssrTicket, 1);
   assert.equal((await h.call('state', 1)).cooperative.phase, 'finished');
   await assert.rejects(h.call('queue', 1, { cards: h.cards() }), { code: 'COOP_REWARD_PENDING' });
 });

@@ -1,3 +1,5 @@
+import { currentRaidSnapshotImage, normalizeRaidSnapshotImages } from './raidSnapshotImages.js';
+
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, Number(value) || 0));
 
 export const RAID_TURN_SECONDS = 20;
@@ -53,6 +55,17 @@ export const EFFECT_PRESENTATION = Object.freeze({
   'golden-delivery': { icon: 'package', label: '황금 배송 특급', tone: 'buff', description: '아군 직접 공격 뒤 적 보호막을 제거하고 시전자 전력으로 추가 피해를 줍니다. 시전자가 쓰러져도 유지되며 숫자는 남은 배송 횟수입니다.' },
   'royal-reprieve': { icon: 'crown', label: '왕의 유예령', tone: 'buff', description: '피격 후 생존한 대상의 HP가 35% 이하이면 회복하고 약화 효과 1개를 정화합니다. 대상마다 한 번 발동하며 부활시키지 않습니다.' },
   'rest-contract': { icon: 'shield', label: '휴식 보장 협약', tone: 'buff', description: '보스 행동당 각 아군의 직접 피해 총량을 제한합니다. 광역·다단 공격 모두 적용되며 지속 피해와 대신 받는 피해는 제외됩니다.' },
+  'scarlet-exchange': { icon: 'scroll-text', label: '주홍 부적 환전', tone: 'buff', description: '새 약화 효과를 막을 때마다 보호막과 보스 브레이크 피해로 바꿉니다. 숫자는 대상에게 남은 부적 수입니다.' },
+  'karma-ledger': { icon: 'book-open', label: '윤회 화인의 장부', tone: 'buff', description: '보스 직접 공격 3회 동안 실제로 잃은 아군 HP를 저장한 뒤, 다음 아군 행동 직후 추가 공격과 전체 회복을 발동합니다. 막힌 피해와 지속 피해는 저장하지 않습니다.' },
+  'moon-double': { icon: 'copy', label: '달그림자 대역', tone: 'buff', description: '시전 시 HP 비율이 가장 낮은 생존 아군을 보호합니다. 명중한 직접 공격의 피해를 한 번 막고 다음 아군 행동 뒤 추가 공격합니다. 약화 효과를 막지는 않습니다. 숫자는 남은 대역 수입니다.' },
+  'shadow-retaliation': { icon: 'moon', label: '달그림자 추격 대기', tone: 'buff', description: '다음 아군 행동이 끝나면 사라진 대역이 보스에게 추격 피해와 브레이크 피해를 줍니다.' },
+  'moon-usurp': { icon: 'crown', label: '월식 왕관 약탈', tone: 'buff', description: '보스 행동 후 남아 있는 강화 효과를 빼앗아 아군 피해 증가와 브레이크로 바꿉니다. 빼앗을 강화가 없으면 횟수를 쓰지 않습니다.' },
+  'cushion-relay': { icon: 'arrow-right-left', label: '별구름 쿠션 릴레이', tone: 'buff', description: '보호막이 흡수한 직접 피해 일부가 다음 순서의 생존 아군 보호막이 됩니다. 전달 자체는 다시 발동하지 않습니다.' },
+  'cushion-vault': { icon: 'vault', label: '모두의 쿠션 금고', tone: 'buff', description: '피격 대상의 보호막이 부족하면 다른 생존 아군의 보호막을 필요한 만큼 가져와 막습니다. 가져온 만큼 원래 아군의 보호막은 줄어듭니다.' },
+  'crossfade-beat': { icon: 'audio-lines', label: '엇박자 크로스페이드', tone: 'buff', description: '기본 공격과 스킬을 번갈아 쓰면 추가 공격과 가장 약한 아군 회복이 발동합니다. 시전 행동은 제외하며 숫자는 남은 기록 횟수입니다.' },
+  'backbeat-rewind': { icon: 'rewind', label: '백비트 역재생', tone: 'buff', description: '스킬 직후 기록한 HP보다 낮은 경우 처음 한 번, 기록된 HP로 되돌리고 보호막을 얻습니다. HP가 유지되면 횟수를 쓰지 않습니다. 부활시키지 않습니다.' },
+  'blossom-letter': { icon: 'flower-2', label: '내일 피는 꽃편지', tone: 'buff', description: '자신의 행동 시작에 HP가 60% 이하이면 회복하고 보호막을 얻습니다. 그보다 높으면 회복량이 자랍니다. 최대 3회 성장합니다.' },
+  'spring-link': { icon: 'heart-handshake', label: '연결된 봄의 맥박', tone: 'buff', description: '보스 직접 공격 행동이 끝나면 생존 아군 HP 총량을 최대 HP 비율로 재분배하고 회복합니다. 부활시키지 않으며 숫자는 남은 재분배 횟수입니다.' },
   'tiger-seal': { icon: 'ban', label: '백호야행 봉인진', tone: 'debuff', description: '서로 다른 아군 3명이 공격하면 큰 피해가 발동합니다.' },
   'attack-down': { icon: 'shield-minus', label: '공격력 감소', tone: 'debuff', description: '주는 공격 피해가 감소합니다.' },
   'damage-down': { icon: 'shield-minus', label: '주는 피해 감소', tone: 'debuff', description: '보스에게 주는 피해가 감소합니다.' },
@@ -78,6 +91,14 @@ export function effectPresentation(effect = {}) {
   const tone = effect.tone === 'debuff' || effect.kind === 'debuff' || effect.negative === true ? 'debuff' : 'buff';
   const liveDescription = id === 'prism-torrent'
     ? `${known.description} 현재 ${Array.isArray(effect.contributors) ? effect.contributors.length : 0}/3명 · 저장 피해 ${Math.max(0, Math.round(Number(effect.storedDamage) || 0)).toLocaleString('ko-KR')}.`
+    : id === 'karma-ledger'
+      ? `${known.description} 저장 HP 피해 ${Math.round(Number(effect.storedDamage) || 0)} · ${effect.ready ? '다음 아군 행동 후 발동' : `공격 ${effect.charges}회 남음`}.`
+    : id === 'backbeat-rewind'
+      ? `${known.description} 기록 HP ${Math.round(Number(effect.recordedHp) || 0)}.`
+    : id === 'blossom-letter'
+      ? `${known.description} 성장 ${Number(effect.growthCount) || 0}/3 · 회복 ${Number(effect.value) + Number(effect.growth) * (Number(effect.growthCount) || 0)}%.`
+    : id === 'crossfade-beat'
+      ? `${known.description} 직전 기록: ${effect.previous === 'skill' ? '스킬' : effect.previous === 'basic' ? '기본 공격' : '없음'}.`
     : id === 'sand-citadel'
       ? `${known.description} 저장 피해 ${Math.max(0,Math.round(Number(effect.storedDamage)||0)).toLocaleString('ko-KR')}.`
     : id === 'prism-carapace'
@@ -142,6 +163,7 @@ function normalizeActor(value) {
 }
 
 export function normalizeRaidBattle(value = {}) {
+  value = normalizeRaidSnapshotImages(value);
   const rawBoss = value.boss || value.enemy || {};
   const rawSquad = value.squad || value.cards || value.allies || [];
   const bossMaxHp = Math.max(1, Number(rawBoss.maxHp ?? value.bossMaxHp) || 1);
@@ -154,6 +176,7 @@ export function normalizeRaidBattle(value = {}) {
   const boss = {
     ...rawBoss,
     id: String(rawBoss.id || value.bossId || 'deadline-dragon-raid'),
+    image: currentRaidSnapshotImage({ ...rawBoss, id: rawBoss.id || value.bossId || '' }),
     name: String(rawBoss.name || value.bossName || '마감기한 드래곤'),
     hp: clamp(rawBoss.hp ?? value.bossHp, 0, bossMaxHp),
     maxHp: bossMaxHp,
@@ -296,7 +319,7 @@ export function getRaidActionFeedback(before = {}, after = {}) {
     damageAmount: recentLogs.filter(entry => ['damage', 'counter'].includes(entry.type) && entry.targetId === bossId).reduce((sum, entry) => sum + (Number(entry.amount) || 0), 0),
     breakAmount: recentLogs.filter(entry => entry.type === 'break').reduce((sum, entry) => sum + (Number(entry.amount) || 0), 0),
     message: action?.message || recentLogs.at(-1)?.message || '',
-    skillCutIn: action && ['follow-up', 'skill'].includes(action.type) && member ? { image: member.image, name: action.name || action.message, cardId: member.cardId } : null,
+    skillCutIn: action && ['follow-up', 'skill'].includes(action.type) && member ? { image: currentRaidSnapshotImage(member), name: action.name || action.message, cardId: member.cardId || member.id } : null,
     recentLogs,
     iceSpires: raidIceSpires(after, recentLogs),
   };

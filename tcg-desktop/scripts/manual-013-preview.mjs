@@ -11,10 +11,10 @@ const root = resolve(fileURLToPath(new URL('../dist', import.meta.url)));
 const account = { id: 'local-manual-qa', username: 'local_qa', nickname: '로컬 미리보기' };
 const state = createDefaultState(); state.profile.displayName = account.nickname;
 for (const id of ['winter-ur','hoi-ur','morae-ssr','coca-ssr','winter-c','hoi-c','chuming-ssr','nanche-ssr']) state.collection[id] = 3;
-state.wallet.coins = 300000; state.packs = {standard:20,premium:12,ssrTicket:3};
+state.wallet.coins = 300000; state.packs = {standard:20,premium:12,srPremium:10,ssrTicket:3};
 state.discoveredCardIds=Object.keys(state.collection);
 const qaCards=['winter-ur','coca-ssr','hoi-ur','chuming-ssr'].map((id,index)=>({...cardById(id),cardId:id,attack:5000,instanceId:'qa-'+index}));
-let qaBattle = startRaidBattle(createRaidBattle({cards:qaCards,boss:{id:'coop-tetra',name:'사중공명체 테트라',image:'./assets/bosses/coop-tetra.png',hp:10000000,maxHp:10000000,baseDamage:10},seed:14}));
+let qaBattle = startRaidBattle(createRaidBattle({cards:qaCards,boss:{id:'coop-tetra',name:'사중공명체 테트라',image:'./assets/bosses/coop-tetra.webp',hp:10000000,maxHp:10000000,baseDamage:10},seed:14}));
 let qaRoom=null;
 let qaRevision=1;
 let qaAutomaticAt=0;
@@ -59,6 +59,7 @@ const fixture = `<script>
     return new Response(JSON.stringify(payload), {status,headers:{'Content-Type':'application/json'}});
   };
   document.addEventListener('DOMContentLoaded', () => {
+    if (new URLSearchParams(location.search).get('qa') === 'hide') return;
     const controls = document.createElement('aside'); controls.id='manual-qa-controls';
     controls.style.cssText='position:fixed;right:8px;top:8px;z-index:9000;background:#fff;border:1px solid #777;border-radius:8px;padding:6px;display:flex;gap:4px;font:12px sans-serif;max-width:96vw;flex-wrap:wrap';
     controls.innerHTML='<strong>로컬 QA</strong><button data-mode="ok">연결 복구</button><button data-mode="down">연결 끊기</button><button data-mode="expired">로그인 만료</button><button data-reload>앱 다시 열기</button><button data-reset>처음부터</button>';
@@ -80,7 +81,7 @@ const server = createServer(async (request, response) => {
     if(pathname.startsWith('/fixture/api/tcg/raids/cooperative/')) {
       let input=''; for await(const chunk of request) input+=chunk; const body=input ? JSON.parse(input) : {};
       const command=pathname.split('/').at(-1);
-      if(command==='queue') {qaBattle=startRaidBattle(createRaidBattle({cards:qaCards,boss:{id:'coop-tetra',name:'사중공명체 테트라',image:'./assets/bosses/coop-tetra.png',hp:10000000,maxHp:10000000,baseDamage:10},seed:14}));qaRoom={id:'qa-room',stageSum:16,participants:qaCards.map((card,index)=>({accountId:account.id,instanceId:card.instanceId,cardId:card.cardId,nickname:['나','테스터2','테스터3','테스터4'][index]}))};qaRevision++;}
+      if(command==='queue') {qaBattle=startRaidBattle(createRaidBattle({cards:qaCards,boss:{id:'coop-tetra',name:'사중공명체 테트라',image:'./assets/bosses/coop-tetra.webp',hp:10000000,maxHp:10000000,baseDamage:10},seed:14}));qaRoom={id:'qa-room',stageSum:16,participants:qaCards.map((card,index)=>({accountId:account.id,instanceId:card.instanceId,cardId:card.cardId,nickname:['나','테스터2','테스터3','테스터4'][index]}))};qaRevision++;}
       if(command==='action' && qaBattle.currentActor==='card') {qaBattle=performPlayerAction(qaBattle,{...body,type:body.action});qaRevision++;qaAutomaticAt=Date.now()+1500;}
       if(qaRoom && Date.now()>=qaAutomaticAt && ['boss','follow-up'].includes(qaBattle.currentActor) && qaBattle.status==='active') {qaBattle=qaBattle.currentActor==='boss' ? performBossAction(qaBattle) : performFollowUpAction(qaBattle);qaRevision++;qaAutomaticAt=Date.now()+1500;}
       response.writeHead(200,{'Content-Type':'application/json'}).end(JSON.stringify({cooperative:qaCooperative()}));return;

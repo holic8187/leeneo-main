@@ -38,6 +38,8 @@ function normalizeRanking(value) {
     resetRule: String(value?.resetRule || ''),
     resetsAt: Number(value?.resetsAt) || 0,
     serverNow: Number(value?.serverNow) || 0,
+    rewardPolicy: value?.rewardPolicy || null,
+    myProjectedRewards: value?.myProjectedRewards || null,
     entries,
     myRank: value?.myRank == null ? null : Math.max(1, Number(value.myRank) || 1),
   };

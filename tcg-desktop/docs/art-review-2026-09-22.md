@@ -16,7 +16,7 @@
 | 구마 C | 중복된 측면 여우 귀 제거 | `public/assets/cards/guma-c.png` |
 | 쓰비 C / U | 양끝 붓촉을 한쪽 붓촉·반대쪽 목재 손잡이로 정리 | `public/assets/cards/sseubi-{c,u}.png` |
 | 상해 U / R / RR | 칼날과 보조 손을 명확히 분리, 연결된 손목과 자연스러운 주먹으로 수정 | `public/assets/cards/shanghai-{u,r,rr}.png` |
-| 명품 가방 | 손잡이 양 끝의 금속 연결부를 같은 구조로 정돈 | `public/assets/relics/luxury-bag.png` |
+| 명품 가방 | 손잡이 양 끝의 금속 연결부를 같은 구조로 정돈 | `public/assets/relics/luxury-bag.webp` |
 
 기존 WebP 원본은 복구용으로 유지하고 카탈로그만 새 PNG를 가리키게 했다. 카드 ID·등급·전투력·획득 기록은 바꾸지 않았다. 교정본은 각각 다시 열어 목표 수정과 캐릭터 정체성 보존을 확인했다.
 

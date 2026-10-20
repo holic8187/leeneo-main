@@ -145,6 +145,7 @@ jobs:
           mkdir -p "$output"
           cp android/app/build/outputs/apk/release/app-release.apk "$output/Hoi-Card-Desk-$APP_VERSION-android-release.apk"
           cp android/app/build/outputs/bundle/release/app-release.aab "$output/Hoi-Card-Desk-$APP_VERSION-android-release.aab"
+          node scripts/verify-android-size.mjs "$output/Hoi-Card-Desk-$APP_VERSION-android-release.apk"
 
       - name: Upload signed release artifacts
         if: env.ANDROID_SIGNING_READY == 'true'

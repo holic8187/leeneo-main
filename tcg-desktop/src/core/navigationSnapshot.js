@@ -23,12 +23,12 @@ export function sanitizeNavigationSnapshot(value = {}) {
   if (modal?.type === 'settings') safeModal = { type: 'settings' };
   const scroll = {};
   for (const [key, position] of Object.entries(source.scroll || {}).slice(0, 60)) {
-    if (!/^(view:(dashboard|collection|management|mailbox|adventure|raid):|global:sidebar:|modal:(card|deck-preset|pack|settings):)/.test(key)) continue;
+    if (!/^(view:(dashboard|collection|management|mailbox|adventure|raid|shop):|global:sidebar:|modal:(card|deck-preset|pack|settings):)/.test(key)) continue;
     scroll[text(key)] = { top: integer(position?.top, 100000), left: integer(position?.left, 100000) };
   }
   return {
     version: 1,
-    view: oneOf(source.view, ['dashboard', 'collection', 'management', 'mailbox', 'adventure', 'raid'], 'dashboard'),
+    view: oneOf(source.view, ['dashboard', 'collection', 'management', 'mailbox', 'adventure', 'raid', 'shop'], 'dashboard'),
     selectedMissionId: text(source.selectedMissionId), missionListExpanded: Boolean(source.missionListExpanded),
     rarityFilter: oneOf(source.rarityFilter, ['all', ...RARITY_ORDER], 'all'),
     collectionOwnedOnly: Boolean(source.collectionOwnedOnly),

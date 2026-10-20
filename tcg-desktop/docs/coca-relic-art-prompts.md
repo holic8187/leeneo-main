@@ -2,7 +2,7 @@
 
 Generated with built-in image generation. Existing Coca C/R illustrations are identity/style references. PNG assets are original new art; no third-party game imagery used.
 
-Final assets: `public/assets/cards/coca-{u,rr,rrr,sr,hr,ur,ssr}.png` and `public/assets/relics/luxury-bag.png`.
+Final assets: `public/assets/cards/coca-{u,rr,rrr,sr,hr,ur,ssr}.png` and `public/assets/relics/luxury-bag.webp`.
 
 ## Coca U
 

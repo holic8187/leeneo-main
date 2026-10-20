@@ -15,6 +15,18 @@ import {
   Flame,
   Gift,
   HeartPulse,
+  Home,
+  ScrollText,
+  BookOpen,
+  Copy,
+  Moon,
+  ArrowRightLeft,
+  Vault,
+  AudioLines,
+  Rewind,
+  Flower2,
+  HeartHandshake,
+  Crown,
   Library,
   Lock,
   Mail,
@@ -43,6 +55,8 @@ import {
 } from 'lucide';
 import './styles.css';
 import './lobby.css';
+import { renderGameLobby } from './ui/gameLobby.js';
+import { renderWeeklyRewardGuide } from './ui/weeklyRewardGuide.js';
 import './mobile-game.css';
 import './relics.css';
 import './card-emblems.css';
@@ -51,6 +65,7 @@ import './raid-qol.css';
 import './pack-carousel.css';
 import './raid-effects.css';
 import './persistent-popups.css';
+import './game-world.css';
 import { createPersistentPopup } from './ui/persistentPopup.js';
 import { updateRaidInspectorValues } from './ui/raidInspectorValues.js';
 import { createPopupQueue } from './core/popupQueue.js';
@@ -259,6 +274,18 @@ const iconSet = {
   Flame,
   Gift,
   HeartPulse,
+  Home,
+  ScrollText,
+  BookOpen,
+  Copy,
+  Moon,
+  ArrowRightLeft,
+  Vault,
+  AudioLines,
+  Rewind,
+  Flower2,
+  HeartHandshake,
+  Crown,
   Library,
   Lock,
   Mail,
@@ -288,12 +315,13 @@ const iconSet = {
 
 
 const views = {
-  dashboard: { label: '로비', icon: 'briefcase' },
+  dashboard: { label: '로비', icon: 'home' },
+  adventure: { label: '모험', icon: 'map' },
+  raid: { label: '레이드', icon: 'swords' },
   collection: { label: '도감', icon: 'library' },
   management: { label: '성장', icon: 'sparkles' },
+  shop: { label: '소환', icon: 'package-open' },
   mailbox: { label: '우편함', icon: 'mail' },
-  adventure: { label: '모험', icon: 'map' },
-  raid: { label: '레이드', icon: 'shield' },
 };
 
 const DONATION_PACKAGES = Object.freeze([
@@ -395,6 +423,7 @@ const ui = {
 };
 
 const scrollPositions = new globalThis.Map();
+const disclosureStates = new globalThis.Map();
 const completionPopups = createPopupQueue();
 const popupObjectIds = new WeakMap();
 let nextPopupObjectId = 0;
@@ -466,6 +495,7 @@ function reconcileNavigationModal() {
 
 function restoreNavigation(accountId) {
   scrollPositions.clear();
+  disclosureStates.clear();
   navigationAccountId = accountId;
   const snapshot = navigationStore.read(accountId) || sanitizeNavigationSnapshot();
   const { scroll, version, ...navigation } = snapshot;
@@ -905,7 +935,7 @@ function renderSidebar(state) {
         <div class="brand-mark" aria-hidden="true">HC</div>
         <div class="brand-copy">
           <strong>호이 카드 데스크</strong>
-          <span>독립 카드 게임</span>
+          <span>동료와 함께 쓰는 이야기</span>
         </div>
       </div>
       <nav class="primary-nav" aria-label="주 메뉴">${nav}</nav>
@@ -947,9 +977,9 @@ function renderTopbar(state) {
           <span>동전</span>
           <strong>${formatNumber(state.wallet.coins)}</strong>
         </div>
-        <div class="resource-item" aria-label="카드팩 ${formatNumber(state.packs.standard)}개">
+        <div class="resource-item" aria-label="표준 카드팩 ${formatNumber(state.packs.standard)}개">
           <i data-lucide="package-open"></i>
-          <span>카드팩</span>
+          <span>표준 팩</span>
           <strong>${formatNumber(state.packs.standard)}</strong>
         </div>
       </div>
@@ -1013,136 +1043,23 @@ function renderDeckPresetPanel(state) {
 }
 
 function renderDashboard(state) {
-  const pack = PACK_DEFINITION.standard;
-  const pendingPackOpening = state.pendingPackOpening;
-  const ownedCards = ALL_CARDS
-    .filter((card) => Math.max(0, Number(state.collection?.[card.id]) || 0) > 0)
-    .sort((left, right) => cardPower(right, state) - cardPower(left, state));
-  const heroOwned = ownedCards.length > 0;
-  const heroCard = ownedCards[0] || cardById('simsim-c') || CARD_CATALOG[0];
-  const heroLevel = progressionForCard(state.cardProgression, heroCard.id).level;
-  const heroStage = cardEnhancement(heroCard, state);
-  const featured = [
-    CARD_CATALOG.at(-1),
-    CARD_CATALOG.at(-3),
-    CARD_CATALOG.find((card) => card.rarity === 'sr'),
-  ].filter(Boolean);
+  const owned = ALL_CARDS.filter(card => Number(state.collection?.[card.id]) > 0)
+    .sort((a, b) => cardPower(b, state) - cardPower(a, state));
+  const hero = owned[0] || cardById('simsim-c') || CARD_CATALOG[0];
   const expedition = state.expedition;
-  const mission = expedition ? expeditionById(expedition.missionId) : null;
-  const progress = expedition ? expeditionProgress(expedition) : 0;
-  const recent = (state.activity || []).slice(0, 5);
-  return `
-    <div class="lobby">
-      <section class="lobby-hero rarity-${heroCard.rarity}" aria-labelledby="lobby-hero-title">
-        <div class="lobby-hero__copy">
-          <span class="lobby-hero__greeting">${escapeHtml(state.profile.displayName)}님의 로비</span>
-          <span class="lobby-hero__label">${heroOwned ? '보유 대표 카드' : '시작 카드 미리보기'}</span>
-          <h2 id="lobby-hero-title">${escapeHtml(cardDisplayName(heroCard))}</h2>
-          <p>${heroOwned
-            ? `${escapeHtml(rarityLabel(heroCard.rarity))} · Lv.${formatNumber(heroLevel)} · ${escapeHtml(enhancementLabel(heroStage))} · 전투력 ${formatNumber(cardPower(heroCard, state))}`
-            : '첫 카드를 획득하고 나만의 덱을 만들어 보세요.'}</p>
-          <button class="lobby-hero__detail" type="button" data-action="open-card" data-card-id="${escapeHtml(heroCard.id)}">
-            카드 자세히 보기 <i data-lucide="chevron-right"></i>
-          </button>
-        </div>
-        <button class="lobby-hero__card card-emblem-host" type="button" data-action="open-card" data-card-id="${escapeHtml(heroCard.id)}" aria-label="${escapeHtml(cardDisplayName(heroCard))} 카드 정보 보기">
-          <img src="${escapeHtml(heroCard.image)}" alt="${escapeHtml(cardDisplayName(heroCard))}" />
-          ${renderCardEmblems(heroCard, heroStage, { size: 'standard', captioned: true })}
-          <span>${escapeHtml(rarityLabel(heroCard.rarity))}</span>
-        </button>
-        <div class="lobby-hero__actions" aria-label="주요 메뉴">
-          <button class="lobby-main-action lobby-main-action--adventure" type="button" data-action="navigate" data-view="adventure">
-            <i data-lucide="map"></i>
-            <span>
-              <small>${expedition ? '모험 진행 중' : '카드를 편성하고 출발'}</small>
-              <strong>${expedition ? escapeHtml(mission?.name || '진행 중인 모험') : '모험으로'}</strong>
-            </span>
-            ${expedition
-              ? `<time data-countdown="${expedition.endsAt}">${formatDuration(expedition.endsAt - Date.now())}</time>`
-              : '<i data-lucide="chevron-right"></i>'}
-          </button>
-          <button class="lobby-main-action lobby-main-action--raid" type="button" data-action="navigate" data-view="raid">
-            <i data-lucide="swords"></i>
-            <span><small>보스에게 도전</small><strong>레이드 입장</strong></span>
-            <i data-lucide="chevron-right"></i>
-          </button>
-        </div>
-        ${expedition ? `
-          <div class="lobby-hero__progress" aria-label="${escapeHtml(mission?.name || '모험')} 진행률">
-            <span data-expedition-progress style="width:${Math.round(progress * 100)}%"></span>
-          </div>
-        ` : ''}
-      </section>
-
-      <div class="lobby-feature-grid">
-        <section class="lobby-pack" aria-labelledby="lobby-pack-title">
-          <div class="lobby-section-heading">
-            <div><span>카드 소환</span><h2 id="lobby-pack-title">${escapeHtml(pack.name)}</h2></div>
-            <b>${pendingPackOpening ? '미확인 카드 있음' : `SR 이상 확정까지 ${Math.max(1, pack.pityPacks - state.pity.standard)}팩`}</b>
-          </div>
-          <div class="lobby-pack__body">
-            <div class="lobby-pack__fan" aria-hidden="true">
-              ${featured.map((card, index) => `<img class="lobby-pack__card lobby-pack__card--${index + 1}" src="${escapeHtml(card.image)}" alt="" />`).join('')}
-              <div class="lobby-pack__seal"><i data-lucide="sparkles"></i><strong>인물 파일</strong><small>카드 5장</small></div>
-            </div>
-            <div class="lobby-pack__controls">
-              <div class="lobby-pack__count"><span>보유 카드팩</span><strong>${formatNumber(state.packs.standard)}<small>팩</small></strong></div>
-              ${pendingPackOpening ? `
-                <button class="primary-button lobby-pack__resume" type="button" data-action="resume-pack-opening">
-                  <i data-lucide="sparkles"></i>미확인 카드 이어보기
-                </button>
-              ` : `
-                <div class="lobby-pack__open-buttons">
-                  <button class="primary-button" type="button" data-action="open-pack" data-pack-count="1" ${state.packs.standard <= 0 ? 'disabled' : ''}>
-                    <i data-lucide="package-open"></i><span><strong>1팩 개봉</strong><small>카드 5장</small></span>
-                  </button>
-                  <button class="primary-button" type="button" data-action="open-pack" data-pack-count="10" ${state.packs.standard < 10 ? 'disabled' : ''}>
-                    <i data-lucide="sparkles"></i><span><strong>10팩 개봉</strong><small>카드 50장</small></span>
-                  </button>
-                </div>
-              `}
-              <button class="secondary-button lobby-pack__buy" type="button" data-action="buy-pack" ${state.wallet.coins < pack.coinPrice ? 'disabled' : ''}>
-                <i data-lucide="coins"></i>${formatNumber(pack.coinPrice)} 동전으로 1팩 구매
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <div class="lobby-side-stack">
-          <section class="lobby-collection" aria-labelledby="lobby-collection-title">
-            <div class="lobby-section-heading">
-              <div><span>나의 카드</span><h2 id="lobby-collection-title">수집 현황</h2></div>
-              <button type="button" data-action="navigate" data-view="collection" aria-label="카드 도감 열기"><i data-lucide="arrow-right"></i></button>
-            </div>
-            <dl class="lobby-collection__stats">
-              <div><dt>발견</dt><dd>${ownedUniqueCount(state)} / ${CARD_CATALOG.length}</dd></div>
-              <div><dt>보유</dt><dd>${totalOwnedCount(state)}장</dd></div>
-              <div><dt>클라우드</dt><dd>${ui.cloud.phase === 'active' ? '연결됨' : '확인 중'}</dd></div>
-            </dl>
-          </section>
-        </div>
-      </div>
-
-      ${renderPackShop(state)}
-      <div class="lobby-presets">${renderDeckPresetPanel(state)}</div>
-
-      <section class="lobby-log" aria-labelledby="lobby-log-title">
-        <div class="lobby-section-heading">
-          <div><span>최근 플레이</span><h2 id="lobby-log-title">최근 기록</h2></div>
-          <i data-lucide="clock"></i>
-        </div>
-        <div class="lobby-log__list">
-          ${recent.length ? recent.map((entry) => `
-            <div class="lobby-log__row">
-              <span aria-hidden="true"></span>
-              <p>${escapeHtml(entry.message)}</p>
-              <time>${formatClock(entry.at)}</time>
-            </div>
-          `).join('') : '<p class="lobby-log__empty">아직 남겨진 기록이 없습니다.</p>'}
-        </div>
-      </section>
-    </div>
-  `;
+  return renderGameLobby({
+    state, hero, heroName: cardDisplayName(hero), heroPower: cardPower(hero, state),
+    heroLevel: progressionForCard(state.cardProgression, hero.id).level,
+    heroEnhancement: cardEnhancement(hero, state),
+    heroEmblems: renderCardEmblems(hero, cardEnhancement(hero, state), { size: 'standard', captioned: true }),
+    heroRarity: rarityEmblem(hero.rarity),
+    discovered: ownedUniqueCount(state), total: totalOwnedCount(state), catalogCount: CARD_CATALOG.length,
+    expedition, mission: expedition ? expeditionById(expedition.missionId) : null,
+    countdown: expedition ? formatDuration(expedition.endsAt - Date.now()) : '',
+    progress: expedition ? expeditionProgress(expedition) : 0,
+    presets: renderDeckPresetPanel(state), recent: (state.activity || []).slice(0, 5), clock: formatClock,
+    raidRank: ui.raid.ranking?.myRank, raidEntries: state.raid?.remainingEntries,
+  });
 }
 
 function renderCard(card, count, options = {}) {
@@ -1885,6 +1802,7 @@ function renderPersonalRaidRanking(state) {
         <div class="ranking-empty"><i data-lucide="trophy"></i><strong>이번 주 기록된 피해 점수가 없습니다.</strong><span>개인 레이드 전투를 마치면 즉시 순위에 반영됩니다.</span></div>
       `}
       ${ranking.myRank ? `<div class="my-ranking-summary"><span>내 현재 순위</span><strong>${formatNumber(ranking.myRank)}위</strong></div>` : ''}
+      ${renderWeeklyRewardGuide(ranking)}
       ${ui.raid.error ? `<p class="raid-sync-error"><i data-lucide="circle-alert"></i>${escapeHtml(ui.raid.error)}</p>` : ''}
     </section>
   `;
@@ -2097,6 +2015,7 @@ function renderMailbox() {
 }
 
 function renderCurrentView(state) {
+  if (ui.view === 'shop') return renderPackShop(state);
   if (ui.view === 'collection') return renderCollection(state);
   if (ui.view === 'management') return renderManagement(state);
   if (ui.view === 'mailbox') return renderMailbox(state);
@@ -2292,6 +2211,7 @@ function renderAdminModal() {
               <label><span>사내 동전</span><input name="coins" type="number" min="0" max="100000000" step="1" value="${draftValue('coins', '0')}" ${String(draft.presetId || 'custom') !== 'custom' ? 'disabled' : ''} /></label>
               <label><span>표준 카드팩</span><input name="standardPacks" type="number" min="0" max="10000" step="1" value="${draftValue('standardPacks', '0')}" ${String(draft.presetId || 'custom') !== 'custom' ? 'disabled' : ''} /></label>
               <label><span>고급 카드팩</span><input name="premiumPacks" type="number" min="0" max="10000" step="1" value="${draftValue('premiumPacks', '0')}" ${String(draft.presetId || 'custom') !== 'custom' ? 'disabled' : ''} /></label>
+              <label><span>SR 이상 확정 카드팩</span><input name="srPremiumPacks" type="number" min="0" max="10000" step="1" value="${draftValue('srPremiumPacks', '0')}" ${String(draft.presetId || 'custom') !== 'custom' ? 'disabled' : ''} /></label>
               <label><span>SSR 확정 랜덤 뽑기권</span><input name="ssrTickets" type="number" min="0" max="10000" step="1" value="${draftValue('ssrTickets', '0')}" ${String(draft.presetId || 'custom') !== 'custom' ? 'disabled' : ''} /></label>
               <label><span>보관 기간</span><select name="expiresInHours"><option value="168"${selected('expiresInHours', '168', '168')}>7일</option><option value="720"${selected('expiresInHours', '720', '168')}>30일</option><option value="2160"${selected('expiresInHours', '2160', '168')}>90일</option></select></label>
             </div>
@@ -2550,6 +2470,10 @@ function assignScrollKeys() {
 
 function captureScrollPositions() {
   if (navigationAccountId && navigationAccountId !== ui.auth.account?.id) return;
+  app.querySelectorAll('.view-host details').forEach((element, index) => {
+    const view = element.closest('[data-view]')?.dataset.view;
+    disclosureStates.set(`${view}:${element.className}:${index}`, element.open);
+  });
   app.querySelectorAll('[data-scroll-key]').forEach((element) => {
     scrollPositions.set(element.dataset.scrollKey, {
       top: element.scrollTop,
@@ -2560,6 +2484,10 @@ function captureScrollPositions() {
 
 function restoreScrollPositions() {
   const epoch = authenticationEpoch;
+  app.querySelectorAll('.view-host details').forEach((element, index) => {
+    const key = `${ui.view}:${element.className}:${index}`;
+    if (disclosureStates.has(key)) element.open = disclosureStates.get(key);
+  });
   const apply = () => {
     if (epoch !== authenticationEpoch) return;
     app.querySelectorAll('[data-scroll-key]').forEach((element) => {
@@ -4382,6 +4310,7 @@ function expireAuthentication() {
   cooperativeClient.reset();
   navigationAccountId = '';
   scrollPositions.clear();
+  disclosureStates.clear();
   render();
 }
 
@@ -4489,6 +4418,7 @@ async function logout() {
   store = null;
   navigationAccountId = '';
   scrollPositions.clear();
+  disclosureStates.clear();
   ui.auth.phase = 'signedOut';
   ui.auth.mode = 'login';
   ui.auth.pending = false;
@@ -4747,6 +4677,13 @@ app.addEventListener('click', async (event) => {
     await resolveCloudSaveConflict('server');
   } else if (action === 'download-update') {
     await downloadAndroidUpdate();
+  } else if (action === 'open-weekly-ranking') {
+    ui.view = 'raid';
+    ui.raidMode = 'personal';
+    ui.raidPanel = 'ranking';
+    ui.modal = null;
+    render();
+    void refreshPersonalRaid({ silent: true });
   } else if (action === 'navigate') {
     ui.view = button.dataset.view;
     ui.modal = null;

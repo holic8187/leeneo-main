@@ -70,5 +70,22 @@ test('rare drops are independent and equipment keeps authoritative variance data
   assert.equal(result.equipment[0].rarity, 'c');
   assert.equal(result.equipment[0].source.type, 'cooperative-raid');
   assert.equal(result.equipment[0].bonusPercent, 2.7);
+  assert.equal(result.ssrTickets, 1);
   assert.throws(() => rollCooperativeRewards(24, { random: () => 0, cardPools: {} }), /보상 풀이/);
+});
+
+test('each cooperative victory independently rolls a 0.5 percent SSR ticket at every difficulty', () => {
+  for (const stageSum of [4, 23, 24, 40]) {
+    for (const [lastRoll, expected] of [[0, 1], [0.004999, 1], [0.005, 0], [0.99999, 0]]) {
+      // Higher difficulty first rolls rarity + card; two other rolls are loot.
+      const ordinaryRolls = stageSum >= 24 ? 4 : 2;
+      let calls = 0;
+      const result = rollCooperativeRewards(stageSum, { cardPools: pools, random: () => calls++ < ordinaryRolls ? 0.99 : lastRoll });
+      assert.equal(result.ssrTickets || 0, expected, `${stageSum} / ${lastRoll}`);
+      assert.equal(calls, ordinaryRolls + 1);
+    }
+  }
+  let rolls = 0;
+  assert.equal(rollCooperativeRewards(40, { victory: false, random: () => { rolls += 1; return 0; } }).ssrTickets || 0, 0);
+  assert.equal(rolls, 0);
 });

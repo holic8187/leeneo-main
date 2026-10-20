@@ -18,6 +18,7 @@ function normalizeRewards(value = {}) {
     coins: Math.max(0, Math.floor(Number(value.coins) || 0)),
     standardPacks: Math.max(0, Math.floor(Number(value.standardPacks ?? value.packs?.standard ?? value.packs) || 0)),
     premiumPacks: Math.max(0, Math.floor(Number(value.premiumPacks ?? value.packs?.premium) || 0)),
+    srPremiumPacks: Math.max(0, Math.floor(Number(value.srPremiumPacks ?? value.packs?.srPremium) || 0)),
     ssrTickets: Math.max(0, Math.floor(Number(value.ssrTickets ?? value.packs?.ssrTicket) || 0)),
   };
 }

@@ -2,6 +2,7 @@ import { CARD_SKILL_BY_ID } from '../data/cardSkills.js';
 
 export const MAX_CARD_LEVEL = 100;
 export const BASE_CARD_HP = 100;
+export const ATTACK_ROLE_ATTACK_PER_LEVEL = 8;
 
 export const CARD_ROLES = Object.freeze({
   defense: Object.freeze({ id: 'defense', label: '방어' }),
@@ -72,7 +73,7 @@ export function levelGrowthForCard(cardOrId, level = 1) {
     return { role, attack: 0, maxHp: gainedLevels };
   }
   if (role.id === CARD_ROLES.attack.id) {
-    return { role, attack: gainedLevels * 2, maxHp: 0 };
+    return { role, attack: gainedLevels * ATTACK_ROLE_ATTACK_PER_LEVEL, maxHp: 0 };
   }
   return { role, attack: gainedLevels, maxHp: gainedLevels * 0.5 };
 }
