@@ -5,6 +5,8 @@ import { renderCardEmblems } from '../core/cardEmblems.js';
 import { skillForCard } from '../core/turnRaidEngine.js';
 import { relicById } from '../core/relics.js';
 import { normalizeRaidBattle, activeRaidCardIndex } from '../core/raidBattleView.js';
+import { battleActionChoices, resolveBattleChoice } from '../core/battleActionChoices.js';
+import { currentRaidSnapshotImage } from '../core/raidSnapshotImages.js';
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const num = (value) => Math.max(0, Number(value) || 0).toLocaleString('ko-KR');
@@ -58,6 +60,8 @@ function renderBattle({ data, pending, accountId, now, targetId, choice, galaxyC
   if (!room?.battle) return '<p>전투 기록을 불러오고 있습니다.</p>';
   const battle = normalizeRaidBattle(room.battle);
   const index = activeRaidCardIndex(battle);
+  const skillOptions = battleActionChoices(battle.squad[index]?.cardId, room.battle.lastCopyableSkill);
+  const selectedChoice = resolveBattleChoice(battle.squad[index]?.cardId, room.battle.lastCopyableSkill, choice);
   const myTurn = data.phase === 'battle' && room.activeAccountId === accountId && index >= 0;
   const actor = battle.squad[index];
   const automatic = (room.autoAccountIds || []).includes(accountId);
@@ -73,7 +77,7 @@ function renderBattle({ data, pending, accountId, now, targetId, choice, galaxyC
     <header class="raid-battle-topbar">${renderRaidBossHud(battle,{cooperative:true,effectAction:'coop-inspect-effect'})}<div class="raid-turn-counter"><small>전투 턴</small><strong>${num(battle.turn || 1)}</strong></div></header>
     ${renderRaidControls({ automatic, secret, cooperative:true, pending, finished })}
     <div class="coop-turn-label"><strong>${finished ? '협동 전투 종료' : room.battle.currentActor === 'follow-up' ? '아군 추가 효과 발동 중' : myTurn ? '내 차례입니다' : (esc(owner?.nickname || '보스') + '의 차례')}</strong><span>단계 합 ${num(room.stageSum)} · 최대 7턴</span></div>
-    ${myTurn ? `<div class="coop-action-options"><label>스킬 대상<select data-coop-target ${disabled(pending)}><option value="">자동 선택</option>${battle.squad.filter(member=>member.hp>0).map(member=>`<option value="${esc(member.id)}" ${targetId === member.id ? 'selected' : ''}>${esc(cardById(member.cardId)?.name || member.name)}</option>`).join('')}</select></label>${galaxySelector ? `<label>은하수 동률 우선<select data-coop-galaxy-choice ${disabled(pending)}>${[['attack','공격'],['heal','회복'],['support','지원']].map(([value,label])=>`<option value="${value}" ${galaxyChoice === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label>` : ''}${actor.cardId === 'guma-hr' ? `<label>구미신탁<select data-coop-choice ${disabled(pending)}>${[['fortune','길 · 회복'],['misfortune','흉 · 공격'],['reversal','역전 · 보호막']].map(([value,label])=>`<option value="${value}" ${choice === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label>` : ''}</div>` : ''}
+    ${myTurn ? `<div class="coop-action-options"><label>스킬 대상<select data-coop-target ${disabled(pending)}><option value="">자동 선택</option>${battle.squad.filter(member=>member.hp>0).map(member=>`<option value="${esc(member.id)}" ${targetId === member.id ? 'selected' : ''}>${esc(cardById(member.cardId)?.name || member.name)}</option>`).join('')}</select></label>${galaxySelector ? `<label>은하수 동률 우선<select data-coop-galaxy-choice ${disabled(pending)}>${[['attack','공격'],['heal','회복'],['support','지원']].map(([value,label])=>`<option value="${value}" ${galaxyChoice === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label>` : ''}${skillOptions.length ? `<label>스킬 방식<select data-coop-choice ${disabled(pending)}>${skillOptions.map(({value,label})=>`<option value="${esc(value)}" ${selectedChoice === value ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></label>` : ''}</div>` : ''}
     ${renderRaidArena({battle,animation:feedback || {},secret,activeIndex:index,canAct:myTurn,pending:Boolean(pending),cooperative:true,owners,countdown:index>=0 && !finished ? Number(room.turnExpiresAt) : 0,now})}
     ${finished ? `<section class="coop-result" aria-live="polite"><h3>${victory ? '네 명의 힘으로 클리어!' : '협동 도전 종료'}</h3><p>함께 입힌 피해 ${num(battle.totalDamage)}</p>${rewardSummary(data.reward || room.reward)}<button class="primary-button" type="button" data-action="coop-claim" ${disabled(pending)}>${pending === 'claim' ? '보상 저장 중…' : '보상 받고 돌아가기'}</button></section>` : ''}
     <details class="coop-boss-patterns"><summary>보스 패턴 · 공략 확인</summary>${(battle.boss.skills || []).map(item=>`<p><strong>${esc(item.name)}</strong> ${esc(item.description || item.text || '')}</p>`).join('') || '<p>동료와 힘을 모아 공명에 대응하세요.</p>'}</details>
@@ -89,7 +93,7 @@ export function renderCooperativePanel({ client, selected = [], cards = [], acco
   const shell = `<header class="coop-header"><div><span class="eyebrow">4인 실시간 협동</span><h2>공명 균열</h2></div><div class="coop-entry-count"><strong>${data ? num(data.entriesRemaining) : '—'} / 2</strong><small>오늘 남은 입장 · 매일 00:00 KST</small></div></header>${error ? `<p class="coop-error" role="alert">${esc(error)} <button type="button" data-action="coop-refresh">다시 연결</button></p>` : ''}`;
   if (['battle', 'finished'].includes(phase)) return `<div class="coop-raid-page">${shell}${renderBattle({ data, pending, accountId, now, targetId, choice, galaxyChoice, secret, inspector, feedback: client.feedback && now - client.clockOffset - client.feedback.at < 1600 ? client.feedback : null })}</div>`;
   return `<section class="coop-raid-page">${shell}
-    <div class="coop-intro"><img src="./assets/bosses/coop-tetra.webp" alt="협동 전용 보스 사중공명체 테트라" /><div><h3>사중공명체 테트라</h3><p>네 사원, 네 인물. 서로 다른 힘으로 균열을 닫으세요.</p><small>개인 도달 단계의 합에 따라 보스의 체력·패턴과 보상이 높아집니다.</small></div></div>
+    <div class="coop-intro"><img src="${esc(currentRaidSnapshotImage({id:'coop-tetra'}))}" alt="협동 전용 보스 사중공명체 테트라" /><div><h3>사중공명체 테트라</h3><p>네 사원, 네 인물. 서로 다른 힘으로 균열을 닫으세요.</p><small>개인 도달 단계의 합에 따라 보스의 체력·패턴과 보상이 높아집니다.</small></div></div>
     ${engaged ? `<div class="coop-queue-status" role="status"><strong>${phase === 'ready' ? '파티를 찾았습니다 · 입장 확인 중' : '함께할 사원을 찾고 있습니다'}</strong><p>${phase === 'queued' ? `대기 중 ${num(data.queue?.queuedCount || 1)}명 · ${esc(data.queue?.reason || '인물이 겹치지 않는 네 명을 모으고 있습니다.')}` : '화면의 입장 팝업을 확인해 주세요.'}</p><button class="secondary-button" type="button" data-action="coop-leave" ${disabled(pending)}>대기 취소</button></div>` : ''}
     <div class="coop-selection-heading"><h3>내 대표 카드 <span>${data?.queue?.cards?.length || selected.length} / 3</span></h3><p>서로 다른 인물 3장을 고르면 자동 편성이 그중 1장을 선택합니다.</p></div>
     <div class="coop-selected-slots">${[0, 1, 2].map((index) => {

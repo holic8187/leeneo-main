@@ -1,6 +1,7 @@
 import { roleForCard } from './cardProgression.js';
 import { createEquipment } from './equipment.js';
 import { secureRandom } from './packEngine.js';
+import { cardArtLocation } from './cardArtLocation.js';
 
 // Pure, shared rules. The server owns admission, randomness and rewards;
 // importing these numbers in the client is presentation, not authorization.
@@ -110,7 +111,7 @@ export function createCooperativeBoss(value) {
     },
   ];
   return {
-    id: 'coop-tetra', name: '사중공명체 테트라', image: './assets/bosses/coop-tetra.webp',
+    id: 'coop-tetra', name: '사중공명체 테트라', image: cardArtLocation('coop-tetra','./assets/bosses/coop-tetra.webp'),
     stage: Math.ceil(stageSum / 4), stageSum, maxHp: difficulty.maxHp,
     baseDamage: difficulty.baseDamage, skills: skills.slice(0, difficulty.skillCount),
   };

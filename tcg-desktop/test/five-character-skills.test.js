@@ -25,7 +25,7 @@ const bossAoe = { skills: [{ id: 'wave', name: '검증 파동', target: 'all', d
 
 test('all five requested characters now have nine rarities with matching server stats and roles', () => {
   assert.equal(FIVE_CHARACTER_SKILLS.length, 29);
-  assert.equal(CARD_CATALOG.length, 161);
+  assert.equal(CARD_CATALOG.length, 216);
   assert.equal(createHash('sha256').update(JSON.stringify(CARD_CATALOG.slice(0,132).map(card => [card.id,card.combatPower]))).digest('hex'),
     '734f8bac22bc0d7584bc11292e8d56e36396491950f7d2cf332bcddb05e26d48');
   for (const character of ['guma', 'kkamdung', 'somfist', 'easy', 'peach']) {

@@ -3126,6 +3126,8 @@ const databaseConnection = createDatabaseConnection({
 });
 // Readiness is checked before authentication and save handlers so a database
 // outage cannot be mistaken for expired credentials or leave buffered writes.
+// Public artwork is static and remains available during database recovery.
+require('./src/tcg/registerCardArtRoutes').registerCardArtRoutes({ app });
 app.use('/api/tcg', requireDatabaseReady(databaseConnection));
 void databaseConnection.start();
 

@@ -46,8 +46,12 @@ export function createCooperativeRaidClient({ gateway, getIdentity, onChange = (
   return {
     getState: () => state,
     reset() { epoch += 1; poll = null; state = empty(); onChange(state); },
-    async refresh() {
-      if (poll || state.pending) return poll;
+    async refresh({ forReconnect = false } = {}) {
+      if (poll || (state.pending && !forReconnect)) return poll;
+      // Reward commits wait for an active cloud connection. A reconnect read
+      // must be able to verify that connection without replacing or replaying
+      // the pending claim; its authoritative snapshot is still committed once.
+      const verificationOnly = Boolean(state.pending);
       const request = capture();
       if (!request.identity.token || !request.identity.accountId) return null;
       // Background polls must not disable a newly completed selection. Equal
@@ -57,7 +61,7 @@ export function createCooperativeRaidClient({ gateway, getIdentity, onChange = (
       const operation = (async () => {
         try {
           const payload = await gateway.state(request.identity.token);
-          if (current(request)) apply(payload);
+          if (current(request) && !verificationOnly) apply(payload);
           return current(request) ? payload : null;
         } catch (error) {
           if (current(request)) patch({ loading: false, error: error.message || '연결을 다시 확인하고 있습니다.' });

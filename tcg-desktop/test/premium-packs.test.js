@@ -35,7 +35,7 @@ test('SSR tickets grant one card uniformly from every SSR, including all three n
   assert.equal(ticket.adminOnly, true);
   assert.equal(ticket.coinPrice, null);
   const pool = CARD_CATALOG.filter((card) => card.rarity === 'ssr');
-  assert.equal(pool.length, 15);
+  assert.equal(pool.length, 24);
   const draws = pool.map((_, index) => {
     const result = openPack({
       catalog: CARD_CATALOG, definition: ticket,

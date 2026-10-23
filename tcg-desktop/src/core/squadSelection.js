@@ -20,6 +20,19 @@ export function uniqueSquadByIdentity(selectedIds, identityForId = null, maxSize
   return selected;
 }
 
+// Reconcile preparation slots from the same owned, undeployed list shown by
+// the picker. Filter before applying the size/character limits so an unusable
+// saved slot cannot hide an otherwise valid selection.
+export function availableSquadSelection(selectedIds, availableIds, {
+  identityForId = null,
+  maxSize = MAX_SQUAD_SIZE,
+} = {}) {
+  const available = new Set(availableIds || []);
+  const selected = (Array.isArray(selectedIds) ? selectedIds : [])
+    .map(id => String(id || '').trim()).filter(id => available.has(id));
+  return uniqueSquadByIdentity(selected, identityForId, maxSize);
+}
+
 export function toggleSquadSelection(selectedIds, cardId, {
   maxSize = MAX_SQUAD_SIZE,
   unavailableIds = [],
