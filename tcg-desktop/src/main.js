@@ -17,6 +17,15 @@ import {
   HeartPulse,
   Home,
   ScrollText,
+  Pause,
+  Sun,
+  Droplets,
+  FileClock,
+  PenTool,
+  Leaf,
+  MapPin,
+  Stamp,
+  Signpost,
   BookOpen,
   Copy,
   Moon,
@@ -61,11 +70,14 @@ import './mobile-game.css';
 import './relics.css';
 import './card-emblems.css';
 import './cooperative-raid.css';
+import './tower.css';
+import './pvp.css';
 import './raid-qol.css';
 import './pack-carousel.css';
 import './raid-effects.css';
 import './persistent-popups.css';
 import './game-world.css';
+import './services/cardArtCacheRuntime.js';
 import { createPersistentPopup } from './ui/persistentPopup.js';
 import { updateRaidInspectorValues } from './ui/raidInspectorValues.js';
 import { createPopupQueue } from './core/popupQueue.js';
@@ -78,6 +90,13 @@ import { renderRaidControls } from './ui/raidControls.js';
 import { cooperativeRaidGateway } from './services/cooperativeRaidGateway.js';
 import { createCooperativeRaidClient, toggleCooperativeRepresentative } from './core/cooperativeRaidClient.js';
 import { renderCooperativePanel, renderCooperativeReady } from './ui/cooperativeRaidView.js';
+import { towerGateway } from './services/towerGateway.js';
+import { createTowerClient } from './core/towerClient.js';
+import { renderTowerPanel } from './ui/towerView.js';
+import { pvpGateway } from './services/pvpGateway.js';
+import { createPvpClient, togglePvpCard } from './core/pvpClient.js';
+import { renderPvpView, renderPvpInspector } from './ui/pvpView.js';
+import { battleActionChoices, resolveBattleChoice } from './core/battleActionChoices.js';
 import {
   CARD_CATALOG,
   ALL_CARDS,
@@ -192,6 +211,7 @@ import {
 import {
   MAX_SQUAD_SIZE,
   availableRaidSquad,
+  availableSquadSelection,
   toggleAvailableRaidSquad,
   toggleSquadSelection,
 } from './core/squadSelection.js';
@@ -259,6 +279,7 @@ let pendingGameNotificationOpen = null;
 const mailboxRequestGuard = createMailboxRequestGuard();
 
 const iconSet = {
+  Pause, Sun, Droplets, FileClock, PenTool, Leaf, MapPin, Stamp, Signpost,
   ArrowRight,
   Ban,
   Bell,
@@ -318,6 +339,8 @@ const views = {
   dashboard: { label: '로비', icon: 'home' },
   adventure: { label: '모험', icon: 'map' },
   raid: { label: '레이드', icon: 'swords' },
+  tower: { label: '무한의 탑', icon: 'crown' },
+  pvp: { label: '실시간 대전', icon: 'users' },
   collection: { label: '도감', icon: 'library' },
   management: { label: '성장', icon: 'sparkles' },
   shop: { label: '소환', icon: 'package-open' },
@@ -402,6 +425,8 @@ const ui = {
   raidPanel: 'battle',
   raid: createRaidUiState(),
   cooperative: { selected: [], targetId: '', choice: 'fortune', galaxyChoice: 'attack' },
+  tower: { selected: [], targetId: '', choice: '', galaxyChoice: 'attack', inspector: null },
+  pvp: { selected: [], targetId: '', allyTargetId: '', choice: '', galaxyChoice: 'attack', inspector: null },
   auth: {
     phase: 'restoring',
     mode: 'login',
@@ -437,6 +462,9 @@ function popupObjectId(value) {
 
 function popupBusy() {
   return Boolean(ui.modal || (ui.view === 'raid' && (ui.raidMode === 'cooperative' ? ui.cooperative.inspector : ui.raid.inspector))
+    || (ui.view === 'tower' && ui.tower.inspector)
+    || (ui.view === 'pvp' && ui.pvp.inspector)
+    || pvpClient.getState().data?.phase === 'ready'
     || cooperativeClient.getState().data?.phase === 'ready');
 }
 
@@ -520,7 +548,7 @@ function reconnectOverlayMarkup() {
     elapsedMs: Math.max(0, Date.now() - reconnectState.startedAt),
     nextRetryMs: reconnectState.nextRetryAt ? Math.max(0, reconnectState.nextRetryAt - Date.now()) : null,
     detail: ui.cloud.message || reconnectState.error?.message || '',
-    secretMode: Boolean(store.getState().settings.raidSecretMode && ui.view === 'raid'),
+    secretMode: Boolean(store.getState().settings.raidSecretMode && ['raid', 'tower', 'pvp'].includes(ui.view)),
   });
 }
 
@@ -546,6 +574,18 @@ function pauseGameplayTimers() {
 
 const cooperativeClient = createCooperativeRaidClient({
   gateway: cooperativeRaidGateway,
+  getIdentity: () => ({ accountId: String(ui.auth.account?.id || ui.auth.account?._id || ''), token: currentAuthToken() }),
+  onChange: () => { if (store && ui.auth.phase === 'authenticated') render(); },
+});
+
+const towerClient = createTowerClient({
+  gateway: towerGateway,
+  getIdentity: () => ({ accountId: String(ui.auth.account?.id || ui.auth.account?._id || ''), token: currentAuthToken() }),
+  onChange: () => { if (store && ui.auth.phase === 'authenticated') render(); },
+});
+
+const pvpClient = createPvpClient({
+  gateway: pvpGateway,
   getIdentity: () => ({ accountId: String(ui.auth.account?.id || ui.auth.account?._id || ''), token: currentAuthToken() }),
   onChange: () => { if (store && ui.auth.phase === 'authenticated') render(); },
 });
@@ -1758,13 +1798,68 @@ function renderCooperativeRaid() {
     now: Date.now() + client.clockOffset,
     targetId: ui.cooperative.targetId,
     choice: ui.cooperative.choice,
-    personalBattle: Boolean(ui.raid.battle),
+    personalBattle: Boolean(ui.raid.battle || towerEngaged() || pvpEngaged()),
     secret: store.getState().settings.raidSecretMode,
     galaxyChoice: ui.cooperative.galaxyChoice,
     // The inspector is rendered in a persistent popup region, not the polled
     // battlefield subtree.
     inspector: null,
   });
+}
+
+function towerEngaged() {
+  const battle = towerClient.getState().data?.battle;
+  return Boolean(battle && battle.status !== 'finished');
+}
+
+function availableModeSelection(mode, available) {
+  const selected = availableSquadSelection(ui[mode].selected, available.map(entry => entry.card.id), {
+    identityForId: cardCharacterIdentity,
+  });
+  const client = mode === 'tower' ? towerClient : pvpClient;
+  const engaged = mode === 'tower' ? towerEngaged() : pvpEngaged();
+  // Only repair editable preparation slots after the account's collection is
+  // restored. Battle snapshots and in-flight admission requests stay intact.
+  if (gameplayAvailable() && !engaged && !client.getState().pending) ui[mode].selected = selected;
+  return selected;
+}
+
+function renderTower() {
+  const client = towerClient.getState();
+  const available = cooperativeAvailableCards();
+  const selected = availableModeSelection('tower', available);
+  return renderTowerPanel({ client, selected, cards: available, secret: store.getState().settings.raidSecretMode,
+    now: Date.now() + client.clockOffset, targetId: ui.tower.targetId, choice: ui.tower.choice,
+    galaxyChoice: ui.tower.galaxyChoice, inspector: null,
+    blocked: Boolean(ui.raid.battle || pvpEngaged() || ['queued', 'ready', 'battle'].includes(cooperativeClient.getState().data?.phase)),
+  });
+}
+
+function renderTowerGlobal() {
+  return ui.cloud.phase === 'active' && ui.view !== 'tower' && towerEngaged()
+    ? '<button class="coop-return-banner tower-return-banner" type="button" data-action="tower-open">무한의 탑 전투로 돌아가기</button>' : '';
+}
+
+function pvpEngaged() {
+  return ['queued', 'ready', 'battle'].includes(pvpClient.getState().data?.phase);
+}
+
+function renderPvp() {
+  const client = pvpClient.getState(), state = store.getState();
+  const cards = cooperativeAvailableCards().sort((a, b) => rarityRank(b.card.rarity) - rarityRank(a.card.rarity) || b.power - a.power);
+  const selected = availableModeSelection('pvp', cards);
+  const locked = pvpEngaged() || Boolean(client.pending);
+  const presetMarkup = `<div class="preset-quick-load"><div class="subheading"><h3>프리셋 불러오기</h3><button type="button" class="text-button" data-action="pvp-save-preset" ${locked || !selected.length ? 'disabled' : ''}>현재 덱 저장</button></div><div class="preset-quick-buttons">${Array.from({ length: MAX_DECK_PRESETS }, (_, slot) => `<button type="button" data-action="pvp-load-preset" data-slot="${slot}" ${locked || !state.deckPresets?.[slot] ? 'disabled' : ''}>${slot + 1}<small>${state.deckPresets?.[slot]?.cardIds.length || 0}장</small></button>`).join('')}</div></div>`;
+  return renderPvpView({ client, selected, cards, accountId: String(ui.auth.account?.id || ui.auth.account?._id || ''),
+    now: Date.now() + client.clockOffset, targetId: ui.pvp.targetId, allyTargetId: ui.pvp.allyTargetId,
+    choice: ui.pvp.choice, galaxyChoice: ui.pvp.galaxyChoice, secret: state.settings.raidSecretMode || state.settings.payrollMode,
+    blocked: Boolean(ui.raid.battle || towerEngaged() || ['queued', 'ready', 'battle'].includes(cooperativeClient.getState().data?.phase)), presetMarkup });
+}
+
+function renderPvpGlobal() {
+  const phase = pvpClient.getState().data?.phase;
+  return ui.cloud.phase === 'active' && ui.view !== 'pvp' && ['queued', 'ready', 'battle', 'finished'].includes(phase)
+    ? `<button class="coop-return-banner pvp-return-banner ${phase === 'ready' ? 'is-ready' : ''}" type="button" data-action="pvp-open">${phase === 'queued' ? '대전 상대 찾는 중' : phase === 'ready' ? '대전 상대를 찾았어요 · 입장 확인' : phase === 'finished' ? '실시간 대전 보상 받기' : '실시간 대전으로 돌아가기'}</button>` : '';
 }
 
 function renderCooperativeGlobal() {
@@ -1812,7 +1907,7 @@ function renderRaidBattleInspector(battle) {
   const inspector = ui.raid.inspector;
   if (!inspector) return '';
   if (inspector.type === 'skill-choice') {
-    return `<aside class="raid-skill-tooltip raid-skill-choice" role="dialog" aria-label="구미신탁 효과 선택"><button type="button" data-action="close-raid-inspector" aria-label="닫기"><i data-lucide="x"></i></button><span class="eyebrow">구미신탁 · 길흉역전</span><h3>사용할 신탁을 선택하세요</h3><p>선택하는 즉시 이번 행동이 진행됩니다.</p><div class="raid-skill-choice-list"><button type="button" data-action="raid-skill-choice" data-choice="fortune"><strong>길</strong><small>전체 회복 · 약화 제거</small></button><button type="button" data-action="raid-skill-choice" data-choice="misfortune"><strong>흉</strong><small>강한 피해 · 브레이크</small></button><button type="button" data-action="raid-skill-choice" data-choice="reversal"><strong>역전</strong><small>전체 보호막 · 쿨다운 감소</small></button></div></aside>`;
+    return `<aside class="raid-skill-tooltip raid-skill-choice" role="dialog" aria-label="스킬 효과 선택"><button type="button" data-action="close-raid-inspector" aria-label="닫기"><i data-lucide="x"></i></button><h3>스킬 사용 방식을 선택하세요</h3><p>선택하는 즉시 이번 행동이 진행됩니다.</p><div class="raid-skill-choice-list">${(inspector.choices || []).map(item => `<button type="button" data-action="raid-skill-choice" data-choice="${escapeHtml(item.value)}"><strong>${escapeHtml(item.label)}</strong></button>`).join('')}</div></aside>`;
   }
   if (inspector.type === 'effect') {
     const source = inspector.owner === 'boss'
@@ -1826,7 +1921,7 @@ function renderRaidBattleInspector(battle) {
   const card = cardById(member?.cardId);
   const skill = member ? skillForCard(member.cardId, member.enhancement) : null;
   if (!member || !card) return '';
-  return `<aside class="raid-skill-tooltip" role="dialog" aria-label="카드 스킬 설명"><button type="button" data-action="close-raid-inspector" aria-label="닫기"><i data-lucide="x"></i></button><span class="eyebrow">${rarityLabel(card.rarity)} · ${enhancementLabel(member.enhancement)}</span><h3>${escapeHtml(skill?.name || '고유 스킬 준비 중')}</h3><p>${escapeHtml(skill?.description || '이 카드의 고유 스킬은 준비 중입니다.')}</p><dl><dt>공격력</dt><dd data-raid-inspector-value="attack">${formatNumber(member.attack || cardPower(card, store?.getState(), member.enhancement))}</dd><dt>쿨타임</dt><dd>${skill?.oncePerBattle ? '전투당 1회' : `${formatNumber(skill?.cooldown || 0)}턴`}</dd><dt>현재 상태</dt><dd data-raid-inspector-value="status">${member.hp <= 0 ? '행동 불능' : member.skillCooldown > 0 ? `스킬 ${formatNumber(member.skillCooldown)}턴 남음` : '행동 가능'}</dd></dl></aside>`;
+  return `<aside class="raid-skill-tooltip" role="dialog" aria-label="카드 스킬 설명"><button type="button" data-action="close-raid-inspector" aria-label="닫기"><i data-lucide="x"></i></button><span class="eyebrow">${rarityLabel(card.rarity)} · ${enhancementLabel(member.enhancement)}</span><h3>${escapeHtml(skill?.name || '고유 스킬 준비 중')}</h3><p>${escapeHtml(skill?.description || '이 카드의 고유 스킬은 준비 중입니다.')}</p>${skill?.targeting ? `<p>${escapeHtml(skill.targeting)}</p>` : ''}<dl><dt>공격력</dt><dd data-raid-inspector-value="attack">${formatNumber(member.attack || cardPower(card, store?.getState(), member.enhancement))}</dd><dt>쿨타임</dt><dd>${skill?.oncePerBattle ? '전투당 1회' : `${formatNumber(skill?.cooldown || 0)}턴`}</dd><dt>현재 상태</dt><dd data-raid-inspector-value="status">${member.hp <= 0 ? '행동 불능' : member.skillCooldown > 0 ? `스킬 ${formatNumber(member.skillCooldown)}턴 남음` : '행동 가능'}</dd></dl></aside>`;
 }
 
 function renderPersonalRaidBattlefield(state) {
@@ -2021,6 +2116,8 @@ function renderCurrentView(state) {
   if (ui.view === 'mailbox') return renderMailbox(state);
   if (ui.view === 'adventure') return renderAdventure(state);
   if (ui.view === 'raid') return renderRaid(state);
+  if (ui.view === 'tower') return renderTower();
+  if (ui.view === 'pvp') return renderPvp();
   return renderDashboard(state);
 }
 
@@ -2109,7 +2206,7 @@ function renderCardModal(card, state) {
             <div class="card-level-track"><span style="width:${progression.level >= 100 ? 100 : Math.round((progression.experience / Math.max(1, requiredExperience)) * 100)}%"></span></div>
             ${owned ? `<button class="secondary-button" type="button" data-action="level-up-card" data-card-id="${card.id}" ${progression.level >= 100 || state.wallet.coins < levelCost ? 'disabled' : ''}><i data-lucide="sparkles"></i>${progression.level >= 100 ? '최대 레벨' : `${formatNumber(levelCost)} 동전으로 레벨업`}</button>` : ''}
           </div>
-          <div class="trait-box card-skill-box"><i data-lucide="sparkles"></i><span><strong>${escapeHtml(skill?.name || '고유 스킬 준비 중')}</strong><small>${escapeHtml(skill?.description || '이 카드는 추후 전투 스킬이 추가됩니다.')}</small>${skill ? `<em>${skill.oncePerBattle ? '전투당 1회' : `쿨타임 ${formatNumber(skill.cooldown)}턴`} · ${enhancementLabel(enhancement)} 효과 수치 적용</em>` : ''}</span></div>
+          <div class="trait-box card-skill-box"><i data-lucide="sparkles"></i><span><strong>${escapeHtml(skill?.name || '고유 스킬 준비 중')}</strong><small>${escapeHtml(skill?.description || '이 카드는 추후 전투 스킬이 추가됩니다.')}</small>${skill?.targeting ? `<small>${escapeHtml(skill.targeting)}</small>` : ''}${skill ? `<em>${skill.oncePerBattle ? '전투당 1회' : `쿨타임 ${formatNumber(skill.cooldown)}턴`} · ${enhancementLabel(enhancement)} 효과 수치 적용</em>` : ''}</span></div>
           <div class="owned-line">보유 수량 <strong>${formatNumber(state.collection[card.id])}장</strong></div>
           <div class="owned-enhancement-line" aria-label="강화 단계별 보유 수량">${counts.map((count, stage) => `<span class="${stage === enhancement ? 'is-best' : ''}"><b>${enhancementLabel(stage)}</b>${formatNumber(count)}장</span>`).join('')}</div>
           <div class="detail-card-actions">
@@ -2549,15 +2646,17 @@ function renderPersistentPopups(regions, state) {
   const restoreFocus = gameplayAvailable();
   regions.modal.update({ identity: ui.modal?.type || null, key: modalRenderKey(state), render: () => renderModal(state), restoreFocus });
   const cooperative = ui.raidMode === 'cooperative';
-  const inspector = ui.view === 'raid' ? (cooperative ? ui.cooperative.inspector : ui.raid.inspector) : null;
-  const battle = cooperative ? cooperativeClient.getState().data?.room?.battle : ui.raid.battle;
+  const tower = ui.view === 'tower';
+  const pvp = ui.view === 'pvp', pvpRoom = pvpClient.getState().data?.room;
+  const inspector = pvp ? ui.pvp.inspector : tower ? ui.tower.inspector : ui.view === 'raid' ? (cooperative ? ui.cooperative.inspector : ui.raid.inspector) : null;
+  const battle = pvp ? pvpRoom?.battle : tower ? towerClient.getState().data?.battle : cooperative ? cooperativeClient.getState().data?.room?.battle : ui.raid.battle;
   regions.raid.update({
-    identity: inspector && battle ? `raid:${cooperative ? 'cooperative' : 'personal'}` : null,
+    identity: inspector && battle ? pvp ? `pvp:${pvpRoom.id}` : tower ? `tower:${towerClient.getState().data?.battleId}` : `raid:${cooperative ? 'cooperative' : 'personal'}` : null,
     key: inspector && battle ? popupObjectId(inspector) : '',
-    render: () => `<div class="persistent-raid-popup">${cooperative ? renderCooperativeInspector(normalizeRaidBattle(battle), inspector) : renderRaidBattleInspector(normalizeRaidBattle(battle))}</div>`,
+    render: () => `<div class="persistent-raid-popup">${pvp ? renderPvpInspector(pvpRoom, inspector) : tower ? renderCooperativeInspector(normalizeRaidBattle(battle), inspector).replaceAll('data-action="coop-close-inspector"', 'data-action="tower-close-inspector"') : cooperative ? renderCooperativeInspector(normalizeRaidBattle(battle), inspector) : renderRaidBattleInspector(normalizeRaidBattle(battle))}</div>`,
     restoreFocus,
   });
-  if (inspector && battle) updateRaidInspectorValues(app.querySelector('[data-raid-popup-host]'), normalizeRaidBattle(battle), inspector);
+  if (inspector && battle && !pvp) updateRaidInspectorValues(app.querySelector('[data-raid-popup-host]'), normalizeRaidBattle(battle), inspector);
   const client = cooperativeClient.getState();
   const match = client.data?.phase === 'ready' ? client.data.match : null;
   regions.cooperative.update({
@@ -2613,6 +2712,8 @@ function render() {
       </main>
       ${ui.notice ? `<div class="app-notice app-notice--${ui.notice.tone}">${escapeHtml(ui.notice.message)}</div>` : ''}
       ${renderCooperativeGlobal()}
+      ${renderTowerGlobal()}
+      ${renderPvpGlobal()}
   `;
   renderPersistentPopups(regions, state);
   regions.gates.innerHTML = `
@@ -3756,6 +3857,8 @@ async function performCooperativeRequest(method, extra = {}) {
       const body = { ...extra, ...cooperativeLeasePayload() };
       if (method === 'queue') {
         if (ui.raid.battle) throw new Error('개인 레이드를 마친 뒤 협동 대기열에 등록해 주세요.');
+        if (towerEngaged()) throw new Error('무한의 탑 전투를 마친 뒤 협동 대기열에 등록해 주세요.');
+        if (pvpEngaged()) throw new Error('실시간 대전을 마친 뒤 협동 대기열에 등록해 주세요.');
         const available = cooperativeAvailableCards();
         body.cards = ui.cooperative.selected.map((id) => {
           const entry = available.find((item) => item.card.id === id);
@@ -3846,13 +3949,168 @@ async function handleCooperativeAction(action, button) {
     if (data?.phase !== 'battle' || data.room?.activeAccountId !== String(ui.auth.account?.id || ui.auth.account?._id || '')) return;
     const actionId = globalThis.crypto?.randomUUID?.() || `action-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const target = (data.room.battle?.cards || []).find((card) => card.id === ui.cooperative.targetId && card.hp > 0);
+    const actor = data.room.battle?.cards?.[data.room.battle.currentActorIndex];
     await performCooperativeRequest('action', {
       roomId: data.room.id, expectedRevision: data.room.revision, actionId,
       action: action === 'coop-skill' ? 'skill' : 'basic',
       targetId: action === 'coop-skill' ? target?.id : undefined,
-      choice: ui.cooperative.choice || 'fortune',
+      choice: resolveBattleChoice(actor?.cardId, data.room.battle.lastCopyableSkill, ui.cooperative.choice),
       galaxyChoice: ui.cooperative.galaxyChoice || 'attack',
     });
+  }
+}
+
+async function performTowerRequest(method, extra = {}) {
+  const identity = currentMailboxIdentity();
+  try {
+    const result = await towerClient.mutate(method, async () => {
+      if (method === 'enter') await flushCloudStateOrThrow();
+      const body = { ...extra, ...cooperativeLeasePayload() };
+      if (method === 'enter') {
+        if (ui.raid.battle || pvpEngaged() || ['queued', 'ready', 'battle'].includes(cooperativeClient.getState().data?.phase)) throw new Error('진행 중인 다른 전투를 먼저 마쳐 주세요.');
+        const available = cooperativeAvailableCards();
+        body.squad = availableModeSelection('tower', available).map(id => {
+          const entry = available.find(item => item.card.id === id);
+          if (!entry) throw new Error('모험 중이거나 보유하지 않은 카드가 있습니다. 덱을 다시 확인해 주세요.');
+          return { cardId: id, enhancement: entry.enhancement };
+        });
+        if (body.squad.length !== MAX_SQUAD_SIZE) throw new Error('서로 다른 인물의 카드 4장을 편성해 주세요.');
+      }
+      return body;
+    });
+    if (result && method === 'enter') { ui.tower.inspector = null; ui.tower.targetId = ''; ui.tower.choice = ''; }
+    return result;
+  } catch (error) {
+    if (!isAuthorizedMailboxRequest(identity)) return null;
+    if (['PLAY_SESSION_LOST', 'PLAYING_ELSEWHERE'].includes(error.code)) void retryCloudConnection();
+    // A lost response is resolved from the persisted server battle. Never
+    // resend the same attack automatically after a network timeout.
+    window.setTimeout(() => { if (gameplayAvailable()) void towerClient.refresh(); }, 1000);
+    return null;
+  }
+}
+
+async function handleTowerAction(action, button) {
+  const client = towerClient.getState(), data = client.data;
+  if (action === 'tower-open') { ui.view = 'tower'; ui.modal = null; render(); await towerClient.refresh(); }
+  else if (action === 'tower-refresh') await towerClient.refresh();
+  else if (action === 'tower-ranking') await towerClient.loadRanking();
+  else if (action === 'tower-secret') store.update(draft => { draft.settings.raidSecretMode = !draft.settings.raidSecretMode; });
+  else if (action === 'tower-inspect-card') { ui.tower.inspector = { type: 'card', cardIndex: Number(button.dataset.cardIndex) }; render(); }
+  else if (action === 'tower-inspect-effect') { ui.tower.inspector = { type: 'effect', owner: button.dataset.effectOwner, index: Number(button.dataset.effectIndex) }; render(); }
+  else if (action === 'tower-close-inspector') { ui.tower.inspector = null; render(); }
+  else if (action === 'tower-select-card') {
+    if (client.pending || towerEngaged()) return;
+    const cardId = String(button.dataset.cardId || '');
+    const available = cooperativeAvailableCards();
+    if (!available.some(entry => entry.card.id === cardId)) return;
+    ui.tower.selected = toggleSquadSelection(availableModeSelection('tower', available), cardId, { identityForId: cardCharacterIdentity });
+    render({ preserveViewScroll: true });
+  } else if (action === 'tower-choose') await performTowerRequest('choose', { augmentId: button.dataset.augmentId });
+  else if (action === 'tower-reroll') await performTowerRequest('reroll', { slot: Number(button.dataset.slot) });
+  else if (action === 'tower-enter') await performTowerRequest('enter');
+  else if (action === 'tower-abandon') await performTowerRequest('abandon');
+  else if (action === 'tower-start') await performTowerRequest('action', { action: { type: 'start' } });
+  else if (action === 'tower-basic' || action === 'tower-skill') {
+    const actor = data?.battle?.cards?.[data.battle.currentActorIndex];
+    const choice = resolveBattleChoice(actor?.cardId, data.battle.lastCopyableSkill, ui.tower.choice);
+    await performTowerRequest('action', { action: { type: action === 'tower-skill' ? 'skill' : 'basic', targetId: ui.tower.targetId, choice, galaxyChoice: ui.tower.galaxyChoice || 'attack' } });
+  }
+}
+
+async function performPvpRequest(method, extra = {}) {
+  const request = requestContext(), activeCloudPlay = cloudPlay, identity = currentMailboxIdentity();
+  let authoritativeMutation = false;
+  try {
+    return await pvpClient.mutate(method, async () => {
+      if (['queue', 'accept', 'claim'].includes(method)) await flushCloudStateOrThrow();
+      const body = { ...extra, ...cooperativeLeasePayload() };
+      if (method === 'queue') {
+        if (ui.raid.battle || towerEngaged() || ['queued', 'ready', 'battle'].includes(cooperativeClient.getState().data?.phase)) throw new Error('진행 중인 다른 전투를 먼저 마쳐 주세요.');
+        const available = cooperativeAvailableCards();
+        body.cards = availableModeSelection('pvp', available).map(id => {
+          const entry = available.find(item => item.card.id === id);
+          if (!entry) throw new Error('모험 중이거나 보유하지 않은 카드가 있습니다. 덱을 다시 확인해 주세요.');
+          return { cardId: id, enhancement: entry.enhancement };
+        });
+        if (body.cards.length !== MAX_SQUAD_SIZE) throw new Error('서로 다른 인물의 카드 4장을 편성해 주세요.');
+      }
+      if (method === 'claim') {
+        const reservation = activeCloudPlay.beginAuthoritativeMutation(store.getState());
+        authoritativeMutation = true; body.baseRevision = reservation.baseRevision;
+      }
+      return body;
+    }, async result => {
+      if (method !== 'claim') return;
+      if (!await waitForGameplayConnection(request) || activeCloudPlay !== cloudPlay) return;
+      if (!result.snapshot?.state) throw new Error('대전 보상 저장 응답을 확인할 수 없습니다. 다시 수령해 주세요.');
+      activeCloudPlay.commitAuthoritativeMutation(result.snapshot); authoritativeMutation = false;
+      await flushCloudStateOrThrow();
+      showNotice('대전 보상을 클라우드에 저장했습니다.', 'success');
+    });
+  } catch (error) {
+    if (!isAuthorizedMailboxRequest(identity)) return null;
+    if (method === 'claim' && error.code === 'SAVE_CONFLICT' && authoritativeMutation && error.snapshot?.state) {
+      try {
+        activeCloudPlay.commitAuthoritativeMutation(error.snapshot); authoritativeMutation = false;
+        await flushCloudStateOrThrow();
+        showNotice('최신 저장 기록을 반영했습니다. 대전 보상을 다시 받아 주세요.', 'warning');
+      } catch {
+        if (authoritativeMutation) { activeCloudPlay.cancelAuthoritativeMutation(); authoritativeMutation = false; }
+        await retryCloudConnection();
+      }
+    }
+    if (method === 'claim' && ['NETWORK_ERROR', 'TIMEOUT'].includes(error.code)) {
+      if (authoritativeMutation) { activeCloudPlay?.cancelAuthoritativeMutation(); authoritativeMutation = false; }
+      await retryCloudConnection();
+    }
+    if (['PLAY_SESSION_LOST', 'PLAYING_ELSEWHERE'].includes(error.code)) void retryCloudConnection();
+    window.setTimeout(() => { if (gameplayAvailable()) void pvpClient.refresh(); }, 1000);
+    return null;
+  } finally { if (authoritativeMutation) activeCloudPlay?.cancelAuthoritativeMutation(); }
+}
+
+async function handlePvpAction(action, button) {
+  const client = pvpClient.getState(), data = client.data;
+  if (action === 'pvp-open') { ui.view = 'pvp'; ui.modal = null; render(); await pvpClient.refresh(); }
+  else if (action === 'pvp-refresh') await pvpClient.refresh();
+  else if (action === 'pvp-rankings') await pvpClient.rankings();
+  else if (action === 'pvp-inspect-card') { ui.pvp.inspector = { type: 'card', teamIndex: Number(button.dataset.teamIndex), cardIndex: Number(button.dataset.cardIndex) }; render(); }
+  else if (action === 'pvp-inspect-effect') { ui.pvp.inspector = { type: 'effect', owner: button.dataset.effectOwner, index: Number(button.dataset.effectIndex) }; render(); }
+  else if (action === 'pvp-close-inspector') { ui.pvp.inspector = null; render(); }
+  else if (action === 'pvp-target' || action === 'pvp-ally-target') {
+    ui.pvp[action === 'pvp-target' ? 'targetId' : 'allyTargetId'] = String(button.dataset.targetId || ''); render();
+  } else if (action === 'pvp-select-card') {
+    if (client.pending || pvpEngaged()) return;
+    const cardId = String(button.dataset.cardId || '');
+    const available = cooperativeAvailableCards();
+    if (!available.some(entry => entry.card.id === cardId)) return;
+    try { ui.pvp.selected = togglePvpCard(availableModeSelection('pvp', available), cardId); render(); }
+    catch (error) { showNotice(error.message, 'warning'); }
+  } else if (action === 'pvp-load-preset') {
+    if (client.pending || pvpEngaged()) return;
+    const preset = store.getState().deckPresets?.[Number(button.dataset.slot)];
+    if (!preset) return;
+    ui.pvp.selected = availableSquadSelection(preset.cardIds, cooperativeAvailableCards().map(entry => entry.card.id), { identityForId: cardCharacterIdentity });
+    render(); showNotice(`프리셋에서 대전 카드 ${ui.pvp.selected.length}장을 불러왔습니다.`, 'success');
+  } else if (action === 'pvp-save-preset') {
+    if (client.pending || pvpEngaged()) return;
+    const slot = Math.max(0, store.getState().deckPresets.findIndex(preset => !preset));
+    const selected = availableModeSelection('pvp', cooperativeAvailableCards());
+    openDeckPresetEditor(slot); ui.modal.cardIds = [...selected]; ui.modal.equipmentCardId = ''; ui.modal.artifactCardId = ''; ui.modal.saveCopy = true; render();
+  } else if (action === 'pvp-queue') await performPvpRequest('queue');
+  else if (action === 'pvp-leave') await performPvpRequest('leave');
+  else if (action === 'pvp-accept' && data?.match) await performPvpRequest('accept', { matchId: data.match.id });
+  else if (action === 'pvp-claim' && data?.room) await performPvpRequest('claim', { roomId: data.room.id });
+  else if (action === 'pvp-basic' || action === 'pvp-skill') {
+    if (data?.phase !== 'battle' || data.room.activeAccountId !== String(ui.auth.account?.id || ui.auth.account?._id || '')) return;
+    const battle = data.room.battle, mine = battle.teams[battle.activeTeam], enemy = battle.teams[1 - battle.activeTeam];
+    const actor = mine.cards[battle.activeCardIndex];
+    const choice = resolveBattleChoice(actor.cardId, mine.lastCopyableSkill, ui.pvp.choice);
+    await performPvpRequest('action', { action: action === 'pvp-skill' ? 'skill' : 'basic',
+      targetId: enemy.cards.find(card => card.id === ui.pvp.targetId && card.hp > 0)?.id,
+      allyTargetId: mine.cards.find(card => card.id === ui.pvp.allyTargetId && card.hp > 0)?.id,
+      choice, galaxyChoice: ui.pvp.galaxyChoice || 'attack' });
   }
 }
 
@@ -4146,6 +4404,8 @@ async function finishCloudActivation(epoch = authenticationEpoch, activeCloud = 
   render();
   void refreshMailbox({ silent: true });
   void cooperativeClient.refresh();
+  void towerClient.refresh();
+  void pvpClient.refresh();
   void checkForAppUpdates();
 }
 
@@ -4168,7 +4428,11 @@ async function activateAuthenticatedSession(session, { newAccount = false } = {}
   ui.auth.offline = true;
   ui.auth.account = account;
   ui.cooperative = { selected: [], targetId: '', choice: 'fortune' };
+  ui.tower = { selected: [], targetId: '', choice: '', galaxyChoice: 'attack', inspector: null };
+  ui.pvp = { selected: [], targetId: '', allyTargetId: '', choice: '', galaxyChoice: 'attack', inspector: null };
   cooperativeClient.reset();
+  towerClient.reset();
+  pvpClient.reset();
   ui.auth.form.password = '';
   ui.auth.form.passwordConfirm = '';
   ui.raid = createRaidUiState();
@@ -4208,6 +4472,8 @@ async function activateAuthenticatedSession(session, { newAccount = false } = {}
       if (nextToken !== saved.token) {
         invalidateMailboxRequests();
         cooperativeClient.reset();
+        towerClient.reset();
+        pvpClient.reset();
       }
       const refreshed = authSession.save({ token: nextToken, account: remoteAccount });
       ui.auth.account = refreshed.account;
@@ -4238,8 +4504,14 @@ async function activateAuthenticatedSession(session, { newAccount = false } = {}
         if (connected) {
           // Recheck the current server room/session before releasing input;
           // a resumed screen is not permission to replay a cached raid turn.
-          if (ui.view === 'raid' && ui.raidMode === 'cooperative') {
-            const result = await cooperativeClient.refresh();
+          if (ui.view === 'pvp' || pvpEngaged()) {
+            const result = await pvpClient.refresh({ forReconnect: true });
+            if (!result) throw Object.assign(new Error('실시간 대전 상태를 다시 확인하고 있습니다.'), { code: 'NETWORK_ERROR' });
+          } else if (ui.view === 'tower' || towerEngaged()) {
+            const result = await towerClient.refresh();
+            if (!result) throw Object.assign(new Error('무한의 탑 상태를 다시 확인하고 있습니다.'), { code: 'NETWORK_ERROR' });
+          } else if (ui.view === 'raid' && ui.raidMode === 'cooperative') {
+            const result = await cooperativeClient.refresh({ forReconnect: true });
             if (!result) throw Object.assign(new Error('협동 레이드 상태를 다시 확인하고 있습니다.'), { code: 'NETWORK_ERROR' });
           } else if (ui.raid.battle && ui.raid.serverBattle) {
             const result = await loadPersonalRaid(currentRaidToken());
@@ -4308,6 +4580,8 @@ function expireAuthentication() {
   ui.modal = null;
   ui.raid = createRaidUiState();
   cooperativeClient.reset();
+  towerClient.reset();
+  pvpClient.reset();
   navigationAccountId = '';
   scrollPositions.clear();
   disclosureStates.clear();
@@ -4371,7 +4645,7 @@ async function submitSignup(form) {
 }
 
 async function logout() {
-  if (ui.raid.battlePending || ui.raid.finishing || ui.mailbox.claimingId || cooperativeClient.getState().pending === 'claim') {
+  if (ui.raid.battlePending || ui.raid.finishing || ui.mailbox.claimingId || cooperativeClient.getState().pending === 'claim' || pvpClient.getState().pending === 'claim') {
     showNotice('진행 중인 전투·보상 요청을 확인한 뒤 로그아웃할 수 있습니다. 연결이 돌아오면 자동으로 확인합니다.', 'warning');
     return false;
   }
@@ -4426,7 +4700,11 @@ async function logout() {
   ui.auth.offline = false;
   ui.auth.account = null;
   ui.cooperative = { selected: [], targetId: '', choice: 'fortune' };
+  ui.tower = { selected: [], targetId: '', choice: '', galaxyChoice: 'attack', inspector: null };
+  ui.pvp = { selected: [], targetId: '', allyTargetId: '', choice: '', galaxyChoice: 'attack', inspector: null };
   cooperativeClient.reset();
+  towerClient.reset();
+  pvpClient.reset();
   ui.auth.form = { username: '', nickname: '', password: '', passwordConfirm: '' };
   ui.raid = createRaidUiState();
   ui.mailbox = { loading: false, claimingId: '', items: [], error: '', lastLoadedAt: 0 };
@@ -4650,6 +4928,21 @@ app.addEventListener('click', async (event) => {
     && ((!gameplayAvailable() && !actionsAllowedWhileCloudBlocked.has(action))
       || (updateBlocksGameplay() && !actionsAllowedWhileCloudBlocked.has(action)))) return;
 
+  if (action.startsWith('pvp-')) {
+    await handlePvpAction(action, button);
+    return;
+  }
+  if (pvpEngaged() && ['enter-raid-battle', 'begin-raid-battle'].includes(action)) {
+    showNotice('실시간 대전을 마친 뒤 다른 전투를 시작해 주세요.', 'warning'); return;
+  }
+  if (action.startsWith('tower-')) {
+    await handleTowerAction(action, button);
+    return;
+  }
+  if (towerEngaged() && ['enhance-card', 'synthesize-cards', 'batch-synthesize-cards', 'level-up-card', 'start-expedition', 'repeat-expedition', 'enter-raid-battle', 'begin-raid-battle'].includes(action)) {
+    showNotice('무한의 탑 전투를 마친 뒤 카드 변경이나 다른 전투를 시작해 주세요.', 'warning');
+    return;
+  }
   if (action.startsWith('coop-')) {
     await handleCooperativeAction(action, button);
     return;
@@ -4690,11 +4983,15 @@ app.addEventListener('click', async (event) => {
     render();
     if (ui.view === 'raid' && ui.raidMode === 'personal') void refreshPersonalRaid({ silent: true });
     if (ui.view === 'mailbox' && Date.now() - ui.mailbox.lastLoadedAt > 10000) void refreshMailbox({ silent: true });
+    if (ui.view === 'tower') void towerClient.refresh();
+    if (ui.view === 'pvp') void pvpClient.refresh();
   } else if (action === 'navigate-from-modal') {
     ui.view = button.dataset.view;
     ui.modal = null;
     render();
     if (ui.view === 'raid' && ui.raidMode === 'personal') void refreshPersonalRaid({ silent: true });
+    if (ui.view === 'tower') void towerClient.refresh();
+    if (ui.view === 'pvp') void pvpClient.refresh();
   } else if (action === 'manage-card') {
     ui.enhanceCardId = button.dataset.cardId;
     ui.enhanceTargetStage = null;
@@ -4906,8 +5203,9 @@ app.addEventListener('click', async (event) => {
   } else if (action === 'raid-skill-attack') {
     const battle = ui.raid.battle;
     const activeCard = battle?.cards?.[battle.currentActorIndex];
-    if (activeCard?.cardId === 'guma-hr') {
-      ui.raid.inspector = { type: 'skill-choice' };
+    const choices = battleActionChoices(activeCard?.cardId, battle?.lastCopyableSkill);
+    if (choices.length) {
+      ui.raid.inspector = { type: 'skill-choice', choices };
       render();
     } else {
       performRaidPlayerTurn('skill');
@@ -5112,6 +5410,14 @@ app.addEventListener('change', (event) => {
 
 function updateLiveTimers() {
   if (!store || !gameplayAvailable()) return;
+  document.querySelectorAll('[data-tower-deadline]').forEach(node => {
+    const now = Date.now() + towerClient.getState().clockOffset;
+    node.textContent = String(Math.max(0, Math.ceil((Number(node.dataset.towerDeadline) - now) / 1000)));
+  });
+  document.querySelectorAll('[data-pvp-turn-deadline], [data-pvp-ready-deadline]').forEach(node => {
+    const remaining = Math.max(0, Math.ceil((Number(node.dataset.pvpTurnDeadline || node.dataset.pvpReadyDeadline) - Date.now() - pvpClient.getState().clockOffset) / 1000));
+    node.textContent = String(remaining); node.classList.toggle('is-urgent', remaining <= 5);
+  });
   document.querySelectorAll('[data-coop-deadline]').forEach((node) => {
     const now = Date.now() + cooperativeClient.getState().clockOffset;
     node.textContent = String(Math.max(0, Math.ceil((Number(node.dataset.coopDeadline) - now) / 1000)));
@@ -5268,11 +5574,29 @@ window.setInterval(() => {
   if (Date.now() - client.lastAttemptAt >= interval) void cooperativeClient.refresh();
 }, 1000);
 app.addEventListener('change', (event) => {
+  if (event.target.matches('[data-pvp-choice]')) ui.pvp.choice = event.target.value;
+  if (event.target.matches('[data-pvp-galaxy-choice]')) ui.pvp.galaxyChoice = event.target.value;
+  if (event.target.matches('[data-tower-target]')) ui.tower.targetId = event.target.value;
+  if (event.target.matches('[data-tower-choice]')) ui.tower.choice = event.target.value;
+  if (event.target.matches('[data-tower-galaxy-choice]')) ui.tower.galaxyChoice = event.target.value;
   if (event.target.matches('[data-coop-target]')) ui.cooperative.targetId = event.target.value;
   if (event.target.matches('[data-coop-choice]')) ui.cooperative.choice = event.target.value;
   if (event.target.matches('[data-coop-galaxy-choice]')) ui.cooperative.galaxyChoice = event.target.value;
   if (event.target.matches('[data-raid-galaxy-choice]')) ui.raid.galaxyChoice = event.target.value;
 });
+window.setInterval(() => {
+  if (!gameplayAvailable()) return;
+  const client = towerClient.getState();
+  const active = towerEngaged() || ui.view === 'tower';
+  const interval = client.error ? 5000 : active ? 1000 : 30000;
+  if (Date.now() - client.lastAttemptAt >= interval) void towerClient.refresh();
+}, 1000);
+window.setInterval(() => {
+  if (!gameplayAvailable()) return;
+  const client = pvpClient.getState(), active = pvpEngaged() || client.data?.phase === 'finished' || ui.view === 'pvp';
+  const interval = client.error ? 5000 : active ? 1000 : 30000;
+  if (Date.now() - client.lastAttemptAt >= interval) void pvpClient.refresh();
+}, 1000);
 app.addEventListener('keydown', (event) => {
   const reconnectDialog = app.querySelector('#reconnect-overlay');
   if (reconnectDialog) {

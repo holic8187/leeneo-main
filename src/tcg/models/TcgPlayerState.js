@@ -58,6 +58,7 @@ const tcgPlayerStateSchema = new mongoose.Schema({
   // Server-owned receipt ledger: never accepted through the client save blob.
   // A receipt and its inventory mutation are committed in the same document.
   cooperativeRewardClaims: { type: [String], default: [] },
+  pvpRewardClaims: { type: [String], default: [] },
   weeklyRaidRewardReceipts: { type: [String], default: [] },
   activeLease: {
     type: activeLeaseSchema,

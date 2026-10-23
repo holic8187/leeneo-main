@@ -163,10 +163,10 @@
   .top-actions { margin: 0; }
   .top-actions > [data-action="open-settings"].icon-button { border: 1px solid #60738b; border-radius: 6px; width: 42px; height: 42px; color: #e4dcc9; }
   .sidebar { background: #15253b; border-top-color: #a9956e; border-right: 0; }
-  .primary-nav { grid-template-columns: repeat(7,minmax(0,1fr)); min-width: 0; gap: 0; }
+  .primary-nav { grid-template-columns:none; grid-auto-flow:column; grid-auto-columns:minmax(68px,1fr); min-width:0; gap:0; overflow-x:auto; overscroll-behavior-x:contain; scrollbar-width:thin; }
   .nav-button { min-height: 61px; border-radius: 0; height: 61px; padding: 6px 1px; gap: 6px; }
   .nav-button svg { width: 21px; height: 21px; }
-  .nav-button span:not(.nav-alert):not(.nav-count) { font-size: 11px; }
+  .nav-button span:not(.nav-alert):not(.nav-count) { font-size: 12px; white-space:nowrap; }
   .nav-button.is-active { border: 0; box-shadow: none; }
   .nav-button.is-active::before { left: 8px; right: 8px; }
   .view-host { padding: 14px 12px 24px; }

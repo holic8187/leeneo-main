@@ -35,3 +35,24 @@
 .raid-skill-tooltip p,.raid-effect-tooltip p { font-size:13px; }
 @media(max-width:600px) { .raid-ice-spires { inset:24% 10% 40%; } .raid-owner-label { font-size:10px; min-height:28px; } .coop-shared-battle .coop-action-options { flex-wrap:wrap; } .raid-unit-hp-label,.raid-unit-hp-label strong { font-size:10px; } .raid-card-actions button { font-size:11px; } }
 @media(prefers-reduced-motion:reduce) { .raid-ice-spire,.ice-shard,.raid-unit-slot.is-attacking,.raid-boss-card.is-attacking { animation:none!important; } .raid-ice-spire:is(.is-breaking,.is-dissolving) { opacity:0; } }
+
+/* Shared by solo, cooperative, tower and duel enemy fields. */
+.raid-boss-zone { position: relative; }
+.raid-unit-slot:first-child .raid-card-actions { left:0; transform:none; }
+.raid-unit-slot:last-child .raid-card-actions { left:auto; right:0; transform:none; }
+@media(max-width:760px) {
+  .raid-card-actions button { font-size:12px; min-width:56px; }
+  .raid-card-actions small { font-size:10px; }
+  .raid-unit-name,.raid-unit-hp-label { font-size:11px; }
+}
+.battle-break-ice { position:absolute; inset:-6% -4%; z-index:8; display:grid; place-items:center; pointer-events:none; isolation:isolate; animation:break-freeze-in .45s cubic-bezier(.2,.8,.3,1) both; }
+.battle-break-ice>svg { position:absolute; inset:0; width:100%; height:100%; filter:drop-shadow(0 0 16px #7eefffaa); }
+.break-ice-mass { fill:#7fdfff65; stroke:#d2fbff; stroke-width:3; }
+.break-ice-facets { fill:none; stroke:#e2ffff9e; stroke-width:2; }
+.break-ice-cracks { fill:none; stroke:#ffffff; stroke-width:2.5; stroke-linecap:round; }
+.battle-break-ice strong { z-index:1; align-self:end; margin-bottom:8%; padding:6px 16px; border:1px solid #c6f9ff; border-radius:7px; color:#f3ffff; background:#053b67e6; font-size:clamp(14px,2vw,24px); letter-spacing:.1em; text-shadow:0 0 12px #80f8ff; box-shadow:0 0 24px #50d3ff66; }
+.battle-break-snow { position:absolute; inset:12% 9%; color:#f0ffff; font-size:clamp(25px,4vw,48px); text-align:center; animation:break-frost-shimmer 2s ease-in-out infinite alternate; }
+.battle-break-snow span { display:inline-block; margin:0 14%; }
+@keyframes break-freeze-in { from { opacity:0; transform:scale(1.16); filter:brightness(2); } to { opacity:1;transform:scale(1);filter:brightness(1); } }
+@keyframes break-frost-shimmer { to { opacity:.55; transform:translateY(7px); } }
+@media (prefers-reduced-motion:reduce) { .battle-break-ice,.battle-break-snow { animation:none; } }

@@ -6,6 +6,8 @@ const DefaultTcgPlayerState = require('./models/TcgPlayerState');
 const DefaultTcgCooperativeRaid = require('./models/TcgCooperativeRaid');
 const { CooperativeRaidError, createCooperativeRaidService } = require('./services/cooperativeRaidService');
 const { settleWeeklyRaidRewards, startWeeklyRaidRewardScheduler } = require('./services/weeklyRaidRewardService');
+const { registerTowerRoutes } = require('./registerTowerRoutes');
+const { registerPvpRoutes } = require('./registerPvpRoutes');
 const {
   PersonalRaidError,
   dispatchPersonalRaid,
@@ -788,6 +790,10 @@ function registerTcgRoutes({
   const cooperativeRaid = createCooperativeRaidService({
     TcgCooperativeRaid, TcgPlayerState, TcgPersonalRaidDaily, ...(random ? { random } : {})
   });
+  registerTowerRoutes({ app, requireTcgAccount, sendPlayerStateError, TcgPlayerState, now,
+    ...(random ? { random } : {}), startScheduler: TcgPlayerState === DefaultTcgPlayerState,
+  });
+  registerPvpRoutes({ app, authenticate: requireTcgAccount, TcgPlayerState, now, ...(random ? { random } : {}) });
   for (const operation of ['state', 'queue', 'leave', 'accept', 'action', 'auto', 'claim']) {
     app[operation === 'state' ? 'get' : 'post'](`/api/tcg/raids/cooperative/${operation}`, async (req, res) => {
       const account = await requireTcgAccount(req, res);

@@ -1,3 +1,5 @@
+import { PVP_RULES } from './pvpRules.js';
+
 /** Expansion hooks share the deterministic engine on the client and server.
  * Delayed effects hold their own cast snapshot so a copy never steals another
  * caster's charges, and a defeated caster does not erase a placed effect.
@@ -128,7 +130,8 @@ export function createFiveCharacterMechanics(api) {
     // hidden recursive attack. It does not consume another action or cooldown.
     for (const effect of statuses(state, 'karma-ledger').filter(effect => effect.ready)) {
       queueFollowUp(state, { type: 'expansion-karma', name: effect.name, source: sourceOf(state, effect),
-        multiplier: effect.finisher + effect.storedDamage * effect.perHp, breakDamage: effect.break, heal: effect.heal });
+        multiplier: effect.finisher + effect.storedDamage / (state.pvpContext ? PVP_RULES.hpMultiplier : 1) * effect.perHp,
+        breakDamage: effect.break, heal: effect.heal });
       effect.charges = 0;
     }
     for (const effect of statuses(state, 'shadow-retaliation')) {

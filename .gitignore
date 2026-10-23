@@ -10,6 +10,7 @@ tcg-desktop/node_modules/
 tcg-desktop/dist/
 tcg-desktop/release/
 tcg-desktop/docs/art-originals-0.15/
+tcg-desktop/docs/art-originals-0.16/
 tcg-desktop/.env*
 !tcg-desktop/.env.example
 *.jks

@@ -1,3 +1,5 @@
+import { REMAINING_ROSTER } from './remainingRoster.js';
+import { cardArtLocation } from '../core/cardArtLocation.js';
 export const RARITY_ORDER = Object.freeze(['c', 'u', 'r', 'rr', 'rrr', 'sr', 'hr', 'ur', 'ssr']);
 
 const rarity = (label, fullLabel, name, rank, color, minPower, maxPower) => Object.freeze({
@@ -154,6 +156,7 @@ const CARD_VARIANTS = Object.freeze([
   ['peach-hr', '홍도 폭풍의 무희', './assets/cards/peach-hr.webp'],
   ['peach-ur', '미래에 피어나는 꽃편지', './assets/cards/peach-ur.webp'],
   ['peach-ssr', '모든 봄을 잇는 생명의 화관', './assets/cards/peach-ssr.webp'],
+  ...REMAINING_ROSTER.map(card=>[card.id,card.epithet,card.image]),
 ]);
 
 function createCard([id, epithet, suppliedImage], cardIndex) {
@@ -176,7 +179,7 @@ function createCard([id, epithet, suppliedImage], cardIndex) {
     rarity: rarityId,
     department: character.department,
     category: character.category,
-    image: suppliedImage || `./assets/cards/${id}.webp`,
+    image: cardArtLocation(id,suppliedImage || `./assets/cards/${id}.webp`),
     combatPower,
     trait: character.trait,
     traitText: `${rarityInfo.label} 등급의 ${character.specialty} 중심 전력으로 자동 모험을 지원합니다.`,
@@ -195,7 +198,7 @@ export const LEGACY_CARDS = Object.freeze([
   { id: 'gammam-neo', name: '감맘 네오', rarity: 'epic', department: '히든스트리트', category: '필드보스', image: './assets/cards/gammam-neo.webp', combatPower: 10500, trait: '감자의 복수', traitText: '받은 피해를 축적해 강하게 반격합니다.', flavor: '부러진 다리만큼 복수심도 단단해졌다.' },
   { id: 'kim-manager', name: '대머리 김부장', rarity: 'legendary', department: '본부장실', category: '레이드보스', image: './assets/cards/kim-manager.webp', combatPower: 13800, trait: '가발 낙하주의', traitText: '강한 결재력으로 적의 방어를 무너뜨립니다.', flavor: '빛나는 것은 이마인가, 결재권인가.' },
   { id: 'deadline-dragon', name: '마감기한 드래곤', rarity: 'legendary', department: '프로덕션', category: '재해', image: './assets/cards/deadline-dragon.webp', combatPower: 13900, trait: 'D-DAY', traitText: '전투가 길어질수록 마감 공격이 강해집니다.', flavor: '일정표의 마지막 칸에서 깨어난 재앙.' },
-].map((card) => Object.freeze({ ...card, legacy: true })));
+].map((card) => Object.freeze({ ...card, image:cardArtLocation(card.id,card.image), legacy: true })));
 
 export const ALL_CARDS = Object.freeze([...CARD_CATALOG, ...LEGACY_CARDS]);
 

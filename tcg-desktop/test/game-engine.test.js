@@ -41,7 +41,7 @@ import {
   hydrateState,
 } from '../src/core/gameState.js';
 
-const rarityCounts = { c: 24, u: 21, r: 19, rr: 19, rrr: 16, sr: 17, hr: 15, ur: 15, ssr: 15 };
+const rarityCounts = { c: 24, u: 24, r: 24, rr: 24, rrr: 24, sr: 24, hr: 24, ur: 24, ssr: 24 };
 const powerRanges = {
   c: [1800, 2999],
   u: [3200, 4499],
@@ -56,9 +56,9 @@ const powerRanges = {
 
 const rankOf = (rarity) => RARITY_ORDER.indexOf(rarity);
 
-test('catalog contains 161 unique cards in the requested nine-rarity distribution', () => {
-  assert.equal(CARD_CATALOG.length, 161);
-  assert.equal(new Set(CARD_CATALOG.map((card) => card.id)).size, 161);
+test('catalog contains every character in all nine rarities', () => {
+  assert.equal(CARD_CATALOG.length, 216);
+  assert.equal(new Set(CARD_CATALOG.map((card) => card.id)).size, 216);
   assert.deepEqual(RARITY_ORDER, Object.keys(rarityCounts));
   assert.deepEqual(
     Object.fromEntries(RARITY_ORDER.map((rarity) => [
@@ -102,9 +102,9 @@ test('rarity combat-power bands are exact, ascending, and non-overlapping', () =
   });
 });
 
-test('legacy cards remain readable without entering the 161-card collectible catalog', () => {
+test('legacy cards remain readable without entering the regular collectible catalog', () => {
   assert.equal(LEGACY_CARDS.length, 8);
-  assert.equal(ALL_CARDS.length, 169);
+  assert.equal(ALL_CARDS.length, 224);
   assert.equal(CARD_CATALOG.some((card) => card.id === 'rookie-analyst'), false);
   assert.equal(cardById('rookie-analyst')?.legacy, true);
   assert.equal(cardById('hoi-ssr')?.rarity, 'ssr');
@@ -500,7 +500,7 @@ test('historical art manifest still records the original 76-card sequence and ap
   assert.match(meongpeu.appearance, /tiny notepad/);
 });
 
-test('every catalog card has a packaged artwork file', () => {
+test('every catalog card has an original artwork file for server delivery', () => {
   for (const card of CARD_CATALOG) {
     assert.equal(existsSync(new URL(`../public/${card.image.slice(2)}`, import.meta.url)), true, card.id);
   }

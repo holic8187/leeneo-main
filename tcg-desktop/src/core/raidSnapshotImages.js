@@ -1,7 +1,8 @@
 import { cardById } from '../data/cardCatalog.js';
+import { cardArtLocation } from './cardArtLocation.js';
 
 const BOSS_IMAGES = new Map([
-  ['coop-tetra', './assets/bosses/coop-tetra.webp'],
+  ['coop-tetra', cardArtLocation('coop-tetra','./assets/bosses/coop-tetra.webp')],
 ]);
 
 /** Saved image paths are presentation hints, not stable asset identities. */
