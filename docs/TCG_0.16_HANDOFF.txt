@@ -343,3 +343,60 @@ Hoi Card Desk 0.16 인수인계
 - 운영 MongoDB 다중 사용자 부하 시험, 실물 Android/iPhone 설치·알림 검증은 별도다.
 - PvP 시즌 순위 보상은 사용자 요청대로 미정 상태이며 지급하지 않는다.
 - 보관한 빌드·로그·검증 JSON은 tcg-desktop/release 아래 로컬 파일이고 Git에는 포함하지 않는다.
+
+7. 정식 배포 기록 (2026-10-23 KST)
+
+사용자 배포 요청에 따라 서버 → 원화 검증 → PC/Android 공개 순서로 완료했다.
+위 6절의 "배포하지 않음"은 로컬 검증 당시 상태이며 아래 기록으로 갱신한다.
+
+소스 및 자동 검사
+- PR: https://github.com/holic8187/leeneo-main/pull/21
+- 운영 main/두 release tag 기준 SHA: 6e99f54465d900f83eb9ffc50113aee4221629d1
+- PR Android 검사 성공: https://github.com/holic8187/leeneo-main/actions/runs/39899922729
+- PR iOS 검사 성공: https://github.com/holic8187/leeneo-main/actions/runs/39899922658
+  iPhone 시뮬레이터 빌드·실행과 서명 없는 실제 기기용 archive까지 CI에서 통과했다.
+  Apple Developer 서명·TestFlight·실물 iPhone 설치는 이번 배포에 포함하지 않았다.
+- PC 정식 배포 성공: https://github.com/holic8187/leeneo-main/actions/runs/39901022836
+- Android 정식 배포 성공: https://github.com/holic8187/leeneo-main/actions/runs/39901022820
+
+운영 서버
+- https://leeneo-main.onrender.com/api/health -> 200, tcgVersion0.16.0, database ready 확인.
+- 원화 226개 HEAD: 모두 200, 크기·해시·형식·CORS·캐시 헤더 일치.
+- 기존 카드/신규 SSR/협동 보스/유물 대표 4개 실제 GET 본문 SHA256 일치.
+- 이전 파일명/해시는 현재 원화와 no-cache를 반환하며, 잘못된 이름/해시 형식은 404.
+- Tower/PvP state 및 ranking 무인증 GET 4개는 401 AUTH_REQUIRED로 정상 보호됨.
+- Render 대시보드 자체 확인은 브라우저 URL 인식 문제로 중단했으며,
+  운영 서버의 버전·데이터베이스·원화·API 실제 HTTP 응답으로 배포를 확인했다.
+
+공개 파일
+- PC: https://github.com/holic8187/leeneo-main/releases/tag/tcg-v0.16.0
+  Hoi-Card-Desk-0.16.0-x64.exe / 146476204바이트(139.69 MiB)
+  SHA256 ce6194ff2e1ea821d54cec55576a7de0494761fb3c3ff9184faf35096e70d361
+  latest.yml 및 blockmap 공개. 실제 다운로드의 SHA256은 GitHub digest와 일치하며,
+  설치 파일 SHA512도 latest.yml과 일치. 파일 내 ProductVersion/FileVersion0.16.0 확인.
+  앞선 로컬 빌드 수치와 구분하여 이 공개 CI 파일이 최종 배포본이다.
+- Android: https://github.com/holic8187/leeneo-main/releases/tag/tcg-android-v0.16.0
+  Hoi-Card-Desk-0.16.0-android-release.apk / 37820622바이트(36.07 MiB)
+  SHA256 66902448244d2a339d3e5f520aea587ab46ac6d34805c8bbc52f62df21f78b39
+  서명된 AAB 37655023바이트도 함께 공개.
+- 두 Release 모두 draft=false / prerelease=false.
+- 실제 공개 Release 목록을 앱 업데이트 선택 함수에 넣어 두 플랫폼 모두0.16.0 선택 확인.
+  Android0.15.0은 available/in-app으로 확인. 설치 파일 실기기 실행은 별도다.
+
+로컬 보관 검증 결과 (Git 제외)
+- tcg-desktop/release/verification-016-production.json
+- tcg-desktop/release/verification-016-production-auth.json
+- tcg-desktop/release/verification-016-all-production-art.json
+- tcg-desktop/release/verification-016-published.json
+- tcg-desktop/release/verification-016-published-windows.json
+- tcg-desktop/release/verification-0.16.0/published-windows/
+- tcg-desktop/release/verification-0.16.0/published-android/
+
+Android 공개 APK 최종 추가 검증
+- apksigner v2 서명 검증 통과, 기존0.15.0과 인증서 SHA256 동일:
+  12a15e8550f44708c76578b3887795d3fde45a174d92ab149f6efe1e711fe165
+- package com.hoicompany.carddesk / versionName0.16.0 / versionCode16000.
+- 실제 APK 다운로드 SHA256이 GitHub 공개 digest와 일치.
+- APK 내부에 원화226종 포함0개, cards/bosses/relics 내부파일0개.
+- 운영 API 주소 포함, 기존 업데이트 용량 상한256MiB 통과.
+- 상세 보고서: tcg-desktop/release/verification-0.16.0/android-publication-verification.json
